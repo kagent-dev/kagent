@@ -108,3 +108,56 @@ func TestBuiltinToolsIndependentOfSkills(t *testing.T) {
 		}
 	}
 }
+
+// A downloaded standalone skill installed after startup must reach the model
+// on the next request without rebuilding the agent.
+func TestSkillToolsAdvertiseSkillsInstalledAfterStartup(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	requests := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode model request: %v", err)
+		}
+		var content string
+		for _, message := range request.Messages {
+			content += string(message.Content)
+		}
+		requests <- content
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"test","object":"chat.completion","model":"test","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	skillsDir := t.TempDir()
+	model := &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{BaseUrl: server.URL}}}
+	cfg := &configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{
+		Model: model, SkillsDirectory: skillsDir, Stream: new(false),
+		AgentPlugins: &configv1.ADKAgentPlugins{Skills: []*configv1.ADKSkill{{Name: "demo", Source: &configv1.ADKPluginSource{
+			Source: &configv1.ADKPluginSource_Git{Git: &configv1.ADKPluginGitSource{Url: "https://git.example.com/skills", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+		}}}},
+	}}
+	root, err := CreateGoogleADKAgent(t.Context(), cfg, "root", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, os.Mkdir(filepath.Join(skillsDir, "demo"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillsDir, "demo", "SKILL.md"), []byte("---\nname: demo\ndescription: Deferred demo skill.\n---\nRead files.\n"), 0644))
+	sessions := adksession.InMemoryService()
+	r, err := runner.New(runner.Config{AppName: "test", Agent: root, SessionService: sessions})
+	require.NoError(t, err)
+	sess, err := sessions.Create(t.Context(), &adksession.CreateRequest{AppName: "test", UserID: "user"})
+	require.NoError(t, err)
+	for _, err := range r.Run(t.Context(), "user", sess.Session.ID(), genai.NewContentFromText("Which skills do you have?", genai.RoleUser), adkagent.RunConfig{}) {
+		require.NoError(t, err)
+	}
+	select {
+	case content := <-requests:
+		require.Contains(t, content, "Deferred demo skill.")
+	case <-time.After(time.Second):
+		t.Fatal("model received no request")
+	}
+}

@@ -115,6 +115,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{
+		// The cached package installs the standalone skill during startup.
 		filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md"): "# Review",
 		filepath.Join(skillRoot, ".claude-plugin", "plugin.json"):           `{"name":"kagent-skills","skills":"./.claude/skills/"}`,
 	} {

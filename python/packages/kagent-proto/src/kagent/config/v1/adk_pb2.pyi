@@ -506,12 +506,14 @@ class ADKPluginSource(_message.Message):
     def __init__(self, git: _Optional[_Union[ADKPluginGitSource, _Mapping]] = ..., s3: _Optional[_Union[ADKPluginS3Source, _Mapping]] = ..., directory: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
 
 class ADKPluginGitSource(_message.Message):
-    __slots__ = ("url", "commit")
+    __slots__ = ("url", "commit", "gateway_authorization")
     URL_FIELD_NUMBER: _ClassVar[int]
     COMMIT_FIELD_NUMBER: _ClassVar[int]
+    GATEWAY_AUTHORIZATION_FIELD_NUMBER: _ClassVar[int]
     url: str
     commit: str
-    def __init__(self, url: _Optional[str] = ..., commit: _Optional[str] = ...) -> None: ...
+    gateway_authorization: bool
+    def __init__(self, url: _Optional[str] = ..., commit: _Optional[str] = ..., gateway_authorization: _Optional[bool] = ...) -> None: ...
 
 class ADKPluginS3Source(_message.Message):
     __slots__ = ("endpoint", "bucket", "key", "version_id", "region")

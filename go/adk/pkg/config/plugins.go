@@ -22,7 +22,9 @@ func pluginSource(source agentplugin.Source) *configv1.ADKPluginSource {
 	case source.Directory != "":
 		result.Source = &configv1.ADKPluginSource_Directory{Directory: source.Directory}
 	case source.Git != nil:
-		result.Source = &configv1.ADKPluginSource_Git{Git: &configv1.ADKPluginGitSource{Url: source.Git.URL, Commit: source.Git.Commit}}
+		result.Source = &configv1.ADKPluginSource_Git{Git: &configv1.ADKPluginGitSource{
+			Url: source.Git.URL, Commit: source.Git.Commit, GatewayAuthorization: source.Git.GatewayAuthorization,
+		}}
 	case source.S3 != nil:
 		result.Source = &configv1.ADKPluginSource_S3{S3: &configv1.ADKPluginS3Source{Endpoint: source.S3.Endpoint, Bucket: source.S3.Bucket, Key: source.S3.Key, VersionId: source.S3.VersionID, Region: source.S3.Region}}
 	}
@@ -46,7 +48,7 @@ func pluginResourceSource(source *configv1.ADKPluginSource) agentplugin.Source {
 	case *configv1.ADKPluginSource_Directory:
 		result.Directory = value.Directory
 	case *configv1.ADKPluginSource_Git:
-		result.Git = &agentplugin.GitSource{URL: value.Git.Url, Commit: value.Git.Commit}
+		result.Git = &agentplugin.GitSource{URL: value.Git.Url, Commit: value.Git.Commit, GatewayAuthorization: value.Git.GatewayAuthorization}
 	case *configv1.ADKPluginSource_S3:
 		result.S3 = &agentplugin.S3Source{Endpoint: value.S3.Endpoint, Bucket: value.S3.Bucket, Key: value.S3.Key, VersionID: value.S3.VersionId, Region: value.S3.Region}
 	}

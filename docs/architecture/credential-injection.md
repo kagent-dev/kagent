@@ -61,6 +61,7 @@ overrides of these variables are rejected.
 | Gemini API key | `x-goog-api-key: <key>` |
 | Bedrock bearer token | `authorization: Bearer <token>` |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
+| AgentTemplate `skills[].source.git.authorizationFrom` | `authorization`; Secret contains its full value |
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
 and credential bindings both match its scheme, DNS name, and port. Different
@@ -119,6 +120,85 @@ actor gets no egress until a retry succeeds. Kagent never names a credential pro
 This covers Go ADK MCP servers and models, OpenAI, Azure and Foundry memory
 embeddings, and Python OpenAI and Anthropic models. Python MCP, Claude and
 Codex still do not support passthrough.
+
+## Private Git skill sources
+
+A standalone skill can use a private HTTPS Git repository. Its Secret must be
+in the AgentTemplate's namespace. The Secret owner grants access to one exact
+HTTPS origin with the `kagent.dev/git-credential-origin` annotation.
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: skills-auth
+  annotations:
+    kagent.dev/git-credential-origin: https://github.com
+stringData:
+  # GitHub: base64 of "x-access-token:<token>". Other forges may accept "Bearer <token>".
+  authorization: Basic eC1hY2Nlc3MtdG9rZW46PHRva2VuPg==
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: reviewer
+spec:
+  skills:
+    - name: review
+      source:
+        git:
+          url: https://github.com/acme/private-skills
+          commit: 0123456789abcdef0123456789abcdef01234567
+          authorizationFrom:
+            name: skills-auth
+            key: authorization
+```
+
+The compiler checks the Secret, its non-empty key, and its authorized origin.
+Missing references or an incorrect grant set `ResolvedRefs=False`.
+Changes to the Secret trigger recompilation, including references from shared
+child templates. HTTPS, DNS name, and port must match the grant.
+Wildcards, IP addresses, URL credentials, and path-scoped grants are unsupported.
+
+The gateway replaces `Authorization` only when the request includes that header.
+The runtime sends a placeholder scoped to the repository URL through Git's
+`http.<url>.extraHeader` setting. Authenticated fetches reject redirects.
+Neither the Git configuration nor the runtime receives the Secret value.
+
+The gateway binding covers the whole origin, not just the repository path.
+Actor tools can also send an authorization header to that origin.
+Use a read-only token restricted to the required repositories.
+Separate permission to write Secrets from permission to write AgentTemplates.
+Template writers cannot grant a Secret to another origin through a template.
+
+The annotation is a compilation-time grant. Removing it prevents new successful
+compilations; it does not revoke credentials from existing pinned Actors.
+Use the platform's credential and egress controls for immediate revocation.
+Do not give the shared golden Actor unrestricted access to namespace Secrets.
+
+`authorizationFrom` is unsupported on `plugins[]`. SSH authentication and
+token exchange are also unsupported.
+
+### When skills are fetched
+
+Go ADK, Claude, and Codex attempt standalone Git and S3 fetches at startup.
+The startup attempt has a 30-second limit. A failed attempt logs a warning
+and permits startup to continue.
+
+Before each task, the runtime retries skills that are not installed.
+A failed fetch fails the task with `skills_unavailable: …`.
+A later task retries the missing skills. Installed skills need no further
+network access while their files remain available.
+
+OCI sources use worker-mounted image files. The runtime installs these skills
+during preparation and fails preparation if a mounted source is invalid.
+Plugin packages also remain eager.
+
+Golden preparation can lack network access or credential bindings.
+The startup fallback permits preparation without fetching remote skills.
+If startup fetching succeeds, snapshots can contain private skill files.
+Snapshots do not contain the injected credential. Apply snapshot access controls
+that protect the private repository content.
 
 ## Deferred API fields
 

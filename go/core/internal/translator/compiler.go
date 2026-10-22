@@ -269,6 +269,9 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 		if err != nil {
 			return nil, err
 		}
+		if err := c.resolveGitSkillCredentials(template); err != nil {
+			return nil, err
+		}
 		input := &AgentInput{Template: template, Instruction: instruction}
 		if template.Spec.ModelConfig != nil {
 			input.ResolvedModelConfig = krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}))

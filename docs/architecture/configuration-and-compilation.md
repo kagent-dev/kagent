@@ -298,10 +298,13 @@ download cache or fall back to an in-runtime OCI pull.
 
 Package limits and path/symlink validation still apply. Build skill images from
 scratch with just package contents; arbitrary ORAS artifact layouts are not
-supported. Existing Git and S3 fetches remain runtime operations and retain
-their golden-runtime networking limitations. The Python ADK does not yet consume
-the `agent_plugins` runtime contract. BYO images must consume that contract to
-load these skills; the Go ADK BYO fixture does so.
+supported. Standalone Git and S3 sources use best-effort startup fetching.
+The runtime retries missing skills before each task.
+See [private Git skill sources](credential-injection.md#private-git-skill-sources)
+for credential grants and networking constraints.
+The Python ADK does not yet consume the `agent_plugins` runtime contract.
+BYO images must consume that contract to load these skills; the Go ADK BYO
+fixture does so.
 
 ### Runtime configuration
 

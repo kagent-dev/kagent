@@ -104,6 +104,91 @@ func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 	}
 }
 
+func TestMaterializeInstallsReachableStandaloneSkillsAtStartup(t *testing.T) {
+	repository, commit := commitFiles(t, map[string]string{"SKILL.md": "# Review"})
+	root := t.TempDir()
+	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
+	materialization, err := Materialize(context.Background(), agentplugin.Resources{Skills: []agentplugin.Skill{
+		{Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}},
+	}}, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md")); err != nil || string(content) != "# Review" {
+		t.Fatalf("startup skill = %q, %v", content, err)
+	}
+	// Tasks reuse the installed skill without network access.
+	if err := os.RemoveAll(repository); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialization.EnsureSkills(context.Background()); err != nil {
+		t.Fatalf("EnsureSkills() refetched an installed skill: %v", err)
+	}
+}
+
+func TestMaterializeRetriesUnreachableStandaloneSkillsBeforeTasks(t *testing.T) {
+	repository, commit := commitFiles(t, map[string]string{"SKILL.md": "# Review"})
+	root := t.TempDir()
+	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
+	unreachable := filepath.Join(root, "unreachable")
+	resources := agentplugin.Resources{Skills: []agentplugin.Skill{
+		{Name: "later", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: unreachable, Commit: commit}}},
+		{Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}},
+	}}
+	materialization, err := Materialize(context.Background(), resources, paths)
+	if err != nil {
+		t.Fatalf("Materialize() failed preparation for an unreachable standalone skill: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.Skills, "review", "SKILL.md")); err != nil {
+		t.Fatalf("reachable skill was not installed at startup: %v", err)
+	}
+	for range 2 {
+		err := materialization.EnsureSkills(context.Background())
+		if err == nil || !strings.Contains(err.Error(), `skill "later"`) {
+			t.Fatalf("EnsureSkills() error = %v, want the unreachable skill", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(paths.Skills, "later")); !os.IsNotExist(statErr) {
+			t.Fatalf("failed skill left files behind: %v", statErr)
+		}
+	}
+	// Egress becomes available: the next task installs the skill.
+	if err := os.Rename(repository, unreachable); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialization.EnsureSkills(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(paths.Skills, "later", "SKILL.md")); err != nil || string(content) != "# Review" {
+		t.Fatalf("retried skill = %q, %v", content, err)
+	}
+	entries, err := os.ReadDir(paths.Skills)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("skills directory = %v, want only the installed skills", entries)
+	}
+}
+
+func TestMaterializeKeepsMountedStandaloneSkillsEager(t *testing.T) {
+	// A broken mount fails preparation even when another skill is deferred.
+	root := t.TempDir()
+	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
+	_, err := Materialize(context.Background(), agentplugin.Resources{Skills: []agentplugin.Skill{
+		{Name: "remote", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: filepath.Join(root, "missing"), Commit: strings.Repeat("a", 40)}}},
+		{Name: "mounted", Source: agentplugin.Source{Directory: filepath.Join(root, "missing-mount")}},
+	}}, paths)
+	if err == nil || !strings.Contains(err.Error(), "validate mounted artifact") {
+		t.Fatalf("Materialize() error = %v, want the broken mount", err)
+	}
+}
+
+func TestEnsureSkillsOnZeroMaterialization(t *testing.T) {
+	if err := (Materialization{}).EnsureSkills(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMaterializeCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
 	root := t.TempDir()
 	pluginRoot := filepath.Join(root, "plugins", "plugin-0")

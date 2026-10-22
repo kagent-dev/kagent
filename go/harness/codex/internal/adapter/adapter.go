@@ -53,6 +53,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := reconcileGeneratedDir(skillsRoot, nil); err != nil {
 		return nil, fmt.Errorf("reconcile Codex skills: %w", err)
 	}
+	var ensureSkills func(context.Context) error
 	if cfg.SkillResources != nil {
 		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
@@ -64,6 +65,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		if len(materialized.ClaudeFormatPluginRoots()) > 0 {
 			return nil, fmt.Errorf("plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
 		}
+		ensureSkills = materialized.EnsureSkills
 	}
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
 		return nil, err
@@ -104,6 +106,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		ApprovalServers: approvalServers,
 		PendingDir:      filepath.Join(input.DurableDir, "adapter"),
 		Tools:           driver.NewMCPCaller(cfg.MCPServers, environment),
+		EnsureSkills:    ensureSkills,
 	}), nil
 }
 

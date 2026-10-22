@@ -70,6 +70,7 @@ func TestSharedAgentContract(t *testing.T) {
 	require.Equal(t, "version", cfg.Agent.AgentPlugins.Plugins[1].Source.GetS3().VersionId)
 	resources := runtimeconfig.PluginResources(cfg.Agent.AgentPlugins)
 	require.Equal(t, "/run/kagent/artifacts/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", resources.Skills[0].Source.Directory)
+	require.True(t, resources.Plugins[0].Source.Git.GatewayAuthorization)
 	require.True(t, proto.Equal(cfg.Agent.AgentPlugins, runtimeconfig.PluginConfig(resources)))
 	encoded, err := runtimeconfig.Marshal(cfg)
 	require.NoError(t, err)

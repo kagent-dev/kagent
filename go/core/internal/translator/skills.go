@@ -4,8 +4,12 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -47,6 +51,10 @@ func CompileSkillResources(template *TemplateConfiguration) (*SkillCompilation, 
 		result.Resources.Skills = append(result.Resources.Skills, agentplugin.Skill{Name: skill.Name, Source: source})
 	}
 	for i, plugin := range template.Spec.Plugins {
+		// Plugins contribute runtime configuration and cannot defer fetching.
+		if plugin.Source.Git != nil && plugin.Source.Git.AuthorizationFrom != nil {
+			return nil, NewValidationError("authorizationFrom is supported only for skills[].source.git")
+		}
 		for _, name := range plugin.Skills {
 			if _, exists := selected[name]; exists {
 				return nil, NewValidationError("duplicate skill name %q", name)
@@ -80,7 +88,7 @@ func (s *SkillCompilation) compileSource(source v1alpha3.ArtifactSource) (agentp
 		s.Images = append(s.Images, image)
 	}
 	if source.Git != nil {
-		result.Git = &agentplugin.GitSource{URL: source.Git.URL, Commit: source.Git.Commit}
+		result.Git = &agentplugin.GitSource{URL: source.Git.URL, Commit: source.Git.Commit, GatewayAuthorization: source.Git.AuthorizationFrom != nil}
 	}
 	if source.Bucket != nil {
 		result.S3 = &agentplugin.S3Source{
@@ -112,4 +120,53 @@ func appendURLOrigin(destinations []string, rawURL string) []string {
 		return append(destinations, egress.Origin(parsed))
 	}
 	return destinations
+}
+
+// resolveGitSkillCredentials tracks Secret dependencies before emitting any
+// runtime credential binding. Template authors cannot grant Secret authority.
+func (c *Compiler) resolveGitSkillCredentials(template *TemplateConfiguration) error {
+	for _, skill := range template.Spec.Skills {
+		git := skill.Source.Git
+		if git == nil || git.AuthorizationFrom == nil {
+			continue
+		}
+		origin, err := gitCredentialOrigin(git.URL)
+		if err != nil {
+			return err
+		}
+		ref := git.AuthorizationFrom
+		key := types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}
+		found := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(key))
+		if found == nil {
+			return fmt.Errorf("resolve skill %q authorizationFrom: Secret %q not found", skill.Name, key)
+		}
+		secret := *found
+		if len(secret.Data[ref.Key]) == 0 {
+			return fmt.Errorf("resolve skill %q authorizationFrom: Secret %q does not contain non-empty key %q", skill.Name, key, ref.Key)
+		}
+		if err := authorizeGitCredentialOrigin(secret, origin); err != nil {
+			return fmt.Errorf("resolve skill %q authorizationFrom: %w", skill.Name, err)
+		}
+	}
+	return nil
+}
+
+func gitCredentialOrigin(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.ForceQuery {
+		return "", NewValidationError("Git authorizationFrom requires an absolute HTTPS URL without user information, query, or fragment")
+	}
+	origin, err := egress.ParseOrigin(egress.Origin(u))
+	if err != nil || strings.Contains(u.Hostname(), "*") {
+		return "", NewValidationError("Git authorizationFrom requires an exact HTTPS DNS origin")
+	}
+	return origin.String(), nil
+}
+
+func authorizeGitCredentialOrigin(secret *corev1.Secret, origin string) error {
+	allowed, err := egress.ParseOrigin(secret.Annotations[v1alpha3.GitCredentialOriginAnnotation])
+	if err != nil || allowed.Scheme != "https" || strings.Contains(allowed.Host, "*") || allowed.String() != origin {
+		return fmt.Errorf("secret %q must authorize origin %q with annotation %q", secret.Name, origin, v1alpha3.GitCredentialOriginAnnotation)
+	}
+	return nil
 }

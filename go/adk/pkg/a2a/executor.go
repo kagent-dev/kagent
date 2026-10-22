@@ -43,6 +43,9 @@ type KAgentExecutorConfig struct {
 	Output         *configv1.ADKOutputConfig
 	Flush          func(context.Context) error
 	AgentName      string
+	// EnsureSkills installs downloaded standalone skills still missing after
+	// startup. A failure fails the task and the next task retries.
+	EnsureSkills func(context.Context) error
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -56,6 +59,7 @@ type KAgentExecutor struct {
 	flush                   func(context.Context) error
 	runningUsage            runningUsage
 	agentName               string
+	ensureSkills            func(context.Context) error
 }
 
 type structuredOutput struct {
@@ -127,6 +131,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		structuredOutputEnabled: output != nil,
 		flush:                   cfg.Flush,
 		agentName:               cfg.AgentName,
+		ensureSkills:            cfg.EnsureSkills,
 	}, nil
 }
 
@@ -294,6 +299,18 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			"app_name", e.appName,
 			"user_id", userID,
 		)
+
+		// Startup may lack egress for downloaded standalone skills; install any
+		// still missing before the agent runs, or fail the task visibly.
+		if e.ensureSkills != nil {
+			if err := e.ensureSkills(ctx); err != nil {
+				e.logger.ErrorContext(ctx, "standalone skills are unavailable", "task_id", reqCtx.TaskID, "error", err)
+				message := a2atype.NewMessageForTask(a2atype.MessageRoleAgent, reqCtx, a2atype.NewTextPart("skills_unavailable: "+err.Error()))
+				apia2a.SetTimelinePosition(message, time.Now())
+				yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
+				return
+			}
+		}
 
 		// Run our own session management before upstream executor runs its prepareSession function.
 		// This ensures that we create a session that contains metadata like x-kagent-source,

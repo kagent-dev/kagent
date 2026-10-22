@@ -46,6 +46,9 @@ type ProcessConfig struct {
 	// AwaitTelemetry holds each prompt until Claude Code telemetry has
 	// initialized.
 	AwaitTelemetry bool
+	// EnsureSkills installs downloaded standalone skills still missing after
+	// startup, which may run before the Actor has egress.
+	EnsureSkills func(context.Context) error
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -149,6 +152,11 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 
 // Run supervises one Claude Code process and emits its ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+	if d.config.EnsureSkills != nil {
+		if err := d.config.EnsureSkills(ctx); err != nil {
+			return runtime.Outcome{Failure: &runtime.Failure{Message: "skills_unavailable: " + err.Error()}}, nil
+		}
+	}
 	return d.run(ctx, turn, sink, nil)
 }
 

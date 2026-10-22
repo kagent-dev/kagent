@@ -2666,11 +2666,14 @@ func (*ADKPluginSource_S3) isADKPluginSource_Source() {}
 func (*ADKPluginSource_Directory) isADKPluginSource_Source() {}
 
 type ADKPluginGitSource struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
-	Commit        string                 `protobuf:"bytes,2,opt,name=commit,proto3" json:"commit,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Url    string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	Commit string                 `protobuf:"bytes,2,opt,name=commit,proto3" json:"commit,omitempty"`
+	// The egress gateway owns this host's Authorization header. The runtime sends
+	// a placeholder for the gateway to replace and never holds the credential.
+	GatewayAuthorization bool `protobuf:"varint,3,opt,name=gateway_authorization,json=gatewayAuthorization,proto3" json:"gateway_authorization,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ADKPluginGitSource) Reset() {
@@ -2715,6 +2718,13 @@ func (x *ADKPluginGitSource) GetCommit() string {
 		return x.Commit
 	}
 	return ""
+}
+
+func (x *ADKPluginGitSource) GetGatewayAuthorization() bool {
+	if x != nil {
+		return x.GatewayAuthorization
+	}
+	return false
 }
 
 type ADKPluginS3Source struct {
@@ -3230,10 +3240,11 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x02s3\x18\x03 \x01(\v2#.kagent.config.v1.ADKPluginS3SourceH\x00R\x02s3\x12\x1e\n" +
 	"\tdirectory\x18\x05 \x01(\tH\x00R\tdirectory\x12\x12\n" +
 	"\x04path\x18\x04 \x01(\tR\x04pathB\x0f\n" +
-	"\x06source\x12\x05\xbaH\x02\b\x01\">\n" +
+	"\x06source\x12\x05\xbaH\x02\b\x01\"s\n" +
 	"\x12ADKPluginGitSource\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
-	"\x06commit\x18\x02 \x01(\tR\x06commit\"\x90\x01\n" +
+	"\x06commit\x18\x02 \x01(\tR\x06commit\x123\n" +
+	"\x15gateway_authorization\x18\x03 \x01(\bR\x14gatewayAuthorization\"\x90\x01\n" +
 	"\x11ADKPluginS3Source\x12\x1a\n" +
 	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12\x16\n" +
 	"\x06bucket\x18\x02 \x01(\tR\x06bucket\x12\x10\n" +

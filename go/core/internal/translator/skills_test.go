@@ -118,3 +118,78 @@ func TestCompileSkillSourceNormalization(t *testing.T) {
 		require.Error(t, err, "reference %q", ref)
 	}
 }
+
+func TestCompilePrivateGitSkillAuthorization(t *testing.T) {
+	for _, test := range []struct {
+		name, origin, repository, key, namespace string
+		missingSecret, missingKey                bool
+		wantError                                string
+	}{
+		{name: "authorized", origin: "https://github.com"},
+		{name: "canonical origin", origin: "https://GITHUB.com.:443"},
+		{name: "missing Secret", origin: "https://github.com", missingSecret: true, wantError: "not found"},
+		{name: "missing key", origin: "https://github.com", missingKey: true, wantError: "non-empty key"},
+		{name: "empty key", origin: "https://github.com", key: "empty", wantError: "non-empty key"},
+		{name: "other namespace", origin: "https://github.com", namespace: "other", wantError: "not found"},
+		{name: "missing authorization", wantError: "must authorize origin"},
+		{name: "attacker host", origin: "https://github.com", repository: "https://attacker.example/skills", wantError: "must authorize origin"},
+		{name: "different port", origin: "https://github.com:8443", wantError: "must authorize origin"},
+		{name: "wildcard grant", origin: "https://*.github.com", wantError: "must authorize origin"},
+		{name: "path in grant", origin: "https://github.com/acme", wantError: "must authorize origin"},
+		{name: "HTTP grant", origin: "http://github.com", wantError: "must authorize origin"},
+		{name: "HTTP repository", origin: "https://github.com", repository: "http://github.com/acme/skills", wantError: "requires an absolute HTTPS URL"},
+		{name: "userinfo repository", origin: "https://github.com", repository: "https://user@github.com/acme/skills", wantError: "without user information"},
+		{name: "wildcard repository", origin: "https://github.com", repository: "https://*.github.com/acme/skills", wantError: "exact HTTPS DNS origin"},
+		{name: "IP repository", origin: "https://github.com", repository: "https://127.0.0.1/acme/skills", wantError: "exact HTTPS DNS origin"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+				Kagent:    &v1alpha3.KagentHarness{},
+				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+			}}
+			repository := "https://github.com/acme/skills"
+			if test.repository != "" {
+				repository = test.repository
+			}
+			key := "authorization"
+			if test.key != "" {
+				key = test.key
+			}
+			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "skills", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+				ModelConfig: &corev1.LocalObjectReference{Name: modelConfig().Name}, SystemPrompt: "help",
+				Skills: []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+					URL: repository, Commit: strings.Repeat("a", 40), AuthorizationFrom: &v1alpha3.SecretKeyReference{Name: "skills-auth", Key: key},
+				}}}},
+			}}
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "skills-auth", Namespace: "test", Annotations: map[string]string{v1alpha3.GitCredentialOriginAnnotation: test.origin}},
+				Data:       map[string][]byte{"authorization": []byte("Bearer fixture-only"), "empty": {}},
+			}
+			if test.namespace != "" {
+				secret.Namespace = test.namespace
+			}
+			if test.missingKey {
+				delete(secret.Data, "authorization")
+			}
+			objects := []any{harness, modelConfig()}
+			if !test.missingSecret {
+				objects = append(objects, secret)
+			}
+			result, err := compiler(t, objects...).CompileAgent(t.Context(), inlineAgent(harness, template))
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				require.Nil(t, result)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "https://github.com:443", result.Credentials[0].Origin)
+			require.Equal(t, "ate-secret://k8s.io/default/test/skills-auth/authorization", result.Credentials[0].URI)
+			require.NotContains(t, string(result.ConfigJSON), "fixture-only")
+			require.NotContains(t, string(result.Provenance), "fixture-only")
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(result.ConfigJSON, &config))
+			resources := runtimeconfig.PluginResources(config.Agent.AgentPlugins)
+			require.True(t, resources.Skills[0].Source.Git.GatewayAuthorization)
+		})
+	}
+}

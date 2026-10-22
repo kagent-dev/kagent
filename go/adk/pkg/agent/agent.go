@@ -85,7 +85,10 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 		if err != nil {
 			return nil, fmt.Errorf("failed to load skills: %w", err)
 		}
-		if len(skills) > 0 {
+		// Downloaded standalone skills may arrive after startup, before a later
+		// task; the skill toolset lists the directory on every request.
+		deferredSkills := len(agentConfig.GetAgentPlugins().GetSkills()) > 0
+		if len(skills) > 0 || deferredSkills {
 			skillsToolset, err := skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill toolset: %w", err)

@@ -132,7 +132,8 @@
           "source": {
             "git": {
               "url": "https://git.example.com/plugin",
-              "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "gateway_authorization": true
             },
             "path": "skills"
           },

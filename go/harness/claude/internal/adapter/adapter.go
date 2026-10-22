@@ -59,6 +59,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 	}
 	var pluginDirs []string
+	var ensureSkills func(context.Context) error
 	if cfg.SkillResources != nil {
 		skillsDir := config.SkillsRoot(input.DurableDir)
 		if err := utils.EnsurePrivateDir(skillsDir); err != nil {
@@ -73,10 +74,13 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 		// --setting-sources disables project skill discovery, including --add-dir.
 		// Load compiler-selected skills explicitly without enabling workspace settings.
+		// Each Claude process loads this directory when it starts, so skills
+		// installed by EnsureSkills before a turn are discovered.
 		if err := utils.ReplacePrivateFile(filepath.Join(skillRoot, ".claude-plugin", "plugin.json"), []byte(`{"name":"kagent-skills","skills":"./.claude/skills/"}`)); err != nil {
 			return nil, fmt.Errorf("materialize Claude skill plugin: %w", err)
 		}
 		pluginDirs = append([]string{skillRoot}, materialized.ClaudeFormatPluginRoots()...)
+		ensureSkills = materialized.EnsureSkills
 	}
 	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
 	// The native runtime inherits the compiled identity through the standard
@@ -142,6 +146,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
+		EnsureSkills: ensureSkills,
 	}), nil
 }
 

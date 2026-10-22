@@ -23,6 +23,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// GitCredentialOriginAnnotation authorizes a Secret for Git skill fetching at
+// one exact HTTPS origin. Only the Secret owner can grant this authority.
+const GitCredentialOriginAnnotation = "kagent.dev/git-credential-origin"
+
 // AgentTemplatePromptTemplateSpec enables Go template rendering and ConfigMap includes.
 type AgentTemplatePromptTemplateSpec struct {
 	// DataSources are same-namespace ConfigMaps available to include("source/key").
@@ -102,6 +106,7 @@ type AgentTemplateSkill struct {
 }
 
 // GitArtifact identifies immutable content at a full Git commit ID.
+// +kubebuilder:validation:XValidation:rule="!has(self.authorizationFrom) || self.url.startsWith('https://')",message="authorizationFrom requires an https URL"
 type GitArtifact struct {
 	// +kubebuilder:validation:Pattern=`^https?://[^[:space:]]+$`
 	// +kubebuilder:validation:MinLength=1
@@ -110,6 +115,14 @@ type GitArtifact struct {
 	// +kubebuilder:validation:Pattern=`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`
 	// +required
 	Commit string `json:"commit"`
+	// AuthorizationFrom references a same-namespace Secret key containing the
+	// complete HTTP Authorization header, such as `Basic <base64(user:token)>`.
+	// The Secret must authorize the repository's exact HTTPS origin through
+	// its kagent.dev/git-credential-origin annotation (scheme, DNS name, port).
+	// The gateway replaces matching Authorization headers; the credential
+	// never enters the runtime. Supported for standalone skills only.
+	// +optional
+	AuthorizationFrom *SecretKeyReference `json:"authorizationFrom,omitempty"`
 }
 
 // S3Object identifies one immutable S3 object version.
@@ -157,6 +170,7 @@ type ArtifactSource struct {
 }
 
 // PluginBundle selects Agent Skills from one immutable Agent Plugins package.
+// +kubebuilder:validation:XValidation:rule="!has(self.source.git) || !has(self.source.git.authorizationFrom)",message="authorizationFrom is supported only for skills[].source.git"
 type PluginBundle struct {
 	// +required
 	Source ArtifactSource `json:"source"`

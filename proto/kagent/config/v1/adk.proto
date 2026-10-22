@@ -375,6 +375,9 @@ message ADKPluginSource {
 message ADKPluginGitSource {
   string url = 1;
   string commit = 2;
+  // The egress gateway owns this host's Authorization header. The runtime sends
+  // a placeholder for the gateway to replace and never holds the credential.
+  bool gateway_authorization = 3;
 }
 message ADKPluginS3Source {
   string endpoint = 1;

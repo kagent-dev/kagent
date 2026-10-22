@@ -68,14 +68,15 @@ func run(logLevel, host, port, configDir string) error {
 	if port == "" && runtime.Port != nil {
 		port = fmt.Sprint(runtime.GetPort())
 	}
-	if err := config.MaterializeAgentPlugins(
+	ensureSkills, err := config.MaterializeAgentPlugins(
 		logging.IntoContext(context.Background(), logger), agentConfig,
 		config.AgentPluginPaths{
 			Packages: defaultPluginPackagesRoot,
 			Skills:   config.DefaultSkillsRoot,
 			Data:     defaultPluginDataRoot,
 		},
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("materialize Agent Plugins: %w", err)
 	}
 	logger.Info("loaded agent config", "config_dir", configDir)
@@ -188,6 +189,7 @@ func run(logLevel, host, port, configDir string) error {
 		Output:         agentConfig.Output,
 		Flush:          providers.ForceFlush,
 		AgentName:      runtimeTelemetry.AgentName,
+		EnsureSkills:   ensureSkills,
 	})
 	if err != nil {
 		return fmt.Errorf("create A2A executor: %w", err)

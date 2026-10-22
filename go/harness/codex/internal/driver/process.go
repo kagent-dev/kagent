@@ -37,6 +37,9 @@ type ProcessConfig struct {
 	ApprovalServers      map[string]struct{}
 	PendingDir           string
 	Tools                ToolCaller
+	// EnsureSkills installs downloaded standalone skills still missing after
+	// startup, which may run before the Actor has egress.
+	EnsureSkills func(context.Context) error
 }
 
 // ProcessDriver supervises Codex App Server. Pending input is persisted and
@@ -79,6 +82,11 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 // Run initializes App Server, starts or resumes the Actor's native thread, and
 // emits the turn's ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+	if d.config.EnsureSkills != nil {
+		if err := d.config.EnsureSkills(ctx); err != nil {
+			return runtime.Outcome{Failure: &runtime.Failure{Message: "skills_unavailable: " + err.Error()}}, nil
+		}
+	}
 	return d.run(ctx, turn, nil, sink)
 }
 
