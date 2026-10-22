@@ -75,10 +75,7 @@ Each LLM call is counted once, on its final non-partial response. Because
 `totalTokens` is the provider's own figure when there is one, it can exceed the
 sum of the other counts. A call whose response names no model is counted in the
 top-level totals only, so the per-model entries can add up to less than the
-totals. Reasoning tokens that only such a call identifies leave the top-level
-`outputTokens` but stay inside the `outputTokens` of the model that produced
-them, so a per-model `outputTokens` can exceed the top-level one. The key is
-omitted when no call reported usage.
+totals. The key is omitted when no call reported usage.
 
 ## Semantics
 
@@ -126,10 +123,12 @@ metrics record. Paused, resumed and canceled executions follow the rules above.
   output of subagent calls. A turn that Claude Code ends at one of its own limits
   (an `error_max_*` result) fails, and its status carries those tokens too. When
   the saved totals cannot be read, the turn counts only the calls it reported.
-- **Models:** that remainder names no response model, so it is counted in the
-  top-level totals only. The reasoning tokens it identifies are split out of the
-  top-level `outputTokens` and stay inside the `outputTokens` of their model's
-  entry.
+- **Models:** that remainder names no response model but the model it was
+  requested as, the undated name the session totals use, such as
+  `claude-sonnet-4-5`. It counts in the one dated entry that name prefixes, such
+  as `claude-sonnet-4-5-20250929`, or in an entry of its own under the requested
+  name when no dated entry or several of them match. The reasoning tokens it
+  identifies are therefore split out of its model's `outputTokens` as well.
 - **Cost:** v1 has no cost field. Claude Code's `total_cost_usd` is not reported.
 
 ## Out of scope for v1
