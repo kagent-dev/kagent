@@ -31,7 +31,7 @@ ARG PYTHON_GID=1001
 # git is invoked by skills-init via exec.Command with an argv vector — never
 # through a shell — so the only attack surface here is git itself. OCI fetch
 # uses the in-process go-containerregistry library, so krane and jq are gone.
-RUN apk upgrade --no-cache && apk add --no-cache git openssh-client ca-certificates
+RUN apk upgrade --no-cache && apk add --no-cache git openssh-client "ca-certificates>=20261020-r0"
 
 COPY --from=builder /skills-init /usr/local/bin/skills-init
 

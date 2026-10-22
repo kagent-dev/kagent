@@ -23,12 +23,12 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
 # sandbox-runtime produces architecture-independent JavaScript; build it natively to avoid QEMU.
-FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS srt-builder
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@sha256:bc76fa39ddd1482dd56a761b3331e03ba8f0e093ebb525618a56d014b480da88 AS srt-builder
 ARG TOOLS_PYTHON_VERSION=3.13
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add --no-cache \
-    bash git ca-certificates nodejs npm node-gyp bubblewrap python-${TOOLS_PYTHON_VERSION} libstdc++
+    bash git "ca-certificates>=20260909-r3" nodejs npm node-gyp bubblewrap python-${TOOLS_PYTHON_VERSION} libstdc++
 
 # Keep the pinned sandbox-runtime revision, but replace its vulnerable locked package versions.
 # Both lodash-es and shell-quote are direct dependencies of sandbox-runtime, so pinning them
@@ -42,12 +42,12 @@ RUN --mount=type=cache,target=/root/.npm \
     npm run build && \
     npm prune --omit=dev
 
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@sha256:bc76fa39ddd1482dd56a761b3331e03ba8f0e093ebb525618a56d014b480da88
 ARG TOOLS_PYTHON_VERSION=3.13
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add --no-cache \
-    bash ca-certificates curl nodejs bubblewrap socat python-${TOOLS_PYTHON_VERSION} ripgrep libstdc++
+    bash "ca-certificates>=20260909-r3" curl nodejs bubblewrap socat python-${TOOLS_PYTHON_VERSION} ripgrep libstdc++
 
 RUN addgroup -g 1001 goagent && \
     adduser -u 1001 -G goagent -s /bin/bash -D goagent
