@@ -2592,6 +2592,234 @@ refinements:
     requirement_level: recommended
     stability: development
     unit: \u0027{revision}\u0027
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: |
+        For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier).
+        It\u0027s NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime reported the model of the calls.
+      stability: development
+      type: string
+    - brief: The kind of authenticated principal that sent a turn.
+      key: kagent.turn.sender
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: An authenticated caller, a person or a machine.
+          id: principal
+          stability: development
+          value: principal
+        - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+          id: actor
+          stability: development
+          value: actor
+        - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          id: controller
+          stability: development
+          value: controller
+    brief: Input tokens served from a provider cache in a turn.
+    id: kagent.turn.usage.cache_read.input_tokens
+    instrument: counter
+    name: kagent.turn.usage.cache_read.input_tokens
+    note: |
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: |
+        For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier).
+        It\u0027s NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime reported the model of the calls.
+      stability: development
+      type: string
+    - brief: The kind of authenticated principal that sent a turn.
+      key: kagent.turn.sender
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: An authenticated caller, a person or a machine.
+          id: principal
+          stability: development
+          value: principal
+        - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+          id: actor
+          stability: development
+          value: actor
+        - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          id: controller
+          stability: development
+          value: controller
+    brief: Input tokens a turn added to its task, cached input included.
+    id: kagent.turn.usage.input_tokens
+    instrument: counter
+    name: kagent.turn.usage.input_tokens
+    note: |
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: |
+        For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier).
+        It\u0027s NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime reported the model of the calls.
+      stability: development
+      type: string
+    - brief: The kind of authenticated principal that sent a turn.
+      key: kagent.turn.sender
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: An authenticated caller, a person or a machine.
+          id: principal
+          stability: development
+          value: principal
+        - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+          id: actor
+          stability: development
+          value: actor
+        - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          id: controller
+          stability: development
+          value: controller
+    brief: Output tokens a turn added to its task, reasoning excluded.
+    id: kagent.turn.usage.output_tokens
+    instrument: counter
+    name: kagent.turn.usage.output_tokens
+    note: |
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: |
+        For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier).
+        It\u0027s NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime reported the model of the calls.
+      stability: development
+      type: string
+    - brief: The kind of authenticated principal that sent a turn.
+      key: kagent.turn.sender
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: An authenticated caller, a person or a machine.
+          id: principal
+          stability: development
+          value: principal
+        - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+          id: actor
+          stability: development
+          value: actor
+        - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          id: controller
+          stability: development
+          value: controller
+    brief: Reasoning tokens a turn added to its task.
+    id: kagent.turn.usage.reasoning.output_tokens
+    instrument: counter
+    name: kagent.turn.usage.reasoning.output_tokens
+    note: |
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
   spans:
   - attributes:
     - brief: The A2A method that started the invocation.
@@ -5753,6 +5981,25 @@ registry:
         id: byo
         stability: development
         value: byo
+  - brief: The kind of authenticated principal that sent a turn.
+    key: kagent.turn.sender
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: An authenticated caller, a person or a machine.
+        id: principal
+        stability: development
+        value: principal
+      - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+        id: actor
+        stability: development
+        value: actor
+      - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+        id: controller
+        stability: development
+        value: controller
   entities: []
   events: []
   metrics:
@@ -5815,6 +6062,230 @@ registry:
     requirement_level: recommended
     stability: development
     unit: \u0027{revision}\u0027
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: |
+        For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier).
+        It\u0027s NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime reported the model of the calls.
+      stability: development
+      type: string
+    - brief: The kind of authenticated principal that sent a turn.
+      key: kagent.turn.sender
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: An authenticated caller, a person or a machine.
+          id: principal
+          stability: development
+          value: principal
+        - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+          id: actor
+          stability: development
+          value: actor
+        - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          id: controller
+          stability: development
+          value: controller
+    brief: Input tokens served from a provider cache in a turn.
+    instrument: counter
+    name: kagent.turn.usage.cache_read.input_tokens
+    note: |
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: |
+        For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier).
+        It\u0027s NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime reported the model of the calls.
+      stability: development
+      type: string
+    - brief: The kind of authenticated principal that sent a turn.
+      key: kagent.turn.sender
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: An authenticated caller, a person or a machine.
+          id: principal
+          stability: development
+          value: principal
+        - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+          id: actor
+          stability: development
+          value: actor
+        - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          id: controller
+          stability: development
+          value: controller
+    brief: Input tokens a turn added to its task, cached input included.
+    instrument: counter
+    name: kagent.turn.usage.input_tokens
+    note: |
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: |
+        For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier).
+        It\u0027s NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime reported the model of the calls.
+      stability: development
+      type: string
+    - brief: The kind of authenticated principal that sent a turn.
+      key: kagent.turn.sender
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: An authenticated caller, a person or a machine.
+          id: principal
+          stability: development
+          value: principal
+        - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+          id: actor
+          stability: development
+          value: actor
+        - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          id: controller
+          stability: development
+          value: controller
+    brief: Output tokens a turn added to its task, reasoning excluded.
+    instrument: counter
+    name: kagent.turn.usage.output_tokens
+    note: |
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: |
+        For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier).
+        It\u0027s NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime reported the model of the calls.
+      stability: development
+      type: string
+    - brief: The kind of authenticated principal that sent a turn.
+      key: kagent.turn.sender
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: An authenticated caller, a person or a machine.
+          id: principal
+          stability: development
+          value: principal
+        - brief: An agent\u0027s runtime, calling on behalf of the principal that created its Session.
+          id: actor
+          stability: development
+          value: actor
+        - brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          id: controller
+          stability: development
+          value: controller
+    brief: Reasoning tokens a turn added to its task.
+    instrument: counter
+    name: kagent.turn.usage.reasoning.output_tokens
+    note: |
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
   spans:
   - attributes:
     - brief: The A2A method that started the invocation.

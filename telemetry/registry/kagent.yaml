@@ -1,5 +1,23 @@
 file_format: definition/2
 attributes:
+  - key: kagent.turn.sender
+    brief: The kind of authenticated principal that sent a turn.
+    stability: development
+    type:
+      members:
+        - id: principal
+          value: principal
+          brief: An authenticated caller, a person or a machine.
+          stability: development
+        - id: actor
+          value: actor
+          brief: An agent's runtime, calling on behalf of the principal that created its Session.
+          stability: development
+        - id: controller
+          value: controller
+          brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
+          stability: development
+
   - key: kagent.gc.stage
     brief: The stage of a runtime revision garbage collection attempt.
     stability: development

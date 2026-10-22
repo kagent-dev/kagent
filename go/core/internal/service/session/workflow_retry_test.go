@@ -222,7 +222,7 @@ func TestDeletePreparationFailureKeepsAdmissionClosed(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, current.State)
 			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
-			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next turn"), database.ErrConflict)
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next turn", nil), database.ErrConflict)
 			worker, err := NewExpirationWorker(store, workflow, time.Hour, time.Minute)
 			require.NoError(t, err)
 			require.ErrorIs(t, worker.expire(t.Context(), session.Id, time.Now()), database.ErrConflict,

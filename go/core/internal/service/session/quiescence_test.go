@@ -149,7 +149,8 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 			hash := sha256.Sum256([]byte("completed"))
 			version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
 			require.NoError(t, err)
-			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+			_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+			require.NoError(t, err)
 
 			entered, release := make(chan struct{}), make(chan struct{})
 			actors := &retryTestActors{lifecycleTestActors: base, beforeRead: func(ctx context.Context) {

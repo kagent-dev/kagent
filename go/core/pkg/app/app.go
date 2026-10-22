@@ -346,7 +346,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
-	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake)
+	turnUsage, err := taskstore.NewUsageRecorder(otel.Meter("github.com/kagent-dev/kagent/go/core/internal/service/taskstore"))
+	if err != nil {
+		return fmt.Errorf("configure turn usage metrics: %w", err)
+	}
+	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake, turnUsage)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}
