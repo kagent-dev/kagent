@@ -751,3 +751,29 @@ func TestServiceListRequiresIndependentCategoryPermissions(t *testing.T) {
 		})
 	}
 }
+
+type sessionCreateNamespacePolicy struct{ namespace string }
+
+func (s sessionCreateNamespacePolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if verb == auth.VerbCreate && resource.Type == "Session" && (resource.Namespace != s.namespace || resource.Name != "" || principal.User.ID != "alice") {
+		return errors.New("Session creation denied in target namespace")
+	}
+	return nil
+}
+
+func TestSessionCreateUsesTargetNamespace(t *testing.T) {
+	for _, namespace := range []string{"team-a", "team-b"} {
+		t.Run(namespace, func(t *testing.T) {
+			store := &serviceTestStore{}
+			svc := NewService(store, sessionCreateNamespacePolicy{namespace: "team-a"}, serviceTestWorkflow{})
+			created, err := svc.Create(serviceTestContext("alice"), &apiv1.ResourceReference{Namespace: namespace, Name: "assistant"}, "request", "")
+			if namespace == "team-a" {
+				if err != nil || created.GetAgent().GetNamespace() != namespace || created.GetCreator() != "alice" {
+					t.Fatalf("create = %+v, error = %v", created, err)
+				}
+			} else if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || store.createInput != nil {
+				t.Fatalf("denied create = %+v, error = %v, persisted = %+v", created, err, store.createInput)
+			}
+		})
+	}
+}

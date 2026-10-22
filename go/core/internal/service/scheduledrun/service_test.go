@@ -3,6 +3,7 @@ package scheduledrun_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -148,6 +149,7 @@ type existingScheduleStore struct {
 	*database.Client
 	schedule *apiv1.ScheduledRun
 	triggers int
+	updates  int
 }
 
 func (s *existingScheduleStore) FindScheduledRunRequest(context.Context, string, string, []byte) (*apiv1.ScheduledRun, error) {
@@ -174,5 +176,81 @@ func TestScheduleRetriesAndTriggersRecheckTargetGrants(t *testing.T) {
 		_, err = svc.Trigger(ctx, uuid.New(), "manual")
 		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
 		require.Zero(t, store.triggers)
+	}
+}
+
+type scheduleNamespacePolicy struct {
+	namespace string
+	check     func(auth.Verb, auth.Resource)
+}
+
+func (s scheduleNamespacePolicy) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	s.check(verb, resource)
+	if verb == auth.VerbCreate && resource.Type == "Session" && resource.Namespace != s.namespace {
+		return errors.New("Session creation denied in target namespace")
+	}
+	return nil
+}
+
+func (s *existingScheduleStore) UpdateScheduledRun(_ context.Context, _ uuid.UUID, _ string, _ string, config *apiv1.ScheduledRunConfig) (*apiv1.ScheduledRun, error) {
+	s.updates++
+	s.schedule.Config = config
+	return s.schedule, nil
+}
+
+func TestScheduleTargetChecksUseSessionCreateNamespace(t *testing.T) {
+	for _, operation := range []string{"create", "retry", "update", "trigger"} {
+		for _, allowed := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/allowed=%v", operation, allowed), func(t *testing.T) {
+				target := &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}
+				store := &existingScheduleStore{schedule: &apiv1.ScheduledRun{Agent: target, Creator: "alice"}}
+				namespace := "team"
+				if !allowed {
+					namespace = "other"
+				}
+				checks := 0
+				policy := scheduleNamespacePolicy{namespace: namespace, check: func(verb auth.Verb, resource auth.Resource) {
+					if resource.Type == "Session" {
+						checks++
+						require.Equal(t, auth.VerbCreate, verb)
+						require.Equal(t, auth.Resource{Type: "Session", Namespace: target.Namespace}, resource)
+					}
+					if resource.Type == "ScheduledRun" {
+						require.Empty(t, resource.Namespace, "schedule category remains unscoped")
+					}
+				}}
+				ctx := auth.AuthSessionTo(t.Context(), session{})
+				config := &apiv1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "run"}
+				var err error
+				if operation == "create" {
+					scheme := runtime.NewScheme()
+					require.NoError(t, v1alpha3.AddToScheme(scheme))
+					svc := scheduledrun.NewService(missingRequestStore{}, fake.NewClientBuilder().WithScheme(scheme).Build(), policy)
+					_, err = svc.Create(ctx, scheduledrun.CreateRequest{Agent: target, RequestID: "create", Config: config})
+					if allowed {
+						require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition), "target authorization should pass before discovering the missing Agent")
+					}
+				} else {
+					svc := scheduledrun.NewService(store, nil, policy)
+					switch operation {
+					case "retry":
+						_, err = svc.Create(ctx, scheduledrun.CreateRequest{Agent: target, RequestID: "retry", Config: config})
+					case "update":
+						_, err = svc.Update(ctx, uuid.New(), "etag", config)
+					case "trigger":
+						_, err = svc.Trigger(ctx, uuid.New(), "manual")
+					}
+					if allowed {
+						require.NoError(t, err)
+					}
+				}
+				require.Equal(t, 1, checks)
+				if !allowed {
+					require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+					require.Zero(t, store.triggers)
+					require.Zero(t, store.updates)
+				}
+			})
+		}
 	}
 }

@@ -94,7 +94,7 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 	if err := validateCreate(agent, requestID); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbCreate, "")
+	creator, err := s.authorizeResource(ctx, auth.VerbCreate, auth.Resource{Type: "Session", Namespace: agent.Namespace})
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		return ListResult{}, err
 	}
 	if request.AllCreators {
-		if _, err := s.authorizeType(ctx, auth.VerbList, "SessionAllCreators", ""); err != nil {
+		if _, err := s.authorizeResource(ctx, auth.VerbList, auth.Resource{Type: "SessionAllCreators"}); err != nil {
 			return ListResult{}, err
 		}
 	}
@@ -424,21 +424,21 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 		}
 		// The recipient supplies policy identity; the share supplies only the
 		// storage owner. Checking the owner would lend their grants to visitors.
-		if _, err := s.authorizeType(ctx, verb, "Session", name); err != nil {
+		if _, err := s.authorizeResource(ctx, verb, auth.Resource{Type: "Session", Name: name}); err != nil {
 			return "", err
 		}
 		return share.UserID, nil
 	}
-	return s.authorizeType(ctx, verb, "Session", name)
+	return s.authorizeResource(ctx, verb, auth.Resource{Type: "Session", Name: name})
 }
 
-func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
+func (s *Service) authorizeResource(ctx context.Context, verb auth.Verb, resource auth.Resource) (string, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
 	principal := session.Principal()
-	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: resourceType, Name: name}); err != nil {
+	if err := s.authorizer.Check(ctx, principal, verb, resource); err != nil {
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	return principal.User.ID, nil

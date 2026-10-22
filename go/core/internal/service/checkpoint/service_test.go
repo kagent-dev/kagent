@@ -689,3 +689,33 @@ func TestCreateRetriesReadyCheckpointAfterSourceDeletion(t *testing.T) {
 	_, err = svc.Create(auth.AuthSessionTo(t.Context(), testSession{userID: "bob"}), first.SessionId, "request-1", "task-1")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 }
+
+type forkNamespacePolicy struct{ namespace string }
+
+func (f forkNamespacePolicy) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if resource.Type == "Session" && verb == auth.VerbCreate && (resource.Namespace != f.namespace || resource.Name != "") {
+		return errors.New("Session creation denied in target namespace")
+	}
+	return nil
+}
+
+func TestForkAuthorizesResolvedTargetNamespaceBeforeSnapshotRead(t *testing.T) {
+	for _, namespace := range []string{"team-a", "team-b"} {
+		t.Run(namespace, func(t *testing.T) {
+			checkpoint := &apiv1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", SessionId: "11111111-1111-4111-8111-111111111111"}
+			snapshotErr := errors.New("snapshot boundary reached")
+			store := &testStore{prepared: checkpoint, checkpointOwner: "alice", sourceErr: database.ErrNotFound, snapshotErr: snapshotErr}
+			svc := NewService(store, forkNamespacePolicy{namespace: namespace}, nil, nil)
+			_, err := svc.Fork(auth.AuthSessionTo(t.Context(), testSession{userID: "alice"}), checkpoint.Id, "request")
+			if namespace == "team-a" {
+				require.ErrorIs(t, err, snapshotErr, "resolved namespace should pass authorization")
+				require.Equal(t, 1, store.snapshotReads)
+			} else {
+				require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+				require.Zero(t, store.snapshotReads)
+			}
+			require.Nil(t, store.forked)
+			require.Zero(t, store.sourceReads.Load(), "retained checkpoint supplies the target without a live source")
+		})
+	}
+}

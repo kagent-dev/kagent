@@ -156,3 +156,46 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 	_, err = client.CreateSession(caller("alice", false), &apiv1.CreateSessionRequest{Agent: agent, RequestId: "request-1"})
 	assertGRPCCode(t, err, codes.PermissionDenied)
 }
+
+type sessionNamespaceRPCPolicy struct {
+	creates atomic.Int32
+	agents  atomic.Int32
+}
+
+func (s *sessionNamespaceRPCPolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if principal.User.ID != "alice" {
+		return errors.New("unexpected principal")
+	}
+	if resource.Type == "Session" && verb == auth.VerbCreate {
+		s.creates.Add(1)
+		if resource.Namespace == "team-a" && resource.Name == "" {
+			return nil
+		}
+	}
+	if resource.Type == "Agent" && verb == auth.VerbGet {
+		s.agents.Add(1)
+	}
+	return errors.New("denied")
+}
+
+func TestSessionCreateNamespaceThroughGeneratedClient(t *testing.T) {
+	for _, namespace := range []string{"team-a", "team-b"} {
+		t.Run(namespace, func(t *testing.T) {
+			policy := &sessionNamespaceRPCPolicy{}
+			connection := newConfigurationConnection(t, nil, func(config *Config) {
+				config.SessionService = sessionsvc.NewService(nil, policy, nil)
+			})
+			ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice"))
+			_, err := apiv1.NewSessionServiceClient(connection).CreateSession(ctx, &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: namespace, Name: "assistant"}, RequestId: "namespace-check"})
+			// A namespace grant must still be followed by the independent Agent check;
+			// neither denied path may reach storage or runtime provisioning.
+			assertGRPCCode(t, err, codes.PermissionDenied)
+			require.EqualValues(t, 1, policy.creates.Load())
+			if namespace == "team-a" {
+				require.EqualValues(t, 1, policy.agents.Load())
+			} else {
+				require.Zero(t, policy.agents.Load())
+			}
+		})
+	}
+}

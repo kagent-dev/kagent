@@ -85,19 +85,30 @@ These services use `Authorizer.Check` for operation capabilities, not collection
 Storage ownership remains an independent restriction: a policy grant alone does
 not confer access to another user's records.
 
+For creation of a new Session (`create Session` with empty `Name`), `Namespace`
+is the target Agent's namespace. This creation context is taken from the validated proposed Agent reference,
+or the Agent resolved from the caller-owned checkpoint for a fork. The same
+Agent is independently authorized with `get Agent` and used for creation.
+Schedules supply their stored target Agent for retries, updates, and triggers.
+Session reads and other existing record operations retain their ID-based identity.
+The namespace does not make Sessions Kubernetes resources or change ownership.
+Category-only authorizers may ignore this creation namespace and continue checking
+Session manage permission; they need not expose namespace as a Session catalog
+attribute. The `create ScheduledRun` check itself remains category-level.
+
 | Operation | Required checks (`verb Resource`, with `name`) |
 | --- | --- |
 | List Sessions | `list Session`, empty name; `get Session`, Session ID, for every returned row |
 | List Sessions across creators | Above checks plus `list SessionAllCreators`, empty name |
-| Create Session | `create Session`, empty name; `get Agent`, target namespace/name |
+| Create Session | `create Session`, target Agent namespace and empty name; `get Agent`, target namespace/name |
 | Create Checkpoint | `create Checkpoint`, empty name; `get Session`, source Session ID |
 | List Checkpoints | `list Checkpoint`, empty name; storage filters by caller ownership and source Session ID |
-| Fork Checkpoint | `get Checkpoint`, checkpoint ID; `get Session`, saved source ID; `create Session`, empty name; `get Agent`, target namespace/name resolved from the owned checkpoint |
+| Fork Checkpoint | `get Checkpoint`, checkpoint ID; `get Session`, saved source ID; `create Session`, target Agent namespace and empty name; `get Agent`, target namespace/name resolved from the owned checkpoint |
 | List Session shares | `list Session`, `<session-id>/shares`; storage requires ownership |
 | Create Session share | `create Session`, `<session-id>/shares`; storage requires ownership |
 | Revoke Session share | `delete Session`, `shares/<share-id>`; storage requires ownership |
 | List ScheduledRuns | `list ScheduledRun`, empty name; storage filters by creator |
-| Create ScheduledRun | `create ScheduledRun`, empty name; `get Agent`, target namespace/name; `create Session`, empty name |
+| Create ScheduledRun | `create ScheduledRun`, empty name; `get Agent`, target namespace/name; `create Session`, target Agent namespace and empty name |
 | Update ScheduledRun | `update ScheduledRun`, schedule ID; same target checks as create |
 | Manually trigger ScheduledRun | `create ScheduledRun`, `<schedule-id>/executions`; same target checks as create |
 | List scheduled executions | `list ScheduledRun`, `<schedule-id>/executions`; storage filters by creator |
