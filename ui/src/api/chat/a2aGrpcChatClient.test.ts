@@ -1755,6 +1755,45 @@ describe("A2AGrpcChatClient.send, when the stream breaks", () => {
     expect(events.at(-1)).toMatchObject({ type: "status", state: "completed", taskId: "task-1" });
   });
 
+  // A reply that started while the stream was down is first seen in the snapshot,
+  // as the chunks stored so far. The chunk after it is an increment to that text.
+  // The turn stops before the closing chunk, which would replace the text whole
+  // and hide the difference.
+  it("continues a reply the snapshot showed instead of replacing it", async () => {
+    const chunk = (value: string, flags: { append?: boolean } = {}) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "a-1", parts: [text(value)] },
+          ...flags,
+        },
+      },
+    });
+    const { events, error } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* () {
+        yield {
+          payload: {
+            case: "task" as const,
+            value: {
+              ...snapshot.payload.value,
+              artifacts: [{ artifactId: "a-1", parts: [text("alpha"), text(" beta")] }],
+            },
+          },
+        };
+        yield chunk(" gamma", { append: true });
+      },
+    );
+    expect(error).toBeUndefined();
+    const agent = transcript(events).filter((message) => message.role === "agent");
+    expect(agent.map(textOf), "not \" gamma\"").toEqual(["alpha beta gamma"]);
+  });
+
   it("stops waiting to re-attach when the reader presses stop", async () => {
     const subscribed: unknown[] = [];
     serve(({ service }) => {

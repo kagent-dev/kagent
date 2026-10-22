@@ -785,6 +785,14 @@ export class A2AGrpcChatClient implements ChatClient {
             delivered.add(message.id);
             yield { type: "message", message };
           }
+          // A re-attached stream opens with this snapshot, and an artifact still
+          // being streamed carries on with `append` chunks. Known here, the next
+          // chunk adds to what the snapshot showed instead of replacing it.
+          for (const artifact of task.artifacts) {
+            if (artifact.artifactId) {
+              artifacts.set(artifact.artifactId, textOf(toParts(artifact.parts)));
+            }
+          }
           yield {
             type: "status",
             state: turnState(task.status?.state),
