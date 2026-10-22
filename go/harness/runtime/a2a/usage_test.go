@@ -22,8 +22,11 @@ var sonnetCall = runtime.ModelCall{
 }
 
 // leftoverCall is what Claude Code's session totals hold beyond the calls it
-// reported, such as a subagent's final output. It names no response model.
+// reported, such as a subagent's final output. It names no response model, only
+// the undated name the session totals key the model by.
 var leftoverCall = runtime.ModelCall{RequestModel: "claude-sonnet-4-5", UsageOnly: true, InputTokens: 20, OutputTokens: 5}
+
+var leftoverCounts = apia2a.TokenCounts{InputTokens: 20, OutputTokens: 5, TotalTokens: 25}
 
 func sonnetCounts(calls int64) apia2a.TokenCounts {
 	return apia2a.TokenCounts{InputTokens: 1000 * calls, OutputTokens: 110 * calls, ReasoningTokens: 40 * calls, CachedInputTokens: 800 * calls, TotalTokens: 1150 * calls}
@@ -62,10 +65,9 @@ func TestExecuteReportsTheTurnUsageOnItsFinalStatus(t *testing.T) {
 			status, usage, found := statusUsage(t, events[len(events)-1])
 			require.Equal(t, tt.wantState, status.Status.State)
 			require.True(t, found, "metadata = %#v", status.Metadata)
-			leftover := apia2a.TokenCounts{InputTokens: 20, OutputTokens: 5, TotalTokens: 25}
 			require.Equal(t, apia2a.Usage{
-				TokenCounts: sonnetCounts(1).Add(leftover),
-				Models:      []apia2a.ModelUsage{{Model: "claude-sonnet-4-5-20250929", TokenCounts: sonnetCounts(1)}},
+				TokenCounts: sonnetCounts(1).Add(leftoverCounts),
+				Models:      []apia2a.ModelUsage{{Model: "claude-sonnet-4-5-20250929", TokenCounts: sonnetCounts(1).Add(leftoverCounts)}},
 			}, usage)
 			if tt.wantState == a2atype.TaskStateCompleted {
 				require.Nil(t, status.Status.Message, "a completed turn carries its usage without a message")
@@ -242,6 +244,51 @@ func TestTaskUsageSplitsReasoningOutOfOutputOnce(t *testing.T) {
 			_, got, found := statusUsage(t, usage.stamp(a2atype.NewStatusUpdateEvent(requestContext("task-1", "hello"), a2atype.TaskStateCompleted, nil)))
 			require.True(t, found)
 			require.Equal(t, tt.want, got.TokenCounts)
+		})
+	}
+}
+
+// Claude Code's session remainder names the model it was requested as, the
+// undated name the session totals use, while the calls name the dated model.
+// The remainder counts in the one dated entry its name prefixes, so a model's
+// entry never keeps reasoning tokens the top-level counts have split out.
+func TestTaskUsageAttributesARemainderToTheModelItNames(t *testing.T) {
+	laterSonnet := sonnetCall
+	laterSonnet.ResponseModel = "claude-sonnet-4-5-20251101"
+	tests := []struct {
+		name  string
+		calls []runtime.ModelCall
+		want  []apia2a.ModelUsage
+	}{
+		{
+			name:  "the dated entry its name prefixes",
+			calls: []runtime.ModelCall{sonnetCall, leftoverCall},
+			want:  []apia2a.ModelUsage{{Model: "claude-sonnet-4-5-20250929", TokenCounts: sonnetCounts(1).Add(leftoverCounts)}},
+		},
+		{
+			name:  "an entry of its own when no call named its model",
+			calls: []runtime.ModelCall{leftoverCall},
+			want:  []apia2a.ModelUsage{{Model: "claude-sonnet-4-5", TokenCounts: leftoverCounts}},
+		},
+		{
+			name:  "an entry of its own when several dated entries match",
+			calls: []runtime.ModelCall{sonnetCall, laterSonnet, leftoverCall},
+			want: []apia2a.ModelUsage{
+				{Model: "claude-sonnet-4-5", TokenCounts: leftoverCounts},
+				{Model: "claude-sonnet-4-5-20250929", TokenCounts: sonnetCounts(1)},
+				{Model: "claude-sonnet-4-5-20251101", TokenCounts: sonnetCounts(1)},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usage := newTaskUsage(nil)
+			for _, call := range tt.calls {
+				usage.add(call)
+			}
+			_, got, found := statusUsage(t, usage.stamp(a2atype.NewStatusUpdateEvent(requestContext("task-1", "hello"), a2atype.TaskStateCompleted, nil)))
+			require.True(t, found)
+			require.Equal(t, tt.want, got.Models)
 		})
 	}
 }
