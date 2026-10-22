@@ -1,8 +1,8 @@
-ARG UV_VERSION=0.12.3
+ARG UV_VERSION=0.13.5
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 # Match the BYO images' glibc version for Substrate checkpoint/restore.
-FROM debian:bookworm-slim AS base
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS base
 ENV UV_PYTHON_INSTALL_DIR=/python
 COPY --from=uv-bin /uv /usr/local/bin/uv
 RUN apt-get update \
@@ -40,6 +40,7 @@ COPY --from=builder /.kagent/.venv /.kagent/.venv
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     PYTHONUNBUFFERED=1 \
+    GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt \
     UV_PYTHON_DOWNLOADS=never \
     UV_CACHE_DIR=/config/.cache/uv \
     PATH="/.kagent/.venv/bin:$PATH" \
