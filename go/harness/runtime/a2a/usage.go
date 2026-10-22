@@ -1,8 +1,10 @@
 package a2a
 
 import (
+	"cmp"
 	"maps"
 	"slices"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 
@@ -70,10 +72,9 @@ func newTaskUsage(stored *a2atype.Task) *taskUsage {
 	return usage
 }
 
-// add counts one model call as reported. Usage-only calls, such as the tokens
-// Claude Code's session totals hold beyond its reported calls, name no
-// response model, so they count in the totals only. A sink without an
-// accumulator, one that serves no task, counts nothing.
+// add counts one model call as reported, in the totals and in the entry of the
+// model it names. A sink without an accumulator, one that serves no task,
+// counts nothing.
 func (u *taskUsage) add(call runtime.ModelCall) {
 	if u == nil {
 		return
@@ -83,9 +84,36 @@ func (u *taskUsage) add(call runtime.ModelCall) {
 		return
 	}
 	u.total = u.total.add(tokens)
-	if call.ResponseModel != "" {
-		u.models[call.ResponseModel] = u.models[call.ResponseModel].add(tokens)
+	if model := u.modelOf(call); model != "" {
+		u.models[model] = u.models[model].add(tokens)
 	}
+}
+
+// modelOf names the entry a call counts in, or nothing for a call that counts
+// in the totals only. A call names its response model. A usage-only call, such
+// as the tokens Claude Code's session totals hold beyond the calls it reported,
+// names the model it was requested as instead: the totals key a model by its
+// undated name, such as claude-sonnet-4-5, while a response names the dated
+// model, such as claude-sonnet-4-5-20250929. That call counts in the one dated
+// entry its name prefixes, or in an entry of its own when no dated entry or
+// several of them match.
+func (u *taskUsage) modelOf(call runtime.ModelCall) string {
+	if call.ResponseModel != "" || !call.UsageOnly || call.RequestModel == "" {
+		return call.ResponseModel
+	}
+	if _, ok := u.models[call.RequestModel]; ok {
+		return call.RequestModel
+	}
+	var dated string
+	for model := range u.models {
+		if strings.HasPrefix(model, call.RequestModel+"-") {
+			if dated != "" {
+				return call.RequestModel
+			}
+			dated = model
+		}
+	}
+	return cmp.Or(dated, call.RequestModel)
 }
 
 // snapshot copies the tally for the parked task, so the calls a cancel reaps
