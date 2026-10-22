@@ -1,6 +1,6 @@
 ### STAGE 1: Dependencies
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-ARG WOLFI_BASE_DIGEST=sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
+ARG WOLFI_BASE_DIGEST=sha256:bc76fa39ddd1482dd56a761b3331e03ba8f0e093ebb525618a56d014b480da88
 ARG TOOLS_NODE_VERSION=24
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@${WOLFI_BASE_DIGEST} AS deps
@@ -17,7 +17,7 @@ RUN echo "Installing on $BUILDPLATFORM" \
         "bash~5" \
         "openssl~3" \
         "unzip~6" \
-        ca-certificates \
+        "ca-certificates>=20260909-r3" \
         "nodejs-${TOOLS_NODE_VERSION}" \
         npm-12 \
         "node-gyp~13" \
@@ -70,7 +70,7 @@ ARG BUILDPLATFORM
 RUN echo "Installing on $BUILDPLATFORM" \
     && apk add --no-cache \
         "bash~5" \
-        ca-certificates \
+        "ca-certificates>=20260909-r3" \
         "curl~8" \
         "nginx-mainline~1" \
     && update-ca-certificates

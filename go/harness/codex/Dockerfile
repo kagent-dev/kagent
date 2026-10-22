@@ -26,7 +26,7 @@ ARG CODEX_CLI_ARM64_SHA256=3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e56
 ARG TARGETARCH
 ARG VERSION
 
-RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ \
+RUN apk upgrade --no-cache && apk add --no-cache bash "ca-certificates>=20261020-r0" git libgcc libstdc++ \
     && case "${TARGETARCH}" in \
         amd64) platform="x86_64-unknown-linux-musl"; checksum="${CODEX_CLI_AMD64_SHA256}" ;; \
         arm64) platform="aarch64-unknown-linux-musl"; checksum="${CODEX_CLI_ARM64_SHA256}" ;; \
