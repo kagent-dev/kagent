@@ -28,23 +28,32 @@ func TestResolveValidatorAssertsStringFormats(t *testing.T) {
 		},
 		{
 			format:  "time",
-			valid:   []string{"12:00:00", "23:59:59.5Z", "08:30:00+01:00"},
-			invalid: []string{"noon", "24:00:00", "12:60:00", "12:00"},
+			valid:   []string{"23:59:59.5Z", "08:30:00+01:00", "12:34:56-00:00"},
+			invalid: []string{"noon", "24:00:00", "12:60:00", "12:00", "12:00:00", "12:00:00.52"},
 		},
 		{
 			format:  "duration",
-			valid:   []string{"P1D", "PT1H30M", "P1Y2M3DT4H5M6S", "P2W"},
-			invalid: []string{"P", "PT", "1D", "P1DT", "P1H"},
+			valid:   []string{"P1D", "PT1H30M", "P1Y2M3DT4H5M6S", "P2W", "P1Y2M", "PT1H2M", "PT1M2S"},
+			invalid: []string{"P", "PT", "1D", "P1DT", "P1H", "P1Y2D", "PT1H2S"},
 		},
 		{
-			format:  "email",
-			valid:   []string{"user@example.com", "first.last+tag@sub.example.io"},
-			invalid: []string{"user", "user@", "@example.com", "user@-example.com", ".user@example.com", "user.@example.com", "a..b@example.com"},
+			format: "email",
+			valid: []string{
+				"user@example.com", "first.last+tag@sub.example.io",
+				`"joe bloggs"@example.com`, `"joe..bloggs"@example.com`, `"joe@bloggs"@example.com`,
+				`""@iana.org`, `" "@iana.org`, `"\a"@iana.org`, `"\""@iana.org`, `"\\"@iana.org`,
+				"joe.bloggs@[127.0.0.1]", "joe.bloggs@[IPv6:::1]", "a@[ipv6:::1]",
+			},
+			invalid: []string{
+				"user", "user@", "@example.com", "user@-example.com", ".user@example.com", "user.@example.com", "a..b@example.com",
+				`"test"test@iana.org`, `"test@iana.org`, `test"@iana.org`, "\"test\\\u00a9\"@iana.org",
+				"joe.bloggs@[127.0.0.300]", "a@[]", "a@[1.2.3]", "test@[RFC-5322-domain-literal]", "test@a[255.255.255.255]", "[1.2.3.4]@iana.org",
+			},
 		},
 		{
 			format:  "hostname",
-			valid:   []string{"example.com", "localhost", "a-b.c1"},
-			invalid: []string{"-example.com", "exa mple.com", "example..com"},
+			valid:   []string{"example.com", "localhost", "a-b.c1", strings.Repeat(strings.Repeat("a", 63)+".", 3) + strings.Repeat("a", 61)},
+			invalid: []string{"-example.com", "exa mple.com", "example..com", strings.Repeat(strings.Repeat("a", 63)+".", 3) + strings.Repeat("a", 62)},
 		},
 		{
 			format:  "ipv4",

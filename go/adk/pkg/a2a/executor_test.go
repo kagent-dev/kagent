@@ -370,6 +370,7 @@ func TestTransformStructuredOutputAssertsFormatAndPattern(t *testing.T) {
 				"due":{"type":"string","format":"date-time"},
 				"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"},
 				"host":{"type":"string","format":"ipv6"},
+				"site":{"type":"string","format":"hostname"},
 				"day":{"type":"string","format":"date","pattern":"^2026-"},
 				"days":{"type":"array","items":{"type":"string","format":"date"}},
 				"owner":{"$ref":"#/$defs/email"}
@@ -395,6 +396,7 @@ func TestTransformStructuredOutputAssertsFormatAndPattern(t *testing.T) {
 		{name: "pattern and format with pattern mismatch", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","day":"2025-10-19"}`, wantLocation: "/properties/day (pattern)"},
 		{name: "format in items", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","days":["2026-10-19","tomorrow"]}`, wantLocation: "/properties/days/items (format: date)"},
 		{name: "format in referenced definition", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","owner":"nobody"}`, wantLocation: "/$defs/email (format: email)"},
+		{name: "hostname too long", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","site":"` + strings.Repeat(strings.Repeat("a", 63)+".", 3) + strings.Repeat("a", 62) + `"}`, wantLocation: "/properties/site (format: hostname)"},
 		{name: "missing property", text: `{"due":"2026-10-19T12:00:00Z"}`, wantLocation: "root (required)"},
 	}
 	for _, test := range tests {
