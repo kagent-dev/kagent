@@ -106,6 +106,10 @@ Task failing.
 
 Schemas that exceed fixed size and complexity limits fail compilation.
 
+The semantic resolution code is in
+[`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).
+Runtime validation and A2A conversion are owned by the Go kagent ADK executor.
+
 ## Strict mode
 
 `outputSchemaStrict` asks OpenAI, Azure OpenAI, and Foundry to constrain
@@ -116,10 +120,6 @@ validator applies in both modes.
 
 Strict mode accepts fewer schemas. Compilation applies its rules for every
 provider, so a schema stays valid when its ModelConfig changes provider.
-
-The semantic resolution code is in
-[`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).
-Runtime validation and A2A conversion are owned by the Go kagent ADK executor.
 
 ## References
 
