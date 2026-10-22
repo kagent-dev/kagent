@@ -126,16 +126,19 @@ func TestResolveValidatorAssertsPatternAndFormatTogether(t *testing.T) {
 
 var childSchemas = []struct {
 	name     string
+	path     string
 	schema   func(node string) string
 	instance func(value string) map[string]any
 }{
 	{
 		name:     "properties",
+		path:     "/properties/v",
 		schema:   func(node string) string { return `{"type":"object","properties":{"v":` + node + `}}` },
 		instance: func(value string) map[string]any { return map[string]any{"v": value} },
 	},
 	{
 		name: "items",
+		path: "/properties/v/items",
 		schema: func(node string) string {
 			return `{"type":"object","properties":{"v":{"type":"array","items":` + node + `}}}`
 		},
@@ -143,6 +146,7 @@ var childSchemas = []struct {
 	},
 	{
 		name: "additionalProperties",
+		path: "/properties/v/additionalProperties",
 		schema: func(node string) string {
 			return `{"type":"object","properties":{"v":{"type":"object","additionalProperties":` + node + `}}}`
 		},
@@ -150,6 +154,7 @@ var childSchemas = []struct {
 	},
 	{
 		name: "anyOf",
+		path: "/properties/v/anyOf/0",
 		schema: func(node string) string {
 			return `{"type":"object","properties":{"v":{"anyOf":[` + node + `,{"type":"null"}]}}}`
 		},
@@ -157,6 +162,7 @@ var childSchemas = []struct {
 	},
 	{
 		name: "$defs",
+		path: "/$defs/v",
 		schema: func(node string) string {
 			return `{"type":"object","properties":{"v":{"$ref":"#/$defs/v"}},"$defs":{"v":` + node + `}}`
 		},
@@ -170,7 +176,12 @@ func TestResolveValidatorAssertsFormatInEveryChildSchema(t *testing.T) {
 			validator, err := ResolveValidator(json.RawMessage(child.schema(`{"type":"string","format":"date"}`)))
 			require.NoError(t, err)
 			require.NoError(t, validator.Validate(child.instance("2026-10-19")))
-			require.Error(t, validator.Validate(child.instance("Monday")))
+			assertion := child.path + "/allOf/0"
+			require.ErrorContains(t, validator.Validate(child.instance("Monday")), "validating "+assertion+": pattern: ")
+			node, format, ok := validator.Format(assertion)
+			require.True(t, ok)
+			require.Equal(t, child.path, node)
+			require.Equal(t, "date", format)
 		})
 	}
 }

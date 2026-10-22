@@ -364,7 +364,19 @@ func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing
 
 func TestTransformStructuredOutputAssertsFormatAndPattern(t *testing.T) {
 	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
-		JsonSchema: []byte(`{"type":"object","properties":{"due":{"type":"string","format":"date-time"},"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"},"host":{"type":"string","format":"ipv6"}},"required":["due","ticket"]}`),
+		JsonSchema: []byte(`{
+			"type":"object",
+			"properties":{
+				"due":{"type":"string","format":"date-time"},
+				"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"},
+				"host":{"type":"string","format":"ipv6"},
+				"day":{"type":"string","format":"date","pattern":"^2026-"},
+				"days":{"type":"array","items":{"type":"string","format":"date"}},
+				"owner":{"$ref":"#/$defs/email"}
+			},
+			"required":["due","ticket"],
+			"$defs":{"email":{"type":"string","format":"email"}}
+		}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -375,9 +387,14 @@ func TestTransformStructuredOutputAssertsFormatAndPattern(t *testing.T) {
 		wantLocation string
 	}{
 		{name: "conforming", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42"}`},
-		{name: "not a date", text: `{"due":"not-a-date","ticket":"OPS-42"}`, wantLocation: "/properties/due (pattern)"},
+		{name: "conforming optional properties", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","day":"2026-10-19","days":["2026-10-19"],"owner":"ops@example.com"}`},
+		{name: "not a date", text: `{"due":"not-a-date","ticket":"OPS-42"}`, wantLocation: "/properties/due (format: date-time)"},
 		{name: "pattern mismatch", text: `{"due":"2026-10-19T12:00:00Z","ticket":"DEV-42"}`, wantLocation: "/properties/ticket (pattern)"},
-		{name: "not an ipv6 address", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","host":"not-an-address"}`, wantLocation: "/properties/host (pattern)"},
+		{name: "not an ipv6 address", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","host":"not-an-address"}`, wantLocation: "/properties/host (format: ipv6)"},
+		{name: "pattern and format with format mismatch", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","day":"2026-02-30"}`, wantLocation: "/properties/day (format: date)"},
+		{name: "pattern and format with pattern mismatch", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","day":"2025-10-19"}`, wantLocation: "/properties/day (pattern)"},
+		{name: "format in items", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","days":["2026-10-19","tomorrow"]}`, wantLocation: "/properties/days/items (format: date)"},
+		{name: "format in referenced definition", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","owner":"nobody"}`, wantLocation: "/$defs/email (format: email)"},
 		{name: "missing property", text: `{"due":"2026-10-19T12:00:00Z"}`, wantLocation: "root (required)"},
 	}
 	for _, test := range tests {

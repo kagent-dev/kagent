@@ -3,6 +3,7 @@ package outputschema
 import (
 	"encoding/json"
 	"fmt"
+	"iter"
 	"maps"
 	"regexp/syntax"
 	"slices"
@@ -65,25 +66,49 @@ func SupportedStringFormats() []string {
 	return slices.Sorted(maps.Keys(stringFormatPatterns))
 }
 
+// Validator validates a value against a resolved output schema.
+type Validator struct {
+	*jsonschema.Resolved
+	// formats maps the schema path of each allOf entry that asserts a format to
+	// that assertion.
+	formats map[string]formatAssertion
+}
+
+type formatAssertion struct {
+	node   string
+	format string
+}
+
+// Format reports the schema node and string format that the subschema at path
+// asserts, if the subschema asserts a format.
+func (v *Validator) Format(path string) (node, format string, ok bool) {
+	assertion, ok := v.formats[path]
+	return assertion.node, assertion.format, ok
+}
+
 // ResolveValidator resolves a canonical output schema into a validator that
 // asserts every supported string format in addition to the schema's own
 // keywords.
-func ResolveValidator(raw json.RawMessage) (*jsonschema.Resolved, error) {
+func ResolveValidator(raw json.RawMessage) (*Validator, error) {
 	var schema jsonschema.Schema
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		return nil, fmt.Errorf("decode output schema: %w", err)
 	}
-	if err := assertFormats(&schema); err != nil {
+	formats := map[string]formatAssertion{}
+	if err := assertFormats(&schema, "", formats); err != nil {
 		return nil, err
 	}
 	resolved, err := schema.Resolve(nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolve output schema: %w", err)
 	}
-	return resolved, nil
+	return &Validator{Resolved: resolved, formats: formats}, nil
 }
 
-func assertFormats(schema *jsonschema.Schema) error {
+// assertFormats asserts each format as a pattern in its own allOf entry, so a
+// failure of that entry is told apart from a failure of the node's own pattern.
+// Paths follow the JSON Pointers that jsonschema-go reports in its errors.
+func assertFormats(schema *jsonschema.Schema, path string, formats map[string]formatAssertion) error {
 	if schema == nil {
 		return nil
 	}
@@ -92,14 +117,15 @@ func assertFormats(schema *jsonschema.Schema) error {
 		if !ok {
 			return fmt.Errorf("unsupported output schema format %q", schema.Format)
 		}
-		if schema.Pattern == "" {
-			schema.Pattern = pattern
-		} else {
-			schema.AllOf = append(schema.AllOf, &jsonschema.Schema{Pattern: pattern})
+		node := path
+		if node == "" {
+			node = "root"
 		}
+		formats[fmt.Sprintf("%s/allOf/%d", path, len(schema.AllOf))] = formatAssertion{node: node, format: schema.Format}
+		schema.AllOf = append(schema.AllOf, &jsonschema.Schema{Pattern: pattern})
 	}
-	for _, child := range subschemas(schema) {
-		if err := assertFormats(child); err != nil {
+	for childPath, child := range subschemas(schema) {
+		if err := assertFormats(child, path+childPath, formats); err != nil {
 			return err
 		}
 	}
@@ -201,19 +227,27 @@ func hasWordBoundary(expression *syntax.Regexp) bool {
 	return slices.ContainsFunc(expression.Sub, hasWordBoundary)
 }
 
-func subschemas(schema *jsonschema.Schema) []*jsonschema.Schema {
-	return slices.Concat(
-		sortedValues(schema.Defs),
-		sortedValues(schema.Properties),
-		schema.AnyOf,
-		[]*jsonschema.Schema{schema.Items, schema.AdditionalProperties},
-	)
-}
-
-func sortedValues(schemas map[string]*jsonschema.Schema) []*jsonschema.Schema {
-	values := make([]*jsonschema.Schema, 0, len(schemas))
-	for _, name := range slices.Sorted(maps.Keys(schemas)) {
-		values = append(values, schemas[name])
+// subschemas yields each child schema with its path relative to schema.
+func subschemas(schema *jsonschema.Schema) iter.Seq2[string, *jsonschema.Schema] {
+	return func(yield func(string, *jsonschema.Schema) bool) {
+		for _, name := range slices.Sorted(maps.Keys(schema.Defs)) {
+			if !yield("/$defs/"+name, schema.Defs[name]) {
+				return
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(schema.Properties)) {
+			if !yield("/properties/"+name, schema.Properties[name]) {
+				return
+			}
+		}
+		for i, child := range schema.AnyOf {
+			if !yield(fmt.Sprintf("/anyOf/%d", i), child) {
+				return
+			}
+		}
+		if !yield("/items", schema.Items) {
+			return
+		}
+		yield("/additionalProperties", schema.AdditionalProperties)
 	}
-	return values
 }

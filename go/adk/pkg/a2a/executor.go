@@ -14,7 +14,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/google/jsonschema-go/jsonschema"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/plugin"
@@ -62,7 +61,7 @@ type KAgentExecutor struct {
 }
 
 type structuredOutput struct {
-	schema *jsonschema.Resolved
+	schema *outputschema.Validator
 	sha256 string
 }
 
@@ -165,7 +164,7 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 		return err
 	}
 	if err := output.schema.Validate(value); err != nil {
-		if location := schemaViolationLocation(err); location != "" {
+		if location := schemaViolationLocation(output.schema, err); location != "" {
 			return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema at %s", location)
 		}
 		return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema")
@@ -181,26 +180,35 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 // jsonschema-go has no structured validation error. It wraps one
 // "validating <schema path>" layer per schema node around a
 // "<keyword>: <detail>" leaf. The detail can echo the value and a generated
-// regex, so only the path and keyword are kept.
-func schemaViolationLocation(err error) string {
-	location := ""
+// regex, so only the path and keyword are kept. A format is validated as a
+// pattern in its own subschema, so that failure is named by its format.
+func schemaViolationLocation(validator *outputschema.Validator, err error) string {
+	path, keyword := "", ""
 	for inner := errors.Unwrap(err); inner != nil; err, inner = inner, errors.Unwrap(inner) {
 		layer, ok := strings.CutSuffix(err.Error(), ": "+inner.Error())
 		if !ok {
 			break
 		}
-		path, ok := strings.CutPrefix(layer, "validating ")
+		layerPath, ok := strings.CutPrefix(layer, "validating ")
 		if !ok {
 			break
 		}
-		location = path
+		path = layerPath
 		if errors.Unwrap(inner) == nil {
-			if keyword, _, ok := strings.Cut(inner.Error(), ": "); ok && isKeyword(keyword) {
-				location += " (" + keyword + ")"
+			if leaf, _, ok := strings.Cut(inner.Error(), ": "); ok && isKeyword(leaf) {
+				keyword = leaf
 			}
 		}
 	}
-	return location
+	if keyword == "pattern" {
+		if node, format, ok := validator.Format(path); ok {
+			return node + " (format: " + format + ")"
+		}
+	}
+	if keyword != "" {
+		return path + " (" + keyword + ")"
+	}
+	return path
 }
 
 func isKeyword(s string) bool {
