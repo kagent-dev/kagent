@@ -330,6 +330,11 @@ cursors grant no access. Watched atespaces are traversed in sorted order.
 
 Only the authorized page and an upstream batch are retained. Lookahead can be read
 again on the next request, and sparse authorization can require many backend reads,
-but previous public pages are not rescanned. Cancellation, page-walk bounds, and
-non-advancing token checks bound failed scans. Failed scans return no partial page
+but previous public pages are not rescanned. Each public list request has a
+100-backend-page budget shared across atespaces
+and a 10-second deadline (or the caller's earlier deadline). Lookahead counts
+against that budget. Exhaustion returns an explicit `ResourceExhausted` or
+`DeadlineExceeded` inventory error. Summary scans retain their separate
+10,000-page walk bound. Non-advancing token checks also bound failed scans.
+Failed scans return no partial page
 or continuation, and backend error details remain in server logs.

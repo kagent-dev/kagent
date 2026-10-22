@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -563,4 +564,97 @@ func TestInventoryFiltersBeforePaging(t *testing.T) {
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
 	_, err = denied.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{})
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+}
+
+func TestActorListScanBudgetSpansWatchedAtespaces(t *testing.T) {
+	ate := &fakeATEClient{}
+	var namespaces []string
+	for i := range 101 {
+		namespace := fmt.Sprintf("team-%03d", i)
+		namespaces = append(namespaces, namespace)
+		ate.actors = append(ate.actors, substrateActor("actor", namespace, 0, "", ""))
+	}
+	svc := system.NewService(nil, namespaces, &pkgAuth.NoopAuthorizer{}, ate)
+	for attempt := range 2 {
+		page, err := svc.ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 100}})
+		require.NoError(t, err)
+		require.Contains(t, page.ATEAPIError, "ResourceExhausted")
+		require.Empty(t, page.Actors)
+		require.Empty(t, page.NextPageToken)
+		require.Equal(t, (attempt+1)*100, ate.actorReads, "one request-wide budget, reset for each request")
+	}
+	// A narrower request can succeed without scanning earlier atespaces.
+	page, err := svc.ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{Atespace: namespaces[100]})
+	require.NoError(t, err)
+	require.Empty(t, page.ATEAPIError)
+	require.Len(t, page.Actors, 1)
+	require.Equal(t, 201, ate.actorReads)
+}
+
+func TestWorkerListScanBudgetAndDeadline(t *testing.T) {
+	for _, finishAtLimit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("finish-at-limit=%v", finishAtLimit), func(t *testing.T) {
+			reads := 0
+			ate := &inventoryScanATEClient{read: func(ctx context.Context, _ int32, _ string) ([]*ateapipb.Worker, string, error) {
+				deadline, ok := ctx.Deadline()
+				require.True(t, ok)
+				require.LessOrEqual(t, time.Until(deadline), 10*time.Second)
+				reads++
+				if finishAtLimit && reads == 100 {
+					return []*ateapipb.Worker{{Metadata: &ateapipb.ResourceMetadata{Name: "visible"}, WorkerNamespace: "team"}}, "", nil
+				}
+				return nil, strconv.Itoa(reads), nil
+			}}
+			svc := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, ate)
+			page, err := svc.ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{Limit: 1}})
+			require.NoError(t, err)
+			require.Equal(t, 100, reads)
+			require.Empty(t, page.NextPageToken)
+			if finishAtLimit {
+				require.Empty(t, page.ATEAPIError)
+				require.Len(t, page.Workers, 1)
+			} else {
+				require.Contains(t, page.ATEAPIError, "ResourceExhausted")
+				require.Empty(t, page.Workers)
+			}
+		})
+	}
+}
+
+func TestInventoryListHonorsEarlierCallerDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(pagingContext(t), time.Now().Add(-time.Second))
+	defer cancel()
+	ate := &fakeATEClient{}
+	svc := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, ate)
+	actors, err := svc.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{})
+	require.NoError(t, err)
+	require.Contains(t, actors.ATEAPIError, "DeadlineExceeded")
+	require.Empty(t, actors.Actors)
+	require.Empty(t, actors.NextPageToken)
+	workers, err := svc.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{})
+	require.NoError(t, err)
+	require.Contains(t, workers.ATEAPIError, "DeadlineExceeded")
+	require.Empty(t, workers.Workers)
+	require.Empty(t, workers.NextPageToken)
+	require.Zero(t, ate.actorReads)
+	require.Zero(t, ate.workerReads)
+}
+
+func TestInventoryListDeadlineDuringBackendRead(t *testing.T) {
+	ctx, cancel := context.WithTimeout(pagingContext(t), 20*time.Millisecond)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	ate := &inventoryScanATEClient{read: func(ctx context.Context, _ int32, _ string) ([]*ateapipb.Worker, string, error) {
+		actualDeadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.Equal(t, deadline, actualDeadline, "list timeout must not extend caller deadline")
+		<-ctx.Done()
+		return nil, "", ctx.Err()
+	}}
+	svc := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, ate)
+	page, err := svc.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{})
+	require.NoError(t, err)
+	require.Contains(t, page.ATEAPIError, "DeadlineExceeded")
+	require.Empty(t, page.Workers)
+	require.Empty(t, page.NextPageToken)
 }

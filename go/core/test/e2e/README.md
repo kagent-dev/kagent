@@ -298,3 +298,12 @@ Pending-input coverage waits for a suspended Actor and a verified durable VOLUME
 snapshot before approval, denial, cancellation, and native ask-user responses.
 The approval matrix asserts one MCP execution on approval and none on denial or
 cancellation; native question continuations preserve the task and context IDs.
+
+`TestSubstrateInventoryPagination` verifies Kagent continuation tokens against the
+real ate-api by requesting one row per page. It creates and cleans up two Sessions
+and checks both global and scoped Actor listings, then traverses worker pages.
+The test requires at least two registered Substrate workers (CI provisions four);
+missing worker capacity fails the test rather than skipping continuation coverage.
+There are no retries around list calls, so a Substrate token-format change fails
+on continuation. Run with `KAGENT_E2E_API_URL` and the normal kagent harness fixture
+configured, using `go test ./core/test/e2e -run '^TestSubstrateInventoryPagination$'`.

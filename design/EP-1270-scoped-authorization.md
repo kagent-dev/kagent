@@ -1,8 +1,8 @@
-# EP-1270: Scoped authorization for configuration resources
+# EP-1270: Scoped authorization for Kagent resources
 
 ## Summary
 
-Kagent needs resource-scoped authorization for configuration resources without coupling its API to a particular policy system.
+Kagent needs resource-scoped authorization for configuration resources, owned records, and runtime inventory without coupling its API to a particular policy system.
 
 Authorization decisions use trusted resource identity. Unauthorized resources are omitted from collections, and unauthorized operations fail with the standard permission-denied response.
 
@@ -40,7 +40,7 @@ Static provider definitions and supported tool-server types contain no configure
 ## Non-goals
 
 - Define roles, policies, claims, subjects, grants, or catalog keys.
-- Extend this configuration-resource contract to legacy `SandboxAgent` or `AgentHarness` resources or to `Session` authorization.
+- Extend this configuration-resource contract to legacy `SandboxAgent` or `AgentHarness` resources.
 - Filter ATE actor, worker, or actor-template inventory using Kubernetes object scopes.
 - Expose policy-engine, SQL, Kubernetes, or other backend expressions.
 - Predict authorization for UI controls.
@@ -62,7 +62,9 @@ Unsupported or invalid authorization decisions fail closed.
 
 ## Resource identity
 
-Object authorization uses namespace and name. Collection authorization uses the trusted identity attributes listed for each resource type. Each decision is made before the operation it authorizes.
+Configuration object authorization uses namespace and name. Owned records use
+the resource identities defined in the Sessions, checkpoints, shares, and
+scheduled runs section below. Collection authorization uses the trusted identity attributes listed for each resource type. Each decision is made before the operation it authorizes.
 
 - Reads and deletes are decided from their references before the read, so denial does not reveal whether the resource exists.
 - Creates are decided from the validated proposed resource.
@@ -75,6 +77,62 @@ A service that writes through its own client authorizes update from the request 
 A protected collection returns only resources permitted by its collection decision. Authorization is applied before sorting, totals, pagination, or response construction so unauthorized resources cannot affect observable collection behavior.
 
 A decision that permits no resources returns an empty collection. An authorization failure or a decision that cannot be safely applied fails the request; it never broadens access.
+
+## Sessions, checkpoints, shares, and scheduled runs
+
+These services use `Authorizer.Check` for operation capabilities, not collection
+`Scope` expressions. Resource namespaces are empty unless explicitly stated below.
+Storage ownership remains an independent restriction: a policy grant alone does
+not confer access to another user's records.
+
+| Operation | Required checks (`verb Resource`, with `name`) |
+| --- | --- |
+| List Sessions | `list Session`, empty name; `get Session`, Session ID, for every returned row |
+| List Sessions across creators | Above checks plus `list SessionAllCreators`, empty name |
+| Create Session | `create Session`, empty name; `get Agent`, target namespace/name |
+| Create Checkpoint | `create Checkpoint`, empty name; `get Session`, source Session ID |
+| List Checkpoints | `list Checkpoint`, empty name; storage filters by caller ownership and source Session ID |
+| Fork Checkpoint | `get Checkpoint`, checkpoint ID; `get Session`, saved source ID; `create Session`, empty name; `get Agent`, target namespace/name resolved from the owned checkpoint |
+| List Session shares | `list Session`, `<session-id>/shares`; storage requires ownership |
+| Create Session share | `create Session`, `<session-id>/shares`; storage requires ownership |
+| Revoke Session share | `delete Session`, `shares/<share-id>`; storage requires ownership |
+| List ScheduledRuns | `list ScheduledRun`, empty name; storage filters by creator |
+| Create ScheduledRun | `create ScheduledRun`, empty name; `get Agent`, target namespace/name; `create Session`, empty name |
+| Update ScheduledRun | `update ScheduledRun`, schedule ID; same target checks as create |
+| Manually trigger ScheduledRun | `create ScheduledRun`, `<schedule-id>/executions`; same target checks as create |
+| List scheduled executions | `list ScheduledRun`, `<schedule-id>/executions`; storage filters by creator |
+| Get scheduled execution | `get ScheduledRun`, `executions/<execution-id>`; storage requires ownership |
+
+Existing integrations that grant `get` for these collection operations must grant
+`list` instead. Individual Session, Checkpoint, and ScheduledRun reads still use
+`get` with the record ID. The all-creators Session capability does not bypass
+per-Session read authorization. Checkpoint creation retries and forks authorize the
+saved source identity without requiring that source Session to still exist;
+retained checkpoints can outlive it.
+
+A share recipient is authorized as the authenticated recipient, not as the owner.
+They need `get Session` on the shared Session ID in addition to a valid share.
+The share supplies the storage owner and permits only that Session's read paths.
+Listing through a share returns at most that Session under its `get` check; it
+does not require or grant the ordinary `list Session` or all-creators capability.
+Shares grant no checkpoint or schedule access, and actors cannot use share credentials.
+
+### Scheduled execution is durable delegation
+
+Creating a ScheduledRun delegates future automatic execution to the control plane.
+Automatic dispatch uses `ControlPlaneSession`, whose principal has no human user
+or claims. It does not reconstruct or re-evaluate the creator's current grants.
+Revoking the creator's `get Agent` or `create Session` permission therefore does
+not itself revoke an existing schedule. Control-plane authorization checks still
+apply independently; an external authorizer may allow or deny those calls.
+
+Create (including retries), update, and manual trigger recheck the caller's target
+Agent and Session-create permissions. Automatic dispatch does not. Stopping future
+runs requires pausing or deleting the schedule through an authorized operation.
+Update, including pause, requires the target grants; delete requires its own
+ScheduledRun delete grant and ownership, without target grants. This distinction
+is intentional; dispatch-time creator revocation would require a different
+identity and delegation contract.
 
 ## Summary and Substrate capabilities
 
@@ -113,7 +171,13 @@ Substrate adapter encodes a keyset token for the last returned identity, avoidin
 rescans of previous pages. Backend scan cursors remain internal. Each request
 re-evaluates authorization; the boundary row need not still exist or be authorized.
 The adapter's encoder is coupled to the pinned Substrate token format and must be
-checked on upgrades. No shared cursor storage or encryption key is required.
+checked on upgrades. No shared cursor storage or encryption key is required. Dedicated list requests have a 100-backend-page
+budget shared across watched atespaces and a 10-second overall deadline (or the
+caller's earlier deadline). Lookahead consumes the same budget. Exhaustion yields
+an explicit `ate_api_error` with `ResourceExhausted` or `DeadlineExceeded`, no rows,
+and no continuation; it must not appear as successful end-of-list. Sparse scopes
+may therefore fail to fill a page within the budget. Operator summary walks retain
+their separate 10,000-page bound.
 
 `Scope` is reserved for `VerbList` collection filtering. Whole-endpoint capabilities
 use `Check(VerbGet, ...)`, never `Scope(VerbGet, ...)`.
