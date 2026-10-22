@@ -133,6 +133,9 @@ func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, m
 					CandidatesTokenCount: int32(resp.EvalCount),
 					TotalTokenCount:      int32(resp.PromptEvalCount + resp.EvalCount),
 				}
+				if resp.PromptEvalCachedCount != nil {
+					usageMetadata.CachedContentTokenCount = int32(*resp.PromptEvalCachedCount)
+				}
 			}
 
 			response := &model.LLMResponse{
@@ -218,6 +221,9 @@ func (m *OllamaModel) generateNonStreaming(ctx context.Context, modelName string
 			PromptTokenCount:     int32(finalResponse.PromptEvalCount),
 			CandidatesTokenCount: int32(finalResponse.EvalCount),
 			TotalTokenCount:      int32(finalResponse.PromptEvalCount + finalResponse.EvalCount),
+		}
+		if finalResponse.PromptEvalCachedCount != nil {
+			usageMetadata.CachedContentTokenCount = int32(*finalResponse.PromptEvalCachedCount)
 		}
 	}
 
