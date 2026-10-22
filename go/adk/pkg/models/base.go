@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/genai"
 )
 
@@ -52,6 +53,8 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	if len(tc.Headers) > 0 {
 		transport = &headerTransport{base: transport, headers: tc.Headers}
 	}
+
+	transport = otelhttp.NewTransport(transport)
 
 	timeout := defaultTimeout
 	if tc.Timeout != nil {
