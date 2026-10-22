@@ -89,6 +89,11 @@ type parkedTask struct {
 	taskRef
 	pending runtime.PendingTurn
 	origin  trace.SpanContext
+	// usage is the tally the execution left when it parked. The status that
+	// carries it may not be persisted yet when a cancel arrives, so Cancel
+	// reports from here. A task restored after a restart has none: its tally
+	// is only on the stored task.
+	usage *taskUsage
 }
 
 // continuedTurn is the parked turn handed to the request that continues it.
@@ -657,9 +662,14 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 				yield(nil, fmt.Errorf("cancellation does not match the parked task"))
 				return
 			}
-			// A parked task has no running execution: its usage is the total the
-			// input-required status persisted, plus the calls Cancel reaps.
-			canceling := &cancelingTask{taskRef: ref, done: make(chan struct{}), usage: newTaskUsage(reqCtx.StoredTask)}
+			// A parked task has no running execution: its usage is the tally the
+			// execution left, plus the calls Cancel reaps. Only a task restored
+			// after a restart starts from the total the stored task persisted.
+			usage := state.usage
+			if usage == nil {
+				usage = newTaskUsage(reqCtx.StoredTask)
+			}
+			canceling := &cancelingTask{taskRef: ref, done: make(chan struct{}), usage: usage}
 			e.state = canceling
 			e.mu.Unlock()
 
@@ -804,7 +814,7 @@ func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin tr
 		// Keep the task active until the caller cancels the newly returned handle.
 		return false
 	}
-	e.state = &parkedTask{taskRef: task.taskRef, pending: pending, origin: origin}
+	e.state = &parkedTask{taskRef: task.taskRef, pending: pending, origin: origin, usage: task.usage.snapshot()}
 	return true
 }
 

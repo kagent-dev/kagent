@@ -147,10 +147,15 @@ func TestCancelReportsTheUsageOfTheInterruptedExecution(t *testing.T) {
 	require.Equal(t, sonnetCounts(1), usage.TokenCounts)
 }
 
-// A parked task has no running execution: its canceled status repeats the
-// persisted total and adds the calls the native cleanup reports.
-func TestCancelParkedTaskReportsItsPersistedUsage(t *testing.T) {
-	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
+// A parked task has no running execution: its canceled status carries the total
+// the execution started from, the calls it made before it parked, and the calls
+// the native cleanup reports. The cancel can arrive before the input-required
+// status that carries the execution's calls reaches the store, so the stored
+// task still shows the total the execution started from: it is neither the
+// source nor added a second time.
+func TestCancelParkedTaskReportsTheUsageItsStatusMayNotHavePersisted(t *testing.T) {
+	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+		sink.ModelCall(sonnetCall)
 		return runtime.Outcome{Pending: &fakePendingTurn{
 			request: &runtime.ApprovalRequest{ID: "7", CallID: "call-1", Name: "tools.write"},
 			cancel: func(_ context.Context, sink runtime.ModelCallSink) error {
@@ -160,8 +165,37 @@ func TestCancelParkedTaskReportsItsPersistedUsage(t *testing.T) {
 		}}, nil
 	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	require.NoError(t, err)
-	_, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "write")))
+	persisted := map[string]any{}
+	require.NoError(t, apia2a.AttachUsage(persisted, apia2a.Usage{TokenCounts: sonnetCounts(1)}))
+	first := requestContext("task-1", "write")
+	first.StoredTask = &a2atype.Task{ID: first.TaskID, ContextID: first.ContextID, Metadata: persisted}
+	_, errs := collect(executor.Execute(t.Context(), first))
 	require.Empty(t, errs)
+
+	cancel := requestContext("task-1", "ignored")
+	cancel.StoredTask = &a2atype.Task{ID: cancel.TaskID, ContextID: cancel.ContextID, Metadata: persisted}
+	events, errs := collect(executor.Cancel(t.Context(), cancel))
+	require.Empty(t, errs)
+	require.Len(t, events, 1)
+	status, usage, found := statusUsage(t, events[0])
+	require.Equal(t, a2atype.TaskStateCanceled, status.Status.State)
+	require.True(t, found)
+	require.Equal(t, sonnetCounts(3), usage.TokenCounts)
+}
+
+// A task restored after a restart ran in another process, so its canceled
+// status starts from the persisted total and adds the calls the native cleanup
+// reports.
+func TestCancelRestoredTaskReportsItsPersistedUsage(t *testing.T) {
+	runner := &restoringRunner{taskID: "task-1", contextID: testContextID, pending: &fakePendingTurn{
+		request: &runtime.ApprovalRequest{ID: "7", CallID: "call-1", Name: "tools.write"},
+		cancel: func(_ context.Context, sink runtime.ModelCallSink) error {
+			sink.ModelCall(sonnetCall)
+			return nil
+		},
+	}}
+	executor, err := New(runner, &fakeContinuation{data: testSessionID}, tracing.RuntimeTelemetry{})
+	require.NoError(t, err)
 
 	persisted := map[string]any{}
 	require.NoError(t, apia2a.AttachUsage(persisted, apia2a.Usage{TokenCounts: sonnetCounts(1)}))
@@ -174,4 +208,40 @@ func TestCancelParkedTaskReportsItsPersistedUsage(t *testing.T) {
 	require.Equal(t, a2atype.TaskStateCanceled, status.Status.State)
 	require.True(t, found)
 	require.Equal(t, sonnetCounts(2), usage.TokenCounts)
+}
+
+// The runtimes report reasoning tokens inside the output tokens, and Claude
+// Code's session totals can name reasoning tokens after the output that holds
+// them was counted. The split is made once, on the stamped payload, so the
+// adjustment moves tokens from output to reasoning instead of adding them.
+func TestTaskUsageSplitsReasoningOutOfOutputOnce(t *testing.T) {
+	tests := []struct {
+		name  string
+		calls []runtime.ModelCall
+		want  apia2a.TokenCounts
+	}{
+		{
+			name:  "a remainder that names the reasoning of an earlier output",
+			calls: []runtime.ModelCall{{InputTokens: 10, OutputTokens: 20}, {UsageOnly: true, ReasoningOutputTokens: 5}},
+			want:  apia2a.TokenCounts{InputTokens: 10, OutputTokens: 15, ReasoningTokens: 5, TotalTokens: 30},
+		},
+		{
+			// The session totals clamp each counter on its own, so a remainder can
+			// name more reasoning than the output counted. Nothing goes negative.
+			name:  "a remainder with more reasoning than the counted output",
+			calls: []runtime.ModelCall{{InputTokens: 10, OutputTokens: 3}, {UsageOnly: true, ReasoningOutputTokens: 5}},
+			want:  apia2a.TokenCounts{InputTokens: 10, OutputTokens: 0, ReasoningTokens: 5, TotalTokens: 15},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usage := newTaskUsage(nil)
+			for _, call := range tt.calls {
+				usage.add(call)
+			}
+			_, got, found := statusUsage(t, usage.stamp(a2atype.NewStatusUpdateEvent(requestContext("task-1", "hello"), a2atype.TaskStateCompleted, nil)))
+			require.True(t, found)
+			require.Equal(t, tt.want, got.TokenCounts)
+		})
+	}
 }

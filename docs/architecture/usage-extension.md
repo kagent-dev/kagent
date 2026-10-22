@@ -75,7 +75,10 @@ Each LLM call is counted once, on its final non-partial response. Because
 `totalTokens` is the provider's own figure when there is one, it can exceed the
 sum of the other counts. A call whose response names no model is counted in the
 top-level totals only, so the per-model entries can add up to less than the
-totals. The key is omitted when no call reported usage.
+totals. Reasoning tokens that only such a call identifies leave the top-level
+`outputTokens` but stay inside the `outputTokens` of the model that produced
+them, so a per-model `outputTokens` can exceed the top-level one. The key is
+omitted when no call reported usage.
 
 ## Semantics
 
@@ -94,8 +97,9 @@ the latest one; they never sum values across status updates.
   makes that update the task's final event and discards the interrupted
   execution's own, so the runtime reads the running execution's usage when it
   handles the cancel request. A task with no running execution, such as one
-  waiting for input, repeats its persisted total. A call cut off before its
-  final response was never reported by the provider and is not counted.
+  waiting for input, repeats the total its `input-required` status carries. A
+  call cut off before its final response was never reported by the provider and
+  is not counted.
 
 ## Claude and Codex harnesses
 
@@ -105,8 +109,16 @@ reports to the executor, which are the calls the runtime's chat spans and token
 metrics record. Paused, resumed and canceled executions follow the rules above.
 
 - **Reasoning:** Claude Code and Codex count reasoning tokens inside their output
-  tokens. The executor moves them to `reasoningTokens`, so `outputTokens`
-  excludes them as it does for the ADK runtimes.
+  tokens. The executor sums the counters as reported and splits the reasoning
+  tokens out of the output once, on the stamped payload, so `outputTokens`
+  excludes them as it does for the ADK runtimes. A session remainder that names
+  reasoning tokens after the output holding them was counted moves them from
+  `outputTokens` to `reasoningTokens` instead of counting them twice.
+- **Cancel while waiting for input:** the `canceled` status carries the tally the
+  execution left when it parked, which is what its `input-required` status
+  carries, plus the calls the cancel reaps. A cancel that arrives before that
+  status is persisted loses nothing. After a restart, the restored task starts
+  from the persisted total.
 - **Claude session totals:** each turn runs a Claude Code process that resumes the
   session, and its result reports the session's totals, not the turn's. The
   Claude harness reads the totals the session saved before the turn and reports
@@ -115,7 +127,9 @@ metrics record. Paused, resumed and canceled executions follow the rules above.
   (an `error_max_*` result) fails, and its status carries those tokens too. When
   the saved totals cannot be read, the turn counts only the calls it reported.
 - **Models:** that remainder names no response model, so it is counted in the
-  top-level totals only.
+  top-level totals only. The reasoning tokens it identifies are split out of the
+  top-level `outputTokens` and stay inside the `outputTokens` of their model's
+  entry.
 - **Cost:** v1 has no cost field. Claude Code's `total_cost_usd` is not reported.
 
 ## Out of scope for v1
