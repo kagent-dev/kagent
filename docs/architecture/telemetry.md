@@ -13,7 +13,7 @@ The contract is a Weaver registry in [`telemetry/registry`](../../telemetry/regi
 
 | Concept | Attributes | Where |
 | --- | --- | --- |
-| Operation | `gen_ai.operation.name` | A span is a GenAI operation when it carries this. kagent writes `invoke_agent` only where the runtime's own spans carry no invocation segment. Count turns by `kagent.invocation.segment` |
+| Operation | `gen_ai.operation.name` | A span is a GenAI operation when it carries this. kagent writes `invoke_agent` only where the runtime emits none of its own or the kagent harness runtime writes its GenAI spans. Count turns by `kagent.invocation.segment` |
 | Runtime | `kagent.runtime` | Resource |
 | Agent | `gen_ai.agent.name`, `gen_ai.agent.id` | invoke_agent and request spans. The resource carries the same identity as `gen_ai.main_agent.name` and `gen_ai.main_agent.id` |
 | Provider and model | `gen_ai.provider.name`, `gen_ai.request.model` | Resource and invoke_agent span, for harnesses compiled against one model |
@@ -181,7 +181,7 @@ The registry depends on the core semantic conventions at v1.44.0 and on the GenA
 
 Each A2A `SendMessage` or `SendStreamingMessage` request opens one span in the instrumentation scope `github.com/kagent-dev/kagent/go/adk/pkg/a2a/server`. It represents one execution segment, and what it is called depends on whether anything beneath it describes the agent invocation.
 
-For a native harness, Claude Code or Codex, nothing does: the native runtime emits no agent invocation, and kagent's harness runtime writes the model and tool spans. The request span is therefore the GenAI conventions' `invoke_agent` operation, named `invoke_agent <gen_ai.agent.name>`, and it is the anchor consumers should read.
+For a native harness, Claude Code or Codex, kagent's harness runtime writes the GenAI spans in the native runtime's place. The request span is therefore the GenAI conventions' `invoke_agent` operation, named `invoke_agent <gen_ai.agent.name>`, and it is the anchor consumers should read. Claude Code still marks its `claude_code.interaction` span `invoke_agent`, as a child of the request span; the reference collector removes that operation with the native runtime's other GenAI attributes.
 
 For the ADK runtime the ADK emits `invoke_agent` spans of its own, carrying `gen_ai.agent.name` and `gen_ai.conversation.id`: one for the root agent and one for each sub-agent it transfers to within the turn. The root one is the invocation. The request span stays a transport span named `a2a.request` with the same identity attributes and no `gen_ai.operation.name`, so the wrapper never adds an invocation of its own to what the ADK reports. A consumer that counts turns rather than agent invocations counts `kagent.invocation.segment`, which only the request span carries, whichever runtime produced the trace.
 
@@ -268,7 +268,7 @@ CI runs it in the e2e job and uploads the report with the e2e logs. It reports o
 
 - associates Kubernetes metadata by `k8s.pod.uid` only, which only the controller sets. A runtime on Substrate runs inside a worker pod, so a connection IP would name the worker;
 - deletes `gen_ai.usage.*` from the Python ADK's `call_llm` spans, so usage is counted once per model call;
-- deletes `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.finish_reasons` and `gen_ai.usage.*` from the native Claude Code and Codex spans, which carry `kagent.genai.producer=runtime`. The harness runtime writes their model and tool spans, so each model call is counted once. A standalone Claude request keeps them, since the runtime writes no span for it;
+- deletes `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.finish_reasons` and `gen_ai.usage.*` from the native Claude Code and Codex spans, which carry `kagent.genai.producer=runtime`. The harness runtime writes their model and tool spans, so each model call is counted once, and Claude Code's `claude_code.interaction` span does not count as a second invocation. A standalone Claude request keeps them, since the runtime writes no span for it;
 - deletes captured content and the Go ADK's legacy payload keys, as a backstop for an installation with capture off. Remove `transform/genai_content` from the pipelines when capture is on;
 - derives `gen_ai.invoke_agent.duration` from invoke_agent spans that kagent did not open, before any sampling;
 - exports over gzip OTLP with a `file_storage` sending queue, so a collector restart keeps what it has accepted.
