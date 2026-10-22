@@ -25,7 +25,7 @@ const (
 // accept raw JSON Schema and for final response validation. genai.Schema lacks
 // const and additionalProperties, and represents enum values as strings, so
 // those constraints may be enforced only by the provider and final validator.
-// It also keeps only the string formats Gemini documents. genai.Schema holds
+// It keeps only supported string formats. genai.Schema holds
 // one type, so a type list projects "null" to Nullable and leaves Type unset
 // when two or more non-null types remain.
 func ToGenAISchema(raw json.RawMessage) (*genai.Schema, error) {
@@ -119,7 +119,7 @@ func (c *schemaConverter) convert(schema *jsonschema.Schema, stack map[*jsonsche
 		converted.Type = nonNull[0]
 	}
 	converted.Pattern = schema.Pattern
-	if geminiStringFormats[schema.Format] {
+	if _, ok := stringFormatPatterns[schema.Format]; ok {
 		converted.Format = schema.Format
 	}
 	converted.Required = append([]string(nil), schema.Required...)

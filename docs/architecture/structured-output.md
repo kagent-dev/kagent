@@ -110,8 +110,9 @@ outputSchema:
 ```
 
 OpenAI, Azure OpenAI, Claude, Bedrock, and Foundry requests carry both keywords
-unchanged. Gemini requests carry `pattern` and only the `date` and `date-time`
-formats. Mistral requests carry the same projection as Gemini requests, and
+unchanged. Gemini requests carry `pattern` and every supported format; the
+[Gemini Schema reference](https://ai.google.dev/api/generate-content#v1beta.Schema) allows any
+`format` value. Mistral requests carry the same projection as Gemini requests, and
 Ollama and SAP AI Core requests carry no schema. The final validator asserts
 every `pattern` and `format`, so a provider that ignores either keyword still
 cannot complete the Task with a nonconforming value. `date-time` follows RFC

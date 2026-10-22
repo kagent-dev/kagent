@@ -56,10 +56,6 @@ var stringFormatPatterns = func() map[string]string {
 	}
 }()
 
-// geminiStringFormats are the formats that both the genai.Schema reference and
-// the Gemini structured output guide document.
-var geminiStringFormats = map[string]bool{"date": true, "date-time": true}
-
 // SupportedStringFormats returns the string formats accepted in a portable
 // output schema, sorted.
 func SupportedStringFormats() []string {
