@@ -25,9 +25,8 @@ const (
 // accept raw JSON Schema and for final response validation. genai.Schema lacks
 // const and additionalProperties, and represents enum values as strings, so
 // those constraints may be enforced only by the provider and final validator.
-// It keeps only supported string formats. genai.Schema holds
-// one type, so a type list projects "null" to Nullable and leaves Type unset
-// when two or more non-null types remain.
+// genai.Schema holds one type, so a type list with two or more non-null types
+// loses its type constraint too.
 func ToGenAISchema(raw json.RawMessage) (*genai.Schema, error) {
 	var schema jsonschema.Schema
 	if err := json.Unmarshal(raw, &schema); err != nil {
