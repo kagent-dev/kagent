@@ -790,7 +790,7 @@ export class A2AGrpcChatClient implements ChatClient {
           // chunk adds to what the snapshot showed instead of replacing it.
           for (const artifact of task.artifacts) {
             if (artifact.artifactId) {
-              artifacts.set(artifact.artifactId, textOf(toParts(artifact.parts)));
+              artifacts.set(artifact.artifactId, toParts(artifact.parts));
             }
           }
           yield {
