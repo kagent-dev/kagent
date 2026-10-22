@@ -33,7 +33,7 @@ runs:
       DOCKER_BUILDER: docker buildx build
       DOCKER_REGISTRY: ghcr.io
     run: |
-      export DOCKER_BUILD_ARGS="--pull --no-cache --push --platform linux/amd64,linux/arm64"
+      export DOCKER_BUILD_ARGS="--push --platform linux/amd64,linux/arm64"
       export RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP"
       make "build-$IMAGE"
   - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
