@@ -241,7 +241,7 @@ func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, ini
 // ErrSendNotAccepted tells callers they may retry this input because no dispatch
 // occurred, or an unused dispatch was revoked before the runtime persisted it.
 var ErrSendNotAccepted = a2atype.NewError(a2atype.ErrUnsupportedOperation, "input was not accepted; retry after the session becomes available").
-	WithErrorInfoMeta(map[string]string{"reason": "KAGENT_SEND_NOT_ACCEPTED", "retryAfterMs": "100"})
+	WithErrorInfoMeta(map[string]string{"reason": apia2a.SendNotAcceptedReason, "retryAfterMs": "100"})
 
 // RevokeSend releases an unused attempt. A true result proves that the input was
 // not accepted, allowing the gateway to distinguish rejection from uncertainty.
