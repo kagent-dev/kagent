@@ -219,7 +219,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		return ListResult{}, err
 	}
 	if request.AllCreators {
-		if _, err := s.authorizeType(ctx, auth.VerbGet, "SessionAllCreators", ""); err != nil {
+		if _, err := s.authorizeType(ctx, auth.VerbGet, auth.SessionAllCreators, ""); err != nil {
 			return ListResult{}, err
 		}
 	}

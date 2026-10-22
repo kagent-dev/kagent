@@ -11,8 +11,10 @@ The shipped [controller entrypoint](../../go/core/cmd/controller/main.go) reads
 `server.auth.mode` and `server.auth.userIdClaim` from the config file and supplies the authenticator
 through [app.Options](../../go/core/pkg/app/app.go). Unsupported modes fail
 startup. The default remains `insecure`; enabling oauth2-proxy alone does not
-change it. Authorization still defaults to `NoopAuthorizer`; library consumers
-can supply their own authentication and authorization through `app.Options`.
+change it. Authorization defaults to `DefaultAuthorizer`, which denies listing
+other users' conversations while retaining ordinary resource access. Library
+consumers can supply their own authentication and authorization through
+`app.Options`.
 
 ## Browser session flow
 

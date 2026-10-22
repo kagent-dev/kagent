@@ -89,7 +89,8 @@ type Options struct {
 	// which admits every request.
 	Authenticator auth.AuthProvider
 	// Authorizer decides what an identified caller may do and which collection
-	// entries it may see. Nil selects NoopAuthorizer, which permits every action.
+	// entries it may see. Nil selects DefaultAuthorizer, which denies cross-user
+	// session listing unless an explicit authorizer grants it.
 	Authorizer auth.CollectionAuthorizer
 	// SetupWithManager registers additional controllers and scheme types on
 	// core's manager. It runs after the manager exists and before it starts, so
@@ -134,7 +135,7 @@ func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 	}
 	authorizer := o.Authorizer
 	if authorizer == nil {
-		authorizer = &auth.NoopAuthorizer{}
+		authorizer = &auth.DefaultAuthorizer{}
 	}
 	return authenticator, authorizer
 }

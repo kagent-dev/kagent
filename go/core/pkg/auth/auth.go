@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 
@@ -23,6 +24,9 @@ type Resource struct {
 	Namespace string
 	Name      string
 }
+
+// SessionAllCreators is the separate permission for listing other users' sessions.
+const SessionAllCreators = "SessionAllCreators"
 
 type User struct {
 	ID string
@@ -112,6 +116,19 @@ func (NoopAuthorizer) Check(context.Context, Principal, Verb, Resource) error {
 
 func (NoopAuthorizer) Scope(context.Context, Principal, Verb, string) (authorization.AuthorizationScope, error) {
 	return authorization.AuthorizationScope{Kind: authorization.ScopeAll}, nil
+}
+
+// DefaultAuthorizer keeps broad compatibility for ordinary resources while
+// requiring an explicit authorizer to grant cross-user session listing.
+type DefaultAuthorizer struct{ NoopAuthorizer }
+
+var _ CollectionAuthorizer = DefaultAuthorizer{}
+
+func (DefaultAuthorizer) Check(_ context.Context, _ Principal, _ Verb, resource Resource) error {
+	if resource.Type == SessionAllCreators {
+		return errors.New("listing other users' sessions requires an explicit authorizer")
+	}
+	return nil
 }
 
 // context utils

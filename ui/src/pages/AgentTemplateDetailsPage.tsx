@@ -521,29 +521,15 @@ function AgentConversationCount({
     );
   }
 
-  const total = conversations.data?.all.length ?? 0;
+  const total = conversations.data?.own.length ?? 0;
   const label = total === 1 ? "1 conversation" : `${total} conversations`;
 
-  // A count taken from a narrowed read says so when the read was narrowed. Without
-  // this, a reader refused `all_creators` sees a number that is their own share of
-  // the conversations and reads it as the total.
-  const refused = conversations.data?.widerReadRefused;
-
-  return refused ? (
-    <Tooltip title={`Yours only — the wider read was refused: ${refused}`}>
-      <Text
-        css={{ color: theme.color.textMuted, fontSize: 12 }}
-        data-testid="template-agent-conversations"
-      >
-        {label} (yours)
-      </Text>
-    </Tooltip>
-  ) : (
+  return (
     <Text
       css={{ color: theme.color.textMuted, fontSize: 12 }}
       data-testid="template-agent-conversations"
     >
-      {label}
+      {label} (yours)
     </Text>
   );
 }

@@ -17,9 +17,9 @@ export function liveApi(baseURL: string) {
         ?.latestSuccessfulRevision;
     },
 
-    /** Deletes an Agent and every conversation started from it. Missing is fine. */
+    /** Deletes an Agent and the current user's conversations. Missing is fine. */
     async removeAgent(namespace: string, name: string) {
-      const { sessions: rows } = await sessions.listSessions({ allCreators: true, agent: { namespace, name } });
+      const { sessions: rows } = await sessions.listSessions({ agent: { namespace, name } });
       for (const session of rows) {
         await sessions.deleteSession({ sessionId: session.id }).catch(() => {});
       }

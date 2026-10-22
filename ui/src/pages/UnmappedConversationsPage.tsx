@@ -33,7 +33,7 @@ export function UnmappedConversationsPage() {
   );
 
   const agents = useAgentsAcrossNamespaces(namespaceNames);
-  const conversations = useAgentInstances(true);
+  const conversations = useAgentInstances();
 
   /*
    * Computed here rather than handed over, so the page is a real address.
@@ -54,12 +54,7 @@ export function UnmappedConversationsPage() {
   const loadFailure = namespaces.error ?? agents.error ?? conversations.error;
 
   /*
-   * Every one of them, in parallel, because they are independent.
-   *
-   * No creator filter here, unlike the agent page: a delete of somebody else's is
-   * refused by the controller rather than silently succeeding, and a refusal fails the
-   * whole action and re-reads the list — so what could not be deleted stays visible
-   * rather than appearing to have gone.
+   * Every one of the caller's unmapped conversations, in parallel.
    */
   async function removeAll(): Promise<void> {
     await Promise.all(
@@ -119,7 +114,7 @@ export function UnmappedConversationsPage() {
   return (
     <PageFrame
       title="Unmapped conversations"
-      description="Conversations whose Agent definition no longer exists. They retain their prepared revisions."
+      description="Your conversations whose Agent definition no longer exists. They retain their prepared revisions."
       actions={
         <Space size={8}>
           {/*
@@ -133,7 +128,7 @@ export function UnmappedConversationsPage() {
           {orphans.length > 0 ? (
             <DeleteResourceButton
               kind="conversations"
-              name={`all ${orphans.length} unmapped`}
+              name={`all ${orphans.length} of your unmapped`}
               label="Delete all"
               outlined
               onDelete={removeAll}
@@ -143,7 +138,7 @@ export function UnmappedConversationsPage() {
                   css={{ display: "inline-block", maxWidth: 340 }}
                   data-testid="unmapped-delete-all-consequence"
                 >
-                  This will delete all conversations that do not have an agent Agent definition — {orphans.length} in all. They cannot be
+                  This will delete all your conversations that do not have an Agent definition — {orphans.length} in all. They cannot be
                   recovered, and the workers they hold are released.
                 </span>
               }
@@ -187,7 +182,7 @@ export function UnmappedConversationsPage() {
           locale={{
             emptyText: loadFailure
               ? " "
-              : "Every conversation belongs to an agent. Nothing to show here.",
+              : "None of your conversations are unmapped. Nothing to show here.",
           }}
         />
       </Space>
