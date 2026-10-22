@@ -658,3 +658,106 @@ func TestInventoryListDeadlineDuringBackendRead(t *testing.T) {
 	require.Empty(t, page.Workers)
 	require.Empty(t, page.NextPageToken)
 }
+
+func TestInventoryHybridBatchingKeepsDenseRequestsSmall(t *testing.T) {
+	for _, limit := range []int32{1, 50, 100} {
+		t.Run(strconv.Itoa(int(limit)), func(t *testing.T) {
+			reads := 0
+			ate := &inventoryScanATEClient{read: func(_ context.Context, size int32, _ string) ([]*ateapipb.Worker, string, error) {
+				reads++
+				require.Equal(t, limit+1, size)
+				rows := make([]*ateapipb.Worker, size)
+				for i := range rows {
+					rows[i] = &ateapipb.Worker{Metadata: &ateapipb.ResourceMetadata{Name: fmt.Sprintf("worker-%03d", i)}, WorkerNamespace: "team"}
+				}
+				return rows, "backend-next", nil
+			}}
+			svc := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, ate)
+			page, err := svc.ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{Limit: limit}})
+			require.NoError(t, err)
+			require.Empty(t, page.ATEAPIError)
+			require.Len(t, page.Workers, int(limit))
+			require.NotEmpty(t, page.NextPageToken)
+			require.Equal(t, 1, reads)
+		})
+	}
+}
+
+func TestInventoryRowBudgetCountsEveryFetchedRow(t *testing.T) {
+	for _, scenario := range []string{"no matches", "partial page", "end at budget", "lookahead at budget"} {
+		t.Run(scenario, func(t *testing.T) {
+			fetched := 0
+			var sizes []int32
+			ate := &inventoryScanATEClient{read: func(_ context.Context, size int32, _ string) ([]*ateapipb.Worker, string, error) {
+				sizes = append(sizes, size)
+				require.LessOrEqual(t, fetched+int(size), 10_000, "must cap the final backend batch")
+				rows := make([]*ateapipb.Worker, size)
+				for i := range rows {
+					fetched++
+					namespace := "other"
+					if fetched == 1 && (scenario == "partial page" || scenario == "lookahead at budget") || fetched == 10_000 && (scenario == "end at budget" || scenario == "lookahead at budget") {
+						namespace = "team"
+					}
+					rows[i] = &ateapipb.Worker{Metadata: &ateapipb.ResourceMetadata{Name: fmt.Sprintf("worker-%05d", fetched)}, WorkerNamespace: namespace}
+				}
+				next := strconv.Itoa(fetched)
+				if fetched == 10_000 && (scenario == "end at budget" || scenario == "lookahead at budget") {
+					next = ""
+				}
+				return rows, next, nil
+			}}
+			svc := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, ate)
+			page, err := svc.ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{Namespace: "team", Page: &apiv1.PageRequest{Limit: 1}})
+			require.NoError(t, err)
+			require.Equal(t, 10_000, fetched)
+			require.Len(t, sizes, 11)
+			require.Equal(t, int32(2), sizes[0])
+			for _, size := range sizes[1:10] {
+				require.Equal(t, int32(1_000), size)
+			}
+			require.Equal(t, int32(998), sizes[10])
+			if scenario == "no matches" || scenario == "partial page" {
+				require.Contains(t, page.ATEAPIError, "ResourceExhausted")
+				require.Empty(t, page.Workers)
+				require.Empty(t, page.NextPageToken)
+			} else {
+				require.Empty(t, page.ATEAPIError)
+				require.Len(t, page.Workers, 1)
+				if scenario == "lookahead at budget" {
+					require.NotEmpty(t, page.NextPageToken)
+				} else {
+					require.Empty(t, page.NextPageToken)
+				}
+			}
+		})
+	}
+}
+
+func TestInventoryRowBudgetAndHybridBatchingSpanAtespaces(t *testing.T) {
+	ate := &fakeATEClient{}
+	for _, namespace := range []string{"team-a", "team-b"} {
+		count := 2
+		if namespace == "team-b" {
+			count = 10_001
+		}
+		for i := range count {
+			ate.actors = append(ate.actors, substrateActor(fmt.Sprintf("actor-%05d", i), namespace, 0, "", ""))
+		}
+	}
+	policy := inventoryAuthorizer{scopes: map[string]apiauthorization.AuthorizationScope{"SubstrateActor": inventoryScope(apiauthorization.AttributeAtespace, "team-b", "missing")}}
+	svc := system.NewService(nil, []string{"team-a", "team-b"}, policy, ate)
+	page, err := svc.ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 1}})
+	require.NoError(t, err)
+	require.Contains(t, page.ATEAPIError, "ResourceExhausted")
+	require.Empty(t, page.Actors)
+	require.Empty(t, page.NextPageToken)
+	require.Equal(t, "team-a", ate.actorAtespaces[0])
+	require.Equal(t, "team-b", ate.actorAtespaces[1])
+	require.Equal(t, int32(2), ate.actorSizes[0])
+	require.Equal(t, int32(1_000), ate.actorSizes[1], "first-batch sizing must not reset at an atespace boundary")
+	var total int32
+	for _, size := range ate.actorSizes {
+		total += size
+	}
+	require.Equal(t, int32(10_000), total, "row budget must not reset at an atespace boundary")
+}

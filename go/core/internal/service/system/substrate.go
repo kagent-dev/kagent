@@ -42,20 +42,31 @@ const maxATEPagesPerWalk = 10_000
 
 // List requests have a smaller, request-wide budget than operator summaries.
 // Both lookahead and traversal across watched atespaces consume this budget.
-const maxInventoryListPages = 100
-const inventoryListTimeout = 10 * time.Second
+const (
+	maxInventoryListPages        = 100
+	maxInventoryListRows   int32 = 10_000
+	inventoryListBatchRows int32 = 1_000
+	inventoryListTimeout         = 10 * time.Second
+)
 
-type inventoryScan struct{ pagesRead int }
+type inventoryScan struct {
+	pagesRead int
+	rowsRead  int32
+}
 
-func (i *inventoryScan) advance(ctx context.Context) error {
+func (i *inventoryScan) nextPageSize(ctx context.Context, initialSize int32) (int32, error) {
 	if err := ctx.Err(); err != nil {
-		return status.FromContextError(err).Err()
+		return 0, status.FromContextError(err).Err()
 	}
-	if i.pagesRead >= maxInventoryListPages {
-		return status.Error(codes.ResourceExhausted, "inventory list scan budget exhausted")
+	if i.pagesRead >= maxInventoryListPages || i.rowsRead >= maxInventoryListRows {
+		return 0, status.Error(codes.ResourceExhausted, "inventory list scan budget exhausted")
+	}
+	size := inventoryListBatchRows
+	if i.pagesRead == 0 {
+		size = initialSize
 	}
 	i.pagesRead++
-	return nil
+	return min(size, maxInventoryListRows-i.rowsRead), nil
 }
 
 // SubstrateActorPage is one page of actors, as read.
@@ -328,16 +339,18 @@ func invalidPageToken() error { return serviceerrors.NewInvalidArgument("Invalid
 func collectInventory[Row any](ctx context.Context, scan *inventoryScan, read func(context.Context, int32, string) ([]Row, string, error), accept func(Row) bool, token string, count int32) ([]Row, error) {
 	var result []Row
 	for {
-		if err := scan.advance(ctx); err != nil {
+		size, err := scan.nextPageSize(ctx, count)
+		if err != nil {
 			return nil, err
 		}
-		rows, next, err := read(ctx, max(defaultSubstratePageSize, count-int32(len(result))), token)
+		rows, next, err := read(ctx, size, token)
 		if err := ctx.Err(); err != nil {
 			return nil, status.FromContextError(err).Err()
 		}
 		if err != nil {
 			return nil, err
 		}
+		scan.rowsRead += int32(len(rows))
 		for _, row := range rows {
 			if accept(row) {
 				result = append(result, row)

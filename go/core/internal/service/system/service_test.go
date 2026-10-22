@@ -55,6 +55,7 @@ type fakeATEClient struct {
 	// was followed rather than that the rows came back.
 	actorTokens       []string
 	workerTokens      []string
+	actorSizes        []int32
 	actorReads        int
 	workerReads       int
 	actorAtespaces    []string
@@ -75,6 +76,7 @@ func (client *fakeATEClient) ListActorTemplates(_ context.Context, atespace stri
 
 func (client *fakeATEClient) ListActorsPage(_ context.Context, atespace string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
 	client.actorReads++
+	client.actorSizes = append(client.actorSizes, pageSize)
 	client.actorTokens = append(client.actorTokens, pageToken)
 	client.actorAtespaces = append(client.actorAtespaces, atespace)
 	if err := client.readError(client.actorReads); err != nil {

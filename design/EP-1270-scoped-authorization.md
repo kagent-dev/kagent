@@ -171,9 +171,13 @@ Substrate adapter encodes a keyset token for the last returned identity, avoidin
 rescans of previous pages. Backend scan cursors remain internal. Each request
 re-evaluates authorization; the boundary row need not still exist or be authorized.
 The adapter's encoder is coupled to the pinned Substrate token format and must be
-checked on upgrades. No shared cursor storage or encryption key is required. Dedicated list requests have a 100-backend-page
+checked on upgrades. No shared cursor storage or encryption key is required. Dedicated list requests have a 10,000-row and 100-backend-page
 budget shared across watched atespaces and a 10-second overall deadline (or the
-caller's earlier deadline). Lookahead consumes the same budget. Exhaustion yields
+caller's earlier deadline). The first backend batch requests `limit + 1` rows;
+subsequent batches request up to 1,000 rows, capped by the remaining row budget.
+All fetched rows count, including denied rows, lookahead, and unused rows in a
+batch. The first-batch rule applies once per public request, across atespaces.
+Lookahead consumes the same budget. Exhaustion yields
 an explicit `ate_api_error` with `ResourceExhausted` or `DeadlineExceeded`, no rows,
 and no continuation; it must not appear as successful end-of-list. Sparse scopes
 may therefore fail to fill a page within the budget. Operator summary walks retain

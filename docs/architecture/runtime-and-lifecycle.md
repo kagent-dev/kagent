@@ -331,9 +331,11 @@ cursors grant no access. Watched atespaces are traversed in sorted order.
 Only the authorized page and an upstream batch are retained. Lookahead can be read
 again on the next request, and sparse authorization can require many backend reads,
 but previous public pages are not rescanned. Each public list request has a
-100-backend-page budget shared across atespaces
-and a 10-second deadline (or the caller's earlier deadline). Lookahead counts
-against that budget. Exhaustion returns an explicit `ResourceExhausted` or
+10,000-row and 100-backend-page budget shared across atespaces
+and a 10-second deadline (or the caller's earlier deadline). The first batch
+requests `limit + 1` rows; later batches request up to 1,000 rows, capped by the
+remaining row budget. This applies once per request, across atespaces. All fetched
+rows count, including denied rows, lookahead, and unused rows within a batch. Exhaustion returns an explicit `ResourceExhausted` or
 `DeadlineExceeded` inventory error. Summary scans retain their separate
 10,000-page walk bound. Non-advancing token checks also bound failed scans.
 Failed scans return no partial page
