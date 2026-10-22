@@ -135,27 +135,27 @@ func TestResolveValidatorAssertsPatternAndFormatTogether(t *testing.T) {
 
 var childSchemas = []struct {
 	name     string
-	path     string
+	location string
 	schema   func(node string) string
 	instance func(value string) map[string]any
 }{
 	{
 		name:     "properties",
-		path:     "/properties/v",
+		location: "/properties/v (format: date)",
 		schema:   func(node string) string { return `{"type":"object","properties":{"v":` + node + `}}` },
 		instance: func(value string) map[string]any { return map[string]any{"v": value} },
 	},
 	{
-		name: "items",
-		path: "/properties/v/items",
+		name:     "items",
+		location: "/properties/v/items (format: date)",
 		schema: func(node string) string {
 			return `{"type":"object","properties":{"v":{"type":"array","items":` + node + `}}}`
 		},
 		instance: func(value string) map[string]any { return map[string]any{"v": []any{value}} },
 	},
 	{
-		name: "additionalProperties",
-		path: "/properties/v/additionalProperties",
+		name:     "additionalProperties",
+		location: "/properties/v/additionalProperties (format: date)",
 		schema: func(node string) string {
 			return `{"type":"object","properties":{"v":{"type":"object","additionalProperties":` + node + `}}}`
 		},
@@ -163,15 +163,16 @@ var childSchemas = []struct {
 	},
 	{
 		name: "anyOf",
-		path: "/properties/v/anyOf/0",
+		// jsonschema-go joins anyOf branch errors with %v, so the path stops at the anyOf node.
+		location: "/properties/v (anyOf)",
 		schema: func(node string) string {
 			return `{"type":"object","properties":{"v":{"anyOf":[` + node + `,{"type":"null"}]}}}`
 		},
 		instance: func(value string) map[string]any { return map[string]any{"v": value} },
 	},
 	{
-		name: "$defs",
-		path: "/$defs/v",
+		name:     "$defs",
+		location: "/$defs/v (format: date)",
 		schema: func(node string) string {
 			return `{"type":"object","properties":{"v":{"$ref":"#/$defs/v"}},"$defs":{"v":` + node + `}}`
 		},
@@ -185,12 +186,43 @@ func TestResolveValidatorAssertsFormatInEveryChildSchema(t *testing.T) {
 			validator, err := ResolveValidator(json.RawMessage(child.schema(`{"type":"string","format":"date"}`)))
 			require.NoError(t, err)
 			require.NoError(t, validator.Validate(child.instance("2026-10-19")))
-			assertion := child.path + "/allOf/0"
-			require.ErrorContains(t, validator.Validate(child.instance("Monday")), "validating "+assertion+": pattern: ")
-			node, format, ok := validator.Format(assertion)
-			require.True(t, ok)
-			require.Equal(t, child.path, node)
-			require.Equal(t, "date", format)
+			var violation *ViolationError
+			require.ErrorAs(t, validator.Validate(child.instance("Monday")), &violation)
+			require.Equal(t, child.location, violation.Location)
+		})
+	}
+}
+
+func TestValidatorReportsViolationLocationWithoutTheValue(t *testing.T) {
+	validator, err := ResolveValidator(json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"due":{"type":"string","format":"date-time"},
+			"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"},
+			"day":{"type":"string","format":"date","pattern":"^2026-"},
+			"count":{"type":"integer"}
+		},
+		"required":["due"]
+	}`))
+	require.NoError(t, err)
+	tests := []struct {
+		value        map[string]any
+		wantLocation string
+	}{
+		{value: map[string]any{"due": "secret-value"}, wantLocation: "/properties/due (format: date-time)"},
+		{value: map[string]any{"due": "2026-10-19T12:00:00Z", "ticket": "secret-value"}, wantLocation: "/properties/ticket (pattern)"},
+		{value: map[string]any{"due": "2026-10-19T12:00:00Z", "day": "2026-02-30"}, wantLocation: "/properties/day (format: date)"},
+		{value: map[string]any{"due": "2026-10-19T12:00:00Z", "day": "2025-10-19"}, wantLocation: "/properties/day (pattern)"},
+		{value: map[string]any{"due": "2026-10-19T12:00:00Z", "count": "secret-value"}, wantLocation: "/properties/count (type)"},
+		{value: map[string]any{}, wantLocation: "root (required)"},
+	}
+	for _, test := range tests {
+		t.Run(test.wantLocation, func(t *testing.T) {
+			err := validator.Validate(test.value)
+			var violation *ViolationError
+			require.ErrorAs(t, err, &violation)
+			require.Equal(t, test.wantLocation, violation.Location)
+			require.NotContains(t, err.Error(), "secret-value")
 		})
 	}
 }
@@ -243,6 +275,7 @@ func TestCheckPatternsBoundsProgramSize(t *testing.T) {
 		{name: "long bounded repeat", schema: `{"type":"object","properties":{"note":{"type":"string","pattern":"^.{0,1000}$"}}}`},
 		{name: "100 ipv6 formats", schema: properties(100, ipv6)},
 		{name: "103 ipv6 formats", schema: properties(103, ipv6), wantErr: true},
+		{name: "140 hostname formats", schema: properties(140, func(int) string { return `{"type":"string","format":"hostname"}` }), wantErr: true},
 		{name: "one pattern with 101 repeats of 1000", schema: `{"type":"object","properties":{"code":{"type":"string","pattern":"^` + strings.Repeat(`[a-z]{1000}`, 101) + `$"}}}`, wantErr: true},
 		{name: "ipv6 formats under items, anyOf and additionalProperties", schema: properties(105, func(i int) string {
 			return [...]string{

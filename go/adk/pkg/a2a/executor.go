@@ -164,8 +164,9 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 		return err
 	}
 	if err := output.schema.Validate(value); err != nil {
-		if location := schemaViolationLocation(output.schema, err); location != "" {
-			return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema at %s", location)
+		var violation *outputschema.ViolationError
+		if errors.As(err, &violation) && violation.Location != "" {
+			return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema at %s", violation.Location)
 		}
 		return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema")
 	}
@@ -175,45 +176,6 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 	part := apia2a.NewStructuredOutputPart(value, output.sha256)
 	processed.Artifact.Parts = a2atype.ContentParts{part}
 	return nil
-}
-
-// jsonschema-go has no structured validation error. It wraps one
-// "validating <schema path>" layer per schema node around a
-// "<keyword>: <detail>" leaf. The detail can echo the value and a generated
-// regex, so only the path and keyword are kept.
-func schemaViolationLocation(validator *outputschema.Validator, err error) string {
-	path, keyword := "", ""
-	for inner := errors.Unwrap(err); inner != nil; err, inner = inner, errors.Unwrap(inner) {
-		layer, ok := strings.CutSuffix(err.Error(), ": "+inner.Error())
-		if !ok {
-			break
-		}
-		layerPath, ok := strings.CutPrefix(layer, "validating ")
-		if !ok {
-			break
-		}
-		path = layerPath
-		if errors.Unwrap(inner) == nil {
-			if leaf, _, ok := strings.Cut(inner.Error(), ": "); ok && isKeyword(leaf) {
-				keyword = leaf
-			}
-		}
-	}
-	if keyword == "pattern" {
-		if node, format, ok := validator.Format(path); ok {
-			return node + " (format: " + format + ")"
-		}
-	}
-	if keyword != "" {
-		return path + " (" + keyword + ")"
-	}
-	return path
-}
-
-func isKeyword(s string) bool {
-	return s != "" && strings.IndexFunc(s, func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
-	}) < 0
 }
 
 // finalStructuredOutput returns ADK's parsed output when available. Normal A2A

@@ -2,19 +2,20 @@ package outputschema
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"maps"
 	"regexp/syntax"
 	"slices"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
 // The set is the intersection of the formats OpenAI and Anthropic structured
-// outputs document. jsonschema-go ignores format during validation, so each
-// format is asserted as a pattern.
-var stringFormatPatterns = func() map[string]string {
+// outputs document. jsonschema-go ignores format during validation.
+var stringFormatPatterns = func() map[string][]string {
 	const (
 		leapYear = `(?:\d\d(?:0[48]|[2468][048]|[13579][26])|(?:[02468][048]|[13579][26])00)`
 		fullDate = `(?:\d{4}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|` + leapYear + `-02-29)`
@@ -26,10 +27,11 @@ var stringFormatPatterns = func() map[string]string {
 		ipv4     = octet + `(?:\.` + octet + `){3}`
 		h16      = `[0-9A-Fa-f]{1,4}`
 		ls32     = `(?:` + h16 + `:` + h16 + `|` + ipv4 + `)`
-		durTime  = `T(?:\d+H(?:\d+M)?(?:\d+S)?|\d+M(?:\d+S)?|\d+S)`
-		durDate  = `(?:\d+Y(?:\d+M)?(?:\d+D)?|\d+M(?:\d+D)?|\d+D)`
+		durTime  = `T(?:\d+H(?:\d+M(?:\d+S)?)?|\d+M(?:\d+S)?|\d+S)`
+		durDate  = `(?:\d+Y(?:\d+M(?:\d+D)?)?|\d+M(?:\d+D)?|\d+D)`
 		hex      = `[0-9A-Fa-f]`
 		atom     = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
+		quoted   = `"(?:[ !#-\[\]-~]|\\[ -~])*"`
 	)
 	ipv6 := `(?:` +
 		`(?:` + h16 + `:){6}` + ls32 +
@@ -42,17 +44,18 @@ var stringFormatPatterns = func() map[string]string {
 		`|(?:(?:` + h16 + `:){0,5}` + h16 + `)?::` + h16 +
 		`|(?:(?:` + h16 + `:){0,6}` + h16 + `)?::` +
 		`)`
-	anchored := func(expression string) string { return `^` + expression + `$` }
-	return map[string]string{
+	anchored := func(expression string) []string { return []string{`^` + expression + `$`} }
+	return map[string][]string{
 		"date":      anchored(fullDate),
 		"date-time": anchored(fullDate + `[Tt]` + partial + offset),
 		"duration":  anchored(`P(?:\d+W|` + durDate + `(?:` + durTime + `)?|` + durTime + `)`),
-		"email":     anchored(atom + `(?:\.` + atom + `)*@` + hostname),
-		"hostname":  anchored(hostname),
-		"ipv4":      anchored(ipv4),
-		"ipv6":      anchored(ipv6),
-		"time":      anchored(partial + offset + `?`),
-		"uuid":      anchored(hex + `{8}-` + hex + `{4}-` + hex + `{4}-` + hex + `{4}-` + hex + `{12}`),
+		"email":     anchored(`(?:` + atom + `(?:\.` + atom + `)*|` + quoted + `)@(?:` + hostname + `|\[(?:` + ipv4 + `|(?i:IPv6:)` + ipv6 + `)\])`),
+		// RE2 has no lookahead, so the length limit is a second pattern.
+		"hostname": append(anchored(hostname), `^.{1,253}$`),
+		"ipv4":     anchored(ipv4),
+		"ipv6":     anchored(ipv6),
+		"time":     anchored(partial + offset),
+		"uuid":     anchored(hex + `{8}-` + hex + `{4}-` + hex + `{4}-` + hex + `{4}-` + hex + `{12}`),
 	}
 }()
 
@@ -63,7 +66,7 @@ func SupportedStringFormats() []string {
 }
 
 type Validator struct {
-	*jsonschema.Resolved
+	resolved          *jsonschema.Resolved
 	formatByAllOfPath map[string]formatAssertion
 }
 
@@ -72,11 +75,66 @@ type formatAssertion struct {
 	format string
 }
 
-// Format reports the schema node and string format that the subschema at path
-// asserts, if the subschema asserts a format.
-func (v *Validator) Format(path string) (node, format string, ok bool) {
-	assertion, ok := v.formatByAllOfPath[path]
-	return assertion.node, assertion.format, ok
+// ViolationError reports where a value violates an output schema. It omits
+// jsonschema-go's detail, which can echo the value and a generated pattern.
+type ViolationError struct {
+	// Location is the schema node and, when known, the keyword, such as
+	// "/properties/due (format: date-time)" or "root (required)". It is empty
+	// when jsonschema-go's error text has an unexpected shape.
+	Location string
+}
+
+func (e *ViolationError) Error() string {
+	if e.Location == "" {
+		return "value does not conform to the output schema"
+	}
+	return "value does not conform to the output schema at " + e.Location
+}
+
+// Validate returns a *ViolationError if value does not conform to the schema.
+func (v *Validator) Validate(value any) error {
+	if err := v.resolved.Validate(value); err != nil {
+		return &ViolationError{Location: v.location(err)}
+	}
+	return nil
+}
+
+// jsonschema-go has no structured validation error. Its text wraps one
+// "validating <schema path>" layer per schema node around a
+// "<keyword>: <detail>" leaf.
+func (v *Validator) location(err error) string {
+	path, keyword := "", ""
+	for inner := errors.Unwrap(err); inner != nil; err, inner = inner, errors.Unwrap(inner) {
+		layer, ok := strings.CutSuffix(err.Error(), ": "+inner.Error())
+		if !ok {
+			break
+		}
+		layerPath, ok := strings.CutPrefix(layer, "validating ")
+		if !ok {
+			break
+		}
+		path = layerPath
+		if errors.Unwrap(inner) == nil {
+			if leaf, _, ok := strings.Cut(inner.Error(), ": "); ok && isKeyword(leaf) {
+				keyword = leaf
+			}
+		}
+	}
+	if keyword == "pattern" {
+		if assertion, ok := v.formatByAllOfPath[path]; ok {
+			return assertion.node + " (format: " + assertion.format + ")"
+		}
+	}
+	if keyword != "" {
+		return path + " (" + keyword + ")"
+	}
+	return path
+}
+
+func isKeyword(s string) bool {
+	return s != "" && strings.IndexFunc(s, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
+	}) < 0
 }
 
 // ResolveValidator resolves a canonical output schema into a validator that
@@ -95,7 +153,7 @@ func ResolveValidator(raw json.RawMessage) (*Validator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve output schema: %w", err)
 	}
-	return &Validator{Resolved: resolved, formatByAllOfPath: formatByAllOfPath}, nil
+	return &Validator{resolved: resolved, formatByAllOfPath: formatByAllOfPath}, nil
 }
 
 // Paths follow the JSON Pointers that jsonschema-go reports in its errors.
@@ -104,7 +162,7 @@ func assertFormats(schema *jsonschema.Schema, path string, formatByAllOfPath map
 		return nil
 	}
 	if schema.Format != "" {
-		pattern, ok := stringFormatPatterns[schema.Format]
+		patterns, ok := stringFormatPatterns[schema.Format]
 		if !ok {
 			return fmt.Errorf("unsupported output schema format %q", schema.Format)
 		}
@@ -112,8 +170,10 @@ func assertFormats(schema *jsonschema.Schema, path string, formatByAllOfPath map
 		if node == "" {
 			node = "root"
 		}
-		formatByAllOfPath[fmt.Sprintf("%s/allOf/%d", path, len(schema.AllOf))] = formatAssertion{node: node, format: schema.Format}
-		schema.AllOf = append(schema.AllOf, &jsonschema.Schema{Pattern: pattern})
+		for _, pattern := range patterns {
+			formatByAllOfPath[fmt.Sprintf("%s/allOf/%d", path, len(schema.AllOf))] = formatAssertion{node: node, format: schema.Format}
+			schema.AllOf = append(schema.AllOf, &jsonschema.Schema{Pattern: pattern})
+		}
 	}
 	for childPath, child := range subschemas(schema) {
 		if err := assertFormats(child, path+childPath, formatByAllOfPath); err != nil {
@@ -123,20 +183,20 @@ func assertFormats(schema *jsonschema.Schema, path string, formatByAllOfPath map
 	return nil
 }
 
-// maxPatternProgramSize bounds the regexp instructions that the patterns of one
-// output schema compile to, counting each format as the pattern that asserts it.
 // Compiling takes about 300 bytes per instruction, so the bound keeps a schema
 // near 30 MB.
 const maxPatternProgramSize = 100_000
 
 var formatProgramSizes = func() map[string]int64 {
 	sizes := make(map[string]int64, len(stringFormatPatterns))
-	for format, pattern := range stringFormatPatterns {
-		parsed, err := syntax.Parse(pattern, syntax.Perl)
-		if err != nil {
-			panic(fmt.Sprintf("format %s pattern: %v", format, err))
+	for format, patterns := range stringFormatPatterns {
+		for _, pattern := range patterns {
+			parsed, err := syntax.Parse(pattern, syntax.Perl)
+			if err != nil {
+				panic(fmt.Sprintf("format %s pattern: %v", format, err))
+			}
+			sizes[format] += programSize(parsed)
 		}
-		sizes[format] = programSize(parsed)
 	}
 	return sizes
 }()

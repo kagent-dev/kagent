@@ -84,7 +84,9 @@ types, nested objects and arrays, `properties`, `required`,
 descriptions, non-recursive local references through `$defs`, and type lists
 such as `type: [string, "null"]`. String schemas can also use `pattern`, in RE2
 syntax, and `format`, limited to the formats that both OpenAI and Claude
-document.
+document. The runtime checks formats with regular expressions, so two checks
+are loose. It accepts any `xn--` hostname label without decoding the Punycode,
+and it accepts a leap second (`:60`) at any time, not only at 23:59 UTC.
 
 External or recursive references, conditional schemas, tuple arrays, and other
 unsupported keywords are rejected during compilation rather than silently
