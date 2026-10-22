@@ -27,7 +27,6 @@ const (
 )
 
 type store interface {
-	GetSession(context.Context, string, string) (*apiv1.Session, error)
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
@@ -88,7 +87,7 @@ func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHead
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.sourceSession(ctx, sessionID, userID); err != nil {
+	if _, err := s.authorize(ctx, auth.VerbGet, "Session", sessionID); err != nil {
 		return nil, err
 	}
 	key := fmt.Sprintf("%q/%q/%q/%q", userID, sessionID, requestID, expectedHeadTaskID)
@@ -389,25 +388,6 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 		return nil, serviceerrors.NewUnavailable("Failed to create fork Session", err)
 	}
 	return session, nil
-}
-
-// sourceSession checks the source independently of destination creation authority.
-// Storage enforces ownership before any snapshot read, reservation, or tag request.
-func (s *Service) sourceSession(ctx context.Context, id, owner string) (*apiv1.Session, error) {
-	if err := validateIdentity(id); err != nil {
-		return nil, err
-	}
-	if _, err := s.authorize(ctx, auth.VerbGet, "Session", id); err != nil {
-		return nil, err
-	}
-	source, err := s.store.GetSession(ctx, id, owner)
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("Source Session not found", err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get source Session", err)
-	}
-	return source, nil
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {

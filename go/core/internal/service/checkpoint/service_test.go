@@ -57,14 +57,21 @@ func (s *testStore) GetSession(_ context.Context, id, owner string) (*apiv1.Sess
 	return &apiv1.Session{Id: id, Creator: owner, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
 }
 
-func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv1.Checkpoint, _, _ string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error) {
+func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv1.Checkpoint, owner, _ string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error) {
 	s.reservations++
 	if s.reserveErr != nil {
 		return nil, nil, s.reserveErr
 	}
+	if s.checkpointOwner != "" && s.checkpointOwner != owner {
+		return nil, nil, database.ErrNotFound
+	}
 	if s.prepared != nil {
 		return s.prepared, s.snapshot, nil
 	}
+	if s.sourceErr != nil {
+		return nil, nil, s.sourceErr
+	}
+	s.checkpointOwner = owner
 	checkpoint.HeadTaskId = "task-1"
 	checkpoint.HistorySequence = 7
 	s.snapshot = &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
@@ -594,6 +601,7 @@ func TestCheckpointComposesPermissionsBeforeEffects(t *testing.T) {
 			if test.ownerDenied {
 				if test.operation == "create" {
 					store.sourceErr = database.ErrNotFound
+					store.prepared = nil
 				} else {
 					store.checkpointOwner = "bob"
 				}
@@ -612,7 +620,11 @@ func TestCheckpointComposesPermissionsBeforeEffects(t *testing.T) {
 				code = serviceerrors.CodeNotFound
 			}
 			require.True(t, serviceerrors.IsCode(err, code), "%v", err)
-			require.Zero(t, store.reservations)
+			if test.ownerDenied && test.operation == "create" {
+				require.Equal(t, 1, store.reservations)
+			} else {
+				require.Zero(t, store.reservations)
+			}
 			require.Zero(t, store.snapshotReads)
 			require.Nil(t, store.forked)
 		})
@@ -651,4 +663,29 @@ func TestCheckpointSharesAndCategoryDenialsProtectEveryOperation(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestCreateRetriesReadyCheckpointAfterSourceDeletion(t *testing.T) {
+	store := &testStore{}
+	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1"}
+	policy := &restrictiveAuthorizer{}
+	svc := NewService(store, policy, tags, nil)
+	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	first, err := svc.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+	require.NoError(t, err)
+	store.sourceErr = database.ErrNotFound
+	retried, err := svc.Create(ctx, first.SessionId, "request-1", "task-1")
+	require.NoError(t, err)
+	require.Equal(t, first.Id, retried.Id)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, retried.State)
+	require.Equal(t, 1, tags.createCalls)
+	require.Zero(t, store.sourceReads.Load())
+	before := store.reservations
+	policy.resource, policy.verb = "Session", auth.VerbGet
+	_, err = svc.Create(ctx, first.SessionId, "request-1", "task-1")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	require.Equal(t, before, store.reservations)
+	policy.resource = ""
+	_, err = svc.Create(auth.AuthSessionTo(t.Context(), testSession{userID: "bob"}), first.SessionId, "request-1", "task-1")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 }

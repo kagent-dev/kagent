@@ -173,7 +173,7 @@ func (inventoryRPCATE) ListWorkersPage(_ context.Context, _ int32, token string)
 func (inventoryRPCATE) ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error) {
 	return []*ateapipb.ActorTemplate{{Metadata: &ateapipb.ResourceMetadata{Atespace: "visible", Name: "allowed"}, Containers: []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "SECRET", Value: "hidden"}}}}}, {Metadata: &ateapipb.ResourceMetadata{Atespace: "hidden", Name: "allowed"}}}, nil
 }
-func TestInventoryScopesAndEmptyPagesThroughGeneratedClient(t *testing.T) {
+func TestInventoryScopesFilterBeforePaginationThroughGeneratedClient(t *testing.T) {
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
 		config.SystemService = systemservice.NewService(nil, nil, inventoryRPCPolicy{}, inventoryRPCATE{})
 	})
@@ -181,18 +181,14 @@ func TestInventoryScopesAndEmptyPagesThroughGeneratedClient(t *testing.T) {
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
 	actors, err := client.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{})
 	require.NoError(t, err)
-	require.Empty(t, actors.Actors)
-	require.Equal(t, "second", actors.GetPage().GetNextPageToken())
-	actors, err = client.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{PageToken: "second"}})
-	require.NoError(t, err)
+	require.Empty(t, actors.GetAteApiError())
+	require.Empty(t, actors.GetPage().GetNextPageToken())
 	require.Len(t, actors.Actors, 1)
 	require.Equal(t, "visible", actors.Actors[0].GetMetadata().GetAtespace())
 	workers, err := client.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{})
 	require.NoError(t, err)
-	require.Empty(t, workers.Workers)
-	require.Equal(t, "second", workers.GetPage().GetNextPageToken())
-	workers, err = client.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{PageToken: "second"}})
-	require.NoError(t, err)
+	require.Empty(t, workers.GetAteApiError())
+	require.Empty(t, workers.GetPage().GetNextPageToken())
 	require.Len(t, workers.Workers, 1)
 	require.Equal(t, "worker", workers.Workers[0].GetMetadata().GetName())
 	summary, err := client.GetSubstrateSummary(ctx, &apiv1.GetSubstrateSummaryRequest{})

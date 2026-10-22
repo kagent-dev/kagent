@@ -444,15 +444,15 @@ func sandboxOperations(id string) []struct {
 			_, err := s.GetProcess(ctx, id, &guestpb.GetProcessRequest{})
 			return err
 		}},
-		{"kill process", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
-			_, err := s.KillProcess(ctx, id, &guestpb.KillProcessRequest{})
+		{"signal process", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
+			_, err := s.SignalProcess(ctx, id, &guestpb.SignalProcessRequest{})
 			return err
 		}},
 		{"stream outputs", auth.VerbGet, func(ctx context.Context, s *Service) error {
-			return s.StreamProcessOutputs(ctx, id, &guestpb.StreamProcessOutputsRequest{}, func(*guestpb.OutputChunk) error { panic("denied output") })
+			return s.StreamProcessOutput(ctx, id, &guestpb.StreamProcessOutputRequest{}, func(*guestpb.ProcessOutput) error { panic("denied output") })
 		}},
 		{"read file", auth.VerbGet, func(ctx context.Context, s *Service) error {
-			return s.ReadFile(ctx, id, &guestpb.ReadFileRequest{}, func(*guestpb.FileChunk) error { panic("denied file") })
+			return s.ReadFile(ctx, id, &guestpb.ReadFileRequest{}, func(*guestpb.ReadFileResponse) error { panic("denied file") })
 		}},
 		{"write file", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
 			_, err := s.WriteFile(ctx, id, func() (*guestpb.WriteFileRequest, error) { panic("denied input") })

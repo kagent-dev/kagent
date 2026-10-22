@@ -19,6 +19,9 @@ Authorization decisions use trusted resource identity. Unauthorized resources ar
 | `ToolServer` | list servers and tools, create, delete, MCP operations | `namespace`, `name` |
 | `PromptTemplate` | list, get, create, update, delete prompt libraries | `namespace`, `name` |
 | `WorkerPool` | list rows within the system summary | `namespace`, `name` |
+| `SubstrateActorTemplate` | list rows within the system summary | `atespace`, `name` |
+| `SubstrateActor` | list, summary counts | `atespace`, `name` |
+| `SubstrateWorker` | list, summary counts | `namespace`, `name` |
 
 `ListConfiguredProviders` applies the `ModelProviderConfig` list scope before projecting ready providers. Cached provider-model reads require get on the exact provider config; refresh requires update before invoking discovery. Session shares cannot refresh models, even when the authorizer permits update.
 
@@ -53,13 +56,13 @@ A collection decision may allow the complete collection, deny the complete colle
 
 For example, a principal may be allowed resources named `agent-a` or `agent-b` in `team-a`, as well as any resource in `shared`. The relationship between name and namespace must remain intact in the authorization decision.
 
-Only namespace and name are supported for scoped resource collections. Additional attributes or operations require a separate design decision based on a concrete authorization need.
+Kubernetes collection scopes support namespace and name. Substrate actors and actor templates use atespace and name; workers use namespace and name as defined below. Additional attributes or operations require a separate design decision based on a concrete authorization need.
 
 Unsupported or invalid authorization decisions fail closed.
 
 ## Resource identity
 
-Authorization uses namespace and name, the only attributes in scope. Each decision is made before the operation it authorizes.
+Object authorization uses namespace and name. Collection authorization uses the trusted identity attributes listed for each resource type. Each decision is made before the operation it authorizes.
 
 - Reads and deletes are decided from their references before the read, so denial does not reveal whether the resource exists.
 - Creates are decided from the validated proposed resource.
@@ -81,11 +84,38 @@ This whole-inventory capability is independent of object collection scopes.
 
 `GetSubstrateSummary` first requires `Check(VerbGet, Resource{Type: "SystemSummary"})`, with empty namespace and name. This is a whole-summary capability that policies may grant to operators or administrators. Denial fails the request with permission denied before any Kubernetes or ATE reads; the service does not return an apparently empty inventory for denied access.
 
-After this check, WorkerPool rows use `Scope(VerbList, "WorkerPool")` and are intersected with configured and requested namespaces. A `NONE` pool scope returns no pool rows while still allowing ATE inventory under the summary capability. Invalid scopes and evaluator errors fail the request.
+The capability permits access to the summary endpoint; each inventory family then
+requires its own `Scope(VerbList, resourceType)` decision:
 
-The summary capability grants the ATE counts and actor-template inventory included in the summary. It does not require or imply permission to use the dedicated actor and worker endpoints. Those endpoints independently require `Check(VerbGet, Resource{Type: "Substrate"})`, also with empty namespace and name. External authorizers may intentionally grant these two capabilities independently. Existing ATE atespace and worker-namespace filters remain in place; WorkerPool scope does not isolate ATE inventory.
+| Resource type | Scope attributes | Trusted identity |
+| --- | --- | --- |
+| `WorkerPool` | `namespace`, `name` | Kubernetes object metadata |
+| `SubstrateActorTemplate` | `atespace`, `name` | Substrate template metadata |
+| `SubstrateActor` | `atespace`, `name` | Substrate actor metadata |
+| `SubstrateWorker` | `namespace`, `name` | `worker_namespace` and worker metadata name; neither the pod name nor the pool name |
 
-`Scope` is reserved for `VerbList` collection filtering. Neither capability uses `Scope(VerbGet, ...)`.
+Scopes are intersected with the controller's watched namespaces and the caller's
+requested namespace or atespace. A `NONE` scope skips reads for that family and
+contributes no rows, counts, or status totals. Missing or blank inventory identities
+are excluded even under `ALL`. Invalid scopes and evaluator errors fail the request.
+WorkerPool scope does not grant access to any Substrate family.
+
+Dedicated actor and worker endpoints request `Scope(VerbList, "SubstrateActor")`
+and `Scope(VerbList, "SubstrateWorker")`, respectively. They do not require
+`SystemSummary` or the former `Substrate` capability. A `NONE` scope returns
+permission denied on these dedicated endpoints. External authorizers may grant
+summary access and each inventory family independently.
+
+Public inventory cursors contain only an offset into the authorized result. Backend
+cursors, which can encode denied identities, remain internal. Each continuation
+re-evaluates authorization and scans from the beginning, filtering before counting
+the offset or filling the page. This bounds retained memory to a page and works
+across replicas without shared cursor state, at the cost of repeated backend reads
+on later pages. As with other live collections, changes between requests may shift
+page boundaries; cursors do not represent a snapshot.
+
+`Scope` is reserved for `VerbList` collection filtering. Whole-endpoint capabilities
+use `Check(VerbGet, ...)`, never `Scope(VerbGet, ...)`.
 
 ## Client behavior
 
