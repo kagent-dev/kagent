@@ -565,7 +565,7 @@ ui:
     annotations: {}
 
   # -- Custom startup probe for the UI container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Override to adjust thresholds or change the health path. The image has no shell or curl, so use httpGet or tcpSocket.
   # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1
   startupProbe: {}
   # Example:
@@ -577,7 +577,7 @@ ui:
   #     periodSeconds: 5
   #     failureThreshold: 20
   # -- Custom readiness probe for the UI container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Override to adjust thresholds or change the health path. The image has no shell or curl, so use httpGet or tcpSocket.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}
   # Example:

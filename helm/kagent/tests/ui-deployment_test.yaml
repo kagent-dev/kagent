@@ -484,3 +484,13 @@ tests:
           content:
             name: nextjs-cache
             mountPath: /app/ui/.next/cache
+
+  - it: should reject KAGENT_UI_BASE_PATH in ui.env
+    template: ui-nginx-configmap.yaml
+    set:
+      ui.env:
+        - name: KAGENT_UI_BASE_PATH
+          value: /ui
+    asserts:
+      - failedTemplate:
+          errorMessage: set ui.basePath instead of a KAGENT_UI_BASE_PATH entry in ui.env

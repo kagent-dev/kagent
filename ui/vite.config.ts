@@ -57,8 +57,8 @@ const EXTENSION_ENV_PREFIX = "KAGENT_UI_EXTENSION_";
 /**
  * Serves the deployment configuration the way the container does.
  *
- * In production a startup script renders `public/env-config.js` from the pod's
- * environment. There is no such step in front of the dev server, so this plugin
+ * In production the Helm chart renders `public/env-config.js` from `ui.*` values.
+ * There is no such step in front of the dev server, so this plugin
  * replaces the tag that loads it with an inline copy built from `.env` and the
  * shell. Inline rather than a served file so it cannot be cached, and so the
  * values are unmistakably present in the document when debugging.

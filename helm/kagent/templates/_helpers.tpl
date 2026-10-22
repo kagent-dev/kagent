@@ -461,6 +461,9 @@ and the core settings except the base path are copied in by name.
       "KAGENT_UI_STREAM_TIMEOUT_MS" "STREAM_TIMEOUT_MS"
       "KAGENT_UI_ENABLE_MOCK" "ENABLE_MOCK_UI" -}}
 {{- range .Values.ui.env -}}
+{{- if eq .name "KAGENT_UI_BASE_PATH" -}}
+{{- fail "set ui.basePath instead of a KAGENT_UI_BASE_PATH entry in ui.env" -}}
+{{- end -}}
 {{- if or (hasKey $names .name) (hasPrefix "KAGENT_UI_EXTENSION_" .name) -}}
 {{- if not (hasKey . "value") -}}
 {{- fail (printf "ui.env %s needs a plain value: the chart renders it into env-config.js" .name) -}}
