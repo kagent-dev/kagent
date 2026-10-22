@@ -18,7 +18,7 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v0.6.0-alpha3 requires protocol-specific egress policies and permits
+Substrate v0.6.0 requires protocol-specific egress policies and permits
 DNS queries only for hostnames matched by those policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
@@ -261,7 +261,7 @@ or is canceled. Background processes are not durable work and have no process
 handle API in the bash tool. Suspending an Actor preserves files, not running
 commands. Command payloads and output are not logged by the shell helpers.
 
-Substrate v0.6.0-alpha3 uses snapshot fidelity. Agent and standalone sandbox
+Substrate v0.6.0 uses snapshot fidelity. Agent and standalone sandbox
 templates use VOLUMES. Resume starts fresh containers
 from the OCI image with the saved durable directories. Harnesses recover pending
 approvals and user input from their durable state; sandbox guests start with a

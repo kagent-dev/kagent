@@ -666,11 +666,12 @@ describe("the cluster", () => {
     { ips: ["10.0.0.1", "fd00::1"], primary: "10.0.0.1" },
     { ips: ["fd00::1", "10.0.0.1"], primary: "fd00::1" },
     { ips: [], primary: undefined },
+    { ips: undefined, primary: undefined },
   ])("reads the worker's primary IP from $ips", async ({ ips, primary }) => {
     serve(({ service }) => {
       service(SystemService, {
         listSubstrateWorkers: () => ({
-          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0", ips }],
+          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0", status: ips ? { ips } : undefined }],
         }),
       });
     });

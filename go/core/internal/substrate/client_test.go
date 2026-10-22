@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -129,6 +130,28 @@ func (f *createAtespaceFake) GetAtespace(_ context.Context, in *ateapipb.GetAtes
 type createActorFake struct {
 	ateapipb.ControlClient
 	actor *ateapipb.Actor
+}
+
+type createActorTemplateFake struct {
+	ateapipb.ControlClient
+	metadata metadata.MD
+}
+
+func (f *createActorTemplateFake) CreateActorTemplate(ctx context.Context, request *ateapipb.CreateActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
+	f.metadata, _ = metadata.FromOutgoingContext(ctx)
+	return request.GetActorTemplate(), nil
+}
+
+func TestCreateActorTemplateOptsIntoSnapshotLocationPreview(t *testing.T) {
+	fake := &createActorTemplateFake{}
+	client := &Client{ControlClient: fake}
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "trace-id", "existing")
+	template := &ateapipb.ActorTemplate{SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://snapshots/"}}
+	created, err := client.CreateActorTemplate(ctx, template)
+	require.NoError(t, err)
+	require.Equal(t, template, created)
+	require.Equal(t, []string{"true"}, fake.metadata.Get("ate-preview-allowed"))
+	require.Equal(t, []string{"existing"}, fake.metadata.Get("trace-id"))
 }
 
 type listActorTemplatesFake struct {

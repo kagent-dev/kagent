@@ -3,6 +3,7 @@ package substrate
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -235,12 +236,17 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 }
 
 // actorResources enforces the required limits at the Substrate boundary.
-func actorResources(cpu, memory string) (*ateapipb.Resources, error) {
-	for _, limit := range []struct{ name, value string }{{"cpu", cpu}, {"memory", memory}} {
-		q, err := resource.ParseQuantity(limit.value)
-		if err != nil || q.Sign() <= 0 || (limit.name == "cpu" && q.Cmp(resource.MustParse("1000")) >= 0) {
-			return nil, fmt.Errorf("invalid runtime %s limit %q", limit.name, limit.value)
-		}
+func actorResources(cpu, memory string) (*ateapipb.ResourceRequirements, error) {
+	cpuQuantity, err := resource.ParseQuantity(cpu)
+	if err != nil || cpuQuantity.Sign() <= 0 || cpuQuantity.Cmp(resource.MustParse("999999m")) > 0 {
+		return nil, fmt.Errorf("invalid runtime cpu limit %q", cpu)
 	}
-	return &ateapipb.Resources{Limits: []*ateapipb.Limits{{Name: "cpu", Quantity: cpu}, {Name: "memory", Quantity: memory}}}, nil
+	memoryQuantity, err := resource.ParseQuantity(memory)
+	if err != nil || memoryQuantity.Sign() <= 0 || memoryQuantity.Cmp(*resource.NewQuantity(math.MaxInt64, resource.DecimalSI)) > 0 {
+		return nil, fmt.Errorf("invalid runtime memory limit %q", memory)
+	}
+	return &ateapipb.ResourceRequirements{Limits: &ateapipb.Resources{
+		CpuMillicores: cpuQuantity.MilliValue(),
+		MemoryBytes:   memoryQuantity.Value(),
+	}}, nil
 }

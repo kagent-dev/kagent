@@ -1398,9 +1398,9 @@ function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    ips: worker.ip ? [worker.ip] : [],
     metadata: { version: BigInt(worker.version ?? 0) },
     status: {
+      ips: worker.ip ? [worker.ip] : [],
       allocated: {
         // Worker allocation includes actors from every atespace.
         actors: mockSubstrateInventory.actors.filter((actor) =>

@@ -210,8 +210,27 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 }
 
 func TestActorResources(t *testing.T) {
-	for _, test := range []struct{ cpu, memory, wantError string }{
-		{"500m", "2Gi", ""}, {"", "1Gi", "cpu"}, {"0", "1Gi", "cpu"}, {"-1", "1Gi", "cpu"}, {"1000", "1Gi", "cpu"}, {"1", "", "memory"}, {"1", "0", "memory"}, {"1", "invalid", "memory"},
+	for _, test := range []struct {
+		cpu, memory string
+		millicores  int64
+		bytes       int64
+		wantError   string
+	}{
+		{cpu: "500m", memory: "2Gi", millicores: 500, bytes: 2 << 30},
+		{cpu: "1.5", memory: "1G", millicores: 1500, bytes: 1_000_000_000},
+		{cpu: "0.1m", memory: "1.1", millicores: 1, bytes: 2},
+		{cpu: "999999m", memory: "9223372036854775807", millicores: 999999, bytes: 9223372036854775807},
+		{cpu: "", memory: "1Gi", wantError: "cpu"},
+		{cpu: "0", memory: "1Gi", wantError: "cpu"},
+		{cpu: "-1", memory: "1Gi", wantError: "cpu"},
+		{cpu: "invalid", memory: "1Gi", wantError: "cpu"},
+		{cpu: "1000", memory: "1Gi", wantError: "cpu"},
+		{cpu: "999.9991", memory: "1Gi", wantError: "cpu"},
+		{cpu: "1", memory: "", wantError: "memory"},
+		{cpu: "1", memory: "0", wantError: "memory"},
+		{cpu: "1", memory: "-1Gi", wantError: "memory"},
+		{cpu: "1", memory: "invalid", wantError: "memory"},
+		{cpu: "1", memory: "9223372036854775808", wantError: "memory"},
 	} {
 		t.Run(test.cpu+"/"+test.memory, func(t *testing.T) {
 			resources, err := actorResources(test.cpu, test.memory)
@@ -221,7 +240,8 @@ func TestActorResources(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, []*ateapipb.Limits{{Name: "cpu", Quantity: "500m"}, {Name: "memory", Quantity: "2Gi"}}, resources.Limits)
+			require.Equal(t, test.millicores, resources.Limits.CpuMillicores)
+			require.Equal(t, test.bytes, resources.Limits.MemoryBytes)
 		})
 	}
 }

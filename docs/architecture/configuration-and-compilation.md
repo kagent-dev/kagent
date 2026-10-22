@@ -201,7 +201,7 @@ completion.
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Agent namespace. Substrate v0.6.0-alpha3 chooses the sandbox runtime from
+in the Agent namespace. Substrate v0.6.0 chooses the sandbox runtime from
 the selected WorkerPool's `spec.sandboxClasses[]` and `configRef`; ActorTemplates
 no longer specify a SandboxConfig. Operators must install the referenced
 cluster-scoped SandboxConfig and provision compatible workers and runtime assets.
@@ -211,8 +211,14 @@ RuntimeClass. The standard configurations are `gvisor-default` and `microvm`.
 The central compiler also resolves operator-owned `runtimeDefaults.cpu` and
 `runtimeDefaults.memory` into each agent revision. Both limits are required by
 Substrate, default to 1 CPU and 1 GiB, and participate in the digest. The Substrate
-adapter validates their quantities and emits ActorTemplate resources for every
-harness. Standalone sandbox limits remain under `sandboxes` configuration.
+adapter validates their quantities and emits ActorTemplate limits in CPU
+millicores and memory bytes for every harness, rounding positive fractions up
+to the next unit. Standalone sandbox limits remain under `sandboxes` configuration.
+
+Harness and SandboxTemplate snapshot locations require Substrate's
+`PerTemplateSnapshotLocation` preview gate. The CLI installer enables it; direct
+Substrate installations must include it in their Helm `preview` list. The
+Substrate client opts ActorTemplate creation requests into preview features.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates
