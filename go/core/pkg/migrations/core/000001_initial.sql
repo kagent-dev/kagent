@@ -164,6 +164,9 @@ CREATE TABLE session (
     dispatch_id          UUID,
     dispatch_expires_at  TIMESTAMPTZ,
     CHECK ((dispatch_id IS NULL) = (dispatch_expires_at IS NULL)),
+    -- The TurnSender of the latest dispatch. A dispatch waits for the previous
+    -- execution to settle, so settlement charges that execution to it.
+    turn_sender          JSONB,
     history_id           UUID        NOT NULL,
     CONSTRAINT session_context_binding_fkey
         FOREIGN KEY (history_id, context_id) REFERENCES a2a_context(id, context_id) ON DELETE RESTRICT,

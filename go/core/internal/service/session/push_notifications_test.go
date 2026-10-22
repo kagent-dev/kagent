@@ -284,7 +284,8 @@ func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
 	digest = sha256.Sum256([]byte("wait"))
 	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	worker := NewPushWorker(store, NewHTTPPushSender(5*time.Second, true, true), nil, nil, testPushWorkerConfig(time.Minute))
 	done := make(chan error, 1)
 	go func() {
@@ -301,7 +302,8 @@ func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
 	digest = sha256.Sum256([]byte("complete"))
 	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	unblock()
 	select {
 	case update := <-entered:
@@ -362,7 +364,8 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
 			require.NoError(t, err)
 			require.Empty(t, events, "staged completion must not be notified")
-			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+			_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+			require.NoError(t, err)
 			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
 			require.NoError(t, err)
 			require.Len(t, events, 1)
@@ -760,7 +763,8 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 			require.NoError(t, err)
 			request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
 			require.NoError(t, store.SaveTaskPushConfig(t.Context(), session.Id, request.TaskId, &a2a.PushConfig{ID: "callback", URL: "http://receiver"}))
-			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+			_, err = store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version)
+			require.NoError(t, err)
 			started := make(chan struct{}, 1)
 			sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, _ a2a.Event) error {
 				started <- struct{}{}
@@ -836,7 +840,8 @@ func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 	require.NoError(t, store.SaveTaskPushConfig(t.Context(), session.Id, request.TaskId, &a2a.PushConfig{
 		ID: "slow", URL: receiver.URL + "/slow",
 	}))
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version)
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	wake := make(chan struct{}, 1)
@@ -860,7 +865,7 @@ func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 	require.NoError(t, store.SaveTaskPushConfig(t.Context(), fastSession.Id, fastRequest.TaskId, &a2a.PushConfig{
 		ID: "fast", URL: receiver.URL + "/fast",
 	}))
-	_, err = taskstore.NewService(store, nil, wake).SettleTask(settlementContext(t, fastSession), fastRequest)
+	_, err = taskstore.NewService(store, nil, wake, nil).SettleTask(settlementContext(t, fastSession), fastRequest)
 	require.NoError(t, err)
 	select {
 	case <-fastFinished:
@@ -901,7 +906,7 @@ func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
 	for range 2 {
 		wake := make(chan struct{}, 1)
 		startPushWorker(t, NewPushWorker(writes, &gatedPushSender{entered: entered, release: release}, nil, wake, testPushWorkerConfig(time.Hour)))
-		services = append(services, taskstore.NewService(store, nil, wake))
+		services = append(services, taskstore.NewService(store, nil, wake, nil))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 2 }, 5*time.Second, time.Millisecond)
 	for i := range 2 {

@@ -1,5 +1,85 @@
 file_format: definition/2
 metrics:
+  - name: kagent.turn.usage.input_tokens
+    requirement_level: recommended
+    instrument: counter
+    unit: "{token}"
+    brief: Input tokens a turn added to its task, cached input included.
+    note: >
+      Recorded when the controller publishes the turn's waiting or terminal
+      boundary, from the runtime's usage/v1 task metadata less the usage the
+      task carried before the turn. A runtime that reports no usage adds
+      nothing. Tokens of calls that named no model carry no model attribute.
+    stability: development
+    attributes:
+      - ref: gen_ai.agent.id
+        requirement_level: required
+      - ref: kagent.turn.sender
+        requirement_level: required
+      - ref: gen_ai.response.model
+        requirement_level:
+          conditionally_required: The runtime reported the model of the calls.
+
+  - name: kagent.turn.usage.output_tokens
+    requirement_level: recommended
+    instrument: counter
+    unit: "{token}"
+    brief: Output tokens a turn added to its task, reasoning excluded.
+    note: >
+      Recorded when the controller publishes the turn's waiting or terminal
+      boundary, from the runtime's usage/v1 task metadata less the usage the
+      task carried before the turn. A runtime that reports no usage adds
+      nothing. Tokens of calls that named no model carry no model attribute.
+    stability: development
+    attributes:
+      - ref: gen_ai.agent.id
+        requirement_level: required
+      - ref: kagent.turn.sender
+        requirement_level: required
+      - ref: gen_ai.response.model
+        requirement_level:
+          conditionally_required: The runtime reported the model of the calls.
+
+  - name: kagent.turn.usage.reasoning.output_tokens
+    requirement_level: recommended
+    instrument: counter
+    unit: "{token}"
+    brief: Reasoning tokens a turn added to its task.
+    note: >
+      Recorded when the controller publishes the turn's waiting or terminal
+      boundary, from the runtime's usage/v1 task metadata less the usage the
+      task carried before the turn. A runtime that reports no usage adds
+      nothing. Tokens of calls that named no model carry no model attribute.
+    stability: development
+    attributes:
+      - ref: gen_ai.agent.id
+        requirement_level: required
+      - ref: kagent.turn.sender
+        requirement_level: required
+      - ref: gen_ai.response.model
+        requirement_level:
+          conditionally_required: The runtime reported the model of the calls.
+
+  - name: kagent.turn.usage.cache_read.input_tokens
+    requirement_level: recommended
+    instrument: counter
+    unit: "{token}"
+    brief: Input tokens served from a provider cache in a turn.
+    note: >
+      Recorded when the controller publishes the turn's waiting or terminal
+      boundary, from the runtime's usage/v1 task metadata less the usage the
+      task carried before the turn. A runtime that reports no usage adds
+      nothing. Tokens of calls that named no model carry no model attribute.
+    stability: development
+    attributes:
+      - ref: gen_ai.agent.id
+        requirement_level: required
+      - ref: kagent.turn.sender
+        requirement_level: required
+      - ref: gen_ai.response.model
+        requirement_level:
+          conditionally_required: The runtime reported the model of the calls.
+
   - name: kagent.runtime_revision.gc.pending
     requirement_level: recommended
     instrument: gauge

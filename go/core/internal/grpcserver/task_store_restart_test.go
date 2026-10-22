@@ -70,7 +70,7 @@ func saveThroughControllerRestart(t *testing.T, store *database.Client, issuer *
 		server, err := New(Config{
 			Listener: serving, SystemService: testSystemService(),
 			Authenticator:    runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL),
-			TaskStoreService: taskstore.NewService(store, nil, make(chan struct{}, 1)),
+			TaskStoreService: taskstore.NewService(store, nil, make(chan struct{}, 1), nil),
 		})
 		require.NoError(t, err)
 		ctx, cancel := context.WithCancel(t.Context())
