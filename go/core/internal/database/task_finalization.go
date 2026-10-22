@@ -4,18 +4,29 @@ import (
 	"context"
 	"errors"
 
+	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
 )
 
+// SettledTask is a boundary SettleSessionTask published. Previous is the task
+// it replaced, and Sender the dispatch sender of the execution that reached it.
+type SettledTask struct {
+	Previous *a2a.Task
+	Task     *a2a.Task
+	Sender   *TurnSender
+}
+
 // SettleSessionTask publishes a saved terminal/waiting task and its history
 // atomically after native cleanup. It does not wait for runtime pause or snapshots.
 // Retries cannot republish an old state over a later turn. Callers authenticate
-// runtime authority; a missing or deleted session returns ErrNotFound.
-func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string, version int64) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
+// runtime authority; a missing or deleted session returns ErrNotFound. It
+// returns the published boundary, or nil when the boundary was already published.
+func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string, version int64) (*SettledTask, error) {
+	var settled *SettledTask
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		session, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
 			return notFoundOr(err)
@@ -54,6 +65,16 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		if err != nil {
 			return err
 		}
+		previous, err := unmarshalSessionTask(stored.Data)
+		if err != nil {
+			return err
+		}
+		sender, err := queryOne(ctx, tx, `
+			SELECT turn_sender FROM session WHERE id = $1
+		`, pgx.RowTo[*TurnSender], session.ID)
+		if err != nil {
+			return err
+		}
 		data, err := proto.Marshal(wire)
 		if err != nil {
 			return err
@@ -67,8 +88,13 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		`, session.HistoryID, taskID, row.ExpectedVersion, version); err != nil {
 			return err
 		}
-		return publishPushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
+		if err := publishPushBoundary(ctx, tx, session.HistoryID, taskID, version, task); err != nil {
+			return err
+		}
+		settled = &SettledTask{Previous: previous, Task: task, Sender: sender}
+		return nil
 	})
+	return settled, err
 }
 
 func applyStoredBoundary(data, eventData []byte) (*a2apb.Task, error) {

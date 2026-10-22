@@ -332,7 +332,8 @@ func TestUnacceptedContinuationDoesNotSubscribeToTask(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("complete without accepting input"), task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, taskID, version))
+	_, err = client.SettleSessionTask(ctx, session.Id, taskID, version)
+	require.NoError(t, err)
 	delivery, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.Nil(t, delivery)
@@ -373,7 +374,8 @@ func TestPushDeliveryRetriesAndRejectsTerminalRegistration(t *testing.T) {
 	require.NoError(t, err)
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("complete for push"), task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	terminal, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, terminal)
@@ -504,8 +506,10 @@ func TestPushDeliveryCoalescesPublishedBoundaries(t *testing.T) {
 	task.Artifacts = []*a2a.Artifact{{ID: "result", Parts: a2a.ContentParts{a2a.NewTextPart("done")}}}
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("second boundary"), task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
+	_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
 
 	delivery, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
@@ -520,7 +524,8 @@ func TestPushDeliveryCoalescesPublishedBoundaries(t *testing.T) {
 	require.NotEmpty(t, stored.History, "coalescing retains task history")
 	require.Equal(t, task.Artifacts, stored.Artifacts, "artifacts remain available through GetTask")
 	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	next, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.Nil(t, next, "settlement retries must not rearm acknowledged notifications")
@@ -588,7 +593,8 @@ func TestPushDeliveryReplacementAndDeleteCancelOldWork(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("replace push boundary"), task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	newDelivery, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, newDelivery)
@@ -677,7 +683,7 @@ func TestPushDeliveryResumeClearsWaitingWork(t *testing.T) {
 			_, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(task.ID))
 			require.NoError(t, err)
 			dispatch := uuid.New()
-			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, "continue"))
+			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, "continue", nil))
 			input := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("continue"))
 			input.ID, input.TaskID, input.ContextID = "continue", task.ID, task.ContextID
 			task.History = append(task.History, input)
@@ -695,7 +701,7 @@ func TestPushDeliveryResumeClearsWaitingWork(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, pending, "a failed resume must leave pending work intact")
 			dispatch = uuid.New()
-			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, ""))
+			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, "", nil))
 			_, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("resume"), task, task, dispatch.String())
 			require.NoError(t, err)
 			pending, err = client.HasPendingPushDelivery(ctx)
@@ -729,11 +735,13 @@ func TestPushDeliveryOldMutationRetryCannotClearLaterBoundary(t *testing.T) {
 	waiting.Status.State = a2a.TaskStateAuthRequired
 	boundaryVersion, err := client.UpdateSessionTask(ctx, session.Id, activeVersion, taskMutationHash("auth"), waiting, waiting, "")
 	require.NoError(t, err)
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(waiting.ID), boundaryVersion))
+	_, err = client.SettleSessionTask(ctx, session.Id, string(waiting.ID), boundaryVersion)
+	require.NoError(t, err)
 	version, err := client.UpdateSessionTask(ctx, session.Id, firstVersion, taskMutationHash("active"), &working, &working, "")
 	require.NoError(t, err)
 	require.Equal(t, activeVersion, version)
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(waiting.ID), firstVersion))
+	_, err = client.SettleSessionTask(ctx, session.Id, string(waiting.ID), firstVersion)
+	require.NoError(t, err)
 	delivery, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
@@ -811,7 +819,10 @@ func TestPushDeliveryClaimSkipsUncommittedPublication(t *testing.T) {
 	_, err = tx.Exec(ctx, `SELECT id FROM session_push_registration FOR UPDATE`)
 	require.NoError(t, err)
 	settled := make(chan error, 1)
-	go func() { settled <- client.SettleSessionTask(ctx, session.Id, string(task.ID), version) }()
+	go func() {
+		_, err := client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+		settled <- err
+	}()
 	require.Eventually(t, func() bool {
 		var blocked bool
 		err := client.db.QueryRow(ctx, `
@@ -848,7 +859,8 @@ func TestPushDeliveryRegistrationsHaveIndependentClaims(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("complete"), task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	first, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, first)

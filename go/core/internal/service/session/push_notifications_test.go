@@ -241,7 +241,8 @@ func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
 	digest = sha256.Sum256([]byte("wait"))
 	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	worker := NewPushWorker(store, NewHTTPPushSender(5*time.Second, true, true), nil, nil, time.Minute)
 	done := make(chan error, 1)
 	go func() {
@@ -258,7 +259,8 @@ func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
 	digest = sha256.Sum256([]byte("complete"))
 	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	unblock()
 	select {
 	case update := <-entered:
@@ -319,7 +321,8 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 			_, err = NewPushWorker(store, sender, signer, nil, time.Minute).poll(t.Context())
 			require.NoError(t, err)
 			require.Empty(t, events, "staged completion must not be notified")
-			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+			_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+			require.NoError(t, err)
 			_, err = NewPushWorker(store, sender, signer, nil, time.Minute).poll(t.Context())
 			require.NoError(t, err)
 			require.Len(t, events, 1)
@@ -515,7 +518,7 @@ func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
 	for range 2 {
 		wake := make(chan struct{}, 1)
 		startPushWorker(t, NewPushWorker(writes, &gatedPushSender{entered: entered, release: release}, nil, wake, time.Hour))
-		services = append(services, taskstore.NewService(store, nil, wake))
+		services = append(services, taskstore.NewService(store, nil, wake, nil))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 2 }, 5*time.Second, time.Millisecond)
 	for i := range 2 {

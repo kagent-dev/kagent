@@ -20,6 +20,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 type interactionStore interface {
@@ -28,7 +29,7 @@ type interactionStore interface {
 	GetTaskPushConfig(context.Context, string, string, string) (*database.TaskPushConfig, error)
 	ListTaskPushConfigs(context.Context, string, string, string, int) ([]database.TaskPushConfig, error)
 	DeleteTaskPushConfig(context.Context, string, string, string) error
-	ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error
+	ReserveSessionDispatch(context.Context, string, uuid.UUID, string, *database.TurnSender) error
 	RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (bool, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error)
@@ -159,7 +160,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		config.PushConfig = nil
 		req.Config = &config
 	}
-	id, err := s.reserveDispatch(ctx, session.Id, initialID)
+	id, err := s.reserveDispatch(ctx, session.Id, initialID, turnSender(ctx, session))
 	if errors.Is(err, database.ErrMessageAccepted) {
 		var historyLength *int
 		if req.Config != nil {
@@ -210,12 +211,12 @@ func (s *InteractionService) prepareTask(ctx context.Context, agent types.Namesp
 
 // reserveDispatch waits only before forwarding input. No runtime send is retried
 // on an ambiguous transport error, and no SQL lock is held during dispatch.
-func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, initialID string) (uuid.UUID, error) {
+func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, initialID string, sender *database.TurnSender) (uuid.UUID, error) {
 	id := uuid.New()
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	for {
-		err := s.store.ReserveSessionDispatch(ctx, sessionID, id, initialID)
+		err := s.store.ReserveSessionDispatch(ctx, sessionID, id, initialID, sender)
 		if err == nil {
 			return id, nil
 		}
@@ -236,6 +237,24 @@ func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, ini
 		case <-timer.C:
 		}
 	}
+}
+
+// turnSender names the authenticated principal a dispatch's usage is charged
+// to. The controller acts for the session's creator.
+func turnSender(ctx context.Context, session *apiv1.Session) *database.TurnSender {
+	authSession, ok := auth.AuthSessionFrom(ctx)
+	if !ok {
+		return nil
+	}
+	if _, ok := authSession.(auth.ControlPlaneSession); ok {
+		return &database.TurnSender{Kind: conv.KagentTurnSenderController, UserID: session.GetCreator()}
+	}
+	principal := authSession.Principal()
+	kind := conv.KagentTurnSenderUser
+	if principal.Actor != nil {
+		kind = conv.KagentTurnSenderAgent
+	}
+	return &database.TurnSender{Kind: kind, UserID: principal.User.ID, AgentID: principal.Agent.ID}
 }
 
 // ErrSendNotAccepted tells callers they may retry this input because no dispatch

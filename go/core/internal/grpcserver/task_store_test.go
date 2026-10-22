@@ -139,7 +139,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	id := session.Id
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	pushWake := make(chan struct{}, 1)
-	tasks := taskstore.NewService(store, nil, pushWake)
+	tasks := taskstore.NewService(store, nil, pushWake, nil)
 	issuer := jwttest.New(t)
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
 	require.NoError(t, err)

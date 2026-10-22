@@ -260,7 +260,8 @@ func (r *scheduledControllerRuntime) persistTask(ctx context.Context, sessionID 
 		return err
 	}
 	if task.Status.State.Terminal() || task.Status.State == a2atype.TaskStateAuthRequired {
-		return r.store.SettleSessionTask(ctx, sessionID, string(task.ID), version)
+		_, err := r.store.SettleSessionTask(ctx, sessionID, string(task.ID), version)
+		return err
 	}
 	return nil
 }
