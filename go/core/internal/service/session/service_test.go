@@ -204,6 +204,75 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
+type authorizationCheck struct {
+	verb     auth.Verb
+	resource auth.Resource
+}
+
+// checkListAuthorizer records every check and denies the one it names.
+type checkListAuthorizer struct {
+	deny   authorizationCheck
+	checks []authorizationCheck
+}
+
+func (a *checkListAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	check := authorizationCheck{verb: verb, resource: resource}
+	a.checks = append(a.checks, check)
+	if check == a.deny {
+		return errors.New("denied")
+	}
+	return nil
+}
+
+func TestCreateAuthorizesAgentBeforeReservingSession(t *testing.T) {
+	createSession := authorizationCheck{verb: auth.VerbCreate, resource: auth.Resource{Type: "Session", Namespace: "team-a"}}
+	getAgent := authorizationCheck{verb: auth.VerbGet, resource: auth.Resource{Type: "Agent", Namespace: "team-a", Name: "assistant"}}
+	for _, test := range []struct {
+		name    string
+		deny    authorizationCheck
+		wantErr bool
+	}{
+		{name: "allowed", wantErr: false},
+		{name: "Agent get denied", deny: getAgent, wantErr: true},
+		{name: "Session create in the Agent namespace denied", deny: createSession, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &serviceTestStore{}
+			authorizer := &checkListAuthorizer{deny: test.deny}
+			service := NewService(store, authorizer, serviceTestWorkflow{})
+
+			_, err := service.Create(serviceTestContext("alice"), &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
+			if test.wantErr {
+				if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+					t.Fatalf("Create() error = %v, want code %s", err, serviceerrors.CodePermissionDenied)
+				}
+				if store.createInput != nil {
+					t.Fatalf("Create() reserved Session %+v after a denied check", store.createInput)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []authorizationCheck{createSession, getAgent}; !slices.Equal(authorizer.checks, want) {
+				t.Fatalf("checks = %+v, want %+v", authorizer.checks, want)
+			}
+		})
+	}
+}
+
+func TestCreateWithNoopAuthorizerReservesSession(t *testing.T) {
+	store := &serviceTestStore{}
+	service := NewService(store, auth.NoopAuthorizer{}, serviceTestWorkflow{})
+
+	if _, err := service.Create(serviceTestContext("alice"), &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if store.createInput == nil {
+		t.Fatal("Create() did not reserve a Session")
+	}
+}
+
 func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
 	for _, test := range []struct {
 		name string
