@@ -103,7 +103,7 @@ function describe(part: ChatDataPart): { body: string; failed: boolean } {
 
     return {
       body: formatPayload(payload),
-      failed: isError === true || error != null || status === "error",
+      failed: isError === true || (error != null && error !== false) || status === "error",
     };
   }
   return { body: formatPayload(response ?? part.data), failed: false };

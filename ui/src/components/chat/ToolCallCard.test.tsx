@@ -7,10 +7,14 @@ import { ToolCallCard } from "./ToolCallCard";
 describe("ToolCallCard", () => {
   it.each([
     [{ data: "observed alert", error: null, status: "success" }, false],
+    [{ data: "observed alert", error: false, status: "success" }, false],
     [{ output: "observed alert" }, false],
     [{ error: "upstream unavailable" }, true],
+    [{ error: true }, true],
     [{ isError: true, error: null }, true],
+    [{ isError: true, error: false }, true],
     [{ status: "error", data: "upstream unavailable", error: null }, true],
+    [{ status: "error", data: "upstream unavailable", error: false }, true],
   ])("renders tool result failure from %j", (response, failed) => {
     render(
       <ThemeProvider theme={themeFor("dark")}>
