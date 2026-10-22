@@ -39,8 +39,7 @@ type OpenAIConfig struct {
 	// APIFormat selects chatCompletions (default) or responses.
 	APIFormat string
 	// StrictOutputSchema sends strict with this value alongside the structured
-	// output schema. Nil omits strict. Mistral, which reuses OpenAIModel, leaves
-	// it nil.
+	// output schema. Nil omits strict.
 	StrictOutputSchema *bool
 }
 

@@ -33,7 +33,6 @@ func UsesSetModelResponse(model *configv1.ADKModelConfig) bool {
 	case *configv1.ADKModelConfig_GeminiVertexAi:
 		return false
 	case *configv1.ADKModelConfig_Gemini:
-		// With no model name the runtime falls back to a gemini- default.
 		if name == "" {
 			return true
 		}

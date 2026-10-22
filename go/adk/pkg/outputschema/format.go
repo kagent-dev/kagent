@@ -62,12 +62,9 @@ func SupportedStringFormats() []string {
 	return slices.Sorted(maps.Keys(stringFormatPatterns))
 }
 
-// Validator validates a value against a resolved output schema.
 type Validator struct {
 	*jsonschema.Resolved
-	// formats maps the schema path of each allOf entry that asserts a format to
-	// that assertion.
-	formats map[string]formatAssertion
+	formatByAllOfPath map[string]formatAssertion
 }
 
 type formatAssertion struct {
@@ -78,7 +75,7 @@ type formatAssertion struct {
 // Format reports the schema node and string format that the subschema at path
 // asserts, if the subschema asserts a format.
 func (v *Validator) Format(path string) (node, format string, ok bool) {
-	assertion, ok := v.formats[path]
+	assertion, ok := v.formatByAllOfPath[path]
 	return assertion.node, assertion.format, ok
 }
 
@@ -90,21 +87,19 @@ func ResolveValidator(raw json.RawMessage) (*Validator, error) {
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		return nil, fmt.Errorf("decode output schema: %w", err)
 	}
-	formats := map[string]formatAssertion{}
-	if err := assertFormats(&schema, "", formats); err != nil {
+	formatByAllOfPath := map[string]formatAssertion{}
+	if err := assertFormats(&schema, "", formatByAllOfPath); err != nil {
 		return nil, err
 	}
 	resolved, err := schema.Resolve(nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolve output schema: %w", err)
 	}
-	return &Validator{Resolved: resolved, formats: formats}, nil
+	return &Validator{Resolved: resolved, formatByAllOfPath: formatByAllOfPath}, nil
 }
 
-// assertFormats asserts each format as a pattern in its own allOf entry, so a
-// failure of that entry is told apart from a failure of the node's own pattern.
 // Paths follow the JSON Pointers that jsonschema-go reports in its errors.
-func assertFormats(schema *jsonschema.Schema, path string, formats map[string]formatAssertion) error {
+func assertFormats(schema *jsonschema.Schema, path string, formatByAllOfPath map[string]formatAssertion) error {
 	if schema == nil {
 		return nil
 	}
@@ -117,11 +112,11 @@ func assertFormats(schema *jsonschema.Schema, path string, formats map[string]fo
 		if node == "" {
 			node = "root"
 		}
-		formats[fmt.Sprintf("%s/allOf/%d", path, len(schema.AllOf))] = formatAssertion{node: node, format: schema.Format}
+		formatByAllOfPath[fmt.Sprintf("%s/allOf/%d", path, len(schema.AllOf))] = formatAssertion{node: node, format: schema.Format}
 		schema.AllOf = append(schema.AllOf, &jsonschema.Schema{Pattern: pattern})
 	}
 	for childPath, child := range subschemas(schema) {
-		if err := assertFormats(child, path+childPath, formats); err != nil {
+		if err := assertFormats(child, path+childPath, formatByAllOfPath); err != nil {
 			return err
 		}
 	}
@@ -223,7 +218,6 @@ func hasWordBoundary(expression *syntax.Regexp) bool {
 	return slices.ContainsFunc(expression.Sub, hasWordBoundary)
 }
 
-// subschemas yields each child schema with its path relative to schema.
 func subschemas(schema *jsonschema.Schema) iter.Seq2[string, *jsonschema.Schema] {
 	return func(yield func(string, *jsonschema.Schema) bool) {
 		for _, name := range slices.Sorted(maps.Keys(schema.Defs)) {

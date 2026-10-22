@@ -23,7 +23,6 @@ func TestValidateOutputSchemaRejectsLargePatternsBeforeCompiling(t *testing.T) {
 	runtime.ReadMemStats(&after)
 
 	require.ErrorContains(t, err, "regexp instructions")
-	// Compiling these five patterns allocates about 1.4 GB.
 	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(64<<20))
 }
 

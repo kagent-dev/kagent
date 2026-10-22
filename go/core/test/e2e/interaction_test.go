@@ -116,8 +116,6 @@ func assertStructuredOutputTask(t *testing.T, task *a2atype.Task, answer float64
 	assertStructuredOutputArtifact(t, task.Artifacts[len(task.Artifacts)-1], answer, explanation)
 }
 
-// assertStrictStructuredOutputRequests checks that outputSchemaStrict reached
-// the provider: every request that carries the output schema asks for strict.
 func assertStrictStructuredOutputRequests(t *testing.T, requests []recordedModelRequest) {
 	t.Helper()
 	var sent int

@@ -180,8 +180,7 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 // jsonschema-go has no structured validation error. It wraps one
 // "validating <schema path>" layer per schema node around a
 // "<keyword>: <detail>" leaf. The detail can echo the value and a generated
-// regex, so only the path and keyword are kept. A format is validated as a
-// pattern in its own subschema, so that failure is named by its format.
+// regex, so only the path and keyword are kept.
 func schemaViolationLocation(validator *outputschema.Validator, err error) string {
 	path, keyword := "", ""
 	for inner := errors.Unwrap(err); inner != nil; err, inner = inner, errors.Unwrap(inner) {

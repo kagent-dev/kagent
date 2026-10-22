@@ -301,20 +301,20 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		},
 		{
 			name:       "AgentTemplate rejects outputSchemaStrict true without a schema",
-			object:     strictOutputAgentTemplate(namespace, "strict-true-no-schema", true, nil, nil),
+			object:     unstructuredStrictTemplate(namespace, "strict-true-no-schema", true, nil, nil),
 			wantReject: "outputSchemaStrict requires outputSchema or outputSchemaFrom",
 		},
 		{
 			name:   "AgentTemplate accepts outputSchemaStrict false without a schema",
-			object: strictOutputAgentTemplate(namespace, "strict-false-no-schema", false, nil, nil),
+			object: unstructuredStrictTemplate(namespace, "strict-false-no-schema", false, nil, nil),
 		},
 		{
 			name:   "AgentTemplate accepts outputSchemaStrict false with outputSchema",
-			object: strictOutputAgentTemplate(namespace, "strict-false-schema", false, &apiextensionsv1.JSON{Raw: []byte(`{"type":"object"}`)}, nil),
+			object: unstructuredStrictTemplate(namespace, "strict-false-schema", false, &apiextensionsv1.JSON{Raw: []byte(`{"type":"object"}`)}, nil),
 		},
 		{
 			name:   "AgentTemplate accepts outputSchemaStrict true with outputSchemaFrom",
-			object: strictOutputAgentTemplate(namespace, "strict-true-schema-from", true, nil, &ConfigMapKeyReference{Name: "schemas", Key: "output.json"}),
+			object: unstructuredStrictTemplate(namespace, "strict-true-schema-from", true, nil, &ConfigMapKeyReference{Name: "schemas", Key: "output.json"}),
 		},
 		{
 			name: "AgentTemplate rejects unsupported MCP server kind",
@@ -592,9 +592,7 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 	}
 }
 
-// strictOutputAgentTemplate writes outputSchemaStrict explicitly, because the
-// typed field drops false.
-func strictOutputAgentTemplate(namespace, name string, strict bool, schema *apiextensionsv1.JSON, schemaFrom *ConfigMapKeyReference) ctrlclient.Object {
+func unstructuredStrictTemplate(namespace, name string, strict bool, schema *apiextensionsv1.JSON, schemaFrom *ConfigMapKeyReference) ctrlclient.Object {
 	template := validAgentTemplate(namespace, name, nil)
 	template.Spec.OutputSchema = schema
 	template.Spec.OutputSchemaFrom = schemaFrom
