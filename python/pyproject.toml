@@ -11,6 +11,7 @@ dev = [
 
 [tool.uv]
 constraint-dependencies = [
+    "uv>=0.13.5",
     "aiohttp>=3.14.3",
     "cryptography>=50.0.0",
     "httplib2>=0.32.0",
