@@ -86,6 +86,8 @@ const (
 	KagentMcpServerNameKey = attribute.Key("kagent.mcp.server.name")
 	// KagentRuntimeKey is "kagent.runtime". The framework or harness that runs an agent.
 	KagentRuntimeKey = attribute.Key("kagent.runtime")
+	// KagentTurnSenderKey is "kagent.turn.sender". The kind of authenticated principal that sent a turn.
+	KagentTurnSenderKey = attribute.Key("kagent.turn.sender")
 	// KagentWorkerTriggerKey is "kagent.worker.trigger". What prompted a work claim, either initial discovery or continued backlog processing.
 	KagentWorkerTriggerKey = attribute.Key("kagent.worker.trigger")
 )
@@ -264,6 +266,16 @@ const (
 	KagentRuntimeBYO = "byo"
 )
 
+// Values of KagentTurnSenderKey.
+const (
+	// KagentTurnSenderPrincipal: An authenticated caller, a person or a machine.
+	KagentTurnSenderPrincipal = "principal"
+	// KagentTurnSenderActor: An agent's runtime, calling on behalf of the principal that created its Session.
+	KagentTurnSenderActor = "actor"
+	// KagentTurnSenderController: The controller, starting a scheduled run on behalf of the principal that created its Session.
+	KagentTurnSenderController = "controller"
+)
+
 // Values of KagentWorkerTriggerKey.
 const (
 	// KagentWorkerTriggerSignal: A local task settlement signal.
@@ -388,4 +400,32 @@ const (
 	KagentSessionQuiescenceClaimed            = "kagent.session.quiescence.claimed"
 	KagentSessionQuiescenceClaimedUnit        = "{session}"
 	KagentSessionQuiescenceClaimedDescription = "Number of session quiescence claims acquired."
+)
+
+// KagentTurnUsageCacheReadInputTokens: Input tokens served from a provider cache in a turn.
+const (
+	KagentTurnUsageCacheReadInputTokens            = "kagent.turn.usage.cache_read.input_tokens"
+	KagentTurnUsageCacheReadInputTokensUnit        = "{token}"
+	KagentTurnUsageCacheReadInputTokensDescription = "Input tokens served from a provider cache in a turn."
+)
+
+// KagentTurnUsageInputTokens: Input tokens a turn added to its task, cached input included.
+const (
+	KagentTurnUsageInputTokens            = "kagent.turn.usage.input_tokens"
+	KagentTurnUsageInputTokensUnit        = "{token}"
+	KagentTurnUsageInputTokensDescription = "Input tokens a turn added to its task, cached input included."
+)
+
+// KagentTurnUsageOutputTokens: Output tokens a turn added to its task, reasoning excluded.
+const (
+	KagentTurnUsageOutputTokens            = "kagent.turn.usage.output_tokens"
+	KagentTurnUsageOutputTokensUnit        = "{token}"
+	KagentTurnUsageOutputTokensDescription = "Output tokens a turn added to its task, reasoning excluded."
+)
+
+// KagentTurnUsageReasoningOutputTokens: Reasoning tokens a turn added to its task.
+const (
+	KagentTurnUsageReasoningOutputTokens            = "kagent.turn.usage.reasoning.output_tokens"
+	KagentTurnUsageReasoningOutputTokensUnit        = "{token}"
+	KagentTurnUsageReasoningOutputTokensDescription = "Reasoning tokens a turn added to its task."
 )

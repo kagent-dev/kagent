@@ -27,19 +27,20 @@ type settlementStore struct {
 	Store
 	err       error
 	commit    <-chan struct{}
+	settled   *database.SettledTask
 	committed bool
 }
 
 var _ Store = (*settlementStore)(nil)
 
 func (s *settlementStore) GetSessionForRuntime(_ context.Context, id, _ string) (*apiv1.Session, error) {
-	return &apiv1.Session{Id: id, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
+	return &apiv1.Session{Id: id, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
 }
 
-func (s *settlementStore) SettleSessionTask(context.Context, string, string, int64) error {
+func (s *settlementStore) SettleSessionTask(context.Context, string, string, int64) (*database.SettledTask, error) {
 	<-s.commit
 	s.committed = s.err == nil
-	return s.err
+	return s.settled, s.err
 }
 
 func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
@@ -67,7 +68,7 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 					pushWakes <- struct{}{}
 				}
 				before := len(wakes)
-				service := NewService(store, wakes, pushWakes)
+				service := NewService(store, wakes, pushWakes, nil)
 				ctx, cancel := context.WithCancel(runtimeContext(t))
 				cancel() // A disconnected caller must not suppress the post-commit hint.
 				done := make(chan error, 1)
@@ -134,7 +135,7 @@ func TestListTasksEndsPageBySize(t *testing.T) {
 	for _, id := range []a2atype.TaskID{"task-1", "task-2", "task-3"} {
 		tasks = append(tasks, &a2atype.Task{ID: id, Artifacts: []*a2atype.Artifact{{ID: "a", Parts: a2atype.ContentParts{a2atype.NewTextPart(big)}}}})
 	}
-	service := NewService(&pagedTaskStore{tasks: tasks}, nil, nil)
+	service := NewService(&pagedTaskStore{tasks: tasks}, nil, nil, nil)
 	sessionID := "00000000-0000-0000-0000-000000000001"
 	list := func(token string) *a2atype.ListTasksResponse {
 		request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{IncludeArtifacts: true, PageToken: token})

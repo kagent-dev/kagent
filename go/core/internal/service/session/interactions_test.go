@@ -19,6 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 // Only task reads are implemented. Any dispatch or runtime access in these
@@ -32,7 +33,7 @@ type interactionTestStore struct {
 	reservedIDs []string
 }
 
-func (s *interactionTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialMessageID string) error {
+func (s *interactionTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialMessageID string, _ *database.TurnSender) error {
 	s.reservedIDs = append(s.reservedIDs, initialMessageID)
 	return s.dispatchErr
 }
@@ -399,4 +400,27 @@ func TestListTasksEndsPageBySize(t *testing.T) {
 	require.Len(t, second.Tasks, 1)
 	require.Equal(t, a2atype.TaskID("task-3"), second.Tasks[0].ID)
 	require.Empty(t, second.NextPageToken)
+}
+
+type principalSession auth.Principal
+
+func (s principalSession) Principal() auth.Principal { return auth.Principal(s) }
+
+func TestTurnSenderNamesTheAuthenticatedPrincipal(t *testing.T) {
+	session := &apiv1.Session{Id: "session", Creator: "owner"}
+	for _, tt := range []struct {
+		name string
+		auth auth.Session
+		want *database.TurnSender
+	}{
+		{name: "person", auth: principalSession(auth.Principal{ID: "alice"}), want: &database.TurnSender{Kind: conv.KagentTurnSenderPrincipal, PrincipalID: "alice"}},
+		{name: "service account", auth: principalSession(auth.Principal{ID: auth.PrincipalID("kubernetes:cluster", "uid"), Claims: map[string]any{"username": "system:serviceaccount:team-a:bot"}}), want: &database.TurnSender{Kind: conv.KagentTurnSenderPrincipal, PrincipalID: auth.PrincipalID("kubernetes:cluster", "uid")}},
+		{name: "runtime on its creator's behalf", auth: principalSession(auth.Principal{ID: "actor", RuntimeBinding: &auth.RuntimeBinding{SessionID: "caller", CreatorID: "alice"}}), want: &database.TurnSender{Kind: conv.KagentTurnSenderActor, PrincipalID: "alice", CallerSessionID: "caller"}},
+		{name: "controller on the session creator's behalf", auth: auth.ControlPlaneSession{}, want: &database.TurnSender{Kind: conv.KagentTurnSenderController, PrincipalID: "owner"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, turnSender(auth.AuthSessionTo(t.Context(), tt.auth), session))
+		})
+	}
+	require.Nil(t, turnSender(t.Context(), session), "an unauthenticated context has no sender")
 }
