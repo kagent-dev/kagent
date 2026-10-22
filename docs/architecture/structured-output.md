@@ -94,21 +94,17 @@ at runtime; in that case the Task fails.
 The schema is enforced in two places. The provider may constrain generation,
 and the runtime validates every final answer. Each provider receives the schema
 in the form it accepts. OpenAI, Azure OpenAI, Foundry, Claude, and Bedrock get
-it unchanged. Gemini and Mistral get a reduced projection that keeps `pattern`
-and the supported formats. Ollama and SAP AI Core get no schema. Because the final validator checks the canonical
-schema, a provider that ignores a keyword still cannot complete a Task with a
-nonconforming answer.
+it unchanged. Gemini and Mistral get a copy converted to Google's schema
+format. It keeps `pattern` and the supported formats but drops keywords that
+format lacks, such as `const`. Ollama and SAP AI Core get no schema. Because the
+final validator checks the canonical schema, a provider that ignores a keyword
+still cannot complete a Task with a nonconforming answer.
 
 Compilation also rejects a schema that would fail every request on a known
-provider, so the Agent reports the problem instead of each Task failing. For
-example, Go ADK's `set_model_response` check on Gemini models needs exactly one
-type on every node.
+provider, so the Agent reports the problem at reconcile time instead of each
+Task failing.
 
-The serialized schema is limited to 64 KiB, and its patterns and formats share a
-fixed regular expression budget. Conversion to the Go ADK schema is also limited
-to 32 levels and 1,000 expanded schema nodes; these bounds include nodes
-expanded through local `$defs` references. Schemas that exceed any limit fail
-compilation.
+Schemas that exceed fixed size and complexity limits fail compilation.
 
 ## Strict mode
 
@@ -118,10 +114,8 @@ providers, `false` unless the field is `true`, because the Responses API is
 strict when `strict` is omitted. Other providers never receive it, and the final
 validator applies in both modes.
 
-Strict mode accepts fewer schemas. It follows OpenAI's strict rules, such as
-`additionalProperties: false` and a full `required` list on every object. When
-the field is `true`, compilation applies these rules for every provider, so a
-schema stays valid when its ModelConfig changes provider.
+Strict mode accepts fewer schemas. Compilation applies its rules for every
+provider, so a schema stays valid when its ModelConfig changes provider.
 
 The semantic resolution code is in
 [`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).

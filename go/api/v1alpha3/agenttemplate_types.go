@@ -194,10 +194,9 @@ type AgentTemplateSpec struct {
 	// same-namespace ConfigMap key.
 	// +optional
 	OutputSchemaFrom *ConfigMapKeyReference `json:"outputSchemaFrom,omitempty"`
-	// OutputSchemaStrict sends strict: true with the output schema to OpenAI,
-	// Azure OpenAI, and Foundry in the openai format, so the model follows the
-	// schema while it generates. The schema must then follow OpenAI's strict
-	// mode rules, which kagent checks for every provider.
+	// OutputSchemaStrict tells OpenAI, Azure OpenAI, and Foundry (openai format)
+	// to limit generation to the output schema. kagent then checks the schema
+	// against OpenAI's strict mode rules on every provider.
 	// +optional
 	OutputSchemaStrict bool `json:"outputSchemaStrict,omitempty"`
 	// +optional
