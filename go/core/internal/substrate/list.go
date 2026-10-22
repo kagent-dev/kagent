@@ -17,7 +17,7 @@ const maxDrainPages = 10_000
 // every loop over ate-api's pagination wants the check.
 func AdvancePageToken(previous, next string) (string, error) {
 	if next != "" && next == previous {
-		return "", fmt.Errorf("ate-api repeated page token %q instead of advancing", next)
+		return "", fmt.Errorf("ate-api repeated page token instead of advancing")
 	}
 	return next, nil
 }

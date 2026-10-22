@@ -199,7 +199,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	return result, nil
 }
 
-// ListSubstrateActors returns one page of actors.
+// ListSubstrateActors pages authorized actors in atespace/name order.
 func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
 	matcher, err := inventoryauth.CollectionMatcher(ctx, s.authorizer, substrateActorResource, authorization.AttributeAtespace)
 	if err != nil {
@@ -207,86 +207,132 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 	}
 	if matcher.Empty() {
 		return SubstrateActorPage{}, serviceerrors.NewPermissionDenied("Actor inventory access denied", nil)
-	scope, err := s.resolveSubstrateScope( input.GetAtespace())
+	}
+	scope, err := s.resolveSubstrateScope(input.GetAtespace())
 	if err != nil {
 		return SubstrateActorPage{}, err
 	}
-	limit, token := substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken()
-	var actors []*ateapipb.Actor
-	var next string
-	if len(s.observedNamespaces) == 0 {
-		actors, next, err = s.ateClient.ListActorsPage(ctx, input.GetAtespace(), limit, token)
-	} else {
-		start, inner, tokenErr := parseScopedPageToken(scope.namespaces, token)
-		if tokenErr != nil {
-			return SubstrateActorPage{}, tokenErr
-		}
-		actors, next, err = s.listScopedActors(ctx, scope.namespaces[start:], inner, limit)
-	}
-	result := SubstrateActorPage{ComputedAt: time.Now().UTC()}
+	after, err := parseInventoryCursor(input.GetPage().GetPageToken(), "actor", input.GetAtespace(), scope)
 	if err != nil {
-		result.ATEAPIError = err.Error()
+		return SubstrateActorPage{}, err
+	}
+	limit := substratePageSize(input.GetPage().GetLimit())
+	result := SubstrateActorPage{ComputedAt: time.Now().UTC()}
+	actors, err := s.collectAuthorizedActors(ctx, scope, matcher, after, limit+1)
+	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api actors", "error", err)
+		result.ATEAPIError = fmt.Sprintf("ate-api could not list actors: %s", status.Code(err))
 		return result, nil
 	}
-	for _, actor := range actors {
-		metadata := actor.GetMetadata()
-		if matcher.Matches(metadata.GetAtespace(), metadata.GetName()) && scope.contains(metadata.GetAtespace()) {
-			result.Actors = append(result.Actors, actor)
+	if int32(len(actors)) > limit {
+		actors = actors[:limit]
+		last := actors[limit-1].GetMetadata()
+		result.NextPageToken = inventoryCursor("actor", input.GetAtespace(), last.GetAtespace(), last.GetName())
+	}
+	result.Actors = actors
+	return result, nil
+}
+
+// collectAuthorizedActors reads in atespace/name order, starting after the cursor.
+// An explicit atespace uses one scoped query. An empty request uses either one
+// global query or the controller's sorted watched atespaces. Only that last case
+// needs traversal across separate queries.
+func (s *Service) collectAuthorizedActors(ctx context.Context, scope substrateScope, matcher inventoryauth.Matcher, after inventoryPosition, count int32) ([]*ateapipb.Actor, error) {
+	atespaces := scope.listNamespaces()
+	if after.name != "" && !scope.all {
+		// Cursor parsing already checked membership in the resolved scope.
+		atespaces = atespaces[slices.Index(atespaces, after.location):]
+	}
+	var actors []*ateapipb.Actor
+	for _, atespace := range atespaces {
+		token := ""
+		if after.name != "" && (scope.all || atespace == after.location) {
+			token = substrate.ActorPageToken(atespace, after.location, after.name)
+		}
+		read := func(ctx context.Context, size int32, token string) ([]*ateapipb.Actor, string, error) {
+			return s.ateClient.ListActorsPage(ctx, atespace, size, token)
+		}
+		accept := func(actor *ateapipb.Actor) bool {
+			metadata := actor.GetMetadata()
+			return (atespace == "" || metadata.GetAtespace() == atespace) && scope.contains(metadata.GetAtespace()) && matcher.Matches(metadata.GetAtespace(), metadata.GetName())
+		}
+		rows, err := collectInventory(ctx, read, accept, token, count-int32(len(actors)))
+		if err != nil {
+			return nil, err
+		}
+		actors = append(actors, rows...)
+		if int32(len(actors)) == count {
+			break
 		}
 	}
-	result.NextPageToken = next
-	return result, nil
+	return actors, nil
 }
 
 const maxPageTokenBytes = 1024
 
-// scopedPageToken is the cursor a controller that watches some namespaces hands out:
-// the watched namespace a page ended in, then where to resume.
-func scopedPageToken(namespace, cursor string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(namespace + "/" + cursor))
+// Public cursors contain only a returned identity, never an upstream scan position.
+// The request scope and resource kind prevent accidental reuse across listings.
+func inventoryCursor(kind, requested, location, name string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strings.Join([]string{"1", kind, requested, location, name}, "/")))
 }
 
-func parseScopedPageToken(namespaces []string, token string) (int, string, error) {
+// inventoryPosition is a validated continuation boundary. Its zero value starts
+// at the beginning; a parsed boundary has both location and name populated.
+type inventoryPosition struct {
+	location string
+	name     string
+}
+
+func parseInventoryCursor(token, kind, requested string, scope substrateScope) (inventoryPosition, error) {
 	if token == "" {
-		return 0, "", nil
+		return inventoryPosition{}, nil
 	}
 	if len(token) > maxPageTokenBytes {
-		return 0, "", invalidPageToken()
+		return inventoryPosition{}, invalidPageToken()
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(token)
-	namespace, cursor, ok := strings.Cut(string(decoded), "/")
-	start := slices.Index(namespaces, namespace)
-	if err != nil || !ok || start < 0 {
-		return 0, "", invalidPageToken()
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	parts := strings.Split(string(raw), "/")
+	if err != nil || len(parts) != 5 || parts[0] != "1" || parts[1] != kind || parts[2] != requested || strings.TrimSpace(parts[3]) == "" || strings.TrimSpace(parts[4]) == "" || !scope.contains(parts[3]) {
+		return inventoryPosition{}, invalidPageToken()
 	}
-	return start, cursor, nil
+	return inventoryPosition{location: parts[3], name: parts[4]}, nil
 }
 
-func invalidPageToken() error {
-	return serviceerrors.NewInvalidArgument("Invalid page token", nil)
-}
+func invalidPageToken() error { return serviceerrors.NewInvalidArgument("Invalid page token", nil) }
 
-func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inner string, limit int32) ([]*ateapipb.Actor, string, error) {
-	var actors []*ateapipb.Actor
-	for i, atespace := range atespaces {
-		rows, next, err := s.ateClient.ListActorsPage(ctx, atespace, limit-int32(len(actors)), inner)
+// collectInventory keeps upstream cursors internal and stops at the authorized
+// lookahead row. A continuation starts at the last returned identity, so only
+// lookahead is reread, not the prefix traversed by previous public pages.
+func collectInventory[Row any](ctx context.Context, read func(context.Context, int32, string) ([]Row, string, error), accept func(Row) bool, token string, count int32) ([]Row, error) {
+	var result []Row
+	for range maxATEPagesPerWalk {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		rows, next, err := read(ctx, max(defaultSubstratePageSize, count-int32(len(result))), token)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		actors = append(actors, rows...)
-		switch {
-		case next != "":
-			return actors, scopedPageToken(atespace, next), nil
-		case int32(len(actors)) >= limit && i+1 < len(atespaces):
-			return actors, scopedPageToken(atespaces[i+1], ""), nil
+		for _, row := range rows {
+			if accept(row) {
+				result = append(result, row)
+				if int32(len(result)) == count {
+					return result, nil
+				}
+			}
 		}
-		inner = ""
+		if next == "" {
+			return result, nil
+		}
+		token, err = substrate.AdvancePageToken(token, next)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return actors, "", nil
+	return nil, fmt.Errorf("ate-api did not finish paging after %d pages", maxATEPagesPerWalk)
 }
 
-// ListSubstrateWorkers returns one page of workers.
+// ListSubstrateWorkers pages authorized workers in upstream worker-name order.
 func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
 	matcher, err := inventoryauth.CollectionMatcher(ctx, s.authorizer, substrateWorkerResource, authorization.AttributeNamespace)
 	if err != nil {
@@ -295,58 +341,36 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 	if matcher.Empty() {
 		return SubstrateWorkerPage{}, serviceerrors.NewPermissionDenied("Worker inventory access denied", nil)
 	}
-	scope, err := s.resolveSubstrateScope( input.GetNamespace())
+	scope, err := s.resolveSubstrateScope(input.GetNamespace())
 	if err != nil {
 		return SubstrateWorkerPage{}, err
 	}
-	limit, token := substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken()
-	if len(s.observedNamespaces) > 0 {
-		_, after, err := parseScopedPageToken(scope.namespaces, token)
-		if err == nil && token != "" && after == "" {
-			err = invalidPageToken()
-		}
-		if err != nil {
-			return SubstrateWorkerPage{}, err
-		}
-		return s.listWatchedWorkers(ctx, scope, limit, after), nil
+	after, err := parseInventoryCursor(input.GetPage().GetPageToken(), "worker", input.GetNamespace(), scope)
+	if err != nil {
+		return SubstrateWorkerPage{}, err
+	}
+	token := ""
+	if after.name != "" {
+		token = substrate.WorkerPageToken(after.name)
+	}
+	limit := substratePageSize(input.GetPage().GetLimit())
+	accept := func(worker *ateapipb.Worker) bool {
+		return scope.contains(worker.GetWorkerNamespace()) && matcher.Matches(worker.GetWorkerNamespace(), worker.GetMetadata().GetName())
 	}
 	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
-	workers, next, err := s.ateClient.ListWorkersPage(ctx, limit, token)
+	rows, err := collectInventory(ctx, s.ateClient.ListWorkersPage, accept, token, limit+1)
 	if err != nil {
-		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
+		result.ATEAPIError = fmt.Sprintf("ate-api could not list workers: %s", status.Code(err))
 		return result, nil
 	}
-	for _, worker := range workers {
-		if matcher.Matches(worker.GetWorkerNamespace(), worker.GetMetadata().GetName()) && scope.contains(worker.GetWorkerNamespace()) {
-			result.Workers = append(result.Workers, worker)
-		}
+	if int32(len(rows)) > limit {
+		rows = rows[:limit]
+		last := rows[limit-1]
+		result.NextPageToken = inventoryCursor("worker", input.GetNamespace(), last.GetWorkerNamespace(), last.GetMetadata().GetName())
 	}
-	result.NextPageToken = next
+	result.Workers = rows
 	return result, nil
-}
-
-func (s *Service) listWatchedWorkers(ctx context.Context, scope substrateScope, limit int32, after string) SubstrateWorkerPage {
-	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
-	var workers []*ateapipb.Worker
-	if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
-		if scope.contains(worker.GetWorkerNamespace()) && worker.GetMetadata().GetName() > after {
-			workers = append(workers, worker)
-		}
-	}); err != nil {
-		result.ATEAPIError = err.Error()
-		return result
-	}
-	slices.SortFunc(workers, func(left, right *ateapipb.Worker) int {
-		return strings.Compare(left.GetMetadata().GetName(), right.GetMetadata().GetName())
-	})
-	if int32(len(workers)) > limit {
-		workers = workers[:limit]
-		last := workers[limit-1]
-		result.NextPageToken = scopedPageToken(last.GetWorkerNamespace(), last.GetMetadata().GetName())
-	}
-	result.Workers = workers
-	return result
 }
 
 func (s *Service) walkActors(ctx context.Context, scope substrateScope, visit func(*ateapipb.Actor)) error {

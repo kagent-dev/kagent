@@ -312,3 +312,24 @@ reconstructs pending from PostgreSQL and resets process-local histogram totals.
   errors require checking the bounded error type and logs (`revision`,
   `actor_template_atespace`, `actor_template_name`, `error`) to identify the
   failing dependency and repeated same-object failures.
+
+## Inventory pagination
+
+Actor and worker lists filter by current authorization, watched namespaces, and
+request scope before filling a public page. They look ahead for one more authorized
+row, and issue a continuation only when it exists. Public cursors contain the last
+returned identity and request scope, never an upstream cursor that could name a
+filtered-out row.
+
+The Substrate adapter translates that identity into the pinned v0.6.0-alpha3 keyset
+token format: actors use atespace/name globally or name within an atespace; workers
+use globally unique names. The encoder is version-dependent and its contract tests
+must be checked when upgrading Substrate. Continuations resume directly after the
+boundary without requiring it to still exist. Authorization is evaluated anew;
+cursors grant no access. Watched atespaces are traversed in sorted order.
+
+Only the authorized page and an upstream batch are retained. Lookahead can be read
+again on the next request, and sparse authorization can require many backend reads,
+but previous public pages are not rescanned. Cancellation, page-walk bounds, and
+non-advancing token checks bound failed scans. Failed scans return no partial page
+or continuation, and backend error details remain in server logs.

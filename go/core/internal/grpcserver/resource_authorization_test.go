@@ -2,7 +2,10 @@ package grpcserver
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -200,4 +203,107 @@ func TestInventoryScopesFilterBeforePaginationThroughGeneratedClient(t *testing.
 	require.Len(t, summary.ActorTemplates, 1)
 	require.Empty(t, summary.ActorTemplates[0].Containers)
 	require.Empty(t, summary.WorkerPools)
+}
+
+type pagedInventoryPolicy struct{ auth.NoopAuthorizer }
+
+func (pagedInventoryPolicy) Scope(context.Context, auth.Principal, auth.Verb, string) (apiauthorization.AuthorizationScope, error) {
+	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"b-visible", "d-visible"}}}}}}, nil
+}
+
+type pagedInventoryATE struct {
+	emptySystemATEClient
+	t *testing.T
+}
+
+func (p pagedInventoryATE) page(kind, scope, token string) (string, string) {
+	p.t.Helper()
+	type cursor struct {
+		Version int      `json:"v"`
+		Kind    string   `json:"kind"`
+		Scope   string   `json:"scope"`
+		Last    []string `json:"last"`
+	}
+	after := ""
+	if token != "" {
+		raw, err := base64.StdEncoding.DecodeString(token)
+		require.NoError(p.t, err)
+		var c cursor
+		require.NoError(p.t, json.Unmarshal(raw, &c))
+		require.Equal(p.t, 1, c.Version)
+		require.Equal(p.t, kind, c.Kind)
+		require.Equal(p.t, scope, c.Scope)
+		require.NotEmpty(p.t, c.Last)
+		after = c.Last[len(c.Last)-1]
+	}
+	for _, name := range []string{"a-hidden", "b-visible", "c-hidden", "d-visible", "z-hidden"} {
+		if name <= after {
+			continue
+		}
+		next := ""
+		if name != "z-hidden" {
+			last := []string{name}
+			if kind == "actor" && scope == "" {
+				last = []string{"team", name}
+			}
+			raw, err := json.Marshal(cursor{Version: 1, Kind: kind, Scope: scope, Last: last})
+			require.NoError(p.t, err)
+			next = base64.StdEncoding.EncodeToString(raw)
+		}
+		return name, next
+	}
+	return "", ""
+}
+
+func (p pagedInventoryATE) ListActorsPage(_ context.Context, scope string, _ int32, token string) ([]*ateapipb.Actor, string, error) {
+	name, next := p.page("actor", scope, token)
+	if name == "" {
+		return nil, "", nil
+	}
+	return []*ateapipb.Actor{{Metadata: &ateapipb.ResourceMetadata{Atespace: "team", Name: name}}}, next, nil
+}
+
+func (p pagedInventoryATE) ListWorkersPage(_ context.Context, _ int32, token string) ([]*ateapipb.Worker, string, error) {
+	name, next := p.page("worker", "", token)
+	if name == "" {
+		return nil, "", nil
+	}
+	return []*ateapipb.Worker{{Metadata: &ateapipb.ResourceMetadata{Name: name}, WorkerNamespace: "team"}}, next, nil
+}
+
+func TestInventoryCursorConfidentialityThroughGeneratedClient(t *testing.T) {
+	for _, watched := range [][]string{nil, {"team"}} {
+		t.Run(fmt.Sprint(watched), func(t *testing.T) {
+			connection := newConfigurationConnection(t, nil, func(config *Config) {
+				config.SystemService = systemservice.NewService(nil, watched, pagedInventoryPolicy{}, pagedInventoryATE{t: t})
+			})
+			client := apiv1.NewSystemServiceClient(connection)
+			ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
+			actorToken, workerToken := "", ""
+			for _, name := range []string{"b-visible", "d-visible"} {
+				actors, err := client.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 1, PageToken: actorToken}})
+				require.NoError(t, err)
+				require.Empty(t, actors.GetAteApiError())
+				require.Len(t, actors.Actors, 1)
+				require.Equal(t, name, actors.Actors[0].GetMetadata().GetName())
+				workers, err := client.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{Limit: 1, PageToken: workerToken}})
+				require.NoError(t, err)
+				require.Empty(t, workers.GetAteApiError())
+				require.Len(t, workers.Workers, 1)
+				require.Equal(t, name, workers.Workers[0].GetMetadata().GetName())
+				actorToken, workerToken = actors.GetPage().GetNextPageToken(), workers.GetPage().GetNextPageToken()
+				for _, token := range []string{actorToken, workerToken} {
+					if name == "d-visible" {
+						require.Empty(t, token)
+						continue
+					}
+					require.NotEmpty(t, token)
+					raw, err := base64.RawURLEncoding.DecodeString(token)
+					require.NoError(t, err)
+					require.Contains(t, string(raw), name)
+					require.NotContains(t, string(raw), "hidden")
+				}
+			}
+		})
+	}
 }

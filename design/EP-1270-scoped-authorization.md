@@ -106,13 +106,14 @@ and `Scope(VerbList, "SubstrateWorker")`, respectively. They do not require
 permission denied on these dedicated endpoints. External authorizers may grant
 summary access and each inventory family independently.
 
-Public inventory cursors contain only an offset into the authorized result. Backend
-cursors, which can encode denied identities, remain internal. Each continuation
-re-evaluates authorization and scans from the beginning, filtering before counting
-the offset or filling the page. This bounds retained memory to a page and works
-across replicas without shared cursor state, at the cost of repeated backend reads
-on later pages. As with other live collections, changes between requests may shift
-page boundaries; cursors do not represent a snapshot.
+Public inventory cursors contain only the last returned identity and the listing
+scope. Authorization and namespace filters apply before filling a page. An extra
+authorized row establishes whether a continuation exists. On continuation, the
+Substrate adapter encodes a keyset token for the last returned identity, avoiding
+rescans of previous pages. Backend scan cursors remain internal. Each request
+re-evaluates authorization; the boundary row need not still exist or be authorized.
+The adapter's encoder is coupled to the pinned Substrate token format and must be
+checked on upgrades. No shared cursor storage or encryption key is required.
 
 `Scope` is reserved for `VerbList` collection filtering. Whole-endpoint capabilities
 use `Check(VerbGet, ...)`, never `Scope(VerbGet, ...)`.
