@@ -125,10 +125,14 @@ metrics record. Paused, resumed and canceled executions follow the rules above.
   the saved totals cannot be read, the turn counts only the calls it reported.
 - **Models:** that remainder names no response model but the model it was
   requested as, the undated name the session totals use, such as
-  `claude-sonnet-4-5`. It counts in the one dated entry that name prefixes, such
-  as `claude-sonnet-4-5-20250929`, or in an entry of its own under the requested
-  name when no dated entry or several of them match. The reasoning tokens it
-  identifies are therefore split out of its model's `outputTokens` as well.
+  `claude-sonnet-4-5`. Its family is that name and the name followed by a date,
+  such as `claude-sonnet-4-5-20250929`; `claude-sonnet-4` is another family. The
+  remainder counts in the family's one entry, or in a new entry under the
+  undated name when the family has none. A family with several entries is
+  folded into one entry under the undated name first, so the reasoning the
+  remainder identifies is split out of the output that holds it instead of
+  being counted beside it, and the model entries never add up to more than the
+  task.
 - **Cost:** v1 has no cost field. Claude Code's `total_cost_usd` is not reported.
 
 ## Out of scope for v1
