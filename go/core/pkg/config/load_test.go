@@ -16,6 +16,9 @@ func TestControllerConfig(t *testing.T) {
 		invalid     bool
 	}{
 		{"defaults", "{}", false},
+		{"actor JWT issuer", "substrate: {actorJwtIssuer: https://actors.example}", false},
+		{"empty actor JWT issuer", "substrate: {actorJwtIssuer: ''}", true},
+		{"HTTP actor JWT issuer", "substrate: {actorJwtIssuer: http://actors.example}", true},
 		{"partial images", "harnessImages: {kagent: 'registry/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}", false},
 		{"empty image", "harnessImages: {codex: ''}", false},
 		{"image tag", "harnessImages: {claude: 'registry/image:latest'}", true},

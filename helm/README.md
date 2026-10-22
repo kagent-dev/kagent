@@ -28,6 +28,15 @@ The Kagent chart does not deploy or initialize PostgreSQL, and it does not insta
 
 `kagent install` does all of this for development: it installs Substrate in `ate-system`, deploys a PostgreSQL instance in the Kagent namespace, creates the identities and schemas below, writes the connection Secrets, and then installs Kagent. Kagent, Substrate, and PostgreSQL authenticate with Pod Certificates rather than passwords. The development database has no pgvector extension and is not intended for production. It pulls `postgres:18-alpine` from Docker Hub; set `install.bundledPostgresImage` in the CLI config to use a mirror.
 
+Runtime TaskStore calls require Actor JWTs injected by Substrate egress. Set
+`config.substrate.actorJwtIssuer` to Substrate's `ateApi.actorJWTIssuer` (both
+default to `https://idp.ate-system.svc`). The controller uses
+`config.substrate.caFile` to verify discovery and JWKS TLS; enabling
+`controller.substrateClientCertificate.enabled` supplies the Substrate ServiceDNS
+trust bundle. Discovery and signing keys must be reachable at controller startup.
+Upgrade controller and runtime images together and recreate snapshots of older
+runtime images that sent unsigned identity headers.
+
 Substrate v0.6.0-alpha3 restricts API ingress to namespaces labeled
 `ate.dev/api-access=true`. The CLI installer applies this label to the Kagent
 namespace. For direct Helm installations, label the controller namespace before

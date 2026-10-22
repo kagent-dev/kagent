@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
@@ -27,6 +28,44 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
+
+type denyingGuestAuthorizer struct {
+	verb     auth.Verb
+	resource auth.Resource
+}
+
+var _ auth.Authorizer = (*denyingGuestAuthorizer)(nil)
+
+func (a *denyingGuestAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.verb, a.resource = verb, resource
+	return errors.New("denied")
+}
+
+func TestSandboxReadFileAuthorization(t *testing.T) {
+	const id = "00000000-0000-4000-8000-000000000001"
+	for _, test := range []struct {
+		name string
+		mode uint32
+		verb auth.Verb
+	}{
+		{"read existing file", 0, auth.VerbGet},
+		{"create missing file", 0o600, auth.VerbUpdate},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			authorizer := &denyingGuestAuthorizer{}
+			service, err := NewService(Config{Authorizer: authorizer, DefaultTTL: time.Hour, MaxTTL: time.Hour})
+			require.NoError(t, err)
+			ctx := auth.AuthSessionTo(t.Context(), testSession("alice"))
+			err = service.ReadFile(ctx, id, &guestpb.ReadFileRequest{Path: "file", Mode: test.mode}, func(*guestpb.ReadFileResponse) error {
+				t.Fatal("unauthorized read returned data")
+				return nil
+			})
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+			require.Equal(t, test.verb, authorizer.verb)
+			require.Equal(t, auth.Resource{Type: "Sandbox", Name: id}, authorizer.resource)
+		})
+	}
+}
 
 func TestSandboxExpirationRejectsInvalidInterval(t *testing.T) {
 	for _, interval := range []time.Duration{0, -time.Second} {

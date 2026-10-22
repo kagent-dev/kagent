@@ -352,7 +352,7 @@ func taskParamsBase() mcp.ParamsBase {
 	}}
 }
 
-func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, tasks bool) map[string]any {
+func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, tasks bool, headers ...http.Header) map[string]any {
 	t.Helper()
 	extensions := map[string]any{}
 	if tasks {
@@ -372,6 +372,13 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(string(body)))
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, header := range headers {
+		for key, values := range header {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")

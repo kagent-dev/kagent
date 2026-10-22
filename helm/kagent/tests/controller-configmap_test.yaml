@@ -3,6 +3,19 @@ templates:
   - controller-configmap.yaml
   - controller-deployment.yaml
 tests:
+  - it: configures Actor JWT discovery with the Substrate trust bundle
+    template: controller-configmap.yaml
+    set:
+      controller.substrateClientCertificate.enabled: true
+      config.substrate.actorJwtIssuer: https://actors.example
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'actorJwtIssuer: https://actors.example'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'caFile: /run/substrate-servicedns/trust-bundle.pem'
+
   - it: forwards the built-in bash setting to runtime defaults
     template: controller-configmap.yaml
     set:

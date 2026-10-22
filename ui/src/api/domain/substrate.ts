@@ -93,7 +93,6 @@ export interface Timed {
   computedAt?: string;
 }
 
-/** One upstream page; an empty page may still have a continuation token. */
 interface SubstratePage extends Timed {
   /** Upstream read failure. No rows or continuation token accompany it. */
   ateApiError?: string;

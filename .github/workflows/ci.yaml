@@ -172,8 +172,6 @@ jobs:
             replicas: 0
           kagent-tools:
             enabled: false
-          grafana-mcp:
-            enabled: false
           substrateWorkerPool:
             create: true
             replicas: 4
@@ -475,7 +473,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-          helm unittest helm/tools/grafana-mcp
 
   ui-tests:
     runs-on: blacksmith-4vcpu-ubuntu-2404

@@ -207,7 +207,7 @@ The apiserver registers three services on the same listener:
 | Service | Operations |
 | --- | --- |
 | `kagent.api.v1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
-| `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, KillProcess, StreamProcessOutputs |
+| `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, SignalProcess, StreamProcessOutput |
 | `ateenv.v1alpha.FileSystemService` | ReadFile, WriteFile |
 
 Execution uses env's exact services, requests, responses, and streaming messages.
@@ -228,6 +228,8 @@ and sends authorized traffic through the Atenet router. Incoming Actor routing
 headers cannot override that resolution. WriteFile follows env's contract: the
 first message supplies the path and optional mode and may also contain data.
 Later messages supply more data. There is no kagent-specific file envelope.
+ReadFile with a nonzero mode can create a missing file, so the sandbox service
+requires update authorization for those requests; ordinary reads require get.
 
 Lifecycle calls use the Substrate API; guest calls use Atenet. Both remain in
 the apiserver's sandbox service. The existing A2A gateway handles agent interactions;
@@ -237,7 +239,9 @@ Env's protobuf currently has no validation annotations. Guest payload validation
 is delegated to env; adding annotations upstream is a follow-up. Kagent validates
 sandbox routing and enforces authorization, expiration, and transfer limits.
 The env dependency remains pinned. Message changes come from the dependency;
-new upstream RPCs require explicit forwarding and access policies.
+new upstream RPCs require explicit forwarding and access policies. A sandbox keeps
+the guest image it was prepared with, so an env upgrade that changes the guest
+messages requires deleting existing sandboxes.
 
 Resource authorization and owner checks apply before routing guest traffic. Agent
 share tokens grant no sandbox access. An agent calling MCP operates under the
@@ -281,9 +285,12 @@ configured on the Harness as described above.
 Each StartProcess call launches a new command. There is no process request ID or
 durable receipt. After a timeout or lost response, callers must account for the
 possibility that the command started; retrying may execute it again. Process IDs,
-status, and outputs come directly from the guest; losing its in-memory registry
+state, and outputs come directly from the guest; losing its in-memory registry
 makes those handles unavailable. Kagent does not persist process records or
 impose a second process-concurrency limit.
+The MCP process tools include `exit_code` only when state is
+`PROCESS_STATE_EXITED`, including zero for a successful exit. A successful kill
+request acknowledges signal delivery; use `get_sandbox_process` to observe exit.
 An interrupted file write reports an error and does not reserve lifecycle access.
 
 ## CLI access
@@ -308,7 +315,7 @@ Uploads replace the remote destination and may leave partial writes on failure.
 With `-o json`, `exec` and `wait` emit newline-delimited `started`, `output`,
 `finished`, and `interrupted` events. Records retain the sandbox/process IDs and
 both continuation offsets; output bytes are base64, and finished events include
-status and exit code. Other commands return one JSON value. The CLI has no
+state and exit code. Other commands return one JSON value. The CLI has no
 dependency on MCP prompt support.
 
 ## Persistence model

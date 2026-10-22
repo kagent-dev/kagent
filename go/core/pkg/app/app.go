@@ -53,6 +53,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -153,6 +154,8 @@ func SetupLogger(level string) error {
 // fails. It returns the first error rather than exiting, so a library consumer
 // keeps control of how the process ends.
 func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if input == nil {
 		return fmt.Errorf("controller configuration is required")
 	}
@@ -283,6 +286,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	actors, err := substrate.Dial(ctx, substrate.Config{
 		EgressPolicies:        store,
 		EgressPolicyCompilers: opts.EgressPolicyCompilers,
+		ControlPlaneURL:       cfg.GetRuntimeDefaults().GetControlPlaneUrl(),
 		AteAPIEndpoint:        cfg.GetSubstrate().GetApiEndpoint(),
 		CAFile:                cfg.GetSubstrate().GetCaFile(),
 		ClientCertFile:        cfg.GetSubstrate().GetClientCertFile(),
@@ -292,6 +296,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer actors.Close()
+	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), cfg.GetSubstrate().GetCaFile())
+	if err != nil {
+		return fmt.Errorf("configure runtime authentication: %w", err)
+	}
 	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		return err
@@ -318,12 +326,14 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 
 	authenticator, authorizer := opts.resolve()
+	authenticator = runtimeauth.NewProvider(authenticator, actorVerifier, store, cfg.GetSubstrate().GetActorJwtIssuer())
+	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
-	memory := memoryservice.NewService(store)
+	memory := memoryservice.NewService(store, authorizer)
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
@@ -420,7 +430,6 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		BindAddress:           cfg.GetServer().GetBindAddress(),
 		Reflection:            cfg.GetServer().GetGrpcReflection(),
 		Authenticator:         authenticator,
-		RuntimeAuthenticator:  &taskstore.Authenticator{},
 		ShareStore:            store,
 		ModelService:          models,
 		ToolService:           tools,

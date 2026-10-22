@@ -99,7 +99,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 		t.Fatal("gateway trust bundle was not projected")
 	}
 	identity := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()
-	if len(identity) != 3 || identity[0].GetField() != ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME || identity[0].GetPath() != "name" || container.VolumeMounts[2].GetMountPath() != actorIdentityMount {
+	if len(identity) != 1 || identity[0].GetField() != ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME || identity[0].GetPath() != "name" || container.VolumeMounts[2].GetMountPath() != actorIdentityMount {
 		t.Fatal("actor routing identity was not projected")
 	}
 	var rendered a2atype.AgentCard

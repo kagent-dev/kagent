@@ -17,13 +17,21 @@ import (
 
 // ActorEgressPolicy compiles HTTP(S) origins into an actor's default allowlist.
 // Credential bindings are already canonicalized by the store.
-func ActorEgressPolicy(atespace string, destinations []string, credentials []egress.Credential) (*ateapipb.EgressPolicy, error) {
+func ActorEgressPolicy(atespace string, destinations []string, credentials []egress.Credential, controlPlaneURL string) (*ateapipb.EgressPolicy, error) {
 	access, err := egress.CanonicalAccess(destinations, credentials, nil)
 	if err != nil {
 		return nil, err
 	}
+	u, err := egress.ParseOrigin(controlPlaneURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid runtime control-plane origin: %w", err)
+	}
+	runtimeOrigin := u.String()
 	effects := map[string]*ateapipb.HttpRuleEffects{}
 	for _, binding := range access.Credentials {
+		if binding.Origin == runtimeOrigin && binding.Header == "authorization" {
+			return nil, fmt.Errorf("runtime authorization header is reserved for Actor JWTs")
+		}
 		if effects[binding.Origin] == nil {
 			effects[binding.Origin] = &ateapipb.HttpRuleEffects{}
 		}
@@ -31,6 +39,15 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 	}
 	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
 	for _, origin := range access.Destinations {
+		if origin == runtimeOrigin {
+			if effects[origin] == nil {
+				effects[origin] = &ateapipb.HttpRuleEffects{}
+			}
+			effects[origin].ReplaceHeaders = append(effects[origin].ReplaceHeaders, &ateapipb.CredentialHeader{
+				Header: "authorization", Prefix: "Bearer ",
+				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{runtimeJWTAudience}, ExpirationSeconds: 300},
+			})
+		}
 		target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess
 		port, _ := strconv.ParseInt(target.Port(), 10, 32)
 		ports := &ateapipb.Ports{Numbers: []int32{int32(port)}}
@@ -45,11 +62,14 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 	return policy, nil
 }
 
-// defaultEgressPolicyCompiler adds the allowlist and Secret credentials. It runs first.
-type defaultEgressPolicyCompiler struct{ access egress.Access }
+// defaultEgressPolicyCompiler adds the allowlist, Secret credentials, and Actor JWTs. It runs first.
+type defaultEgressPolicyCompiler struct {
+	access          egress.Access
+	controlPlaneURL string
+}
 
 func (c defaultEgressPolicyCompiler) Compile(_ context.Context, input egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
-	base, err := ActorEgressPolicy(input.Atespace, c.access.Destinations, c.access.Credentials)
+	base, err := ActorEgressPolicy(input.Atespace, c.access.Destinations, c.access.Credentials, c.controlPlaneURL)
 	if err != nil {
 		return err
 	}
@@ -60,9 +80,9 @@ func (c defaultEgressPolicyCompiler) Compile(_ context.Context, input egresspoli
 // compileActorEgressPolicy runs the built-in compiler, then each extension.
 // Extensions may change anything; the result must still validate, and with
 // any extension every tokenPassthrough target must end bound.
-func compileActorEgressPolicy(ctx context.Context, atespace string, access egress.Access, compilers []egresspolicy.Compiler) (*ateapipb.EgressPolicy, error) {
+func compileActorEgressPolicy(ctx context.Context, atespace string, access egress.Access, controlPlaneURL string, compilers []egresspolicy.Compiler) (*ateapipb.EgressPolicy, error) {
 	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
-	chain := append([]egresspolicy.Compiler{defaultEgressPolicyCompiler{access: access}}, compilers...)
+	chain := append([]egresspolicy.Compiler{defaultEgressPolicyCompiler{access: access, controlPlaneURL: controlPlaneURL}}, compilers...)
 	for _, compiler := range chain {
 		input := egresspolicy.Input{Atespace: atespace, GatewayTargets: slices.Clone(access.TokenPassthroughTargets)}
 		if err := compiler.Compile(ctx, input, policy); err != nil {

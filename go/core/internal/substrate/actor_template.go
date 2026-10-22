@@ -122,8 +122,6 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			{Name: actorIdentityVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
 				{ActorMetadata: &ateapipb.ActorMetadataDataSource{Items: []*ateapipb.ActorMetadataItem{
 					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME, Path: "name"},
-					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_ATESPACE, Path: "atespace"},
-					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_UID, Path: "uid"},
 				}}},
 			}}},
 			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{

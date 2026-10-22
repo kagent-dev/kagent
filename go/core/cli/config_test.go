@@ -94,3 +94,25 @@ func TestDatabasePreRunLoadsRootConfig(t *testing.T) {
 		})
 	}
 }
+
+// tui.sidebar is set by hand: shown by default, hidden when the file says so, and nothing else.
+func TestConfigTUISidebar(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		path := filepath.Join(dir, "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(body), 0600))
+		return path
+	}
+	view := func(path string) *configv1.CLIConfig {
+		output, err := executeConfig(t, "--config", path, "config", "view")
+		require.NoError(t, err)
+		cfg := &configv1.CLIConfig{}
+		require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
+		return cfg
+	}
+	require.Equal(t, "shown", view(write("output:\n  format: table\n")).GetTui().GetSidebar(), "the default")
+	require.Equal(t, "hidden", view(write("tui:\n  sidebar: hidden\n")).GetTui().GetSidebar())
+
+	_, err := executeConfig(t, "--config", write("tui:\n  sidebar: closed\n"), "config", "validate")
+	require.ErrorContains(t, err, "tui.sidebar")
+}

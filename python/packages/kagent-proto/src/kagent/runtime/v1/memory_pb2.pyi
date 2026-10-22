@@ -11,20 +11,16 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class SessionMemoryInput(_message.Message):
-    __slots__ = ("agent_name", "user_id", "content", "vector", "metadata", "ttl_days")
-    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
-    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("content", "vector", "metadata", "ttl_days")
     CONTENT_FIELD_NUMBER: _ClassVar[int]
     VECTOR_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
     TTL_DAYS_FIELD_NUMBER: _ClassVar[int]
-    agent_name: str
-    user_id: str
     content: str
     vector: _containers.RepeatedScalarFieldContainer[float]
     metadata: _struct_pb2.Struct
     ttl_days: int
-    def __init__(self, agent_name: _Optional[str] = ..., user_id: _Optional[str] = ..., content: _Optional[str] = ..., vector: _Optional[_Iterable[float]] = ..., metadata: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., ttl_days: _Optional[int] = ...) -> None: ...
+    def __init__(self, content: _Optional[str] = ..., vector: _Optional[_Iterable[float]] = ..., metadata: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., ttl_days: _Optional[int] = ...) -> None: ...
 
 class MemorySearchResult(_message.Message):
     __slots__ = ("id", "content", "score", "metadata", "created_at")
@@ -79,18 +75,14 @@ class MemoryServiceAddSessionBatchResponse(_message.Message):
     def __init__(self, count: _Optional[int] = ...) -> None: ...
 
 class MemoryServiceSearchRequest(_message.Message):
-    __slots__ = ("agent_name", "user_id", "vector", "limit", "min_score")
-    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
-    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("vector", "limit", "min_score")
     VECTOR_FIELD_NUMBER: _ClassVar[int]
     LIMIT_FIELD_NUMBER: _ClassVar[int]
     MIN_SCORE_FIELD_NUMBER: _ClassVar[int]
-    agent_name: str
-    user_id: str
     vector: _containers.RepeatedScalarFieldContainer[float]
     limit: int
     min_score: float
-    def __init__(self, agent_name: _Optional[str] = ..., user_id: _Optional[str] = ..., vector: _Optional[_Iterable[float]] = ..., limit: _Optional[int] = ..., min_score: _Optional[float] = ...) -> None: ...
+    def __init__(self, vector: _Optional[_Iterable[float]] = ..., limit: _Optional[int] = ..., min_score: _Optional[float] = ...) -> None: ...
 
 class MemoryServiceSearchResponse(_message.Message):
     __slots__ = ("memories",)
@@ -99,12 +91,10 @@ class MemoryServiceSearchResponse(_message.Message):
     def __init__(self, memories: _Optional[_Iterable[_Union[MemorySearchResult, _Mapping]]] = ...) -> None: ...
 
 class MemoryServiceListRequest(_message.Message):
-    __slots__ = ("agent_name", "user_id")
+    __slots__ = ("agent_name",)
     AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
-    USER_ID_FIELD_NUMBER: _ClassVar[int]
     agent_name: str
-    user_id: str
-    def __init__(self, agent_name: _Optional[str] = ..., user_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, agent_name: _Optional[str] = ...) -> None: ...
 
 class MemoryServiceListResponse(_message.Message):
     __slots__ = ("memories",)
@@ -113,12 +103,10 @@ class MemoryServiceListResponse(_message.Message):
     def __init__(self, memories: _Optional[_Iterable[_Union[MemorySummary, _Mapping]]] = ...) -> None: ...
 
 class MemoryServiceDeleteRequest(_message.Message):
-    __slots__ = ("agent_name", "user_id")
+    __slots__ = ("agent_name",)
     AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
-    USER_ID_FIELD_NUMBER: _ClassVar[int]
     agent_name: str
-    user_id: str
-    def __init__(self, agent_name: _Optional[str] = ..., user_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, agent_name: _Optional[str] = ...) -> None: ...
 
 class MemoryServiceDeleteResponse(_message.Message):
     __slots__ = ("status",)

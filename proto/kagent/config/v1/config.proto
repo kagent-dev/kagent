@@ -15,6 +15,20 @@ message CLIConfig {
   LoggingConfig logging = 3;
   InstallConfig install = 4;
   DatabaseConfig database = 5;
+  TUIConfig tui = 6;
+}
+
+// TUIConfig sets how the interactive workspace starts.
+message TUIConfig {
+  // sidebar is whether the Namespaces, Agents and Sessions panels show at start; /sidebar toggles them for the run. Default "shown".
+  optional string sidebar = 1 [(buf.validate.field).string = {
+    in: [
+      "shown",
+      "hidden"
+    ]
+  }];
+  // bell rings the terminal bell when a turn finishes or waits for input while the terminal window is unfocused; needs a terminal that reports focus. Default true.
+  optional bool bell = 2;
 }
 
 message ConnectionConfig {
@@ -200,6 +214,11 @@ message SubstrateConfig {
   optional string router_url = 4 [(buf.validate.field).string = {
     uri: true
     pattern: "^https?://[^/?#]+"
+  }];
+  // Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file.
+  optional string actor_jwt_issuer = 5 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https://[^/?#]+"
   }];
 }
 

@@ -28,7 +28,7 @@ jobs:
             This issue has been marked as stale because of no activity in the last ${{ env.DAYS_BEFORE_ISSUE_STALE }} days.
             It will be closed in the next ${{ env.DAYS_BEFORE_ISSUE_CLOSE }} days unless it is tagged "no stalebot" or other activity occurs.
           close-issue-message: >
-            This issue has been closed due to no activity in the last 12 months.
+            This issue has been closed after ${{ env.DAYS_BEFORE_ISSUE_STALE }} days of inactivity and an additional ${{ env.DAYS_BEFORE_ISSUE_CLOSE }} days after being marked as stale.
           stale-issue-label: 'stale' # https://github.com/kagent-dev/kagent/labels/stale
           exempt-issue-labels: 'no stalebot' # https://github.com/kagent-dev/kagent/labels/no%20stalebot
           enable-statistics: true
