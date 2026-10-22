@@ -1,7 +1,6 @@
 package a2a
 
 import (
-	"cmp"
 	"maps"
 	"slices"
 	"strings"
@@ -84,36 +83,60 @@ func (u *taskUsage) add(call runtime.ModelCall) {
 		return
 	}
 	u.total = u.total.add(tokens)
-	if model := u.modelOf(call); model != "" {
+	model := call.ResponseModel
+	if model == "" && call.UsageOnly && call.RequestModel != "" {
+		model = u.familyEntry(call.RequestModel)
+	}
+	if model != "" {
 		u.models[model] = u.models[model].add(tokens)
 	}
 }
 
-// modelOf names the entry a call counts in, or nothing for a call that counts
-// in the totals only. A call names its response model. A usage-only call, such
-// as the tokens Claude Code's session totals hold beyond the calls it reported,
-// names the model it was requested as instead: the totals key a model by its
-// undated name, such as claude-sonnet-4-5, while a response names the dated
-// model, such as claude-sonnet-4-5-20250929. That call counts in the one dated
-// entry its name prefixes, or in an entry of its own when no dated entry or
-// several of them match.
-func (u *taskUsage) modelOf(call runtime.ModelCall) string {
-	if call.ResponseModel != "" || !call.UsageOnly || call.RequestModel == "" {
-		return call.ResponseModel
-	}
-	if _, ok := u.models[call.RequestModel]; ok {
-		return call.RequestModel
-	}
-	var dated string
+// familyEntry names the entry a usage-only call counts in. Such a call, the
+// tokens Claude Code's session totals hold beyond the calls it reported, names
+// the model it was requested as: the totals key a model by its undated name,
+// such as claude-sonnet-4-5, while a response names the dated model, such as
+// claude-sonnet-4-5-20250929. The remainder belongs to that family as a whole.
+// Its one entry takes the call, or a new entry under the undated name when the
+// family has none. Several entries are folded into one under the undated name
+// first, so the reasoning the call names is split out of the output that holds
+// it instead of being counted beside it.
+func (u *taskUsage) familyEntry(name string) string {
+	var members []string
 	for model := range u.models {
-		if strings.HasPrefix(model, call.RequestModel+"-") {
-			if dated != "" {
-				return call.RequestModel
-			}
-			dated = model
+		if model == name || datedAs(model, name) {
+			members = append(members, model)
 		}
 	}
-	return cmp.Or(dated, call.RequestModel)
+	switch len(members) {
+	case 0:
+		return name
+	case 1:
+		return members[0]
+	}
+	var family reportedTokens
+	for _, model := range members {
+		family = family.add(u.models[model])
+		delete(u.models, model)
+	}
+	u.models[name] = family
+	return name
+}
+
+// datedAs reports whether model is name followed by a date, the way Anthropic
+// names a model version: claude-sonnet-4-5-20250929 is claude-sonnet-4-5
+// dated, and it is not claude-sonnet-4 dated.
+func datedAs(model, name string) bool {
+	date, ok := strings.CutPrefix(model, name+"-")
+	if !ok || len(date) != 8 {
+		return false
+	}
+	for _, digit := range []byte(date) {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // snapshot copies the tally for the parked task, so the calls a cancel reaps
