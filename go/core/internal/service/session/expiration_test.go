@@ -77,6 +77,32 @@ func (e *expirationActors) DeleteActor(ctx context.Context, space, name string) 
 	return nil
 }
 
+func TestWaitingSessionExpirationDeletesRuntime(t *testing.T) {
+	for _, state := range []a2a.TaskState{a2a.TaskStateInputRequired, a2a.TaskStateAuthRequired} {
+		t.Run(string(state), func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			session, err := workflow.Create(t.Context(), session)
+			require.NoError(t, err)
+			request := stageQuiescenceTask(t, store.Client, session, state)
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+			work, err := store.ClaimSessionQuiescence(t.Context())
+			require.NoError(t, err)
+			snapshot, err := workflow.Quiesce(t.Context(), session)
+			require.NoError(t, err)
+			require.NoError(t, store.FinishSessionQuiescence(t.Context(), work, snapshot))
+
+			worker, err := NewExpirationWorker(store, workflow, time.Hour, time.Minute)
+			require.NoError(t, err)
+			require.NoError(t, worker.expire(t.Context(), session.Id, time.Now()))
+			_, err = store.GetSessionByID(t.Context(), session.Id)
+			require.ErrorIs(t, err, database.ErrNotFound)
+			require.Empty(t, actors.actors, "expiration removes the suspended runtime without another interaction")
+		})
+	}
+}
+
 func TestSessionExpirationRetainsCheckpointHistory(t *testing.T) {
 	store, source := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
