@@ -152,19 +152,10 @@ spec:
                         type: object
                       outputSchemaStrict:
                         description: |-
-                          OutputSchemaStrict asks the model to follow the output schema while it
-                          generates, instead of only having the answer validated afterward. kagent
-                          sends strict with this value, together with the schema, only to OpenAI,
-                          Azure OpenAI, and Foundry in the openai format. strict: true depends on
-                          vendor support and may not be respected. Other providers never receive
-                          strict, and an OpenAI-compatible endpoint may ignore it. kagent validates
-                          every final answer against the schema either way. When true, every schema
-                          node must set type (anyOf, enum or $ref may stand in for it), a $ref must
-                          have no other keywords next to it, every object must set
-                          additionalProperties to false and list every property in required, and the
-                          root must not use anyOf. kagent checks these rules for every provider. When
-                          false, the default, the request sends strict: false and the schema needs
-                          none of these rules.
+                          OutputSchemaStrict sends strict: true with the output schema to OpenAI,
+                          Azure OpenAI, and Foundry in the openai format, so the model follows the
+                          schema while it generates. The schema must then follow OpenAI's strict
+                          mode rules, which kagent checks for every provider.
                         type: boolean
                       plugins:
                         items:
