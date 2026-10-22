@@ -288,9 +288,10 @@ jobs:
           echo "::error::Kubectl get Harnesses and AgentTemplates -n kagent"
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
-          kubectl logs -n kagent deployment/kagent-controller
+          kubectl logs -n kagent deployment/kagent-controller || true
           kubectl get pods,workerpools -A
           echo "::error::Substrate logs"
+          kubectl describe pods -n ate-system || true
           kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true
           kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true

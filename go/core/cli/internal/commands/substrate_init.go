@@ -15,6 +15,7 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -28,6 +29,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lestrrat-go/jwx/jwk"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -239,10 +242,24 @@ func newCAPoolSecretData(keyType caKeyType) (map[string][]byte, error) {
 }
 
 func ensureJWTPool(ctx context.Context, client kubernetes.Interface, namespace, name string) error {
-	if exists, err := secretExists(ctx, client, namespace, name); err != nil {
-		return err
-	} else if exists {
+	secret, err := client.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		// Keep signing keys intact when upgrading an existing installation.
+		jwks, err := jwtPoolPublicKeys(secret.Data["pool"])
+		if err != nil {
+			return fmt.Errorf("read JWT authority pool %s/%s: %w", namespace, name, err)
+		}
+		if bytes.Equal(secret.Data["jwks"], jwks) {
+			return nil
+		}
+		secret.Data["jwks"] = jwks
+		if _, err := client.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update JWT authority public keys %s/%s: %w", namespace, name, err)
+		}
 		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("get secret %s/%s: %w", namespace, name, err)
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -259,7 +276,52 @@ func ensureJWTPool(ctx context.Context, client kubernetes.Interface, namespace, 
 	if err != nil {
 		return fmt.Errorf("encode JWT authority pool: %w", err)
 	}
-	return createSecret(ctx, client, namespace, name, corev1.SecretTypeOpaque, map[string][]byte{"pool": pool})
+	jwks, err := jwtPoolPublicKeys(pool)
+	if err != nil {
+		return err
+	}
+	return createSecret(ctx, client, namespace, name, corev1.SecretTypeOpaque, map[string][]byte{"pool": pool, "jwks": jwks})
+}
+
+// jwtPoolPublicKeys derives the public-only JWKS mounted by Substrate's snapshot
+// exchange. The upstream pool serializer is internal to the Substrate module.
+func jwtPoolPublicKeys(data []byte) ([]byte, error) {
+	var pool serializedJWTPool
+	if err := json.Unmarshal(data, &pool); err != nil {
+		return nil, fmt.Errorf("decode JWT authority pool: %w", err)
+	}
+	if len(pool.Authorities) == 0 {
+		return nil, fmt.Errorf("JWT authority pool has no authorities")
+	}
+	keys := jwk.NewSet()
+	for _, authority := range pool.Authorities {
+		if authority == nil || authority.ID == "" || authority.Algorithm == "" {
+			return nil, fmt.Errorf("JWT authority is missing its ID or algorithm")
+		}
+		key, err := x509.ParsePKCS8PrivateKey(authority.SigningKeyPKCS8)
+		if err != nil {
+			return nil, fmt.Errorf("parse JWT authority %s: %w", authority.ID, err)
+		}
+		signer, ok := key.(crypto.Signer)
+		if !ok {
+			return nil, fmt.Errorf("JWT authority %s has unsupported key type %T", authority.ID, key)
+		}
+		publicKey, err := jwk.New(signer.Public())
+		if err != nil {
+			return nil, fmt.Errorf("encode JWT authority %s public key: %w", authority.ID, err)
+		}
+		for field, value := range map[string]string{jwk.KeyIDKey: authority.ID, jwk.AlgorithmKey: authority.Algorithm, jwk.KeyUsageKey: "sig"} {
+			if err := publicKey.Set(field, value); err != nil {
+				return nil, fmt.Errorf("set JWT authority %s %s: %w", authority.ID, field, err)
+			}
+		}
+		keys.Add(publicKey)
+	}
+	data, err := json.Marshal(keys)
+	if err != nil {
+		return nil, fmt.Errorf("encode JWT authority public keys: %w", err)
+	}
+	return data, nil
 }
 
 func ensureActorIDCACerts(ctx context.Context, client kubernetes.Interface) error {
