@@ -178,11 +178,10 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 	return nil
 }
 
-// schemaViolationLocation names the schema node and keyword that rejected a
-// value, such as "/properties/due (pattern)". jsonschema-go has no structured
-// validation error. It wraps one "validating <schema path>" layer per schema
-// node around a "<keyword>: <detail>" leaf. The detail can echo the value and a
-// generated regex, so only the path and keyword are kept.
+// jsonschema-go has no structured validation error. It wraps one
+// "validating <schema path>" layer per schema node around a
+// "<keyword>: <detail>" leaf. The detail can echo the value and a generated
+// regex, so only the path and keyword are kept.
 func schemaViolationLocation(err error) string {
 	location := ""
 	for inner := errors.Unwrap(err); inner != nil; err, inner = inner, errors.Unwrap(inner) {

@@ -78,7 +78,7 @@ type ResolvedOutputSchema struct {
 	Schema []byte
 	SHA256 string
 	Source *ResolvedConfigMapKeyReference
-	Strict *bool
+	Strict bool
 }
 
 // ResolvedConfigMapKeyReference identifies the exact ConfigMap input used by a
@@ -160,11 +160,11 @@ func validateOutputSchema(raw []byte) ([]byte, error) {
 	if err := json.Unmarshal(canonical, &schema); err != nil {
 		return nil, fmt.Errorf("parse schema: %w", err)
 	}
+	if err := adkoutputschema.CheckPatterns(&schema); err != nil {
+		return nil, err
+	}
 	if _, err := schema.Resolve(nil); err != nil {
 		return nil, fmt.Errorf("resolve schema: %w", err)
-	}
-	if err := adkoutputschema.CheckPortablePatterns(&schema); err != nil {
-		return nil, err
 	}
 	return canonical, nil
 }

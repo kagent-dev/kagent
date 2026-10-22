@@ -494,13 +494,12 @@ func TestCompileAgentOutputSchemaStrict(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		schema  string
-		strict  *bool
+		strict  bool
 		wantErr string
 	}{
-		{name: "unset keeps strict absent", schema: optionalField},
-		{name: "false accepts an optional field", schema: optionalField, strict: new(false)},
-		{name: "true accepts a strict schema", schema: closed, strict: new(true)},
-		{name: "true rejects an optional field", schema: optionalField, strict: new(true), wantErr: "outputSchemaStrict"},
+		{name: "false accepts an optional field", schema: optionalField},
+		{name: "true accepts a strict schema", schema: closed, strict: true},
+		{name: "true rejects an optional field", schema: optionalField, strict: true, wantErr: "outputSchemaStrict"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root := &v1alpha3.AgentTemplate{
@@ -519,7 +518,7 @@ func TestCompileAgentOutputSchemaStrict(t *testing.T) {
 			require.NoError(t, err)
 			var config configv1.ADKConfig
 			require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
-			require.Equal(t, tt.strict, config.Agent.Output.Strict)
+			require.Equal(t, tt.strict, config.Agent.Model.GetOpenai().StrictOutputSchema)
 		})
 	}
 }

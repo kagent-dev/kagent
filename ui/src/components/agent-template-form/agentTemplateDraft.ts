@@ -49,11 +49,6 @@ export type PromptSource = "inline" | "configMap";
 /** Whether terminal output is prose or constrained by a JSON Schema. */
 export type OutputSource = "text" | "inline" | "configMap";
 
-export type OutputStrictness = "default" | "strict" | "off";
-
-const strictnessFromSpec = (strict: boolean | undefined): OutputStrictness =>
-  strict === undefined ? "default" : strict ? "strict" : "off";
-
 export interface AgentTemplateDraft {
   name: string;
   namespace: string;
@@ -69,7 +64,7 @@ export interface AgentTemplateDraft {
   outputSchema: string;
   outputSchemaConfigMap: string;
   outputSchemaKey: string;
-  outputStrict: OutputStrictness;
+  outputStrict: boolean;
   mcpTools: McpToolDraft[];
   subAgentTools: SubAgentToolDraft[];
 
@@ -90,7 +85,7 @@ export function emptyDraft(namespace: string): AgentTemplateDraft {
     outputSchema: "",
     outputSchemaConfigMap: "",
     outputSchemaKey: "",
-    outputStrict: "default",
+    outputStrict: false,
     mcpTools: [],
     subAgentTools: [],
     labels: [],
@@ -134,7 +129,7 @@ export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): Agent
       : "",
     outputSchemaConfigMap: spec.outputSchemaFrom?.name ?? "",
     outputSchemaKey: spec.outputSchemaFrom?.key ?? "",
-    outputStrict: strictnessFromSpec(spec.outputSchemaStrict),
+    outputStrict: spec.outputSchemaStrict ?? false,
     mcpTools: tools
       .filter((binding) => binding.mcp)
       .map((binding) => ({
@@ -236,9 +231,8 @@ export function specFromDraft(
     delete spec.outputSchema;
     delete spec.outputSchemaFrom;
   }
-  if (draft.outputStrict === "default") delete spec.outputSchemaStrict;
-  else spec.outputSchemaStrict = draft.outputStrict === "strict";
-  if (!spec.outputSchema && !spec.outputSchemaFrom) delete spec.outputSchemaStrict;
+  if (draft.outputStrict && (spec.outputSchema || spec.outputSchemaFrom)) spec.outputSchemaStrict = true;
+  else delete spec.outputSchemaStrict;
 
   // An empty list is removed rather than sent: `tools: []` and no `tools` mean the
   // same thing to the controller, and the shorter resource is the one a reader can

@@ -11,11 +11,12 @@ import (
 )
 
 // The set is the intersection of the formats OpenAI and Anthropic structured
-// outputs document. jsonschema-go treats format as an annotation only, so each
+// outputs document. jsonschema-go ignores format during validation, so each
 // format is asserted as a pattern.
 var stringFormatPatterns = func() map[string]string {
 	const (
-		fullDate = `\d{4}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31|02-29)`
+		leapYear = `(?:\d\d(?:0[48]|[2468][048]|[13579][26])|(?:[02468][048]|[13579][26])00)`
+		fullDate = `(?:\d{4}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|` + leapYear + `-02-29)`
 		partial  = `(?:[01]\d|2[0-3]):[0-5]\d:(?:[0-5]\d|60)(?:\.\d+)?`
 		offset   = `(?:[Zz]|[+-](?:[01]\d|2[0-3]):[0-5]\d)`
 		label    = `[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?`
@@ -27,6 +28,7 @@ var stringFormatPatterns = func() map[string]string {
 		durTime  = `T(?:\d+H(?:\d+M)?(?:\d+S)?|\d+M(?:\d+S)?|\d+S)`
 		durDate  = `(?:\d+Y(?:\d+M)?(?:\d+D)?|\d+M(?:\d+D)?|\d+D)`
 		hex      = `[0-9A-Fa-f]`
+		atom     = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
 	)
 	ipv6 := `(?:` +
 		`(?:` + h16 + `:){6}` + ls32 +
@@ -44,7 +46,7 @@ var stringFormatPatterns = func() map[string]string {
 		"date":      anchored(fullDate),
 		"date-time": anchored(fullDate + `[Tt]` + partial + offset),
 		"duration":  anchored(`P(?:\d+W|` + durDate + `(?:` + durTime + `)?|` + durTime + `)`),
-		"email":     anchored("[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@" + hostname),
+		"email":     anchored(atom + `(?:\.` + atom + `)*@` + hostname),
 		"hostname":  anchored(hostname),
 		"ipv4":      anchored(ipv4),
 		"ipv6":      anchored(ipv6),
@@ -104,10 +106,36 @@ func assertFormats(schema *jsonschema.Schema) error {
 	return nil
 }
 
-// CheckPortablePatterns rejects patterns that compile as RE2 but that a
-// provider cannot constrain. Claude documents word boundaries as unsupported,
-// and Bedrock accepts them but then degenerates, so \b and \B are rejected.
-func CheckPortablePatterns(schema *jsonschema.Schema) error {
+// maxPatternProgramSize bounds the regexp instructions that the patterns of one
+// output schema compile to, counting each format as the pattern that asserts it.
+// Compiling takes about 300 bytes per instruction, so the bound keeps a schema
+// near 30 MB.
+const maxPatternProgramSize = 100_000
+
+var formatProgramSizes = func() map[string]int64 {
+	sizes := make(map[string]int64, len(stringFormatPatterns))
+	for format, pattern := range stringFormatPatterns {
+		parsed, err := syntax.Parse(pattern, syntax.Perl)
+		if err != nil {
+			panic(fmt.Sprintf("format %s pattern: %v", format, err))
+		}
+		sizes[format] = programSize(parsed)
+	}
+	return sizes
+}()
+
+// CheckPatterns rejects patterns that compile as RE2 but that a provider cannot
+// constrain. Claude documents word boundaries as unsupported, and Bedrock
+// accepts them but then degenerates, so \b and \B are rejected. It also rejects
+// a schema whose patterns and formats compile to more than
+// maxPatternProgramSize instructions. It parses patterns without compiling
+// them, so it must run before Resolve, which compiles every pattern.
+func CheckPatterns(schema *jsonschema.Schema) error {
+	var size int64
+	return checkPatterns(schema, &size)
+}
+
+func checkPatterns(schema *jsonschema.Schema, size *int64) error {
 	if schema == nil {
 		return nil
 	}
@@ -117,15 +145,53 @@ func CheckPortablePatterns(schema *jsonschema.Schema) error {
 			return fmt.Errorf("pattern %q: %w", schema.Pattern, err)
 		}
 		if hasWordBoundary(parsed) {
-			return fmt.Errorf(`pattern %q uses a word boundary (\b or \B), which structured output providers do not support; anchor with ^ and $ instead`, schema.Pattern)
+			return fmt.Errorf(`pattern %q uses a word boundary (\b or \B), which Claude structured outputs do not support`, schema.Pattern)
 		}
+		*size += programSize(parsed)
+	}
+	*size += formatProgramSizes[schema.Format]
+	if *size > maxPatternProgramSize {
+		return fmt.Errorf("patterns and formats compile to more than %d regexp instructions; lower large repeat counts such as {1000} or use fewer pattern and format properties", maxPatternProgramSize)
 	}
 	for _, child := range subschemas(schema) {
-		if err := CheckPortablePatterns(child); err != nil {
+		if err := checkPatterns(child, size); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// programSize estimates the instructions that expression compiles to once its
+// repeats are expanded, using the same rules regexp/syntax uses to reject an
+// expression that is too large.
+func programSize(expression *syntax.Regexp) int64 {
+	var size int64
+	switch expression.Op {
+	case syntax.OpLiteral:
+		size = int64(len(expression.Rune))
+	case syntax.OpCapture, syntax.OpStar:
+		size = 2 + programSize(expression.Sub[0])
+	case syntax.OpPlus, syntax.OpQuest:
+		size = 1 + programSize(expression.Sub[0])
+	case syntax.OpConcat, syntax.OpAlternate:
+		for _, sub := range expression.Sub {
+			size += programSize(sub)
+		}
+		if expression.Op == syntax.OpAlternate {
+			size += int64(len(expression.Sub)) - 1
+		}
+	case syntax.OpRepeat:
+		sub := programSize(expression.Sub[0])
+		switch {
+		case expression.Max == -1 && expression.Min == 0:
+			size = 2 + sub
+		case expression.Max == -1:
+			size = 1 + int64(expression.Min)*sub
+		default:
+			size = int64(expression.Max)*sub + int64(expression.Max-expression.Min)
+		}
+	}
+	return max(1, size)
 }
 
 func hasWordBoundary(expression *syntax.Regexp) bool {
@@ -137,9 +203,17 @@ func hasWordBoundary(expression *syntax.Regexp) bool {
 
 func subschemas(schema *jsonschema.Schema) []*jsonschema.Schema {
 	return slices.Concat(
-		slices.Collect(maps.Values(schema.Defs)),
-		slices.Collect(maps.Values(schema.Properties)),
+		sortedValues(schema.Defs),
+		sortedValues(schema.Properties),
 		schema.AnyOf,
 		[]*jsonschema.Schema{schema.Items, schema.AdditionalProperties},
 	)
+}
+
+func sortedValues(schemas map[string]*jsonschema.Schema) []*jsonschema.Schema {
+	values := make([]*jsonschema.Schema, 0, len(schemas))
+	for _, name := range slices.Sorted(maps.Keys(schemas)) {
+		values = append(values, schemas[name])
+	}
+	return values
 }

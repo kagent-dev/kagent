@@ -3,8 +3,10 @@ package outputschema
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,13 +18,13 @@ func TestResolveValidatorAssertsStringFormats(t *testing.T) {
 	}{
 		{
 			format:  "date-time",
-			valid:   []string{"2026-10-19T12:00:00Z", "2026-10-19t12:00:00.123+02:00", "2024-02-29T23:59:60-05:30"},
-			invalid: []string{"not-a-date", "2026-10-19", "2026-10-19T12:00:00", "2026-13-01T00:00:00Z", "2026-02-30T00:00:00Z", "2026-10-19T24:00:00Z"},
+			valid:   []string{"2026-10-19T12:00:00Z", "2026-10-19t12:00:00.123+02:00", "2024-02-29T23:59:60-05:30", "2000-02-29T00:00:00Z"},
+			invalid: []string{"not-a-date", "2026-10-19", "2026-10-19T12:00:00", "2026-13-01T00:00:00Z", "2026-02-30T00:00:00Z", "2026-10-19T24:00:00Z", "2025-02-29T00:00:00Z"},
 		},
 		{
 			format:  "date",
-			valid:   []string{"2026-10-19", "2026-12-31", "2024-02-29"},
-			invalid: []string{"not-a-date", "2026-10-19T12:00:00Z", "2026-04-31", "2026-00-10", "26-10-19"},
+			valid:   []string{"2026-10-19", "2026-12-31", "2024-02-29", "2000-02-29", "2400-02-29"},
+			invalid: []string{"not-a-date", "2026-10-19T12:00:00Z", "2026-04-31", "2026-00-10", "26-10-19", "2025-02-29", "1900-02-29", "2100-02-29"},
 		},
 		{
 			format:  "time",
@@ -37,7 +39,7 @@ func TestResolveValidatorAssertsStringFormats(t *testing.T) {
 		{
 			format:  "email",
 			valid:   []string{"user@example.com", "first.last+tag@sub.example.io"},
-			invalid: []string{"user", "user@", "@example.com", "user@-example.com"},
+			invalid: []string{"user", "user@", "@example.com", "user@-example.com", ".user@example.com", "user.@example.com", "a..b@example.com"},
 		},
 		{
 			format:  "hostname",
@@ -122,7 +124,124 @@ func TestResolveValidatorAssertsPatternAndFormatTogether(t *testing.T) {
 	require.Error(t, validator.Validate(map[string]any{"day": "2026-not-a-date"}), "format mismatch")
 }
 
+var childSchemas = []struct {
+	name     string
+	schema   func(node string) string
+	instance func(value string) map[string]any
+}{
+	{
+		name:     "properties",
+		schema:   func(node string) string { return `{"type":"object","properties":{"v":` + node + `}}` },
+		instance: func(value string) map[string]any { return map[string]any{"v": value} },
+	},
+	{
+		name: "items",
+		schema: func(node string) string {
+			return `{"type":"object","properties":{"v":{"type":"array","items":` + node + `}}}`
+		},
+		instance: func(value string) map[string]any { return map[string]any{"v": []any{value}} },
+	},
+	{
+		name: "additionalProperties",
+		schema: func(node string) string {
+			return `{"type":"object","properties":{"v":{"type":"object","additionalProperties":` + node + `}}}`
+		},
+		instance: func(value string) map[string]any { return map[string]any{"v": map[string]any{"k": value}} },
+	},
+	{
+		name: "anyOf",
+		schema: func(node string) string {
+			return `{"type":"object","properties":{"v":{"anyOf":[` + node + `,{"type":"null"}]}}}`
+		},
+		instance: func(value string) map[string]any { return map[string]any{"v": value} },
+	},
+	{
+		name: "$defs",
+		schema: func(node string) string {
+			return `{"type":"object","properties":{"v":{"$ref":"#/$defs/v"}},"$defs":{"v":` + node + `}}`
+		},
+		instance: func(value string) map[string]any { return map[string]any{"v": value} },
+	},
+}
+
+func TestResolveValidatorAssertsFormatInEveryChildSchema(t *testing.T) {
+	for _, child := range childSchemas {
+		t.Run(child.name, func(t *testing.T) {
+			validator, err := ResolveValidator(json.RawMessage(child.schema(`{"type":"string","format":"date"}`)))
+			require.NoError(t, err)
+			require.NoError(t, validator.Validate(child.instance("2026-10-19")))
+			require.Error(t, validator.Validate(child.instance("Monday")))
+		})
+	}
+}
+
+func TestCheckPatternsRejectsWordBoundaryInEveryChildSchema(t *testing.T) {
+	for _, child := range childSchemas {
+		t.Run(child.name, func(t *testing.T) {
+			var schema jsonschema.Schema
+			require.NoError(t, json.Unmarshal([]byte(child.schema(`{"type":"string","pattern":"\\bA"}`)), &schema))
+			require.ErrorContains(t, CheckPatterns(&schema), "uses a word boundary")
+		})
+	}
+}
+
+func TestCheckPatternsReportsTheFirstPatternInSortedOrder(t *testing.T) {
+	var schema jsonschema.Schema
+	require.NoError(t, json.Unmarshal([]byte(`{"type":"object","properties":{
+		"d":{"type":"string","pattern":"\\bD"},
+		"c":{"type":"string","pattern":"\\bC"},
+		"b":{"type":"string","pattern":"\\bB"},
+		"a":{"type":"string","pattern":"\\bA"}
+	}}`), &schema))
+	for range 50 {
+		require.ErrorContains(t, CheckPatterns(&schema), `pattern "\\bA"`)
+	}
+}
+
 func TestResolveValidatorRejectsUnsupportedFormat(t *testing.T) {
 	_, err := ResolveValidator(json.RawMessage(`{"type":"object","properties":{"site":{"type":"string","format":"uri"}}}`))
 	require.ErrorContains(t, err, `unsupported output schema format "uri"`)
+}
+
+func TestCheckPatternsBoundsProgramSize(t *testing.T) {
+	properties := func(count int, node func(int) string) string {
+		entries := make([]string, count)
+		for i := range entries {
+			entries[i] = fmt.Sprintf(`"p%d":%s`, i, node(i))
+		}
+		return `{"type":"object","properties":{` + strings.Join(entries, ",") + `}}`
+	}
+	ipv6 := func(int) string { return `{"type":"string","format":"ipv6"}` }
+	tests := []struct {
+		name    string
+		schema  string
+		wantErr bool
+	}{
+		{name: "every format", schema: properties(len(SupportedStringFormats()), func(i int) string {
+			return fmt.Sprintf(`{"type":"string","format":%q}`, SupportedStringFormats()[i])
+		})},
+		{name: "long bounded repeat", schema: `{"type":"object","properties":{"note":{"type":"string","pattern":"^.{0,1000}$"}}}`},
+		{name: "100 ipv6 formats", schema: properties(100, ipv6)},
+		{name: "103 ipv6 formats", schema: properties(103, ipv6), wantErr: true},
+		{name: "one pattern with 101 repeats of 1000", schema: `{"type":"object","properties":{"code":{"type":"string","pattern":"^` + strings.Repeat(`[a-z]{1000}`, 101) + `$"}}}`, wantErr: true},
+		{name: "ipv6 formats under items, anyOf and additionalProperties", schema: properties(105, func(i int) string {
+			return [...]string{
+				`{"type":"array","items":{"type":"string","format":"ipv6"}}`,
+				`{"anyOf":[{"type":"string","format":"ipv6"},{"type":"null"}]}`,
+				`{"type":"object","additionalProperties":{"type":"string","format":"ipv6"}}`,
+			}[i%3]
+		}), wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var schema jsonschema.Schema
+			require.NoError(t, json.Unmarshal([]byte(test.schema), &schema))
+			err := CheckPatterns(&schema)
+			if !test.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "patterns and formats compile to more than 100000 regexp instructions")
+		})
+	}
 }

@@ -106,6 +106,26 @@ func TestCheckStrict(t *testing.T) {
 			wantErr: "/properties/meta must set additionalProperties to false",
 		},
 		{
+			name: "typed map of strings",
+			schema: `{
+				"type":"object",
+				"properties":{"labels":{"type":"object","additionalProperties":{"type":"string"}}},
+				"required":["labels"],
+				"additionalProperties":false
+			}`,
+			wantErr: "/properties/labels must set additionalProperties to false: strict mode cannot express a map with free-form keys",
+		},
+		{
+			name:    "$ref with a description",
+			schema:  `{"type":"object","properties":{"a":{"$ref":"#/$defs/s","description":"a code"}},"required":["a"],"additionalProperties":false,"$defs":{"s":{"type":"string"}}}`,
+			wantErr: "/properties/a must not set other keywords next to $ref",
+		},
+		{
+			name:    "$ref with a title inside anyOf",
+			schema:  `{"type":"object","properties":{"a":{"anyOf":[{"$ref":"#/$defs/s","title":"Code"},{"type":"null"}]}},"required":["a"],"additionalProperties":false,"$defs":{"s":{"type":"string"}}}`,
+			wantErr: "/properties/a/anyOf/0 must not set other keywords next to $ref",
+		},
+		{
 			name:    "root anyOf",
 			schema:  `{"type":"object","anyOf":[{"type":"object","properties":{},"additionalProperties":false}]}`,
 			wantErr: "the root must not use anyOf",

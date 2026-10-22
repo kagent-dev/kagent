@@ -174,46 +174,31 @@ describe("the agent template draft", () => {
   });
 
   it.each([
-    [undefined, "default"],
-    [true, "strict"],
-    [false, "off"],
-  ] as const)(
-    "round-trips outputSchemaStrict %s through the draft as %s",
-    (strict, expected) => {
-      const template = templateWithExtras();
-      const spec = { ...template.resource.spec, outputSchemaStrict: strict };
-      const draft = draftFromTemplate({
-        ...template,
-        resource: { ...template.resource, spec },
-      });
+    [undefined, false],
+    [false, false],
+    [true, true],
+  ] as const)("reads outputSchemaStrict %s as %s and writes only true", (strict, expected) => {
+    const template = templateWithExtras();
+    const spec = { ...template.resource.spec, outputSchemaStrict: strict };
+    const draft = draftFromTemplate({ ...template, resource: { ...template.resource, spec } });
 
-      expect(draft.outputStrict).toBe(expected);
-      const saved = specFromDraft(draft, spec);
-      if (strict === undefined) expect(saved).not.toHaveProperty("outputSchemaStrict");
-      else expect(saved.outputSchemaStrict).toBe(strict);
-    },
-  );
+    expect(draft.outputStrict).toBe(expected);
+    const saved = specFromDraft(draft, spec);
+    if (expected) expect(saved.outputSchemaStrict).toBe(true);
+    else expect(saved).not.toHaveProperty("outputSchemaStrict");
+  });
 
-  it("writes the chosen strictness and removes the key for the provider default", () => {
+  it("keeps strict through an edit to another field and drops it with the schema", () => {
     const template = templateWithExtras();
     const spec = { ...template.resource.spec, outputSchemaStrict: true };
     const draft = draftFromTemplate({ ...template, resource: { ...template.resource, spec } });
 
-    expect(specFromDraft({ ...draft, outputStrict: "off" }, spec).outputSchemaStrict).toBe(false);
-    expect(specFromDraft({ ...draft, outputStrict: "strict" }, spec).outputSchemaStrict).toBe(true);
-    expect(specFromDraft({ ...draft, outputStrict: "default" }, spec)).not.toHaveProperty(
+    expect(specFromDraft({ ...draft, outputStrict: false }, spec)).not.toHaveProperty(
       "outputSchemaStrict",
     );
-  });
-
-  it("keeps strictness through an edit to another field and drops it with the schema", () => {
-    const template = templateWithExtras();
-    const spec = { ...template.resource.spec, outputSchemaStrict: false };
-    const draft = draftFromTemplate({ ...template, resource: { ...template.resource, spec } });
-
     const edited = specFromDraft({ ...draft, description: "Edited." }, spec);
     expect(edited.description).toBe("Edited.");
-    expect(edited.outputSchemaStrict).toBe(false);
+    expect(edited.outputSchemaStrict).toBe(true);
 
     const text = specFromDraft({ ...draft, outputSource: "text" }, spec);
     expect(text).not.toHaveProperty("outputSchema");

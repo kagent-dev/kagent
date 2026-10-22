@@ -45,7 +45,7 @@ func TestOpenAIModelStrictOutputSchema(t *testing.T) {
 		name   string
 		strict *bool
 	}{
-		{name: "unset", strict: nil},
+		{name: "nil", strict: nil},
 		{name: "false", strict: new(false)},
 		{name: "true", strict: new(true)},
 	}
@@ -62,14 +62,13 @@ func TestOpenAIModelStrictOutputSchema(t *testing.T) {
 				defer server.Close()
 
 				llm := &OpenAIModel{
-					Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: tt.apiFormat},
+					Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: tt.apiFormat, StrictOutputSchema: sc.strict},
 					Client: openai.NewClient(
 						option.WithAPIKey("test"),
 						option.WithBaseURL(server.URL),
 						option.WithHTTPClient(server.Client()),
 					),
-					Logger:             slog.New(slog.DiscardHandler),
-					StrictOutputSchema: sc.strict,
+					Logger: slog.New(slog.DiscardHandler),
 				}
 				request := &model.LLMRequest{
 					Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "ping"}}}},
@@ -83,7 +82,7 @@ func TestOpenAIModelStrictOutputSchema(t *testing.T) {
 
 				strict, present := tt.format(body)["strict"]
 				if sc.strict == nil {
-					require.False(t, present, "strict must be omitted when unset")
+					require.False(t, present, "strict must be omitted when nil")
 					return
 				}
 				require.Equal(t, *sc.strict, strict)

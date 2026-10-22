@@ -84,14 +84,16 @@ types, nested objects and arrays, `properties`, `required`,
 descriptions, and non-recursive local references through `$defs`. `type` is
 one type name or a list of them, such as `type: [string, "null"]`.
 
-Schemas whose `type` is `string`, or a list that includes `string`, can also
-use `pattern` and `format`. A
-`pattern` must be a regular expression that Go's RE2 syntax accepts, so
-lookaround and backreferences are rejected. Word boundaries (`\b` and `\B`)
-are also rejected: Claude documents them as unsupported, and Bedrock accepts
-them but produces degenerate output. Anchor with `^` and `$` instead. `format` accepts the formats that
-both OpenAI and Claude structured outputs document: `date-time`, `time`,
-`date`, `duration`, `email`, `hostname`, `ipv4`, `ipv6`, and `uuid`.
+Schemas whose `type` is `string`, or a list that includes `string`, can also use
+`pattern` and `format`. A `pattern` must be a regular expression that Go's RE2
+syntax accepts, so lookaround and backreferences are rejected. Word boundaries
+(`\b` and `\B`) are also rejected: Claude documents them as unsupported, and
+Bedrock accepts them but produces degenerate output. The Claude API also rejects
+a range quantifier on `.` or on a negated class, such as `^.{0,100}$` or
+`^[^@]{0,64}$`, and a large range on a wide class, such as `^[a-z]{0,900}$`.
+Compilation does not check these. `format` accepts the formats that both OpenAI
+and Claude structured outputs document: `date-time`, `time`, `date`, `duration`,
+`email`, `hostname`, `ipv4`, `ipv6`, and `uuid`.
 
 ```yaml
 outputSchema:
@@ -104,72 +106,82 @@ outputSchema:
       type: string
       pattern: "^OPS-[0-9]+$"
   required: [due, ticket]
+  additionalProperties: false
 ```
 
 OpenAI, Azure OpenAI, Claude, Bedrock, and Foundry requests carry both keywords
 unchanged. Gemini requests carry `pattern` and only the `date` and `date-time`
-formats, which Gemini documents. The final validator asserts every `pattern`
-and `format`, so a provider that ignores either keyword still cannot complete
-the Task with a nonconforming value. `date-time` follows RFC 3339 and requires
-a time zone offset; `time` accepts an optional offset.
+formats. Mistral requests carry the same projection as Gemini requests, and
+Ollama and SAP AI Core requests carry no schema. The final validator asserts
+every `pattern` and `format`, so a provider that ignores either keyword still
+cannot complete the Task with a nonconforming value. `date-time` follows RFC
+3339 and requires a time zone offset. `time` accepts an optional offset. The
+format checks do not limit `email` or `hostname` length, and accept a leap
+second (`:60`) at any time of day.
+
+An OpenAI ModelConfig with a custom base URL sends the schema and `strict`
+unchanged to that URL. All the checks on this page still apply.
 
 External or recursive references, conditional schemas, tuple arrays, and other
 unsupported keywords are rejected during compilation rather than silently
 weakened for a provider. A provider or model can still reject structured output
 at runtime; in that case the Task fails.
 
-Go ADK checks a Gemini model's answer with its `set_model_response` tool,
-except on Vertex AI. That check needs exactly one type on every property,
-array item and nested property, and an `items` schema on every array. A
-`null` type is allowed only next to one other type, as in
-`type: [string, "null"]`. A type list with two or more non-null types, `anyOf`,
-`type: "null"` alone, or a node with no type rejects every non-null value of
-that node. Compilation rejects such a schema when the model name starts with
-`gemini-` on any provider but GeminiVertexAI, or is empty on Gemini, which
-then runs a `gemini-` default. The Agent reports the error instead of the Task
-failing.
+Go ADK checks the answer of some Gemini models with its `set_model_response`
+tool. That check needs exactly one type on every property, array item and nested
+property, and an `items` schema on every array. A `null` type is allowed only
+next to one other type, as in `type: [string, "null"]`. A type list with two or
+more non-null types, `anyOf`, `type: "null"` alone, or a node with no type makes
+the check reject valid values of that node. Compilation rejects such a schema
+when the model name, after the last `/` and in any letter case, starts with
+`gemini-`, as in `google/gemini-2.5-flash`, or is empty on Gemini, which then
+runs a `gemini-` default. The Agent reports the error instead of the Task
+failing. Compilation does not check GeminiVertexAI models.
 
-The serialized schema is limited to 64 KiB. Conversion to the Go ADK schema is
-also limited to 32 levels and 1,000 expanded schema nodes; these bounds include
-nodes expanded through local `$defs` references. Schemas that exceed any limit
-fail compilation.
+The serialized schema is limited to 64 KiB. Its patterns and formats together
+may compile to at most 100,000 regular expression instructions, about 100
+`ipv6` fields or 49 patterns such as `^[0-9]{0,1000}$`. Conversion to the Go ADK
+schema is also limited to 32 levels and 1,000 expanded schema nodes; these
+bounds include nodes expanded through local `$defs` references. Schemas that
+exceed any limit fail compilation.
 
 ## Strict mode
 
-`outputSchemaStrict` sets `strict` on requests to OpenAI, Azure OpenAI, and
-Foundry's OpenAI-compatible surface, on both the Chat Completions and Responses
-APIs. It has three values:
+`outputSchemaStrict` sets `strict` on Chat Completions requests to OpenAI,
+Azure OpenAI, and Foundry in the openai format, and on Responses API requests
+to OpenAI and Azure OpenAI:
 
 | `outputSchemaStrict` | Request | Generation |
 | --- | --- | --- |
-| unset | omits `strict` | Provider default: not strict on Chat Completions, strict on Responses |
-| `false` | `strict: false` | Not strict |
-| `true` | `strict: true` | Strict |
+| `false` or omitted | `strict: false` | Not strict |
+| `true` | `strict: true` | Strict, if the vendor supports it |
 
 Strict generation means the provider constrains the answer to the schema.
-Without it, the schema is guidance. kagent validates the final answer against
-the schema in every case. Set `false` to turn strict off on the Responses API,
-for example to use a schema with optional fields.
+Without it, the schema is guidance. `strict: true` depends on vendor support and
+may not be respected. Other providers never receive `strict`, and an
+OpenAI-compatible endpoint may ignore it. kagent validates the final answer
+against the schema in every case. The Responses API is strict when a request
+omits `strict`, so kagent always sends it.
 
 Strict mode accepts fewer schemas. Every schema node must set `type` (`anyOf`,
 `enum` or `$ref` may stand in for it), every object must set
 `additionalProperties: false` and list every property in `required`, and the
-root must not use `anyOf`. An untyped `{"const": "x"}` fails, for example.
+root must not use `anyOf`. An untyped `{"const": "x"}` fails, for example. A
+`$ref` must have no other keywords next to it, so put a `description` or
+`title` in the referenced definition instead.
 Strict mode cannot express a map with free-form keys at all: an object whose
 `additionalProperties` is a schema fails with or without `type: object`. List
 the keys as properties, or set `outputSchemaStrict: false`. When
 `outputSchemaStrict` is `true`, compilation rejects a schema that breaks these
 rules, so the Agent reports the error instead of every request failing at the
-provider. To make a field optional
-under strict mode, give it a `null` type, for example
-`type: [string, "null"]`. This form also passes the Gemini check above, which
-rejects `anyOf`.
+provider. To make a field optional under strict mode, give it a `null` type,
+for example `type: [string, "null"]`. This form also passes the Gemini check
+above, which rejects `anyOf`. Claude structured outputs allow at most 16
+parameters that use `anyOf` or a type list in one request.
 
-When `outputSchemaStrict` is unset, compilation does not check these rules. A
-schema that breaks them compiles, then fails at the provider on the Responses
-API. Other providers do not send `strict`. With `true`, compilation still
-applies the strict rules to their schemas, so a schema stays valid when its
-ModelConfig changes provider.
+When `outputSchemaStrict` is `false`, compilation does not check these rules.
+With `true`, compilation applies them for every provider, so a schema stays
+valid when its ModelConfig changes provider.
 
 The semantic resolution code is in
 [`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).

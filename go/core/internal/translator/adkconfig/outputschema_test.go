@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -40,16 +41,15 @@ func TestApplyOutputSchemaStrict(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		schema  []byte
-		strict  *bool
+		strict  bool
 		wantErr string
 	}{
-		{name: "unset with open object", schema: openSchema},
-		{name: "false with open object", schema: openSchema, strict: new(false)},
-		{name: "true with strict schema", schema: strictSchema, strict: new(true)},
-		{name: "true with open object", schema: openSchema, strict: new(true), wantErr: "outputSchemaStrict: strict output schema: the root object must set additionalProperties to false"},
+		{name: "false with open object", schema: openSchema},
+		{name: "true with strict schema", schema: strictSchema, strict: true},
+		{name: "true with open object", schema: openSchema, strict: true, wantErr: "outputSchemaStrict: the root object must set additionalProperties to false"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			config := &configv1.ADKAgentConfig{}
+			config := &configv1.ADKAgentConfig{Model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}}}
 			err := applyOutputSchema(config, &translator.ResolvedOutputSchema{Schema: tt.schema, Strict: tt.strict})
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
@@ -57,9 +57,55 @@ func TestApplyOutputSchemaStrict(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.strict, config.Output.Strict)
+			require.Equal(t, tt.strict, config.Model.GetOpenai().StrictOutputSchema)
 		})
 	}
+}
+
+func TestApplyOutputSchemaSetsStrictOnProvider(t *testing.T) {
+	schema := []byte(`{"type":"object","properties":{"due":{"type":"string"}},"required":["due"],"additionalProperties":false}`)
+	for _, tt := range []struct {
+		name   string
+		model  *configv1.ADKModelConfig
+		strict func(*configv1.ADKModelConfig) bool
+		want   bool
+	}{
+		{
+			name:   "OpenAI",
+			model:  &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
+			strict: func(m *configv1.ADKModelConfig) bool { return m.GetOpenai().StrictOutputSchema },
+			want:   true,
+		},
+		{
+			name:   "Azure OpenAI",
+			model:  &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{}}},
+			strict: func(m *configv1.ADKModelConfig) bool { return m.GetAzureOpenai().StrictOutputSchema },
+			want:   true,
+		},
+		{
+			name:   "Foundry",
+			model:  &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{ApiFormat: runtimeconfig.FoundryAPIFormatOpenAI}}},
+			strict: func(m *configv1.ADKModelConfig) bool { return m.GetFoundry().StrictOutputSchema },
+			want:   true,
+		},
+		{
+			name:   "Foundry in the anthropic format",
+			model:  &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{ApiFormat: runtimeconfig.FoundryAPIFormatAnthropic}}},
+			strict: func(m *configv1.ADKModelConfig) bool { return m.GetFoundry().StrictOutputSchema },
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &configv1.ADKAgentConfig{Model: tt.model}
+			require.NoError(t, applyOutputSchema(config, &translator.ResolvedOutputSchema{Schema: schema, Strict: true}))
+			require.Equal(t, tt.want, tt.strict(config.Model))
+		})
+	}
+}
+
+func TestApplyOutputSchemaChecksStrictForFoundryAnthropic(t *testing.T) {
+	config := &configv1.ADKAgentConfig{Model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{ApiFormat: runtimeconfig.FoundryAPIFormatAnthropic}}}}
+	err := applyOutputSchema(config, &translator.ResolvedOutputSchema{Schema: []byte(`{"type":"object","properties":{"due":{"type":"string"}}}`), Strict: true})
+	require.ErrorContains(t, err, "outputSchemaStrict: the root object must set additionalProperties to false")
 }
 
 func TestApplyOutputSchemaGemini(t *testing.T) {
@@ -84,12 +130,12 @@ func TestApplyOutputSchemaGemini(t *testing.T) {
 		},
 		{
 			name:   "OpenAI with a multi-type list",
-			model:  &configv1.ADKModelConfig{Model: "gpt-5", Provider: &configv1.ADKModelConfig_Openai{}},
+			model:  &configv1.ADKModelConfig{Model: "gpt-5", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
 			schema: multiType,
 		},
 		{
 			name:   "Azure OpenAI with a multi-type list",
-			model:  &configv1.ADKModelConfig{Model: "gpt-5", Provider: &configv1.ADKModelConfig_AzureOpenai{}},
+			model:  &configv1.ADKModelConfig{Model: "gpt-5", Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{}}},
 			schema: multiType,
 		},
 	} {

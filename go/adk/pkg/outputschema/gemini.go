@@ -23,11 +23,10 @@ var setModelResponseTypes = map[genai.Type]bool{
 	genai.TypeObject:  true,
 }
 
-// UsesSetModelResponse reports whether Go ADK checks the agent's answer with
-// its set_model_response tool. ADK does so for every model whose name starts
-// with "gemini-" unless the model runs on Vertex AI, where Gemini 2.0 and later
-// take the schema natively. kagent agents always have tools, which is the
-// other condition ADK requires.
+// UsesSetModelResponse reports whether compilation checks the schema against
+// Go ADK's set_model_response tool: for a model whose name starts with
+// "gemini-", and for Gemini with no model name. GeminiVertexAI models are not
+// checked.
 func UsesSetModelResponse(model *configv1.ADKModelConfig) bool {
 	name := model.GetModel()
 	switch model.GetProvider().(type) {
@@ -47,7 +46,8 @@ func UsesSetModelResponse(model *configv1.ADKModelConfig) bool {
 // projection that Go ADK's set_model_response tool cannot check. The tool
 // checks each answer property against exactly one type, so it rejects every
 // non-null value of a property that uses a type list with two or more non-null
-// types, anyOf, or type null.
+// types, and every value, null included, of a property that uses anyOf or type
+// null.
 func CheckSetModelResponse(schema *genai.Schema) error {
 	return checkSetModelResponseProperties(schema, "")
 }
@@ -63,7 +63,7 @@ func checkSetModelResponseProperties(schema *genai.Schema, path string) error {
 
 func checkSetModelResponse(schema *genai.Schema, path string) error {
 	if !setModelResponseTypes[schema.Type] {
-		return fmt.Errorf("output schema for Gemini: %s must have exactly one type (Go ADK's set_model_response check does not support type lists with more than one non-null type, anyOf, or type null)", path)
+		return fmt.Errorf(`output schema for Gemini: %s must have exactly one type, such as "string" or ["string", "null"] (Go ADK's set_model_response check rejects a node with no type, a type list with more than one non-null type, anyOf, and type null)`, path)
 	}
 	switch schema.Type {
 	case genai.TypeArray:

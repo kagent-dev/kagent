@@ -101,6 +101,8 @@ message ADKOpenAI {
     (buf.validate.field).string.in = "responses"
   ];
   ADKTokenExchangeConfig token_exchange = 13;
+  // Sends strict with this value on structured output requests.
+  bool strict_output_schema = 14;
 }
 message ADKTokenExchangeConfig {
   oneof source {
@@ -132,6 +134,8 @@ message ADKAzureOpenAI {
       "responses"
     ]
   }];
+  // Sends strict with this value on structured output requests.
+  bool strict_output_schema = 8;
 }
 message ADKAnthropic {
   string base_url = 1;
@@ -234,6 +238,9 @@ message ADKFoundry {
       "anthropic"
     ]
   }];
+  // Sends strict with this value on structured output requests in the openai
+  // format.
+  bool strict_output_schema = 5;
 }
 
 message ADKHTTPConnectionParams {
@@ -350,9 +357,6 @@ message ADKOutputConfig {
   // Canonical JSON bytes retain the exact schema hashed by the compiler.
   bytes json_schema = 1;
   string sha256 = 2;
-  // Sets strict on OpenAI-compatible providers to constrain generation to
-  // json_schema. Unset omits strict so the provider default applies.
-  optional bool strict = 3;
 }
 message ADKAgentPlugins {
   repeated ADKSkill skills = 1;

@@ -2,10 +2,30 @@ package translator
 
 import (
 	"encoding/json"
+	"fmt"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestValidateOutputSchemaRejectsLargePatternsBeforeCompiling(t *testing.T) {
+	properties := make([]string, 5)
+	for i := range properties {
+		properties[i] = fmt.Sprintf(`"p%d":{"type":"string","pattern":"^%s$"}`, i, strings.Repeat(`[a-z]{1000}`, 1000))
+	}
+	raw := []byte(`{"type":"object","properties":{` + strings.Join(properties, ",") + `}}`)
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := validateOutputSchema(raw)
+	runtime.ReadMemStats(&after)
+
+	require.ErrorContains(t, err, "regexp instructions")
+	// Compiling these five patterns allocates about 1.4 GB.
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(64<<20))
+}
 
 func TestValidateOutputSchema(t *testing.T) {
 	tests := []struct {

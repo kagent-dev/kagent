@@ -297,11 +297,6 @@ func (in *AgentTemplateSpec) DeepCopyInto(out *AgentTemplateSpec) {
 		*out = new(ConfigMapKeyReference)
 		**out = **in
 	}
-	if in.OutputSchemaStrict != nil {
-		in, out := &in.OutputSchemaStrict, &out.OutputSchemaStrict
-		*out = new(bool)
-		**out = **in
-	}
 	if in.PromptTemplate != nil {
 		in, out := &in.PromptTemplate, &out.PromptTemplate
 		*out = new(AgentTemplatePromptTemplateSpec)

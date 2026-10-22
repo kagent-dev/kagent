@@ -40,6 +40,11 @@ func TestCheckSetModelResponse(t *testing.T) {
 			wantErr: "/properties/any " + oneType,
 		},
 		{
+			name:    "enum without a type",
+			schema:  `{"type":"object","properties":{"level":{"enum":["low","high"]}}}`,
+			wantErr: `/properties/level must have exactly one type, such as "string" or ["string", "null"] (Go ADK's set_model_response check rejects a node with no type`,
+		},
+		{
 			name:    "array without items",
 			schema:  `{"type":"object","properties":{"tags":{"type":"array"}}}`,
 			wantErr: "/properties/tags must set items",

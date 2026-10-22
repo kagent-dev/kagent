@@ -127,9 +127,6 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
-	if openAIModel, ok := llmModel.(*models.OpenAIModel); ok && agentConfig.Output != nil {
-		openAIModel.StrictOutputSchema = agentConfig.Output.Strict
-	}
 	llmModel = fileextract.WithFileText(llmModel)
 
 	if agentName == "" {
@@ -288,17 +285,19 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 			Temperature:         p.Openai.Temperature,
 			TopP:                p.Openai.TopP,
 			APIFormat:           p.Openai.ApiFormat,
+			StrictOutputSchema:  new(p.Openai.StrictOutputSchema),
 		}
 		return models.NewOpenAIModel(ctx, cfg)
 
 	case *configv1.ADKModelConfig_AzureOpenai:
 		cfg := &models.AzureOpenAIConfig{
-			TransportConfig: transportConfigFromBase(m, nil),
-			Model:           m.Model,
-			Endpoint:        p.AzureOpenai.Endpoint,
-			Deployment:      p.AzureOpenai.Deployment,
-			APIVersion:      p.AzureOpenai.ApiVersion,
-			APIFormat:       p.AzureOpenai.ApiFormat,
+			TransportConfig:    transportConfigFromBase(m, nil),
+			Model:              m.Model,
+			Endpoint:           p.AzureOpenai.Endpoint,
+			Deployment:         p.AzureOpenai.Deployment,
+			APIVersion:         p.AzureOpenai.ApiVersion,
+			APIFormat:          p.AzureOpenai.ApiFormat,
+			StrictOutputSchema: new(p.AzureOpenai.StrictOutputSchema),
 		}
 		return models.NewAzureOpenAIModel(ctx, cfg)
 
@@ -473,11 +472,12 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 			return models.NewFoundryAnthropicModel(ctx, cfg, p.Foundry.Endpoint, p.Foundry.Deployment, nil)
 		}
 		cfg := &models.FoundryConfig{
-			TransportConfig: transportConfigFromBase(m, nil),
-			Model:           m.Model,
-			Endpoint:        p.Foundry.Endpoint,
-			Deployment:      p.Foundry.Deployment,
-			APIVersion:      p.Foundry.ApiVersion,
+			TransportConfig:    transportConfigFromBase(m, nil),
+			Model:              m.Model,
+			Endpoint:           p.Foundry.Endpoint,
+			Deployment:         p.Foundry.Deployment,
+			APIVersion:         p.Foundry.ApiVersion,
+			StrictOutputSchema: new(p.Foundry.StrictOutputSchema),
 		}
 		return models.NewFoundryModel(ctx, cfg)
 

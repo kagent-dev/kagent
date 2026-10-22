@@ -152,18 +152,19 @@ spec:
                         type: object
                       outputSchemaStrict:
                         description: |-
-                          OutputSchemaStrict sets strict mode on OpenAI, Azure OpenAI, and Foundry
-                          OpenAI-compatible models. When true, the request sends strict: true and the
-                          model follows the output schema while it generates, instead of only having
-                          the answer validated afterward. Every schema node must then set type
-                          (anyOf, enum or $ref may stand in for it), every object must set
+                          OutputSchemaStrict asks the model to follow the output schema while it
+                          generates, instead of only having the answer validated afterward. kagent
+                          sends strict with this value, together with the schema, only to OpenAI,
+                          Azure OpenAI, and Foundry in the openai format. strict: true depends on
+                          vendor support and may not be respected. Other providers never receive
+                          strict, and an OpenAI-compatible endpoint may ignore it. kagent validates
+                          every final answer against the schema either way. When true, every schema
+                          node must set type (anyOf, enum or $ref may stand in for it), a $ref must
+                          have no other keywords next to it, every object must set
                           additionalProperties to false and list every property in required, and the
-                          root must not use anyOf. When false, the request sends
-                          strict: false and the schema needs none of these rules. When unset, the
-                          request omits strict and the provider default applies: Chat Completions is
-                          not strict, but the Responses API is strict and rejects a schema that breaks
-                          these rules. Other providers never send strict, but true still requires a
-                          schema that follows these rules.
+                          root must not use anyOf. kagent checks these rules for every provider. When
+                          false, the default, the request sends strict: false and the schema needs
+                          none of these rules.
                         type: boolean
                       plugins:
                         items:

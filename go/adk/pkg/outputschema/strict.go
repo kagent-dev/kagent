@@ -3,51 +3,59 @@ package outputschema
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 )
 
 // CheckStrict reports the first place where a portable output schema breaks
 // the rules OpenAI applies when a request sets strict: the root must not use
-// anyOf, every node must set type (or use anyOf, enum or $ref), and
-// every object must set additionalProperties to false and list all of its
-// properties in required. OpenAI rejects such a strict request outright,
-// so kagent checks at compile time instead.
+// anyOf, every node must set type (or use anyOf, enum or $ref), a $ref must
+// have no other keywords next to it, and every object must set
+// additionalProperties to false and list all of its properties in required.
+// OpenAI rejects such a strict request outright.
 func CheckStrict(raw json.RawMessage) error {
 	var schema map[string]any
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		return fmt.Errorf("decode schema: %w", err)
 	}
 	if _, ok := schema["anyOf"]; ok {
-		return fmt.Errorf("strict output schema: the root must not use anyOf")
+		return fmt.Errorf("the root must not use anyOf")
 	}
 	return checkStrict(schema, "")
 }
 
 func checkStrict(schema map[string]any, path string) error {
+	if _, ok := schema["$ref"]; ok && len(schema) > 1 {
+		return fmt.Errorf("%s must not set other keywords next to $ref; move them into the referenced definition, or wrap the $ref in anyOf, such as anyOf: [{$ref: ...}, {type: \"null\"}]", pointer(path))
+	}
 	if !hasTypeOrAlternative(schema) {
-		return fmt.Errorf("strict output schema: %s must set type", pointer(path))
+		return fmt.Errorf("%s must set type", pointer(path))
 	}
 	properties, _ := schema["properties"].(map[string]any)
+	names := slices.Sorted(maps.Keys(properties))
 	if hasType(schema, "object") || properties != nil {
+		if _, isMap := schema["additionalProperties"].(map[string]any); isMap {
+			return fmt.Errorf("%s must set additionalProperties to false: strict mode cannot express a map with free-form keys, so list the keys as properties or set outputSchemaStrict to false", pointer(path))
+		}
 		if schema["additionalProperties"] != false {
-			return fmt.Errorf("strict output schema: %s must set additionalProperties to false", pointer(path))
+			return fmt.Errorf("%s must set additionalProperties to false", pointer(path))
 		}
 		required := map[string]bool{}
-		if names, ok := schema["required"].([]any); ok {
-			for _, name := range names {
+		if listed, ok := schema["required"].([]any); ok {
+			for _, name := range listed {
 				if name, ok := name.(string); ok {
 					required[name] = true
 				}
 			}
 		}
-		for _, name := range sortedKeys(properties) {
+		for _, name := range names {
 			if !required[name] {
-				return fmt.Errorf("strict output schema: %s must list property %q in required", pointer(path), name)
+				return fmt.Errorf("%s must list property %q in required", pointer(path), name)
 			}
 		}
 	}
 
-	for _, name := range sortedKeys(properties) {
+	for _, name := range names {
 		if err := checkChild(properties[name], path+"/properties/"+name); err != nil {
 			return err
 		}
@@ -63,7 +71,7 @@ func checkStrict(schema map[string]any, path string) error {
 		}
 	}
 	defs, _ := schema["$defs"].(map[string]any)
-	for _, name := range sortedKeys(defs) {
+	for _, name := range slices.Sorted(maps.Keys(defs)) {
 		if err := checkChild(defs[name], path+"/$defs/"+name); err != nil {
 			return err
 		}
@@ -103,13 +111,4 @@ func pointer(path string) string {
 		return "the root object"
 	}
 	return path
-}
-
-func sortedKeys(values map[string]any) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-	return keys
 }

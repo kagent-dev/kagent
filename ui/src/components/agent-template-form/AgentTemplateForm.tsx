@@ -21,7 +21,6 @@ import {
   draftProblems,
   type AgentTemplateDraft,
   type OutputSource,
-  type OutputStrictness,
 } from "./agentTemplateDraft";
 
 const { Text, Paragraph } = Typography;
@@ -366,32 +365,27 @@ export function AgentTemplateForm({
               none("Successful final answers are returned as text.")
             ) : null}
 
-            {draft.outputSource !== "text" ? (
+            {draft.outputSource === "text" ? null : readOnly ? (
+              draft.outputStrict ? <Tag>Strict schema adherence</Tag> : null
+            ) : (
               <Space orientation="vertical" size={4}>
-                <Text css={{ fontSize: 12 }}>Strict schema adherence</Text>
-                <div data-testid="template-form-output-strict">
-                  <Select
-                    css={{ minWidth: 240 }}
-                    value={draft.outputStrict}
-                    onChange={(value: OutputStrictness) => set("outputStrict", value)}
-                    options={[
-                      { value: "default", title: "Provider default", label: "Provider default" },
-                      { value: "strict", title: "Strict", label: "Strict" },
-                      { value: "off", title: "Not strict", label: "Not strict" },
-                    ]}
-                    {...readOnlySelect}
-                  />
-                </div>
-                {readOnly ? null : (
-                  <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                    Strict makes OpenAI, Azure OpenAI and Foundry follow the schema while generating.
-                    It requires a <code>type</code> on every node, every property in{" "}
-                    <code>required</code> and <code>additionalProperties: false</code> on
-                    every object.
-                  </Text>
-                )}
+                <Checkbox
+                  checked={draft.outputStrict}
+                  data-testid="template-form-output-strict"
+                  onChange={(event) => set("outputStrict", event.target.checked)}
+                >
+                  Strict schema adherence
+                </Checkbox>
+                <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                  Asks OpenAI, Azure OpenAI and Foundry (OpenAI format) to follow the schema while
+                  generating. Support depends on the vendor, so the model may not respect it. Other
+                  providers never receive it, and OpenAI-compatible endpoints may ignore it. Every
+                  answer is still checked against the schema. Strict requires a <code>type</code> on
+                  every node, every property in <code>required</code> and{" "}
+                  <code>additionalProperties: false</code> on every object.
+                </Text>
               </Space>
-            ) : null}
+            )}
           </Space>
         </Form.Item>
 
