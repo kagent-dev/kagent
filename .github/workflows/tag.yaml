@@ -52,7 +52,7 @@ jobs:
         use: 'true'
     - name: 'Build Images'
       env:
-        DOCKER_BUILD_ARGS: "--pull --no-cache --push --platform linux/amd64,linux/arm64"
+        DOCKER_BUILD_ARGS: "--push --platform linux/amd64,linux/arm64"
         DOCKER_BUILDER: "docker buildx build"
         DOCKER_REGISTRY: "ghcr.io" # prod for releases, local for dev
       run: |

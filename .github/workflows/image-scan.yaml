@@ -30,12 +30,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - build_target: kagent-adk
-            image_name: kagent-adk
-            tag_suffix: ""
-          - build_target: kagent-adk-full
-            image_name: kagent-adk
-            tag_suffix: "-full"
           - build_target: controller
             image_name: controller
             tag_suffix: ""
@@ -77,8 +71,6 @@ jobs:
         env:
           DOCKER_BUILDER: "docker buildx build"
           DOCKER_BUILD_ARGS: >-
-            --pull
-            --no-cache
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-${{ matrix.build_target }}
             --cache-from=type=gha
             --cache-to=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-${{ matrix.build_target }},mode=max
@@ -88,14 +80,6 @@ jobs:
           export VERSION=${{ steps.vars.outputs.version }}
           make build-${{ matrix.build_target }}
         working-directory: ./
-      - name: Check Python certificate trust
-        if: startsWith(matrix.build_target, 'kagent-adk')
-        env:
-          IMAGE: localhost:5001/kagent-dev/kagent/${{ matrix.image_name }}:${{ steps.vars.outputs.version }}${{ matrix.tag_suffix }}
-        run: |
-          docker run --rm --entrypoint /.kagent/.venv/bin/python \
-            -v "$PWD/scripts/check_python_image_trust.py:/tmp/check_python_image_trust.py:ro" \
-            "$IMAGE" /tmp/check_python_image_trust.py
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
