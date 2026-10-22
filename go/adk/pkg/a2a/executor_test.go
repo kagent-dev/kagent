@@ -910,3 +910,42 @@ func TestRequestSpanAttributesCarryOnlyATrustedUser(t *testing.T) {
 		})
 	}
 }
+
+func TestKAgentExecutorDoesNotExportUnallowlistedMetadata(t *testing.T) {
+	t.Setenv("KAGENT_TRACE_CONTEXT_KEYS", "")
+	exporter, flush := installRecordingTracer(t)
+	ctx, root := otel.Tracer("test").Start(t.Context(), "invocation")
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+	message.Metadata = map[string]any{
+		"private_token": "must-not-be-exported",
+		"attempt":       float64(3),
+		"enabled":       true,
+	}
+	executor := &KAgentExecutor{
+		builtin: &recordingExecutor{span: "generate_content"},
+		logger:  slog.New(slog.DiscardHandler),
+	}
+	for _, err := range executor.Execute(ctx, &a2asrv.ExecutorContext{
+		ContextID: "ctx-1", TaskID: "task-1", Message: message,
+	}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	root.End()
+	if err := flush(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	spans := exporter.GetSpans()
+	if len(spans) != 2 {
+		t.Fatalf("exported %d spans, want invocation and model spans", len(spans))
+	}
+	for _, span := range spans {
+		for _, attr := range span.Attributes {
+			key := string(attr.Key)
+			if strings.HasPrefix(key, "a2a.message.metadata.") || key == "private_token" || key == "attempt" || key == "enabled" {
+				t.Errorf("%s exported unallowlisted metadata attribute %q", span.Name, key)
+			}
+		}
+	}
+}

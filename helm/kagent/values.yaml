@@ -213,6 +213,10 @@ config:
 # ==============================================================================
 
 controller:
+  # Allowlisted caller context copied onto agent spans. Entries may be strings
+  # or {from, to} mappings, e.g. [{from: sub, to: user.id}, thread_id].
+  # Empty disables promotion. Use opaque identifiers; never names or emails.
+  traceContextKeys: []
   # Standard OTEL overrides and external SDK credentials for this process only.
   env: []
   envFrom: []

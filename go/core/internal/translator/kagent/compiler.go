@@ -10,12 +10,14 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // Compiler translates resolved inputs into a kagent runtime revision.
@@ -58,6 +60,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 
 	harnessEnvironment := adkconfig.HarnessEnvironment(harness)
 	environment := append(compiled.Environment, harnessEnvironment...)
+	// Caller context policy is operator-owned; a Harness cannot enable or widen it.
+	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextKeys)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
@@ -87,4 +91,13 @@ func agentCard(agentName string, template *translator.TemplateConfiguration) *a2
 	card := translator.ManagedAgentCard(agentName, template)
 	card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.UsageExtension())
 	return card
+}
+
+func applyOperatorOnlyEnv(values []corev1.EnvVar, variable env.StringVar) []corev1.EnvVar {
+	name := variable.Name()
+	values = slices.DeleteFunc(values, func(item corev1.EnvVar) bool { return item.Name == name })
+	if value := variable.Get(); value != "" {
+		values = append(values, corev1.EnvVar{Name: name, Value: value})
+	}
+	return values
 }

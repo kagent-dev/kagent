@@ -1942,6 +1942,7 @@ dependencies = [
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "opentelemetry-instrumentation-grpc" },
     { name = "opentelemetry-instrumentation-httpx" },
+    { name = "opentelemetry-processor-baggage" },
     { name = "opentelemetry-sdk" },
     { name = "protovalidate" },
     { name = "typing-extensions" },
@@ -1976,6 +1977,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-genai-openai-agents", marker = "extra == 'openai-agents'", specifier = ">=1.2b0,<1.3" },
     { name = "opentelemetry-instrumentation-grpc", specifier = ">=0.63b0,<1" },
     { name = "opentelemetry-instrumentation-httpx", specifier = ">=0.63b0,<1" },
+    { name = "opentelemetry-processor-baggage", specifier = ">=0.63b0,<1" },
     { name = "opentelemetry-sdk", specifier = ">=1.42.1,<2" },
     { name = "protovalidate", specifier = ">=2.0.0,<3" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
@@ -3175,6 +3177,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/de/50/41544799b043d14fdfa6fe62fa2518eaba22793fce03e9abde930b92e671/opentelemetry_instrumentation_httpx-0.66b1.tar.gz", hash = "sha256:5865a72c68098c85955a271ab8744b480a36e3ee492d35b8cadb93c7c4dbb618", size = 26637, upload-time = "2026-10-06T17:36:27.265Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/c6/e5682b1bfb320b32505e88255c34ae1e99fe9fb220cc465c244e91967eac/opentelemetry_instrumentation_httpx-0.66b1-py3-none-any.whl", hash = "sha256:0342a4002c6dbc6c4bf22cc7e698f50f5c8b77f63325c6f40c94ab87e016bf4d", size = 17723, upload-time = "2026-10-06T17:35:36.501Z" },
+]
+
+[[package]]
+name = "opentelemetry-processor-baggage"
+version = "0.66b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7d/e8/6b11138881f0b1870a16891311e34d2a74fb21c8a7637e71cb61757b810d/opentelemetry_processor_baggage-0.66b1.tar.gz", hash = "sha256:200c16de37b9afae685bdc368a261d1c091ac7ef4fb892ef93129e2be5036642", size = 8794, upload-time = "2026-10-06T17:36:44.807Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/92/02b52c5ac72ffa4a54c496c83b99c6941090a4fd419b4666a73651222b8a/opentelemetry_processor_baggage-0.66b1-py3-none-any.whl", hash = "sha256:b43acdcb387d8934e04e8f265165b1d632ca62509c693941b31df69bf62d1fe5", size = 9467, upload-time = "2026-10-06T17:36:04.101Z" },
 ]
 
 [[package]]

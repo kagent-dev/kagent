@@ -48,3 +48,20 @@ func TestWithRequestAttributesKeepsContextWhenEmpty(t *testing.T) {
 		t.Fatal("no attributes should return the same context")
 	}
 }
+func spanAttributesByName(t *testing.T, spans tracetest.SpanStubs, name string) map[string]attribute.Value {
+	t.Helper()
+
+	for _, span := range spans {
+		if span.Name != name {
+			continue
+		}
+		attrs := make(map[string]attribute.Value, len(span.Attributes))
+		for _, attr := range span.Attributes {
+			attrs[string(attr.Key)] = attr.Value
+		}
+		return attrs
+	}
+
+	t.Fatalf("span %q not found", name)
+	return nil
+}
