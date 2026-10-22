@@ -2,6 +2,7 @@
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG WOLFI_BASE_DIGEST=sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
 ARG NGINX_DIGEST=sha256:8a42fb9468e353a6c2501d2657866333b7a2a075912f4a7e4fa73298aafd46d6
+ARG GO_IMAGE=golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c
 ARG TOOLS_NODE_VERSION=24
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@${WOLFI_BASE_DIGEST} AS deps
@@ -57,11 +58,24 @@ COPY . .
 RUN yarn build \
     && rm -f dist/mockServiceWorker.js
 
-### STAGE 3: Runtime
-# Distroless nginx: no shell or package manager. The chart mounts nginx.conf and
-# env-config.js, so the image carries only the static bundle.
+### STAGE 3: Entrypoint
+# A static binary, so the runtime image needs no shell to render settings at start.
+FROM --platform=$BUILDPLATFORM $GO_IMAGE AS entrypoint
+ARG TARGETARCH
+WORKDIR /src
+COPY entrypoint/ .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /entrypoint . \
+    # nginx opens its compiled-in error log before reading the config; on a read-only root that logs an alert.
+    && mkdir -p /logs && ln -s /dev/stderr /logs/error.log
+
+### STAGE 4: Runtime
+# Distroless nginx: no shell or package manager. The entrypoint renders
+# env-config.js from env on every start into /tmp, the writable emptyDir under a
+# read-only root filesystem, then execs nginx.
 FROM $BASE_IMAGE_REGISTRY/chainguard/nginx:latest@${NGINX_DIGEST} AS final
 
+COPY --from=entrypoint /entrypoint /usr/local/bin/entrypoint
+COPY --from=entrypoint /logs/ /var/lib/nginx/logs/
 COPY --from=builder /app/ui/dist /usr/share/nginx/html
 
 EXPOSE 8080
@@ -73,3 +87,6 @@ LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 LABEL org.opencontainers.image.version="$VERSION"
 
 USER 1001
+
+ENTRYPOINT ["/usr/local/bin/entrypoint"]
+CMD []

@@ -198,7 +198,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `KAGENT_UI_API_BASE_URL` | String | `/api` | Browser API base URL for UI containers and Vite development. |
-| `KAGENT_UI_BASE_PATH` | String | `(none)` | UI public path prefix, such as /ui; empty serves at the root. Applies in the chart and Vite development; the chart rejects invalid or reserved prefixes. |
+| `KAGENT_UI_BASE_PATH` | String | `(none)` | UI public path prefix, such as /ui; empty serves at the root. Applies in containers and Vite development; the container falls back to the root for invalid or reserved prefixes. |
 | `KAGENT_UI_DEV_CONTROLLER_URL` | String | `http://127.0.0.1:8083` | Vite development proxy target for /api and /a2a; not sent to the browser. |
 | `KAGENT_UI_ENABLE_MOCK` | Boolean | `false` | Serve the development UI from in-browser fixtures when true. Overrides backend settings; no user is signed in. Release bundles do not include the mock backend. |
 | `KAGENT_UI_EXTENSION_<NAME>` | String | `(none)` | UI extension settings forwarded to the browser at runtime. Each installed extension owns its keys and defaults; these values are public. |

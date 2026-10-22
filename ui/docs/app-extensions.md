@@ -578,8 +578,8 @@ import { readEnv } from "@/appExtensions";
 const apiUrl = readEnv("KAGENT_UI_EXTENSION_EXAMPLE_API_URL", "https://api.example.test");
 ```
 
-**Set it in a deployment** through `ui.env` in the `kagent` chart, which renders it
-into `env-config.js`:
+**Set it in a deployment** through `ui.env` in the `kagent` chart, which is passed
+through to the UI deployment verbatim:
 
 ```yaml
 # values.yaml
@@ -597,19 +597,19 @@ appends rather than editing the application's own settings above it:
 KAGENT_UI_EXTENSION_EXAMPLE_API_URL=https://api.example.test
 ```
 
-That is the whole mechanism, and nothing needs registering. The Helm chart copies every
-`KAGENT_UI_EXTENSION_*` entry in `ui.env` into `env-config.js` **by prefix**, and the dev
-server does the same from `.env` and your shell. Neither
+That is the whole mechanism, and nothing needs registering. The container's
+`entrypoint/` program copies every `KAGENT_UI_EXTENSION_*` variable out of the pod's environment
+**by prefix**, and the dev server does the same from `.env` and your shell. Neither
 enumerates the keys, so this application never learns what your settings mean and
 needs no change when your extension grows one.
 
 The values land on `window.environmentVariables`, which is what `readEnv` reads.
-You should not have to think about that object — the chart writes it — but
+You should not have to think about that object — the init script writes it — but
 two consequences of it are worth knowing:
 
 - **A setting is a deployment's choice, not a build's.** One image serves every
-  deployment and the chart renders the values, so changing one needs a `helm upgrade`
-  and a page reload, never a rebuild. Never reach for
+  deployment and the values are rewritten on every container start, so changing one
+  needs a restart and a page reload, never a rebuild. Never reach for
   `import.meta.env` for a value an operator should be able to change.
 - **A setting is readable synchronously, by the first module that runs**, because
   the script tag carrying it is synchronous and precedes the app. A module-level

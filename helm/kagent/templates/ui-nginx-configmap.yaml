@@ -8,5 +8,3 @@ metadata:
 data:
   nginx.conf: |
     {{- tpl (.Files.Get "files/nginx.conf") . | nindent 4 }}
-  env-config.js: |
-    window.environmentVariables = {{ include "kagent.ui.environmentVariables" . }};

@@ -474,9 +474,11 @@ ui:
     # -- client_max_body_size: max request body size (0 disables it). Just above the
     # gateway's 16 MiB gRPC cap, which chat attachments hit first.
     clientMaxBodySize: 20m
-  # -- Extra environment variables for the UI container. An installed app extension's
-  # settings go here, named `KAGENT_UI_EXTENSION_*`; the chart copies their plain
-  # `value`s into /env-config.js for the browser to read, so they cannot use valueFrom.
+  # -- Extra environment variables for the UI container, applied after ConfigMap
+  # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
+  # expansion. An installed app extension's settings go here, named
+  # `KAGENT_UI_EXTENSION_*`; the container's entrypoint copies
+  # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on
   # /api/, /a2a/, and /mcp. Names are case-insensitive. Authorization is always
@@ -492,8 +494,9 @@ ui:
   #     - X-Forwarded-User
   #     - X-Forwarded-Email
   # -- Base URL the browser calls the controller API on. Reaches the browser at
-  # runtime through /env-config.js rather than the bundle, so changing it here
-  # takes effect on upgrade without an image rebuild.
+  # runtime as the `apiBaseUrl` key of /config.json, which the app fetches on
+  # startup — it is deliberately not baked into the bundle, so changing it here
+  # takes effect on pod restart rather than requiring an image rebuild.
   # The default is a path on the UI's own hostname, which nginx proxies to the
   # controller; set an absolute URL only if the browser must reach the API
   # somewhere other than the UI origin.
@@ -511,7 +514,8 @@ ui:
   #   readOnlyRootFilesystem: true
   # -- EmptyDir volume sizes for the UI workload (typically used when enabling readOnlyRootFilesystem)
   volumes:
-    # -- Size limit for temporary files (/tmp), which holds the nginx temp directories.
+    # -- Size limit for temporary files (/tmp). Holds the nginx temp directories
+    # and the generated config.json. Default 50Mi is ample for both.
     tmp: 50Mi
   # capabilities:
   #   drop:

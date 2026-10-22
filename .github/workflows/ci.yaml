@@ -447,6 +447,10 @@ jobs:
           TESTCONTAINERS_RYUK_DISABLED: "true"
         run: make test
 
+      - name: Run UI entrypoint tests
+        working-directory: ui/entrypoint
+        run: go test ./...
+
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
