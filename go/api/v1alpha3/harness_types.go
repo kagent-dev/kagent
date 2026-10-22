@@ -110,7 +110,7 @@ type ClaudeHarness struct{}
 // BYOHarness selects an image that implements kagent's private A2A contract.
 type BYOHarness struct{}
 
-// HarnessWorkload identifies the immutable runtime image used by a Harness.
+// HarnessWorkload configures a Harness's runtime image and startup behavior.
 type HarnessWorkload struct {
 	// Image overrides the release's built-in runtime image. BYO requires an image.
 	// When set, it must be an OCI image reference pinned by sha256 digest.
@@ -127,6 +127,13 @@ type HarnessWorkload struct {
 	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	Args []string `json:"args,omitempty"`
+
+	// StartupTimeoutSeconds is the maximum time to wait for runtime readiness
+	// when creating or restoring a snapshot. Defaults to 30 seconds when omitted.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=300
+	// +optional
+	StartupTimeoutSeconds *int32 `json:"startupTimeoutSeconds,omitempty"`
 }
 
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
@@ -147,7 +154,7 @@ type HarnessSpec struct {
 	// +optional
 	BYO *BYOHarness `json:"byo,omitempty"`
 
-	// Workload overrides the built-in runtime image and its command. BYO requires it.
+	// Workload overrides the runtime image, command and readiness budget. BYO requires it.
 	// +optional
 	Workload HarnessWorkload `json:"workload,omitzero"`
 

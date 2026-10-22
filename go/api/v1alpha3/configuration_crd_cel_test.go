@@ -120,6 +120,28 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("Harness startup timeout bounds", func(t *testing.T) {
+		for _, timeout := range []int32{-1, 0, 1, 30, 90, 300, 301} {
+			t.Run(fmt.Sprint(timeout), func(t *testing.T) {
+				harness := validHarness(namespace, "startup-timeout", HarnessSpec{
+					Kagent:   &KagentHarness{},
+					Workload: HarnessWorkload{StartupTimeoutSeconds: new(timeout)},
+				})
+				harness.Name = ""
+				harness.GenerateName = "startup-timeout-"
+				err := cl.Create(ctx, harness)
+				if timeout < 1 || timeout > 300 {
+					require.ErrorContains(t, err, "spec.workload.startupTimeoutSeconds")
+				} else {
+					require.NoError(t, err)
+					require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(harness), harness))
+					require.NotNil(t, harness.Spec.Workload.StartupTimeoutSeconds)
+					require.Equal(t, timeout, *harness.Spec.Workload.StartupTimeoutSeconds)
+				}
+			})
+		}
+	})
+
 	t.Run("optional Harness workload", func(t *testing.T) {
 		for _, variant := range []struct {
 			name string

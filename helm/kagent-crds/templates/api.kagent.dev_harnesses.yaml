@@ -227,8 +227,8 @@ spec:
                 - message: workerPoolRef name must not be empty
                   rule: self.workerPoolRef.name.size() > 0
               workload:
-                description: Workload overrides the built-in runtime image and its
-                  command. BYO requires it.
+                description: Workload overrides the runtime image, command and readiness
+                  budget. BYO requires it.
                 properties:
                   args:
                     description: Args overrides the image command arguments when set.
@@ -248,6 +248,14 @@ spec:
                       When set, it must be an OCI image reference pinned by sha256 digest.
                     pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
                     type: string
+                  startupTimeoutSeconds:
+                    description: |-
+                      StartupTimeoutSeconds is the maximum time to wait for runtime readiness
+                      when creating or restoring a snapshot. Defaults to 30 seconds when omitted.
+                    format: int32
+                    maximum: 300
+                    minimum: 1
+                    type: integer
                 type: object
             required:
             - substrate

@@ -46,12 +46,13 @@ type Revision struct {
 	Namespace string
 
 	// Image and Environment describe the runtime container.
-	Image       string
-	Command     []string
-	Args        []string
-	Environment []corev1.EnvVar
-	CPU         string
-	Memory      string
+	Image                 string
+	Command               []string
+	Args                  []string
+	StartupTimeoutSeconds int32
+	Environment           []corev1.EnvVar
+	CPU                   string
+	Memory                string
 	// ConfigJSON is injected into the runtime container verbatim.
 	// AgentCard stays typed until a runtime or public protocol boundary renders it.
 	ConfigJSON  []byte
@@ -104,6 +105,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Image                   string                       `json:"image"`
 		Command                 []string                     `json:"command,omitempty"`
 		Args                    []string                     `json:"args,omitempty"`
+		StartupTimeoutSeconds   int32                        `json:"startupTimeoutSeconds,omitempty"`
 		Environment             []corev1.EnvVar              `json:"environment"`
 		ConfigJSON              json.RawMessage              `json:"config"`
 		SkillImages             []SkillImage                 `json:"skillImages,omitempty"`
@@ -121,8 +123,9 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		CPU: r.CPU, Memory: r.Memory,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
-		SkillImages:    r.SkillImages,
-		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
+		StartupTimeoutSeconds: r.StartupTimeoutSeconds,
+		SkillImages:           r.SkillImages,
+		WorkerPoolName:        r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
 		TokenPassthroughTargets: r.TokenPassthroughTargets, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
 	})

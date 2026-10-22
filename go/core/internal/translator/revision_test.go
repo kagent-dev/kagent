@@ -154,3 +154,17 @@ func TestRevisionDigestIncludesResources(t *testing.T) {
 		require.NotEqual(t, before, after)
 	}
 }
+
+func TestRevisionDigestIncludesStartupTimeout(t *testing.T) {
+	revision := &Revision{Namespace: "agents", AgentName: "helper"}
+	before, err := revision.Digest()
+	require.NoError(t, err)
+	revision.StartupTimeoutSeconds = 90
+	after, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, before, after)
+	revision.StartupTimeoutSeconds = 0
+	restored, err := revision.Digest()
+	require.NoError(t, err)
+	require.Equal(t, before, restored)
+}
