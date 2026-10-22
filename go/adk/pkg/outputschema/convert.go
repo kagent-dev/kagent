@@ -40,15 +40,6 @@ func ToGenAISchema(raw json.RawMessage) (*genai.Schema, error) {
 	return converter.convert(&schema, nil, 1)
 }
 
-var genaiTypes = map[string]genai.Type{
-	"object":  genai.TypeObject,
-	"array":   genai.TypeArray,
-	"string":  genai.TypeString,
-	"number":  genai.TypeNumber,
-	"integer": genai.TypeInteger,
-	"boolean": genai.TypeBoolean,
-}
-
 type schemaConverter struct {
 	root  *jsonschema.Schema
 	nodes int
@@ -99,15 +90,24 @@ func (c *schemaConverter) convert(schema *jsonschema.Schema, stack map[*jsonsche
 	nullable := false
 	nonNull := make([]genai.Type, 0, len(types))
 	for _, name := range types {
-		if name == "null" {
+		switch name {
+		case "object":
+			nonNull = append(nonNull, genai.TypeObject)
+		case "array":
+			nonNull = append(nonNull, genai.TypeArray)
+		case "string":
+			nonNull = append(nonNull, genai.TypeString)
+		case "number":
+			nonNull = append(nonNull, genai.TypeNumber)
+		case "integer":
+			nonNull = append(nonNull, genai.TypeInteger)
+		case "boolean":
+			nonNull = append(nonNull, genai.TypeBoolean)
+		case "null":
 			nullable = true
-			continue
-		}
-		mapped, ok := genaiTypes[name]
-		if !ok {
+		default:
 			return nil, fmt.Errorf("unsupported output schema type %q", name)
 		}
-		nonNull = append(nonNull, mapped)
 	}
 	switch {
 	case len(nonNull) == 0 && nullable:
