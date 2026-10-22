@@ -222,6 +222,56 @@ func TestAnthropicNonStreamingCarriesBreakpointsAndCacheUsage(t *testing.T) {
 	assert.Equal(t, "pod-a", final.Content.Parts[0].Text)
 }
 
+// One streamed response can carry several tool calls; the final response must
+// keep them in content-block index order, since session history and serial
+// task runners follow part order.
+func TestAnthropicStreamingKeepsParallelToolCallOrder(t *testing.T) {
+	events := []string{
+		`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":4,"output_tokens":1}}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"checking both"}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_pods","input":{}}}`,
+		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"ns\":\"default\"}"}}`,
+		`{"type":"content_block_stop","index":1}`,
+		`{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_2","name":"get_logs","input":{}}}`,
+		`{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"pod\":\"api\"}"}}`,
+		`{"type":"content_block_stop","index":2}`,
+		`{"type":"content_block_start","index":3,"content_block":{"type":"tool_use","id":"toolu_3","name":"get_events","input":{}}}`,
+		`{"type":"content_block_stop","index":3}`,
+		`{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":20}}`,
+		`{"type":"message_stop"}`,
+	}
+	m, _ := anthropicTestServer(t, func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, event := range events {
+			var envelope struct {
+				Type string `json:"type"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(event), &envelope))
+			_, _ = io.WriteString(w, "event: "+envelope.Type+"\ndata: "+event+"\n\n")
+		}
+	})
+
+	want := []*genai.FunctionCall{
+		{ID: "toolu_1", Name: "get_pods", Args: map[string]any{"ns": "default"}},
+		{ID: "toolu_2", Name: "get_logs", Args: map[string]any{"pod": "api"}},
+		{ID: "toolu_3", Name: "get_events"},
+	}
+	// Map iteration order is randomized, so a single run can pass by chance.
+	for range 20 {
+		final := finalResponse(t, m, true)
+		require.Len(t, final.Content.Parts, 4)
+		assert.Equal(t, "checking both", final.Content.Parts[0].Text)
+		got := make([]*genai.FunctionCall, 0, 3)
+		for _, part := range final.Content.Parts[1:] {
+			require.NotNil(t, part.FunctionCall)
+			got = append(got, part.FunctionCall)
+		}
+		require.Equal(t, want, got)
+	}
+}
+
 func TestAnthropicStreamingCarriesBreakpointsAndCacheUsage(t *testing.T) {
 	events := []string{
 		`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":4,"cache_creation_input_tokens":96,"cache_read_input_tokens":900,"output_tokens":1}}}`,
