@@ -3,9 +3,7 @@ package a2a
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"iter"
 	"log/slog"
 	"slices"
@@ -14,6 +12,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/jsonschema-go/jsonschema"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/plugin"
@@ -24,7 +23,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
@@ -61,7 +59,7 @@ type KAgentExecutor struct {
 }
 
 type structuredOutput struct {
-	schema *outputschema.Validator
+	schema *jsonschema.Resolved
 	sha256 string
 }
 
@@ -164,10 +162,6 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 		return err
 	}
 	if err := output.schema.Validate(value); err != nil {
-		var violation *outputschema.ViolationError
-		if errors.As(err, &violation) && violation.Location != "" {
-			return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema at %s", violation.Location)
-		}
 		return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema")
 	}
 	if processed == nil || processed.Artifact == nil {
@@ -199,16 +193,8 @@ func finalStructuredOutput(event *adksession.Event) (any, error) {
 	if strings.TrimSpace(text.String()) == "" {
 		return nil, fmt.Errorf("output_validation_failed: root agent produced no structured value")
 	}
-	decoder := json.NewDecoder(strings.NewReader(text.String()))
 	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, fmt.Errorf("output_validation_failed: root agent output is not valid JSON")
-	}
-	var extra any
-	switch err := decoder.Decode(&extra); {
-	case err == nil:
-		return nil, fmt.Errorf("output_validation_failed: root agent output contains more than one JSON value")
-	case !errors.Is(err, io.EOF):
+	if err := json.Unmarshal([]byte(text.String()), &value); err != nil {
 		return nil, fmt.Errorf("output_validation_failed: root agent output is not valid JSON")
 	}
 	return value, nil
@@ -220,9 +206,13 @@ func resolveStructuredOutput(config *configv1.ADKOutputConfig) (*structuredOutpu
 	if config == nil {
 		return nil, nil
 	}
-	resolved, err := outputschema.ResolveValidator(config.JsonSchema)
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(config.JsonSchema, &schema); err != nil {
+		return nil, fmt.Errorf("decode output schema: %w", err)
+	}
+	resolved, err := schema.Resolve(nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve output schema: %w", err)
 	}
 	return &structuredOutput{schema: resolved, sha256: config.Sha256}, nil
 }

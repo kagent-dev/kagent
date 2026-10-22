@@ -84,9 +84,7 @@ types, nested objects and arrays, `properties`, `required`,
 descriptions, non-recursive local references through `$defs`, and type lists
 such as `type: [string, "null"]`. String schemas can also use `pattern`, in RE2
 syntax, and `format`, limited to the formats that both OpenAI and Claude
-document. The runtime checks formats with regular expressions, so two checks
-are loose. It accepts any `xn--` hostname label without decoding the Punycode,
-and it accepts a leap second (`:60`) at any time, not only at 23:59 UTC.
+document.
 
 External or recursive references, conditional schemas, tuple arrays, and other
 unsupported keywords are rejected during compilation rather than silently
@@ -98,9 +96,11 @@ and the runtime validates every final answer. Each provider receives the schema
 in the form it accepts. OpenAI, Azure OpenAI, Foundry, Claude, and Bedrock get
 it unchanged. Gemini and Mistral get a copy converted to Google's schema
 format. It keeps `pattern` and the supported formats but drops keywords that
-format lacks, such as `const`. Ollama and SAP AI Core get no schema. Because the
-final validator checks the canonical schema, a provider that ignores a keyword
-still cannot complete a Task with a nonconforming answer.
+format lacks, such as `const`. Ollama and SAP AI Core get no schema. The final
+validator checks the canonical schema, so a provider that ignores a keyword
+still cannot complete a Task with a nonconforming answer. The one exception is
+`format`, which JSON Schema 2020-12 treats as an annotation. kagent forwards it
+to the provider and does not check it on the answer.
 
 Compilation also rejects a schema that would fail every request on a known
 provider, so the Agent reports the problem at reconcile time instead of each

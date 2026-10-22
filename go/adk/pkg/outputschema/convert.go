@@ -5,6 +5,7 @@ package outputschema
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -118,7 +119,7 @@ func (c *schemaConverter) convert(schema *jsonschema.Schema, stack map[*jsonsche
 		converted.Type = nonNull[0]
 	}
 	converted.Pattern = schema.Pattern
-	if _, ok := stringFormatPatterns[schema.Format]; ok {
+	if slices.Contains(supportedStringFormats, schema.Format) {
 		converted.Format = schema.Format
 	}
 	converted.Required = append([]string(nil), schema.Required...)
