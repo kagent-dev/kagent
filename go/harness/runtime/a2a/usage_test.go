@@ -250,18 +250,27 @@ func TestTaskUsageSplitsReasoningOutOfOutputOnce(t *testing.T) {
 
 // Claude Code's session remainder names the model it was requested as, the
 // undated name the session totals use, while the calls name the dated model.
-// The remainder counts in the one dated entry its name prefixes, so a model's
-// entry never keeps reasoning tokens the top-level counts have split out.
+// The remainder counts in its family's one entry, and a family with several
+// entries is folded into one first, so the model entries split the same
+// reasoning the top-level counts do and never add up to more than the task.
 func TestTaskUsageAttributesARemainderToTheModelItNames(t *testing.T) {
-	laterSonnet := sonnetCall
-	laterSonnet.ResponseModel = "claude-sonnet-4-5-20251101"
+	sonnet4Leftover := leftoverCall
+	sonnet4Leftover.RequestModel = "claude-sonnet-4"
+	// The reviewer's example: two calls of 10 input and 20 output tokens on two
+	// dated versions, then a remainder that names 5 of those output tokens as
+	// reasoning.
+	twoVersions := []runtime.ModelCall{
+		{ResponseModel: "claude-sonnet-4-5-20250929", InputTokens: 10, OutputTokens: 20},
+		{ResponseModel: "claude-sonnet-4-5-20251101", InputTokens: 10, OutputTokens: 20},
+		{RequestModel: "claude-sonnet-4-5", UsageOnly: true, ReasoningOutputTokens: 5},
+	}
 	tests := []struct {
 		name  string
 		calls []runtime.ModelCall
 		want  []apia2a.ModelUsage
 	}{
 		{
-			name:  "the dated entry its name prefixes",
+			name:  "the one dated entry of its family",
 			calls: []runtime.ModelCall{sonnetCall, leftoverCall},
 			want:  []apia2a.ModelUsage{{Model: "claude-sonnet-4-5-20250929", TokenCounts: sonnetCounts(1).Add(leftoverCounts)}},
 		},
@@ -271,13 +280,22 @@ func TestTaskUsageAttributesARemainderToTheModelItNames(t *testing.T) {
 			want:  []apia2a.ModelUsage{{Model: "claude-sonnet-4-5", TokenCounts: leftoverCounts}},
 		},
 		{
-			name:  "an entry of its own when several dated entries match",
-			calls: []runtime.ModelCall{sonnetCall, laterSonnet, leftoverCall},
+			name:  "an entry of its own when its family is another model",
+			calls: []runtime.ModelCall{sonnetCall, sonnet4Leftover},
 			want: []apia2a.ModelUsage{
-				{Model: "claude-sonnet-4-5", TokenCounts: leftoverCounts},
+				{Model: "claude-sonnet-4", TokenCounts: leftoverCounts},
 				{Model: "claude-sonnet-4-5-20250929", TokenCounts: sonnetCounts(1)},
-				{Model: "claude-sonnet-4-5-20251101", TokenCounts: sonnetCounts(1)},
 			},
+		},
+		{
+			name:  "one undated entry when several dated entries match",
+			calls: twoVersions,
+			want:  []apia2a.ModelUsage{{Model: "claude-sonnet-4-5", TokenCounts: apia2a.TokenCounts{InputTokens: 20, OutputTokens: 35, ReasoningTokens: 5, TotalTokens: 60}}},
+		},
+		{
+			name:  "the undated entry and a later dated call fold again",
+			calls: []runtime.ModelCall{leftoverCall, sonnetCall, leftoverCall},
+			want:  []apia2a.ModelUsage{{Model: "claude-sonnet-4-5", TokenCounts: sonnetCounts(1).Add(leftoverCounts).Add(leftoverCounts)}},
 		},
 	}
 	for _, tt := range tests {
