@@ -34,7 +34,10 @@ import (
 // The API endpoint must survive pod replacement (NodePort or ingress).
 func TestSessionIdleExpiration(t *testing.T) {
 	target := interactionTarget(t)
-	setSessionExpirationPolicy(t, target, "30s", "5s")
+	setSessionPolicy(t, target, func(cfg *configv1.SessionsConfig) {
+		cfg.IdleTtl = durationpb.New(30 * time.Second)
+		cfg.ExpirationInterval = durationpb.New(5 * time.Second)
+	})
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
@@ -89,15 +92,10 @@ func TestSessionIdleExpiration(t *testing.T) {
 	})
 }
 
-func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) {
+func setSessionPolicy(t *testing.T, target string, configure func(*configv1.SessionsConfig)) {
 	t.Helper()
-	idle, err := time.ParseDuration(ttl)
-	require.NoError(t, err)
-	poll, err := time.ParseDuration(pollInterval)
-	require.NoError(t, err)
 	updateControllerConfig(t, target, func(cfg *configv1.ControllerConfig) {
-		cfg.Sessions.IdleTtl = durationpb.New(idle)
-		cfg.Sessions.ExpirationInterval = durationpb.New(poll)
+		configure(cfg.Sessions)
 	})
 }
 

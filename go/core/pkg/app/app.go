@@ -344,7 +344,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	memory := memoryservice.NewService(store, authorizer)
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
-	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval, cfg.GetSessions().GetAutomaticRecovery())
 	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)

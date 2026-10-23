@@ -597,6 +597,7 @@ function toAgentInstance(instance: PbSession): AgentInstance {
     recovery: instance.recovery
       ? {
           needed: instance.recovery.needed,
+          automatic: instance.recovery.automatic,
           failedMessages: instance.recovery.failedMessages.map((message) => ({
             taskId: message.taskId,
             messageId: message.messageId,

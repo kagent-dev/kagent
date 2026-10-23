@@ -15,7 +15,7 @@ import (
 )
 
 type workflowStore interface {
-	ListSessionRecoveryCandidates(context.Context, string, int) ([]*apiv1.Session, error)
+	ListSessionRecoveryCandidates(context.Context, string, int, bool) ([]*apiv1.Session, error)
 	SessionLifecycleGeneration(context.Context, string) (uuid.UUID, error)
 	BeginCrashedSessionRecovery(context.Context, string, uuid.UUID, string, database.SessionTaskSnapshot) (*database.SessionOperation, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
@@ -40,16 +40,17 @@ type actorClient interface {
 // lifecycle RPCs. Only the claiming caller issues lifecycle mutations; others
 // observe current completion or receive a pending/superseded-operation error.
 type ActorWorkflow struct {
-	store            workflowStore
-	actors           actorClient
-	recoveryInterval time.Duration
-	quiescenceWake   chan struct{}
+	store             workflowStore
+	actors            actorClient
+	recoveryInterval  time.Duration
+	automaticRecovery bool
+	quiescenceWake    chan struct{}
 }
 
 // quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
 // the workflow stops through context cancellation.
-func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake}
+func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, automaticRecovery bool) *ActorWorkflow {
+	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, automaticRecovery: automaticRecovery, quiescenceWake: quiescenceWake}
 }
 
 // Quiesce durably suspends the runtime without changing the Session's

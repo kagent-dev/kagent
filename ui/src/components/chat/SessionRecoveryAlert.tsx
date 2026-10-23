@@ -19,6 +19,7 @@ export function SessionRecoveryAlert({
   const [isForking, setForking] = useState(false);
   if (recovery?.needed !== true) return null;
 
+  const automatic = recovery.automatic;
   const busy = isRecovering || isForking;
   const ready = checkpoints.filter(canForkFrom);
   const selected = ready.some((checkpoint) => checkpoint.id === checkpointId)
@@ -37,33 +38,37 @@ export function SessionRecoveryAlert({
 
   return (
     <Alert
-      type={isRecovering ? "info" : "warning"}
+      type={automatic || isRecovering ? "info" : "warning"}
       showIcon
-      title={isRecovering ? "Recovering this conversation" : "The agent runtime crashed"}
+      title={automatic || isRecovering ? "Recovering this conversation" : "The agent runtime crashed"}
       description={(
         <>
-          <div>Revert to the last runtime snapshot, or start a new conversation from a saved snapshot. Recovery does not replay messages it did not retain.</div>
-          <Space wrap style={{ marginTop: 8, maxWidth: "100%" }}>
-            <Button loading={isRecovering} disabled={busy} onClick={() => void onRevert()}>
-              Revert to last snapshot
-            </Button>
-            {ready.length > 0 && (
-              <>
-                <Select
-                  aria-label="Saved snapshot to fork"
-                  placeholder="Choose a saved snapshot"
-                  disabled={busy}
-                  value={selected}
-                  onChange={setCheckpointId}
-                  options={ready.map((checkpoint) => ({ value: checkpoint.id, label: checkpoint.name }))}
-                  style={{ width: 240, maxWidth: "100%" }}
-                />
-                <Button loading={isForking} disabled={!selected || busy} onClick={() => void fork()}>
-                  Fork snapshot
-                </Button>
-              </>
-            )}
-          </Space>
+          <div>{automatic
+            ? "Automatic recovery will restore the last saved runtime state. Messages the recovered agent did not retain are marked as failed."
+            : "Revert to the last runtime snapshot, or start a new conversation from a saved snapshot. Recovery does not replay messages it did not retain."}</div>
+          {!automatic && (
+            <Space wrap style={{ marginTop: 8, maxWidth: "100%" }}>
+              <Button loading={isRecovering} disabled={busy} onClick={() => void onRevert()}>
+                Revert to last snapshot
+              </Button>
+              {ready.length > 0 && (
+                <>
+                  <Select
+                    aria-label="Saved snapshot to fork"
+                    placeholder="Choose a saved snapshot"
+                    disabled={busy}
+                    value={selected}
+                    onChange={setCheckpointId}
+                    options={ready.map((checkpoint) => ({ value: checkpoint.id, label: checkpoint.name }))}
+                    style={{ width: 240, maxWidth: "100%" }}
+                  />
+                  <Button loading={isForking} disabled={!selected || busy} onClick={() => void fork()}>
+                    Fork snapshot
+                  </Button>
+                </>
+              )}
+            </Space>
+          )}
         </>
       )}
     />

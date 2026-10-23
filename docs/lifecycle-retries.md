@@ -41,8 +41,10 @@ should likewise retain the `request_id` passed to `create_sandbox`.
 
 ## Recovering a crashed Session
 
-Chat offers a revert or a fork from an existing READY checkpoint after a confirmed
-runtime crash. Call `SessionService.RevertSession` with the Session ID to restore
+Controller-wide automatic recovery is opt-in through `sessions.automaticRecovery`
+and is disabled by default. Chat offers a revert or a fork from an existing READY
+checkpoint after a confirmed runtime crash when automatic recovery is disabled.
+Automatic recovery shows progress without manual choices. Call `SessionService.RevertSession` with the Session ID to restore
 its recorded runtime to the last durable snapshot.
 The caller needs Session update access. The operation verifies Substrate's CRASHED state and the recorded Actor identity.
 Recovery fails interrupted turns and waiting tasks absent from the retained snapshot.
@@ -54,7 +56,7 @@ restored runtime by both task and message ID. Their public history remains
 available, and chat marks them as failed to send.
 
 Retry an interrupted revert against the same Session ID. Pending recovery retains its operation across API restarts.
-The lifecycle worker retries already admitted recoveries; it does not initiate recovery for other crashed Sessions.
+The lifecycle worker retries already admitted recoveries even after automatic recovery is disabled.
 After recovery succeeds, another revert returns `FAILED_PRECONDITION` because the Actor is healthy.
 Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.

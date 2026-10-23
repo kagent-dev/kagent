@@ -66,6 +66,7 @@ export interface SessionMessageReference {
 export interface AgentInstanceRecovery {
   /** Absent when the controller could not observe the runtime. */
   needed?: boolean;
+  automatic: boolean;
   failedMessages: SessionMessageReference[];
 }
 

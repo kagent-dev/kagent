@@ -26,6 +26,7 @@ func (w *ActorWorkflow) Recovery(ctx context.Context, session *apiv1.Session) (*
 		recovery = &apiv1.SessionRecovery{}
 	}
 	recovery.Needed = nil
+	recovery.Automatic = w.automaticRecovery
 	if session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME && session.Failure.GetReason() == database.SessionRuntimeCrashed {
 		recovery.Needed = new(true)
 		return recovery, nil
@@ -49,11 +50,10 @@ func (w *ActorWorkflow) Recovery(ctx context.Context, session *apiv1.Session) (*
 	return recovery, nil
 }
 
-// recoverSessionPage retries admitted recoveries in ID order.
-// READY Sessions are excluded, so a background retry cannot admit new work.
+// A quiet runtime or a failed Actor read cannot authorize recovery.
 func (w *ActorWorkflow) recoverSessionPage(ctx context.Context, afterID string) (string, error) {
 	const pageSize = 100
-	sessions, err := w.store.ListSessionRecoveryCandidates(ctx, afterID, pageSize)
+	sessions, err := w.store.ListSessionRecoveryCandidates(ctx, afterID, pageSize, w.automaticRecovery)
 	if err != nil {
 		return afterID, err
 	}
