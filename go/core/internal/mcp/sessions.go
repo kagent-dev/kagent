@@ -33,8 +33,6 @@ const (
 
 	// maxFirstMessageBytes bounds create_session's first message.
 	maxFirstMessageBytes = 128 << 10
-	// maxListedTurns bounds how many turns of one Session are addressed.
-	maxListedTurns = 1000
 	// maxSummaryTurns bounds how many turns one summary or transcript reads.
 	maxSummaryTurns = 200
 	// fetchBatch turns are read whole at a time, newest first.
@@ -312,7 +310,7 @@ func (h *Handler) getSession(ctx context.Context, _ *mcp.CallToolRequest, input 
 // and at most maxSummaryTurns, and keeps those that fit budget. It answers
 // them oldest first and how many older turns it left out. When even the
 // newest does not fit, its summary is clipped to fit.
-func (h *Handler) packNewestTurns(ctx context.Context, session *apiv1.Session, tasks []*a2atype.Task, first, budget int, render func(*turn) Turn) (kept []Turn, omitted int, clipped bool, err error) {
+func (h *Handler) packNewestTurns(ctx context.Context, session *apiv1.Session, tasks []a2atype.TaskID, first, budget int, render func(*turn) Turn) (kept []Turn, omitted int, clipped bool, err error) {
 	used := 0
 	next := len(tasks) - 1
 	fetched := 0
@@ -448,44 +446,43 @@ func packForward[T any](n, from, budget int, render func(int) (T, error), fit fu
 	return out, i, nil
 }
 
-// listTurns is the Session's tasks without their history, oldest first: what
-// its turns are addressed by.
-func (h *Handler) listTurns(ctx context.Context, session *apiv1.Session) ([]*a2atype.Task, error) {
+// listTurns is the IDs of the Session's tasks, oldest first: what its turns
+// are addressed by.
+func (h *Handler) listTurns(ctx context.Context, session *apiv1.Session) ([]a2atype.TaskID, error) {
 	none := 0
 	routed := interactionContext(ctx)
 	request := &a2atype.ListTasksRequest{Tenant: sessionTenant(session), ContextID: session.GetId(), PageSize: 100, HistoryLength: &none}
-	var tasks []*a2atype.Task
+	var ids []a2atype.TaskID
 	for {
 		listed, err := h.gateway.ListTasks(routed, request)
 		if err != nil {
 			return nil, err
 		}
-		tasks = append(tasks, listed.Tasks...)
-		if listed.NextPageToken == "" {
-			return tasks, nil
+		for _, task := range listed.Tasks {
+			ids = append(ids, task.ID)
 		}
-		if len(tasks) >= maxListedTurns {
-			return nil, fmt.Errorf("session %s has more than %d turns, more than this tool reads", session.GetId(), maxListedTurns)
+		if listed.NextPageToken == "" {
+			return ids, nil
 		}
 		request.PageToken = listed.NextPageToken
 	}
 }
 
 // fetchTasks reads tasks whole, fetchBatch at a time, in their order.
-func (h *Handler) fetchTasks(ctx context.Context, session *apiv1.Session, tasks []*a2atype.Task) ([]*a2atype.Task, error) {
-	out := make([]*a2atype.Task, len(tasks))
+func (h *Handler) fetchTasks(ctx context.Context, session *apiv1.Session, ids []a2atype.TaskID) ([]*a2atype.Task, error) {
+	out := make([]*a2atype.Task, len(ids))
 	routed := interactionContext(ctx)
 	tenant := sessionTenant(session)
 	group, groupCtx := errgroup.WithContext(routed)
 	group.SetLimit(fetchBatch)
-	for i, task := range tasks {
+	for i, id := range ids {
 		group.Go(func() error {
-			whole, err := h.gateway.GetTask(groupCtx, &a2atype.GetTaskRequest{Tenant: tenant, ID: task.ID})
+			whole, err := h.gateway.GetTask(groupCtx, &a2atype.GetTaskRequest{Tenant: tenant, ID: id})
 			if err != nil {
-				return fmt.Errorf("turn %s: %w", task.ID, err)
+				return fmt.Errorf("turn %s: %w", id, err)
 			}
 			if whole.ContextID != "" && whole.ContextID != session.GetId() {
-				return fmt.Errorf("turn %s does not belong to session %s", task.ID, session.GetId())
+				return fmt.Errorf("turn %s does not belong to session %s", id, session.GetId())
 			}
 			out[i] = whole
 			return nil
@@ -497,24 +494,19 @@ func (h *Handler) fetchTasks(ctx context.Context, session *apiv1.Session, tasks 
 	return out, nil
 }
 
-// turnIndex is the index of the turn ref names in tasks: "last", an index or
-// a task ID; -1 for none.
-func turnIndex(tasks []*a2atype.Task, ref string) int {
+// turnIndex is the index of the turn ref names in ids: "last", an index or a
+// task ID; -1 for none.
+func turnIndex(ids []a2atype.TaskID, ref string) int {
 	if ref == "last" {
-		return len(tasks) - 1
+		return len(ids) - 1
 	}
 	if n, err := strconv.Atoi(ref); err == nil {
-		if n < 0 || n >= len(tasks) {
+		if n < 0 || n >= len(ids) {
 			return -1
 		}
 		return n
 	}
-	for i, task := range tasks {
-		if string(task.ID) == ref {
-			return i
-		}
-	}
-	return -1
+	return slices.Index(ids, a2atype.TaskID(ref))
 }
 
 func detailLevel(level, def string, allowed ...string) (string, error) {
