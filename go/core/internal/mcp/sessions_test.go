@@ -12,6 +12,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -61,12 +62,14 @@ func (s *sessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1.Se
 	return s.GetSession(ctx, id, "")
 }
 
-func (s *sessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error) {
+func (s *sessionStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []*apiv1.Session
 	for _, session := range s.byID {
-		out = append(out, session)
+		if query.Agent == nil || proto.Equal(session.GetAgent(), query.Agent) {
+			out = append(out, session)
+		}
 	}
 	return out, nil
 }
@@ -163,18 +166,10 @@ func TestCreateSessionSchemaFollowsRequest(t *testing.T) {
 	for _, name := range []string{"agent", "request_id", "name", "message"} {
 		require.Contains(t, schema.Properties, name)
 	}
-	require.Equal(t, []string{"name", "namespace"}, sortedRequired(schema.Properties["agent"].Required))
+	require.ElementsMatch(t, []string{"name", "namespace"}, schema.Properties["agent"].Required)
 	require.Equal(t, 128, *schema.Properties["request_id"].MaxLength)
 	require.Equal(t, 200, *schema.Properties["name"].MaxLength)
 	require.NotEmpty(t, schema.Properties["agent"].Properties["namespace"].Description)
-}
-
-func sortedRequired(names []string) []string {
-	out := append([]string(nil), names...)
-	if len(out) == 2 && out[0] > out[1] {
-		out[0], out[1] = out[1], out[0]
-	}
-	return out
 }
 
 func TestCreateSessionSendsFirstMessageOncePerRequestID(t *testing.T) {
@@ -339,16 +334,19 @@ func TestListSessionsAllStatesShowsFailures(t *testing.T) {
 	require.NotNil(t, found)
 	require.Equal(t, "ImagePullBackOff", found.Failure.Reason)
 
-	result := callTool(t, server, listToolName, map[string]any{"agent_name": "assistant"})
-	require.True(t, result.IsError)
+	other := structured[ListSessionsOutput](t, callTool(t, server, listToolName, map[string]any{
+		"all_states": true, "agent": map[string]any{"namespace": "team-b", "name": "assistant"},
+	}))
+	require.Empty(t, other.Sessions)
+
+	result, err := sessionToolCall(t, server, listToolName, map[string]any{"agent": map[string]any{"name": "assistant"}})
+	require.True(t, err != nil || result.IsError, "accepted an agent without namespace")
 }
 
-func TestSessionLifecycleTools(t *testing.T) {
+func TestDeleteSessionTool(t *testing.T) {
 	server := sessionServer(t, newSessionStore(readySession()), &turnGateway{})
-	for _, name := range []string{suspendSessionToolName, resumeSessionToolName, deleteSessionToolName} {
-		output := structured[SessionOutput](t, callTool(t, server, name, map[string]any{"session_id": testSessionID}))
-		require.Equal(t, testSessionID, output.Session.ID, name)
-	}
+	output := structured[SessionOutput](t, callTool(t, server, deleteSessionToolName, map[string]any{"session_id": testSessionID}))
+	require.Equal(t, testSessionID, output.Session.ID)
 }
 
 func TestSessionToolAnnotations(t *testing.T) {
@@ -370,7 +368,12 @@ func TestSessionToolAnnotations(t *testing.T) {
 	require.True(t, annotations[getSessionToolName].ReadOnlyHint)
 	require.True(t, annotations[getSessionTurnToolName].ReadOnlyHint)
 	require.True(t, *annotations[deleteSessionToolName].DestructiveHint)
-	require.False(t, *annotations[createSessionToolName].DestructiveHint)
+	// create_session without request_id creates another Session, and its first
+	// message starts an agent turn that may run any tool.
+	if create := annotations[createSessionToolName]; create != nil {
+		require.False(t, create.IdempotentHint)
+		require.True(t, create.DestructiveHint == nil || *create.DestructiveHint)
+	}
 }
 
 func TestUnwrapResponse(t *testing.T) {

@@ -77,11 +77,11 @@ type ForkSessionOutput struct {
 }
 
 func (h *Handler) registerCheckpointTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{Name: createCheckpointToolName, Description: "Create a checkpoint at a Session turn boundary", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true}}, h.createCheckpoint)
+	mcp.AddTool(server, &mcp.Tool{Name: createCheckpointToolName, Description: "Create a checkpoint at a Session turn boundary", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false)}}, h.createCheckpoint)
 	mcp.AddTool(server, &mcp.Tool{Name: listCheckpointsToolName, Description: "List checkpoints for a Session", Annotations: readOnly()}, h.listCheckpoints)
 	mcp.AddTool(server, &mcp.Tool{Name: getCheckpointToolName, Description: "Read one checkpoint's state and failure", Annotations: readOnly()}, h.getCheckpoint)
 	mcp.AddTool(server, &mcp.Tool{Name: deleteCheckpointToolName, Description: "Delete a checkpoint", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true), IdempotentHint: true}}, h.deleteCheckpoint)
-	mcp.AddTool(server, &mcp.Tool{Name: forkSessionToolName, Description: "Create a Session from a checkpoint", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true}}, h.forkSession)
+	mcp.AddTool(server, &mcp.Tool{Name: forkSessionToolName, Description: "Create a Session from a checkpoint", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false)}}, h.forkSession)
 }
 
 func (h *Handler) getCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CheckpointIDInput) (*mcp.CallToolResult, CreateCheckpointOutput, error) {
@@ -162,13 +162,20 @@ func checkpointSummary(value *apiv1.Checkpoint) CheckpointSummary {
 
 func sessionSummary(session *apiv1.Session) SessionSummary {
 	result := SessionSummary{
-		ID:    session.GetId(),
-		Agent: session.GetAgent().GetName(),
-		Name:  session.GetName(),
+		ID: session.GetId(), Agent: sessionTenant(session), Name: session.GetName(),
 		State: session.GetState().String(),
+	}
+	if session.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_UNSPECIFIED {
+		result.Operation = session.GetOperation().String()
 	}
 	if session.GetFailure() != nil {
 		result.Failure = &FailureSummary{Reason: session.GetFailure().GetReason(), Message: session.GetFailure().GetMessage()}
+	}
+	if session.GetCreatedAt() != nil {
+		result.CreatedAt = session.GetCreatedAt().AsTime().Format(time.RFC3339Nano)
+	}
+	if session.GetUpdatedAt() != nil {
+		result.UpdatedAt = session.GetUpdatedAt().AsTime().Format(time.RFC3339Nano)
 	}
 	return result
 }
