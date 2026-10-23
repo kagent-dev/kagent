@@ -388,3 +388,57 @@ type runtimeRevisionRow struct {
 	AgentCard               []byte
 	DeletedAt               *time.Time
 }
+
+// GoldenRetry is a revision's golden-build retry schedule after
+// GoldenActorCrashed. Attempts counts retries started, so builds = Attempts+1.
+type GoldenRetry struct {
+	Attempts  int
+	RetryAt   time.Time
+	Exhausted bool
+}
+
+// ScheduleGoldenRetry records a crashed ActorTemplate UID once and schedules
+// the next retry at now plus delays[attempts]. Repeating the same UID returns
+// the stored schedule, so controller passes and restarts do not spend budget.
+// A new UID with every delay used is exhausted and leaves the row unchanged.
+// A missing, deleting or differently bound revision returns ErrNotFound.
+func (c *Client) ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (GoldenRetry, error) {
+	type goldenRetryRow struct {
+		GoldenAttempts int
+		GoldenCrashUID string
+		GoldenRetryAt  *time.Time
+	}
+	var result GoldenRetry
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := queryOne(ctx, tx, `
+			SELECT golden_attempts, golden_crash_uid, golden_retry_at FROM runtime_revision
+			WHERE revision = $1 AND actor_template_uid = $2 AND deleted_at IS NULL
+			FOR UPDATE
+		`, pgx.RowToStructByName[goldenRetryRow], revision, crashedTemplateUID)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		if row.GoldenCrashUID == crashedTemplateUID && row.GoldenRetryAt != nil {
+			result = GoldenRetry{Attempts: row.GoldenAttempts, RetryAt: *row.GoldenRetryAt}
+			return nil
+		}
+		if row.GoldenAttempts >= len(delays) {
+			result = GoldenRetry{Attempts: row.GoldenAttempts, Exhausted: true}
+			return nil
+		}
+		retryAt := now.Add(delays[row.GoldenAttempts])
+		if err := execSQL(ctx, tx, `
+			UPDATE runtime_revision
+			SET golden_attempts = golden_attempts + 1, golden_crash_uid = $2, golden_retry_at = $3, updated_at = NOW()
+			WHERE revision = $1
+		`, revision, crashedTemplateUID, retryAt); err != nil {
+			return err
+		}
+		result = GoldenRetry{Attempts: row.GoldenAttempts + 1, RetryAt: retryAt}
+		return nil
+	})
+	if err != nil {
+		return GoldenRetry{}, fmt.Errorf("schedule golden retry for runtime revision %s: %w", revision, err)
+	}
+	return result, nil
+}
