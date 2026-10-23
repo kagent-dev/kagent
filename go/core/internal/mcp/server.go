@@ -49,14 +49,19 @@ type Config struct {
 }
 
 type ListSessionsInput struct {
-	PageSize  int    `json:"page_size,omitempty" jsonschema:"Maximum number of Sessions to return"`
-	PageToken string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+	PageSize       int    `json:"page_size,omitempty" jsonschema:"Maximum number of Sessions to return"`
+	PageToken      string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+	AgentNamespace string `json:"agent_namespace,omitempty" jsonschema:"Only Sessions of the Agent in this namespace; requires agent_name"`
+	AgentName      string `json:"agent_name,omitempty" jsonschema:"Only Sessions of this Agent; requires agent_namespace"`
+	AllStates      bool   `json:"all_states,omitempty" jsonschema:"Include Sessions in every state, failed and suspended ones too; default lists ready Sessions only"`
 }
 
 type SessionSummary struct {
-	ID    string `json:"id"`
-	Agent string `json:"agent"`
-	State string `json:"state"`
+	ID      string          `json:"id"`
+	Agent   string          `json:"agent"`
+	Name    string          `json:"name,omitempty"`
+	State   string          `json:"state"`
+	Failure *FailureSummary `json:"failure,omitempty"`
 }
 
 type ListSessionsOutput struct {
@@ -106,13 +111,15 @@ func New(cfg Config) (*Handler, error) {
 	}, h.listAgents)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        listToolName,
-		Description: "List ready Sessions visible to the caller",
+		Description: "List Sessions visible to the caller, ready ones unless all_states is set",
+		Annotations: readOnly(),
 	}, h.listSessions)
 	// No top-level oneOf: Gemini rejects it. invokeAgent enforces exactly one of session_id or agent.
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        invokeToolName,
 		Description: "Send a message to an existing Session with session_id, or start a new Session by providing agent instead. Returns the Session and task IDs. Reuse message_id with identical inputs when retrying creation.",
 	}, h.invokeAgent)
+	h.registerSessionTools(server)
 	h.registerCheckpointTools(server)
 	registerSandboxTools(server, cfg.Sandboxes, cfg.SandboxTemplates)
 	if cfg.Sandboxes != nil {
@@ -136,15 +143,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, input ListSessionsInput) (*mcp.CallToolResult, ListSessionsOutput, error) {
-	result, err := h.sessions.List(ctx, sessionsvc.ListRequest{
-		PageSize: input.PageSize, PageToken: input.PageToken,
-	})
+	request := sessionsvc.ListRequest{PageSize: input.PageSize, PageToken: input.PageToken}
+	if input.AgentNamespace != "" || input.AgentName != "" {
+		if input.AgentNamespace == "" || input.AgentName == "" {
+			return toolError(fmt.Errorf("agent_namespace and agent_name are given together")), ListSessionsOutput{}, nil
+		}
+		request.Agent = &apiv1.ResourceReference{Namespace: input.AgentNamespace, Name: input.AgentName}
+	}
+	result, err := h.sessions.List(ctx, request)
 	if err != nil {
 		return toolError(err), ListSessionsOutput{}, nil
 	}
 	output := ListSessionsOutput{Sessions: []SessionSummary{}, NextPageToken: result.NextPageToken}
 	for _, session := range result.Sessions {
-		if session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY {
+		if !input.AllStates && session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY {
 			continue
 		}
 		output.Sessions = append(output.Sessions, sessionSummary(session))
@@ -155,8 +167,13 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 			text.WriteByte('\n')
 		}
 		fmt.Fprintf(&text, "%s (%s)", session.ID, session.Agent)
+		if input.AllStates {
+			fmt.Fprintf(&text, " %s", session.State)
+		}
 	}
-	if text.Len() == 0 {
+	if text.Len() == 0 && input.AllStates {
+		text.WriteString("No Sessions found.")
+	} else if text.Len() == 0 {
 		text.WriteString("No ready Sessions found.")
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text.String()}}}, output, nil
