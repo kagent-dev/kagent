@@ -41,12 +41,17 @@ should likewise retain the `request_id` passed to `create_sandbox`.
 
 ## Recovering a crashed Session
 
-Call `SessionService.RevertSession` with the Session ID to restore its recorded runtime to the last durable snapshot.
+Chat offers a revert or a fork from an existing READY checkpoint after a confirmed
+runtime crash. Call `SessionService.RevertSession` with the Session ID to restore
+its recorded runtime to the last durable snapshot.
 The caller needs Session update access. The operation verifies Substrate's CRASHED state and the recorded Actor identity.
 Recovery fails interrupted turns and waiting tasks absent from the retained snapshot.
 It preserves durable terminal results and returns the Session to READY with its Actor suspended.
 It discards runtime changes since that snapshot and does not replay input.
 A runtime without a snapshot restarts from its initial state.
+`GetSession.recovery.failed_messages` identifies user inputs absent from the
+restored runtime by both task and message ID. Their public history remains
+available, and chat marks them as failed to send.
 
 Retry an interrupted revert against the same Session ID. Pending recovery retains its operation across API restarts.
 The lifecycle worker retries already admitted recoveries; it does not initiate recovery for other crashed Sessions.

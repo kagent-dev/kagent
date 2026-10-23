@@ -16,6 +16,39 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
+// Failed observations leave needed unknown so a control-plane outage cannot
+// authorize recovery or prevent history reads.
+func (w *ActorWorkflow) Recovery(ctx context.Context, session *apiv1.Session) (*apiv1.SessionRecovery, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	recovery := proto.CloneOf(session.GetRecovery())
+	if recovery == nil {
+		recovery = &apiv1.SessionRecovery{}
+	}
+	recovery.Needed = nil
+	if session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME && session.Failure.GetReason() == database.SessionRuntimeCrashed {
+		recovery.Needed = new(true)
+		return recovery, nil
+	}
+	if session.State != apiv1.RuntimeState_RUNTIME_STATE_READY || session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+		recovery.Needed = new(false)
+		return recovery, nil
+	}
+	revision, err := w.store.GetRuntimeRevision(ctx, session.PreparedRevision)
+	if err != nil {
+		return recovery, fmt.Errorf("load Session recovery revision: %w", err)
+	}
+	actor, err := w.actors.GetActor(ctx, revision.ActorTemplateAtespace, substrate.ActorName(session.Id))
+	if err != nil {
+		return recovery, fmt.Errorf("observe Session recovery Actor: %w", err)
+	}
+	if err := w.verifyActor(ctx, session, revision, actor); err != nil {
+		return recovery, err
+	}
+	recovery.Needed = new(actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED)
+	return recovery, nil
+}
+
 // recoverSessionPage retries admitted recoveries in ID order.
 // READY Sessions are excluded, so a background retry cannot admit new work.
 func (w *ActorWorkflow) recoverSessionPage(ctx context.Context, afterID string) (string, error) {

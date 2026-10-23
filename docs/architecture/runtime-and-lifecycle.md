@@ -239,6 +239,18 @@ changes after the retained snapshot are lost; the discarded turn receives no
 checkpoint at that older snapshot. Another revert against the now-healthy Actor
 returns `FAILED_PRECONDITION`.
 
+`GetSession` reports a read-only recovery observation for the recorded Actor.
+An unavailable or replaced Actor leaves the observation unknown and does not
+prevent history reads. Chat offers an explicit revert and the existing fork
+action for a saved READY checkpoint.
+
+Recovery records exact task and message identities for user inputs after the
+retained snapshot boundary, including accepted inputs not yet published. Chat
+marks those inputs as failed to send and retains the public transcript; completed
+A2A tasks and their history are not rewound. The annotations remain on the
+recovered Session. Forks copy checkpoint-bounded history into a fresh Session
+and do not inherit its delivery annotations.
+
 ```mermaid
 sequenceDiagram
     participant Client

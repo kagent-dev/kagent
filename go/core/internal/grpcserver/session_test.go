@@ -93,7 +93,7 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 		{Id: bobID, Creator: "bob", Agent: agent},
 	}}
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
-		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, nil)
+		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, readOnlySessionWorkflow{})
 		config.ShareStore = &testShareStore{sessionShare: &apiv1.SessionShare{SessionId: aliceID}, ownerUserID: "alice"}
 	})
 	client := apiv1.NewSessionServiceClient(connection)

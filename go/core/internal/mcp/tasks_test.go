@@ -562,6 +562,10 @@ func (*fakeSessionStore) DeleteSessionShare(context.Context, string, string) err
 
 type fakeSessionWorkflow struct{}
 
+func (*fakeSessionWorkflow) Recovery(context.Context, *apiv1.Session) (*apiv1.SessionRecovery, error) {
+	return nil, nil
+}
+
 func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }
