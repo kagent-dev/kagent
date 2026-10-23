@@ -43,8 +43,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, translator.NewValidationError("Claude ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
-		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
+	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.TokenPassthrough {
+		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough yet")
 	}
 	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
 	if err != nil {
@@ -60,7 +60,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	skillResources, skillEgress, err := translator.CompileSkillResources(input.Root.Template)
+	skills, err := translator.CompileSkillResources(input.Root.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +91,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()
 	config.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
 	config.LogLevel = c.settings.GetLogging().GetLevel()
-	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
-		config.SkillResources = &skillResources
+	if len(skills.Resources.Skills) != 0 || len(skills.Resources.Plugins) != 0 {
+		config.SkillResources = &skills.Resources
 	}
 	config.MCPServers = mcp.servers
 	if err := config.Validate(); err != nil {
@@ -110,12 +110,12 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, err := translator.CompileCredentials(input, nil, environment)
+	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
 
-	egress = append(egress, skillEgress...)
+	egress = append(egress, skills.Egress...)
 	egress = append(egress, mcp.egress...)
 	egress = append(egress, telemetryConfig.Destinations(environment)...)
 	egress = append(egress, c.settings.GetControlPlaneUrl())
@@ -124,11 +124,12 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	return &translator.CompileResult{
 		Revision: translator.Revision{
 			Namespace:   template.Namespace,
+			SkillImages: skills.Images,
 			Environment: environment,
 			ConfigJSON:  configJSON, AgentCard: card,
-			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
-			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			Credentials:      credentials, Provenance: provenance, EgressDestinations: egress,
+			WorkerPoolName:          harness.Spec.Substrate.WorkerPoolRef.Name,
+			SnapshotLocation:        harness.Spec.Substrate.SnapshotPolicy.Location,
+			TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -260,7 +261,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		return []corev1.EnvVar{
 			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
 			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{"https://" + vertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
+		}, []string{"https://" + translator.VertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
 	default:
 		return nil, nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
@@ -335,17 +336,6 @@ func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
 	return corev1.EnvVar{Name: environmentName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: key,
 	}}}
-}
-
-func vertexHostname(location string) string {
-	switch location {
-	case "global":
-		return "aiplatform.googleapis.com"
-	case "us", "eu":
-		return "aiplatform." + location + ".rep.googleapis.com"
-	default:
-		return location + "-aiplatform.googleapis.com"
-	}
 }
 
 type provenanceEntry struct {

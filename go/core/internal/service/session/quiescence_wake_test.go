@@ -10,14 +10,15 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -71,8 +72,11 @@ func (a *gatedQuiescenceActors) GetActor(ctx context.Context, atespace, name str
 func settlementContext(t *testing.T, session *apiv1.Session) context.Context {
 	t.Helper()
 	headers := http.Header{}
-	headers.Set(apia2a.InsecureRuntimeIdentityHeader, "team-a/"+substrate.ActorName(session.Id)+"/actor-uid")
-	identity, err := (&taskstore.Authenticator{}).Authenticate(t.Context(), headers, nil)
+	i := jwttest.New(t)
+	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	require.NoError(t, err)
+	headers.Set("authorization", "Bearer "+i.Token(t, i.Claims("team-a", substrate.ActorName(session.Id), "actor-uid")))
+	identity, err := runtimeauth.NewAuthenticator(v).Authenticate(t.Context(), headers, nil)
 	require.NoError(t, err)
 	return auth.AuthSessionTo(t.Context(), identity)
 }
@@ -131,7 +135,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		workflow := NewActorWorkflow(writes, runtime, wake, time.Hour)
 		startQuiescenceWorker(t, workflow)
 		workflows = append(workflows, workflow)
-		services = append(services, taskstore.NewService(store, wake))
+		services = append(services, taskstore.NewService(store, wake, nil))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 8 }, 5*time.Second, 10*time.Millisecond)
 	// Failed settlement leaves the task unpublished and no eligible work.
@@ -145,7 +149,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 	// Fill one replica before waking the other. PostgreSQL does not promise
 	// fair assignment when both replicas compete for the same small burst.
 	// Deliver one coalesced hint per burst to exercise the workers' handoff.
-	coalesced := taskstore.NewService(store, nil)
+	coalesced := taskstore.NewService(store, nil, nil)
 	for replica := range 2 {
 		for i := replica * 4; i < (replica+1)*4; i++ {
 			_, err := coalesced.SettleTask(settlementContext(t, sessions[i]), requests[i])
@@ -183,13 +187,13 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		require.Equal(t, 1, calls, "each durable claim must run exactly once across replicas")
 		actor, err := base.GetActor(t.Context(), "team-a", name)
 		require.NoError(t, err)
+		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.Status.State)
+		require.Equal(t, ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, substrate.LatestActorSnapshot(actor).GetFidelity())
+		require.NotEmpty(t, substrate.SnapshotURI(substrate.LatestActorSnapshot(actor)))
 		if states[i%len(states)].Terminal() {
-			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.Status.State)
 			_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: requests[i].TaskId}, "alice", uuid.NewString())
 			require.NoError(t, err)
 			require.Equal(t, "s3://snapshots/snapshot-1", snapshot.URI)
-		} else {
-			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_PAUSED, actor.Status.State)
 		}
 	}
 }
@@ -204,7 +208,7 @@ func TestQuiescenceRecoversMissedSignal(t *testing.T) {
 	startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), 100*time.Millisecond))
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 4 }, 5*time.Second, time.Millisecond)
 	// This simulates a commit on a replica that dies before sending its hint.
-	_, err = taskstore.NewService(store, nil).SettleTask(settlementContext(t, session), request)
+	_, err = taskstore.NewService(store, nil, nil).SettleTask(settlementContext(t, session), request)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
 }

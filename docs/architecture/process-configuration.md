@@ -35,6 +35,9 @@ database:
   owner:
     urlFile: secrets/postgres-owner-url
     role: kagent_owner
+tui:
+  sidebar: shown
+  bell: true
 ```
 
 ```bash
@@ -48,6 +51,13 @@ prints resolved settings and file references, never secret file contents. These
 commands make no service connections. Database credentials are opened only by
 database commands, which connect as `database.owner`; `--db-url-file` and
 `--db-role` override its configured values.
+
+`tui.sidebar: hidden` starts the interactive `kagent` workspace with only the
+chat showing. Typing `/sidebar` in the chat toggles the panels for that run and
+changes no file.
+
+`tui.bell: false` stops the terminal bell that otherwise rings when a turn
+finishes or waits for input while the terminal window is unfocused.
 
 `install.bundledPostgresImage` selects the development PostgreSQL image, including
 mirrors.
@@ -83,8 +93,8 @@ database:
   skipMigrations: false
 gateway:
   publicUrl: https://kagent.example.com
-  push:
-    signingPrivateKeyFile: secrets/push-private-key.pem
+push:
+  signingPrivateKeyFile: secrets/push-private-key.pem
 sessions:
   idleTtl: 604800s
 runtimeDefaults:
@@ -100,7 +110,9 @@ after connecting. Set `database.skipMigrations: true` when migrations are applie
 out-of-band; the owner login is then not needed, and startup still verifies,
 through the read/write login, that all required migrations are applied.
 
-Push JWT signing is optional: `gateway.push.signingPrivateKeyFile` names an
+The controller owns callback delivery through the top-level `push` section
+(`config.push` in Helm). Push JWT signing is optional:
+`push.signingPrivateKeyFile` names an
 unencrypted PKCS#8 Ed25519 PEM key when enabled. Helm projects the operator-managed
 Secret selected by `controller.push.signing.secretName`.
 
@@ -157,6 +169,9 @@ process settings have one schema. Process settings live in the root `runtime`
 object. Agent behavior lives under `agent`, whose recursive `sub_agents`
 contain only `ADKAgentConfig` messages. Runtime fields cannot be set on any
 agent node; the entire tree shares the top-level process settings.
+Go callers use the generated types from `go/api/gen/kagent/config/v1` directly.
+`go/adk/pkg/config` owns validated ProtoJSON encoding and decoding, runtime
+defaults, and model and plugin conversions shared by the compiler and runtime.
 Native Claude and Codex retain their harness-specific Go structs. The controller
 compiles `runtimeDefaults` into these payloads independently of its own settings.
 
@@ -170,8 +185,8 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
     "log_level": "info",
     "port": 80,
     "max_content_length": "0",
-    "file_search_tools": false,
-    "token_propagation": {"enabled": false}
+    "builtin_tools": { "disable_file_search": false },
+    "token_propagation": { "enabled": false }
   }
 }
 ```
@@ -179,7 +194,7 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
 Models select exactly one provider, for example:
 
 ```json
-{"agent": {"model": {"model": "gpt-4o", "openai": {"temperature": 0}}}}
+{ "agent": { "model": { "model": "gpt-4o", "openai": { "temperature": 0 } } } }
 ```
 
 Provider-specific fields live inside the selected provider; shared transport
@@ -205,6 +220,24 @@ fields and multiple model providers fail configuration loading. Telemetry uses
 the same `TelemetryConfig` as controller settings (including protobuf durations).
 
 An absent request size limit uses the runtime default; zero means unlimited.
+
+Built-in tool settings live under `runtime.builtin_tools`:
+`disable_file_search`, `bash_venv_path`, and `disable_bash`. This replaces the
+former `runtime.skill_tools` block (Helm: `config.runtimeDefaults.builtinTools`).
+Replace the former `file_search_tools` flag with `disable_file_search`, reversing
+its value: `file_search_tools: true` becomes `disable_file_search: false`.
+Go and Python ADK register `read_file`, `write_file`, `edit_file`, `list_files`,
+`grep_file`, and `bash` for the root agent and subagents, even when no skills are
+configured or installed.
+Set `runtime.builtin_tools.disable_bash` to `true` to omit built-in bash.
+Set `runtime.builtin_tools.disable_file_search` to `true` to omit `list_files`
+and `grep_file`. Both opt-outs default to `false`. Skill discovery and loading
+remain conditional on installed skills.
+For controller-managed runtimes, set
+`config.runtimeDefaults.builtinTools.disableBash: true` in Helm values.
+`bash_venv_path` selects a separate environment for shell commands in both runtimes:
+its `bin` directory is prepended to `PATH`, and `VIRTUAL_ENV` is set.
+
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
 `parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private

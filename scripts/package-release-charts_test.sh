@@ -17,7 +17,7 @@ mkdir -p "$source_dir/kagent/templates" "$source_dir/kagent/files" "$metadata_di
 
 # Use the real controller templates in dependency-free charts. The test invokes
 # the same packaging target as CI without fetching charts or image manifests.
-for chart in kagent kagent-crds tools/grafana-mcp; do
+for chart in kagent kagent-crds; do
   mkdir -p "$source_dir/$chart"
   printf 'apiVersion: v2\nname: %s\nversion: ${VERSION}\n' "${chart##*/}" > "$source_dir/$chart/Chart-template.yaml"
 done
@@ -31,7 +31,7 @@ for image in golang-adk claude-harness codex-harness; do
 done
 
 release() {
-  make --no-print-directory -C "$root" VERSION="$version" KMCP_VERSION=0.4.0 AWK=awk \
+  make --no-print-directory -C "$root" VERSION="$version" AWK=awk \
     HELM_SOURCE_DIR="$source_dir" HELM_DIST_FOLDER="$output_dir" \
     RUNTIME_IMAGE_METADATA_DIR="$metadata_dir" "$@" > "$scratch/command.log" 2>&1
 }

@@ -52,6 +52,36 @@ spec:
               are local to the Agent's namespace, including references nested in inline
               template specs.
             properties:
+              egressPolicyRefs:
+                description: |-
+                  EgressPolicyRefs grants additional access to the whole runtime, including
+                  shared subagents. Policies resolve in this Agent's namespace. Integration
+                  access inferred from models and tools is always included. Changes update
+                  existing Sessions without a new invocation or runtime restart.
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: egressPolicyRefs requires non-empty names
+                  rule: self.all(ref, has(ref.name) && ref.name != '')
               harnessRef:
                 description: |-
                   HarnessRef selects the platform-managed runtime configuration that executes
@@ -120,6 +150,12 @@ spec:
                         - key
                         - name
                         type: object
+                      outputSchemaStrict:
+                        description: |-
+                          OutputSchemaStrict tells OpenAI, Azure OpenAI, and Foundry (openai format)
+                          to limit generation to the output schema. kagent then checks the schema
+                          against OpenAI's strict mode rules on every provider.
+                        type: boolean
                       plugins:
                         items:
                           description: PluginBundle selects Agent Skills from one
@@ -448,6 +484,9 @@ spec:
                         type: array
                     type: object
                     x-kubernetes-validations:
+                    - message: outputSchemaStrict requires outputSchema or outputSchemaFrom
+                      rule: '!has(self.outputSchemaStrict) || !self.outputSchemaStrict
+                        || has(self.outputSchema) || has(self.outputSchemaFrom)'
                     - message: at most one of the fields in [systemPrompt systemPromptFrom]
                         may be set
                       rule: (has(self.systemPrompt)?1:0)+(has(self.systemPromptFrom)?1:0)
@@ -487,6 +526,11 @@ spec:
             description: AgentStatus reports compilation and preparation of an Agent.
             properties:
               conditions:
+                description: |-
+                  Conditions report runtime readiness and independent egress grant admission.
+                  EgressPoliciesApplied is False for EgressPolicyNotFound, InvalidEgressPolicy,
+                  or EgressGrantConflict; Applied means all grants are admitted. Grant issues
+                  do not affect Ready.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -541,7 +585,7 @@ spec:
                   - status
                   - type
                   type: object
-                maxItems: 4
+                maxItems: 5
                 type: array
                 x-kubernetes-list-map-keys:
                 - type

@@ -21,6 +21,7 @@ import (
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
@@ -31,9 +32,11 @@ const (
 )
 
 type sandboxRevisionStore interface {
+	actorEgressStore
 	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
+	GetSandboxEgressGrant(context.Context, string, string) (egress.Access, error)
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
-	RecordSandboxRevision(context.Context, database.SandboxRevision, bool) error
+	RecordSandboxRevision(context.Context, database.SandboxRevision, database.RecordRevisionOptions) error
 }
 
 // SandboxReconciler owns the queued side effects of SandboxTemplate preparation.
@@ -112,8 +115,12 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 	}
 	if state == nil || !state.Template.DeletionTimestamp.IsZero() {
 		namespace, name, _ := strings.Cut(key, "/")
-		if err := s.store.RetireSandboxTemplateIdentities(ctx, namespace, name); err != nil {
+		err := s.store.RetireSandboxTemplateIdentities(ctx, namespace, name)
+		if err != nil {
 			return fmt.Errorf("retire SandboxTemplate %s: %w", key, err)
+		}
+		if err := applySourceEgress(ctx, s.store, s.actors, database.RuntimeEgressSource{Kind: database.RuntimeEgressSandbox, Namespace: namespace, Name: name}); err != nil {
+			return err
 		}
 		if state != nil && slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
 			updated := state.Template.DeepCopy()
@@ -134,10 +141,22 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		}
 		return nil
 	}
-	if err := s.store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
-		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(),
-	}); err != nil {
+	grants := state.EgressGrant
+	if state.EgressConflict != "" {
+		previous, err := s.store.GetSandboxEgressGrant(ctx, state.Template.Namespace, string(state.Template.UID))
+		if err != nil {
+			return s.observeError(*state, fmt.Errorf("read SandboxTemplate %s grants: %w", key, err), true)
+		}
+		grants = egress.IntersectAccess(previous, grants)
+	}
+	err := s.store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
+		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(), EgressGrant: grants,
+	})
+	if err != nil {
 		return s.observeError(*state, fmt.Errorf("store SandboxTemplate %s definition: %w", key, err), true)
+	}
+	if err := applySourceEgress(ctx, s.store, s.actors, database.RuntimeEgressSource{Kind: database.RuntimeEgressSandbox, Namespace: state.Template.Namespace, Name: state.Template.Name}); err != nil {
+		return s.observeError(*state, err, true)
 	}
 	if state.DesiredActorTemplate == nil {
 		s.collections.observations.DeleteObject(key)
@@ -175,9 +194,10 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
 		SourceSnapshot: state.SourceSnapshot,
 	}
-	if err := s.store.RecordSandboxRevision(ctx, revision, ready); err != nil {
+	if err := s.store.RecordSandboxRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
 	}
+
 	// Kubernetes readiness can only follow a revision that callers can select
 	// from the store. Failed persistence must never publish a ready observation.
 	s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: state.RevisionID, Template: observed})
@@ -221,5 +241,6 @@ func sandboxStatusWithTransitionTimes(state sandboxReconciliation) kagentv1alpha
 	}
 	desired.ObservedGeneration = state.Template.Generation
 	apimeta.SetStatusCondition(&desired.Conditions, condition)
+	apimeta.SetStatusCondition(&desired.Conditions, egressPoliciesCondition(kagentv1alpha3.SandboxTemplateConditionEgressPoliciesApplied, state.Template.Generation, state.EgressIssues, state.EgressConflict))
 	return desired
 }

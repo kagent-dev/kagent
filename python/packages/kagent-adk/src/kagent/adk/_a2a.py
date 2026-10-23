@@ -30,6 +30,7 @@ from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     TelemetryRequestHandler,
     attach_hitl_agent_extension,
+    attach_usage_agent_extension,
     get_a2a_max_content_length,
 )
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
@@ -98,6 +99,7 @@ class KAgentApp:
 
     def build(self, local=False) -> FastAPI:
         attach_hitl_agent_extension(self.agent_card)
+        attach_usage_agent_extension(self.agent_card)
         session_service = InMemorySessionService()
         token_service = None
         controller_client: Optional[AsyncControllerClient] = None
@@ -119,7 +121,6 @@ class KAgentApp:
 
             if self.config.agent.HasField("memory"):
                 memory_service = KagentMemoryService(
-                    agent_name=self.app_name,
                     controller_client=controller_client,
                     embedding_config=optional_field(self.config.agent.memory, "embedding"),
                     ttl_days=self.config.agent.memory.ttl_days,

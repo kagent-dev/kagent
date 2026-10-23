@@ -4,19 +4,12 @@
   resources:
   - harnesses
   - agents
+  - egresspolicies
   - sandboxtemplates
   - agenttemplates
   - modelconfigs
   - modelproviderconfigs
   - remotemcpservers
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - kagent.dev
-  resources:
-  - mcpservers
   verbs:
   - get
   - list
@@ -32,12 +25,6 @@
   verbs:
   - update
 - apiGroups:
-  - kagent.dev
-  resources:
-  - mcpservers/finalizers
-  verbs:
-  - update
-- apiGroups:
   - api.kagent.dev
   resources:
   - harnesses/status
@@ -45,14 +32,6 @@
   - modelconfigs/status
   - modelproviderconfigs/status
   - remotemcpservers/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - kagent.dev
-  resources:
-  - mcpservers/status
   verbs:
   - get
   - patch

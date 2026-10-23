@@ -364,6 +364,28 @@ export function AgentTemplateForm({
             ) : readOnly ? (
               none("Successful final answers are returned as text.")
             ) : null}
+
+            {draft.outputSource === "text" ? null : readOnly ? (
+              draft.outputStrict ? <Tag>Strict schema adherence</Tag> : null
+            ) : (
+              <Space orientation="vertical" size={4}>
+                <Checkbox
+                  checked={draft.outputStrict}
+                  data-testid="template-form-output-strict"
+                  onChange={(event) => set("outputStrict", event.target.checked)}
+                >
+                  Strict schema adherence
+                </Checkbox>
+                <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                  Asks OpenAI, Azure OpenAI and Foundry (OpenAI format) to follow the schema while
+                  generating. Support depends on the vendor, so the model may not respect it. Other
+                  providers never receive it, and OpenAI-compatible endpoints may ignore it. Every
+                  answer is still checked against the schema. Strict requires a <code>type</code> on
+                  every node, every property in <code>required</code> and{" "}
+                  <code>additionalProperties: false</code> on every object.
+                </Text>
+              </Space>
+            )}
           </Space>
         </Form.Item>
 
@@ -397,16 +419,13 @@ export function AgentTemplateForm({
                     set("mcpTools", next);
                   }}
                   options={(servers.data ?? []).map((server) => {
-                    // Only a RemoteMCPServer can be bound — the compiler resolves no
-                    // other kind. Command servers stay listed, so one that cannot be
-                    // picked reads as a limitation rather than a missing row.
                     const bindable = server.groupKind.startsWith("RemoteMCPServer");
                     return {
                       value: server.ref,
                       title: bindable
                         ? server.ref
-                        : `${server.ref} — a command server cannot be bound to an agent`,
-                      label: bindable ? server.ref : `${server.ref} (command server)`,
+                        : `${server.ref} - unsupported server kind`,
+                      label: bindable ? server.ref : `${server.ref} (unsupported)`,
                       disabled: !bindable,
                     };
                   })}

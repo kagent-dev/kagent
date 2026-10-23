@@ -105,7 +105,7 @@ class ADKModelConfig(_message.Message):
     def __init__(self, model: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ..., api_key_passthrough: _Optional[bool] = ..., openai: _Optional[_Union[ADKOpenAI, _Mapping]] = ..., azure_openai: _Optional[_Union[ADKAzureOpenAI, _Mapping]] = ..., anthropic: _Optional[_Union[ADKAnthropic, _Mapping]] = ..., gemini_vertex_ai: _Optional[_Union[ADKGeminiVertexAI, _Mapping]] = ..., gemini_anthropic: _Optional[_Union[ADKGeminiAnthropic, _Mapping]] = ..., ollama: _Optional[_Union[ADKOllama, _Mapping]] = ..., gemini: _Optional[_Union[ADKGemini, _Mapping]] = ..., bedrock: _Optional[_Union[ADKBedrock, _Mapping]] = ..., sap_ai_core: _Optional[_Union[ADKSAPAICore, _Mapping]] = ..., foundry: _Optional[_Union[ADKFoundry, _Mapping]] = ..., mistral: _Optional[_Union[ADKMistral, _Mapping]] = ...) -> None: ...
 
 class ADKOpenAI(_message.Message):
-    __slots__ = ("base_url", "frequency_penalty", "max_tokens", "max_completion_tokens", "n", "presence_penalty", "reasoning_effort", "seed", "temperature", "timeout", "top_p", "api_format", "token_exchange")
+    __slots__ = ("base_url", "frequency_penalty", "max_tokens", "max_completion_tokens", "n", "presence_penalty", "reasoning_effort", "seed", "temperature", "timeout", "top_p", "api_format", "token_exchange", "strict_output_schema")
     BASE_URL_FIELD_NUMBER: _ClassVar[int]
     FREQUENCY_PENALTY_FIELD_NUMBER: _ClassVar[int]
     MAX_TOKENS_FIELD_NUMBER: _ClassVar[int]
@@ -119,6 +119,7 @@ class ADKOpenAI(_message.Message):
     TOP_P_FIELD_NUMBER: _ClassVar[int]
     API_FORMAT_FIELD_NUMBER: _ClassVar[int]
     TOKEN_EXCHANGE_FIELD_NUMBER: _ClassVar[int]
+    STRICT_OUTPUT_SCHEMA_FIELD_NUMBER: _ClassVar[int]
     base_url: str
     frequency_penalty: float
     max_tokens: int
@@ -132,7 +133,8 @@ class ADKOpenAI(_message.Message):
     top_p: float
     api_format: str
     token_exchange: ADKTokenExchangeConfig
-    def __init__(self, base_url: _Optional[str] = ..., frequency_penalty: _Optional[float] = ..., max_tokens: _Optional[int] = ..., max_completion_tokens: _Optional[int] = ..., n: _Optional[int] = ..., presence_penalty: _Optional[float] = ..., reasoning_effort: _Optional[str] = ..., seed: _Optional[int] = ..., temperature: _Optional[float] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., top_p: _Optional[float] = ..., api_format: _Optional[str] = ..., token_exchange: _Optional[_Union[ADKTokenExchangeConfig, _Mapping]] = ...) -> None: ...
+    strict_output_schema: bool
+    def __init__(self, base_url: _Optional[str] = ..., frequency_penalty: _Optional[float] = ..., max_tokens: _Optional[int] = ..., max_completion_tokens: _Optional[int] = ..., n: _Optional[int] = ..., presence_penalty: _Optional[float] = ..., reasoning_effort: _Optional[str] = ..., seed: _Optional[int] = ..., temperature: _Optional[float] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., top_p: _Optional[float] = ..., api_format: _Optional[str] = ..., token_exchange: _Optional[_Union[ADKTokenExchangeConfig, _Mapping]] = ..., strict_output_schema: _Optional[bool] = ...) -> None: ...
 
 class ADKTokenExchangeConfig(_message.Message):
     __slots__ = ("gdch_service_account",)
@@ -149,7 +151,7 @@ class ADKGDCHTokenExchangeConfig(_message.Message):
     def __init__(self, service_account_path: _Optional[str] = ..., audience: _Optional[str] = ...) -> None: ...
 
 class ADKAzureOpenAI(_message.Message):
-    __slots__ = ("endpoint", "deployment", "api_version", "max_tokens", "temperature", "top_p", "api_format")
+    __slots__ = ("endpoint", "deployment", "api_version", "max_tokens", "temperature", "top_p", "api_format", "strict_output_schema")
     ENDPOINT_FIELD_NUMBER: _ClassVar[int]
     DEPLOYMENT_FIELD_NUMBER: _ClassVar[int]
     API_VERSION_FIELD_NUMBER: _ClassVar[int]
@@ -157,6 +159,7 @@ class ADKAzureOpenAI(_message.Message):
     TEMPERATURE_FIELD_NUMBER: _ClassVar[int]
     TOP_P_FIELD_NUMBER: _ClassVar[int]
     API_FORMAT_FIELD_NUMBER: _ClassVar[int]
+    STRICT_OUTPUT_SCHEMA_FIELD_NUMBER: _ClassVar[int]
     endpoint: str
     deployment: str
     api_version: str
@@ -164,7 +167,8 @@ class ADKAzureOpenAI(_message.Message):
     temperature: float
     top_p: float
     api_format: str
-    def __init__(self, endpoint: _Optional[str] = ..., deployment: _Optional[str] = ..., api_version: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., top_p: _Optional[float] = ..., api_format: _Optional[str] = ...) -> None: ...
+    strict_output_schema: bool
+    def __init__(self, endpoint: _Optional[str] = ..., deployment: _Optional[str] = ..., api_version: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., top_p: _Optional[float] = ..., api_format: _Optional[str] = ..., strict_output_schema: _Optional[bool] = ...) -> None: ...
 
 class ADKAnthropic(_message.Message):
     __slots__ = ("base_url", "max_tokens", "temperature", "top_p", "top_k", "timeout", "prompt_caching", "cache_ttl")
@@ -268,16 +272,18 @@ class ADKSAPAICore(_message.Message):
     def __init__(self, base_url: _Optional[str] = ..., resource_group: _Optional[str] = ..., auth_url: _Optional[str] = ...) -> None: ...
 
 class ADKFoundry(_message.Message):
-    __slots__ = ("endpoint", "deployment", "api_version", "api_format")
+    __slots__ = ("endpoint", "deployment", "api_version", "api_format", "strict_output_schema")
     ENDPOINT_FIELD_NUMBER: _ClassVar[int]
     DEPLOYMENT_FIELD_NUMBER: _ClassVar[int]
     API_VERSION_FIELD_NUMBER: _ClassVar[int]
     API_FORMAT_FIELD_NUMBER: _ClassVar[int]
+    STRICT_OUTPUT_SCHEMA_FIELD_NUMBER: _ClassVar[int]
     endpoint: str
     deployment: str
     api_version: str
     api_format: str
-    def __init__(self, endpoint: _Optional[str] = ..., deployment: _Optional[str] = ..., api_version: _Optional[str] = ..., api_format: _Optional[str] = ...) -> None: ...
+    strict_output_schema: bool
+    def __init__(self, endpoint: _Optional[str] = ..., deployment: _Optional[str] = ..., api_version: _Optional[str] = ..., api_format: _Optional[str] = ..., strict_output_schema: _Optional[bool] = ...) -> None: ...
 
 class ADKHTTPConnectionParams(_message.Message):
     __slots__ = ("url", "headers", "timeout", "sse_read_timeout", "terminate_on_close", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas")
@@ -332,28 +338,32 @@ class ADKSSEConnectionParams(_message.Message):
     def __init__(self, url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., sse_read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ...) -> None: ...
 
 class ADKHTTPMCPServerConfig(_message.Message):
-    __slots__ = ("params", "tools", "allowed_headers", "require_approval")
+    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough")
     PARAMS_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_HEADERS_FIELD_NUMBER: _ClassVar[int]
     REQUIRE_APPROVAL_FIELD_NUMBER: _ClassVar[int]
+    TOKEN_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
     params: ADKHTTPConnectionParams
     tools: _containers.RepeatedScalarFieldContainer[str]
     allowed_headers: _containers.RepeatedScalarFieldContainer[str]
     require_approval: bool
-    def __init__(self, params: _Optional[_Union[ADKHTTPConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ...) -> None: ...
+    token_passthrough: bool
+    def __init__(self, params: _Optional[_Union[ADKHTTPConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ...) -> None: ...
 
 class ADKSSEMCPServerConfig(_message.Message):
-    __slots__ = ("params", "tools", "allowed_headers", "require_approval")
+    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough")
     PARAMS_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_HEADERS_FIELD_NUMBER: _ClassVar[int]
     REQUIRE_APPROVAL_FIELD_NUMBER: _ClassVar[int]
+    TOKEN_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
     params: ADKSSEConnectionParams
     tools: _containers.RepeatedScalarFieldContainer[str]
     allowed_headers: _containers.RepeatedScalarFieldContainer[str]
     require_approval: bool
-    def __init__(self, params: _Optional[_Union[ADKSSEConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ...) -> None: ...
+    token_passthrough: bool
+    def __init__(self, params: _Optional[_Union[ADKSSEConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ...) -> None: ...
 
 class ADKStdioMCPServerConfig(_message.Message):
     __slots__ = ("command", "args", "env", "dir")
@@ -490,16 +500,16 @@ class ADKPluginBundle(_message.Message):
     def __init__(self, source: _Optional[_Union[ADKPluginSource, _Mapping]] = ..., skills: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ADKPluginSource(_message.Message):
-    __slots__ = ("oci", "git", "s3", "path")
-    OCI_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("git", "s3", "directory", "path")
     GIT_FIELD_NUMBER: _ClassVar[int]
     S3_FIELD_NUMBER: _ClassVar[int]
+    DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
-    oci: str
     git: ADKPluginGitSource
     s3: ADKPluginS3Source
+    directory: str
     path: str
-    def __init__(self, oci: _Optional[str] = ..., git: _Optional[_Union[ADKPluginGitSource, _Mapping]] = ..., s3: _Optional[_Union[ADKPluginS3Source, _Mapping]] = ..., path: _Optional[str] = ...) -> None: ...
+    def __init__(self, git: _Optional[_Union[ADKPluginGitSource, _Mapping]] = ..., s3: _Optional[_Union[ADKPluginS3Source, _Mapping]] = ..., directory: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
 
 class ADKPluginGitSource(_message.Message):
     __slots__ = ("url", "commit")
@@ -524,7 +534,7 @@ class ADKPluginS3Source(_message.Message):
     def __init__(self, endpoint: _Optional[str] = ..., bucket: _Optional[str] = ..., key: _Optional[str] = ..., version_id: _Optional[str] = ..., region: _Optional[str] = ...) -> None: ...
 
 class ADKRuntimeConfig(_message.Message):
-    __slots__ = ("control_plane_url", "gateway_url", "name", "namespace", "log_level", "host", "port", "max_content_length", "token_propagation", "bash_venv_path", "file_search_tools", "telemetry")
+    __slots__ = ("control_plane_url", "gateway_url", "name", "namespace", "log_level", "host", "port", "max_content_length", "token_propagation", "telemetry", "builtin_tools")
     CONTROL_PLANE_URL_FIELD_NUMBER: _ClassVar[int]
     GATEWAY_URL_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
@@ -534,9 +544,8 @@ class ADKRuntimeConfig(_message.Message):
     PORT_FIELD_NUMBER: _ClassVar[int]
     MAX_CONTENT_LENGTH_FIELD_NUMBER: _ClassVar[int]
     TOKEN_PROPAGATION_FIELD_NUMBER: _ClassVar[int]
-    BASH_VENV_PATH_FIELD_NUMBER: _ClassVar[int]
-    FILE_SEARCH_TOOLS_FIELD_NUMBER: _ClassVar[int]
     TELEMETRY_FIELD_NUMBER: _ClassVar[int]
+    BUILTIN_TOOLS_FIELD_NUMBER: _ClassVar[int]
     control_plane_url: str
     gateway_url: str
     name: str
@@ -546,7 +555,6 @@ class ADKRuntimeConfig(_message.Message):
     port: int
     max_content_length: int
     token_propagation: _config_pb2.TokenPropagationConfig
-    bash_venv_path: str
-    file_search_tools: bool
     telemetry: _config_pb2.TelemetryConfig
-    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., bash_venv_path: _Optional[str] = ..., file_search_tools: _Optional[bool] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ...) -> None: ...
+    builtin_tools: _config_pb2.BuiltinToolsConfig
+    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ..., builtin_tools: _Optional[_Union[_config_pb2.BuiltinToolsConfig, _Mapping]] = ...) -> None: ...

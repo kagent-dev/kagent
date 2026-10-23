@@ -29,11 +29,20 @@ const (
 // MemoryServiceClient is the client API for MemoryService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Memory is scoped to an agent and a user. Actor calls derive both from the
+// persisted session bound to the verified Actor JWT. List and Delete also
+// accept user authentication and use the authenticated user's identity.
 type MemoryServiceClient interface {
+	// Requires an Actor JWT.
 	AddSession(ctx context.Context, in *MemoryServiceAddSessionRequest, opts ...grpc.CallOption) (*MemoryServiceAddSessionResponse, error)
+	// Requires an Actor JWT.
 	AddSessionBatch(ctx context.Context, in *MemoryServiceAddSessionBatchRequest, opts ...grpc.CallOption) (*MemoryServiceAddSessionBatchResponse, error)
+	// Requires an Actor JWT.
 	Search(ctx context.Context, in *MemoryServiceSearchRequest, opts ...grpc.CallOption) (*MemoryServiceSearchResponse, error)
+	// Accepts an Actor JWT or user authentication on the same RPC endpoint.
 	List(ctx context.Context, in *MemoryServiceListRequest, opts ...grpc.CallOption) (*MemoryServiceListResponse, error)
+	// Accepts an Actor JWT or user authentication on the same RPC endpoint.
 	Delete(ctx context.Context, in *MemoryServiceDeleteRequest, opts ...grpc.CallOption) (*MemoryServiceDeleteResponse, error)
 }
 
@@ -98,11 +107,20 @@ func (c *memoryServiceClient) Delete(ctx context.Context, in *MemoryServiceDelet
 // MemoryServiceServer is the server API for MemoryService service.
 // All implementations must embed UnimplementedMemoryServiceServer
 // for forward compatibility.
+//
+// Memory is scoped to an agent and a user. Actor calls derive both from the
+// persisted session bound to the verified Actor JWT. List and Delete also
+// accept user authentication and use the authenticated user's identity.
 type MemoryServiceServer interface {
+	// Requires an Actor JWT.
 	AddSession(context.Context, *MemoryServiceAddSessionRequest) (*MemoryServiceAddSessionResponse, error)
+	// Requires an Actor JWT.
 	AddSessionBatch(context.Context, *MemoryServiceAddSessionBatchRequest) (*MemoryServiceAddSessionBatchResponse, error)
+	// Requires an Actor JWT.
 	Search(context.Context, *MemoryServiceSearchRequest) (*MemoryServiceSearchResponse, error)
+	// Accepts an Actor JWT or user authentication on the same RPC endpoint.
 	List(context.Context, *MemoryServiceListRequest) (*MemoryServiceListResponse, error)
+	// Accepts an Actor JWT or user authentication on the same RPC endpoint.
 	Delete(context.Context, *MemoryServiceDeleteRequest) (*MemoryServiceDeleteResponse, error)
 	mustEmbedUnimplementedMemoryServiceServer()
 }

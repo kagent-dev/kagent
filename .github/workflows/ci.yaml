@@ -30,7 +30,7 @@ env:
   BUILDX_VERSION: v0.23.0
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
     steps:
@@ -48,7 +48,7 @@ jobs:
         sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.5.0-alpha2
+      SUBSTRATE_VERSION: 0.6.0
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
@@ -56,16 +56,16 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: false
       - name: Cache E2E Go dependencies and build
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
@@ -74,27 +74,27 @@ jobs:
           restore-keys: |
             e2e-go-${{ runner.os }}-${{ runner.arch }}-
       - name: Allow unprivileged user namespaces
-        # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
+        # Ubuntu 24.04 enables AppArmor-based restrictions on
         # unprivileged user namespaces by default, which causes bubblewrap
         # to fail with EPERM on unshare(CLONE_NEWUSER)
         # See https://github.com/openai/codex/issues/14919
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v2
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
         with:
           cache-key: kagent-e2e
           platforms: linux/amd64
           nofallback: true
 
       - name: Set up Helm
-        uses: azure/setup-helm@v5.0.1
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.18.0
 
       - name: Install Kind
         id: kind
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           version: v0.33.0
           install_only: true
@@ -150,10 +150,9 @@ jobs:
                 port: http
               periodSeconds: 1
           config:
-            gateway:
-              push:
-                allowHttp: true
-                allowPrivateNetworks: true
+            push:
+              allowHttp: true
+              allowPrivateNetworks: true
             sandboxes:
               guestImage: "localhost:5001/kagent-dev/kagent/sandbox-guest@${GUEST_DIGEST}"
             telemetry:
@@ -171,17 +170,13 @@ jobs:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
           ui:
             replicas: 0
-          kmcp:
-            enabled: false
           kagent-tools:
-            enabled: false
-          grafana-mcp:
             enabled: false
           substrateWorkerPool:
             create: true
             replicas: 4
             sandboxClass: ${{ matrix.sandbox_class }}
-            workerImage: ghcr.io/kagent-dev/substrate/ateom-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
+            workerImage: ghcr.io/kagent-dev/substrate/ateworker-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
           EOF
           cat > "$RUNNER_TEMP/substrate-values.yaml" <<EOF
           atelet:
@@ -207,7 +202,7 @@ jobs:
 
       - name: Cache Cloud Hypervisor assets
         if: matrix.sandbox_class == 'microvm'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/substrate/microvm-assets/amd64
           key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
@@ -276,7 +271,7 @@ jobs:
 
       - name: Upload E2E logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-logs-${{ matrix.sandbox_class }}
           path: ${{ runner.temp }}/e2e-logs
@@ -293,9 +288,10 @@ jobs:
           echo "::error::Kubectl get Harnesses and AgentTemplates -n kagent"
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
-          kubectl logs -n kagent deployment/kagent-controller
+          kubectl logs -n kagent deployment/kagent-controller || true
           kubectl get pods,workerpools -A
           echo "::error::Substrate logs"
+          kubectl describe pods -n ate-system || true
           kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true
           kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
@@ -303,14 +299,14 @@ jobs:
 
   proto-check:
     name: Protobuf Contract Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: true
@@ -322,12 +318,12 @@ jobs:
 
   semconv-check:
     name: Telemetry Contract Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: false
@@ -350,7 +346,7 @@ jobs:
         upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history + tags so the version resolvers can derive the
           # upgrade-from release, and so the local action below is on disk.
@@ -397,7 +393,7 @@ jobs:
         upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history + tags so the version resolvers can derive the
           # upgrade-from release, and so the local action below is on disk.
@@ -429,13 +425,13 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller || true
 
   go-unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: true
@@ -448,21 +444,22 @@ jobs:
           # and its single session-scoped reaper is contended by the parallel package
           # processes of `go test ./...`, intermittently timing out the Postgres tests.
           TESTCONTAINERS_RYUK_DISABLED: "true"
-        run: |
-          make setup-envtest
-          export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
-          go test -race -skip 'TestE2E.*' -v ./...
+        run: make test
+
+      - name: Run UI entrypoint tests
+        working-directory: ui/entrypoint
+        run: go test ./...
 
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Helm
-        uses: azure/setup-helm@v5.0.1
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.18.0
       # Install unittest plugin
@@ -481,7 +478,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-          helm unittest helm/tools/grafana-mcp
 
   ui-tests:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -490,10 +486,10 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: ui/.nvmrc
 
@@ -504,7 +500,7 @@ jobs:
         run: corepack enable
 
       - name: Cache Yarn downloads
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ui/.yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
@@ -536,7 +532,7 @@ jobs:
         working-directory: ./ui
         run: yarn test:pw
 
-  # This job builds the Docker images for the controller, UI, ADKs, and CLI on arm64.
+  # Build component images and the CLI for amd64 and arm64.
   build:
     env:
       VERSION: v0.0.1-test
@@ -545,7 +541,6 @@ jobs:
         image:
           - controller
           - ui
-          - kagent-adk
           - cli
           - golang-adk
           - claude-harness
@@ -559,13 +554,13 @@ jobs:
           - 5001:5000
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: linux/amd64,linux/arm64
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v2
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
         with:
           cache-key: kagent-build-${{ matrix.image }}
           platforms: linux/amd64,linux/arm64
@@ -585,13 +580,13 @@ jobs:
         working-directory: ./
 
   go-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: true
@@ -603,16 +598,16 @@ jobs:
   python-test:
     env:
       OPENAI_API_KEY: fake
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Install python
         run: uv python install ${{ matrix.python-version }}
@@ -630,13 +625,13 @@ jobs:
         run: make test
 
   python-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Install python
         run: uv python install 3.11
@@ -662,13 +657,13 @@ jobs:
           fi
 
   manifests-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: true

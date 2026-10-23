@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -31,7 +30,6 @@ type workflowStore interface {
 
 type actorClient interface {
 	substrate.LifecycleClient
-	PauseActor(context.Context, string, string) (*ateapipb.Actor, error)
 }
 
 // ActorWorkflow runs the imperative Substrate operations behind Session
@@ -48,31 +46,6 @@ type ActorWorkflow struct {
 // the workflow stops through context cancellation.
 func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration) *ActorWorkflow {
 	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake}
-}
-
-// Pause checkpoints the runtime on its current worker without changing the
-// Session logical state or persisting A2A task state.
-func (w *ActorWorkflow) Pause(ctx context.Context, session *apiv1.Session) error {
-	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
-	if err != nil {
-		return fmt.Errorf("load prepared revision: %w", err)
-	}
-	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
-	current, err := w.actors.GetActor(ctx, atespace, name)
-	if err != nil {
-		return err
-	}
-	if err := w.verifyActor(ctx, session, revision, current); err != nil {
-		return err
-	}
-	actor, err := w.actors.PauseActor(ctx, atespace, name)
-	if err != nil {
-		return fmt.Errorf("pause Actor %s/%s: %w", atespace, name, err)
-	}
-	if !validActorIdentity(actor, revision, name) || actor.GetMetadata().GetUid() != current.GetMetadata().GetUid() || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
-		return fmt.Errorf("pause Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
-	}
-	return nil
 }
 
 // Quiesce durably suspends the runtime without changing the Session's
@@ -102,17 +75,17 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*d
 	if !validActorIdentity(actor, revision, name) || metadata.GetUid() != current.GetMetadata().GetUid() {
 		return nil, fmt.Errorf("suspend actor %s/%s returned invalid identity", atespace, name)
 	}
-	snapshot := actor.GetStatus().GetExternalSnapshot()
-	if snapshot.GetSnapshotUri() == "" {
+	snapshot := substrate.LatestActorSnapshot(actor)
+	if substrate.SnapshotURI(snapshot) == "" {
 		return nil, fmt.Errorf("suspend Actor %s/%s returned no snapshot", atespace, name)
 	}
-	scope := snapshot.GetContentScope()
-	if scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL && scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
-		return nil, fmt.Errorf("actor %s/%s returned invalid snapshot content scope %s", atespace, name, scope)
+	fidelity := snapshot.GetFidelity()
+	if fidelity != ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES {
+		return nil, fmt.Errorf("actor %s/%s returned invalid snapshot fidelity %s", atespace, name, fidelity)
 	}
 	return &database.SessionTaskSnapshot{
-		Atespace: atespace, URI: snapshot.GetSnapshotUri(),
-		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
+		Atespace: atespace, URI: substrate.SnapshotURI(snapshot),
+		Fidelity: fidelity.String(),
 	}, nil
 }
 
@@ -178,23 +151,19 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		if err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("load pinned checkpoint: %w", err))
 		}
-		if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope != "DATA" {
-			return w.failPreparation(ctx, operation, fmt.Errorf("fork requires a retained DATA checkpoint"))
+		if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.Fidelity != "SNAPSHOT_FIDELITY_VOLUMES" {
+			return w.failPreparation(ctx, operation, fmt.Errorf("fork requires a retained volume checkpoint"))
 		}
 		tagName = "checkpoint-" + operation.SourceCheckpointID.String()
 	}
 
-	binding := substrate.ActorBinding{Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(session.Id),
+	binding := substrate.ActorBinding{Revision: revision.Revision, Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(session.Id),
 		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
 	var creation *substrate.ActorCreation
 	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
-		policy, err := substrate.ActorEgressPolicy(binding.Atespace, revision.EgressDestinations, revision.Credentials)
-		if err != nil {
-			return w.failPreparation(ctx, operation, err)
-		}
-		creation = &substrate.ActorCreation{EgressPolicy: policy}
+		creation = &substrate.ActorCreation{}
 		if snapshot != nil {
-			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES}
 		}
 	}
 	prepare := substrate.PrepareActorTransition

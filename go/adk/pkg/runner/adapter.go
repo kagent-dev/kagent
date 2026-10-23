@@ -13,10 +13,11 @@ import (
 	adktool "google.golang.org/adk/v2/tool"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -31,7 +32,7 @@ func agentNameFromAppName(appName string) string {
 // stamping (from remote agent wiring in the agent builder).
 func CreateRunnerConfig(
 	ctx context.Context,
-	config *adk.Config,
+	config *configv1.ADKConfig,
 	sessionService adksession.Service,
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
@@ -48,7 +49,7 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, saveTool)
 	}
 
-	stsPlugin, err := buildTokenPropagationPlugin(ctx, log, adk.ProcessConfig(config).TokenPropagation)
+	stsPlugin, err := buildTokenPropagationPlugin(ctx, log, runtimeconfig.ProcessConfig(config).TokenPropagation)
 	if err != nil {
 		return runner.Config{}, err
 	}
@@ -105,7 +106,7 @@ func CreateRunnerConfig(
 	return cfg, nil
 }
 
-func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config *adk.TokenPropagationConfig) (*sts.TokenPropagationPlugin, error) {
+func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config *configv1.TokenPropagationConfig) (*sts.TokenPropagationPlugin, error) {
 	propagateToken := config.GetEnabled()
 	stsWellKnownURI := config.GetStsWellKnownUri()
 	if !propagateToken && stsWellKnownURI == "" {

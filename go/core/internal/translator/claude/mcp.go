@@ -41,6 +41,9 @@ func (c *Compiler) compileMCP(
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Claude MCP binding has no server")
 		}
+		if server.Spec.TokenPassthrough {
+			return mcpCompilation{}, translator.NewValidationError("Claude does not support RemoteMCPServer %q tokenPassthrough", server.Name)
+		}
 		name := strings.ReplaceAll(server.Name, ".", "_")
 		if previous, exists := identities[name]; exists {
 			return mcpCompilation{}, translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)

@@ -39,15 +39,11 @@ func (s *Service) run(ctx context.Context, id string, kind apiv1.RuntimeOperatio
 	if err != nil {
 		return nil, sandboxError(err)
 	}
-	binding := substrate.ActorBinding{Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(id),
+	binding := substrate.ActorBinding{Revision: revision.Revision, Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(id),
 		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
 	var creation *substrate.ActorCreation
 	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
-		policy, err := substrate.ActorEgressPolicy(binding.Atespace, nil, nil)
-		if err != nil {
-			return nil, sandboxError(err)
-		}
-		creation = &substrate.ActorCreation{EgressPolicy: policy, Resume: true}
+		creation = &substrate.ActorCreation{Resume: true}
 	}
 	prepare := substrate.PrepareActorTransition
 	if op.ExecutorID != uuid.Nil {

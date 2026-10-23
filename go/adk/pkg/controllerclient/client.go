@@ -130,21 +130,23 @@ func (client *Client) CallContext(ctx context.Context, userID string) (context.C
 	if userID == "" {
 		userID = auth.UserIDFromContext(ctx)
 	}
-	metadataValues := make([]string, 0, 6)
+	metadataValues, _ := metadata.FromOutgoingContext(ctx)
+	metadataValues = metadataValues.Copy()
+	// Substrate replaces the placeholder at the controller's runtime origin.
+	token := "placeholder"
 	if client.tokenProvider != nil {
-		if token := client.tokenProvider.GetToken(); token != "" {
-			metadataValues = append(metadataValues, "authorization", "Bearer "+token)
+		if supplied := client.tokenProvider.GetToken(); supplied != "" {
+			token = supplied
 		}
 	}
+	metadataValues.Set("authorization", "Bearer "+token)
 	if client.agentName != "" {
-		metadataValues = append(metadataValues, "x-agent-name", client.agentName)
+		metadataValues.Set("x-agent-name", client.agentName)
 	}
 	if userID != "" {
-		metadataValues = append(metadataValues, "x-user-id", userID)
+		metadataValues.Set("x-user-id", userID)
 	}
-	if len(metadataValues) > 0 {
-		ctx = metadata.AppendToOutgoingContext(ctx, metadataValues...)
-	}
+	ctx = metadata.NewOutgoingContext(ctx, metadataValues)
 	if client.timeout <= 0 {
 		return ctx, func() {}
 	}

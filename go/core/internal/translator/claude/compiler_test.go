@@ -138,7 +138,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		model v1alpha3.ModelConfigSpec
 	}{
 		{name: "provider", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt"}},
-		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeyPassthrough: true}},
+		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: true}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
 		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
@@ -239,7 +239,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		len(cfg.SkillResources.Plugins) != 1 || !reflect.DeepEqual(cfg.SkillResources.Plugins[0].Skills, []string{"deploy"}) {
 		t.Fatalf("compiled skills = %#v", cfg.SkillResources)
 	}
-	wantEgress := []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://git.example.com:443", "https://registry.example.com:443"}
+	wantEgress := []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://git.example.com:443"}
 	if !reflect.DeepEqual(revision.EgressDestinations, wantEgress) {
 		t.Fatalf("egress = %v, want %v", revision.EgressDestinations, wantEgress)
 	}
@@ -608,6 +608,8 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Placement and limits normally come from the central runtime compiler.
+	revision.CPU, revision.Memory = "1", "1Gi"
 	revisionID, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -621,4 +623,14 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
+}
+
+func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
+	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
+		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+	}}
+	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
+	if want := "Claude does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected %q, got %v", want, err)
+	}
 }

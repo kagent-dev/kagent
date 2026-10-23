@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -68,19 +69,19 @@ func TestHelmControllerConfig(t *testing.T) {
 	base, checksum, err := render("{}")
 	require.NoError(t, err)
 	require.Equal(t, "team", base.Kubernetes.GetNamespace())
-	require.Equal(t, "http://demo-controller.team.svc:8083", base.RuntimeDefaults.GetControlPlaneUrl())
+	require.Equal(t, "http://demo-controller.team.svc.cluster.local:8083", base.RuntimeDefaults.GetControlPlaneUrl())
 	require.NotEmpty(t, checksum)
 	require.Equal(t, "kagent", base.Database.GetSchema())
 	require.Equal(t, "extensions", base.Database.GetVectorSchema())
 	require.False(t, base.GetDatabase().GetSkipMigrations())
-	require.Empty(t, base.Gateway.Push.SigningPrivateKeyFile)
+	require.Empty(t, base.Push.SigningPrivateKeyFile)
 	verify, verifyChecksum, err := render("config:\n  database: {skipMigrations: true}\n")
 	require.NoError(t, err)
 	require.True(t, verify.GetDatabase().GetSkipMigrations())
 	require.NotEqual(t, checksum, verifyChecksum)
 	signed, signedChecksum, err := render("controller:\n  push:\n    signing: {secretName: receiver-key}\nconfig:\n  database: {schema: tenant, vectorSchema: public}\n")
 	require.NoError(t, err)
-	require.Equal(t, "/etc/kagent/secrets/push-private-key.pem", signed.Gateway.Push.SigningPrivateKeyFile)
+	require.Equal(t, "/etc/kagent/secrets/push-private-key.pem", signed.Push.SigningPrivateKeyFile)
 	require.Equal(t, "tenant", signed.Database.GetSchema())
 	require.Equal(t, "public", signed.Database.GetVectorSchema())
 	require.NotEqual(t, checksum, signedChecksum)
@@ -97,6 +98,13 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.Equal(t, "mirror.example/kagent-dev/kagent/codex-harness@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", images.HarnessImages.Codex)
 	require.Empty(t, images.HarnessImages.Kagent)
 	require.NotEqual(t, checksum, imagesChecksum)
+	push, pushChecksum, err := render("config:\n  push: {issuer: https://issuer.example, recoveryInterval: 15s, allowHttp: true, allowPrivateNetworks: true}\n")
+	require.NoError(t, err)
+	require.Equal(t, "https://issuer.example", push.Push.GetIssuer())
+	require.Equal(t, 15*time.Second, push.Push.RecoveryInterval.AsDuration())
+	require.True(t, push.Push.AllowHttp)
+	require.True(t, push.Push.AllowPrivateNetworks)
+	require.NotEqual(t, checksum, pushChecksum)
 	_, _, err = render("config:\n  loging: {level: debug}\n")
 	require.ErrorContains(t, err, "unknown field")
 }

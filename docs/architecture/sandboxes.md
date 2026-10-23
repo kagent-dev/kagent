@@ -97,8 +97,11 @@ finalizer, including when deletion starts while the controller is offline.
 The controller advances the latest-successful revision only after the golden
 snapshot is ready and reports preparation through the template's `Ready`
 condition and observed generation. Failed preparation preserves the previous
-successful revision. Existing Sandboxes retain their revision when a template
-changes. Template deletion retires preparation; retained instances continue to
+successful revision, which remains available for fresh creation while edits
+are unresolved, pending, or failed. Initial creation requires a successful
+revision. Existing Sandboxes and
+creation retries retain their revision when a template changes.
+Template deletion retires preparation; retained instances continue to
 pin the runtime artifacts they need.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
@@ -113,8 +116,14 @@ TTL. Helm supplies these through the controller ConfigMap. Defaults are one CPU,
 1 GiB memory, a one-hour TTL, and a 24-hour maximum TTL. Activity does not extend
 expiration.
 
-Sandboxes have no allowed egress destinations. A follow-up will add destination
-configuration to `SandboxTemplate` and pin it with each prepared revision.
+Sandboxes have no allowed egress destinations by default. Select same-namespace
+[EgressPolicy resources](egress-policies.md) through `SandboxTemplate.spec.egressPolicyRefs`
+to grant additional HTTP(S) origins and static gateway credentials. The controller
+persists current grants on the source definition; effective policy is merged with
+pinned revision access when read.
+Policy edits update running and suspended sandboxes without replacing their Actor.
+Creation and resume apply that effective policy before execution, without
+translating Kubernetes inputs.
 
 ## Lifecycle and recovery
 
@@ -164,9 +173,11 @@ prevent old results from overwriting newer database state.
 Creation must finish before suspend/resume; deletion can supersede creation or
 other operations and cannot be canceled into a live sandbox. Resume preserves
 durable files; process handles last only as long as the guest's in-memory registry.
-Sandboxes take Full snapshots until Substrate's lifecycle v2 (see
-[Runtime and lifecycle](runtime-and-lifecycle.md)), so that registry survives
-suspend and resume as well.
+Sandboxes take VOLUMES snapshots (see
+[Runtime and lifecycle](runtime-and-lifecycle.md)). Resume starts a fresh guest
+with the saved durable directories. Running processes stop during suspension,
+and old process handles become unavailable after resume. Commands are not replayed;
+callers can start new processes against the restored files.
 Expiration immediately rejects new guest requests and lets the worker supersede
 unfinished lifecycle work with deletion. Deletion finishes after backend cleanup,
 releases runtime-artifact pins, and retains a tombstone and creation receipt so
@@ -196,7 +207,7 @@ The apiserver registers three services on the same listener:
 | Service | Operations |
 | --- | --- |
 | `kagent.api.v1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
-| `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, KillProcess, StreamProcessOutputs |
+| `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, SignalProcess, StreamProcessOutput |
 | `ateenv.v1alpha.FileSystemService` | ReadFile, WriteFile |
 
 Execution uses env's exact services, requests, responses, and streaming messages.
@@ -217,6 +228,8 @@ and sends authorized traffic through the Atenet router. Incoming Actor routing
 headers cannot override that resolution. WriteFile follows env's contract: the
 first message supplies the path and optional mode and may also contain data.
 Later messages supply more data. There is no kagent-specific file envelope.
+ReadFile with a nonzero mode can create a missing file, so the sandbox service
+requires update authorization for those requests; ordinary reads require get.
 
 Lifecycle calls use the Substrate API; guest calls use Atenet. Both remain in
 the apiserver's sandbox service. The existing A2A gateway handles agent interactions;
@@ -226,7 +239,9 @@ Env's protobuf currently has no validation annotations. Guest payload validation
 is delegated to env; adding annotations upstream is a follow-up. Kagent validates
 sandbox routing and enforces authorization, expiration, and transfer limits.
 The env dependency remains pinned. Message changes come from the dependency;
-new upstream RPCs require explicit forwarding and access policies.
+new upstream RPCs require explicit forwarding and access policies. A sandbox keeps
+the guest image it was prepared with, so an env upgrade that changes the guest
+messages requires deleting existing sandboxes.
 
 Resource authorization and owner checks apply before routing guest traffic. Agent
 share tokens grant no sandbox access. An agent calling MCP operates under the
@@ -270,9 +285,12 @@ configured on the Harness as described above.
 Each StartProcess call launches a new command. There is no process request ID or
 durable receipt. After a timeout or lost response, callers must account for the
 possibility that the command started; retrying may execute it again. Process IDs,
-status, and outputs come directly from the guest; losing its in-memory registry
+state, and outputs come directly from the guest; losing its in-memory registry
 makes those handles unavailable. Kagent does not persist process records or
 impose a second process-concurrency limit.
+The MCP process tools include `exit_code` only when state is
+`PROCESS_STATE_EXITED`, including zero for a successful exit. A successful kill
+request acknowledges signal delivery; use `get_sandbox_process` to observe exit.
 An interrupted file write reports an error and does not reserve lifecycle access.
 
 ## CLI access
@@ -297,7 +315,7 @@ Uploads replace the remote destination and may leave partial writes on failure.
 With `-o json`, `exec` and `wait` emit newline-delimited `started`, `output`,
 `finished`, and `interrupted` events. Records retain the sandbox/process IDs and
 both continuation offsets; output bytes are base64, and finished events include
-status and exit code. Other commands return one JSON value. The CLI has no
+state and exit code. Other commands return one JSON value. The CLI has no
 dependency on MCP prompt support.
 
 ## Persistence model

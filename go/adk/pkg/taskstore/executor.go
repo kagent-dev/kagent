@@ -48,8 +48,12 @@ func (e *settledExecutor) Before(ctx context.Context, call *a2asrv.CallContext, 
 		if send.Message == nil {
 			return ctx, nil, a2a.ErrInvalidParams
 		}
-		if reservation, ok := e.AgentExecutor.(interface{ ReservedTaskID() a2a.TaskID }); ok {
-			if id := reservation.ReservedTaskID(); id != "" && send.Message.TaskID != id {
+		if reservation, ok := e.AgentExecutor.(interface{ ReservedTaskID() (a2a.TaskID, error) }); ok {
+			id, err := reservation.ReservedTaskID()
+			if err != nil {
+				return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, err.Error())
+			}
+			if id != "" && send.Message.TaskID != id {
 				return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, "native session is waiting for another task")
 			}
 		}

@@ -25,8 +25,6 @@ const (
 
 type SessionMemoryInput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentName     string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Content       string                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
 	Vector        []float32              `protobuf:"fixed32,4,rep,packed,name=vector,proto3" json:"vector,omitempty"`
 	Metadata      *structpb.Struct       `protobuf:"bytes,5,opt,name=metadata,proto3" json:"metadata,omitempty"`
@@ -63,20 +61,6 @@ func (x *SessionMemoryInput) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SessionMemoryInput.ProtoReflect.Descriptor instead.
 func (*SessionMemoryInput) Descriptor() ([]byte, []int) {
 	return file_kagent_runtime_v1_memory_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *SessionMemoryInput) GetAgentName() string {
-	if x != nil {
-		return x.AgentName
-	}
-	return ""
-}
-
-func (x *SessionMemoryInput) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
 }
 
 func (x *SessionMemoryInput) GetContent() string {
@@ -437,8 +421,6 @@ func (x *MemoryServiceAddSessionBatchResponse) GetCount() int32 {
 
 type MemoryServiceSearchRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentName     string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Vector        []float32              `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"`
 	Limit         *int32                 `protobuf:"varint,4,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
 	MinScore      *float64               `protobuf:"fixed64,5,opt,name=min_score,json=minScore,proto3,oneof" json:"min_score,omitempty"`
@@ -474,20 +456,6 @@ func (x *MemoryServiceSearchRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use MemoryServiceSearchRequest.ProtoReflect.Descriptor instead.
 func (*MemoryServiceSearchRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_runtime_v1_memory_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *MemoryServiceSearchRequest) GetAgentName() string {
-	if x != nil {
-		return x.AgentName
-	}
-	return ""
-}
-
-func (x *MemoryServiceSearchRequest) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
 }
 
 func (x *MemoryServiceSearchRequest) GetVector() []float32 {
@@ -556,9 +524,11 @@ func (x *MemoryServiceSearchResponse) GetMemories() []*MemorySearchResult {
 }
 
 type MemoryServiceListRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentName     string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// User calls must supply the stored agent key. Actor-created memories use
+	// "namespace/name"; legacy keys remain valid for managing older memories.
+	// Actor calls ignore this field and use the agent from their persisted session.
+	AgentName     string `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -596,13 +566,6 @@ func (*MemoryServiceListRequest) Descriptor() ([]byte, []int) {
 func (x *MemoryServiceListRequest) GetAgentName() string {
 	if x != nil {
 		return x.AgentName
-	}
-	return ""
-}
-
-func (x *MemoryServiceListRequest) GetUserId() string {
-	if x != nil {
-		return x.UserId
 	}
 	return ""
 }
@@ -652,9 +615,11 @@ func (x *MemoryServiceListResponse) GetMemories() []*MemorySummary {
 }
 
 type MemoryServiceDeleteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentName     string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// User calls must supply the stored agent key. Actor-created memories use
+	// "namespace/name"; legacy keys remain valid for managing older memories.
+	// Actor calls ignore this field and use the agent from their persisted session.
+	AgentName     string `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -692,13 +657,6 @@ func (*MemoryServiceDeleteRequest) Descriptor() ([]byte, []int) {
 func (x *MemoryServiceDeleteRequest) GetAgentName() string {
 	if x != nil {
 		return x.AgentName
-	}
-	return ""
-}
-
-func (x *MemoryServiceDeleteRequest) GetUserId() string {
-	if x != nil {
-		return x.UserId
 	}
 	return ""
 }
@@ -751,16 +709,14 @@ var File_kagent_runtime_v1_memory_proto protoreflect.FileDescriptor
 
 const file_kagent_runtime_v1_memory_proto_rawDesc = "" +
 	"\n" +
-	"\x1ekagent/runtime/v1/memory.proto\x12\x11kagent.runtime.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x01\n" +
-	"\x12SessionMemoryInput\x12\x1d\n" +
-	"\n" +
-	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x18\n" +
+	"\x1ekagent/runtime/v1/memory.proto\x12\x11kagent.runtime.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc9\x01\n" +
+	"\x12SessionMemoryInput\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\tR\acontent\x12\x16\n" +
 	"\x06vector\x18\x04 \x03(\x02R\x06vector\x123\n" +
 	"\bmetadata\x18\x05 \x01(\v2\x17.google.protobuf.StructR\bmetadata\x12\x1e\n" +
 	"\bttl_days\x18\x06 \x01(\x05H\x00R\attlDays\x88\x01\x01B\v\n" +
-	"\t_ttl_days\"\xc4\x01\n" +
+	"\t_ttl_daysJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\n" +
+	"agent_nameR\auser_id\"\xc4\x01\n" +
 	"\x12MemorySearchResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x14\n" +
@@ -783,29 +739,25 @@ const file_kagent_runtime_v1_memory_proto_rawDesc = "" +
 	"#MemoryServiceAddSessionBatchRequest\x12;\n" +
 	"\x05items\x18\x01 \x03(\v2%.kagent.runtime.v1.SessionMemoryInputR\x05items\"<\n" +
 	"$MemoryServiceAddSessionBatchResponse\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x05R\x05count\"\xc1\x01\n" +
-	"\x1aMemoryServiceSearchRequest\x12\x1d\n" +
-	"\n" +
-	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x16\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count\"\xaa\x01\n" +
+	"\x1aMemoryServiceSearchRequest\x12\x16\n" +
 	"\x06vector\x18\x03 \x03(\x02R\x06vector\x12\x19\n" +
 	"\x05limit\x18\x04 \x01(\x05H\x00R\x05limit\x88\x01\x01\x12 \n" +
 	"\tmin_score\x18\x05 \x01(\x01H\x01R\bminScore\x88\x01\x01B\b\n" +
 	"\x06_limitB\f\n" +
 	"\n" +
-	"_min_score\"`\n" +
+	"_min_scoreJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\n" +
+	"agent_nameR\auser_id\"`\n" +
 	"\x1bMemoryServiceSearchResponse\x12A\n" +
-	"\bmemories\x18\x01 \x03(\v2%.kagent.runtime.v1.MemorySearchResultR\bmemories\"R\n" +
+	"\bmemories\x18\x01 \x03(\v2%.kagent.runtime.v1.MemorySearchResultR\bmemories\"H\n" +
 	"\x18MemoryServiceListRequest\x12\x1d\n" +
 	"\n" +
-	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"Y\n" +
+	"agent_name\x18\x01 \x01(\tR\tagentNameJ\x04\b\x02\x10\x03R\auser_id\"Y\n" +
 	"\x19MemoryServiceListResponse\x12<\n" +
-	"\bmemories\x18\x01 \x03(\v2 .kagent.runtime.v1.MemorySummaryR\bmemories\"T\n" +
+	"\bmemories\x18\x01 \x03(\v2 .kagent.runtime.v1.MemorySummaryR\bmemories\"J\n" +
 	"\x1aMemoryServiceDeleteRequest\x12\x1d\n" +
 	"\n" +
-	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"5\n" +
+	"agent_name\x18\x01 \x01(\tR\tagentNameJ\x04\b\x02\x10\x03R\auser_id\"5\n" +
 	"\x1bMemoryServiceDeleteResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status2\xbe\x04\n" +
 	"\rMemoryService\x12s\n" +

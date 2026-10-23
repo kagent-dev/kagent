@@ -173,7 +173,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	checkpointRequest := &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
 	addUnknown(checkpointRequest)
 	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
@@ -286,11 +286,11 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	require.NoError(t, err)
 	addUnknown(card)
 	revision := RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "template", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, false))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{}))
 	// Reconciliation can update runtime identity, but the pinned card is immutable.
 	revision.AgentCard = &a2apb.AgentCard{Name: "replacement"}
 	revision.ActorTemplateUID = "new-uid"
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, false))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{}))
 	stored, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(card, stored.AgentCard))

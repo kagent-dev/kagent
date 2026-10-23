@@ -21,7 +21,6 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/api/adk"
 	processconfig "github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -29,7 +28,6 @@ import (
 
 const (
 	defaultPluginPackagesRoot = "/plugins"
-	defaultSkillsRoot         = "/skills"
 	defaultPluginDataRoot     = "/data/plugins"
 )
 
@@ -56,7 +54,7 @@ func run(logLevel, host, port, configDir string) error {
 		return fmt.Errorf("load agent config from %s (model configuration is required): %w", configDir, err)
 	}
 	agentConfig := compiled.Agent
-	runtime := adk.ProcessConfig(compiled)
+	runtime := config.ProcessConfig(compiled)
 	kagentAPIURL := runtime.ControlPlaneUrl
 	if kagentAPIURL == "" {
 		return fmt.Errorf("runtime.control_plane_url is required")
@@ -74,7 +72,7 @@ func run(logLevel, host, port, configDir string) error {
 		logging.IntoContext(context.Background(), logger), agentConfig,
 		config.AgentPluginPaths{
 			Packages: defaultPluginPackagesRoot,
-			Skills:   defaultSkillsRoot,
+			Skills:   config.DefaultSkillsRoot,
 			Data:     defaultPluginDataRoot,
 		},
 	); err != nil {
@@ -82,7 +80,7 @@ func run(logLevel, host, port, configDir string) error {
 	}
 	logger.Info("loaded agent config", "config_dir", configDir)
 	logger.Info("agent configuration",
-		"model", adk.ModelType(agentConfig.Model),
+		"model", config.ModelType(agentConfig.Model),
 		"stream", agentConfig.GetStream(),
 		"http_tools", len(agentConfig.HttpTools),
 		"sse_tools", len(agentConfig.SseTools),
@@ -164,7 +162,6 @@ func run(logLevel, host, port, configDir string) error {
 	var memoryService *kagentmemory.KagentMemoryService
 	if agentConfig.Memory != nil {
 		memSvc, err := kagentmemory.New(kagentmemory.Config{
-			AgentName:        appName,
 			ControllerClient: controllerClient,
 			TTLDays:          agentConfig.Memory.TtlDays,
 			EmbeddingConfig:  agentConfig.Memory.Embedding,

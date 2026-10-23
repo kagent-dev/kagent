@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
@@ -373,7 +372,8 @@ func TestModelCallTiming(t *testing.T) {
 	}
 }
 
-func TestCapturesUseThePinnedCodexVersion(t *testing.T) {
+// These historical captures retain their actual recording version; the production pin is newer.
+func TestCapturesKeepTheirRecordedCodexVersion(t *testing.T) {
 	files, err := filepath.Glob("testdata/modelcall/*.jsonl")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("captures = %v, %v", files, err)
@@ -391,8 +391,8 @@ func TestCapturesUseThePinnedCodexVersion(t *testing.T) {
 			}
 		}
 		line, _, _ := bytes.Cut(raw, []byte("\n"))
-		if err := json.Unmarshal(line, &start); err != nil || start.Result.Thread.Version != config.PinnedCodexVersion {
-			t.Errorf("%s cliVersion = %q (%v), want %s", file, start.Result.Thread.Version, err, config.PinnedCodexVersion)
+		if err := json.Unmarshal(line, &start); err != nil || start.Result.Thread.Version != "0.148.0" {
+			t.Errorf("%s cliVersion = %q (%v), want %s", file, start.Result.Thread.Version, err, "0.148.0")
 		}
 	}
 }

@@ -9,12 +9,10 @@ import (
 	"sync"
 	"time"
 
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -110,40 +108,17 @@ func (c *RuntimeMCPClient) ReadResource(ctx context.Context, ref MCPServerRef, u
 
 func (c *RuntimeMCPClient) ResolveServer(ctx context.Context, ref MCPServerRef) (*v1alpha3.RemoteMCPServer, error) {
 	key := client.ObjectKey{Namespace: ref.Ref.Namespace, Name: ref.Ref.Name}
-	switch mcpServerCRDKind(ref.GroupKind) {
-	case "MCPServer":
-		server, found, err := c.getMCPServerEndpoint(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			return nil, fmt.Errorf("no MCPServer %s found", ref.Ref.String())
-		}
-		return server, nil
-	case "RemoteMCPServer":
-		server, found, err := c.getRemoteMCPServer(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			return nil, fmt.Errorf("no RemoteMCPServer %s found", ref.Ref.String())
-		}
-		return server, nil
-	default:
-		if server, found, err := c.getRemoteMCPServer(ctx, key); err != nil {
-			return nil, err
-		} else if found {
-			return server, nil
-		}
-		server, found, err := c.getMCPServerEndpoint(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			return nil, fmt.Errorf("no RemoteMCPServer or MCPServer %s found", ref.Ref.String())
-		}
-		return server, nil
+	if kind := mcpServerCRDKind(ref.GroupKind); kind != "" && kind != "RemoteMCPServer" {
+		return nil, fmt.Errorf("unsupported MCP server kind %q", kind)
 	}
+	server, found, err := c.getRemoteMCPServer(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("no RemoteMCPServer %s found", ref.Ref.String())
+	}
+	return server, nil
 }
 
 func (c *RuntimeMCPClient) connect(ctx context.Context, ref MCPServerRef) (*mcp.ClientSession, func(), error) {
@@ -199,31 +174,6 @@ func (c *RuntimeMCPClient) getRemoteMCPServer(ctx context.Context, key client.Ob
 		return nil, false, fmt.Errorf("failed to get RemoteMCPServer %s: %w", key.String(), err)
 	}
 	return server, true, nil
-}
-
-func (c *RuntimeMCPClient) getMCPServerEndpoint(ctx context.Context, key client.ObjectKey) (*v1alpha3.RemoteMCPServer, bool, error) {
-	server := &kmcp.MCPServer{}
-	if err := c.kubeClient.Get(ctx, key, server); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("failed to get MCPServer %s: %w", key.String(), err)
-	}
-	if server.Spec.Deployment.Port == 0 {
-		return nil, true, fmt.Errorf("cannot determine port for MCPServer %s", key.String())
-	}
-	timeout := server.Spec.Timeout
-	if timeout == nil {
-		timeout = &metav1.Duration{Duration: 30 * time.Second}
-	}
-	return &v1alpha3.RemoteMCPServer{
-		ObjectMeta: metav1.ObjectMeta{Name: server.Name, Namespace: server.Namespace},
-		Spec: v1alpha3.RemoteMCPServerSpec{
-			URL:      fmt.Sprintf("http://%s.%s:%d/mcp", server.Name, server.Namespace, server.Spec.Deployment.Port),
-			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
-			Timeout:  timeout,
-		},
-	}, true, nil
 }
 
 func mcpServerCRDKind(groupKind string) string {

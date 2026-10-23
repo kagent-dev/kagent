@@ -157,6 +157,7 @@ func (s *ValueSource) Resolve(ctx context.Context, client client.Client, namespa
 // +kubebuilder:validation:ExactlyOneOf=value;valueFrom
 type ValueRef struct {
 	// +required
+	// +kubebuilder:validation:MaxLength=256
 	Name string `json:"name"`
 	// +optional
 	Value string `json:"value,omitempty"`

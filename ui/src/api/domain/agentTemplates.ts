@@ -105,6 +105,8 @@ export interface AgentTemplateSpec {
   outputSchema?: Record<string, unknown>;
   /** A same-namespace ConfigMap key containing the output schema as JSON. */
   outputSchemaFrom?: ConfigMapKeyRef;
+  /** Tells OpenAI, Azure OpenAI, and Foundry (OpenAI format) to limit generation to the schema. Requires a schema. */
+  outputSchemaStrict?: boolean;
   promptTemplate?: AgentTemplatePromptSpec;
   tools?: ToolBinding[];
   skills?: AgentTemplateSkill[];

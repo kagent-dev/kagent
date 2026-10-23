@@ -70,7 +70,7 @@ CLI binaries, checksums, and commit-specific chart archives.
 
 - **Docker** with **Docker Buildx** (v0.23.0+)
 - **Git**
-- **Go** (v1.27.0+)
+- **Go** (v1.27.3+)
 - **Helm**
 - **Kind** (v0.27.0+)
 - **kubectl** (v1.33.4+)

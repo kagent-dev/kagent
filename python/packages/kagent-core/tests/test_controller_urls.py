@@ -1,6 +1,6 @@
 import pytest
 
-from kagent.core._grpc import _target_from_url
+from kagent.core._grpc import AsyncControllerClient, _target_from_url
 
 
 @pytest.mark.parametrize(
@@ -17,3 +17,10 @@ def test_target_from_url(url: str, target: str, secure: bool) -> None:
 def test_target_from_url_rejects_paths() -> None:
     with pytest.raises(ValueError, match="scheme and authority"):
         _target_from_url("https://api.example.com/path")
+
+
+@pytest.mark.asyncio
+async def test_controller_calls_request_actor_jwt_without_user_token() -> None:
+    client = AsyncControllerClient("http://controller.test:8084")
+    options = await client.call_options()
+    assert dict(options["metadata"])["authorization"] == "Bearer placeholder"

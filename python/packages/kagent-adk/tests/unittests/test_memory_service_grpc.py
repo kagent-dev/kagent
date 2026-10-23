@@ -37,7 +37,7 @@ def client():
 
 @pytest.fixture
 def service(client):
-    value = KagentMemoryService(agent_name="ns__NS__agent", controller_client=client, ttl_days=7)
+    value = KagentMemoryService(controller_client=client, ttl_days=7)
     value._embedding_client = MagicMock()
     return value
 
@@ -53,8 +53,6 @@ async def test_add_memory_uses_generated_rpc_with_metadata_and_ttl(service, clie
     )
 
     request = client.memory_service.AddSession.await_args.args[0]
-    assert request.memory.agent_name == "ns__NS__agent"
-    assert request.memory.user_id == caller
     assert request.memory.content == "remember this"
     assert list(request.memory.vector) == [0.25, 0.75]
     assert request.memory.ttl_days == 7
@@ -69,8 +67,6 @@ async def test_search_memory_uses_defaults_and_maps_results(service, client, cal
     response = await service.search_memory(app_name="ignored", user_id="user-2", query="what matters?")
 
     request = client.memory_service.Search.await_args.args[0]
-    assert request.agent_name == "ns__NS__agent"
-    assert request.user_id == caller
     assert list(request.vector) == [0.5, 0.125]
     assert request.limit == 5
     assert request.min_score == pytest.approx(0.3)
@@ -106,7 +102,6 @@ async def test_session_memory_batches_generated_inputs(service, client, caller):
         pytest.approx([0.3, 0.4]),
     ]
     assert all(item.ttl_days == 7 for item in request.items)
-    assert all(item.user_id == caller for item in request.items)
     client.call_options.assert_awaited_once_with(caller)
 
 
@@ -118,8 +113,6 @@ async def test_memory_uses_request_user_instead_of_private_native_key(service, c
         await service.search_memory(app_name="app", user_id="conversation", query="remember")
     finally:
         request_user_id.reset(token)
-    assert client.memory_service.AddSession.await_args.args[0].memory.user_id == "alice"
-    assert client.memory_service.Search.await_args.args[0].user_id == "alice"
     assert all(call.args == ("alice",) for call in client.call_options.await_args_list)
 
 
@@ -175,6 +168,4 @@ async def test_background_memory_keeps_scheduling_callers_identity(service, clie
         await asyncio.gather(*tasks)
     finally:
         request_user_id.reset(token)
-    request = client.memory_service.AddSessionBatch.await_args.args[0]
-    assert request.items[0].user_id == "alice"
     client.call_options.assert_awaited_once_with("alice")

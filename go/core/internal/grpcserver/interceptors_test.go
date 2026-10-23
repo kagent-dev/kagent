@@ -14,11 +14,10 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -75,7 +74,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("public method bypasses authentication", func(t *testing.T) {
 		called := false
-		_, err := authenticationUnaryInterceptor(nil, nil, nil, policies)(
+		_, err := authenticationUnaryInterceptor(nil, nil, policies)(
 			t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Public"},
 			func(context.Context, any) (any, error) {
 				called = true
@@ -88,7 +87,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	})
 
 	t.Run("unconfigured policy is denied", func(t *testing.T) {
-		_, err := authenticationUnaryInterceptor(nil, nil, nil, policies)(
+		_, err := authenticationUnaryInterceptor(nil, nil, policies)(
 			t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Missing"},
 			func(context.Context, any) (any, error) { return nil, nil },
 		)
@@ -105,7 +104,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			"x-agent-name", "default/agent",
 			"x-unapproved", "do-not-forward",
 		))
-		_, err := authenticationUnaryInterceptor(authenticator, nil, nil, policies)(
+		_, err := authenticationUnaryInterceptor(authenticator, nil, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
 			func(ctx context.Context, _ any) (any, error) {
 				gotSession, ok := pkgauth.AuthSessionFrom(ctx)
@@ -134,7 +133,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
-		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
 			func(ctx context.Context, _ any) (any, error) {
 				share, ok := pkgauth.ShareContextFrom(ctx)
@@ -162,7 +161,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
-		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod},
 			func(context.Context, any) (any, error) {
 				t.Fatal("handler should not run")
@@ -177,7 +176,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("invalid share token is denied", func(t *testing.T) {
 		store := &testShareStore{sessionShareErr: database.ErrNotFound}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "missing"))
-		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
 			func(context.Context, any) (any, error) { return nil, nil },
 		)
@@ -202,7 +201,7 @@ func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 	} {
 		t.Run(method, func(t *testing.T) {
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
-			ctx, err := authenticate(ctx, method, &testAuthenticator{session: session}, nil, store, DefaultMethodPolicies())
+			ctx, err := authenticate(ctx, method, &testAuthenticator{session: session}, store, DefaultMethodPolicies())
 			if err != nil {
 				t.Fatalf("A2A authorization must reach the gateway: %v", err)
 			}
@@ -218,24 +217,11 @@ func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 	}
 }
 
-func TestInsecureRuntimeIdentityDoesNotAuthorizePublicAPI(t *testing.T) {
-	const runtimeMethod = "/test.TaskStore/Get"
-	policies := MethodPolicies{runtimeMethod: pkgauth.AccessRuntime, readMethod: pkgauth.AccessRead}
-	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/session-"+uuid.NewString()+"/actor-uid"))
-	public := &testAuthenticator{err: errors.New("public credentials required")}
-	for _, method := range []string{runtimeMethod, readMethod} {
-		_, err := authenticate(ctx, method, public, nil, nil, policies)
-		if status.Code(err) != codes.Unauthenticated {
-			t.Fatalf("default %s: %v", method, err)
-		}
-	}
-	_, err := authenticate(ctx, readMethod, public, &taskstore.Authenticator{}, nil, policies)
-	if status.Code(err) != codes.Unauthenticated {
-		t.Fatalf("runtime test mode authorized public API: %v", err)
-	}
-	_, err = authenticate(ctx, runtimeMethod, public, &taskstore.Authenticator{}, nil, policies)
-	if err != nil {
-		t.Fatalf("explicit runtime test mode rejected identity: %v", err)
+func TestUserAgentHeaderDoesNotEstablishActorIdentity(t *testing.T) {
+	provider := &testAuthenticator{session: &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "user"}, Agent: pkgauth.Agent{ID: "actor"}}}}
+	_, err := authenticate(t.Context(), runtimev1.TaskStoreService_GetTask_FullMethodName, provider, nil, DefaultMethodPolicies())
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("user agent hint authorized runtime storage: %v", err)
 	}
 }
 

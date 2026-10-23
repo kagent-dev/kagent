@@ -58,7 +58,7 @@ func run(path string, check bool, level string) error {
 		return err
 	}
 	config.ResolveControllerPaths(cfg, path)
-	paths := []string{cfg.GetDatabase().GetReadWrite().GetUrlFile(), cfg.GetGateway().GetPush().GetSigningPrivateKeyFile()}
+	paths := []string{cfg.GetDatabase().GetReadWrite().GetUrlFile(), cfg.GetPush().GetSigningPrivateKeyFile()}
 	// The owner login is unused when migrations are skipped, and its Secret may not be mounted.
 	if !cfg.GetDatabase().GetSkipMigrations() {
 		paths = append(paths, cfg.GetDatabase().GetOwner().GetUrlFile())
