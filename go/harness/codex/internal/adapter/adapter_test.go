@@ -60,7 +60,7 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 		t.Fatalf("generated OTEL configuration overrides Codex's environment default:\n%s", configContents)
 	}
 	// Seed the upstream default so an omitted false value fails this check.
-	native := nativeConfig{Features: nativeFeatures{UnboundedConnectionRetries: true}}
+	native := nativeConfig{Features: nativeFeatures{UnboundedConnectionRetries: true}, MCPOptionalStartupGraceMs: 1000}
 	if err := toml.Unmarshal(configContents, &native); err != nil {
 		t.Fatalf("decode generated Codex configuration: %v", err)
 	}
@@ -75,6 +75,9 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 	if native.Features.UnboundedConnectionRetries {
 		t.Fatal("generated Codex configuration does not disable unbounded connection retries")
+	}
+	if native.MCPOptionalStartupGraceMs != 0 {
+		t.Fatalf("generated Codex configuration keeps a %dms MCP startup grace; turns would drop slow MCP servers", native.MCPOptionalStartupGraceMs)
 	}
 	if native.Otel == nil || !native.Otel.LogUserPrompt ||
 		native.Otel.TraceExporter == nil || native.Otel.TraceExporter.OTLPHTTP == nil ||
