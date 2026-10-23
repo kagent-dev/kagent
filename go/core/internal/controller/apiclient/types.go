@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/config/schema/kubeclient"
 	"istio.io/istio/pkg/kube/kubetypes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -115,16 +115,16 @@ func registerTypes() {
 		},
 	)
 	kubeclient.Register(
-		atev1alpha1.GroupVersion.WithResource("workerpools"),
-		atev1alpha1.GroupVersion.WithKind("WorkerPool"),
+		atev1.GroupVersion.WithResource("workerpools"),
+		atev1.GroupVersion.WithKind("WorkerPool"),
 		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {
-			return c.(Client).Substrate().ApiV1alpha1().WorkerPools(namespace).List(context.Background(), options)
+			return c.(Client).Substrate().AteV1().WorkerPools(namespace).List(context.Background(), options)
 		},
 		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (watch.Interface, error) {
-			return c.(Client).Substrate().ApiV1alpha1().WorkerPools(namespace).Watch(context.Background(), options)
+			return c.(Client).Substrate().AteV1().WorkerPools(namespace).Watch(context.Background(), options)
 		},
-		func(c kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*atev1alpha1.WorkerPool] {
-			return c.(Client).Substrate().ApiV1alpha1().WorkerPools(namespace)
+		func(c kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*atev1.WorkerPool] {
+			return c.(Client).Substrate().AteV1().WorkerPools(namespace)
 		},
 	)
 }

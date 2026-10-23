@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -247,7 +247,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	managerScheme := k8sruntime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(managerScheme))
 	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
-	utilruntime.Must(atev1alpha1.AddToScheme(managerScheme))
+	utilruntime.Must(atev1.AddToScheme(managerScheme))
 	watchNamespaces := cfg.GetKubernetes().GetWatchNamespaces()
 	managerClientOptions := client.Options{}
 	managerCacheOptions := cache.Options{DefaultNamespaces: namespaceCache(watchNamespaces)}

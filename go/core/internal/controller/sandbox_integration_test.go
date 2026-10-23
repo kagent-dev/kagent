@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -53,13 +53,13 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	require.NoError(t, err)
 	store := &sandboxTestStore{}
 	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}, autoReady: true}
-	pool := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "default"}}
-	start := func() (func(), krt.StaticCollection[*atev1alpha1.WorkerPool]) {
+	pool := &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "default"}}
+	start := func() (func(), krt.StaticCollection[*atev1.WorkerPool]) {
 		ctx, cancel := context.WithCancel(t.Context())
 		runtimeClient, err := apiclient.New(config)
 		require.NoError(t, err)
 		options := krt.NewOptionsBuilder(ctx.Done(), "sandbox-integration", nil)
-		pools := krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{pool}, options.WithName("WorkerPools")...)
+		pools := krt.NewStaticCollection(nil, []*atev1.WorkerPool{pool}, options.WithName("WorkerPools")...)
 		runtime := &Runtime{Client: runtimeClient, Options: options, Collections: Collections{
 			EgressPolicies:   typedCollection[*kagentv1alpha3.EgressPolicy](runtimeClient, []string{"team-a"}, "EgressPolicies", options),
 			Secrets:          typedCollection[*corev1.Secret](runtimeClient, []string{"team-a"}, "Secrets", options),
@@ -158,7 +158,7 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 
 	// A dependency update alone must change the persisted revision.
 	changedPool := pool.DeepCopy()
-	changedPool.Spec.SandboxClasses = []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}
+	changedPool.Spec.SandboxClasses = []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}
 	pools.UpdateObject(changedPool)
 	require.Eventually(t, func() bool {
 		store.mu.Lock()

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -90,7 +90,7 @@ type SubstrateWorkerPage struct {
 // by configuration rather than by the cluster.
 type SubstrateSummary struct {
 	ATEAPIError       string
-	WorkerPools       []atev1alpha1.WorkerPool
+	WorkerPools       []atev1.WorkerPool
 	ActorTemplates    []*ateapipb.ActorTemplate
 	ActorCount        int64
 	WorkerCount       int64
@@ -150,7 +150,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	}
 
 	result := SubstrateSummary{
-		WorkerPools:       []atev1alpha1.WorkerPool{},
+		WorkerPools:       []atev1.WorkerPool{},
 		ActorTemplates:    []*ateapipb.ActorTemplate{},
 		ActorStatusCounts: []SubstrateActorStatusCount{},
 		ComputedAt:        time.Now().UTC(),
@@ -171,7 +171,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 			}
 		}
 	}
-	slices.SortStableFunc(result.WorkerPools, func(left, right atev1alpha1.WorkerPool) int {
+	slices.SortStableFunc(result.WorkerPools, func(left, right atev1.WorkerPool) int {
 		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
 	})
 

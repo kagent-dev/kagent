@@ -1,7 +1,7 @@
 package translator
 
 import (
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 
@@ -18,5 +18,5 @@ type Collections struct {
 	RemoteMCPServers     krt.Collection[*v1alpha3.RemoteMCPServer]
 	ConfigMaps           krt.Collection[*corev1.ConfigMap]
 	Secrets              krt.Collection[*corev1.Secret]
-	WorkerPools          krt.Collection[*atev1alpha1.WorkerPool]
+	WorkerPools          krt.Collection[*atev1.WorkerPool]
 }

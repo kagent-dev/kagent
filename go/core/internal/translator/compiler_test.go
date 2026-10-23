@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -220,8 +220,8 @@ func compilerWithImages(t *testing.T, images *configv1.HarnessImagesConfig, obje
 	}, images, testRuntimeDefaults())
 }
 
-func defaultWorkerPool() *atev1alpha1.WorkerPool {
-	return &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "default"}}
+func defaultWorkerPool() *atev1.WorkerPool {
+	return &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "default"}}
 }
 
 func mockCollections(t *testing.T, objects ...any) translator.Collections {
@@ -234,7 +234,7 @@ func mockCollections(t *testing.T, objects ...any) translator.Collections {
 		RemoteMCPServers: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](mock),
 		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
-		WorkerPools:      krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+		WorkerPools:      krttest.GetMockCollection[*atev1.WorkerPool](mock),
 	}
 	models := krttest.GetMockCollection[*v1alpha3.ModelConfig](mock)
 	resolved := make([]any, 0, len(models.List()))
@@ -290,28 +290,28 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 			var defaultDigest translator.RevisionID
 			for _, tt := range []struct {
 				name    string
-				class   atev1alpha1.SandboxClass
+				class   atev1.SandboxClass
 				missing bool
 			}{
 				{name: "default"},
-				{name: "explicit gvisor", class: atev1alpha1.SandboxClassGvisor},
-				{name: "microvm", class: atev1alpha1.SandboxClassMicroVM},
-				{name: "back to gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "explicit gvisor", class: atev1.SandboxClassGvisor},
+				{name: "microvm", class: atev1.SandboxClassMicroVM},
+				{name: "back to gvisor", class: atev1.SandboxClassGvisor},
 				{name: "unsupported", class: "unsupported"},
 				{name: "missing", missing: true},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
-					pool := &atev1alpha1.WorkerPool{
+					pool := &atev1.WorkerPool{
 						ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "selected"},
-						Spec:       atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: tt.class}}},
+						Spec:       atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: tt.class}}},
 					}
 					originalPool := pool.DeepCopy()
 					objects := []any{
 						model,
 						harness,
 						&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
-						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "selected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}}},
-						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "unselected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}}},
+						&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "selected"}, Spec: atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}}},
+						&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "unselected"}, Spec: atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}}},
 					}
 					if !tt.missing {
 						objects = append(objects, pool)
@@ -344,7 +344,7 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 					if baseline == nil {
 						baseline, defaultDigest = result, digest
 					}
-					if tt.class == atev1alpha1.SandboxClassMicroVM {
+					if tt.class == atev1.SandboxClassMicroVM {
 						require.NotEqual(t, defaultDigest, digest)
 					} else {
 						require.Equal(t, defaultDigest, digest)

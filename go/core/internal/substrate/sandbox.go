@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -29,13 +29,13 @@ type sandboxInputs struct {
 	Name      string
 	UID       string
 	Spec      v1alpha3.SandboxTemplateSpec
-	Class     atev1alpha1.SandboxClass
+	Class     atev1.SandboxClass
 	Policy    SandboxPolicy
 }
 
 // SandboxActorTemplate compiles standalone inputs without an Agent Card or Harness.
 // The image's entrypoint is replaced by the pinned, platform-managed guest.
-func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.SandboxClass, policy SandboxPolicy) (*ateapipb.ActorTemplate, string, json.RawMessage, error) {
+func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1.SandboxClass, policy SandboxPolicy) (*ateapipb.ActorTemplate, string, json.RawMessage, error) {
 	if !image.IsDigestPinned(policy.GuestImage) || !image.IsDigestPinned(template.Spec.Workload.Image) {
 		return nil, "", nil, fmt.Errorf("sandbox workload and guest images must be pinned by sha256 digest")
 	}
@@ -44,12 +44,12 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 		return nil, "", nil, err
 	}
 	switch class {
-	case "", atev1alpha1.SandboxClassGvisor, atev1alpha1.SandboxClassMicroVM:
+	case "", atev1.SandboxClassGvisor, atev1.SandboxClassMicroVM:
 	default:
 		return nil, "", nil, fmt.Errorf("unsupported sandbox class %q", class)
 	}
 	if class == "" {
-		class = atev1alpha1.SandboxClassGvisor
+		class = atev1.SandboxClassGvisor
 	}
 	var environment []*ateapipb.EnvVar
 	for _, variable := range template.Spec.Env {
@@ -103,7 +103,7 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	identity, err := json.Marshal(struct {
 		Name     string
 		UID      string
-		Class    atev1alpha1.SandboxClass
+		Class    atev1.SandboxClass
 		Template []byte
 	}{template.Name, string(template.UID), class, compiled})
 	if err != nil {

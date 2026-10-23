@@ -2,8 +2,8 @@ import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtim
 import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
-import { ActorState, SnapshotStorageStatus, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
-import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageStatus, type WorkerSchema, type ActorSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
+import type { ActorTemplateSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
@@ -1322,11 +1322,11 @@ function substrateWorkerPoolMessage(pool: SubstrateWorkerPoolEntry) {
   return {
     ref: { namespace: pool.namespace, name: pool.name },
     resource: structured("WorkerPool", {
-      apiVersion: "ate.dev/v1alpha1",
+      apiVersion: "ate.dev/v1",
       kind: "WorkerPool",
       metadata: { namespace: pool.namespace, name: pool.name },
       spec: { replicas: pool.replicas ?? 0, workerImage: pool.ateomImage ?? "" },
-    }, "ate.dev/v1alpha1"),
+    }, "ate.dev/v1"),
   };
 }
 

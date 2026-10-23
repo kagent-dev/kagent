@@ -2,7 +2,7 @@
 {{- if not .Values.substrateWorkerPool.workerImage }}
 {{- fail "substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true" }}
 {{- end }}
-apiVersion: ate.dev/v1alpha1
+apiVersion: ate.dev/v1
 kind: WorkerPool
 metadata:
   name: {{ .Values.substrateWorkerPool.name | quote }}

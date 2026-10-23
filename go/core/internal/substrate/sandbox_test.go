@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -35,7 +35,7 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	trust := actor.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
 	require.Equal(t, []string{"egress-mitm.ate.dev"}, trust.GetNames())
 	require.Equal(t, "trust-bundle.pem", trust.GetPath())
-	_, same, _, err := SandboxActorTemplate(template, atev1alpha1.SandboxClassGvisor, policy)
+	_, same, _, err := SandboxActorTemplate(template, atev1.SandboxClassGvisor, policy)
 	require.NoError(t, err)
 	require.Equal(t, digest, same)
 	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "live"}}
@@ -48,14 +48,14 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	for _, change := range []struct {
 		name   string
 		mutate func(*v1alpha3.SandboxTemplate, *SandboxPolicy)
-		class  atev1alpha1.SandboxClass
+		class  atev1.SandboxClass
 	}{
 		{"guest", func(_ *v1alpha3.SandboxTemplate, p *SandboxPolicy) {
 			p.GuestImage = "guest@sha256:" + strings.Repeat("c", 64)
 		}, ""},
 		{"identity", func(s *v1alpha3.SandboxTemplate, _ *SandboxPolicy) { s.UID = "new" }, ""},
 		{"resources", func(_ *v1alpha3.SandboxTemplate, p *SandboxPolicy) { p.Memory = "2Gi" }, ""},
-		{"class", func(_ *v1alpha3.SandboxTemplate, _ *SandboxPolicy) {}, atev1alpha1.SandboxClassMicroVM},
+		{"class", func(_ *v1alpha3.SandboxTemplate, _ *SandboxPolicy) {}, atev1.SandboxClassMicroVM},
 	} {
 		t.Run(change.name, func(t *testing.T) {
 			input, settings := template.DeepCopy(), policy

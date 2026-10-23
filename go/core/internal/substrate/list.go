@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 )
 
 // How many pages a drain will read before giving up: at ate-api's ceiling of 1,000

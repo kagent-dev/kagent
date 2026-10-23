@@ -9,18 +9,22 @@ lint:
     - STANDARD
   ignore:
     - a2a.proto
-    - ateapi.proto
+    - api/ateapi/v1/ateapi.proto
     - ateenv/v1alpha/guest.proto
 breaking:
   use:
     - FILE
-  # Pre-release memory cleanup removes reservations for obsolete identity fields.
-  # Remove this exception once the cleanup is present on the comparison branch.
   ignore_only:
+    # Pre-release memory cleanup removes obsolete identity reservations.
+    # Remove once the cleanup is present on the comparison branch.
     RESERVED_MESSAGE_NO_DELETE:
       - kagent/runtime/v1/memory.proto
-  # Vendored upstream alpha API; upgrades follow go.mod. Kagent does not expose
-  # its egress policy types, which changed incompatibly in alpha3.
+    # Substrate v0.7.0-alpha1 renames the inventory types to substrate.ateapi.v1
+    # without changing their wire shape. Remove after the upgrade reaches main.
+    FIELD_SAME_TYPE:
+      - kagent/api/v1/system.proto
+  # Vendored Substrate APIs follow go.mod, including the v1 schema relocation.
   ignore:
     - ateapi.proto
+    - api/ateapi/v1/ateapi.proto
   ignore_unstable_packages: true

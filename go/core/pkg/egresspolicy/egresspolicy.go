@@ -4,7 +4,7 @@ package egresspolicy
 import (
 	"context"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 )
 
 // GatewayTarget is the header a tokenPassthrough client sends the caller's
