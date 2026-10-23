@@ -129,6 +129,10 @@ func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (
 	return session, w.err
 }
 
+func (w serviceTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return session, w.err
+}
+
 func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, w.err
 }
@@ -201,23 +205,33 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
-func TestServiceDeletePreservesContentionErrors(t *testing.T) {
-	for _, failure := range []struct {
-		cause error
-		code  serviceerrors.Code
+func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		call func(*Service, context.Context, string) (*apiv1.Session, error)
 	}{
-		{database.ErrConflict, serviceerrors.CodeAborted},
-		{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
+		{name: "revert", call: (*Service).Revert},
+		{name: "delete", call: (*Service).Delete},
 	} {
-		conflict := fmt.Errorf("Session has an operation in progress: %w", failure.cause)
-		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
-		_, err := service.Delete(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
-		if !serviceerrors.IsCode(err, failure.code) {
-			t.Fatalf("error = %v, want code %s", err, failure.code)
-		}
-		if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
-			t.Fatalf("error = %v, want preserved contention reason", err)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			for _, failure := range []struct {
+				cause error
+				code  serviceerrors.Code
+			}{
+				{database.ErrConflict, serviceerrors.CodeAborted},
+				{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
+			} {
+				conflict := fmt.Errorf("Session has an operation in progress: %w", failure.cause)
+				service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
+				_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+				if !serviceerrors.IsCode(err, failure.code) {
+					t.Fatalf("error = %v, want code %s", err, failure.code)
+				}
+				if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
+					t.Fatalf("error = %v, want preserved contention reason", err)
+				}
+			}
+		})
 	}
 }
 
@@ -553,6 +567,7 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		name string
 		call func() error
 	}{
+		{name: "revert", call: func() error { _, err := service.Revert(ctx, id); return err }},
 		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},
 		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
 		{name: "share listing", call: func() error { _, err := service.ListShares(ctx, id, 0, ""); return err }},
