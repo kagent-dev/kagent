@@ -13,7 +13,7 @@ type sessionServer struct {
 }
 
 func (s *sessionServer) CreateSession(ctx context.Context, request *apiv1.CreateSessionRequest) (*apiv1.CreateSessionResponse, error) {
-	session, err := s.service.Create(ctx, request.GetAgent(), request.GetRequestId(), request.GetName())
+	session, err := s.service.CreateFromRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}

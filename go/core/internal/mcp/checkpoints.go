@@ -18,7 +18,17 @@ const (
 	createCheckpointToolName = "create_session_checkpoint"
 	listCheckpointsToolName  = "list_session_checkpoints"
 	forkSessionToolName      = "fork_session"
+	getCheckpointToolName    = "get_session_checkpoint"
+	deleteCheckpointToolName = "delete_session_checkpoint"
 )
+
+type CheckpointIDInput struct {
+	CheckpointID string `json:"checkpoint_id" jsonschema:"Checkpoint UUID"`
+}
+
+type DeleteCheckpointOutput struct {
+	CheckpointID string `json:"checkpoint_id"`
+}
 
 type CreateCheckpointInput struct {
 	SessionID          string `json:"session_id" jsonschema:"Session UUID"`
@@ -67,9 +77,27 @@ type ForkSessionOutput struct {
 }
 
 func (h *Handler) registerCheckpointTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{Name: createCheckpointToolName, Description: "Create a checkpoint at a Session turn boundary"}, h.createCheckpoint)
-	mcp.AddTool(server, &mcp.Tool{Name: listCheckpointsToolName, Description: "List checkpoints for a Session"}, h.listCheckpoints)
-	mcp.AddTool(server, &mcp.Tool{Name: forkSessionToolName, Description: "Create a Session from a checkpoint"}, h.forkSession)
+	mcp.AddTool(server, &mcp.Tool{Name: createCheckpointToolName, Description: "Create a checkpoint at a Session turn boundary", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true}}, h.createCheckpoint)
+	mcp.AddTool(server, &mcp.Tool{Name: listCheckpointsToolName, Description: "List checkpoints for a Session", Annotations: readOnly()}, h.listCheckpoints)
+	mcp.AddTool(server, &mcp.Tool{Name: getCheckpointToolName, Description: "Read one checkpoint's state and failure", Annotations: readOnly()}, h.getCheckpoint)
+	mcp.AddTool(server, &mcp.Tool{Name: deleteCheckpointToolName, Description: "Delete a checkpoint", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true), IdempotentHint: true}}, h.deleteCheckpoint)
+	mcp.AddTool(server, &mcp.Tool{Name: forkSessionToolName, Description: "Create a Session from a checkpoint", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true}}, h.forkSession)
+}
+
+func (h *Handler) getCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CheckpointIDInput) (*mcp.CallToolResult, CreateCheckpointOutput, error) {
+	value, err := h.checkpoints.Get(ctx, input.CheckpointID)
+	if err != nil {
+		return sessionToolError(err), CreateCheckpointOutput{}, nil
+	}
+	output := CreateCheckpointOutput{Checkpoint: checkpointSummary(value)}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Checkpoint %s is %s", value.GetId(), value.GetState())}}}, output, nil
+}
+
+func (h *Handler) deleteCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CheckpointIDInput) (*mcp.CallToolResult, DeleteCheckpointOutput, error) {
+	if err := h.checkpoints.Delete(ctx, input.CheckpointID); err != nil {
+		return sessionToolError(err), DeleteCheckpointOutput{}, nil
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Deleted checkpoint %s", input.CheckpointID)}}}, DeleteCheckpointOutput(input), nil
 }
 
 func (h *Handler) createCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CreateCheckpointInput) (*mcp.CallToolResult, CreateCheckpointOutput, error) {
@@ -133,9 +161,14 @@ func checkpointSummary(value *apiv1.Checkpoint) CheckpointSummary {
 }
 
 func sessionSummary(session *apiv1.Session) SessionSummary {
-	return SessionSummary{
+	result := SessionSummary{
 		ID:    session.GetId(),
 		Agent: session.GetAgent().GetName(),
+		Name:  session.GetName(),
 		State: session.GetState().String(),
 	}
+	if session.GetFailure() != nil {
+		result.Failure = &FailureSummary{Reason: session.GetFailure().GetReason(), Message: session.GetFailure().GetMessage()}
+	}
+	return result
 }
