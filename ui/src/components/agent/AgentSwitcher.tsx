@@ -45,11 +45,15 @@ export function AgentSwitcher({
   const navigate = useNavigate();
   const namespaces = useNamespaces();
   const namespaceNames = useMemo(
-    () => (namespaces.data ?? []).map((entry) => entry.name),
+    () => namespaces.data?.map((entry) => entry.name),
     [namespaces.data],
   );
 
   const definitions = useAgentsAcrossNamespaces(namespaceNames);
+  /** Either read failing means the list is unknown, not empty. */
+  const readError = namespaces.error ?? definitions.error;
+  /** One loading state while the namespaces or the agents are on their way. */
+  const isReading = namespaces.isLoading || definitions.isLoading;
   const agents = useMemo(() => definitions.data?.agents ?? [], [definitions.data]);
   const [query, setQuery] = useState("");
 
@@ -149,9 +153,9 @@ export function AgentSwitcher({
         css={searchInputStyles(theme)}
       />
 
-      {definitions.error ? (
+      {readError ? (
         <Text data-testid="agent-switcher-error" css={{ fontSize: 12, color: theme.color.danger }}>
-          Could not list agents. {definitions.error.message}
+          Could not list agents. {readError.message}
         </Text>
       ) : null}
 
@@ -273,7 +277,7 @@ export function AgentSwitcher({
           to be. Standing in for three rows is enough to hold the shape: the panel
           scrolls beyond that anyway, so being wrong about the count costs nothing.
         */}
-        {definitions.isLoading
+        {isReading
           ? [0, 1, 2].map((row) => (
               <div
                 key={row}
@@ -289,7 +293,7 @@ export function AgentSwitcher({
             ))
           : null}
 
-        {!definitions.isLoading && matches.length === 0 ? (
+        {!isReading && !readError && matches.length === 0 ? (
           <Text
             data-testid="agent-switcher-empty"
             css={{ fontSize: 12, color: theme.color.textMuted, padding: theme.space(2) }}
