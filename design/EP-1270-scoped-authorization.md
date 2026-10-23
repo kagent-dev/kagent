@@ -188,6 +188,8 @@ and that namespace is watched. Worker pod names and pool names do not establish
 worker identity. Otherwise the assignment and assigned node are omitted; Actor
 lifecycle state remains visible. Missing worker identities are redacted, and
 invalid or failed worker scope decisions fail the Actor list request.
+Snapshot locality is always omitted from Actor inventory: it names a node but
+has no worker identity to authorize, and may refer to an earlier placement.
 
 
 Dedicated actor and worker endpoints request `Scope(VerbList, "SubstrateActor")`

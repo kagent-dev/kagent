@@ -38,12 +38,12 @@ type testStore struct {
 	sourceErr       error
 	sourceReads     atomic.Int32
 	checkpointOwner string
-	snapshotReads   int
+	forkSourceReads int
 	reservations    int
 	prepared        *apiv1.Checkpoint
 	snapshot        *database.SessionTaskSnapshot
 	tagUID          string
-	snapshotErr     error
+	forkSourceErr   error
 	forked          *apiv1.Session
 	failed          string
 	deleted         bool
@@ -103,22 +103,20 @@ func (s *testStore) GetSessionCheckpoint(_ context.Context, _ string, owner stri
 	return s.prepared, nil
 }
 
-func (s *testStore) GetSessionCheckpointAgent(ctx context.Context, id, owner string) (*apiv1.ResourceReference, error) {
-	if _, err := s.GetSessionCheckpoint(ctx, id, owner); err != nil {
+func (s *testStore) GetSessionCheckpointForkSource(ctx context.Context, id, owner string) (*database.SessionCheckpointForkSource, error) {
+	s.forkSourceReads++
+	checkpoint, err := s.GetSessionCheckpoint(ctx, id, owner)
+	if err != nil {
 		return nil, err
 	}
-	return &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, nil
-}
-
-func (s *testStore) GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error) {
-	s.snapshotReads++
-	if s.snapshotErr != nil {
-		return nil, "", s.snapshotErr
+	if s.forkSourceErr != nil {
+		return nil, s.forkSourceErr
 	}
-	if s.prepared == nil {
-		return nil, "", database.ErrNotFound
-	}
-	return s.snapshot, s.tagUID, nil
+	return &database.SessionCheckpointForkSource{
+		Checkpoint: checkpoint,
+		Agent:      &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Snapshot:   s.snapshot, TagUID: s.tagUID,
+	}, nil
 }
 
 func (*testStore) ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error) {
@@ -168,6 +166,7 @@ func (w *testWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1
 }
 
 type testTags struct {
+	getCalls               int
 	createCalls            int
 	snapshotURI            string
 	snapshotURIAfterCreate string
@@ -202,6 +201,7 @@ func (t *testTags) GetActor(_ context.Context, atespace, name string) (*ateapipb
 }
 
 func (t *testTags) GetTag(context.Context, string, string) (*ateapipb.Tag, error) {
+	t.getCalls++
 	if t.getErr != nil {
 		return nil, t.getErr
 	}
@@ -297,7 +297,7 @@ func TestRenameValidatesBeforeReachingTheStore(t *testing.T) {
 }
 
 func TestCreateTagsRecordedSnapshotBoundary(t *testing.T) {
-	store := &testStore{snapshotErr: fmt.Errorf("creation must use the reserved snapshot")}
+	store := &testStore{forkSourceErr: fmt.Errorf("creation must use the reserved snapshot")}
 	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1"}
 	service := NewService(store, &restrictiveAuthorizer{resource: "Session", verb: auth.VerbCreate}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
@@ -348,7 +348,7 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	store.snapshotErr = fmt.Errorf("deletion must use the snapshot returned by BeginDelete")
+	store.forkSourceErr = fmt.Errorf("deletion must use the snapshot returned by BeginDelete")
 	tags.getErr = fmt.Errorf("tag lookup unavailable")
 	if err := service.Delete(ctx, checkpoint.GetId()); err == nil {
 		t.Fatal("Delete() succeeded without verifying the snapshot tag")
@@ -653,7 +653,11 @@ func TestCheckpointComposesPermissionsBeforeEffects(t *testing.T) {
 			} else {
 				require.Zero(t, store.reservations)
 			}
-			require.Zero(t, store.snapshotReads)
+			if test.operation == "fork" && (test.resource != "Checkpoint" || test.verb != auth.VerbGet) {
+				require.Equal(t, 1, store.forkSourceReads)
+			} else {
+				require.Zero(t, store.forkSourceReads)
+			}
 			require.Nil(t, store.forked)
 		})
 	}
@@ -727,21 +731,23 @@ func (f forkNamespacePolicy) Check(_ context.Context, _ auth.Principal, verb aut
 	return nil
 }
 
-func TestForkAuthorizesResolvedTargetNamespaceBeforeSnapshotRead(t *testing.T) {
+func TestForkAuthorizesResolvedTargetNamespaceBeforeTagRead(t *testing.T) {
 	for _, namespace := range []string{"team-a", "team-b"} {
 		t.Run(namespace, func(t *testing.T) {
 			checkpoint := &apiv1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", SessionId: "11111111-1111-4111-8111-111111111111"}
-			snapshotErr := errors.New("snapshot boundary reached")
-			store := &testStore{prepared: checkpoint, checkpointOwner: "alice", sourceErr: database.ErrNotFound, snapshotErr: snapshotErr}
-			svc := NewService(store, forkNamespacePolicy{namespace: namespace}, nil, nil)
+			tagErr := errors.New("tag boundary reached")
+			store := &testStore{prepared: checkpoint, checkpointOwner: "alice", sourceErr: database.ErrNotFound, snapshot: &database.SessionTaskSnapshot{Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}}
+			tags := &testTags{getErr: tagErr}
+			svc := NewService(store, forkNamespacePolicy{namespace: namespace}, tags, nil)
 			_, err := svc.Fork(auth.AuthSessionTo(t.Context(), testSession{userID: "alice"}), checkpoint.Id, "request")
 			if namespace == "team-a" {
-				require.ErrorIs(t, err, snapshotErr, "resolved namespace should pass authorization")
-				require.Equal(t, 1, store.snapshotReads)
+				require.ErrorIs(t, err, tagErr, "resolved namespace should pass authorization")
+				require.Equal(t, 1, tags.getCalls)
 			} else {
 				require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
-				require.Zero(t, store.snapshotReads)
+				require.Zero(t, tags.getCalls)
 			}
+			require.Equal(t, 1, store.forkSourceReads)
 			require.Nil(t, store.forked)
 			require.Zero(t, store.sourceReads.Load(), "retained checkpoint supplies the target without a live source")
 		})
@@ -844,6 +850,6 @@ func TestForkCanonicalizesSavedSourceIdentity(t *testing.T) {
 	_, err := svc.Fork(auth.AuthSessionTo(t.Context(), testSession{userID: "alice"}), store.prepared.Id, "request")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
 	require.Equal(t, policy.denied, policy.calls[len(policy.calls)-1])
-	require.Zero(t, store.snapshotReads)
+	require.Equal(t, 1, store.forkSourceReads)
 	require.Nil(t, store.forked)
 }

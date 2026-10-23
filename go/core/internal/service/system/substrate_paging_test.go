@@ -764,12 +764,13 @@ func TestInventoryRowBudgetAndHybridBatchingSpanAtespaces(t *testing.T) {
 }
 
 func TestActorListRedactsIndependentlyDeniedWorkerPlacement(t *testing.T) {
-	for _, scenario := range []string{"allowed", "none", "wrong name", "pod name", "pool name", "unwatched", "missing identity", "node without assignment"} {
+	for _, scenario := range []string{"allowed", "none", "wrong name", "pod name", "pool name", "unwatched", "missing identity", "node without assignment", "snapshot locality only"} {
 		t.Run(scenario, func(t *testing.T) {
 			assignment := &ateapipb.WorkerAssignment{Worker: &ateapipb.ObjectRef{Name: "worker-id"}, WorkerNamespace: "workers", WorkerPod: "private-pod", WorkerPool: "private-pool", WorkerPodIps: []string{"10.1.2.3"}, NodeName: "private-node"}
 			actor := substrateActor("visible-actor", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "", "")
 			actor.Status.WorkerAssignment = assignment
 			actor.Status.AssignedNode = "private-node"
+			actor.Status.Snapshots = []*ateapipb.Snapshot{{Uuid: "snapshot", Locality: "snapshot-node"}}
 			workerName := "worker-id"
 			watched := []string{"team", "workers"}
 			switch scenario {
@@ -785,6 +786,10 @@ func TestActorListRedactsIndependentlyDeniedWorkerPlacement(t *testing.T) {
 				assignment.Worker = nil
 			case "node without assignment":
 				actor.Status.WorkerAssignment = nil
+			case "snapshot locality only":
+				actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+				actor.Status.WorkerAssignment = nil
+				actor.Status.AssignedNode = ""
 			}
 			workerScope := inventoryScope(apiauthorization.AttributeNamespace, "workers", workerName)
 			if scenario == "none" {
@@ -801,7 +806,10 @@ func TestActorListRedactsIndependentlyDeniedWorkerPlacement(t *testing.T) {
 			require.Empty(t, page.ATEAPIError)
 			require.Len(t, page.Actors, 1)
 			got := page.Actors[0].GetStatus()
-			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, got.GetState())
+			require.Equal(t, actor.Status.State, got.GetState())
+			require.Len(t, got.GetSnapshots(), 1)
+			require.Equal(t, "snapshot", got.GetSnapshots()[0].GetUuid())
+			require.Empty(t, got.GetSnapshots()[0].GetLocality())
 			if scenario == "allowed" {
 				require.True(t, proto.Equal(assignment, got.GetWorkerAssignment()))
 				require.Equal(t, "private-node", got.GetAssignedNode())

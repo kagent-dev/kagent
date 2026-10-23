@@ -278,20 +278,29 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 	return result, nil
 }
 
-// actorInventory hides worker placement unless its exact global worker identity
-// is visible. Clone only redacted rows so shared backend objects are never mutated.
+// actorInventory hides placement unless its exact worker identity is visible.
+// Snapshot locality has no worker identity to authorize and is always omitted.
+// Clone only redacted rows so shared backend objects are never mutated.
 func actorInventory(actor *ateapipb.Actor, workers inventoryauth.Matcher, scope substrateScope) *ateapipb.Actor {
 	status := actor.GetStatus()
 	assignment := status.GetWorkerAssignment()
-	if scope.contains(assignment.GetWorkerNamespace()) && workers.Matches(assignment.GetWorkerNamespace(), assignment.GetWorker().GetName()) {
-		return actor
-	}
-	if assignment == nil && status.GetAssignedNode() == "" {
+	visibleWorker := scope.contains(assignment.GetWorkerNamespace()) && workers.Matches(assignment.GetWorkerNamespace(), assignment.GetWorker().GetName())
+	hasLocality := slices.ContainsFunc(status.GetSnapshots(), func(snapshot *ateapipb.Snapshot) bool {
+		return snapshot.GetLocality() != ""
+	})
+	if !hasLocality && (visibleWorker || (assignment == nil && status.GetAssignedNode() == "")) {
 		return actor
 	}
 	result := proto.CloneOf(actor)
-	result.Status.WorkerAssignment = nil
-	result.Status.AssignedNode = ""
+	if !visibleWorker {
+		result.Status.WorkerAssignment = nil
+		result.Status.AssignedNode = ""
+	}
+	for _, snapshot := range result.Status.Snapshots {
+		if snapshot != nil {
+			snapshot.Locality = ""
+		}
+	}
 	return result
 }
 

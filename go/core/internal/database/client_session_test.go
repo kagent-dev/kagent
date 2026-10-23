@@ -441,7 +441,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.GetSessionCheckpointAgent(ctx, checkpoint.GetId(), "alice")
+	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice")
 	require.ErrorIs(t, err, ErrNotFound, "creating checkpoints cannot supply fork provenance")
 	if _, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid-1", "s3://tags/checkpoint", ""); err != nil {
 		t.Fatal(err)
@@ -471,13 +471,17 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 
 	_, err = client.GetSession(ctx, source.GetId(), "alice")
 	require.ErrorIs(t, err, ErrNotFound, "ordinary Session reads still hide deleted sources")
-	agent, err := client.GetSessionCheckpointAgent(ctx, checkpoint.GetId(), "alice")
+	forkSource, err := client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice")
 	require.NoError(t, err)
-	require.Equal(t, revision.Namespace, agent.Namespace)
-	require.Equal(t, revision.AgentName, agent.Name)
-	_, err = client.GetSessionCheckpointAgent(ctx, checkpoint.GetId(), "bob")
+	require.Equal(t, revision.Namespace, forkSource.Agent.Namespace)
+	require.Equal(t, revision.AgentName, forkSource.Agent.Name)
+	require.Equal(t, source.GetId(), forkSource.Checkpoint.GetSessionId())
+	require.Equal(t, "Before the detour", forkSource.Checkpoint.GetName())
+	require.Equal(t, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://tags/checkpoint", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}, forkSource.Snapshot)
+	require.Equal(t, "tag-uid-1", forkSource.TagUID)
+	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "bob")
 	require.ErrorIs(t, err, ErrNotFound, "retained provenance remains owner-scoped")
-	_, err = client.GetSessionCheckpointAgent(ctx, uuid.NewString(), "alice")
+	_, err = client.GetSessionCheckpointForkSource(ctx, uuid.NewString(), "alice")
 	require.ErrorIs(t, err, ErrNotFound)
 
 	fork, created, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "fork-request-1", forkID)

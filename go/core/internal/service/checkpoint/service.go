@@ -30,9 +30,8 @@ type store interface {
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
-	GetSessionCheckpointAgent(context.Context, string, string) (*apiv1.ResourceReference, error)
+	GetSessionCheckpointForkSource(context.Context, string, string) (*database.SessionCheckpointForkSource, error)
 	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error)
-	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	BeginDeleteSessionCheckpoint(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	DeleteSessionCheckpoint(context.Context, string, string) error
 	ForkSession(context.Context, string, string, string, string) (*apiv1.Session, bool, error)
@@ -319,28 +318,28 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if err != nil {
 		return nil, err
 	}
-	checkpoint, err := s.Get(ctx, checkpointID)
+	userID, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Checkpoint", Name: checkpointID})
 	if err != nil {
 		return nil, err
 	}
-	authSession, _ := auth.AuthSessionFrom(ctx) // Get authenticated and checked checkpoint ownership.
-	userID := authSession.Principal().User.ID
-	// A retained checkpoint outlives its source Session. Check permission on the
-	// saved source ID, then resolve the Agent through the owned checkpoint.
-	sourceID, err := validateIdentity(checkpoint.GetSessionId())
+	source, err := s.store.GetSessionCheckpointForkSource(ctx, checkpointID, userID)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get checkpoint fork source", err)
+	}
+	authSession, _ := auth.AuthSessionFrom(ctx) // authorize authenticated the caller.
+	// A retained checkpoint outlives its source Session. Authorize its saved
+	// source ID and target Agent without requiring a live source Session.
+	sourceID, err := validateIdentity(source.Checkpoint.GetSessionId())
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Invalid checkpoint source Session", err)
 	}
 	if _, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Session", Name: sourceID}); err != nil {
 		return nil, err
 	}
-	agent, err := s.store.GetSessionCheckpointAgent(ctx, checkpointID, userID)
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get checkpoint Agent", err)
-	}
+	agent := source.Agent
 	if agent.GetNamespace() == "" || agent.GetName() == "" {
 		return nil, serviceerrors.NewFailedPrecondition("Checkpoint has no target Agent", nil)
 	}
@@ -350,13 +349,7 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Namespace: agent.Namespace, Name: agent.Name}); err != nil {
 		return nil, serviceerrors.NewPermissionDenied("Not authorized to access target Agent", err)
 	}
-	snapshot, tagUID, err := s.store.GetSessionCheckpointSnapshot(ctx, checkpointID, userID)
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
-	}
+	snapshot, tagUID := source.Snapshot, source.TagUID
 	if snapshot.Fidelity != "SNAPSHOT_FIDELITY_VOLUMES" {
 		return nil, serviceerrors.NewFailedPrecondition("Only volume checkpoints can be forked", nil)
 	}
