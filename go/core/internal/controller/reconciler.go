@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"reflect"
 	"slices"
 	"strings"
@@ -199,6 +200,7 @@ type runtimeRevisionStore interface {
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
+	ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error)
 }
 
 type actorTemplateClient interface {
@@ -206,6 +208,7 @@ type actorTemplateClient interface {
 	EnsureAtespace(context.Context, string) error
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
 	CreateActorTemplate(context.Context, *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error)
+	DeleteActorTemplateUID(ctx context.Context, atespace, name, uid string) error
 }
 
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
@@ -215,6 +218,8 @@ type Reconciler struct {
 	templates   actorTemplateClient
 	store       runtimeRevisionStore
 	status      kagentclient.ApiV1alpha3Interface
+	goldenRetry goldenRetryPolicy
+	random      func() float64
 
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
@@ -245,6 +250,8 @@ func newReconciler(
 		templates:   templates,
 		store:       store,
 		status:      status,
+		goldenRetry: defaultGoldenRetryPolicy,
+		random:      rand.Float64,
 	}
 	r.agents = newReconciliationQueue("agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
@@ -451,6 +458,9 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
 	if err := r.store.RecordRuntimeRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
+	}
+	if isGoldenCrash(observed) {
+		return r.retryGoldenCrash(ctx, *state, observed)
 	}
 
 	// This observation drives Kubernetes Ready status on a separate queue.

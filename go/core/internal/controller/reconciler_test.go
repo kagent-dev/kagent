@@ -288,6 +288,8 @@ type fakeActorTemplates struct {
 	createErr          error
 	deleteErr          error
 	deletedBeforeError bool
+	deletedUIDs        []string
+	uids               []string // assigned to created templates before "actor-uid"
 }
 
 func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return f.ensureErr }
@@ -308,7 +310,21 @@ func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *at
 	}
 	f.template = proto.CloneOf(template)
 	f.template.Metadata.Uid = "actor-uid"
+	if len(f.uids) != 0 {
+		f.template.Metadata.Uid, f.uids = f.uids[0], f.uids[1:]
+	}
 	return f.template, nil
+}
+
+func (f *fakeActorTemplates) DeleteActorTemplateUID(_ context.Context, _, _, uid string) error {
+	f.deletedUIDs = append(f.deletedUIDs, uid)
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	if f.template.GetMetadata().GetUid() == uid {
+		f.template = nil
+	}
+	return nil
 }
 
 func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string) error {
@@ -334,6 +350,25 @@ type fakeRuntimeRevisionStore struct {
 	pairCalls         int
 	definitionSources []database.RuntimeEgressSource
 	sourcesErr        error
+	goldenAttempts    int
+	goldenCrashUID    string
+	goldenRetryAt     time.Time
+	goldenCalls       int
+}
+
+// ScheduleGoldenRetry mirrors the PostgreSQL store's per-revision schedule.
+func (s *fakeRuntimeRevisionStore) ScheduleGoldenRetry(_ context.Context, _, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+	s.goldenCalls++
+	if s.goldenCrashUID == crashedTemplateUID {
+		return database.GoldenRetry{Attempts: s.goldenAttempts, RetryAt: s.goldenRetryAt}, nil
+	}
+	if s.goldenAttempts >= len(delays) {
+		return database.GoldenRetry{Attempts: s.goldenAttempts, Exhausted: true}, nil
+	}
+	s.goldenRetryAt = now.Add(delays[s.goldenAttempts])
+	s.goldenAttempts++
+	s.goldenCrashUID = crashedTemplateUID
+	return database.GoldenRetry{Attempts: s.goldenAttempts, RetryAt: s.goldenRetryAt}, nil
 }
 
 func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error) {

@@ -355,6 +355,18 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
+func (p *preparationTestBackend) DeleteActorTemplateUID(ctx context.Context, atespace, name, uid string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.templates.DeleteActorTemplateUID(ctx, atespace, name, uid)
+}
+
+func (p *preparationTestBackend) ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.ScheduleGoldenRetry(ctx, revision, crashedTemplateUID, now, delays)
+}
+
 func (p *preparationTestBackend) ListAgentEgressSources(ctx context.Context) ([]database.RuntimeEgressSource, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -421,8 +433,17 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 }
 
 func TestPreparationTerminalFailures(t *testing.T) {
-	for _, reason := range []string{"ActorTemplateRejected", "ActorTemplateConflict", "ActorTemplateFailed"} {
-		t.Run(reason, func(t *testing.T) {
+	goldenFailures := map[string]string{
+		"ActorTemplateFailed": "snapshot failed",
+		"GoldenActorInvalid":  "GoldenActorInvalid: golden actor spec is invalid",
+		"GoldenTagConflict":   "GoldenTagConflict: golden tag belongs to another actor or template",
+	}
+	for _, name := range []string{"ActorTemplateRejected", "ActorTemplateConflict", "ActorTemplateFailed", "GoldenActorInvalid", "GoldenTagConflict"} {
+		reason := name
+		if _, ok := goldenFailures[name]; ok {
+			reason = "ActorTemplateFailed"
+		}
+		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				collections, harnesses := newPreparationTestCollections(t, "microvm")
 				initial := collections.Reconciliations.List()[0]
@@ -435,7 +456,7 @@ func TestPreparationTerminalFailures(t *testing.T) {
 					templates.template.Containers[0].Args = []string{"unexpected"}
 				case "ActorTemplateFailed":
 					templates.template = proto.CloneOf(initial.Target.ActorTemplate)
-					templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "snapshot failed"}}
+					templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenFailures[name]}}
 				}
 				store := &fakeRuntimeRevisionStore{}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
@@ -457,6 +478,8 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				time.Sleep(5 * time.Minute)
 				synctest.Wait()
 				require.Equal(t, 1, store.pairCalls, "neither the queue nor the poller may retry terminal failures")
+				require.Empty(t, templates.deletedUIDs, "only GoldenActorCrashed recreates the template")
+				require.Zero(t, store.goldenCalls)
 
 				store.pairErr = errors.New("database unavailable")
 				require.ErrorIs(t, r.reconcileAgent(t.Context(), initial.ResourceName()), store.pairErr)

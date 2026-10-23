@@ -665,3 +665,47 @@ func TestRecordReadyRevisionRollsBackOnPromotionFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduleGoldenRetry(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool, "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "rev", "assistant", "kagent")
+	revision, err := client.GetRuntimeRevision(ctx, "rev")
+	require.NoError(t, err)
+	delays := []time.Duration{15 * time.Second, time.Minute}
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+
+	_, err = client.ScheduleGoldenRetry(ctx, "rev", "other-uid", now, delays)
+	require.ErrorIs(t, err, ErrNotFound, "a crash must belong to the revision's recorded template")
+
+	first, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
+	require.NoError(t, err)
+	require.Equal(t, GoldenRetry{Attempts: 1, RetryAt: now.Add(15 * time.Second)}, normalizeRetry(first))
+	restarted := NewClient(pool, "public")
+	again, err := restarted.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now.Add(time.Hour), []time.Duration{time.Hour, time.Hour})
+	require.NoError(t, err)
+	require.Equal(t, normalizeRetry(first), normalizeRetry(again), "the same crash must keep its schedule across restarts")
+
+	for i, uid := range []string{"uid-2", "uid-3"} {
+		revision.ActorTemplateUID = uid
+		require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{}))
+		retry, err := client.ScheduleGoldenRetry(ctx, "rev", uid, now, delays)
+		require.NoError(t, err)
+		if i == 0 {
+			require.Equal(t, GoldenRetry{Attempts: 2, RetryAt: now.Add(time.Minute)}, normalizeRetry(retry))
+			continue
+		}
+		require.Equal(t, GoldenRetry{Attempts: 2, Exhausted: true}, retry, "a crash after every delay is used must be terminal")
+	}
+
+	sessionFixture(t, client, ctx, "team-a", "rev-2", "assistant", "kagent")
+	next, err := client.ScheduleGoldenRetry(ctx, "rev-2", "rev-2-actor-uid", now, delays)
+	require.NoError(t, err)
+	require.Equal(t, 1, next.Attempts, "a new revision starts with the full budget")
+}
+
+func normalizeRetry(retry GoldenRetry) GoldenRetry {
+	retry.RetryAt = retry.RetryAt.UTC()
+	return retry
+}
