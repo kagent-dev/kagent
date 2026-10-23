@@ -18,6 +18,7 @@ import (
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -760,4 +761,71 @@ func TestInventoryRowBudgetAndHybridBatchingSpanAtespaces(t *testing.T) {
 		total += size
 	}
 	require.Equal(t, int32(10_000), total, "row budget must not reset at an atespace boundary")
+}
+
+func TestActorListRedactsIndependentlyDeniedWorkerPlacement(t *testing.T) {
+	for _, scenario := range []string{"allowed", "none", "wrong name", "pod name", "pool name", "unwatched", "missing identity", "node without assignment"} {
+		t.Run(scenario, func(t *testing.T) {
+			assignment := &ateapipb.WorkerAssignment{Worker: &ateapipb.ObjectRef{Name: "worker-id"}, WorkerNamespace: "workers", WorkerPod: "private-pod", WorkerPool: "private-pool", WorkerPodIps: []string{"10.1.2.3"}, NodeName: "private-node"}
+			actor := substrateActor("visible-actor", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "", "")
+			actor.Status.WorkerAssignment = assignment
+			actor.Status.AssignedNode = "private-node"
+			workerName := "worker-id"
+			watched := []string{"team", "workers"}
+			switch scenario {
+			case "wrong name":
+				workerName = "other-worker"
+			case "pod name":
+				workerName = assignment.WorkerPod
+			case "pool name":
+				workerName = assignment.WorkerPool
+			case "unwatched":
+				watched = []string{"team"}
+			case "missing identity":
+				assignment.Worker = nil
+			case "node without assignment":
+				actor.Status.WorkerAssignment = nil
+			}
+			workerScope := inventoryScope(apiauthorization.AttributeNamespace, "workers", workerName)
+			if scenario == "none" {
+				workerScope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}
+			}
+			policy := inventoryAuthorizer{scopes: map[string]apiauthorization.AuthorizationScope{
+				"SubstrateActor":  inventoryScope(apiauthorization.AttributeAtespace, "team", "visible-actor"),
+				"SubstrateWorker": workerScope,
+			}}
+			original := proto.CloneOf(actor)
+			svc := system.NewService(nil, watched, policy, &fakeATEClient{actors: []*ateapipb.Actor{actor}})
+			page, err := svc.ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{Atespace: "team"})
+			require.NoError(t, err)
+			require.Empty(t, page.ATEAPIError)
+			require.Len(t, page.Actors, 1)
+			got := page.Actors[0].GetStatus()
+			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, got.GetState())
+			if scenario == "allowed" {
+				require.True(t, proto.Equal(assignment, got.GetWorkerAssignment()))
+				require.Equal(t, "private-node", got.GetAssignedNode())
+			} else {
+				require.Nil(t, got.GetWorkerAssignment())
+				require.Empty(t, got.GetAssignedNode())
+			}
+			require.True(t, proto.Equal(original, actor), "redaction must not mutate shared backend objects")
+		})
+	}
+}
+
+func TestActorListWorkerScopeErrorsFailBeforeInventoryRead(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		policy := inventoryAuthorizer{scopes: map[string]apiauthorization.AuthorizationScope{
+			"SubstrateActor":  {Kind: apiauthorization.ScopeAll},
+			"SubstrateWorker": inventoryScope(apiauthorization.AttributeAtespace, "wrong-attribute", "worker"),
+		}}
+		if failed {
+			policy.fail = "SubstrateWorker"
+		}
+		ate := &fakeATEClient{}
+		_, err := system.NewService(nil, nil, policy, ate).ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{})
+		require.Error(t, err)
+		require.Zero(t, ate.actorReads)
+	}
 }

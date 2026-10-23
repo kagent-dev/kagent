@@ -96,6 +96,20 @@ Category-only authorizers may ignore this creation namespace and continue checki
 Session manage permission; they need not expose namespace as a Session catalog
 attribute. The `create ScheduledRun` check itself remains category-level.
 
+Target Agent access is checked when a Session is created, including checkpoint
+forks. It is an admission prerequisite, not a continuous grant for the lifetime of
+the conversation. Follow-up sends (including `invoke_session`) and Resume require
+their current Session permissions and ownership, without rechecking `get Agent`.
+Revoking Agent access prevents new conversations but does not stop existing ones;
+revoke Session permissions to stop further sends or resumes. Schedule updates and
+manual triggers separately recheck target grants as described below.
+
+Checkpoint API UUID inputs are normalized to canonical lowercase hyphenated form
+before authorization and storage access, including source Session IDs and
+checkpoint pagination boundaries.
+Equivalent textual encodings cannot bypass exact-identity policy rules.
+
+
 | Operation | Required checks (`verb Resource`, with `name`) |
 | --- | --- |
 | List Sessions | `list Session`, empty name; `get Session`, Session ID, for every returned row |
@@ -168,6 +182,13 @@ requested namespace or atespace. A `NONE` scope skips reads for that family and
 contributes no rows, counts, or status totals. Missing or blank inventory identities
 are excluded even under `ALL`. Invalid scopes and evaluator errors fail the request.
 WorkerPool scope does not grant access to any Substrate family.
+Actor list rows expose worker assignments only when the independent SubstrateWorker
+scope permits the assignment's worker namespace and global worker metadata name,
+and that namespace is watched. Worker pod names and pool names do not establish
+worker identity. Otherwise the assignment and assigned node are omitted; Actor
+lifecycle state remains visible. Missing worker identities are redacted, and
+invalid or failed worker scope decisions fail the Actor list request.
+
 
 Dedicated actor and worker endpoints request `Scope(VerbList, "SubstrateActor")`
 and `Scope(VerbList, "SubstrateWorker")`, respectively. They do not require

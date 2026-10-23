@@ -236,6 +236,7 @@ func substrateActor(name, atespace string, state ateapipb.ActorState, workerName
 	status := &ateapipb.ActorStatus{State: state}
 	if workerPod != "" {
 		status.WorkerAssignment = &ateapipb.WorkerAssignment{
+			Worker:          &ateapipb.ObjectRef{Name: "worker-identity"},
 			WorkerNamespace: workerNamespace,
 			WorkerPod:       workerPod,
 		}

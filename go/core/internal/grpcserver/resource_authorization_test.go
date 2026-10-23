@@ -260,7 +260,7 @@ func (p pagedInventoryATE) ListActorsPage(_ context.Context, scope string, _ int
 	if name == "" {
 		return nil, "", nil
 	}
-	return []*ateapipb.Actor{{Metadata: &ateapipb.ResourceMetadata{Atespace: "team", Name: name}}}, next, nil
+	return []*ateapipb.Actor{{Metadata: &ateapipb.ResourceMetadata{Atespace: "team", Name: name}, Status: &ateapipb.ActorStatus{AssignedNode: "private-node", WorkerAssignment: &ateapipb.WorkerAssignment{Worker: &ateapipb.ObjectRef{Name: "private-worker"}, WorkerNamespace: "team", WorkerPod: "private-pod", WorkerPodIps: []string{"10.1.2.3"}}}}}, next, nil
 }
 
 func (p pagedInventoryATE) ListWorkersPage(_ context.Context, _ int32, token string) ([]*ateapipb.Worker, string, error) {
@@ -286,6 +286,8 @@ func TestInventoryCursorConfidentialityThroughGeneratedClient(t *testing.T) {
 				require.Empty(t, actors.GetAteApiError())
 				require.Len(t, actors.Actors, 1)
 				require.Equal(t, name, actors.Actors[0].GetMetadata().GetName())
+				require.Nil(t, actors.Actors[0].GetStatus().GetWorkerAssignment())
+				require.Empty(t, actors.Actors[0].GetStatus().GetAssignedNode())
 				workers, err := client.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{Limit: 1, PageToken: workerToken}})
 				require.NoError(t, err)
 				require.Empty(t, workers.GetAteApiError())

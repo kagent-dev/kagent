@@ -77,7 +77,8 @@ func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflo
 }
 
 func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHeadTaskID string) (*apiv1.Checkpoint, error) {
-	if err := validateCreate(sessionID, requestID); err != nil {
+	sessionID, err := validateCreate(sessionID, requestID)
+	if err != nil {
 		return nil, err
 	}
 	if expectedHeadTaskID == "" {
@@ -205,7 +206,8 @@ func (s *Service) verifySnapshot(ctx context.Context, actorName string, referenc
 }
 
 func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1.Checkpoint, error) {
-	if err := validateIdentity(checkpointID); err != nil {
+	checkpointID, err := validateIdentity(checkpointID)
+	if err != nil {
 		return nil, err
 	}
 	userID, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Checkpoint", Name: checkpointID})
@@ -223,7 +225,8 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1.Checkpoi
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
-	if err := validateIdentity(request.SessionID); err != nil {
+	sessionID, err := validateIdentity(request.SessionID)
+	if err != nil {
 		return ListResult{}, err
 	}
 	userID, err := s.authorize(ctx, auth.VerbList, auth.Resource{Type: "Checkpoint"})
@@ -241,7 +244,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	rows, err := s.store.ListSessionCheckpoints(ctx, request.SessionID, userID, afterID, pageSize+1)
+	rows, err := s.store.ListSessionCheckpoints(ctx, sessionID, userID, afterID, pageSize+1)
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInternal("Failed to list checkpoints", err)
 	}
@@ -253,7 +256,8 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 }
 
 func (s *Service) Delete(ctx context.Context, checkpointID string) error {
-	if err := validateIdentity(checkpointID); err != nil {
+	checkpointID, err := validateIdentity(checkpointID)
+	if err != nil {
 		return err
 	}
 	userID, err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "Checkpoint", Name: checkpointID})
@@ -292,7 +296,8 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 // Rename sets the checkpoint's display name, which forks taken from it inherit. It
 // authorizes as a write: reading a checkpoint must not confer retitling it.
 func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1.Checkpoint, error) {
-	if err := validateIdentity(checkpointID); err != nil {
+	checkpointID, err := validateIdentity(checkpointID)
+	if err != nil {
 		return nil, err
 	}
 	userID, err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: "Checkpoint", Name: checkpointID})
@@ -310,7 +315,8 @@ func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1
 }
 
 func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*apiv1.Session, error) {
-	if err := validateCreate(checkpointID, requestID); err != nil {
+	checkpointID, err := validateCreate(checkpointID, requestID)
+	if err != nil {
 		return nil, err
 	}
 	checkpoint, err := s.Get(ctx, checkpointID)
@@ -321,7 +327,11 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	userID := authSession.Principal().User.ID
 	// A retained checkpoint outlives its source Session. Check permission on the
 	// saved source ID, then resolve the Agent through the owned checkpoint.
-	if _, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Session", Name: checkpoint.GetSessionId()}); err != nil {
+	sourceID, err := validateIdentity(checkpoint.GetSessionId())
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Invalid checkpoint source Session", err)
+	}
+	if _, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Session", Name: sourceID}); err != nil {
 		return nil, err
 	}
 	agent, err := s.store.GetSessionCheckpointAgent(ctx, checkpointID, userID)
@@ -405,21 +415,23 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.R
 	return principal.User.ID, nil
 }
 
-func validateCreate(sessionID, requestID string) error {
-	if err := validateIdentity(sessionID); err != nil {
-		return err
+func validateCreate(id, requestID string) (string, error) {
+	canonical, err := validateIdentity(id)
+	if err != nil {
+		return "", err
 	}
 	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
-		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
+		return "", serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
 	}
-	return nil
+	return canonical, nil
 }
 
-func validateIdentity(id string) error {
-	if _, err := uuid.Parse(id); err != nil {
-		return serviceerrors.NewInvalidArgument("identifier is invalid", err)
+func validateIdentity(id string) (string, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return "", serviceerrors.NewInvalidArgument("identifier is invalid", err)
 	}
-	return nil
+	return parsed.String(), nil
 }
 
 func encodePageToken(id string) string {
@@ -436,8 +448,5 @@ func decodePageToken(token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := uuid.Parse(string(value)); err != nil {
-		return "", err
-	}
-	return string(value), nil
+	return validateIdentity(string(value))
 }

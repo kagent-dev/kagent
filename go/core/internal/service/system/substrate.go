@@ -13,6 +13,7 @@ import (
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -248,6 +249,15 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 	if err != nil {
 		return SubstrateActorPage{}, err
 	}
+	// Worker inventory is an independent permission, including when embedded in Actors.
+	workerMatcher, err := inventoryauth.CollectionMatcher(ctx, s.authorizer, substrateWorkerResource, authorization.AttributeNamespace)
+	if err != nil {
+		return SubstrateActorPage{}, err
+	}
+	workerScope, err := s.resolveSubstrateScope("")
+	if err != nil {
+		return SubstrateActorPage{}, err
+	}
 	limit := substratePageSize(input.GetPage().GetLimit())
 	result := SubstrateActorPage{ComputedAt: time.Now().UTC()}
 	actors, err := s.collectAuthorizedActors(ctx, scope, matcher, after, limit+1)
@@ -261,8 +271,28 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 		last := actors[limit-1].GetMetadata()
 		result.NextPageToken = inventoryCursor("actor", input.GetAtespace(), last.GetAtespace(), last.GetName())
 	}
+	for index, actor := range actors {
+		actors[index] = actorInventory(actor, workerMatcher, workerScope)
+	}
 	result.Actors = actors
 	return result, nil
+}
+
+// actorInventory hides worker placement unless its exact global worker identity
+// is visible. Clone only redacted rows so shared backend objects are never mutated.
+func actorInventory(actor *ateapipb.Actor, workers inventoryauth.Matcher, scope substrateScope) *ateapipb.Actor {
+	status := actor.GetStatus()
+	assignment := status.GetWorkerAssignment()
+	if scope.contains(assignment.GetWorkerNamespace()) && workers.Matches(assignment.GetWorkerNamespace(), assignment.GetWorker().GetName()) {
+		return actor
+	}
+	if assignment == nil && status.GetAssignedNode() == "" {
+		return actor
+	}
+	result := proto.CloneOf(actor)
+	result.Status.WorkerAssignment = nil
+	result.Status.AssignedNode = ""
+	return result
 }
 
 // collectAuthorizedActors reads in atespace/name order, starting after the cursor.
