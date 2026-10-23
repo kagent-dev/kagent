@@ -1,0 +1,14 @@
+# Replace the example URL with an agentgateway model route you trust.
+# The gateway must separately key its token-limit rule on
+# request.headers["x-agent-id"]. This option does not configure the rule.
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata:
+  name: agentgateway-model
+  namespace: team-a
+spec:
+  provider: OpenAI
+  model: example-model
+  sendAgentIDHeader: true
+  openAI:
+    baseUrl: https://agentgateway.example.com/v1

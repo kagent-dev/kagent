@@ -1203,6 +1203,11 @@ func (in *ModelConfigSpec) DeepCopyInto(out *ModelConfigSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.SendAgentIDHeader != nil {
+		in, out := &in.SendAgentIDHeader, &out.SendAgentIDHeader
+		*out = new(bool)
+		**out = **in
+	}
 	if in.OpenAI != nil {
 		in, out := &in.OpenAI, &out.OpenAI
 		*out = new(OpenAIConfig)
