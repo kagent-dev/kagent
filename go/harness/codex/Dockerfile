@@ -6,9 +6,14 @@ ARG TARGETOS
 
 WORKDIR /workspace
 COPY go.mod go.sum ./
+# go mod download retries a transient proxy error; a missing module still fails on the third attempt.
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     --mount=type=cache,target=/root/.cache/go-build,rw \
-    go mod download
+    for attempt in 1 2 3; do \
+        go mod download && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "go mod download failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done
 COPY api/ api/
 COPY adk/ adk/
 COPY core/ core/
@@ -26,7 +31,12 @@ ARG CODEX_CLI_ARM64_SHA256=3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e56
 ARG TARGETARCH
 ARG VERSION
 
-RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ \
+# apk retries a transient mirror error; a missing package still fails on the third attempt.
+RUN for attempt in 1 2 3; do \
+        apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done \
     && case "${TARGETARCH}" in \
         amd64) platform="x86_64-unknown-linux-musl"; checksum="${CODEX_CLI_AMD64_SHA256}" ;; \
         arm64) platform="aarch64-unknown-linux-musl"; checksum="${CODEX_CLI_ARM64_SHA256}" ;; \
