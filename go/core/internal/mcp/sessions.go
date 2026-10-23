@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"buf.build/go/protovalidate"
@@ -45,10 +44,6 @@ const (
 	envelopeSlack = 128
 )
 
-// firstMessageIDs derives a first message's id from its Session and request
-// id, so a create_session retry finds the turn it already started.
-var firstMessageIDs = uuid.MustParse("0c4f8e0a-7a7b-4c56-9e0f-5b8d2f6c1a34")
-
 var sessionDescriptions = map[string]string{
 	"agent":           "The Agent the Session talks to",
 	"agent.namespace": "Agent namespace",
@@ -57,19 +52,8 @@ var sessionDescriptions = map[string]string{
 	"name":            "Optional display name",
 }
 
-type SessionDetail struct {
-	ID        string          `json:"id"`
-	Agent     string          `json:"agent"`
-	Name      string          `json:"name,omitempty"`
-	State     string          `json:"state"`
-	Operation string          `json:"operation,omitempty"`
-	Failure   *FailureSummary `json:"failure,omitempty"`
-	CreatedAt string          `json:"created_at,omitempty"`
-	UpdatedAt string          `json:"updated_at,omitempty"`
-}
-
 type CreateSessionOutput struct {
-	Session SessionDetail        `json:"session"`
+	Session SessionSummary       `json:"session"`
 	Turn    *InvokeSessionOutput `json:"turn,omitempty"`
 }
 
@@ -78,7 +62,7 @@ type SessionIDInput struct {
 }
 
 type SessionOutput struct {
-	Session SessionDetail `json:"session"`
+	Session SessionSummary `json:"session"`
 }
 
 type RenameSessionInput struct {
@@ -94,13 +78,13 @@ type GetSessionInput struct {
 }
 
 type GetSessionOutput struct {
-	Session      SessionDetail `json:"session"`
-	Detail       string        `json:"detail"`
-	TotalTurns   int           `json:"total_turns"`
-	OmittedTurns int           `json:"omitted_turns,omitempty"`
-	Truncated    bool          `json:"truncated,omitempty"`
-	Hint         string        `json:"hint,omitempty"`
-	Turns        []Turn        `json:"turns"`
+	Session      SessionSummary `json:"session"`
+	Detail       string         `json:"detail"`
+	TotalTurns   int            `json:"total_turns"`
+	OmittedTurns int            `json:"omitted_turns,omitempty"`
+	Truncated    bool           `json:"truncated,omitempty"`
+	Hint         string         `json:"hint,omitempty"`
+	Turns        []Turn         `json:"turns"`
 }
 
 type GetSessionTurnInput struct {
@@ -139,9 +123,8 @@ var (
 func (h *Handler) registerSessionTools(server *mcp.Server) {
 	server.AddTool(&mcp.Tool{
 		Name:        createSessionToolName,
-		Description: "Start a Session with an Agent, optionally sending its first message. With message it returns once the turn is accepted; read the reply with get_session.",
+		Description: "Start a Session with an Agent, optionally sending its first message. With message it returns once the turn is accepted; read the reply with get_session. A retry with the same request_id returns the same Session and turn.",
 		InputSchema: createSessionSchema(),
-		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, DestructiveHint: new(false)},
 	}, h.createSession)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        getSessionToolName,
@@ -235,7 +218,7 @@ func (h *Handler) createSession(ctx context.Context, request *mcp.CallToolReques
 	if err != nil {
 		return sessionToolError(err), nil
 	}
-	output := CreateSessionOutput{Session: sessionDetail(session)}
+	output := CreateSessionOutput{Session: sessionSummary(session)}
 	text := fmt.Sprintf("Created Session %s", session.GetId())
 	if message != "" {
 		turn, err := h.firstTurn(ctx, session, create.GetRequestId(), message)
@@ -253,7 +236,7 @@ func (h *Handler) createSession(ctx context.Context, request *mcp.CallToolReques
 // ID is derived from the Session and request ID, and when the first turn
 // already carries it, that turn is answered and nothing is sent.
 func (h *Handler) firstTurn(ctx context.Context, session *apiv1.Session, requestID, message string) (*a2atype.Task, error) {
-	messageID := uuid.NewSHA1(firstMessageIDs, []byte(session.GetId()+"/"+requestID)).String()
+	messageID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("mcp/first-message/"+session.GetId()+"/"+requestID)).String()
 	tenant := sessionTenant(session)
 	routed := interactionContext(ctx)
 	listed, err := h.gateway.ListTasks(routed, &a2atype.ListTasksRequest{Tenant: tenant, ContextID: session.GetId(), PageSize: 1})
@@ -291,7 +274,7 @@ func (h *Handler) getSession(ctx context.Context, _ *mcp.CallToolRequest, input 
 	if err != nil {
 		return toolError(err), GetSessionOutput{}, nil
 	}
-	output := GetSessionOutput{Session: sessionDetail(session), Detail: detail, TotalTurns: len(tasks), Turns: []Turn{}}
+	output := GetSessionOutput{Session: sessionSummary(session), Detail: detail, TotalTurns: len(tasks), Turns: []Turn{}}
 	budget := maxBytes - jsonSize(output) - max(len(omittedTurnsHint), len(turnBoundHint)) - envelopeSlack
 	first := 0
 	if input.LastTurns > 0 {
@@ -558,28 +541,8 @@ func sessionTenant(session *apiv1.Session) string {
 	return session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName()
 }
 
-func sessionDetail(session *apiv1.Session) SessionDetail {
-	result := SessionDetail{
-		ID: session.GetId(), Agent: sessionTenant(session), Name: session.GetName(),
-		State: session.GetState().String(),
-	}
-	if session.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_UNSPECIFIED {
-		result.Operation = session.GetOperation().String()
-	}
-	if session.GetFailure() != nil {
-		result.Failure = &FailureSummary{Reason: session.GetFailure().GetReason(), Message: session.GetFailure().GetMessage()}
-	}
-	if session.GetCreatedAt() != nil {
-		result.CreatedAt = session.GetCreatedAt().AsTime().Format(time.RFC3339Nano)
-	}
-	if session.GetUpdatedAt() != nil {
-		result.UpdatedAt = session.GetUpdatedAt().AsTime().Format(time.RFC3339Nano)
-	}
-	return result
-}
-
 func sessionResult(session *apiv1.Session) (*mcp.CallToolResult, SessionOutput, error) {
-	output := SessionOutput{Session: sessionDetail(session)}
+	output := SessionOutput{Session: sessionSummary(session)}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{
 		Text: fmt.Sprintf("Session %s is %s", session.GetId(), session.GetState()),
 	}}}, output, nil
