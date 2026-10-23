@@ -162,6 +162,7 @@ type listActorTemplatesFake struct {
 type deleteActorTemplateFake struct {
 	ateapipb.ControlClient
 	template *ateapipb.ObjectRef
+	options  *ateapipb.DeleteOptions
 	actor    *ateapipb.DeleteActorRequest
 }
 
@@ -203,6 +204,7 @@ func TestListActorTemplatesFollowsPagination(t *testing.T) {
 
 func (f *deleteActorTemplateFake) DeleteActorTemplate(_ context.Context, in *ateapipb.DeleteActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
 	f.template = in.GetActorTemplate()
+	f.options = in.GetOptions()
 	return nil, status.Error(codes.NotFound, "already deleted")
 }
 
@@ -217,6 +219,15 @@ func TestDeleteActorTemplateRetriesNotFound(t *testing.T) {
 	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template"))
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
 	require.Nil(t, fake.actor, "Substrate owns golden Actor cleanup")
+	require.Nil(t, fake.options, "an unguarded delete sends no preconditions")
+}
+
+func TestDeleteActorTemplateUIDSendsPrecondition(t *testing.T) {
+	fake := &deleteActorTemplateFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	require.NoError(t, client.DeleteActorTemplateUID(t.Context(), "team-a", "template", "crashed-uid"))
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
+	require.Equal(t, "crashed-uid", fake.options.GetUid(), "a replacement template under the same name must survive")
 }
 
 func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
