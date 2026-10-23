@@ -191,6 +191,9 @@ export interface AgentInstancesApi {
   ): Promise<AgentInstance[]>;
   get(id: string, options?: ReadOptions): Promise<AgentInstance>;
 
+  /** Restores a crashed runtime to its last retained snapshot. */
+  revert(id: string): Promise<AgentInstance>;
+
   create(input: {
     agent: ResourceRefInput;
     /**
@@ -355,6 +358,7 @@ export function createApiClient(): KagentApiClient {
         invoke("agentInstances.rename", { id, name }),
       get: (id, options) =>
         invoke("agentInstances.get", { id }, options),
+      revert: (id) => invoke("agentInstances.revert", { id }),
       create: (input) => invoke("agentInstances.create", input),
       remove: (id) => invoke("agentInstances.delete", { id }),
       fork: (id, name) =>

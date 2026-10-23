@@ -29,6 +29,7 @@ export function ChatMessageItem({
   message,
   sessionId,
   isCheckpointed = false,
+  failed = false,
   onManagePush,
 }: {
   message: ChatMessage;
@@ -36,6 +37,7 @@ export function ChatMessageItem({
   sessionId?: string;
   /** Whether this message is above the nearest saved boundary, for the browser suite. */
   isCheckpointed?: boolean;
+  failed?: boolean;
   /** Opens the callback settings for this message's task. */
   onManagePush?: () => void;
 }) {
@@ -128,6 +130,12 @@ export function ChatMessageItem({
             />
           );
         })}
+
+        {failed ? (
+          <Text type="danger" role="status">
+            Failed to send — the recovered agent did not retain this message.
+          </Text>
+        ) : null}
 
         {/* A reply that has been announced but has no text yet: without this the
             message would be an invisible gap between the tool result and the

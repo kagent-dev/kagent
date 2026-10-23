@@ -108,6 +108,7 @@ const INPUTS = {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
   },
+  "agentInstances.revert": { id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44" },
   "agentInstances.shares.list": {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
@@ -246,8 +247,10 @@ describe("the fixture backend", () => {
       operationIds.map(async (id) => {
         try {
           await run(id);
+          if (id === "agentInstances.revert") return `${id}: a runtime that is not crashed accepted recovery`;
           return null;
         } catch (error) {
+          if (id === "agentInstances.revert" && error instanceof ApiError && error.code === "FailedPrecondition") return null;
           return `${id}: ${(error as Error).message}`;
         }
       }),

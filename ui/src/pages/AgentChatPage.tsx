@@ -13,6 +13,7 @@ import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsM
 import { SnapshotDetailsModal } from "@/components/chat/SnapshotDetailsModal";
 import { SnapshotRenameDialog } from "@/components/chat/SnapshotRenameDialog";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
+import { SessionRecoveryAlert } from "@/components/chat/SessionRecoveryAlert";
 import { TaskPushNotificationsModal } from "@/components/chat/TaskPushNotificationsModal";
 import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
@@ -305,7 +306,8 @@ export function AgentChatPage() {
 
   // Automatic runtime quiescence leaves the conversation ready for its next turn.
   const state = instance.data?.state;
-  const canSend = state === "ready";
+  const recovery = instance.data?.recovery;
+  const canSend = state === "ready" && recovery?.needed !== true;
 
   /*
    * Watching the instance while it is doing something.
@@ -427,7 +429,28 @@ export function AgentChatPage() {
     // and depending on it would re-run this on each one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, chat.isLoadingHistory]);
-  const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply);
+  const [isReverting, setReverting] = useState(false);
+  const revertRuntime = useCallback(async () => {
+    if (!id) return;
+    setReverting(true);
+    let reverted = false;
+    try {
+      await apiClient.agentInstances.revert(id);
+      reverted = true;
+      await instance.refresh();
+      await chat.refreshTranscript();
+    } catch (cause: unknown) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      toast.error(reverted
+        ? `Recovery completed. Could not refresh the conversation: ${reason}`
+        : `Could not recover the conversation: ${reason}`);
+    } finally {
+      setReverting(false);
+    }
+  }, [id, instance, chat]);
+
+  const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply)
+    || recovery?.needed === true || isReverting;
 
   /*
    * The conversation list is deliberately not re-read when this one's state changes.
@@ -620,7 +643,15 @@ export function AgentChatPage() {
             />
           ) : null}
 
-          {instance.data && !canSend ? (
+          <SessionRecoveryAlert
+            recovery={recovery}
+            checkpoints={checkpoints.data ?? []}
+            isRecovering={isReverting || instance.data?.operation === "resume"}
+            onRevert={revertRuntime}
+            onFork={forkCheckpoint}
+          />
+
+          {instance.data && !canSend && recovery?.needed !== true ? (
             <Alert
               type="warning"
               showIcon
@@ -639,6 +670,8 @@ export function AgentChatPage() {
             chat={chat}
             isLoading={instance.isLoading}
             sessionId={id}
+            recovery={recovery}
+            readOnly={recovery?.needed === true}
             onOpenCheckpoint={openSnapshot}
             onRenameCheckpoint={renameSnapshot}
             onFork={forkCheckpoint}
