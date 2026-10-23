@@ -1,38 +1,37 @@
 package mcp
 
 import (
+	"strings"
+
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"github.com/google/jsonschema-go/jsonschema"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// maxProtoSchemaDepth bounds how deep a message schema nests, so a recursive
-// message such as google.protobuf.Struct ends in an open schema.
-const maxProtoSchemaDepth = 6
-
 // protoMessageSchema is the JSON schema of a message as protojson reads it,
-// keyed by proto field names. Required fields and string length bounds come
-// from the message's protovalidate rules. descriptions names fields by their
+// keyed by proto field names. Required fields and length bounds come from the
+// message's protovalidate rules. Strings, bools, messages and lists of them
+// are typed; any other field gets an open schema, which protojson and
+// protovalidate still check on decode. descriptions names fields by their
 // proto name; nested fields are named parent.child.
 func protoMessageSchema(desc protoreflect.MessageDescriptor, descriptions map[string]string) *jsonschema.Schema {
-	return messageSchema(desc, "", descriptions, 0)
+	return messageSchema(desc, "", descriptions)
 }
 
-func messageSchema(desc protoreflect.MessageDescriptor, prefix string, descriptions map[string]string, depth int) *jsonschema.Schema {
-	if schema, ok := wellKnownSchema(desc); ok {
-		return schema
+func messageSchema(desc protoreflect.MessageDescriptor, prefix string, descriptions map[string]string) *jsonschema.Schema {
+	// Well-known types have their own JSON forms, and google.protobuf.Struct is
+	// recursive.
+	if strings.HasPrefix(string(desc.FullName()), "google.protobuf.") {
+		return &jsonschema.Schema{}
 	}
 	schema := &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
-	if depth >= maxProtoSchemaDepth {
-		return schema
-	}
 	fields := desc.Fields()
 	for i := range fields.Len() {
 		field := fields.Get(i)
 		name := string(field.Name())
 		path := prefix + name
-		property := fieldSchema(field, path, descriptions, depth)
+		property := fieldSchema(field, path, descriptions)
 		property.Description = descriptions[path]
 		schema.Properties[name] = property
 		schema.PropertyOrder = append(schema.PropertyOrder, name)
@@ -43,34 +42,24 @@ func messageSchema(desc protoreflect.MessageDescriptor, prefix string, descripti
 	return schema
 }
 
-func fieldSchema(field protoreflect.FieldDescriptor, path string, descriptions map[string]string, depth int) *jsonschema.Schema {
+func fieldSchema(field protoreflect.FieldDescriptor, path string, descriptions map[string]string) *jsonschema.Schema {
 	switch {
 	case field.IsMap():
-		return &jsonschema.Schema{Type: "object", AdditionalProperties: singularSchema(field.MapValue(), path, descriptions, depth)}
+		return &jsonschema.Schema{}
 	case field.IsList():
-		items := singularSchema(field, path, descriptions, depth)
-		schema := &jsonschema.Schema{Type: "array", Items: items}
+		schema := &jsonschema.Schema{Type: "array", Items: singularSchema(field, path, descriptions)}
 		if limit := fieldRules(field).GetRepeated().GetMaxItems(); limit > 0 {
 			schema.MaxItems = new(int(limit))
 		}
 		return schema
 	}
-	return singularSchema(field, path, descriptions, depth)
+	return singularSchema(field, path, descriptions)
 }
 
-func singularSchema(field protoreflect.FieldDescriptor, path string, descriptions map[string]string, depth int) *jsonschema.Schema {
+func singularSchema(field protoreflect.FieldDescriptor, path string, descriptions map[string]string) *jsonschema.Schema {
 	switch field.Kind() {
 	case protoreflect.BoolKind:
 		return &jsonschema.Schema{Type: "boolean"}
-	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
-		protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		return &jsonschema.Schema{Type: "integer"}
-	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
-		protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		// protojson writes 64-bit integers as strings and reads either.
-		return &jsonschema.Schema{Types: []string{"integer", "string"}}
-	case protoreflect.FloatKind, protoreflect.DoubleKind:
-		return &jsonschema.Schema{Type: "number"}
 	case protoreflect.StringKind:
 		schema := &jsonschema.Schema{Type: "string"}
 		rules := fieldRules(field).GetString()
@@ -81,45 +70,10 @@ func singularSchema(field protoreflect.FieldDescriptor, path string, description
 			schema.MaxLength = new(int(rules.GetMaxLen()))
 		}
 		return schema
-	case protoreflect.BytesKind:
-		return &jsonschema.Schema{Type: "string", ContentEncoding: "base64"}
-	case protoreflect.EnumKind:
-		values := field.Enum().Values()
-		schema := &jsonschema.Schema{Type: "string"}
-		for i := range values.Len() {
-			schema.Enum = append(schema.Enum, string(values.Get(i).Name()))
-		}
-		return schema
-	case protoreflect.MessageKind, protoreflect.GroupKind:
-		return messageSchema(field.Message(), path+".", descriptions, depth+1)
+	case protoreflect.MessageKind:
+		return messageSchema(field.Message(), path+".", descriptions)
 	}
 	return &jsonschema.Schema{}
-}
-
-func wellKnownSchema(desc protoreflect.MessageDescriptor) (*jsonschema.Schema, bool) {
-	switch desc.FullName() {
-	case "google.protobuf.Timestamp":
-		return &jsonschema.Schema{Type: "string", Format: "date-time"}, true
-	case "google.protobuf.Duration":
-		return &jsonschema.Schema{Type: "string", Description: "Seconds with an s suffix, such as 3600s"}, true
-	case "google.protobuf.Struct":
-		return &jsonschema.Schema{Type: "object"}, true
-	case "google.protobuf.Value":
-		return &jsonschema.Schema{}, true
-	case "google.protobuf.FieldMask":
-		return &jsonschema.Schema{Type: "string"}, true
-	case "google.protobuf.BoolValue":
-		return &jsonschema.Schema{Type: "boolean"}, true
-	case "google.protobuf.StringValue", "google.protobuf.BytesValue":
-		return &jsonschema.Schema{Type: "string"}, true
-	case "google.protobuf.Int32Value", "google.protobuf.UInt32Value":
-		return &jsonschema.Schema{Type: "integer"}, true
-	case "google.protobuf.Int64Value", "google.protobuf.UInt64Value":
-		return &jsonschema.Schema{Types: []string{"integer", "string"}}, true
-	case "google.protobuf.FloatValue", "google.protobuf.DoubleValue":
-		return &jsonschema.Schema{Type: "number"}, true
-	}
-	return nil, false
 }
 
 func fieldRules(field protoreflect.FieldDescriptor) *validate.FieldRules {
