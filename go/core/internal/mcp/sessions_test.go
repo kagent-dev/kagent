@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -62,6 +63,17 @@ func (s *sessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1.Se
 	return s.GetSession(ctx, id, "")
 }
 
+func (s *sessionStore) UpdateSessionName(_ context.Context, id, _, name string) (*apiv1.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.byID[id]
+	if !ok {
+		return nil, database.ErrNotFound
+	}
+	session.Name = name
+	return session, nil
+}
+
 func (s *sessionStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,21 +98,32 @@ type turnGateway struct {
 func (g *turnGateway) ListTasks(_ context.Context, request *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	var out []*a2atype.Task
+	var matching []*a2atype.Task
 	for _, task := range g.tasks {
-		if task.ContextID != request.ContextID {
-			continue
+		if task.ContextID == request.ContextID {
+			matching = append(matching, task)
 		}
+	}
+	start := 0
+	if request.PageToken != "" {
+		start, _ = strconv.Atoi(request.PageToken)
+	}
+	end := len(matching)
+	if request.PageSize > 0 {
+		end = min(start+request.PageSize, end)
+	}
+	response := &a2atype.ListTasksResponse{TotalSize: len(matching)}
+	for _, task := range matching[start:end] {
 		listed := *task
 		if request.HistoryLength != nil && *request.HistoryLength == 0 {
 			listed.History = nil
 		}
-		out = append(out, &listed)
-		if request.PageSize > 0 && len(out) == request.PageSize {
-			break
-		}
+		response.Tasks = append(response.Tasks, &listed)
 	}
-	return &a2atype.ListTasksResponse{Tasks: out, TotalSize: len(out)}, nil
+	if end < len(matching) {
+		response.NextPageToken = strconv.Itoa(end)
+	}
+	return response, nil
 }
 
 func (g *turnGateway) GetTask(_ context.Context, request *a2atype.GetTaskRequest) (*a2atype.Task, error) {
@@ -403,4 +426,131 @@ func TestClipText(t *testing.T) {
 	clipped := clipText(strings.Repeat("é", 100), 40)
 	require.LessOrEqual(t, len(clipped), 40)
 	require.Contains(t, clipped, "bytes clipped]")
+}
+
+func TestGetSessionAddressesTurnsPastOnePage(t *testing.T) {
+	gateway := &turnGateway{}
+	for i := range 1100 {
+		gateway.tasks = append(gateway.tasks, toolTurn(fmt.Sprintf("task-%d", i), fmt.Sprintf("question %d", i), "ok", "ok"))
+	}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	last := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID, "last_turns": 1}))
+	require.Equal(t, 1100, last.TotalTurns)
+	require.Equal(t, 1099, last.Turns[0].Index)
+	require.Equal(t, "question 1099", last.Turns[0].User)
+
+	for ref, want := range map[string]string{"0": "task-0", "1099": "task-1099", "last": "task-1099", "task-120": "task-120"} {
+		turn := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": ref}))
+		require.Equal(t, want, turn.TaskID, ref)
+	}
+	require.True(t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": "1100"}).IsError)
+}
+
+func TestRenameSession(t *testing.T) {
+	server := sessionServer(t, newSessionStore(readySession()), &turnGateway{})
+
+	named := structured[SessionOutput](t, callTool(t, server, renameSessionToolName, map[string]any{"session_id": testSessionID, "name": "Release notes"}))
+	require.Equal(t, "Release notes", named.Session.Name)
+
+	cleared := structured[SessionOutput](t, callTool(t, server, renameSessionToolName, map[string]any{"session_id": testSessionID, "name": ""}))
+	require.Empty(t, cleared.Session.Name)
+
+	require.True(t, callTool(t, server, renameSessionToolName, map[string]any{"session_id": testSessionID, "name": " leading space"}).IsError)
+}
+
+// longTurn is a turn of n agent messages of size bytes each after its user
+// message.
+func longTurn(n, size int) *a2atype.Task {
+	history := []*a2atype.Message{a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("go"))}
+	for i := range n {
+		history = append(history, a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(fmt.Sprintf("%d:%s", i, strings.Repeat("x", size)))))
+	}
+	return &a2atype.Task{ID: "task-0", ContextID: testSessionID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}, History: history}
+}
+
+func TestGetSessionTurnPagesByMessage(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{longTurn(12, 1000)}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	for _, detail := range []string{detailTranscript, detailFull} {
+		t.Run(detail, func(t *testing.T) {
+			var seen int
+			from := 0
+			for pages := 0; ; pages++ {
+				require.Less(t, pages, 20, "paging does not advance")
+				result := callTool(t, server, getSessionTurnToolName, map[string]any{
+					"session_id": testSessionID, "turn": "0", "detail": detail, "from_message": from, "max_bytes": minSessionMaxBytes,
+				})
+				page := structured[GetSessionTurnOutput](t, result)
+				require.LessOrEqual(t, jsonSize(result.StructuredContent), minSessionMaxBytes)
+				require.Equal(t, 13, page.TotalMessages)
+				seen += len(page.Messages) + len(page.History)
+				if page.NextMessage == 0 {
+					require.False(t, page.Truncated)
+					break
+				}
+				require.True(t, page.Truncated)
+				require.Greater(t, page.NextMessage, from)
+				from = page.NextMessage
+			}
+			require.Equal(t, 13, seen)
+		})
+	}
+}
+
+func TestGetSessionTurnFullAnswersA2AMessages(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "done", "ok")}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	full := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": "0", "detail": detailFull}))
+	require.Len(t, full.History, full.TotalMessages)
+	require.Empty(t, full.Messages)
+	data, err := json.Marshal(full.History[0])
+	require.NoError(t, err)
+	var message a2atype.Message
+	require.NoError(t, json.Unmarshal(data, &message))
+	require.Equal(t, "read it", message.Parts[0].Text())
+}
+
+func TestFitTurnStaysWithinBudget(t *testing.T) {
+	in := Turn{Index: 3, TaskID: "task-3", State: "TASK_STATE_COMPLETED", User: strings.Repeat("u", 5000), Reply: strings.Repeat("r", 5000),
+		ToolCalls: []ToolCallStub{{Index: 0, Name: "read_file"}}}
+	out, ok := fitTurn(in, 600)
+	require.True(t, ok)
+	require.LessOrEqual(t, jsonSize(out), 600)
+	require.True(t, out.Clipped)
+	require.Nil(t, out.ToolCalls)
+	require.Contains(t, out.Reply, "bytes clipped]")
+
+	_, ok = fitTurn(in, 10)
+	require.False(t, ok)
+}
+
+func TestFitMessageStaysWithinBudget(t *testing.T) {
+	in := TurnMessage{Index: 1, Role: "agent", Parts: []PartView{{Text: strings.Repeat("a", 4000)}, {Text: strings.Repeat("b", 4000)}}}
+	out := fitMessage(in, 1000)
+	require.LessOrEqual(t, jsonSize(out), 1000)
+	require.True(t, out.Clipped)
+	require.Len(t, out.Parts, 2)
+	require.Len(t, in.Parts[0].Text, 4000, "input is left unchanged")
+
+	require.Nil(t, fitMessage(in, 40).Parts)
+}
+
+func TestToolCallDetailStaysWithinBudget(t *testing.T) {
+	task := toolTurn("task-0", "read it", "done", map[string]any{"result": strings.Repeat("y", 20000)})
+	turn := readTurn(0, task)
+	call := turn.calls[0]
+
+	whole, clipped := turn.toolCallDetail(call, 1<<20)
+	require.False(t, clipped)
+	require.Equal(t, strings.Repeat("y", 20000), whole.Response)
+
+	small, clipped := turn.toolCallDetail(call, 2000)
+	require.True(t, clipped)
+	require.LessOrEqual(t, jsonSize(small), 2000)
+	require.NotNil(t, small.Args, "small arguments stay whole")
+	require.Nil(t, small.Response)
+	require.Contains(t, small.ResponseText, "bytes clipped]")
 }
