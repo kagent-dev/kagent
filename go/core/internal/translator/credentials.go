@@ -211,15 +211,6 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	return result, access.Credentials, access.TokenPassthroughTargets, nil
 }
 
-// ModelCredentialAuthority is the Substrate credential provider class the
-// egress gateway resolves a ModelConfig provider's apiKeySecret through.
-func ModelCredentialAuthority(settings *configv1.RuntimeDefaultsConfig, provider v1alpha3.ModelProvider) string {
-	if authority := settings.GetModelCredentialAuthorities()[string(provider)]; authority != "" {
-		return authority
-	}
-	return egress.KubernetesSecretAuthority
-}
-
 // vertexAICredentialName keys a Vertex AI binding. No variable carries the
 // Secret, and the space keeps the name from matching any environment variable.
 const vertexAICredentialName = "Vertex AI access token"
@@ -234,7 +225,10 @@ type credentialTarget struct {
 
 func modelCredentialTarget(resolved *ResolvedModelConfig, settings *configv1.RuntimeDefaultsConfig) credentialTarget {
 	spec := resolved.Config.Spec
-	target := credentialTarget{authority: ModelCredentialAuthority(settings, spec.Provider)}
+	target := credentialTarget{authority: settings.GetModelCredentialAuthorities()[string(spec.Provider)]}
+	if target.authority == "" {
+		target.authority = egress.KubernetesSecretAuthority
+	}
 	var name, endpoint, header, prefix string
 	switch spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:

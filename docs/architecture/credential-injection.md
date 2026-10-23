@@ -95,12 +95,11 @@ tokens: `k8s.io` would set the stored key itself as the bearer token, so the
 compiler rejects a Vertex AI `apiKeySecret` that resolves to it. The provider
 class owns the Secret's format, typically a service account key, so the
 compiler does not inspect it. Vertex AI ModelConfigs do not support
-`tokenPassthrough`. The runtime never holds
-the Secret: the Go and Python ADKs run with `KAGENT_SKIP_VERTEX_AUTH=true` and
-Claude Code with `CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, and each sends the
-placeholder `Authorization: Bearer kagent-credential-injected` for the gateway
-to replace, since the gateway replaces a header a request carries and adds
-none.
+`tokenPassthrough`. The runtime never holds the Secret: the Go and Python ADKs
+run with `KAGENT_SKIP_VERTEX_AUTH=true` and Claude Code with
+`CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, and each sends the placeholder
+`Authorization: Bearer kagent-credential-injected` for the gateway to replace,
+since the gateway replaces a header a request carries and adds none.
 
 AWS IAM signing keys and OAuth client credentials require mechanisms beyond
 static header injection and are rejected rather than serialized into runtimes.

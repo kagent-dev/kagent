@@ -17,13 +17,6 @@ import (
 // authority of an ate-secret:// URI, that injects a Secret value unchanged.
 const KubernetesSecretAuthority = "k8s.io"
 
-// ValidCredentialAuthority reports whether authority can name a Substrate
-// credential provider class: a DNS-1123 subdomain without a port that is not
-// an IP address.
-func ValidCredentialAuthority(authority string) bool {
-	return len(validation.IsDNS1123Subdomain(authority)) == 0 && net.ParseIP(authority) == nil
-}
-
 // CredentialURI names one Secret data entry of the default locator for a
 // Substrate credential provider class.
 func CredentialURI(authority, namespace, name, key string) string {
@@ -122,7 +115,7 @@ func validCredentialURI(raw string) error {
 	if u.User != nil || u.ForceQuery || u.RawQuery != "" || strings.Contains(raw, "#") {
 		return fmt.Errorf("credential URI cannot carry user information, a query or a fragment")
 	}
-	if u.Host != u.Hostname() || !ValidCredentialAuthority(u.Host) {
+	if u.Host != u.Hostname() || len(validation.IsDNS1123Subdomain(u.Host)) != 0 || net.ParseIP(u.Host) != nil {
 		return fmt.Errorf("credential provider must be a lowercase DNS name without a port, not an IP address")
 	}
 	// Substrate requires at least two nonempty, unescaped path segments.

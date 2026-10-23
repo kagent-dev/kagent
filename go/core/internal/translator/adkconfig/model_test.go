@@ -83,10 +83,6 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 	}
 }
 
-// The Ollama key reaches the agent as an environment variable read from a
-// Secret, never serialized into the agent config, and the host is written only
-// when the operator set one — an empty value lets the runtime apply its own
-// cloud/local routing instead of looking like a chosen endpoint.
 // The egress gateway sets a Vertex AI access token: the runtime skips Google
 // authentication of its own and gets neither the Secret nor a credential file.
 func TestTranslateVertexAIEnvironment(t *testing.T) {
@@ -111,11 +107,6 @@ func TestTranslateVertexAIEnvironment(t *testing.T) {
 			spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude", AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}},
 			want: []string{env.GoogleCloudProject.Name(), env.GoogleCloudLocation.Name()},
 		},
-		{
-			name: "Anthropic passthrough",
-			spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude", APIKeySecret: "vertex-auth", APIKeySecretKey: "credentials.json", TokenPassthrough: true, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}},
-			want: []string{env.GoogleCloudProject.Name(), env.GoogleCloudLocation.Name()},
-		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			resolved := &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "test"}, Spec: tt.spec}}
@@ -134,6 +125,10 @@ func TestTranslateVertexAIEnvironment(t *testing.T) {
 	}
 }
 
+// The Ollama key reaches the agent as an environment variable read from a
+// Secret, never serialized into the agent config, and the host is written only
+// when the operator set one — an empty value lets the runtime apply its own
+// cloud/local routing instead of looking like a chosen endpoint.
 func TestTranslateOllamaEnvironment(t *testing.T) {
 	tests := []struct {
 		name      string

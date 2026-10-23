@@ -47,7 +47,7 @@ func vertexAIEnvironment(model *v1alpha3.ModelConfig, vertex *v1alpha3.BaseVerte
 		{Name: env.GoogleCloudProject.Name(), Value: vertex.ProjectID},
 		{Name: env.GoogleCloudLocation.Name(), Value: vertex.Location},
 	}
-	if model.Spec.APIKeySecret != "" && !model.Spec.TokenPassthrough {
+	if model.Spec.APIKeySecret != "" {
 		environment = append(environment, corev1.EnvVar{Name: env.SkipVertexAuth.Name(), Value: "true"})
 	}
 	return environment
