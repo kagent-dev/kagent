@@ -70,7 +70,7 @@ upload, the adapter waits within the request deadline for that same snapshot
 generation. Actor replacement, state changes, and generation changes fail the
 attempt; the existing durable workflow retains retry authority.
 
-Substrate v0.6.0 records snapshot lineage in
+Substrate v0.7.0-alpha1 records snapshot lineage in
 `Actor.status.snapshots[].actor_template_uid`. Kagent selects the newest generation
 and requires a COMPLETED durable copy. The Tag's template UID must
 match that lineage, and the Actor UID must remain unchanged across the copy.

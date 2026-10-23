@@ -8,7 +8,7 @@ inputs:
   - directory: .
     exclude_paths:
       - a2a.proto
-      - ateapi.proto
+      - api/ateapi/v1/ateapi.proto
       - kagent/runtime
       - kagent/config
 plugins:

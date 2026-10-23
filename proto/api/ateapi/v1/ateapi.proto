@@ -14,12 +14,12 @@
 
 syntax = "proto3";
 
-package ateapi;
+package substrate.ateapi.v1;
 
 import "google/protobuf/descriptor.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "go.ate.dev/substrate/pkg/proto/ateapipb";
+option go_package = "go.ate.dev/substrate/api/ateapi/v1;ateapi";
 
 // Control is the primary RPC interface for Agentic Substrate.
 service Control {

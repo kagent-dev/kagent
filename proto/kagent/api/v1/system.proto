@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1;
 
-import "ateapi.proto";
+import "api/ateapi/v1/ateapi.proto";
 import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
@@ -46,7 +46,7 @@ message ListNamespacesResponse {
 
 message SubstrateWorkerPool {
   ResourceReference ref = 5;
-  // The whole upstream ate.dev/v1alpha1 WorkerPool CR, including spec and status.
+  // The whole upstream ate.dev/v1 WorkerPool CR, including spec and status.
   StructuredObject resource = 6;
 }
 
@@ -72,7 +72,7 @@ message GetSubstrateSummaryRequest {
 
 message SubstrateActorStatusCount {
   int64 count = 2;
-  ateapi.ActorState state = 3;
+  substrate.ateapi.v1.ActorState state = 3;
 }
 
 message GetSubstrateSummaryResponse {
@@ -92,7 +92,7 @@ message GetSubstrateSummaryResponse {
   // When this answer was computed, which is not when it was received.
   google.protobuf.Timestamp computed_at = 10;
   // Inventory metadata and status only; runtime configuration may contain credentials.
-  repeated ateapi.ActorTemplate actor_templates = 11;
+  repeated substrate.ateapi.v1.ActorTemplate actor_templates = 11;
 }
 
 // One page of actors. A controller that watches some namespaces reads its watched
@@ -111,7 +111,7 @@ message ListSubstrateActorsRequest {
 
 message ListSubstrateActorsResponse {
   string ate_api_error = 2;
-  repeated ateapi.Actor actors = 3;
+  repeated substrate.ateapi.v1.Actor actors = 3;
   // Continuation after the last returned actor. Authorization and namespace
   // filtering precede pagination; tokens never expose filtered-out identities.
   PageResponse page = 4;
@@ -130,7 +130,7 @@ message ListSubstrateWorkersRequest {
 
 message ListSubstrateWorkersResponse {
   string ate_api_error = 2;
-  repeated ateapi.Worker workers = 3;
+  repeated substrate.ateapi.v1.Worker workers = 3;
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
 }

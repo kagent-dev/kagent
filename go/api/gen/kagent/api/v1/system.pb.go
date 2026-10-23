@@ -8,7 +8,7 @@ package apiv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	ateapipb "go.ate.dev/substrate/pkg/proto/ateapipb"
+	v1 "go.ate.dev/substrate/api/ateapi/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
@@ -336,7 +336,7 @@ func (x *ListNamespacesResponse) GetNamespaces() []*Namespace {
 type SubstrateWorkerPool struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Ref   *ResourceReference     `protobuf:"bytes,5,opt,name=ref,proto3" json:"ref,omitempty"`
-	// The whole upstream ate.dev/v1alpha1 WorkerPool CR, including spec and status.
+	// The whole upstream ate.dev/v1 WorkerPool CR, including spec and status.
 	Resource      *StructuredObject `protobuf:"bytes,6,opt,name=resource,proto3" json:"resource,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -450,7 +450,7 @@ func (x *GetSubstrateSummaryRequest) GetAtespace() string {
 type SubstrateActorStatusCount struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Count         int64                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
-	State         ateapipb.ActorState    `protobuf:"varint,3,opt,name=state,proto3,enum=ateapi.ActorState" json:"state,omitempty"`
+	State         v1.ActorState          `protobuf:"varint,3,opt,name=state,proto3,enum=substrate.ateapi.v1.ActorState" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -492,11 +492,11 @@ func (x *SubstrateActorStatusCount) GetCount() int64 {
 	return 0
 }
 
-func (x *SubstrateActorStatusCount) GetState() ateapipb.ActorState {
+func (x *SubstrateActorStatusCount) GetState() v1.ActorState {
 	if x != nil {
 		return x.State
 	}
-	return ateapipb.ActorState(0)
+	return v1.ActorState(0)
 }
 
 type GetSubstrateSummaryResponse struct {
@@ -517,7 +517,7 @@ type GetSubstrateSummaryResponse struct {
 	// When this answer was computed, which is not when it was received.
 	ComputedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
 	// Inventory metadata and status only; runtime configuration may contain credentials.
-	ActorTemplates []*ateapipb.ActorTemplate `protobuf:"bytes,11,rep,name=actor_templates,json=actorTemplates,proto3" json:"actor_templates,omitempty"`
+	ActorTemplates []*v1.ActorTemplate `protobuf:"bytes,11,rep,name=actor_templates,json=actorTemplates,proto3" json:"actor_templates,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -608,7 +608,7 @@ func (x *GetSubstrateSummaryResponse) GetComputedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *GetSubstrateSummaryResponse) GetActorTemplates() []*ateapipb.ActorTemplate {
+func (x *GetSubstrateSummaryResponse) GetActorTemplates() []*v1.ActorTemplate {
 	if x != nil {
 		return x.ActorTemplates
 	}
@@ -676,7 +676,7 @@ func (x *ListSubstrateActorsRequest) GetPage() *PageRequest {
 type ListSubstrateActorsResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	AteApiError string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
-	Actors      []*ateapipb.Actor      `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
+	Actors      []*v1.Actor            `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
 	// Continuation after the last returned actor. Authorization and namespace
 	// filtering precede pagination; tokens never expose filtered-out identities.
 	Page          *PageResponse          `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
@@ -722,7 +722,7 @@ func (x *ListSubstrateActorsResponse) GetAteApiError() string {
 	return ""
 }
 
-func (x *ListSubstrateActorsResponse) GetActors() []*ateapipb.Actor {
+func (x *ListSubstrateActorsResponse) GetActors() []*v1.Actor {
 	if x != nil {
 		return x.Actors
 	}
@@ -800,7 +800,7 @@ func (x *ListSubstrateWorkersRequest) GetPage() *PageRequest {
 type ListSubstrateWorkersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AteApiError   string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
-	Workers       []*ateapipb.Worker     `protobuf:"bytes,3,rep,name=workers,proto3" json:"workers,omitempty"`
+	Workers       []*v1.Worker           `protobuf:"bytes,3,rep,name=workers,proto3" json:"workers,omitempty"`
 	Page          *PageResponse          `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	ComputedAt    *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -844,7 +844,7 @@ func (x *ListSubstrateWorkersResponse) GetAteApiError() string {
 	return ""
 }
 
-func (x *ListSubstrateWorkersResponse) GetWorkers() []*ateapipb.Worker {
+func (x *ListSubstrateWorkersResponse) GetWorkers() []*v1.Worker {
 	if x != nil {
 		return x.Workers
 	}
@@ -869,7 +869,7 @@ var File_kagent_api_v1_system_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_system_proto_rawDesc = "" +
 	"\n" +
-	"\x1akagent/api/v1/system.proto\x12\rkagent.api.v1\x1a\fateapi.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\"\x13\n" +
+	"\x1akagent/api/v1/system.proto\x12\rkagent.api.v1\x1a\x1aapi/ateapi/v1/ateapi.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\"\x13\n" +
 	"\x11GetVersionRequest\"y\n" +
 	"\x12GetVersionResponse\x12%\n" +
 	"\x0ekagent_version\x18\x01 \x01(\tR\rkagentVersion\x12\x1d\n" +
@@ -893,10 +893,10 @@ const file_kagent_api_v1_system_proto_rawDesc = "" +
 	"\bresource\x18\x06 \x01(\v2\x1f.kagent.api.v1.StructuredObjectR\bresource\"\xb0\x01\n" +
 	"\x1aGetSubstrateSummaryRequest\x12I\n" +
 	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\x12G\n" +
-	"\batespace\x18\x02 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\"[\n" +
+	"\batespace\x18\x02 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\"h\n" +
 	"\x19SubstrateActorStatusCount\x12\x14\n" +
-	"\x05count\x18\x02 \x01(\x03R\x05count\x12(\n" +
-	"\x05state\x18\x03 \x01(\x0e2\x12.ateapi.ActorStateR\x05state\"\xff\x03\n" +
+	"\x05count\x18\x02 \x01(\x03R\x05count\x125\n" +
+	"\x05state\x18\x03 \x01(\x0e2\x1f.substrate.ateapi.v1.ActorStateR\x05state\"\x8c\x04\n" +
 	"\x1bGetSubstrateSummaryResponse\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12E\n" +
 	"\fworker_pools\x18\x03 \x03(\v2\".kagent.api.v1.SubstrateWorkerPoolR\vworkerPools\x12\x1f\n" +
@@ -908,23 +908,23 @@ const file_kagent_api_v1_system_proto_rawDesc = "" +
 	"\x13actor_status_counts\x18\t \x03(\v2(.kagent.api.v1.SubstrateActorStatusCountR\x11actorStatusCounts\x12;\n" +
 	"\vcomputed_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"computedAt\x12>\n" +
-	"\x0factor_templates\x18\v \x03(\v2\x15.ateapi.ActorTemplateR\x0eactorTemplates\"\x95\x01\n" +
+	"computedAt\x12K\n" +
+	"\x0factor_templates\x18\v \x03(\v2\".substrate.ateapi.v1.ActorTemplateR\x0eactorTemplates\"\x95\x01\n" +
 	"\x1aListSubstrateActorsRequest\x12G\n" +
 	"\batespace\x18\x06 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\x12.\n" +
-	"\x04page\x18\x02 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\"\xd6\x01\n" +
+	"\x04page\x18\x02 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\"\xe3\x01\n" +
 	"\x1bListSubstrateActorsResponse\x12\"\n" +
-	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12%\n" +
-	"\x06actors\x18\x03 \x03(\v2\r.ateapi.ActorR\x06actors\x12/\n" +
+	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x122\n" +
+	"\x06actors\x18\x03 \x03(\v2\x1a.substrate.ateapi.v1.ActorR\x06actors\x12/\n" +
 	"\x04page\x18\x04 \x01(\v2\x1b.kagent.api.v1.PageResponseR\x04page\x12;\n" +
 	"\vcomputed_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"computedAt\"\x98\x01\n" +
 	"\x1bListSubstrateWorkersRequest\x12I\n" +
 	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\x12.\n" +
-	"\x04page\x18\x02 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\"\xda\x01\n" +
+	"\x04page\x18\x02 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\"\xe7\x01\n" +
 	"\x1cListSubstrateWorkersResponse\x12\"\n" +
-	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12(\n" +
-	"\aworkers\x18\x03 \x03(\v2\x0e.ateapi.WorkerR\aworkers\x12/\n" +
+	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x125\n" +
+	"\aworkers\x18\x03 \x03(\v2\x1b.substrate.ateapi.v1.WorkerR\aworkers\x12/\n" +
 	"\x04page\x18\x04 \x01(\v2\x1b.kagent.api.v1.PageResponseR\x04page\x12;\n" +
 	"\vcomputed_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"computedAt2\xed\x04\n" +
@@ -969,30 +969,30 @@ var file_kagent_api_v1_system_proto_goTypes = []any{
 	(*structpb.Struct)(nil),              // 15: google.protobuf.Struct
 	(*ResourceReference)(nil),            // 16: kagent.api.v1.ResourceReference
 	(*StructuredObject)(nil),             // 17: kagent.api.v1.StructuredObject
-	(ateapipb.ActorState)(0),             // 18: ateapi.ActorState
+	(v1.ActorState)(0),                   // 18: substrate.ateapi.v1.ActorState
 	(*timestamppb.Timestamp)(nil),        // 19: google.protobuf.Timestamp
-	(*ateapipb.ActorTemplate)(nil),       // 20: ateapi.ActorTemplate
+	(*v1.ActorTemplate)(nil),             // 20: substrate.ateapi.v1.ActorTemplate
 	(*PageRequest)(nil),                  // 21: kagent.api.v1.PageRequest
-	(*ateapipb.Actor)(nil),               // 22: ateapi.Actor
+	(*v1.Actor)(nil),                     // 22: substrate.ateapi.v1.Actor
 	(*PageResponse)(nil),                 // 23: kagent.api.v1.PageResponse
-	(*ateapipb.Worker)(nil),              // 24: ateapi.Worker
+	(*v1.Worker)(nil),                    // 24: substrate.ateapi.v1.Worker
 }
 var file_kagent_api_v1_system_proto_depIdxs = []int32{
 	15, // 0: kagent.api.v1.GetCurrentUserResponse.claims:type_name -> google.protobuf.Struct
 	5,  // 1: kagent.api.v1.ListNamespacesResponse.namespaces:type_name -> kagent.api.v1.Namespace
 	16, // 2: kagent.api.v1.SubstrateWorkerPool.ref:type_name -> kagent.api.v1.ResourceReference
 	17, // 3: kagent.api.v1.SubstrateWorkerPool.resource:type_name -> kagent.api.v1.StructuredObject
-	18, // 4: kagent.api.v1.SubstrateActorStatusCount.state:type_name -> ateapi.ActorState
+	18, // 4: kagent.api.v1.SubstrateActorStatusCount.state:type_name -> substrate.ateapi.v1.ActorState
 	7,  // 5: kagent.api.v1.GetSubstrateSummaryResponse.worker_pools:type_name -> kagent.api.v1.SubstrateWorkerPool
 	9,  // 6: kagent.api.v1.GetSubstrateSummaryResponse.actor_status_counts:type_name -> kagent.api.v1.SubstrateActorStatusCount
 	19, // 7: kagent.api.v1.GetSubstrateSummaryResponse.computed_at:type_name -> google.protobuf.Timestamp
-	20, // 8: kagent.api.v1.GetSubstrateSummaryResponse.actor_templates:type_name -> ateapi.ActorTemplate
+	20, // 8: kagent.api.v1.GetSubstrateSummaryResponse.actor_templates:type_name -> substrate.ateapi.v1.ActorTemplate
 	21, // 9: kagent.api.v1.ListSubstrateActorsRequest.page:type_name -> kagent.api.v1.PageRequest
-	22, // 10: kagent.api.v1.ListSubstrateActorsResponse.actors:type_name -> ateapi.Actor
+	22, // 10: kagent.api.v1.ListSubstrateActorsResponse.actors:type_name -> substrate.ateapi.v1.Actor
 	23, // 11: kagent.api.v1.ListSubstrateActorsResponse.page:type_name -> kagent.api.v1.PageResponse
 	19, // 12: kagent.api.v1.ListSubstrateActorsResponse.computed_at:type_name -> google.protobuf.Timestamp
 	21, // 13: kagent.api.v1.ListSubstrateWorkersRequest.page:type_name -> kagent.api.v1.PageRequest
-	24, // 14: kagent.api.v1.ListSubstrateWorkersResponse.workers:type_name -> ateapi.Worker
+	24, // 14: kagent.api.v1.ListSubstrateWorkersResponse.workers:type_name -> substrate.ateapi.v1.Worker
 	23, // 15: kagent.api.v1.ListSubstrateWorkersResponse.page:type_name -> kagent.api.v1.PageResponse
 	19, // 16: kagent.api.v1.ListSubstrateWorkersResponse.computed_at:type_name -> google.protobuf.Timestamp
 	0,  // 17: kagent.api.v1.SystemService.GetVersion:input_type -> kagent.api.v1.GetVersionRequest
