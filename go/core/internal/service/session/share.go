@@ -22,6 +22,9 @@ func ResolveShare(ctx context.Context, store ShareStore, token string) (*auth.Sh
 	if token == "" {
 		return nil, nil
 	}
+	if session, ok := auth.AuthSessionFrom(ctx); ok && session.Principal().Actor != nil {
+		return nil, serviceerrors.NewPermissionDenied("Actors cannot use share credentials", nil)
+	}
 	if store == nil {
 		return nil, serviceerrors.NewInternal("share-token validation is unavailable", nil)
 	}

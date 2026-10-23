@@ -10,7 +10,7 @@ dependencies = [
   "a2a-sdk>=1.1.5",
   "kagent-core[openai-agents]>=0.1.0",
   "kagent-proto>=0.1.0",
-  "kagent-skills>=0.1.0",
+  "kagent-tools>=0.1.0",
   "httpx>=0.25.0",
   "fastapi>=0.100.0",
   "uvicorn>=0.20.0",
@@ -23,13 +23,13 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "ruff>=0.17.0",
+    "ruff>=0.17.1",
 ]
 
 [tool.uv.sources]
 kagent-core = {workspace = true}
 kagent-proto = {workspace = true}
-kagent-skills = {workspace = true}
+kagent-tools = {workspace = true}
 
 [build-system]
 requires = ["setuptools>=84.0.0", "wheel>=0.48.0"]

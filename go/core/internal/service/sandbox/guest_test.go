@@ -13,9 +13,9 @@ import (
 
 	"github.com/agent-substrate/env/guest"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -82,6 +82,7 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
+func (a *testActors) CheckActorEgressPolicy(context.Context, string, string) error { return nil }
 func (a *testActors) EnsureActorEgressPolicy(context.Context, string, string, string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -100,7 +101,7 @@ func (a *testActors) SuspendActor(context.Context, string, string) (*ateapipb.Ac
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	a.actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/sandbox", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/sandbox"}}}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
 func (a *testActors) DeleteActor(context.Context, string, string) error {
@@ -216,7 +217,7 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.Equal(t, "alice", headers().Get("x-user-id"))
 	require.Empty(t, headers().Get("authorization"))
 	var data []byte
-	require.NoError(t, service.ReadFile(ctx, instance.Id, &guestpb.ReadFileRequest{Path: "input.bin"}, func(chunk *guestpb.FileChunk) error { data = append(data, chunk.Data...); return nil }))
+	require.NoError(t, service.ReadFile(ctx, instance.Id, &guestpb.ReadFileRequest{Path: "input.bin"}, func(chunk *guestpb.ReadFileResponse) error { data = append(data, chunk.GetChunk()...); return nil }))
 	require.Equal(t, []byte{0, 128, 255}, data)
 
 	start := &guestpb.StartProcessRequest{Command: []string{"sh", "-c", "printf once >> count; cat count"}}
@@ -224,11 +225,11 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		current, err := service.GetProcess(ctx, instance.Id, &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-		return err == nil && current.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+		return err == nil && current.State == guestpb.ProcessState_PROCESS_STATE_EXITED
 	}, 5*time.Second, 10*time.Millisecond)
 	var output []byte
-	require.NoError(t, service.StreamProcessOutputs(ctx, instance.Id, &guestpb.StreamProcessOutputsRequest{ProcessId: process.ProcessId}, func(chunk *guestpb.OutputChunk) error {
-		output = append(output, chunk.Data...)
+	require.NoError(t, service.StreamProcessOutput(ctx, instance.Id, &guestpb.StreamProcessOutputRequest{ProcessId: process.ProcessId}, func(chunk *guestpb.ProcessOutput) error {
+		output = append(output, chunk.GetStdout()...)
 		return nil
 	}))
 	require.Equal(t, "once", string(output))
@@ -236,30 +237,30 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, process.ProcessId, again.ProcessId)
 	output = nil
-	require.NoError(t, service.StreamProcessOutputs(ctx, instance.Id, &guestpb.StreamProcessOutputsRequest{ProcessId: again.ProcessId, Follow: true}, func(chunk *guestpb.OutputChunk) error {
-		output = append(output, chunk.Data...)
+	require.NoError(t, service.StreamProcessOutput(ctx, instance.Id, &guestpb.StreamProcessOutputRequest{ProcessId: again.ProcessId, Follow: true}, func(chunk *guestpb.ProcessOutput) error {
+		output = append(output, chunk.GetStdout()...)
 		return nil
 	}))
 	require.Equal(t, "onceonce", string(output), "each start executes a new command")
 	_, err = service.GetProcess(mallory, instance.Id, &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
 	require.ErrorIs(t, err, database.ErrNotFound)
-	_, err = service.KillProcess(mallory, instance.Id, &guestpb.KillProcessRequest{ProcessId: process.ProcessId})
+	_, err = service.SignalProcess(mallory, instance.Id, &guestpb.SignalProcessRequest{ProcessId: process.ProcessId, Signal: guestpb.Signal_SIGNAL_KILL})
 	require.ErrorIs(t, err, database.ErrNotFound)
 	_, err = service.GetProcess(ctx, instance.Id, &guestpb.GetProcessRequest{ProcessId: "unknown-guest-process"})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	err = service.StreamProcessOutputs(ctx, instance.Id, &guestpb.StreamProcessOutputsRequest{ProcessId: "unknown-guest-process"}, func(*guestpb.OutputChunk) error {
+	err = service.StreamProcessOutput(ctx, instance.Id, &guestpb.StreamProcessOutputRequest{ProcessId: "unknown-guest-process"}, func(*guestpb.ProcessOutput) error {
 		t.Fatal("unknown process returned output")
 		return nil
 	})
 	require.Equal(t, codes.NotFound, status.Code(err))
 	running, err := service.StartProcess(ctx, instance.Id, &guestpb.StartProcessRequest{Command: []string{"sleep", "60"}})
 	require.NoError(t, err)
-	_, err = service.KillProcess(ctx, instance.Id, &guestpb.KillProcessRequest{ProcessId: running.ProcessId})
+	_, err = service.SignalProcess(ctx, instance.Id, &guestpb.SignalProcessRequest{ProcessId: running.ProcessId, Signal: guestpb.Signal_SIGNAL_KILL})
 	require.NoError(t, err)
-	killed, err := service.GetProcess(ctx, instance.Id, &guestpb.GetProcessRequest{ProcessId: running.ProcessId})
-	require.NoError(t, err)
-	require.Equal(t, running.ProcessId, killed.ProcessId)
-	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_TERMINATED, killed.Status)
+	require.Eventually(t, func() bool {
+		killed, err := service.GetProcess(ctx, instance.Id, &guestpb.GetProcessRequest{ProcessId: running.ProcessId})
+		return err == nil && killed.State == guestpb.ProcessState_PROCESS_STATE_EXITED && killed.ExitCode == 137
+	}, 5*time.Second, 10*time.Millisecond)
 
 	// Neither an active process nor a streaming file write reserves a lifecycle
 	// boundary. The caller accepts interruption when suspending this sandbox.
@@ -293,7 +294,7 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	unblock()
 	require.ErrorIs(t, <-writeResult, io.ErrUnexpectedEOF)
 
-	err = service.ReadFile(ctx, instance.Id, &guestpb.ReadFileRequest{Path: "input.bin"}, func(*guestpb.FileChunk) error { t.Fatal("suspended guest reached"); return nil })
+	err = service.ReadFile(ctx, instance.Id, &guestpb.ReadFileRequest{Path: "input.bin"}, func(*guestpb.ReadFileResponse) error { t.Fatal("suspended guest reached"); return nil })
 	require.ErrorIs(t, err, database.ErrFailedPrecondition)
 	instance, err = service.Resume(ctx, instance.Id)
 	require.NoError(t, err)

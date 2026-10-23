@@ -1,7 +1,7 @@
 package apiclient
 
 import (
-	ateclient "github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
+	ateclient "go.ate.dev/substrate/pkg/client/clientset/versioned"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/kube"
 	"k8s.io/client-go/rest"

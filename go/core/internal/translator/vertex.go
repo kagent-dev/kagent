@@ -21,9 +21,8 @@ func VertexAIConfig(spec *v1alpha3.ModelConfigSpec) *v1alpha3.BaseVertexAIConfig
 	return nil
 }
 
-// VertexAIHostname is the Vertex AI endpoint for a ModelConfig location: the
-// global endpoint, a multi-region endpoint for us and eu, or the regional one.
-func VertexAIHostname(location string) string {
+// VertexHostname returns the Vertex AI API host for a location.
+func VertexHostname(location string) string {
 	switch location {
 	case "global":
 		return "aiplatform.googleapis.com"
@@ -34,7 +33,7 @@ func VertexAIHostname(location string) string {
 	}
 }
 
-// VertexAIOrigin is the egress origin of VertexAIHostname.
+// VertexAIOrigin is the egress origin of VertexHostname.
 func VertexAIOrigin(location string) string {
-	return "https://" + VertexAIHostname(location) + ":443"
+	return "https://" + VertexHostname(location) + ":443"
 }

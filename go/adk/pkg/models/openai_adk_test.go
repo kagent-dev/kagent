@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
@@ -49,8 +50,11 @@ func TestOpenAIModelGenerateContentSendsStructuredOutputWithTools(t *testing.T) 
 		Logger: slog.New(slog.DiscardHandler),
 	}
 	schema := map[string]any{
-		"type":       "object",
-		"properties": map[string]any{"answer": map[string]any{"type": "integer"}},
+		"type": "object",
+		"properties": map[string]any{
+			"answer": map[string]any{"type": "integer"},
+			"due":    map[string]any{"type": "string", "format": "date-time", "pattern": "^2026-"},
+		},
 	}
 	request := &model.LLMRequest{
 		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "calculate"}}}},
@@ -80,6 +84,10 @@ func TestOpenAIModelGenerateContentSendsStructuredOutputWithTools(t *testing.T) 
 	}
 	if gotSchema, ok := jsonSchema["schema"].(map[string]any); !ok || gotSchema["type"] != "object" {
 		t.Fatalf("response_format.json_schema.schema = %#v", jsonSchema["schema"])
+	}
+	due := jsonSchema["schema"].(map[string]any)["properties"].(map[string]any)["due"]
+	if want := map[string]any{"type": "string", "format": "date-time", "pattern": "^2026-"}; !reflect.DeepEqual(due, want) {
+		t.Fatalf("response_format.json_schema.schema due = %#v, want %#v", due, want)
 	}
 	if tools, ok := body["tools"].([]any); !ok || len(tools) != 1 {
 		t.Fatalf("tools = %#v, want one tool", body["tools"])

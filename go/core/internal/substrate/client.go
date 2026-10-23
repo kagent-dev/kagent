@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -148,6 +149,9 @@ func (c *Client) GetActorTemplate(ctx context.Context, atespace, name string) (*
 func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
+	// Substrate requires request opt-in as well as the server's
+	// PerTemplateSnapshotLocation gate to honor the configured snapshot location.
+	ctx = metadata.AppendToOutgoingContext(ctx, "ate-preview-allowed", "true")
 	return c.ControlClient.CreateActorTemplate(ctx, &ateapipb.CreateActorTemplateRequest{ActorTemplate: template})
 }
 
@@ -196,14 +200,43 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
+// SuspendActor waits for durable storage, including an upload left by an earlier
+// attempt. Substrate's synchronous mode returns already-suspended Actors as-is.
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID)})
+	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{
+		Actor:   actorRef(atespace, actorID),
+		Options: &ateapipb.SuspendOptions{Mode: ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS},
+	})
 	if err != nil {
 		return nil, err
 	}
-	return resp.GetActor(), nil
+	actor := resp.GetActor()
+	uid := actor.GetMetadata().GetUid()
+	generation := LatestActorSnapshot(actor).GetGeneration()
+	for {
+		if actor.GetMetadata().GetUid() != uid || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED || LatestActorSnapshot(actor).GetGeneration() != generation {
+			return nil, fmt.Errorf("actor %s/%s changed while waiting for its durable snapshot", atespace, actorID)
+		}
+		snapshot := LatestActorSnapshot(actor)
+		if snapshot.GetDurableSnapshot().GetStatus() != ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING {
+			// The lifecycle owner validates fidelity and completeness; only a pending
+			// upload warrants polling. Never substitute an older completed generation.
+			return actor, nil
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("wait for Actor %s/%s durable snapshot: %w", atespace, actorID, ctx.Err())
+		case <-timer.C:
+		}
+		actor, err = c.ControlClient.GetActor(ctx, &ateapipb.GetActorRequest{Actor: actorRef(atespace, actorID)})
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 func (c *Client) GetTag(ctx context.Context, atespace, name string) (*ateapipb.Tag, error) {
@@ -249,7 +282,17 @@ func (c *Client) DeleteActor(ctx context.Context, atespace, actorID string) erro
 func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
+	// Existing spaces only require scoped access, not global create permission.
+	_, err := c.GetAtespace(ctx, &ateapipb.GetAtespaceRequest{
+		Atespace: &ateapipb.ObjectRef{Name: name},
+	})
+	if err == nil {
+		return nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return err
+	}
+	_, err = c.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
 		Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: name}},
 	})
 	if err != nil && status.Code(err) == codes.AlreadyExists {

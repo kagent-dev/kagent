@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 func canonicalTestAccess(t *testing.T, destinations []string, credentials ...Credential) Access {
@@ -16,7 +18,7 @@ func canonicalTestAccess(t *testing.T, destinations []string, credentials ...Cre
 }
 
 func cloneAccess(a Access) Access {
-	return Access{Destinations: slices.Clone(a.Destinations), Credentials: slices.Clone(a.Credentials)}
+	return Access{Destinations: slices.Clone(a.Destinations), Credentials: slices.Clone(a.Credentials), TokenPassthroughTargets: slices.Clone(a.TokenPassthroughTargets)}
 }
 
 func TestIntersectAccess(t *testing.T) {
@@ -40,10 +42,14 @@ func TestFilterConflicts(t *testing.T) {
 	conflict := binding
 	conflict.URI = "ate-secret://k8s.io/default/team/other/token"
 	const extra = "https://tickets.example.com:443"
+	tokenBase, err := CanonicalAccess([]string{binding.Origin}, nil, []egresspolicy.GatewayTarget{{Origin: binding.Origin, Header: "authorization", Prefix: "Bearer "}})
+	require.NoError(t, err)
+	_, err = MergeAccess(Access{}, tokenBase)
+	require.ErrorContains(t, err, "grants cannot carry tokenPassthrough targets")
 	for _, test := range []struct {
 		name               string
 		base, grants, want Access
-		tokens, dropped    []string
+		dropped            []string
 	}{
 		{name: "additive", base: base, grants: canonicalTestAccess(t, []string{extra}), want: canonicalTestAccess(t, []string{extra})},
 		{name: "duplicate", base: base, grants: base, want: base},
@@ -51,17 +57,17 @@ func TestFilterConflicts(t *testing.T) {
 			want: canonicalTestAccess(t, []string{binding.Origin, extra}), dropped: []string{binding.Origin}},
 		{name: "protocol conflict keeps other grants", base: base, grants: canonicalTestAccess(t, []string{"http://model.example.com:443", extra}),
 			want: canonicalTestAccess(t, []string{extra}), dropped: []string{"http://model.example.com:443"}},
-		{name: "token passthrough", base: canonicalTestAccess(t, []string{binding.Origin}), tokens: []string{binding.Origin},
+		{name: "token passthrough", base: tokenBase,
 			grants: canonicalTestAccess(t, []string{binding.Origin, extra}, binding), want: canonicalTestAccess(t, []string{binding.Origin, extra}), dropped: []string{binding.Origin}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			beforeBase, beforeGrants := cloneAccess(test.base), cloneAccess(test.grants)
-			filtered, dropped := FilterConflicts(test.base, test.grants, test.tokens)
+			filtered, dropped := FilterConflicts(test.base, test.grants)
 			require.Equal(t, test.want, filtered)
 			require.Equal(t, test.dropped, dropped)
-			effective, err := EffectiveAccess(test.base, test.grants, test.tokens)
+			effective, err := EffectiveAccess(test.base, test.grants)
 			require.NoError(t, err)
-			want, err := MergeAccess(test.base, test.want, test.tokens)
+			want, err := MergeAccess(test.base, test.want)
 			require.NoError(t, err)
 			require.Equal(t, want, effective)
 			require.Equal(t, beforeBase, test.base)
@@ -80,7 +86,7 @@ func TestFilterConflictsLimits(t *testing.T) {
 		{"https://z.example.com", "https://a.example.com"},
 		{"https://a.example.com", "https://z.example.com"},
 	} {
-		filtered, dropped := FilterConflicts(base, canonicalTestAccess(t, input), nil)
+		filtered, dropped := FilterConflicts(base, canonicalTestAccess(t, input))
 		require.Equal(t, []string{"https://a.example.com:443"}, filtered.Destinations)
 		require.Equal(t, []string{"https://z.example.com:443"}, dropped)
 	}
@@ -92,7 +98,7 @@ func TestFilterConflictsLimits(t *testing.T) {
 	extra := credentials[0]
 	extra.Header = "x-new"
 	grants := canonicalTestAccess(t, base.Destinations, extra)
-	filtered, dropped := FilterConflicts(base, grants, nil)
+	filtered, dropped := FilterConflicts(base, grants)
 	require.Empty(t, filtered.Credentials)
 	require.Equal(t, base.Destinations, filtered.Destinations)
 	require.Equal(t, base.Destinations, dropped)

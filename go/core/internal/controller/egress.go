@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/hashicorp/go-multierror"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

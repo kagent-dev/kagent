@@ -6,7 +6,10 @@ from kagent.runtime.v1 import memory_pb2 as kagent_dot_runtime_dot_v1_dot_memory
 
 
 class MemoryServiceStub:
-    """Missing associated documentation comment in .proto file."""
+    """Memory is scoped to an agent and a user. Actor calls derive both from the
+    persisted session bound to the verified Actor JWT. List and Delete also
+    accept user authentication and use the authenticated user's identity.
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -42,34 +45,42 @@ class MemoryServiceStub:
 
 
 class MemoryServiceServicer:
-    """Missing associated documentation comment in .proto file."""
+    """Memory is scoped to an agent and a user. Actor calls derive both from the
+    persisted session bound to the verified Actor JWT. List and Delete also
+    accept user authentication and use the authenticated user's identity.
+    """
 
     def AddSession(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Requires an Actor JWT.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def AddSessionBatch(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Requires an Actor JWT.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def Search(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Requires an Actor JWT.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def List(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Accepts an Actor JWT or user authentication on the same RPC endpoint.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def Delete(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Accepts an Actor JWT or user authentication on the same RPC endpoint.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -111,7 +122,10 @@ def add_MemoryServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class MemoryService:
-    """Missing associated documentation comment in .proto file."""
+    """Memory is scoped to an agent and a user. Actor calls derive both from the
+    persisted session bound to the verified Actor JWT. List and Delete also
+    accept user authentication and use the authenticated user's identity.
+    """
 
     @staticmethod
     def AddSession(request,

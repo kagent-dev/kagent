@@ -15,6 +15,20 @@ message CLIConfig {
   LoggingConfig logging = 3;
   InstallConfig install = 4;
   DatabaseConfig database = 5;
+  TUIConfig tui = 6;
+}
+
+// TUIConfig sets how the interactive workspace starts.
+message TUIConfig {
+  // sidebar is whether the Namespaces, Agents and Sessions panels show at start; /sidebar toggles them for the run. Default "shown".
+  optional string sidebar = 1 [(buf.validate.field).string = {
+    in: [
+      "shown",
+      "hidden"
+    ]
+  }];
+  // bell rings the terminal bell when a turn finishes or waits for input while the terminal window is unfocused; needs a terminal that reports focus. Default true.
+  optional bool bell = 2;
 }
 
 message ConnectionConfig {
@@ -201,6 +215,11 @@ message SubstrateConfig {
     uri: true
     pattern: "^https?://[^/?#]+"
   }];
+  // Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file.
+  optional string actor_jwt_issuer = 5 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https://[^/?#]+"
+  }];
 }
 
 message SessionsConfig {
@@ -346,13 +365,16 @@ message RuntimeDefaultsConfig {
   }];
   optional int64 max_content_length = 5 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 6;
-  SkillToolsConfig skill_tools = 7;
+  BuiltinToolsConfig builtin_tools = 7;
+  // Per-agent runtime limits, in Kubernetes quantity notation.
+  optional string cpu = 8 [(buf.validate.field).string.min_len = 1];
+  optional string memory = 9 [(buf.validate.field).string.min_len = 1];
   // The Substrate credential provider class, the authority of the
   // ate-secret:// URI, that the egress gateway resolves a ModelConfig's
   // apiKeySecret through, keyed by ModelConfig provider. A provider absent
   // here uses k8s.io, which injects the Secret value as it is stored.
   // GeminiVertexAI and AnthropicVertexAI need a class that mints access tokens.
-  map<string, string> model_credential_authorities = 8 [(buf.validate.field).map = {
+  map<string, string> model_credential_authorities = 10 [(buf.validate.field).map = {
     keys: {
       string: {
         in: [
@@ -384,9 +406,9 @@ message RuntimeDefaultsConfig {
   }];
 }
 
-// SkillToolsConfig configures the built-in tools available with local skills.
-message SkillToolsConfig {
-  bool file_search_tools = 1;
+// BuiltinToolsConfig configures the built-in filesystem and shell tools, independently of skills.
+message BuiltinToolsConfig {
+  bool disable_file_search = 1;
   string bash_venv_path = 2;
   bool disable_bash = 3;
 }

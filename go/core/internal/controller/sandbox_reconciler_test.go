@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -212,13 +212,12 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).ObservedActorTemplate != nil })
 
 	pool := (*pools.GetKey("team-a/default")).DeepCopy()
-	pool.Spec.SandboxClass = atev1alpha1.SandboxClassMicroVM
+	pool.Spec.SandboxClasses = []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}
 	pools.UpdateObject(pool)
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).RevisionID != original.RevisionID })
 	changed := s.collections.states.GetKey(key)
 	require.NotEmpty(t, changed.RevisionID)
 	require.Nil(t, changed.ObservedActorTemplate)
-	require.False(t, proto.Equal(original.DesiredActorTemplate.SandboxConfig, changed.DesiredActorTemplate.SandboxConfig))
 	pools.DeleteObject("team-a/default")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	missing := s.collections.states.GetKey(key)

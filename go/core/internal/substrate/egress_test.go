@@ -3,16 +3,18 @@ package substrate
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 type egressPolicyStoreFunc func(context.Context, string) (egress.Access, error)
@@ -26,7 +28,7 @@ var _ egress.PolicyStore = egressPolicyStoreFunc(nil)
 func TestEnsureActorEgressPolicyUpdatesCurrentGrants(t *testing.T) {
 	fake := &egressPolicyFake{createErr: context.DeadlineExceeded}
 	access := egress.Access{Destinations: []string{"https://api.example.com:443"}}
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(_ context.Context, revision string) (egress.Access, error) {
+	client := &Client{ControlClient: fake, cfg: Config{ControlPlaneURL: testControlPlaneURL, EgressPolicies: egressPolicyStoreFunc(func(_ context.Context, revision string) (egress.Access, error) {
 		require.Equal(t, "pinned-revision", revision)
 		return access, nil
 	})}}
@@ -59,7 +61,7 @@ func TestEnsureActorEgressPolicyUpdatesCurrentGrants(t *testing.T) {
 func TestEnsureActorEgressPolicyReloadsAfterConflict(t *testing.T) {
 	fake := &egressPolicyFake{}
 	access := egress.Access{}
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil })}}
+	client := &Client{ControlClient: fake, cfg: Config{ControlPlaneURL: testControlPlaneURL, EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil })}}
 	reconcile := func() error {
 		return client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "revision")
 	}
@@ -74,6 +76,33 @@ func TestEnsureActorEgressPolicyReloadsAfterConflict(t *testing.T) {
 	require.NoError(t, reconcile())
 	require.Empty(t, fake.policy.Rules)
 	require.Zero(t, fake.updated)
+}
+
+func TestEnsureActorEgressPolicyDeniesWhenExtensionFails(t *testing.T) {
+	const kept, denied = "https://mcp.example.com:443", "https://denied.example.com:443"
+	fake := &egressPolicyFake{}
+	access := egress.Access{
+		Destinations:            []string{kept, denied},
+		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: kept, Header: "authorization", Prefix: "Bearer "}},
+	}
+	store := egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil })
+	var failure error
+	extension := compilerFunc(func(_ context.Context, _ egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
+		policy.Rules = slices.DeleteFunc(policy.Rules, func(rule *ateapipb.EgressRule) bool {
+			return slices.Contains(rule.GetHttps().GetHostnames(), "denied.example.com")
+		})
+		policy.Rules[0].GetHttps().Effects = &ateapipb.HttpRuleEffects{ReplaceHeaders: []*ateapipb.CredentialHeader{{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://k8s.io/default/team-a/token/value"}}}
+		return failure
+	})
+	client := &Client{ControlClient: fake, cfg: Config{ControlPlaneURL: testControlPlaneURL, EgressPolicies: store, EgressPolicyCompilers: []egresspolicy.Compiler{extension}}}
+	reconcile := func() error { return client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "revision") }
+
+	require.NoError(t, reconcile())
+	require.Len(t, fake.policy.GetRules(), 1, "the extension removed a destination")
+	failure = errors.New("provider unavailable")
+	require.ErrorContains(t, reconcile(), "provider unavailable")
+	require.NotNil(t, fake.policy)
+	require.Empty(t, fake.policy.GetRules(), "a failed extension denies all egress instead of restoring the built-in policy")
 }
 
 type egressPolicyFake struct {
@@ -102,6 +131,9 @@ func (f *egressPolicyFake) CreateActorEgressPolicy(_ context.Context, req *ateap
 }
 
 func (f *egressPolicyFake) GetActorEgressPolicy(_ context.Context, req *ateapipb.GetActorEgressPolicyRequest, _ ...grpc.CallOption) (*ateapipb.EgressPolicy, error) {
+	if req.GetName() != "default" {
+		return nil, status.Error(codes.InvalidArgument, "singleton policy name must be default")
+	}
 	f.actor = req.Actor
 	if f.getErr != nil {
 		return nil, f.getErr
@@ -129,7 +161,7 @@ func (f *egressPolicyFake) UpdateActorEgressPolicy(_ context.Context, req *ateap
 func TestEnsureActorEgressPolicyCatchesUpdateDuringCreation(t *testing.T) {
 	fake := &egressPolicyFake{}
 	access := egress.Access{Destinations: []string{"https://revoked.example.com:443"}}
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil })}}
+	client := &Client{ControlClient: fake, cfg: Config{ControlPlaneURL: testControlPlaneURL, EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil })}}
 	fake.afterCreate = func() {
 		// The controller published revocation, but its actor discovery ran before
 		// creation. There is no concurrent Substrate write to cause a CAS conflict.
@@ -145,7 +177,7 @@ func TestEnsureActorEgressPolicyCatchesUpdateDuringCreation(t *testing.T) {
 func TestEnsureActorEgressPolicyRequiresPersistedPolicy(t *testing.T) {
 	fake := &egressPolicyFake{}
 	unavailable := errors.New("intended policy unavailable")
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return egress.Access{}, unavailable })}}
+	client := &Client{ControlClient: fake, cfg: Config{ControlPlaneURL: testControlPlaneURL, EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return egress.Access{}, unavailable })}}
 	err := client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision")
 	require.ErrorIs(t, err, unavailable)
 	require.Zero(t, fake.created)

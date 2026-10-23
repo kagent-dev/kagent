@@ -69,7 +69,7 @@ func TestHelmControllerConfig(t *testing.T) {
 	base, checksum, err := render("{}")
 	require.NoError(t, err)
 	require.Equal(t, "team", base.Kubernetes.GetNamespace())
-	require.Equal(t, "http://demo-controller.team.svc:8083", base.RuntimeDefaults.GetControlPlaneUrl())
+	require.Equal(t, "http://demo-controller.team.svc.cluster.local:8083", base.RuntimeDefaults.GetControlPlaneUrl())
 	require.NotEmpty(t, checksum)
 	require.Equal(t, "kagent", base.Database.GetSchema())
 	require.Equal(t, "extensions", base.Database.GetVectorSchema())
@@ -108,7 +108,7 @@ func TestHelmControllerConfig(t *testing.T) {
 	authorities, _, err := render("config:\n  runtimeDefaults:\n    modelCredentialAuthorities: {GeminiVertexAI: tokens.example.com}\n")
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"GeminiVertexAI": "tokens.example.com"}, authorities.RuntimeDefaults.GetModelCredentialAuthorities())
-	require.Equal(t, "http://demo-controller.team.svc:8083", authorities.RuntimeDefaults.GetControlPlaneUrl())
+	require.Equal(t, "http://demo-controller.team.svc.cluster.local:8083", authorities.RuntimeDefaults.GetControlPlaneUrl())
 	_, _, err = render("config:\n  loging: {level: debug}\n")
 	require.ErrorContains(t, err, "unknown field")
 }

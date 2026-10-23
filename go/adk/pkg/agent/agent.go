@@ -70,6 +70,15 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
 	skillsDirectory := agentConfig.SkillsDirectory
+	builtinTools := runtime.GetBuiltinTools()
+	executionTools, err := tools.NewBuiltinTools(tools.BuiltinToolsConfig{
+		SkillsDirectory: skillsDirectory, BashVenvPath: builtinTools.GetBashVenvPath(),
+		DisableFileSearch: builtinTools.GetDisableFileSearch(), DisableBash: builtinTools.GetDisableBash(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create built-in tools: %w", err)
+	}
+	extraTools = append(extraTools, executionTools...)
 	if skillsDirectory != "" {
 		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
 		skills, err := skillsSource.ListFrontmatters(ctx)
@@ -77,19 +86,12 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 			return nil, fmt.Errorf("failed to load skills: %w", err)
 		}
 		if len(skills) > 0 {
-			skillTools := runtime.GetSkillTools()
-			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory, skillTools.GetFileSearchTools(), skillTools.GetDisableBash())
-			if err != nil {
-				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
-			}
-			extraTools = append(extraTools, executionTools...)
-
 			skillsToolset, err := skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill toolset: %w", err)
 			}
 			toolsets = append(toolsets, skillsToolset)
-			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills), "execution_tool_count", len(executionTools))
+			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills))
 		}
 	}
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
@@ -283,17 +285,19 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 			Temperature:         p.Openai.Temperature,
 			TopP:                p.Openai.TopP,
 			APIFormat:           p.Openai.ApiFormat,
+			StrictOutputSchema:  new(p.Openai.StrictOutputSchema),
 		}
 		return models.NewOpenAIModel(ctx, cfg)
 
 	case *configv1.ADKModelConfig_AzureOpenai:
 		cfg := &models.AzureOpenAIConfig{
-			TransportConfig: transportConfigFromBase(m, nil),
-			Model:           m.Model,
-			Endpoint:        p.AzureOpenai.Endpoint,
-			Deployment:      p.AzureOpenai.Deployment,
-			APIVersion:      p.AzureOpenai.ApiVersion,
-			APIFormat:       p.AzureOpenai.ApiFormat,
+			TransportConfig:    transportConfigFromBase(m, nil),
+			Model:              m.Model,
+			Endpoint:           p.AzureOpenai.Endpoint,
+			Deployment:         p.AzureOpenai.Deployment,
+			APIVersion:         p.AzureOpenai.ApiVersion,
+			APIFormat:          p.AzureOpenai.ApiFormat,
+			StrictOutputSchema: new(p.AzureOpenai.StrictOutputSchema),
 		}
 		return models.NewAzureOpenAIModel(ctx, cfg)
 
@@ -461,11 +465,12 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 			return models.NewFoundryAnthropicModel(ctx, cfg, p.Foundry.Endpoint, p.Foundry.Deployment, nil)
 		}
 		cfg := &models.FoundryConfig{
-			TransportConfig: transportConfigFromBase(m, nil),
-			Model:           m.Model,
-			Endpoint:        p.Foundry.Endpoint,
-			Deployment:      p.Foundry.Deployment,
-			APIVersion:      p.Foundry.ApiVersion,
+			TransportConfig:    transportConfigFromBase(m, nil),
+			Model:              m.Model,
+			Endpoint:           p.Foundry.Endpoint,
+			Deployment:         p.Foundry.Deployment,
+			APIVersion:         p.Foundry.ApiVersion,
+			StrictOutputSchema: new(p.Foundry.StrictOutputSchema),
 		}
 		return models.NewFoundryModel(ctx, cfg)
 

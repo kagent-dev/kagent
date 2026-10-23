@@ -15,6 +15,7 @@ func TestOwnsEnvironment(t *testing.T) {
 		ClaudeConfigDirEnvName,
 		GoogleApplicationCredentialsEnvName,
 		SkipVertexAuthEnvName,
+		MaxRetriesEnvName,
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
 		"OTEL_TRACES_EXPORTER",
 		"OTEL_LOG_RAW_API_BODIES",

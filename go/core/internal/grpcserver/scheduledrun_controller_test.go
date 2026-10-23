@@ -86,7 +86,7 @@ func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1
 
 func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1.Session) (*database.SessionTaskSnapshot, error) {
 	w.quiesces.Add(1)
-	return &database.SessionTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", ContentScope: "FULL"}, nil
+	return &database.SessionTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}, nil
 }
 
 func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1.Session) error {

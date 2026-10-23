@@ -2,7 +2,9 @@ package translator
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -11,6 +13,7 @@ import (
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
@@ -18,15 +21,76 @@ import (
 // The gateway overwrites the corresponding header with the current Secret.
 const CredentialPlaceholder = "kagent-credential-injected"
 
+// passthroughClient sends the caller's token; an empty header means no target.
+type passthroughClient struct {
+	client, endpoint, header, prefix string
+	// explicit lists the headers the client sets itself.
+	explicit []string
+}
+
+// passthroughTargets records each client's token header. The origin must not
+// serve clients that did not opt in.
+func passthroughTargets(clients []passthroughClient, directEndpoints []string) ([]egresspolicy.GatewayTarget, error) {
+	direct := map[string]bool{}
+	if len(clients) != 0 {
+		for _, endpoint := range directEndpoints {
+			// IP literals fail to parse and cannot match a DNS-only target.
+			if origin, err := canonicalOrigin(endpoint); err == nil {
+				direct[origin.String()] = true
+			}
+		}
+	}
+	var targets []egresspolicy.GatewayTarget
+	explicit := map[string]bool{}
+	for _, client := range clients {
+		if client.header == "" {
+			return nil, NewValidationError("%s tokenPassthrough has no credential target", client.client)
+		}
+		origin, err := canonicalOrigin(client.endpoint)
+		if err != nil {
+			return nil, err
+		}
+		if direct[origin.String()] {
+			return nil, NewValidationError("destination %q mixes tokenPassthrough with clients that do not use it", origin)
+		}
+		for _, header := range client.explicit {
+			explicit[origin.String()+"\x00"+strings.ToLower(header)] = true
+		}
+		targets = append(targets, egresspolicy.GatewayTarget{Origin: origin.String(), Header: client.header, Prefix: client.prefix})
+	}
+	for _, target := range targets {
+		if explicit[target.Origin+"\x00"+target.Header] {
+			return nil, NewValidationError("destination %q has an explicit %q header that tokenPassthrough replaces", target.Origin, target.Header)
+		}
+	}
+	targets, err := egress.CanonicalGatewayTargets(targets)
+	if err != nil {
+		return nil, NewValidationError("%v", err)
+	}
+	return targets, nil
+}
+
+func canonicalOrigin(endpoint string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return nil, NewValidationError("invalid passthrough credential destination")
+	}
+	origin, err := egress.ParseOrigin(egress.Origin(u))
+	if err != nil {
+		return nil, NewValidationError("invalid passthrough credential destination: %v", err)
+	}
+	return origin, nil
+}
+
 // CompileCredentials replaces secret-backed environment values with inert SDK
 // placeholders and compiles their destination-scoped gateway bindings. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
-func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar, settings *configv1.RuntimeDefaultsConfig) ([]corev1.EnvVar, []egress.Credential, []string, error) {
+func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar, settings *configv1.RuntimeDefaultsConfig) ([]corev1.EnvVar, []egress.Credential, []egresspolicy.GatewayTarget, error) {
 	var bindings []egress.Credential
-	var tokenPassthroughOrigins []string
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
-	var passthroughEndpoints []string
+	var passthrough []passthroughClient
+	var directEndpoints []string
 	bind := func(rawURL, header, prefix, authority, namespace, name, key string) error {
 		u, err := url.Parse(strings.TrimSpace(rawURL))
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
@@ -44,7 +108,16 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		for _, tool := range agent.MCPTools {
 			if tool.Server.Spec.TokenPassthrough {
-				passthroughEndpoints = append(passthroughEndpoints, tool.Server.Spec.URL)
+				var explicit []string
+				for _, ref := range tool.Server.Spec.HeadersFrom {
+					explicit = append(explicit, ref.Name)
+				}
+				passthrough = append(passthrough, passthroughClient{
+					client: fmt.Sprintf("%s %q", tool.Binding.Server.Kind, tool.Server.Name), endpoint: tool.Server.Spec.URL,
+					header: "authorization", prefix: "Bearer ", explicit: explicit,
+				})
+			} else {
+				directEndpoints = append(directEndpoints, tool.Server.Spec.URL)
 			}
 			for _, ref := range tool.Server.Spec.HeadersFrom {
 				if ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource {
@@ -96,30 +169,29 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		boundModels[target.name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
 	}
 	for _, resolved := range models {
-		if !resolved.Config.Spec.TokenPassthrough {
+		spec := resolved.Config.Spec
+		if !spec.TokenPassthrough {
+			directEndpoints = append(directEndpoints, modelEndpoints(resolved, environment)...)
 			continue
 		}
-		if VertexAIConfig(&resolved.Config.Spec) != nil {
-			return nil, nil, nil, NewValidationError("ModelConfig %q provider %s does not support tokenPassthrough", resolved.Config.Name, resolved.Config.Spec.Provider)
+		if VertexAIConfig(&spec) != nil {
+			return nil, nil, nil, NewValidationError("ModelConfig %q provider %s does not support tokenPassthrough", resolved.Config.Name, spec.Provider)
 		}
-		passthroughEndpoints = append(passthroughEndpoints, modelCredentialTarget(resolved, settings).endpoint)
+		target := modelCredentialTarget(resolved, settings)
+		passthrough = append(passthrough, passthroughClient{
+			client: fmt.Sprintf("ModelConfig %q", resolved.Config.Name), endpoint: target.endpoint, header: target.header, prefix: target.prefix,
+			explicit: slices.Collect(maps.Keys(spec.DefaultHeaders)),
+		})
 	}
-	for _, endpoint := range passthroughEndpoints {
-		u, err := url.Parse(strings.TrimSpace(endpoint))
-		if err != nil {
-			return nil, nil, nil, NewValidationError("invalid passthrough credential destination")
-		}
-		origin, err := egress.ParseOrigin(egress.Origin(u))
-		if err != nil {
-			return nil, nil, nil, NewValidationError("invalid passthrough credential destination: %v", err)
-		}
-		tokenPassthroughOrigins = append(tokenPassthroughOrigins, origin.String())
+	targets, err := passthroughTargets(passthrough, directEndpoints)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	var destinations []string
 	for _, binding := range bindings {
 		destinations = append(destinations, binding.Origin)
 	}
-	access, err := egress.CanonicalAccess(destinations, bindings, tokenPassthroughOrigins)
+	access, err := egress.CanonicalAccess(destinations, bindings, targets)
 	if err != nil {
 		return nil, nil, nil, NewValidationError("%v", err)
 	}
@@ -136,7 +208,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil
 	}
-	return result, access.Credentials, tokenPassthroughOrigins, nil
+	return result, access.Credentials, access.TokenPassthroughTargets, nil
 }
 
 // ModelCredentialAuthority is the Substrate credential provider class the
@@ -187,7 +259,7 @@ func modelCredentialTarget(resolved *ResolvedModelConfig, settings *configv1.Run
 		// provider class mints from the service account key the Secret holds.
 		name, header, prefix = vertexAICredentialName, "authorization", "Bearer "
 		if vertex := VertexAIConfig(&spec); vertex != nil {
-			endpoint = "https://" + VertexAIHostname(vertex.Location)
+			endpoint = "https://" + VertexHostname(vertex.Location)
 		}
 	case v1alpha3.ModelProviderMistral:
 		name, endpoint, header, prefix = env.MistralAPIKey.Name(), "https://api.mistral.ai", "authorization", "Bearer "
@@ -228,4 +300,45 @@ func modelCredentialTarget(resolved *ResolvedModelConfig, settings *configv1.Run
 	}
 	target.name, target.endpoint, target.header, target.prefix = name, endpoint, header, prefix
 	return target
+}
+
+// modelEndpoints returns every endpoint a model client calls, keyed or not.
+func modelEndpoints(resolved *ResolvedModelConfig, environment []corev1.EnvVar) []string {
+	spec := resolved.Config.Spec
+	if spec.Provider == v1alpha3.ModelProviderOllama {
+		// Go ADK Ollama clients share one host and key across models.
+		var host string
+		var hasCredential bool
+		for _, variable := range environment {
+			switch variable.Name {
+			case env.OllamaAPIBase.Name():
+				host = variable.Value
+			case env.OllamaAPIKey.Name():
+				hasCredential = variable.Value != "" || variable.ValueFrom != nil
+			}
+		}
+		if host != "" {
+			return []string{host}
+		}
+		if models.OllamaReachesCloud(spec.Model, host, hasCredential) {
+			return []string{"https://api.ollama.com"}
+		}
+		return nil
+	}
+	var endpoints []string
+	if endpoint := modelCredentialTarget(resolved, nil).endpoint; endpoint != "" {
+		endpoints = append(endpoints, endpoint)
+	}
+	if spec.Provider == v1alpha3.ModelProviderSAPAICore && spec.SAPAICore != nil {
+		endpoints = append(endpoints, spec.SAPAICore.BaseURL)
+		if spec.SAPAICore.AuthURL != "" {
+			endpoints = append(endpoints, spec.SAPAICore.AuthURL)
+		}
+	}
+	// Without apiKeySecret, Vertex AI clients exchange ambient Google
+	// credentials for access tokens themselves.
+	if VertexAIConfig(&spec) != nil && spec.APIKeySecret == "" {
+		endpoints = append(endpoints, "https://oauth2.googleapis.com")
+	}
+	return endpoints
 }

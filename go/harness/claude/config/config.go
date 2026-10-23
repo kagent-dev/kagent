@@ -24,6 +24,7 @@ const (
 	PinnedClaudeVersion                 = "2.1.285"
 	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
 	DisableUpdatesEnvName               = "DISABLE_UPDATES"
+	MaxRetriesEnvName                   = "CLAUDE_CODE_MAX_RETRIES"
 	GoogleApplicationCredentialsEnvName = "GOOGLE_APPLICATION_CREDENTIALS"
 	UseBedrockEnvName                   = "CLAUDE_CODE_USE_BEDROCK"
 	UseVertexEnvName                    = "CLAUDE_CODE_USE_VERTEX"
@@ -49,7 +50,7 @@ func OwnsEnvironment(name string) bool {
 		return true
 	}
 	switch name {
-	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, GoogleApplicationCredentialsEnvName,
+	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, MaxRetriesEnvName, GoogleApplicationCredentialsEnvName,
 		UseBedrockEnvName, UseVertexEnvName, SkipVertexAuthEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,

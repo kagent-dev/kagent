@@ -86,6 +86,12 @@ spec:
                 - key
                 - name
                 type: object
+              outputSchemaStrict:
+                description: |-
+                  OutputSchemaStrict tells OpenAI, Azure OpenAI, and Foundry (openai format)
+                  to limit generation to the output schema. kagent then checks the schema
+                  against OpenAI's strict mode rules on every provider.
+                type: boolean
               plugins:
                 items:
                   description: PluginBundle selects Agent Skills from one immutable
@@ -406,6 +412,9 @@ spec:
                 type: array
             type: object
             x-kubernetes-validations:
+            - message: outputSchemaStrict requires outputSchema or outputSchemaFrom
+              rule: '!has(self.outputSchemaStrict) || !self.outputSchemaStrict ||
+                has(self.outputSchema) || has(self.outputSchemaFrom)'
             - message: at most one of the fields in [systemPrompt systemPromptFrom]
                 may be set
               rule: (has(self.systemPrompt)?1:0)+(has(self.systemPromptFrom)?1:0)

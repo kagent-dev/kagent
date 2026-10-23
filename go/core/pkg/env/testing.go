@@ -1,5 +1,22 @@
 package env
 
+// TODO: REMOVE these test-only switches when Substrate denial handling permits
+// native retries without minutes of backoff: https://github.com/agent-substrate/substrate/issues/2663
+const (
+	TestCodexDisableRetries  = "KAGENT_TEST_CODEX_DISABLE_RETRIES"
+	TestClaudeDisableRetries = "KAGENT_TEST_CLAUDE_DISABLE_RETRIES"
+)
+
+func init() {
+	for _, name := range []string{TestCodexDisableRetries, TestClaudeDisableRetries} {
+		register(Var{
+			Name: name, DefaultValue: "false", Type: TypeBool,
+			Description: "Disable native model retries when exactly true. Internal E2E workaround for slow denied connections.",
+			Components:  []Component{ComponentAgentRuntime, ComponentTesting}, Hidden: true,
+		})
+	}
+}
+
 // Testing environment variables used in E2E tests and mock services.
 var (
 	KagentLocalHost = RegisterStringVar(

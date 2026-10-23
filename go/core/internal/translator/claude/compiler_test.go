@@ -655,6 +655,8 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Placement and limits normally come from the central runtime compiler.
+	revision.CPU, revision.Memory = "1", "1Gi"
 	revisionID, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)

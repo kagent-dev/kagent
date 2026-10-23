@@ -49,6 +49,14 @@ Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
 `KAGENT_AGENT_CARD_JSON`. Private A2A is served on port 80 and readiness on
 `/readyz` at port 8081.
 
+The adapter disables Codex's default `unbounded_connection_retries` feature.
+Substrate DNS policy denials appear as connection failures, so retrying them
+indefinitely would leave a task working until canceled. Production runs retain
+the provider's native request and stream retry budgets. E2E fixtures opt into
+zero retry budgets through an internal test switch while upstream denial
+handling still triggers long backoffs. The built-in Bedrock provider rejects
+retry-budget overrides and retains its bounded native retries.
+
 ## Human-in-the-loop flow
 
 An MCP binding with `requireApproval: true` is emitted with Codex's default

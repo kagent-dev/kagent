@@ -278,7 +278,6 @@ describe("the fixture backend", () => {
     expect(summary.actorTemplates[0]).toMatchObject({
       name: "coder-template",
       phase: "Ready",
-      sandboxClass: "gvisor",
       workerSelector: "pool=kagent-default",
     });
     expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "kagent-default", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
@@ -286,6 +285,10 @@ describe("the fixture backend", () => {
       atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
     });
     expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
+    expect(summary.actorStatusCounts).toContainEqual({ status: "Suspended", count: 2 });
+    expect(summary.actorStatusCounts.some((entry) => entry.status === "Paused")).toBe(false);
+    expect(page.actors.find((actor) => actor.actorId === "actor-5d17")?.status).toBe("Paused");
+    expect(page.actors.find((actor) => actor.actorId === "actor-c3f5")?.status).toBe("Suspended");
   });
 
   it("preserves continuation through a worker page with no namespace matches", async () => {

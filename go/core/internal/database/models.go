@@ -9,6 +9,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 type Tool struct {
@@ -68,7 +69,7 @@ type RuntimeRevision struct {
 	AgentCard               *a2apb.AgentCard
 	Credentials             []egress.Credential
 	EgressDestinations      []string
-	TokenPassthroughOrigins []string
+	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	ActorTemplateAtespace   string
 	ActorTemplateName       string
 	ActorTemplateUID        string
@@ -86,9 +87,9 @@ type SessionQuery struct {
 // SessionTaskSnapshot records the external snapshot at an A2A turn boundary.
 // Only an explicit checkpoint retains a copy after the Actor advances or is deleted.
 type SessionTaskSnapshot struct {
-	Atespace     string
-	URI          string
-	ContentScope string
+	Atespace string
+	URI      string
+	Fidelity string
 }
 
 // RuntimeArtifact identifies backend resources retained by either runtime kind.

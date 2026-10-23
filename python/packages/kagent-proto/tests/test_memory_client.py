@@ -27,7 +27,7 @@ async def test_generated_async_client_forwards_metadata_and_deadline() -> None:
     try:
         async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
             response = await memory_pb2_grpc.MemoryServiceStub(channel).Search(
-                memory_pb2.MemoryServiceSearchRequest(agent_name="agent", user_id="user", vector=[1.0]),
+                memory_pb2.MemoryServiceSearchRequest(vector=[1.0]),
                 timeout=5,
                 metadata=(
                     ("authorization", "Bearer token"),
