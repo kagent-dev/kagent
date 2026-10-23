@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -307,10 +308,8 @@ func (t *turn) partView(part *a2atype.Part) PartView {
 
 // call is the turn's tool call ref names: its index or its id.
 func (t *turn) call(ref string) *toolCall {
-	for _, call := range t.calls {
-		if fmt.Sprint(call.index) == ref {
-			return call
-		}
+	if n, err := strconv.Atoi(ref); err == nil && n >= 0 && n < len(t.calls) {
+		return t.calls[n]
 	}
 	for _, call := range t.calls {
 		if call.id != "" && call.id == ref {
