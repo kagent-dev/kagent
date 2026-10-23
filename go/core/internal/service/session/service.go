@@ -87,6 +87,12 @@ func NewService(store store, authorizer auth.Authorizer, workflow sessionWorkflo
 	return service
 }
 
+// CreateFromRequest creates the conversation a CreateSessionRequest asks for.
+// It is the one mapping of the request onto Create that every transport uses.
+func (s *Service) CreateFromRequest(ctx context.Context, request *apiv1.CreateSessionRequest) (*apiv1.Session, error) {
+	return s.Create(ctx, request.GetAgent(), request.GetRequestId(), request.GetName())
+}
+
 // Create reserves and converges a new conversation. name is optional; an empty
 // name leaves the conversation identified by its id, which is how every session
 // created before names existed behaves.
