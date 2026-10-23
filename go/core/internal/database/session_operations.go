@@ -87,7 +87,11 @@ func beginSessionOperation(ctx context.Context, tx pgx.Tx, row sessionRow, kind 
 // admitAgentLifecycle runs under the same row lock as task and checkpoint
 // admission. Common transitions have no knowledge of these agent-only records.
 func admitAgentLifecycle(ctx context.Context, tx pgx.Tx, row sessionRow, kind apiv1.RuntimeOperation) error {
-	if err := requireSettledRuntime(ctx, tx, row.HistoryID, ""); err != nil {
+	// Explicit deletion can supersede an unpublished boundary (#3010, case B).
+	// It closes admission and retains its intent until compute deletion succeeds;
+	// it does not publish the boundary or permit reuse of the conversation.
+	// Claimed lifecycle work remains protected until recovery can fence its owner.
+	if err := requireRuntimeAdmission(ctx, tx, row.HistoryID, "", kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE); err != nil {
 		return err
 	}
 	busy, err := queryOne(ctx, tx, `
