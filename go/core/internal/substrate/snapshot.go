@@ -22,3 +22,14 @@ func SnapshotURI(snapshot *ateapipb.Snapshot) string {
 	}
 	return storage.GetObject().GetSnapshotUri()
 }
+
+// Checkpoints require the newest generation; revert retains the newest durable copy.
+func LatestDurableActorSnapshot(actor *ateapipb.Actor) *ateapipb.Snapshot {
+	var latest *ateapipb.Snapshot
+	for _, snapshot := range actor.GetStatus().GetSnapshots() {
+		if SnapshotURI(snapshot) != "" && snapshot.GetGeneration() > latest.GetGeneration() {
+			latest = snapshot
+		}
+	}
+	return latest
+}
