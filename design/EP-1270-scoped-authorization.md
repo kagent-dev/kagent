@@ -104,9 +104,9 @@ Revoking Agent access prevents new conversations but does not stop existing ones
 revoke Session permissions to stop further sends or resumes. Schedule updates and
 manual triggers separately recheck target grants as described below.
 
-Checkpoint API UUID inputs are normalized to canonical lowercase hyphenated form
+Session and Checkpoint API UUID inputs are normalized to canonical lowercase hyphenated form
 before authorization and storage access, including source Session IDs and
-checkpoint pagination boundaries.
+share IDs and pagination boundaries.
 Equivalent textual encodings cannot bypass exact-identity policy rules.
 
 
@@ -141,6 +141,13 @@ The share supplies the storage owner and permits only that Session's read paths.
 Listing through a share returns at most that Session under its `get` check; it
 does not require or grant the ordinary `list Session` or all-creators capability.
 Shares grant no checkpoint or schedule access, and actors cannot use share credentials.
+
+Actor runtime credentials do not grant checkpoint creation, including for their
+own Session. Checkpoint management requires an independently authorized user/API
+caller. Granting Session send permission does not grant `create Checkpoint`.
+Creating a fresh checkpoint also requires every task to be terminal and the native
+snapshot boundary to be settled; an actor cannot checkpoint its own active tool
+call by gaining an additional permission.
 
 ### Scheduled execution is durable delegation
 

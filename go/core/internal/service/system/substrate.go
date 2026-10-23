@@ -105,7 +105,7 @@ type SubstrateSummary struct {
 func (summary *SubstrateSummary) recordATEError(ctx context.Context, err error) {
 	logging.FromContext(ctx).ErrorContext(ctx, "failed to summarise ate-api state", "error", err)
 	if summary.ATEAPIError == "" {
-		summary.ATEAPIError = err.Error()
+		summary.ATEAPIError = fmt.Sprintf("ate-api could not read inventory: %s", status.Code(err))
 	}
 }
 
@@ -207,7 +207,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 		}
 	}
 	if !workerMatcher.Empty() {
-		if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
+		if err := walkSubstrate(ctx, s.ateClient.ListWorkersPage, func(worker *ateapipb.Worker) {
 			if !workerMatcher.Matches(worker.GetWorkerNamespace(), worker.GetMetadata().GetName()) || !workerScope.contains(worker.GetWorkerNamespace()) {
 				return
 			}
@@ -461,18 +461,6 @@ func (s *Service) walkActors(ctx context.Context, scope substrateScope, visit fu
 		}
 	}
 	return nil
-}
-
-// walkWorkers calls visit for every worker ate-api holds, one page at a time.
-// ate-api's ListWorkersRequest has no namespace filter, so a controller that watches
-// some namespaces still reads every tenant's workers.
-func (s *Service) walkWorkers(ctx context.Context, visit func(*ateapipb.Worker)) error {
-	err := walkSubstrate(ctx, s.ateClient.ListWorkersPage, visit)
-	if err != nil && len(s.observedNamespaces) > 0 {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
-		return fmt.Errorf("ate-api could not list workers: %s", status.Code(err))
-	}
-	return err
 }
 
 // walkSubstrate calls visit for every row ate-api holds, holding one page at a time

@@ -316,7 +316,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 
 		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
-		assert.Equal(t, "ate-api unreachable", result.ATEAPIError)
+		assert.Equal(t, "ate-api could not read inventory: Unknown", result.ATEAPIError)
 		assert.Zero(t, result.ActorCount)
 		require.Len(t, result.WorkerPools, 1)
 	})
@@ -347,7 +347,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 
 		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
-		assert.Equal(t, "templates unavailable", result.ATEAPIError)
+		assert.Equal(t, "ate-api could not read inventory: Unknown", result.ATEAPIError)
 		assert.Empty(t, result.ActorTemplates)
 		// The counts the tiles read. Zero here is the page reporting an empty cluster.
 		assert.Equal(t, int64(2), result.ActorCount)
@@ -361,7 +361,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 		service := system.NewService(kubeClient, nil, &pkgAuth.NoopAuthorizer{}, ateClient)
 		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
-		assert.Equal(t, "actors unavailable", result.ATEAPIError)
+		assert.Equal(t, "ate-api could not read inventory: Unknown", result.ATEAPIError)
 		assert.Zero(t, result.ActorCount)
 		assert.Equal(t, int64(1), result.WorkerCount)
 		assert.Equal(t, int64(1), result.BusyWorkerCount)
@@ -380,7 +380,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 
 		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
-		assert.Equal(t, "workers unavailable", result.ATEAPIError)
+		assert.Equal(t, "ate-api could not read inventory: Unknown", result.ATEAPIError)
 		assert.Equal(t, int64(2), result.ActorCount)
 		assert.Equal(t, int64(0), result.WorkerCount)
 		assert.LessOrEqual(t, result.BusyWorkerCount, result.WorkerCount)

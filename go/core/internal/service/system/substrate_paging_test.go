@@ -222,7 +222,7 @@ func TestGetSubstrateSummaryHidesATEAPIWorkerErrorText(t *testing.T) {
 
 	summary, err := service.GetSubstrateSummary(pagingContext(t), "", "")
 	require.NoError(t, err)
-	assert.Equal(t, "ate-api could not list workers: Internal", summary.ATEAPIError)
+	assert.Equal(t, "ate-api could not read inventory: Internal", summary.ATEAPIError)
 	assert.Equal(t, int64(3), summary.ActorCount, "the actor walk is independent of the worker walk")
 }
 
@@ -835,5 +835,24 @@ func TestActorListWorkerScopeErrorsFailBeforeInventoryRead(t *testing.T) {
 		_, err := system.NewService(nil, nil, policy, ate).ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{})
 		require.Error(t, err)
 		require.Zero(t, ate.actorReads)
+	}
+}
+
+func TestSubstrateSummaryHidesBackendErrorDetails(t *testing.T) {
+	for _, backendErr := range []error{
+		status.Error(codes.Unavailable, "private-atespace/private-actor unavailable"),
+		fmt.Errorf("private-atespace: %w", status.Error(codes.Internal, "private-worker")),
+		errors.New("private database details"),
+	} {
+		t.Run(status.Code(backendErr).String(), func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, atev1alpha1.AddToScheme(scheme))
+			kube := fake.NewClientBuilder().WithScheme(scheme).Build()
+			svc := system.NewService(kube, nil, &pkgAuth.NoopAuthorizer{}, &fakeATEClient{err: backendErr})
+			result, err := svc.GetSubstrateSummary(pagingContext(t), "", "")
+			require.NoError(t, err)
+			require.Equal(t, "ate-api could not read inventory: "+status.Code(backendErr).String(), result.ATEAPIError)
+			require.NotContains(t, result.ATEAPIError, "private")
+		})
 	}
 }

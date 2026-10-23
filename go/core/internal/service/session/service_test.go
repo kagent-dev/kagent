@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -32,28 +34,30 @@ func (a serviceTestAuthorizer) Check(context.Context, auth.Principal, auth.Verb,
 }
 
 type serviceTestStore struct {
-	createInput  *apiv1.Session
-	requestID    string
-	createErr    error
-	sessions     []*apiv1.Session
-	listQuery    database.SessionQuery
-	listCalls    int
-	share        *apiv1.SessionShare
-	tokenHash    []byte
-	shares       []*apiv1.SessionShare
-	shareAfterID string
-	shareLimit   int
-	renamed      *apiv1.Session
-	renameName   string
-	renameUserID string
-	renameErr    error
-	getCreator   string
-	getID        string
-	unscoped     bool
-	getErr       error
-	getResult    *apiv1.Session
-	shareUserID  string
-	shareErr     error
+	createInput    *apiv1.Session
+	requestID      string
+	createErr      error
+	sessions       []*apiv1.Session
+	listQuery      database.SessionQuery
+	listCalls      int
+	share          *apiv1.SessionShare
+	tokenHash      []byte
+	shares         []*apiv1.SessionShare
+	shareAfterID   string
+	shareSessionID string
+	deletedShareID string
+	shareLimit     int
+	renamed        *apiv1.Session
+	renameName     string
+	renameUserID   string
+	renameErr      error
+	getCreator     string
+	getID          string
+	unscoped       bool
+	getErr         error
+	getResult      *apiv1.Session
+	shareUserID    string
+	shareErr       error
 }
 
 func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1.Session, requestID string) (*apiv1.Session, bool, error) {
@@ -109,12 +113,13 @@ func (s *serviceTestStore) CreateSessionShare(_ context.Context, share *apiv1.Se
 	return s.share, s.shareErr
 }
 
-func (s *serviceTestStore) ListSessionShares(_ context.Context, _, _, afterID string, limit int) ([]*apiv1.SessionShare, error) {
-	s.shareAfterID, s.shareLimit = afterID, limit
+func (s *serviceTestStore) ListSessionShares(_ context.Context, sessionID, _, afterID string, limit int) ([]*apiv1.SessionShare, error) {
+	s.shareSessionID, s.shareAfterID, s.shareLimit = sessionID, afterID, limit
 	return s.shares, nil
 }
 
-func (*serviceTestStore) DeleteSessionShare(context.Context, string, string) error {
+func (s *serviceTestStore) DeleteSessionShare(_ context.Context, id, _ string) error {
+	s.deletedShareID = id
 	return nil
 }
 
@@ -775,5 +780,63 @@ func TestSessionCreateUsesTargetNamespace(t *testing.T) {
 				t.Fatalf("denied create = %+v, error = %v, persisted = %+v", created, err, store.createInput)
 			}
 		})
+	}
+}
+
+func TestServiceCanonicalizesSessionAndShareIdentities(t *testing.T) {
+	const id = "018f47a2-4efb-7c21-a848-abcdefabcdef"
+	for _, operation := range []struct {
+		name         string
+		verb         auth.Verb
+		resourceName string
+		call         func(*Service, string) error
+		storedID     func(*serviceTestStore) string
+	}{
+		{"rename", auth.VerbUpdate, id, func(s *Service, input string) error {
+			_, err := s.Rename(serviceTestContext("alice"), input, "title")
+			return err
+		}, func(s *serviceTestStore) string { return s.renamed.GetId() }},
+		{"create share", auth.VerbCreate, id + "/shares", func(s *Service, input string) error {
+			_, _, err := s.CreateShare(serviceTestContext("alice"), input, 0)
+			return err
+		}, func(s *serviceTestStore) string { return s.share.GetSessionId() }},
+		{"list shares", auth.VerbList, id + "/shares", func(s *Service, input string) error {
+			_, err := s.ListShares(serviceTestContext("alice"), input, 0, "")
+			return err
+		}, func(s *serviceTestStore) string { return s.shareSessionID }},
+		{"revoke share", auth.VerbDelete, "shares/" + id, func(s *Service, input string) error { return s.RevokeShare(serviceTestContext("alice"), input) }, func(s *serviceTestStore) string { return s.deletedShareID }},
+	} {
+		for _, scenario := range []struct {
+			name   string
+			input  string
+			denied bool
+		}{
+			{"canonical", id, false},
+			{"uppercase", strings.ToUpper(id), false},
+			{"uppercase denied", strings.ToUpper(id), true},
+			{"invalid", "not-a-uuid", false},
+		} {
+			t.Run(operation.name+"/"+scenario.name, func(t *testing.T) {
+				store := &serviceTestStore{}
+				policy := &recordingAuthorizer{denied: map[string]bool{operation.resourceName: scenario.denied}}
+				err := operation.call(NewService(store, policy, nil), scenario.input)
+				if scenario.input == "not-a-uuid" {
+					require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument))
+					require.Empty(t, policy.resources)
+				} else {
+					require.Equal(t, []auth.Resource{{Type: "Session", Name: operation.resourceName}}, policy.resources)
+					require.Equal(t, []auth.Verb{operation.verb}, policy.verbs)
+					if scenario.denied {
+						require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+					} else {
+						require.NoError(t, err)
+						require.Equal(t, id, operation.storedID(store))
+					}
+				}
+				if err != nil {
+					require.Empty(t, operation.storedID(store), "rejected input must not reach storage")
+				}
+			})
+		}
 	}
 }

@@ -149,11 +149,10 @@ func (s *Service) Get(ctx context.Context, id string) (*apiv1.Session, error) {
 // independent of runtime readiness: viewing a suspended conversation must not
 // provision a worker. Lifecycle and A2A operations use this same access policy.
 func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) (*apiv1.Session, error) {
-	parsed, err := uuid.Parse(id)
+	id, err := validateIdentity(id)
 	if err != nil {
-		return nil, serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
+		return nil, err
 	}
-	id = parsed.String()
 	creator, err := s.authorize(ctx, verb, id)
 	if err != nil {
 		return nil, err
@@ -181,6 +180,10 @@ func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) 
 // service this is a write, and it authorizes as one: a reader who may list and
 // open a conversation must not be able to retitle it.
 func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1.Session, error) {
+	id, err := validateIdentity(id)
+	if err != nil {
+		return nil, err
+	}
 	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
 	if err != nil {
 		return nil, err
@@ -320,7 +323,8 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1.Session, error)
 // token grants access and must not exceed the configured maximum; zero takes the maximum,
 // or leaves the share valid until it is revoked or the session deleted when none is set.
 func (s *Service) CreateShare(ctx context.Context, sessionID string, ttl time.Duration) (*apiv1.SessionShare, string, error) {
-	if err := validateIdentity(sessionID); err != nil {
+	sessionID, err := validateIdentity(sessionID)
+	if err != nil {
 		return nil, "", err
 	}
 	if ttl < 0 {
@@ -361,7 +365,8 @@ func (s *Service) CreateShare(ctx context.Context, sessionID string, ttl time.Du
 }
 
 func (s *Service) ListShares(ctx context.Context, sessionID string, pageSize int, pageToken string) (ShareListResult, error) {
-	if err := validateIdentity(sessionID); err != nil {
+	sessionID, err := validateIdentity(sessionID)
+	if err != nil {
 		return ShareListResult{}, err
 	}
 	userID, err := s.authorize(ctx, auth.VerbList, sessionID+"/shares")
@@ -391,7 +396,8 @@ func (s *Service) ListShares(ctx context.Context, sessionID string, pageSize int
 }
 
 func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
-	if err := validateIdentity(shareID); err != nil {
+	shareID, err := validateIdentity(shareID)
+	if err != nil {
 		return err
 	}
 	userID, err := s.authorize(ctx, auth.VerbDelete, "shares/"+shareID)
@@ -459,11 +465,12 @@ func validateCreate(agent *apiv1.ResourceReference, requestID string) error {
 	return nil
 }
 
-func validateIdentity(id string) error {
-	if _, err := uuid.Parse(id); err != nil {
-		return serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
+func validateIdentity(id string) (string, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return "", serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
 	}
-	return nil
+	return parsed.String(), nil
 }
 
 func encodePageToken(id string) string {
@@ -478,10 +485,7 @@ func decodePageToken(token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := uuid.Parse(string(value)); err != nil {
-		return "", err
-	}
-	return string(value), nil
+	return validateIdentity(string(value))
 }
 
 func generateShareToken() (string, []byte, error) {

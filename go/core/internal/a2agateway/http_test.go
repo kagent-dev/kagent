@@ -548,3 +548,42 @@ func TestEmbeddedPushAcrossTransports(t *testing.T) {
 		}
 	}
 }
+
+// Session creation is permitted, so only the independent target Agent check can
+// reject this first message. No Session or dispatch may be reserved on denial.
+type denyAgentGetPolicy struct {
+	agents []auth.Resource
+}
+
+func (d *denyAgentGetPolicy) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if verb == auth.VerbGet && resource.Type == "Agent" {
+		d.agents = append(d.agents, resource)
+		return errors.New("target Agent access denied")
+	}
+	return nil
+}
+
+func TestGatewayNewConversationRequiresAgentAccessAcrossTransports(t *testing.T) {
+	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
+		t.Run(string(protocol), func(t *testing.T) {
+			store := &gatewayTestStore{created: map[string]*apiv1.Session{}}
+			policy := &denyAgentGetPolicy{}
+			dialer := &gatewayTestDialer{}
+			gateway := newTestGateway(store, policy, dialer, "")
+			transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
+			tenant := ""
+			if protocol == a2atype.TransportProtocolGRPC {
+				tenant = gatewayTestAgent
+			}
+			_, err := transport.SendMessage(t.Context(), a2aclient.ServiceParams{"authorization": {"Bearer valid"}}, &a2atype.SendMessageRequest{
+				Tenant:  tenant,
+				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
+			})
+			require.ErrorIs(t, err, a2atype.ErrUnauthorized)
+			require.Equal(t, []auth.Resource{{Type: "Agent", Namespace: "team-a", Name: "assistant"}}, policy.agents)
+			require.Empty(t, store.created)
+			require.Zero(t, store.reserveCalls)
+			require.Nil(t, dialer.session)
+		})
+	}
+}

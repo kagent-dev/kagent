@@ -3,6 +3,7 @@ package grpcserver
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -73,6 +74,9 @@ func (sessionAuthorizationPolicy) Check(_ context.Context, principal auth.Princi
 		return errors.New("denied")
 	}
 	if resource.Type == "Session" {
+		if principal.User.ID == "no-share-list" && verb == auth.VerbList && strings.HasSuffix(resource.Name, "/shares") {
+			return errors.New("share listing denied")
+		}
 		if verb == auth.VerbGet || verb == auth.VerbList || principal.User.ID != "viewer" {
 			return nil
 		}
@@ -151,6 +155,10 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 	_, err = client.UpdateSessionName(caller("bob", true), &apiv1.UpdateSessionNameRequest{SessionId: aliceID, Name: "forged"})
 	assertGRPCCode(t, err, codes.PermissionDenied)
 	require.Equal(t, before, store.reads.Load())
+
+	// Ordinary callers also need the list grant; share restrictions alone are insufficient.
+	_, err = client.ListSessionShares(caller("no-share-list", false), &apiv1.ListSessionSharesRequest{SessionId: aliceID})
+	assertGRPCCode(t, err, codes.PermissionDenied)
 
 	// A permitted Session create cannot reserve anything without target Agent access.
 	_, err = client.CreateSession(caller("alice", false), &apiv1.CreateSessionRequest{Agent: agent, RequestId: "request-1"})

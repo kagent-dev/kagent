@@ -51,6 +51,7 @@ func TestActorPolicyDoesNotInheritOwnerPermissions(t *testing.T) {
 			{"own session", auth.VerbGet, auth.Resource{Type: "Session", Name: store.session.Id}, true},
 			{"own session send", auth.VerbCreate, auth.Resource{Type: "Session", Name: store.session.Id}, true},
 			{"own session continue", auth.VerbUpdate, auth.Resource{Type: "Session", Name: store.session.Id}, true},
+			{"create checkpoint", auth.VerbCreate, auth.Resource{Type: "Checkpoint"}, false},
 			{"session collection", auth.VerbGet, auth.Resource{Type: "Session"}, true},
 			{"session list category", auth.VerbList, auth.Resource{Type: "Session"}, true},
 			{"session share administration", auth.VerbList, auth.Resource{Type: "Session", Name: store.session.Id + "/shares"}, false},
