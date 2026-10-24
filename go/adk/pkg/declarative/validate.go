@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -89,8 +90,10 @@ type validator struct {
 	agents map[string]*AgentSpec
 	rules  map[NodeType]NodeRule
 	// refs, when set, resolves the names a document uses to registrations.
-	refs   *Registry
-	issues []Issue
+	refs *Registry
+	// servers indexes the document's MCP servers by name.
+	servers map[string]*MCPServerSpec
+	issues  []Issue
 }
 
 func (v *validator) addf(path, format string, args ...any) {
@@ -123,6 +126,7 @@ func (v *validator) spec(spec *Spec) {
 	if spec.Kind != KindAgentSystem {
 		v.addf("kind", "must be %q, got %q", KindAgentSystem, spec.Kind)
 	}
+	v.mcpServers(spec.MCPServers)
 	if len(spec.Agents) == 0 {
 		v.addf("agents", "at least one agent is required")
 		return
@@ -158,7 +162,7 @@ type agentRule struct {
 	required, optional []string
 }
 
-var llmAgentFields = []string{"mode", "global_instruction", "tools", "output_key", "output_schema", "include_contents"}
+var llmAgentFields = []string{"mode", "global_instruction", "instruction_from", "global_instruction_from", "callbacks", "tools", "output_key", "output_schema", "include_contents"}
 
 var agentRules = map[AgentClass]agentRule{
 	ClassWorkflow: {required: []string{"nodes"}, optional: []string{"description", "sub_agents", "entry", "edges"}},
@@ -186,8 +190,12 @@ func presentAgentFields(a *AgentSpec) map[string]bool {
 
 func llmPresent(l *LLMSpec) map[string]bool {
 	return map[string]bool{
-		"model": l.Model != "", "mode": l.Mode != "", "instruction": l.Instruction != "",
-		"global_instruction": l.GlobalInstruction != "", "tools": len(l.Tools) > 0,
+		"model": l.Model != "", "mode": l.Mode != "",
+		// A sourced instruction satisfies the instruction requirement.
+		"instruction":        l.Instruction != "" || l.InstructionFrom != nil,
+		"instruction_from":   l.InstructionFrom != nil,
+		"global_instruction": l.GlobalInstruction != "", "global_instruction_from": l.GlobalInstructionFrom != nil,
+		"callbacks": l.Callbacks != nil, "tools": len(l.Tools) > 0,
 		"output_key": l.OutputKey != "", "output_schema": len(l.OutputSchema) > 0,
 		"include_contents": l.IncludeContents != "",
 	}
@@ -269,14 +277,24 @@ func (v *validator) llm(path string, l *LLMSpec) {
 			v.addf(path+".model", "model %q is not registered", l.Model)
 		}
 	}
+	if l.Instruction != "" && l.InstructionFrom != nil {
+		v.addf(path+".instruction_from", "instruction and instruction_from are mutually exclusive")
+	}
+	if l.GlobalInstruction != "" && l.GlobalInstructionFrom != nil {
+		v.addf(path+".global_instruction_from", "global_instruction and global_instruction_from are mutually exclusive")
+	}
+	v.textSource(path+".instruction_from", l.InstructionFrom)
+	v.textSource(path+".global_instruction_from", l.GlobalInstructionFrom)
+	v.callbacks(path+".callbacks", l.Callbacks)
 	seen := map[string]bool{}
 	for i, t := range l.Tools {
 		p := fmt.Sprintf("%s.tools[%d]", path, i)
 		switch {
 		case seen[t]:
 			v.addf(p, "duplicate tool %q", t)
+		case v.servers[t] != nil:
 		case v.refs != nil && !v.refs.hasToolOrToolset(t):
-			v.addf(p, "tool %q is not registered", t)
+			v.addf(p, "tool %q is not registered or declared in mcp_servers", t)
 		}
 		seen[t] = true
 	}
@@ -292,16 +310,17 @@ type NodeRule struct {
 var builtinNodeRules = map[NodeType]NodeRule{
 	NodeFunction: {Required: []string{"function"}, Optional: []string{"input_schema", "output_schema", "retry", "timeout"}},
 	NodeJoin:     {Optional: []string{"input_schema"}},
-	NodeTool:     {Required: []string{"tool"}, Optional: []string{"retry", "timeout"}},
+	NodeTool:     {Required: []string{"tool"}, Optional: []string{"server", "retry", "timeout"}},
 	NodeAgent:    {Required: []string{"agent"}, Optional: []string{"input_schema", "retry", "timeout"}},
 	NodeLLM: {
 		Required: []string{"model", "instruction"},
-		Optional: []string{"mode", "global_instruction", "tools", "output_key", "input_schema", "output_schema", "include_contents", "retry", "timeout"},
+		Optional: []string{"mode", "global_instruction", "instruction_from", "global_instruction_from", "callbacks", "tools", "output_key", "input_schema", "output_schema", "include_contents", "retry", "timeout"},
 	},
 	NodeWorkflow:       {Required: []string{"nodes", "edges"}},
 	NodeParallelWorker: {Optional: []string{"function", "tool", "agent", "max_concurrency", "retry", "timeout"}},
 	NodeDynamic:        {Required: []string{"function"}, Optional: []string{"max_iters", "children", "isolation", "input_schema", "output_schema", "retry", "timeout"}},
 	NodeHITL:           {Required: []string{"message"}},
+	NodeCEL:            {Optional: []string{"output", "route", "state_delta", "input_schema", "output_schema", "retry", "timeout"}},
 }
 
 // structuredTerminals are node types whose output is structured data that no
@@ -312,12 +331,13 @@ var structuredTerminals = []NodeType{NodeTool, NodeJoin, NodeParallelWorker}
 func presentFields(n *NodeSpec) map[string]bool {
 	present := llmPresent(&n.LLMSpec)
 	maps.Copy(present, map[string]bool{
-		"function": n.Function != "", "tool": n.Tool != "", "agent": n.Agent != "",
+		"function": n.Function != "", "tool": n.Tool != "", "agent": n.Agent != "", "server": n.Server != "",
 		"max_concurrency": n.MaxConcurrency != 0, "max_iters": n.MaxIters != 0,
 		"children": len(n.Children) > 0, "isolation": n.Isolation != "", "message": n.Message != "",
 		"input_schema": len(n.InputSchema) > 0,
 		"nodes":        len(n.Nodes) > 0, "edges": len(n.Edges) > 0,
 		"retry": n.Retry != nil, "timeout": n.Timeout != "",
+		"output": n.Output != "", "route": n.Route != "", "state_delta": len(n.StateDelta) > 0,
 	})
 	return present
 }
@@ -475,7 +495,11 @@ func (v *validator) node(path string, n *NodeSpec, classes map[string]AgentClass
 	case NodeFunction:
 		v.function(path, n.Function)
 	case NodeTool:
-		v.toolNode(path, n.Tool)
+		if n.Server != "" {
+			v.mcpToolNode(path, n)
+		} else {
+			v.toolNode(path, n.Tool)
+		}
 	case NodeParallelWorker:
 		v.parallelWorker(path, n, classes)
 	case NodeDynamic:
@@ -499,6 +523,8 @@ func (v *validator) node(path string, n *NodeSpec, classes map[string]AgentClass
 		v.agentTarget(path+".agent", n.Agent, classes)
 	case NodeWorkflow:
 		v.graph(path, n.Nodes, n.Edges, "", classes, depth+1, terminal)
+	case NodeCEL:
+		v.celNode(path, n)
 	}
 
 	if n.Timeout != "" {
@@ -771,4 +797,200 @@ func nodeAgents(nodes []NodeSpec) []string {
 		out = append(out, nodeAgents(n.Nodes)...)
 	}
 	return out
+}
+
+var (
+	dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+	dataKey  = regexp.MustCompile(`^[-._a-zA-Z0-9]+$`)
+	envName  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
+
+// textSource checks a prompt source. The runtime only reads env sources:
+// config_map and secret are Kubernetes references that the kagent controller
+// resolves before delivery, so a registry-backed validation rejects them.
+func (v *validator) textSource(path string, src *TextSource) {
+	if src == nil {
+		return
+	}
+	set := 0
+	for _, ref := range []struct {
+		name string
+		key  *KeyRef
+	}{{"config_map", src.ConfigMap}, {"secret", src.Secret}} {
+		if ref.key == nil {
+			continue
+		}
+		set++
+		p := path + "." + ref.name
+		if len(ref.key.Name) > 253 || !dnsLabel.MatchString(ref.key.Name) {
+			v.addf(p+".name", "%q must be a DNS-1123 subdomain", ref.key.Name)
+		}
+		if len(ref.key.Key) > 253 || !dataKey.MatchString(ref.key.Key) {
+			v.addf(p+".key", "%q must match %s", ref.key.Key, dataKey)
+		}
+		if v.refs != nil {
+			v.addf(p, "must be resolved by the kagent controller; the runtime reads only env sources")
+		}
+	}
+	if src.Env != "" {
+		set++
+		if !envName.MatchString(src.Env) {
+			v.addf(path+".env", "%q must match %s", src.Env, envName)
+		}
+	}
+	if set != 1 {
+		v.addf(path, "must set exactly one of config_map, secret, env")
+	}
+}
+
+func (v *validator) callbacks(path string, cb *CallbacksSpec) {
+	if cb == nil {
+		return
+	}
+	for _, point := range []struct {
+		scope celScope
+		rules []HookSpec
+	}{
+		{scopeBeforeModel, cb.BeforeModel}, {scopeAfterModel, cb.AfterModel},
+		{scopeBeforeTool, cb.BeforeTool}, {scopeAfterTool, cb.AfterTool},
+	} {
+		for i, h := range point.rules {
+			v.hook(fmt.Sprintf("%s.%s[%d]", path, point.scope, i), point.scope, &h)
+		}
+	}
+}
+
+func (v *validator) hook(path string, scope celScope, h *HookSpec) {
+	switch {
+	case h.Action != "" && h.Function != "":
+		v.addf(path, "action and function are mutually exclusive")
+	case h.Action == "" && h.Function == "":
+		v.addf(path, "must set one of action or function")
+	}
+	switch h.Action {
+	case "", HookAccept:
+		if h.Message != "" {
+			v.addf(path+".message", "only a reject action carries a message")
+		}
+	case HookReject:
+		if h.Message == "" {
+			v.addf(path+".message", "a reject action requires a message")
+		}
+	default:
+		v.addf(path+".action", "must be accept or reject, got %q", h.Action)
+	}
+	if h.Function != "" {
+		switch {
+		case !identifier.MatchString(h.Function):
+			v.addf(path+".function", "%q must match %s", h.Function, identifier)
+		case v.refs != nil && v.refs.hooks[h.Function] == nil:
+			v.addf(path+".function", "hook %q is not registered", h.Function)
+		}
+	}
+	if h.When != "" {
+		if _, err := compileCEL(scope, h.When, resultBool); err != nil {
+			v.addf(path+".when", "%v", err)
+		}
+	}
+}
+
+func (v *validator) celNode(path string, n *NodeSpec) {
+	if n.Output == "" && n.Route == "" && len(n.StateDelta) == 0 {
+		v.addf(path, "a cel node must set at least one of output, route, state_delta")
+	}
+	if n.Output != "" {
+		if _, err := compileCEL(scopeNode, n.Output, resultAny); err != nil {
+			v.addf(path+".output", "%v", err)
+		}
+	}
+	if n.Route != "" {
+		if _, err := compileCEL(scopeNode, n.Route, resultRoutes); err != nil {
+			v.addf(path+".route", "%v", err)
+		}
+	}
+	keys := slices.Sorted(maps.Keys(n.StateDelta))
+	for _, k := range keys {
+		p := path + ".state_delta." + k
+		if k == "" {
+			v.addf(p, "state keys must not be empty")
+			continue
+		}
+		if _, err := compileCEL(scopeNode, n.StateDelta[k], resultAny); err != nil {
+			v.addf(p, "%v", err)
+		}
+	}
+}
+
+var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+func (v *validator) mcpServers(servers []MCPServerSpec) {
+	v.servers = make(map[string]*MCPServerSpec, len(servers))
+	for i := range servers {
+		s := &servers[i]
+		path := fmt.Sprintf("mcp_servers[%d]", i)
+		switch {
+		case !identifier.MatchString(s.Name):
+			v.addf(path+".name", "%q must match %s", s.Name, identifier)
+		case v.servers[s.Name] != nil:
+			v.addf(path+".name", "duplicate mcp server %q", s.Name)
+		case v.refs != nil && v.refs.hasToolOrToolset(s.Name):
+			v.addf(path+".name", "%q is already a registered tool or toolset", s.Name)
+		default:
+			v.servers[s.Name] = s
+		}
+		switch {
+		case (s.URL == "") == (s.URLFrom == nil):
+			v.addf(path, "must set exactly one of url, url_from")
+		case s.URL != "":
+			if u, err := url.Parse(s.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				v.addf(path+".url", "%q must be an absolute http or https URL", s.URL)
+			}
+		}
+		v.textSource(path+".url_from", s.URLFrom)
+		seen := map[string]bool{}
+		for j, h := range s.Headers {
+			p := fmt.Sprintf("%s.headers[%d]", path, j)
+			key := strings.ToLower(h.Name)
+			switch {
+			case !headerName.MatchString(h.Name):
+				v.addf(p+".name", "%q is not an HTTP header name", h.Name)
+			case seen[key]:
+				v.addf(p+".name", "duplicate header %q", h.Name)
+			}
+			seen[key] = true
+			if (h.Value == "") == (h.ValueFrom == nil) {
+				v.addf(p, "must set exactly one of value, value_from")
+			}
+			v.textSource(p+".value_from", h.ValueFrom)
+		}
+		tools := map[string]bool{}
+		for j, t := range s.Tools {
+			p := fmt.Sprintf("%s.tools[%d]", path, j)
+			switch {
+			case !toolName.MatchString(t):
+				v.addf(p, "%q must match %s", t, toolName)
+			case tools[t]:
+				v.addf(p, "duplicate tool %q", t)
+			}
+			tools[t] = true
+		}
+	}
+}
+
+// mcpToolNode checks a tool node that calls a tool of a server. Whether the
+// server offers the tool is only known when it runs, unless the server
+// declares an allowlist.
+func (v *validator) mcpToolNode(path string, n *NodeSpec) {
+	if n.Tool != "" && !toolName.MatchString(n.Tool) {
+		v.addf(path+".tool", "%q must match %s", n.Tool, toolName)
+	}
+	if s := v.servers[n.Server]; s != nil {
+		if len(s.Tools) > 0 && !slices.Contains(s.Tools, n.Tool) {
+			v.addf(path+".tool", "tool %q is not in the tools of mcp server %q", n.Tool, n.Server)
+		}
+		return
+	}
+	if v.refs == nil || !v.refs.hasToolset(n.Server) {
+		v.addf(path+".server", "server %q is not declared in mcp_servers", n.Server)
+	}
 }

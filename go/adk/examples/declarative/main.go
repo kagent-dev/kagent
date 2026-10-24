@@ -2,8 +2,9 @@
 // document (agents.yaml) is compiled into a native ADK workflow agent by
 // pkg/declarative and served over A2A.
 //
-// The document only names behavior; this program supplies it through a
-// declarative.Registry: Go functions, a tool, and a model resolver that maps
+// The document classifies requests with CEL nodes and only names the rest of
+// its behavior; this program supplies that through a declarative.Registry: Go
+// functions, a tool, and a model resolver that maps
 // unregistered model names to OpenAI models. Use the "stub" model name in a
 // document to run without credentials.
 //
@@ -21,7 +22,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -70,7 +70,6 @@ func newRegistry() (*declarative.Registry, error) {
 	}
 
 	for name, fn := range map[string]declarative.Func{
-		"classify":   classify,
 		"bill_reply": billReply,
 		"fallback": func(adkagent.Context, any) (declarative.Result, error) {
 			return declarative.Output("I could not classify that request."), nil
@@ -84,26 +83,6 @@ func newRegistry() (*declarative.Registry, error) {
 		return nil, err
 	}
 	return reg, nil
-}
-
-// classify routes on the first word of the user message. BILLING requests
-// carry the tool arguments their successor expects.
-func classify(ctx adkagent.Context, _ any) (declarative.Result, error) {
-	var text strings.Builder
-	if uc := ctx.UserContent(); uc != nil {
-		for _, p := range uc.Parts {
-			if p != nil {
-				text.WriteString(p.Text)
-			}
-		}
-	}
-	switch first, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(text.String())), " "); first {
-	case "billing":
-		return declarative.Route(map[string]any{"customer_id": "c-42"}, "BILLING"), nil
-	case "question":
-		return declarative.Route(text.String(), "QUESTION"), nil
-	}
-	return declarative.Route(text.String(), "UNMATCHED"), nil
 }
 
 func billReply(_ adkagent.Context, in any) (declarative.Result, error) {
@@ -176,7 +155,7 @@ func main() {
 			Skills: []a2atype.AgentSkill{{
 				ID:          "support-triage",
 				Name:        "Support triage",
-				Description: "Routes a request to billing lookup, a model answer, or a fallback",
+				Description: "Classifies a request with CEL and routes it to escalation, billing lookup, a model answer, or a fallback",
 			}},
 		},
 		Port:   fmt.Sprint(cmp.Or(runtime.GetPort(), 8082)),

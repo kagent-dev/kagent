@@ -55,8 +55,9 @@ converted with the same code as structured output) and `include_contents`
 | `parallel_worker` | one of function/tool/agent | Runs the target once per item of a list input                   |
 | `dynamic`         | `function`                 | Registered `DynamicFunc` that runs children under `max_iters`, with `isolation` |
 | `hitl`            | `message`                  | Pauses for a human reply and forwards the reply                 |
+| `cel`             | one of output/route/state_delta | Evaluates CEL expressions; may select routes and write state |
 
-`function`, `tool`, `agent`, `llm`, `parallel_worker` and `dynamic` nodes accept
+`function`, `tool`, `agent`, `llm`, `parallel_worker`, `dynamic` and `cel` nodes accept
 `timeout` and `retry`, which map to `workflow.NodeConfig`. Unset retry fields
 take the ADK defaults.
 
@@ -68,8 +69,26 @@ and every `DynamicEnv.Run`, spends one `max_iters` iteration and fails with
 
 Edges connect node ids. `START` is the entry source; `entry` is shorthand for a
 `START` edge. An edge may carry a `route`, matched against the routes a
-`function` node returns; `DEFAULT` is the edge taken when no route matched.
+`function` or `cel` node returns; `DEFAULT` is the edge taken when no route matched.
 Unknown fields anywhere in the document are decode errors.
+
+### CEL
+
+A `cel` node evaluates expressions instead of calling Go. `output` replaces
+the node output, which otherwise passes the input through; `route` returns a
+route name or a list of names; `state_delta` writes each key's value to session
+state. All three see the state as it was before the node ran.
+
+Expressions see `input` and the ADK context: `state`, `session` (`id`,
+`app_name`, `user_id`), `user` (`id`, `content`, the text that started the
+invocation) and `invocation` (`id`, `branch`, `agent_name`). Besides the CEL
+standard library, including RE2 `matches`, the environment enables the cel-go
+extensions for optional types, `cel.bind`, strings (`trim`, `lowerAscii`,
+`split`, `format`, ...), base64 encoders, lists, `math`, sets and regex
+(`regex.extract`, `regex.extractAll`, `regex.replace`). An empty optional
+result is null. Expressions compile at validation and run under a cost limit
+of 1,000,000. `go/adk/examples/declarative/agents.yaml` classifies requests
+with an ordered list of regular-expression rules.
 
 ### Typed contracts
 

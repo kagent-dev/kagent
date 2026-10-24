@@ -1,27 +1,97 @@
-# A support triage workflow: classify the request, then answer it with a model
-# node, look the customer up, or fall back to a canned reply.
+# A support triage workflow classified entirely with CEL: no Go code decides
+# the route. CEL nodes see the node input and the ADK context (state, session,
+# user, invocation) and use the cel-go standard library and extensions:
+# matches (RE2), regex.extract/extractAll/replace, cel.bind, strings
+# (trim, lowerAscii, split, format), lists macros, math, and base64.
 #
-#   START -> classify -+- BILLING -> customer_lookup -> bill_reply
-#                      +- QUESTION -> answer (llm)
-#                      +- DEFAULT  -> fallback
+#   START -> extract -> classify -+- URGENT   -> escalate
+#                                 +- BILLING  -> billing_args -> customer_lookup -> bill_reply
+#                                 +- NEED_ID  -> ask_for_id
+#                                 +- GREETING -> greet
+#                                 +- QUESTION -> answer (llm)
+#                                 +- DEFAULT  -> fallback
+#
+# Raw CEL strings (r'...') keep regular expressions free of YAML and CEL
+# escaping. Every expression is compiled when the document is validated.
 apiVersion: adk.declarative/v0.2
 kind: AgentSystem
 agents:
   - name: support_triage
     agent_class: Workflow
-    description: Routes a support request to the right handler
+    description: Classifies a support request with CEL and routes it to a handler
     nodes:
-      - { id: classify, type: function, function: classify }
+      # Feature extraction: normalize the text, pull out identifiers with
+      # regular expressions, and redact e-mail addresses before any model
+      # sees them. state_delta records facts later nodes read from state.
+      - id: extract
+        type: cel
+        output: |
+          cel.bind(text, user.content.trim(),
+            cel.bind(lower, text.lowerAscii(), {
+              "text": text,
+              "lower": lower,
+              "words": lower.split(' ').filter(w, w != ''),
+              "customer_ids": regex.extractAll(text, r'\bc-[0-9]+\b'),
+              "redacted": regex.replace(text, r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '<email>'),
+            }))
+        state_delta:
+          customer_id: regex.extract(user.content, r'\bc-[0-9]+\b').orValue('')
+          ticket_ref: "'T-' + base64.encode(bytes(session.id + invocation.id)).substring(0, 8)"
+          ticket_length: size(user.content)
+
+      # Classification: an ordered list of regular-expression rules. The
+      # first match wins; unmatched requests take the DEFAULT edge.
+      - id: classify
+        type: cel
+        route: |
+          cel.bind(t, input.lower,
+            t.matches(r'\b(outage|down|sev ?1|p0|urgent)\b') ? 'URGENT' :
+            t.matches(r'\b(bill|billing|invoice|refund|charged?)\b') ?
+              (size(input.customer_ids) > 0 ? 'BILLING' : 'NEED_ID') :
+            t.matches(r'^(hi|hello|hey)\b') ? 'GREETING' :
+            t.endsWith('?') || t.matches(r'^(how|what|why|when|where|who|can|does|is)\b') ? 'QUESTION' :
+            'OTHER')
+        output: input.redacted
+        state_delta:
+          keywords: input.words.filter(w, w.matches(r'^(refund|invoice|outage|error|password|login)$'))
+
+      - id: escalate
+        type: cel
+        output: |
+          '%s escalated to on-call: %s'.format([
+            state.ticket_ref,
+            input.substring(0, math.least([size(input), 80])).upperAscii(),
+          ])
+
+      - id: billing_args
+        type: cel
+        output: '{"customer_id": state.customer_id}'
       - { id: customer_lookup, type: tool, tool: lookup_customer }
       - { id: bill_reply, type: function, function: bill_reply }
+
+      - id: ask_for_id
+        type: cel
+        output: "'Billing requests need a customer id such as c-123 (ticket %s).'.format([state.ticket_ref])"
+
+      - id: greet
+        type: cel
+        output: |
+          'Hello! Describe a billing issue with your customer id, or ask a question (%d keywords noted).'.format([size(state.keywords)])
+
       - id: answer
         type: llm
         model: gpt-4o-mini
         instruction: Answer the support question in two sentences.
+
       - { id: fallback, type: function, function: fallback, timeout: 5s }
     edges:
-      - { from: START, to: classify }
-      - { from: classify, to: customer_lookup, route: BILLING }
+      - { from: START, to: extract }
+      - { from: extract, to: classify }
+      - { from: classify, to: escalate, route: URGENT }
+      - { from: classify, to: billing_args, route: BILLING }
+      - { from: classify, to: ask_for_id, route: NEED_ID }
+      - { from: classify, to: greet, route: GREETING }
       - { from: classify, to: answer, route: QUESTION }
       - { from: classify, to: fallback, route: DEFAULT }
+      - { from: billing_args, to: customer_lookup }
       - { from: customer_lookup, to: bill_reply }

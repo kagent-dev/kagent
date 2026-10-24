@@ -34,6 +34,9 @@ func (b *builder) node(bc *BuildContext, sc *scope, n *NodeSpec, render bool) (w
 	case NodeJoin:
 		return joinNode(n.ID, in)
 	case NodeTool:
+		if n.Server != "" {
+			return b.mcpToolNode(n, in, out, cfg)
+		}
 		return b.toolNode(n.ID, n.Tool, cfg)
 	case NodeAgent:
 		return b.agentNode(n.Agent, in, cfg)
@@ -47,6 +50,8 @@ func (b *builder) node(bc *BuildContext, sc *scope, n *NodeSpec, render bool) (w
 		return b.dynamicNode(sc, n, cfg, render, in, out)
 	case NodeHITL:
 		return hitlNode(n, cfg, render), nil
+	case NodeCEL:
+		return celNode(n, in, out, cfg, render)
 	}
 	custom, ok := b.reg.nodeTypes[n.Type]
 	if !ok {

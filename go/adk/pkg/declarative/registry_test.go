@@ -49,18 +49,18 @@ func (n namedToolset) Tools(agent.ReadonlyContext) ([]tool.Tool, error) { return
 
 func TestRegistryBuiltinTools(t *testing.T) {
 	reg := NewRegistry()
-	tools, toolsets, err := reg.resolveTools([]string{"preload_memory", "load_memory"})
+	tools, toolsets, err := (&builder{reg: reg}).resolveTools([]string{"preload_memory", "load_memory"})
 	require.NoError(t, err)
 	require.Len(t, tools, 2)
 	require.Empty(t, toolsets)
-	_, _, err = reg.resolveTools([]string{"ghost"})
+	_, _, err = (&builder{reg: reg}).resolveTools([]string{"ghost"})
 	require.ErrorContains(t, err, `tool "ghost" is not registered`)
 }
 
 func TestRegistryToolsetsResolve(t *testing.T) {
 	reg := NewRegistry()
 	require.NoError(t, reg.RegisterToolset(namedToolset("mcp_server")))
-	tools, toolsets, err := reg.resolveTools([]string{"mcp_server", "load_memory"})
+	tools, toolsets, err := (&builder{reg: reg}).resolveTools([]string{"mcp_server", "load_memory"})
 	require.NoError(t, err)
 	require.Len(t, tools, 1)
 	require.Len(t, toolsets, 1)

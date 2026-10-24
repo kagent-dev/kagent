@@ -39,6 +39,9 @@ const (
 	NodeParallelWorker NodeType = "parallel_worker"
 	NodeDynamic        NodeType = "dynamic"
 	NodeHITL           NodeType = "hitl"
+	// NodeCEL computes its output, routes and state changes with CEL
+	// expressions instead of registered Go code.
+	NodeCEL NodeType = "cel"
 )
 
 // Reserved edge endpoints and routes.
@@ -93,6 +96,33 @@ type Spec struct {
 	APIVersion string      `json:"apiVersion"`
 	Kind       string      `json:"kind"`
 	Agents     []AgentSpec `json:"agents"`
+	// MCPServers declares remote MCP servers. An LLM's tools list may name
+	// a server to offer its tools to the model, and a tool node may call one
+	// of its tools with server and tool.
+	MCPServers []MCPServerSpec `json:"mcp_servers,omitempty"`
+}
+
+// MCPServerSpec is a remote MCP server reached over streamable HTTP.
+type MCPServerSpec struct {
+	// Name is how agents and nodes refer to the server.
+	Name string `json:"name"`
+	// URL is the server endpoint. URLFrom reads it from the environment
+	// instead; exactly one is set.
+	URL     string      `json:"url,omitempty"`
+	URLFrom *TextSource `json:"url_from,omitempty"`
+	// Headers are sent with every request, for example credentials.
+	Headers []HeaderSpec `json:"headers,omitempty"`
+	// Tools, when set, is the allowlist of tool names the server exposes to
+	// the document. Unset exposes every tool the server lists.
+	Tools []string `json:"tools,omitempty"`
+}
+
+// HeaderSpec is one HTTP header of an MCP server. Exactly one of Value and
+// ValueFrom is set; credentials belong in ValueFrom.
+type HeaderSpec struct {
+	Name      string      `json:"name"`
+	Value     string      `json:"value,omitempty"`
+	ValueFrom *TextSource `json:"value_from,omitempty"`
 }
 
 // LLMSpec is the model configuration shared by LlmAgent agents and inline llm
@@ -103,8 +133,13 @@ type LLMSpec struct {
 	Mode  Mode   `json:"mode,omitempty"`
 	// Instruction is the system prompt of the agent.
 	Instruction string `json:"instruction,omitempty"`
+	// InstructionFrom reads the system prompt from a ConfigMap, a Secret or
+	// an environment variable instead. It excludes Instruction.
+	InstructionFrom *TextSource `json:"instruction_from,omitempty"`
 	// GlobalInstruction applies to the whole agent tree below the agent.
 	GlobalInstruction string `json:"global_instruction,omitempty"`
+	// GlobalInstructionFrom is the TextSource form of GlobalInstruction.
+	GlobalInstructionFrom *TextSource `json:"global_instruction_from,omitempty"`
 	// Tools names registered tools and toolsets.
 	Tools []string `json:"tools,omitempty"`
 	// OutputKey stores the final reply in session state under this key.
@@ -112,6 +147,61 @@ type LLMSpec struct {
 	// OutputSchema is a JSON Schema the reply must satisfy.
 	OutputSchema    json.RawMessage `json:"output_schema,omitempty"`
 	IncludeContents IncludeContents `json:"include_contents,omitempty"`
+	// Callbacks accept or reject model calls and tool calls.
+	Callbacks *CallbacksSpec `json:"callbacks,omitempty"`
+}
+
+// TextSource names where prompt text comes from. Exactly one field is set.
+//
+// ConfigMap and Secret are Kubernetes references that the kagent controller
+// resolves in the document's namespace before the runtime starts: ConfigMap
+// text is inlined, and Secret text is delivered through a Secret-backed
+// environment variable so it never enters the serialized runtime config. Env
+// is resolved by the runtime when the agent is built; the controller only
+// accepts the Env sources it generated itself.
+type TextSource struct {
+	ConfigMap *KeyRef `json:"config_map,omitempty"`
+	Secret    *KeyRef `json:"secret,omitempty"`
+	Env       string  `json:"env,omitempty"`
+}
+
+// KeyRef selects one key of a same-namespace ConfigMap or Secret.
+type KeyRef struct {
+	Name string `json:"name"`
+	Key  string `json:"key"`
+}
+
+// HookAction is the declarative decision of a hook rule.
+type HookAction string
+
+const (
+	// HookAccept lets the call run unchanged and skips the remaining rules.
+	HookAccept HookAction = "accept"
+	// HookReject blocks the call: a model call is answered with Message, a
+	// tool call returns {"error": Message} to the model.
+	HookReject HookAction = "reject"
+)
+
+// HookSpec is one rule of a callback point. Exactly one of Action and
+// Function is set. Rules run in order until one accepts or rejects.
+type HookSpec struct {
+	// When is a CEL condition; the rule applies only when it is true. Empty
+	// always applies.
+	When string `json:"when,omitempty"`
+	// Action decides declaratively.
+	Action HookAction `json:"action,omitempty"`
+	// Message explains a rejection. It is required with action reject.
+	Message string `json:"message,omitempty"`
+	// Function names a registered Hook that decides in Go.
+	Function string `json:"function,omitempty"`
+}
+
+// CallbacksSpec lists the hook rules of each ADK callback point.
+type CallbacksSpec struct {
+	BeforeModel []HookSpec `json:"before_model,omitempty"`
+	AfterModel  []HookSpec `json:"after_model,omitempty"`
+	BeforeTool  []HookSpec `json:"before_tool,omitempty"`
+	AfterTool   []HookSpec `json:"after_tool,omitempty"`
 }
 
 // AgentSpec declares one named agent. Which fields apply depends on
@@ -166,6 +256,9 @@ type NodeSpec struct {
 	Function string `json:"function,omitempty"`
 	Tool     string `json:"tool,omitempty"`
 	Agent    string `json:"agent,omitempty"`
+	// Server makes a tool node call Tool on a declared MCP server, or on a
+	// registered toolset, instead of a registered tool.
+	Server string `json:"server,omitempty"`
 
 	// MaxConcurrency bounds a parallel_worker. Zero is unlimited.
 	MaxConcurrency int `json:"max_concurrency,omitempty"`
@@ -182,6 +275,13 @@ type NodeSpec struct {
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	// Message is the prompt a hitl node shows the human.
 	Message string `json:"message,omitempty"`
+
+	// CEL node fields. Output defaults to the node input; Route evaluates to
+	// a string or a list of strings; StateDelta writes each key's value to
+	// session state.
+	Output     string            `json:"output,omitempty"`
+	Route      string            `json:"route,omitempty"`
+	StateDelta map[string]string `json:"state_delta,omitempty"`
 
 	// Inline llm node fields. OutputSchema also types the output of function
 	// and dynamic nodes: the JSON Schema their result must satisfy.
