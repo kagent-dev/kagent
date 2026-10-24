@@ -96,6 +96,10 @@ type ReconciliationFailure struct {
 	Retryable bool
 }
 
+// reasonActorTemplateFailed marks a golden boot that Substrate reported as
+// failed, the only preparation failure a Harness's Booted condition counts.
+const reasonActorTemplateFailed = "ActorTemplateFailed"
+
 func newAgentReconciliations(
 	agents krt.Collection[*kagentv1alpha3.Agent],
 	collections translator.Collections,
@@ -144,7 +148,7 @@ func newAgentReconciliations(
 				Message:   "existing immutable ActorTemplate differs from the compiled revision",
 			}
 		} else if message := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateFailed", Message: message}
+			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: reasonActorTemplateFailed, Message: message}
 		}
 		return state
 	}, opts.WithName("AgentReconciliations")...)
