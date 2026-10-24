@@ -87,7 +87,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	compilerCollections.Namespaces = newReferenceNamespaces(client, agents, compilerCollections, opts)
 	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings, images)
 	statuses := newAgentStatuses(agents, reconciliations, opts)
-	harnessStatuses := newHarnessStatuses(harnesses, workerPools, reconciliations, opts)
+	harnessStatuses := newHarnessStatuses(harnesses, workerPools, reconciliations, images, opts)
 
 	return Collections{
 		watchNamespaces:          slices.Clone(watchNamespaces),
