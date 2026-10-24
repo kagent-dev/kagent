@@ -302,7 +302,7 @@ func TestOllamaCatalogCoversCloudAndLocal(t *testing.T) {
 
 func discoveryContext(t *testing.T) context.Context {
 	t.Helper()
-	return pkgauth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "provider-user"}}})
+	return pkgauth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgauth.Principal{ID: "provider-user"}})
 }
 
 func TestConfiguredProviderAuthorization(t *testing.T) {

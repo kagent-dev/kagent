@@ -59,9 +59,9 @@ func (a *Authenticator) Authenticate(ctx context.Context, headers http.Header, _
 	return runtimeSession{sessionID: id, atespace: identity.Atespace, actorUID: identity.ActorUID}, nil
 }
 
-func (*Authenticator) UpstreamAuth(request *http.Request, session auth.Session, target auth.Principal) error {
+func (*Authenticator) UpstreamAuth(request *http.Request, session auth.Session, destinationSessionID string) error {
 	identity, ok := session.(runtimeSession)
-	if !ok || identity.owner == "" || target.Agent.ID != identity.sessionID {
+	if !ok || identity.owner == "" || destinationSessionID != identity.sessionID {
 		return fmt.Errorf("actor cannot access the upstream session")
 	}
 	// The controller has authorized this call. Forward only the bound owner to
@@ -71,10 +71,10 @@ func (*Authenticator) UpstreamAuth(request *http.Request, session auth.Session, 
 	return nil
 }
 
-type runtimeSession struct{ sessionID, atespace, actorUID, owner, agent string }
+type runtimeSession struct{ sessionID, atespace, actorUID, owner string }
 
 func (s runtimeSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: s.owner}, Agent: auth.Agent{ID: s.agent}, Actor: &auth.Actor{SessionID: s.sessionID}}
+	return auth.Principal{ID: auth.PrincipalID("substrate-actor", s.atespace+"/"+s.actorUID), RuntimeBinding: &auth.RuntimeBinding{SessionID: s.sessionID, CreatorID: s.owner}}
 }
 
 type SessionStore interface {

@@ -269,7 +269,7 @@ func (p *controllerSessionPolicy) Check(ctx context.Context, principal auth.Prin
 	if _, ok := identity.(auth.ControlPlaneSession); !ok {
 		return errors.New("internal identity required")
 	}
-	if principal.User.ID != "" || len(principal.Claims) != 0 || resource.Type != "Session" || (verb != auth.VerbGet && verb != auth.VerbCreate && verb != auth.VerbUpdate) {
+	if principal.ID != "" || len(principal.Claims) != 0 || resource.Type != "Session" || (verb != auth.VerbGet && verb != auth.VerbCreate && verb != auth.VerbUpdate) {
 		return errors.New("operation denied")
 	}
 	p.calls = append(p.calls, verb)
@@ -355,5 +355,5 @@ func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 type controllerHumanSession struct{}
 
 func (controllerHumanSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "owner"}, Claims: map[string]any{"control_plane": true}}
+	return auth.Principal{ID: "owner", Claims: map[string]any{"control_plane": true}}
 }

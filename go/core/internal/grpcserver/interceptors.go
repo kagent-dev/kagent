@@ -67,7 +67,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	if err != nil || session == nil {
 		return ctx, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
-	if access == auth.AccessRuntime && session.Principal().Actor == nil {
+	if access == auth.AccessRuntime && session.Principal().RuntimeBinding == nil {
 		return ctx, status.Error(codes.PermissionDenied, "runtime actor identity is required")
 	}
 	authenticatedContext := auth.AuthSessionTo(ctx, session)

@@ -60,8 +60,8 @@ func TestSharedAuthenticationNeverFallsBackForActorCredentials(t *testing.T) {
 	}
 	user, err := provider.Authenticate(t.Context(), http.Header{"X-User-Id": {"alice"}, "X-Agent-Name": {"team-a/agent"}}, nil)
 	require.NoError(t, err)
-	require.Equal(t, "alice", user.Principal().User.ID)
-	require.Nil(t, user.Principal().Actor)
+	require.Equal(t, "alice", user.Principal().ID)
+	require.Nil(t, user.Principal().RuntimeBinding)
 }
 
 func TestSharedHTTPAuthenticationBindsActorsAndPreservesUserMode(t *testing.T) {
@@ -84,7 +84,7 @@ func TestSharedHTTPAuthenticationBindsActorsAndPreservesUserMode(t *testing.T) {
 				session, ok := auth.AuthSessionFrom(r.Context())
 				require.True(t, ok)
 				if r.Header.Get("Authorization") == token {
-					require.Equal(t, auth.Principal{User: auth.User{ID: "owner"}, Agent: auth.Agent{ID: "team-a/agent"}, Actor: &auth.Actor{SessionID: store.session.Id}}, session.Principal())
+					require.Equal(t, auth.Principal{ID: auth.PrincipalID("substrate-actor", "team-a/actor-uid"), RuntimeBinding: &auth.RuntimeBinding{SessionID: store.session.Id, CreatorID: "owner"}}, session.Principal())
 				}
 				w.WriteHeader(http.StatusOK)
 			}))
@@ -115,13 +115,14 @@ func TestActorUpstreamIdentityIsBoundAndDoesNotForwardBearer(t *testing.T) {
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)
 	identity, err := provider.Authenticate(t.Context(), http.Header{"Authorization": {"Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(store.session.Id), store.actorUID))}}, nil)
 	require.NoError(t, err)
-	target := auth.Principal{Agent: auth.Agent{ID: store.session.Id}}
+	target := store.session.Id
 	request := httptest.NewRequest(http.MethodPost, "http://runtime", nil)
 	request.Header.Set("Authorization", "Bearer untrusted")
 	require.NoError(t, provider.UpstreamAuth(request, identity, target))
 	require.Empty(t, request.Header.Get("Authorization"))
 	require.Equal(t, "owner", request.Header.Get("X-User-Id"))
-	require.Error(t, provider.UpstreamAuth(request, identity, auth.Principal{Agent: auth.Agent{ID: uuid.NewString()}}))
+	require.Error(t, provider.UpstreamAuth(request, identity, ""), "an Actor cannot dispatch to an unbound upstream")
+	require.Error(t, provider.UpstreamAuth(request, identity, uuid.NewString()))
 	store.actorUID = "replacement"
 	require.Error(t, provider.UpstreamAuth(request, identity, target))
 }

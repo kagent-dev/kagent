@@ -418,7 +418,7 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 type testSession struct{}
 
 func (testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "user@example.com"}}
+	return auth.Principal{ID: "user@example.com"}
 }
 
 func authContext() context.Context {

@@ -64,20 +64,20 @@ func (s *sessionAuthorizationStore) ListSessions(_ context.Context, query databa
 type sessionAuthorizationPolicy struct{}
 
 func (sessionAuthorizationPolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if principal.User.ID == "blocked" || resource.Type == "Agent" {
+	if principal.ID == "blocked" || resource.Type == "Agent" {
 		return errors.New("denied")
 	}
 	if resource.Type == "SessionAllCreators" {
-		if principal.User.ID == "operator" && verb == auth.VerbList {
+		if principal.ID == "operator" && verb == auth.VerbList {
 			return nil
 		}
 		return errors.New("denied")
 	}
 	if resource.Type == "Session" {
-		if principal.User.ID == "no-share-list" && verb == auth.VerbList && strings.HasSuffix(resource.Name, "/shares") {
+		if principal.ID == "no-share-list" && verb == auth.VerbList && strings.HasSuffix(resource.Name, "/shares") {
 			return errors.New("share listing denied")
 		}
-		if verb == auth.VerbGet || verb == auth.VerbList || principal.User.ID != "viewer" {
+		if verb == auth.VerbGet || verb == auth.VerbList || principal.ID != "viewer" {
 			return nil
 		}
 	}
@@ -171,7 +171,7 @@ type sessionNamespaceRPCPolicy struct {
 }
 
 func (s *sessionNamespaceRPCPolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if principal.User.ID != "alice" {
+	if principal.ID != "alice" {
 		return errors.New("unexpected principal")
 	}
 	if resource.Type == "Session" && verb == auth.VerbCreate {

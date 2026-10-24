@@ -405,7 +405,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.R
 	if err := s.authorizer.Check(ctx, principal, verb, resource); err != nil {
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
-	return principal.User.ID, nil
+	return principal.ID, nil
 }
 
 func validateCreate(id, requestID string) (string, error) {

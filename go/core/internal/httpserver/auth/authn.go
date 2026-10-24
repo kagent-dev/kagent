@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -11,6 +13,7 @@ import (
 type SimpleSession struct {
 	P          auth.Principal
 	authHeader string
+	expiresAt  time.Time
 }
 
 func (s *SimpleSession) Principal() auth.Principal {
@@ -27,32 +30,30 @@ func (a *InsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 	if userID == "" {
 		userID = "admin@kagent.dev"
 	}
-	agentId := reqHeaders.Get("X-Agent-Name")
 	authHeader := reqHeaders.Get("Authorization")
 
 	return &SimpleSession{
 		P: auth.Principal{
-			User: auth.User{
-				ID: userID,
-			},
-			Agent: auth.Agent{
-				ID: agentId,
-			},
+			ID: userID,
 		},
 		authHeader: authHeader,
 	}, nil
 }
 
-func (a *InsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {
-	// for insecure, just forward user id in header
-	if session == nil || session.Principal().User.ID == "" {
-		return nil
-	}
-	r.Header.Set("X-User-Id", session.Principal().User.ID)
+func (a *InsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, destinationSessionID string) error {
+	return auth.ForwardCredential(r, session)
+}
 
-	if simpleSession, ok := session.(*SimpleSession); ok && simpleSession.authHeader != "" {
-		r.Header.Set("Authorization", simpleSession.authHeader)
+func (s *SimpleSession) Token(ctx context.Context) (string, error) {
+	if !s.expiresAt.IsZero() && !time.Now().Before(s.expiresAt) {
+		return "", ErrUnauthenticated
 	}
-
-	return nil
+	if s.authHeader == "" {
+		return "", nil
+	}
+	scheme, token, ok := strings.Cut(s.authHeader, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
+		return "", ErrUnauthenticated
+	}
+	return token, nil
 }

@@ -47,7 +47,7 @@ func (a *testAuthenticator) Authenticate(_ context.Context, headers http.Header,
 	return a.session, a.err
 }
 
-func (*testAuthenticator) UpstreamAuth(*http.Request, pkgauth.Session, pkgauth.Principal) error {
+func (*testAuthenticator) UpstreamAuth(*http.Request, pkgauth.Session, string) error {
 	return nil
 }
 
@@ -70,7 +70,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		createMethod:           pkgauth.AccessCreate,
 		"/test.Service/Public": pkgauth.AccessPublic,
 	}
-	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "caller"}}}
+	session := &testSession{principal: pkgauth.Principal{ID: "caller"}}
 
 	t.Run("public method bypasses authentication", func(t *testing.T) {
 		called := false
@@ -108,7 +108,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
 			func(ctx context.Context, _ any) (any, error) {
 				gotSession, ok := pkgauth.AuthSessionFrom(ctx)
-				if !ok || gotSession.Principal().User.ID != "caller" {
+				if !ok || gotSession.Principal().ID != "caller" {
 					t.Fatalf("authenticated session = %#v, %v", gotSession, ok)
 				}
 				return nil, nil
@@ -187,7 +187,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 }
 
 func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
-	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
+	session := &testSession{principal: pkgauth.Principal{ID: "visitor"}}
 	store := &testShareStore{
 		sessionShare: &apiv1.SessionShare{
 			SessionId: testSessionID.String(),
@@ -210,18 +210,18 @@ func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 				t.Fatalf("validated share = %#v, want read-only authority for its owner and session", share)
 			}
 			gotSession, ok := pkgauth.AuthSessionFrom(ctx)
-			if !ok || gotSession.Principal().User.ID != "visitor" {
+			if !ok || gotSession.Principal().ID != "visitor" {
 				t.Fatalf("authenticated session = %#v, want the visitor's identity", gotSession)
 			}
 		})
 	}
 }
 
-func TestUserAgentHeaderDoesNotEstablishActorIdentity(t *testing.T) {
-	provider := &testAuthenticator{session: &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "user"}, Agent: pkgauth.Agent{ID: "actor"}}}}
+func TestCallerWithoutRuntimeBindingCannotAccessRuntimeStorage(t *testing.T) {
+	provider := &testAuthenticator{session: &testSession{principal: pkgauth.Principal{ID: "user"}}}
 	_, err := authenticate(t.Context(), runtimev1.TaskStoreService_GetTask_FullMethodName, provider, nil, DefaultMethodPolicies())
 	if status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("user agent hint authorized runtime storage: %v", err)
+		t.Fatalf("caller without runtime binding authorized runtime storage: %v", err)
 	}
 }
 

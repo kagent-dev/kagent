@@ -199,9 +199,13 @@ reach the control plane.
 HTTP, MCP, and gRPC use the same `auth.AuthProvider`. It selects the Actor JWT
 verifier using the issuer or actor claim, then binds the verified identity to the
 current session's atespace and Actor UID. Invalid or stale actor credentials never
-fall back to user authentication. `Principal.Actor` distinguishes a verified
-actor from a user-supplied agent header; its associated user identifies the data
-owner and does not grant the user's permissions.
+fall back to user authentication. `Principal.RuntimeBinding` identifies the verified
+runtime's Session. Its `CreatorID` selects that Session's data partition and does
+not grant the creator's permissions. Human and service-account callers have no
+runtime binding. The bound Agent is resolved through the verified Session.
+
+`Principal.ID` always identifies the caller. `UpstreamAuth` receives the destination
+Session ID separately; principals do not carry agent names or destination IDs.
 
 Services authorize resources through `auth.Authorizer` / `CollectionAuthorizer`.
 The default actor policy permits reading its own Agent, listing only that Agent,
