@@ -30,6 +30,7 @@ import (
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,8 +46,13 @@ import (
 )
 
 const (
-	conditionAccepted = "Accepted"
-	refreshInterval   = 5 * time.Minute
+	eventReconcileFailed  = "ReconcileFailed"
+	eventValidationFailed = "ValidationFailed"
+	eventToolsDiscovered  = "ToolsDiscovered"
+	actionReconcile       = "Reconcile"
+	actionDiscover        = "Discover"
+	conditionAccepted     = "Accepted"
+	refreshInterval       = 5 * time.Minute
 
 	// discoveryDisabledMessage explains an Accepted RemoteMCPServer that publishes
 	// no discovered tools because its operator opted out of discovery.
@@ -66,10 +72,11 @@ type Reconciler struct {
 	client     client.Client
 	discoverer ToolDiscoverer
 	catalog    *toolcatalog.Publisher
+	recorder   events.EventRecorder
 }
 
-func New(client client.Client, discoverer ToolDiscoverer, catalog toolcatalog.Store) *Reconciler {
-	return &Reconciler{client: client, discoverer: discoverer, catalog: toolcatalog.NewPublisher(catalog)}
+func New(client client.Client, discoverer ToolDiscoverer, catalog toolcatalog.Store, recorder events.EventRecorder) *Reconciler {
+	return &Reconciler{client: client, discoverer: discoverer, catalog: toolcatalog.NewPublisher(catalog), recorder: recorder}
 }
 
 func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
@@ -112,6 +119,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		Ref: request.NamespacedName, GroupKind: remoteGroupKind,
 	})
 	if err != nil {
+		r.recordEvent(server, corev1.EventTypeWarning, eventReconcileFailed, actionReconcile,
+			"failed to discover RemoteMCPServer tools: %v", err)
 		statusErr := r.updateStatus(ctx, server, nil, metav1.ConditionFalse, "DiscoveryFailed", err.Error())
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
 		return reconcile.Result{}, errors.Join(
@@ -123,6 +132,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 
 	discovered, err := toolcatalog.NormalizeTools(tools)
 	if err != nil {
+		r.recordEvent(server, corev1.EventTypeWarning, eventValidationFailed, actionReconcile,
+			"invalid RemoteMCPServer tool discovery: %v", err)
 		statusErr := r.updateStatus(ctx, server, nil, metav1.ConditionFalse, "InvalidDiscovery", err.Error())
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
 		return reconcile.Result{}, errors.Join(
@@ -131,14 +142,34 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 			wrapError("clear invalid RemoteMCPServer tool catalog", catalogErr),
 		)
 	}
+	// Only surface a Normal event on the transition to a successful discovery,
+	// so the periodic refresh timer does not re-emit it forever.
+	accepted := apiMeta.FindStatusCondition(server.Status.Conditions, conditionAccepted)
+	firstDiscovery := accepted == nil || accepted.Status != metav1.ConditionTrue || accepted.ObservedGeneration != server.Generation
 	message := fmt.Sprintf("Discovered %d MCP tools", len(discovered))
 	if err := r.updateStatus(ctx, server, discovered, metav1.ConditionTrue, "DiscoverySucceeded", message); err != nil {
+		r.recordEvent(server, corev1.EventTypeWarning, eventReconcileFailed, actionReconcile,
+			"failed to update RemoteMCPServer discovery status: %v", err)
 		return reconcile.Result{}, fmt.Errorf("update RemoteMCPServer discovery status: %w", err)
 	}
 	if err := r.updateCatalog(ctx, server, discovered, true); err != nil {
+		r.recordEvent(server, corev1.EventTypeWarning, eventReconcileFailed, actionReconcile,
+			"failed to update RemoteMCPServer tool catalog: %v", err)
 		return reconcile.Result{}, fmt.Errorf("update RemoteMCPServer tool catalog: %w", err)
 	}
+	if firstDiscovery {
+		r.recordEvent(server, corev1.EventTypeNormal, eventToolsDiscovered, actionDiscover, "Discovered %d MCP tools", len(discovered))
+	}
 	return reconcile.Result{RequeueAfter: refreshInterval}, nil
+}
+
+// recordEvent emits a Kubernetes Event against the reconciled object. It is a
+// no-op when no recorder is wired on this reconciler.
+func (r *Reconciler) recordEvent(object client.Object, eventType, reason, action, messageFmt string, args ...any) {
+	if r.recorder == nil {
+		return
+	}
+	r.recorder.Eventf(object, nil, eventType, reason, action, messageFmt, args...)
 }
 
 // discoveryDisabled reports whether the operator opted the server out of tool

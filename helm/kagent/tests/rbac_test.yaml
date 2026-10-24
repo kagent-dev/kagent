@@ -7,6 +7,28 @@ templates:
   - rbac/getter-rolebinding.yaml
   - rbac/writer-rolebinding.yaml
 tests:
+  - it: should allow reconcile events with cluster-wide RBAC
+    template: rbac/writer-role.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["events.k8s.io"]
+            resources: ["events"]
+            verbs: ["create", "patch"]
+
+  - it: should allow reconcile events with namespace-scoped RBAC
+    template: rbac/writer-role.yaml
+    set:
+      rbac.namespaces: [NAMESPACE]
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["events.k8s.io"]
+            resources: ["events"]
+            verbs: ["create", "patch"]
+
   - it: should render controller serviceaccount
     template: controller-serviceaccount.yaml
     asserts:
