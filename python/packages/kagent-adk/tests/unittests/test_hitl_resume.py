@@ -48,7 +48,10 @@ class ToolCallingModel(BaseLlm):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("case", ["ask_user", "ask_user_invalid", "approve", "reject", "parallel", "long_running"])
+@pytest.mark.parametrize(
+    "case",
+    ["ask_user", "ask_user_invalid", "ask_user_invalid_answers", "approve", "reject", "parallel", "long_running"],
+)
 async def test_confirmation_survives_pause_and_session_reload(case, stream):
     # Mock the controller HTTP boundary, retaining only JSON between requests.
     # Every get_session therefore reconstructs ADK events just as production does.
@@ -69,7 +72,8 @@ async def test_confirmation_survives_pause_and_session_reload(case, stream):
         executed.append(path)
         return "Deleted " + path
 
-    if case in ("ask_user", "ask_user_invalid"):
+    ask_user = case in ("ask_user", "ask_user_invalid", "ask_user_invalid_answers")
+    if ask_user:
         calls = [types.FunctionCall(id="ask", name="ask_user", args={"questions": [{"question": "Which database?"}]})]
     else:
         calls = [types.FunctionCall(id="delete-1", name="delete_file", args={"path": "one"})]
@@ -199,23 +203,25 @@ async def test_confirmation_survives_pause_and_session_reload(case, stream):
                 KAGENT_HITL_DECISION_TYPE_REJECT if case == "reject" else KAGENT_HITL_DECISION_TYPE_APPROVE
             )
         }
-        if case in ("ask_user", "ask_user_invalid"):
+        if case == "ask_user_invalid_answers":
+            decision[KAGENT_ASK_USER_ANSWERS_KEY] = [None]
+        elif ask_user:
             decision[KAGENT_ASK_USER_ANSWERS_KEY] = [{"answer": ["PostgreSQL"]}]
         resumed = await invoke(Part(DataPart(data=decision)))
         assert isinstance(resumed[-1], TaskStatusUpdateEvent)
         assert resumed[-1].final
         assert resumed[-1].status.state == TaskState.completed
         assert len(model.requests) == pause_requests + 1
-        assert executed == (
-            [] if case in ("ask_user", "ask_user_invalid", "reject") else [call.args["path"] for call in calls]
-        )
+        assert executed == ([] if ask_user or case == "reject" else [call.args["path"] for call in calls])
         responses = [
             part.function_response
             for content in model.requests[-1].contents
             for part in content.parts or []
             if part.function_response and part.function_response.name == calls[0].name
         ]
-        if case in ("ask_user", "ask_user_invalid"):
+        if case == "ask_user_invalid_answers":
+            assert responses[-1].response == {"result": "ask_user: answer 1 must be an object"}
+        elif ask_user:
             assert json.loads(responses[-1].response["result"]) == [
                 {"question": "Which database?", "answer": ["PostgreSQL"]}
             ]

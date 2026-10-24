@@ -110,7 +110,13 @@ class AskUserTool(BaseTool):
         if tool_context.tool_confirmation.confirmed:
             # Second invocation — the executor injected answers via payload.
             payload = tool_context.tool_confirmation.payload or {}
-            answers: list[dict] = payload.get("answers", []) if isinstance(payload, dict) else []
+            answers = payload.get("answers", []) if isinstance(payload, dict) else []
+            if not isinstance(answers, list):
+                return "ask_user: answers must be a list of answer objects"
+            for index, answer in enumerate(answers, start=1):
+                if not isinstance(answer, dict):
+                    return f"ask_user: answer {index} must be an object"
+
             result = []
             for i, q in enumerate(questions):
                 ans = answers[i]["answer"] if i < len(answers) and "answer" in answers[i] else []
