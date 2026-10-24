@@ -2,6 +2,7 @@ package taskstore
 
 import (
 	"context"
+	"log/slog"
 	"slices"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -43,7 +44,9 @@ func NewUsageRecorder(meter metric.Meter) (*UsageRecorder, error) {
 
 // record counts what the boundary added to the task's usage. The usage/v1
 // payload covers the task's lifetime, so the total the task carried before the
-// boundary is subtracted. It logs one event per boundary naming the sender.
+// boundary is subtracted. It logs one event per boundary naming the sender. A
+// boundary whose sender was not recorded is counted without a sender and logged
+// as a warning, so the totals stay complete.
 func (r *UsageRecorder) record(ctx context.Context, session *apiv1.Session, settled *database.SettledTask) {
 	if r == nil || settled == nil {
 		return
@@ -56,19 +59,20 @@ func (r *UsageRecorder) record(ctx context.Context, session *apiv1.Session, sett
 	if sender == nil {
 		sender = &database.TurnSender{}
 	}
-	logging.FromContext(ctx).InfoContext(ctx, "turn usage",
+	level := slog.LevelInfo
+	if sender.Kind == "" {
+		level = slog.LevelWarn
+	}
+	logging.FromContext(ctx).Log(ctx, level, "turn usage",
 		"agent", agent, "session_id", session.GetId(), "task_id", settled.Task.ID, "state", settled.Task.Status.State,
 		"sender", sender.Kind, "user_id", sender.UserID, "sender_agent", sender.AgentID,
 		"usage_reported", reported,
 		"input_tokens", usage.InputTokens, "output_tokens", usage.OutputTokens,
 		"reasoning_tokens", usage.ReasoningTokens, "cached_input_tokens", usage.CachedInputTokens,
 		"total_tokens", usage.TotalTokens)
-	if sender.Kind == "" {
-		return
-	}
-	base := []attribute.KeyValue{
-		conv.GenAIAgentIDKey.String(agent),
-		conv.KagentTurnSenderKey.String(sender.Kind),
+	base := []attribute.KeyValue{conv.GenAIAgentIDKey.String(agent)}
+	if sender.Kind != "" {
+		base = append(base, conv.KagentTurnSenderKey.String(sender.Kind))
 	}
 	remainder := usage.TokenCounts
 	for _, model := range usage.Models {
