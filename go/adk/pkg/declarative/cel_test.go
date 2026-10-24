@@ -74,3 +74,13 @@ agents:
 		require.ErrorContains(t, err, tc.want, tc.node)
 	}
 }
+
+func TestEdgeToENDExplainsTerminals(t *testing.T) {
+	_, err := NewRegistry().Parse([]byte(head + `
+agents:
+  - name: w
+    agent_class: Workflow
+    nodes: [{ id: c, type: cel, output: "'x'" }]
+    edges: [{ from: START, to: c }, { from: c, to: END }]`))
+	require.ErrorContains(t, err, "there is no END node")
+}

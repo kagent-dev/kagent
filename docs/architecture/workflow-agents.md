@@ -74,6 +74,9 @@ and every `DynamicEnv.Run`, spends one `max_iters` iteration and fails with
 Edges connect node ids. `START` is the entry source; `entry` is shorthand for a
 `START` edge. An edge may carry a `route`, matched against the routes a
 `function` or `cel` node returns; `DEFAULT` is the edge taken when no route matched.
+There is no `END`: as in ADK, whose only sentinel is `START`, a node without
+outgoing edges ends its branch, so a separate finish node is needed only where
+the terminal rules below require one.
 Unknown fields anywhere in the document are decode errors.
 
 ### CEL

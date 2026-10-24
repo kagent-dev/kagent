@@ -436,6 +436,8 @@ func (v *validator) edges(path string, nodes []NodeSpec, edges []EdgeSpec, entry
 		switch {
 		case e.To == Start:
 			v.addf(p+".to", "%q cannot be an edge target", Start)
+		case e.To == "END" && !ids[e.To]:
+			v.addf(p+".to", "there is no END node; a node without outgoing edges ends its branch")
 		case !ids[e.To]:
 			v.addf(p+".to", "unknown node %q", e.To)
 		}
