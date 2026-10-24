@@ -1,6 +1,6 @@
 module github.com/kagent-dev/kagent/go
 
-go 1.26.7
+go 1.26.10
 
 require (
 	// core dependencies
