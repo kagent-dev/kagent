@@ -4,8 +4,9 @@
 #   - CEL classifies and shapes data. CEL nodes see the node input and the ADK
 #     context (state, session, user, invocation) and use the cel-go standard
 #     library and extensions: matches (RE2), regex.extract/extractAll/replace,
-#     cel.bind, strings (trim, lowerAscii, split, format), list macros, math,
-#     base64, optionals, and json.encode/json.decode.
+#     strings (trim, lowerAscii, split, format), list macros, math, base64,
+#     optionals, and the agentgateway helpers json, toJson, with and default.
+#     `vars` names intermediate values; `routes` is an ordered rule table.
 #   - Remote MCP tools: customer data comes from a CRM MCP server declared in
 #     mcp_servers. A tool node with `server:` calls one of its tools as a
 #     function node; an LLM node lists the server in `tools:`.
@@ -40,15 +41,19 @@ agents:
       # sees them. state_delta records facts later nodes read from state.
       - id: extract
         type: cel
+        vars:
+          - name: text
+            expr: user.content.trim()
+          - name: lower
+            expr: vars.text.lowerAscii()
         output: |
-          cel.bind(text, user.content.trim(),
-            cel.bind(lower, text.lowerAscii(), {
-              "text": text,
-              "lower": lower,
-              "words": lower.split(' ').filter(w, w != ''),
-              "customer_ids": regex.extractAll(text, r'\bc-[0-9]+\b'),
-              "redacted": regex.replace(text, r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '<email>'),
-            }))
+          {
+            "text": vars.text,
+            "lower": vars.lower,
+            "words": vars.lower.split(' ').filter(w, w != ''),
+            "customer_ids": regex.extractAll(vars.text, r'\bc-[0-9]+\b'),
+            "redacted": regex.replace(vars.text, r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '<email>'),
+          }
         state_delta:
           customer_id: regex.extract(user.content, r'\bc-[0-9]+\b').orValue('')
           ticket_ref: "'T-' + base64.encode(bytes(session.id + invocation.id)).substring(0, 8)"
@@ -58,14 +63,20 @@ agents:
       # first match wins; unmatched requests take the DEFAULT edge.
       - id: classify
         type: cel
-        route: |
-          cel.bind(t, input.lower,
-            t.matches(r'\b(outage|down|sev ?1|p0|urgent)\b') ? 'URGENT' :
-            t.matches(r'\b(bill|billing|invoice|refund|charged?)\b') ?
-              (size(input.customer_ids) > 0 ? 'BILLING' : 'NEED_ID') :
-            t.matches(r'^(hi|hello|hey)\b') ? 'GREETING' :
-            t.endsWith('?') || t.matches(r'^(how|what|why|when|where|who|can|does|is)\b') ? 'QUESTION' :
-            'OTHER')
+        vars:
+          - name: billing
+            expr: input.lower.matches(r'\b(bill|billing|invoice|refund|charged?)\b')
+        routes:
+          - route: URGENT
+            when: input.lower.matches(r'\b(outage|down|sev ?1|p0|urgent)\b')
+          - route: BILLING
+            when: vars.billing && size(input.customer_ids) > 0
+          - route: NEED_ID
+            when: vars.billing
+          - route: GREETING
+            when: input.lower.matches(r'^(hi|hello|hey)\b')
+          - route: QUESTION
+            when: input.lower.endsWith('?') || input.lower.matches(r'^(how|what|why|when|where|who|can|does|is)\b')
         output: input.redacted
         state_delta:
           keywords: input.words.filter(w, w.matches(r'^(refund|invoice|outage|error|password|login)$'))
@@ -109,9 +120,9 @@ agents:
       - id: bill_reply
         type: cel
         output: |
-          cel.bind(c, input.output,
+          input.output.with(c,
             'Customer %s is on the %s plan with a balance of %d (%s).'.format([
-              c.id, c.plan, c.balance, json.encode({"ticket": state.ticket_ref})]))
+              c.id, c.plan, c.balance, toJson({"ticket": state.ticket_ref})]))
 
       - id: ask_for_id
         type: cel
@@ -120,7 +131,7 @@ agents:
       - id: greet
         type: cel
         output: |
-          'Hello! Describe a billing issue with your customer id, or ask a question (%d keywords noted).'.format([size(state.keywords)])
+          'Hello! Describe a billing issue with your customer id, or ask a question (%d keywords noted).'.format([size(default(state.keywords, []))])
 
       - id: answer
         type: llm

@@ -320,7 +320,7 @@ var builtinNodeRules = map[NodeType]NodeRule{
 	NodeParallelWorker: {Optional: []string{"function", "tool", "agent", "max_concurrency", "retry", "timeout"}},
 	NodeDynamic:        {Required: []string{"function"}, Optional: []string{"max_iters", "children", "isolation", "input_schema", "output_schema", "retry", "timeout"}},
 	NodeHITL:           {Required: []string{"message"}},
-	NodeCEL:            {Optional: []string{"output", "route", "state_delta", "input_schema", "output_schema", "retry", "timeout"}},
+	NodeCEL:            {Optional: []string{"vars", "output", "route", "routes", "state_delta", "input_schema", "output_schema", "retry", "timeout"}},
 }
 
 // structuredTerminals are node types whose output is structured data that no
@@ -337,7 +337,8 @@ func presentFields(n *NodeSpec) map[string]bool {
 		"input_schema": len(n.InputSchema) > 0,
 		"nodes":        len(n.Nodes) > 0, "edges": len(n.Edges) > 0,
 		"retry": n.Retry != nil, "timeout": n.Timeout != "",
-		"output": n.Output != "", "route": n.Route != "", "state_delta": len(n.StateDelta) > 0,
+		"vars": len(n.Vars) > 0, "output": n.Output != "", "route": n.Route != "",
+		"routes": len(n.Routes) > 0, "state_delta": len(n.StateDelta) > 0,
 	})
 	return present
 }
@@ -900,31 +901,70 @@ func (v *validator) hook(path string, scope celScope, h *HookSpec) {
 }
 
 func (v *validator) celNode(path string, n *NodeSpec) {
-	if n.Output == "" && n.Route == "" && len(n.StateDelta) == 0 {
-		v.addf(path, "a cel node must set at least one of output, route, state_delta")
+	if n.Output == "" && n.Route == "" && len(n.Routes) == 0 && len(n.StateDelta) == 0 {
+		v.addf(path, "a cel node must set at least one of output, route, routes, state_delta")
+	}
+	names := map[string]bool{}
+	for i, cv := range n.Vars {
+		p := fmt.Sprintf("%s.vars[%d]", path, i)
+		// A var reads only the vars declared before it.
+		v.celExpr(p+".expr", cv.Expr, resultAny, names)
+		switch {
+		case !celIdent.MatchString(cv.Name):
+			v.addf(p+".name", "must be an identifier, got %q", cv.Name)
+		case names[cv.Name]:
+			v.addf(p+".name", "duplicate var %q", cv.Name)
+		}
+		names[cv.Name] = true
+	}
+	if n.Route != "" && len(n.Routes) > 0 {
+		v.addf(path, "route and routes are mutually exclusive")
+	}
+	for i, r := range n.Routes {
+		p := fmt.Sprintf("%s.routes[%d]", path, i)
+		if r.Route == "" {
+			v.addf(p+".route", "required")
+		}
+		if r.When == "" {
+			if i != len(n.Routes)-1 {
+				v.addf(p+".when", "only the last rule may omit when; later rules are unreachable")
+			}
+			continue
+		}
+		v.celExpr(p+".when", r.When, resultBool, names)
 	}
 	if n.Output != "" {
-		if _, err := compileCEL(scopeNode, n.Output, resultAny); err != nil {
-			v.addf(path+".output", "%v", err)
-		}
+		v.celExpr(path+".output", n.Output, resultAny, names)
 	}
 	if n.Route != "" {
-		if _, err := compileCEL(scopeNode, n.Route, resultRoutes); err != nil {
-			v.addf(path+".route", "%v", err)
-		}
+		v.celExpr(path+".route", n.Route, resultRoutes, names)
 	}
-	keys := slices.Sorted(maps.Keys(n.StateDelta))
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(n.StateDelta)) {
 		p := path + ".state_delta." + k
 		if k == "" {
 			v.addf(p, "state keys must not be empty")
 			continue
 		}
-		if _, err := compileCEL(scopeNode, n.StateDelta[k], resultAny); err != nil {
-			v.addf(p, "%v", err)
+		v.celExpr(p, n.StateDelta[k], resultAny, names)
+	}
+}
+
+// celExpr compiles a cel node expression and checks that every vars.<name>
+// it reads is in known.
+func (v *validator) celExpr(path, src string, want celResult, known map[string]bool) {
+	e, err := compileCEL(scopeNode, src, want)
+	if err != nil {
+		v.addf(path, "%v", err)
+		return
+	}
+	for _, name := range e.varRefs {
+		if !known[name] {
+			v.addf(path, "vars.%s is not declared before this expression", name)
 		}
 	}
 }
+
+var celIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 

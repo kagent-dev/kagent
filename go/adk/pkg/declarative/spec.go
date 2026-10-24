@@ -276,11 +276,14 @@ type NodeSpec struct {
 	// Message is the prompt a hitl node shows the human.
 	Message string `json:"message,omitempty"`
 
-	// CEL node fields. Output defaults to the node input; Route evaluates to
-	// a string or a list of strings; StateDelta writes each key's value to
-	// session state.
+	// CEL node fields. Vars are named values the other expressions read as
+	// vars.<name>. Output defaults to the node input. Route evaluates to a
+	// string or a list of strings; Routes is the rule-table alternative.
+	// StateDelta writes each key's value to session state.
+	Vars       []CELVar          `json:"vars,omitempty"`
 	Output     string            `json:"output,omitempty"`
 	Route      string            `json:"route,omitempty"`
+	Routes     []CELRoute        `json:"routes,omitempty"`
 	StateDelta map[string]string `json:"state_delta,omitempty"`
 
 	// Inline llm node fields. OutputSchema also types the output of function
@@ -290,6 +293,21 @@ type NodeSpec struct {
 	// Nested workflow fields. A nested workflow has its own START.
 	Nodes []NodeSpec `json:"nodes,omitempty"`
 	Edges []EdgeSpec `json:"edges,omitempty"`
+}
+
+// CELVar is a named value of a cel node. Vars are evaluated in order, so an
+// expression may read the vars declared before it.
+type CELVar struct {
+	Name string `json:"name"`
+	Expr string `json:"expr"`
+}
+
+// CELRoute is one rule of a cel node's route table. The first rule whose
+// When is true selects its Route; an empty When always matches. When no rule
+// matches, the DEFAULT edge is taken.
+type CELRoute struct {
+	When  string `json:"when,omitempty"`
+	Route string `json:"route"`
 }
 
 // EdgeSpec connects two nodes. An empty Route is unconditional.
