@@ -2,12 +2,13 @@ package auth
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -26,39 +27,21 @@ func NewProxyAuthenticator(userIDClaim string) *ProxyAuthenticator {
 }
 
 func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (auth.Session, error) {
+	if len(reqHeaders.Values("Authorization")) != 1 {
+		return nil, ErrUnauthenticated
+	}
 	authHeader := reqHeaders.Get("Authorization")
-	agentID := reqHeaders.Get("X-Agent-Name")
 
 	tokenString, ok := strings.CutPrefix(authHeader, "Bearer ")
 	if !ok {
 		return nil, ErrUnauthenticated
 	}
 
-	// Parse JWT without validation (oauth2-proxy or k8s service account already validated)
+	// The configured trusted proxy must verify this credential before forwarding it.
+	// Kubernetes credentials are independently verified by ServiceAccountProvider.
 	rawClaims, err := parseJWTPayload(tokenString)
 	if err != nil {
 		return nil, ErrUnauthenticated
-	}
-
-	if agentID != "" {
-		// Agent call: the Bearer SA token authenticates the pod; the caller's
-		// identity should be supplied explicitly via X-User-Id / user_id.
-		// Fall back to the SA sub claim for direct calls to agent pods that
-		// do not yet propagate the caller identity.
-		userID := userIDFromRequest(reqHeaders, query)
-		if userID == "" {
-			userID, _ = rawClaims["sub"].(string)
-		}
-		if userID == "" {
-			return nil, ErrUnauthenticated
-		}
-		return &SimpleSession{
-			P: auth.Principal{
-				User:  auth.User{ID: userID},
-				Agent: auth.Agent{ID: agentID},
-			},
-			authHeader: authHeader,
-		}, nil
 	}
 
 	// Direct user call: identity comes from the OIDC JWT claims.
@@ -69,52 +52,35 @@ func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.H
 	if userID == "" {
 		return nil, ErrUnauthenticated
 	}
+	var expiresAt time.Time
+	if raw, exists := rawClaims["exp"]; exists {
+		seconds, ok := raw.(float64)
+		if !ok || seconds <= float64(time.Now().Unix()) {
+			return nil, ErrUnauthenticated
+		}
+		expiresAt = time.Unix(int64(seconds), 0)
+	}
+	issuer, _ := rawClaims["iss"].(string)
 	return &SimpleSession{
 		P: auth.Principal{
-			User:   auth.User{ID: userID},
+			ID:     auth.PrincipalID("trusted-proxy:"+issuer, userID),
 			Claims: rawClaims,
 		},
 		authHeader: authHeader,
+		expiresAt:  expiresAt,
 	}, nil
 }
 
-// userIDFromRequest returns the user identity from the user_id query param or
-// X-User-Id header, preferring the query param.
-func userIDFromRequest(headers http.Header, query url.Values) string {
-	if v := query.Get("user_id"); v != "" {
-		return v
-	}
-	return headers.Get("X-User-Id")
+func (a *ProxyAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, destinationSessionID string) error {
+	return auth.ForwardCredential(r, session)
 }
 
-func (a *ProxyAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {
-	if simpleSession, ok := session.(*SimpleSession); ok {
-		if simpleSession.authHeader != "" {
-			r.Header.Set("Authorization", simpleSession.authHeader)
-		}
-		if userID := simpleSession.P.User.ID; userID != "" {
-			r.Header.Set("X-User-Id", userID)
-		}
-	}
-	return nil
-}
-
-// parseJWTPayload decodes JWT payload without signature verification
+// parseJWTPayload parses JWT claims without signature verification. Callers must
+// establish trust through the configured proxy or an independent verifier.
 func parseJWTPayload(tokenString string) (map[string]any, error) {
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return nil, errors.New("invalid JWT format")
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tokenString, claims); err != nil {
 		return nil, err
 	}
-
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return nil, err
-	}
-
 	return claims, nil
 }

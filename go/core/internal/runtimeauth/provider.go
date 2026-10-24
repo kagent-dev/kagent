@@ -47,18 +47,17 @@ func (p *Provider) Authenticate(ctx context.Context, headers http.Header, query 
 	}
 	bound := identity.(runtimeSession)
 	bound.owner = session.Creator
-	bound.agent = session.Agent.Namespace + "/" + session.Agent.Name
 	return bound, nil
 }
 
-func (p *Provider) UpstreamAuth(request *http.Request, session auth.Session, target auth.Principal) error {
-	if session != nil && session.Principal().Actor != nil {
+func (p *Provider) UpstreamAuth(request *http.Request, session auth.Session, destinationSessionID string) error {
+	if session != nil && session.Principal().RuntimeBinding != nil {
 		if _, err := Session(auth.AuthSessionTo(request.Context(), session), p.store); err != nil {
 			return err
 		}
-		return p.actors.UpstreamAuth(request, session, target)
+		return p.actors.UpstreamAuth(request, session, destinationSessionID)
 	}
-	return p.users.UpstreamAuth(request, session, target)
+	return p.users.UpstreamAuth(request, session, destinationSessionID)
 }
 
 func actorCredentials(headers http.Header, actorIssuer string) bool {

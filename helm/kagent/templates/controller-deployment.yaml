@@ -69,6 +69,15 @@ spec:
               - key: private-key.pem
                 path: push-private-key.pem
           {{- end }}
+      {{- with .Values.config.server.auth.serviceAccount }}
+      - name: invocation-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              audience: kagent-invocation
+              expirationSeconds: 3600
+              path: {{ base .tokenFile | quote }}
+      {{- end }}
       {{- if .Values.database.postgres.clientCertificate.enabled }}
       - name: postgres-client-certificate
         projected:
@@ -194,6 +203,11 @@ spec:
             periodSeconds: 30
           {{- end }}
           volumeMounts:
+            {{- with .Values.config.server.auth.serviceAccount }}
+            - name: invocation-token
+              mountPath: {{ dir .tokenFile | quote }}
+              readOnly: true
+            {{- end }}
             - name: controller-config
               mountPath: /etc/kagent
               readOnly: true

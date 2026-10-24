@@ -79,7 +79,7 @@ func TestSandboxExpirationRejectsInvalidInterval(t *testing.T) {
 type testSession string
 
 func (s testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: string(s)}}
+	return auth.Principal{ID: string(s)}
 }
 
 type testActors struct {

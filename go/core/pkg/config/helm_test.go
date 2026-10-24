@@ -71,6 +71,7 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.Equal(t, "team", base.Kubernetes.GetNamespace())
 	require.Equal(t, "http://demo-controller.team.svc.cluster.local:8083", base.RuntimeDefaults.GetControlPlaneUrl())
 	require.NotEmpty(t, checksum)
+	require.Equal(t, "/run/kagent-invocation/token", base.GetServer().GetAuth().GetServiceAccount().GetTokenFile())
 	require.Equal(t, "kagent", base.Database.GetSchema())
 	require.Equal(t, "extensions", base.Database.GetVectorSchema())
 	require.False(t, base.GetDatabase().GetSkipMigrations())

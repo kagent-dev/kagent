@@ -30,10 +30,10 @@ import (
 type memoryRPCPolicy struct{ denied atomic.Bool }
 
 func (p *memoryRPCPolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if p.denied.Load() || principal.User.ID == "blocked" || resource.Type != "Memory" || resource.Namespace != "" {
+	if p.denied.Load() || principal.ID == auth.PrincipalID("trusted-proxy:", "blocked") || resource.Type != "Memory" || resource.Namespace != "" {
 		return errors.New("denied")
 	}
-	if principal.User.ID == "viewer" && verb != auth.VerbGet && verb != auth.VerbList {
+	if principal.ID == auth.PrincipalID("trusted-proxy:", "viewer") && verb != auth.VerbGet && verb != auth.VerbList {
 		return errors.New("read only")
 	}
 	return nil
@@ -96,15 +96,16 @@ func memoryVector() []float32            { v := make([]float32, memorysvc.Vector
 func memoryUserContext(t *testing.T, user string) context.Context {
 	t.Helper()
 	// The trusted proxy authenticates these claims before forwarding to Kagent.
-	token := "Bearer e30." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"sub":%q}`, user))) + ".signature"
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	token := "Bearer " + header + "." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"sub":%q}`, user))) + "." + base64.RawURLEncoding.EncodeToString([]byte("signature"))
 	return metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", token, "x-user-id", "forged-header"))
 }
 
 func TestHumanMemoryPermissionsAndPartitionsThroughGeneratedClient(t *testing.T) {
 	store := &memoryRPCStore{rows: map[string][]database.Memory{
-		"agent/alice": {{ID: "alice-memory", Content: "private"}},
-		"agent/bob":   {{ID: "bob-memory", Content: "bob private"}},
-		"other/alice": {{ID: "other-agent", Content: "other Agent"}},
+		"agent/" + auth.PrincipalID("trusted-proxy:", "alice"): {{ID: "alice-memory", Content: "private"}},
+		"agent/" + auth.PrincipalID("trusted-proxy:", "bob"):   {{ID: "bob-memory", Content: "bob private"}},
+		"other/" + auth.PrincipalID("trusted-proxy:", "alice"): {{ID: "other-agent", Content: "other Agent"}},
 	}}
 	policy := &memoryRPCPolicy{}
 	issuer := jwttest.New(t)
@@ -186,7 +187,8 @@ func TestRuntimeMemoryUsesAcceptedActorBindingInsteadOfHumanClaims(t *testing.T)
 		config.MemoryService = memorysvc.NewService(store, runtimeauth.NewAuthorizer(policy, store))
 	})
 	client := runtimev1.NewMemoryServiceClient(connection)
-	for _, credential := range []string{"", "Bearer e30." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"iss":%q,"sub":"owner"}`, issuer.URL))) + ".signature"} {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	for _, credential := range []string{"", "Bearer " + header + "." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"iss":%q,"sub":"owner"}`, issuer.URL))) + "." + base64.RawURLEncoding.EncodeToString([]byte("signature"))} {
 		ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", credential))
 		_, err = client.List(ctx, &runtimev1.MemoryServiceListRequest{AgentName: "team/assistant"})
 		assertGRPCCode(t, err, codes.Unauthenticated)
