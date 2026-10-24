@@ -907,6 +907,8 @@ func (v *validator) celNode(path string, n *NodeSpec) {
 	names := map[string]bool{}
 	for i, cv := range n.Vars {
 		p := fmt.Sprintf("%s.vars[%d]", path, i)
+		// A var reads only the vars declared before it.
+		v.celExpr(p+".expr", cv.Expr, resultAny, names)
 		switch {
 		case !celIdent.MatchString(cv.Name):
 			v.addf(p+".name", "must be an identifier, got %q", cv.Name)
@@ -914,9 +916,6 @@ func (v *validator) celNode(path string, n *NodeSpec) {
 			v.addf(p+".name", "duplicate var %q", cv.Name)
 		}
 		names[cv.Name] = true
-		if _, err := compileCEL(scopeNode, cv.Expr, resultAny); err != nil {
-			v.addf(p+".expr", "%v", err)
-		}
 	}
 	if n.Route != "" && len(n.Routes) > 0 {
 		v.addf(path, "route and routes are mutually exclusive")
@@ -932,29 +931,35 @@ func (v *validator) celNode(path string, n *NodeSpec) {
 			}
 			continue
 		}
-		if _, err := compileCEL(scopeNode, r.When, resultBool); err != nil {
-			v.addf(p+".when", "%v", err)
-		}
+		v.celExpr(p+".when", r.When, resultBool, names)
 	}
 	if n.Output != "" {
-		if _, err := compileCEL(scopeNode, n.Output, resultAny); err != nil {
-			v.addf(path+".output", "%v", err)
-		}
+		v.celExpr(path+".output", n.Output, resultAny, names)
 	}
 	if n.Route != "" {
-		if _, err := compileCEL(scopeNode, n.Route, resultRoutes); err != nil {
-			v.addf(path+".route", "%v", err)
-		}
+		v.celExpr(path+".route", n.Route, resultRoutes, names)
 	}
-	keys := slices.Sorted(maps.Keys(n.StateDelta))
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(n.StateDelta)) {
 		p := path + ".state_delta." + k
 		if k == "" {
 			v.addf(p, "state keys must not be empty")
 			continue
 		}
-		if _, err := compileCEL(scopeNode, n.StateDelta[k], resultAny); err != nil {
-			v.addf(p, "%v", err)
+		v.celExpr(p, n.StateDelta[k], resultAny, names)
+	}
+}
+
+// celExpr compiles a cel node expression and checks that every vars.<name>
+// it reads is in known.
+func (v *validator) celExpr(path, src string, want celResult, known map[string]bool) {
+	e, err := compileCEL(scopeNode, src, want)
+	if err != nil {
+		v.addf(path, "%v", err)
+		return
+	}
+	for _, name := range e.varRefs {
+		if !known[name] {
+			v.addf(path, "vars.%s is not declared before this expression", name)
 		}
 	}
 }

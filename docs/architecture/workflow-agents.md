@@ -89,7 +89,8 @@ as `vars.<name>` by later vars and by the other fields. `routes` is the
 rule-table alternative to `route`: an ordered list of `{route, when}`; the
 first rule whose `when` is true selects its route, an omitted `when` (last rule
 only) always matches, and when nothing matches the `DEFAULT` edge is taken.
-`route` and `routes` are mutually exclusive.
+`route` and `routes` are mutually exclusive. Validation rejects a `vars.<name>`
+reference to an undeclared var or, inside `vars`, to a later one.
 
 ```yaml
 - id: classify

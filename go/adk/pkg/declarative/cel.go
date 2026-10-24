@@ -110,6 +110,8 @@ const (
 type expression struct {
 	source  string
 	program cel.Program
+	// varRefs are the names read as vars.<name>.
+	varRefs []string
 }
 
 // compileCEL type-checks source in scope. Dynamically typed results are
@@ -135,7 +137,22 @@ func compileCEL(scope celScope, source string, want celResult) (*expression, err
 	if err != nil {
 		return nil, fmt.Errorf("plan CEL %q: %w", source, err)
 	}
-	return &expression{source: source, program: program}, nil
+	return &expression{source: source, program: program, varRefs: varRefs(ast.NativeRep().Expr())}, nil
+}
+
+// varRefs returns the field names selected from the vars variable.
+func varRefs(e celast.Expr) []string {
+	var refs []string
+	celast.PreOrderVisit(e, celast.NewExprVisitor(func(e celast.Expr) {
+		if e.Kind() != celast.SelectKind {
+			return
+		}
+		sel := e.AsSelect()
+		if op := sel.Operand(); op.Kind() == celast.IdentKind && op.AsIdent() == celVars {
+			refs = append(refs, sel.FieldName())
+		}
+	}))
+	return refs
 }
 
 func (e *expression) eval(vars map[string]any) (any, error) {

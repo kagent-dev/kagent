@@ -59,6 +59,8 @@ func TestCELVarsAndRoutesValidation(t *testing.T) {
 		{`{ id: c, type: cel, routes: [{ when: "true" }] }`, "routes[0].route: required"},
 		{`{ id: c, type: cel, routes: [{ route: A }, { route: B, when: "true" }] }`, "only the last rule may omit when"},
 		{`{ id: c, type: cel, routes: [{ route: A, when: "'yes'" }] }`, "routes[0].when"},
+		{`{ id: c, type: cel, vars: [{ name: a, expr: "vars.b" }, { name: b, expr: "1" }], output: "'x'" }`, "vars.b is not declared before"},
+		{`{ id: c, type: cel, vars: [{ name: a, expr: "1" }], output: "vars.nope" }`, "vars.nope is not declared"},
 		{`{ id: c, type: cel, vars: [{ name: a, expr: "1" }] }`, "at least one of output, route, routes, state_delta"},
 		{`{ id: c, type: cel, output: "default(input, 'x')" }`, "default() needs a field or index access"},
 		{`{ id: c, type: cel, output: "input.with('n', 1)" }`, "with() variable name must be a simple identifier"},
