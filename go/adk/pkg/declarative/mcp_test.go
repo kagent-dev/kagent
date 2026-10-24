@@ -120,7 +120,7 @@ agents:
         type: cel
         output: |
           '%s: %s is on %s, balance %d (%s)'.format([invocation.agent_name, input.output.id,
-            input.output.plan, input.output.balance, json.encode(input.output.plan)])
+            input.output.plan, input.output.balance, toJson(input.output.plan)])
         state_delta:
           plan: input.output.plan
     edges:
@@ -366,14 +366,14 @@ agents:
       - id: show
         type: cel
         output: |
-          cel.bind(doc, json.decode(state.raw), [
+          cel.bind(doc, json(state.raw), [
             session.app_name, session.user_id, user.id, invocation.agent_name,
             string(size(session.id) > 0), string(size(invocation.id) > 0),
             string(math.greatest(doc.items)), string(doc.n * 2),
             sets.contains(state.tags, ['a']) ? 'has-a' : 'no-a',
             state.tags.map(t, string(t)).distinct().sort().join('+'),
             string(state[?'missing'].orValue('none')),
-            json.encode({'k': [1, 'x']}),
+            toJson({'k': [1, 'x']}),
           ].join(' '))
     edges:
       - { from: START, to: seed }

@@ -81,9 +81,30 @@ Unknown fields anywhere in the document are decode errors.
 A `cel` node evaluates expressions instead of calling Go. `output` replaces
 the node output, which otherwise passes the input through; `route` returns a
 route name or a list of names; `state_delta` writes each key's value to session
-state. All three see the state as it was before the node ran.
+state. All of them see the state as it was before the node ran.
 
-Expressions see `input` and the ADK context: `state`, `session` (`id`,
+`vars` names intermediate values, like the `variables` of a Kubernetes
+ValidatingAdmissionPolicy. Each `{name, expr}` is evaluated in order and read
+as `vars.<name>` by later vars and by the other fields. `routes` is the
+rule-table alternative to `route`: an ordered list of `{route, when}`; the
+first rule whose `when` is true selects its route, an omitted `when` (last rule
+only) always matches, and when nothing matches the `DEFAULT` edge is taken.
+`route` and `routes` are mutually exclusive.
+
+```yaml
+- id: classify
+  type: cel
+  vars:
+    - name: text
+      expr: input.lowerAscii()
+  routes:
+    - route: BUG
+      when: vars.text.matches(r'\b(crash|error|bug)\b')
+    - route: BILLING
+      when: vars.text.matches(r'\b(invoice|refund)\b')
+```
+
+Expressions see `input`, `vars` and the ADK context: `state`, `session` (`id`,
 `app_name`, `user_id`), `user` (`id`, `content`, the text that started the
 invocation) and `invocation` (`id`, `branch`, `agent_name`). Besides the CEL
 standard library, including RE2 `matches`, the environment enables the cel-go
@@ -94,9 +115,19 @@ result is null. Expressions compile at validation and run under a cost limit
 of 1,000,000. `go/adk/examples/declarative/agents.yaml` classifies requests
 with an ordered list of regular-expression rules.
 
-CEL also has `json.encode(value)` and `json.decode(text)` for building and
-reading JSON payloads. Callback rules and `retry.when` use the same environment
-with the variables of their scope, described below.
+The helper functions follow the names and semantics of the
+[agentgateway CEL functions](https://agentgateway.dev/docs/standalone/latest/reference/cel/variables/),
+so one expression reads the same in kagent and agentgateway:
+
+| Helper | Purpose |
+| --- | --- |
+| `json(text)` | Parse a JSON string. |
+| `toJson(value)` | Encode a value as a JSON string. |
+| `x.with(name, body)` | Bind `x` to `name` inside `body`; same as `cel.bind(name, x, body)`. |
+| `default(a.b[k], fallback)` | The field or index value, or `fallback` when a key on the path is missing. |
+
+Callback rules and `retry.when` use the same environment with the variables of
+their scope, described below.
 
 ### Prompt sources
 

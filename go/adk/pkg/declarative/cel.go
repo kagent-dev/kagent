@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/google/cel-go/cel"
+	celast "github.com/google/cel-go/common/ast"
+	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/common/types/traits"
@@ -24,6 +26,7 @@ const (
 	celUser       = "user"       // {id, content}: content is the text that started the invocation
 	celInvocation = "invocation" // {id, branch, agent_name}
 	celInput      = "input"      // node input (cel nodes)
+	celVars       = "vars"       // named values of a cel node
 	celRequest    = "request"    // {model, text, contents, system_instruction, tools} (before_model)
 	celResponse   = "response"   // {text, partial, turn_complete, error, finish_reason, function_calls} (after_model)
 	celTool       = "tool"       // {name, args} and, after the call, {result, error}
@@ -52,7 +55,7 @@ var celObject = cel.MapType(cel.StringType, cel.DynType)
 
 var celEnvs = func() map[celScope]*cel.Env {
 	extra := map[celScope]cel.EnvOption{
-		scopeNode:        cel.Variable(celInput, cel.DynType),
+		scopeNode:        cel.Lib(nodeVars{}),
 		scopeBeforeModel: cel.Variable(celRequest, celObject),
 		scopeAfterModel:  cel.Variable(celResponse, celObject),
 		scopeBeforeTool:  cel.Variable(celTool, celObject),
@@ -75,7 +78,7 @@ var celEnvs = func() map[celScope]*cel.Env {
 			// returns an optional, hence optional types).
 			cel.OptionalTypes(), ext.Bindings(), ext.Strings(), ext.Encoders(),
 			ext.Lists(), ext.Math(), ext.Sets(), ext.Regex(),
-			jsonLibrary,
+			helperLibrary,
 		)...)
 		if err != nil {
 			panic(fmt.Sprintf("declarative CEL environment %s: %v", scope, err))
@@ -84,6 +87,15 @@ var celEnvs = func() map[celScope]*cel.Env {
 	}
 	return envs
 }()
+
+// nodeVars declares the variables of cel node expressions.
+type nodeVars struct{}
+
+func (nodeVars) CompileOptions() []cel.EnvOption {
+	return []cel.EnvOption{cel.Variable(celInput, cel.DynType), cel.Variable(celVars, celObject)}
+}
+
+func (nodeVars) ProgramOptions() []cel.ProgramOption { return nil }
 
 // celResult constrains the static type of an expression.
 type celResult int
@@ -305,31 +317,40 @@ func nativeValue(val ref.Val) (any, error) {
 	return val.Value(), nil
 }
 
-// jsonLibrary adds json.encode(dyn) -> string and json.decode(string) -> dyn,
-// for tool results and arguments that travel as JSON text.
-var jsonLibrary = cel.Lib(jsonLib{})
+// helperLibrary adds the agentgateway CEL helpers, so expressions read the same
+// across kagent and agentgateway:
+//
+//	json(string) -> dyn          parse JSON text
+//	toJson(dyn) -> string        encode a value as JSON text
+//	x.with(name, body)           bind x to name inside body
+//	default(a.b[k], fallback)    the field or index value, or fallback when missing
+var helperLibrary = cel.Lib(helperLib{})
 
-type jsonLib struct{}
+type helperLib struct{}
 
-func (jsonLib) LibraryName() string { return "kagent.declarative.json" }
+func (helperLib) LibraryName() string { return "kagent.declarative.helpers" }
 
-func (jsonLib) ProgramOptions() []cel.ProgramOption { return nil }
+func (helperLib) ProgramOptions() []cel.ProgramOption { return nil }
 
-func (jsonLib) CompileOptions() []cel.EnvOption {
+func (helperLib) CompileOptions() []cel.EnvOption {
 	return []cel.EnvOption{
-		cel.Function("json.encode", cel.Overload("json_encode_dyn", []*cel.Type{cel.DynType}, cel.StringType,
+		cel.Macros(
+			cel.ReceiverMacro("with", 2, withMacro),
+			cel.GlobalMacro("default", 2, defaultMacro),
+		),
+		cel.Function("toJson", cel.Overload("to_json_dyn", []*cel.Type{cel.DynType}, cel.StringType,
 			cel.UnaryBinding(func(v ref.Val) ref.Val {
 				native, err := nativeValue(v)
 				if err != nil {
-					return types.NewErr("json.encode: %v", err)
+					return types.NewErr("toJson: %v", err)
 				}
 				data, err := json.Marshal(native)
 				if err != nil {
-					return types.NewErr("json.encode: %v", err)
+					return types.NewErr("toJson: %v", err)
 				}
 				return types.String(data)
 			}))),
-		cel.Function("json.decode", cel.Overload("json_decode_string", []*cel.Type{cel.StringType}, cel.DynType,
+		cel.Function("json", cel.Overload("json_string", []*cel.Type{cel.StringType}, cel.DynType,
 			cel.UnaryBinding(func(v ref.Val) ref.Val {
 				s, ok := v.(types.String)
 				if !ok {
@@ -339,12 +360,53 @@ func (jsonLib) CompileOptions() []cel.EnvOption {
 				dec.UseNumber()
 				var out any
 				if err := dec.Decode(&out); err != nil {
-					return types.NewErr("json.decode: %v", err)
+					return types.NewErr("json: %v", err)
 				}
 				if dec.More() {
-					return types.NewErr("json.decode: trailing data")
+					return types.NewErr("json: trailing data")
 				}
 				return types.DefaultTypeAdapter.NativeToValue(normalizeNumbers(out))
 			}))),
 	}
+}
+
+// withMacro expands x.with(n, body) like cel.bind(n, x, body).
+func withMacro(mef cel.MacroExprFactory, target celast.Expr, args []celast.Expr) (celast.Expr, *cel.Error) {
+	if args[0].Kind() != celast.IdentKind {
+		return nil, mef.NewError(args[0].ID(), "with() variable name must be a simple identifier")
+	}
+	name := args[0].AsIdent()
+	return mef.NewComprehension(mef.NewList(), "#unused", name, target,
+		mef.NewLiteral(types.False), mef.NewIdent(name), args[1]), nil
+}
+
+// defaultMacro expands default(a.b[k], f) to a.?b[?k].orValue(f).
+func defaultMacro(mef cel.MacroExprFactory, _ celast.Expr, args []celast.Expr) (celast.Expr, *cel.Error) {
+	opt, ok := optionalAccess(mef, args[0])
+	if !ok {
+		return nil, mef.NewError(args[0].ID(), "default() needs a field or index access such as a.b or m[k]")
+	}
+	return mef.NewMemberCall("orValue", opt, args[1]), nil
+}
+
+// optionalAccess rewrites the field and index accesses of e into their
+// optional forms; it reports false when e has none.
+func optionalAccess(mef cel.MacroExprFactory, e celast.Expr) (celast.Expr, bool) {
+	switch e.Kind() {
+	case celast.SelectKind:
+		sel := e.AsSelect()
+		if sel.IsTestOnly() {
+			return e, false
+		}
+		operand, _ := optionalAccess(mef, sel.Operand())
+		return mef.NewCall(operators.OptSelect, operand, mef.NewLiteral(types.String(sel.FieldName()))), true
+	case celast.CallKind:
+		call := e.AsCall()
+		if call.FunctionName() != operators.Index || len(call.Args()) != 2 {
+			return e, false
+		}
+		operand, _ := optionalAccess(mef, call.Args()[0])
+		return mef.NewCall(operators.OptIndex, operand, call.Args()[1]), true
+	}
+	return e, false
 }

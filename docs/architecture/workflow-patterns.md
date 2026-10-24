@@ -776,11 +776,15 @@ agents:
       # A CEL node with only route and state_delta forwards its input.
       - id: classify
         type: cel
-        route: |
-          cel.bind(t, input.lowerAscii(),
-            t.matches(r'\b(crash|error|bug)\b') ? 'BUG' :
-            t.matches(r'\b(invoice|refund)\b') ? 'BILLING' :
-            'OTHER')
+        # Ordered rules: the first match wins, no match takes DEFAULT.
+        vars:
+          - name: text
+            expr: input.lowerAscii()
+        routes:
+          - route: BUG
+            when: vars.text.matches(r'\b(crash|error|bug)\b')
+          - route: BILLING
+            when: vars.text.matches(r'\b(invoice|refund)\b')
         state_delta:
           ids: regex.extractAll(input, r'\bc-[0-9]+\b')
       - id: bug
