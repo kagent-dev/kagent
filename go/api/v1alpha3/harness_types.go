@@ -210,7 +210,13 @@ type HarnessCapabilities struct {
 
 // HarnessConditionType enumerates the condition types a Harness may report.
 const (
+	// HarnessConditionTypeReady states whether the Harness's own references
+	// resolve: True once its WorkerPool exists, False otherwise.
 	HarnessConditionTypeReady = "Ready"
+	// HarnessConditionTypeBooted reports what the golden boots of the Agents
+	// that run on the Harness observed: Unknown until one finished, True once
+	// one succeeded, False while every finished boot failed.
+	HarnessConditionTypeBooted = "Booted"
 )
 
 // HarnessStatus reports controller-derived capabilities and current health.
