@@ -95,8 +95,7 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 		return ctx, nil, err
 	}
 	if session, ok := auth.AuthSessionFrom(ctx); ok {
-		principal := auth.Principal{Agent: auth.Agent{ID: u.session.GetId()}}
-		if err := u.authenticator.UpstreamAuth(httpRequest, session, principal); err != nil {
+		if err := u.authenticator.UpstreamAuth(httpRequest, session, u.session.GetId()); err != nil {
 			return ctx, nil, err
 		}
 	}

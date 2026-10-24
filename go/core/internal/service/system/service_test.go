@@ -170,7 +170,7 @@ func TestCurrentUser(t *testing.T) {
 	service := system.NewService(nil, nil, nil, nil)
 	claims := map[string]any{"sub": "user-1", "groups": []any{"admins"}}
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{
-		User:   pkgAuth.User{ID: "user-1"},
+		ID:     "user-1",
 		Claims: claims,
 	}})
 
@@ -179,7 +179,7 @@ func TestCurrentUser(t *testing.T) {
 	assert.Equal(t, claims, result)
 
 	ctx = pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{
-		User: pkgAuth.User{ID: "fallback-user"},
+		ID: "fallback-user",
 	}})
 	result, err = service.GetCurrentUser(ctx)
 	require.NoError(t, err)
@@ -192,7 +192,7 @@ func TestCurrentUser(t *testing.T) {
 func TestListNamespaces(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 
 	t.Run("lists all and sorts case insensitively", func(t *testing.T) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
@@ -252,7 +252,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, atev1.AddToScheme(scheme))
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&atev1.WorkerPool{
@@ -328,7 +328,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, atev1.AddToScheme(scheme))
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	actors := []*ateapipb.Actor{
@@ -444,7 +444,7 @@ func TestBusyWorkerWithOutOfScopeActor(t *testing.T) {
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, atev1.AddToScheme(scheme))
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 	ateClient := &fakeATEClient{
 		actors: []*ateapipb.Actor{
 			substrateActor("a", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "kagent", "worker-0"),
@@ -481,7 +481,7 @@ func actorsInAtespace(actors []*ateapipb.Actor, atespace string) []*ateapipb.Act
 func TestSubstrateScopesAreIndependent(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, atev1.AddToScheme(scheme))
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "workers", Name: "pool"}},
 	).Build()
@@ -606,7 +606,7 @@ func TestSummaryRequiresCapabilityAndScopesPools(t *testing.T) {
 			authorizer := &summaryAuthorizer{pools: test.pools, denyType: "Substrate", failScope: test.failScope}
 			ate := &fakeATEClient{actors: []*ateapipb.Actor{substrateActor("actor", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker")}}
 			service := system.NewService(kube, test.observed, authorizer, ate)
-			ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+			ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "reader"}})
 			result, err := service.GetSubstrateSummary(ctx, test.requested, "team")
 			wantCalls := []string{"get SystemSummary", "list WorkerPool"}
 			if test.code == "" {
@@ -634,7 +634,7 @@ func TestSummaryDeniedBeforeResourceReads(t *testing.T) {
 	authorizer := &summaryAuthorizer{denyType: "SystemSummary"}
 	// Nil clients ensure a denied request cannot read Kubernetes or ATE inventory.
 	service := system.NewService(nil, nil, authorizer, nil)
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "reader"}})
 	_, err := service.GetSubstrateSummary(ctx, "", "")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
 	require.Equal(t, []string{"get SystemSummary"}, authorizer.calls)
@@ -646,7 +646,7 @@ func TestSummaryDeniedBeforeResourceReads(t *testing.T) {
 func TestSummaryDeniedPoolsDoNotRequireKubernetes(t *testing.T) {
 	authorizer := &summaryAuthorizer{pools: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}}
 	service := system.NewService(nil, nil, authorizer, &fakeATEClient{})
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "reader"}})
 	result, err := service.GetSubstrateSummary(ctx, "", "")
 	require.NoError(t, err)
 	require.Empty(t, result.WorkerPools)
@@ -657,7 +657,7 @@ func TestSummaryDeniedPoolsDoNotRequireKubernetes(t *testing.T) {
 func TestSubstrateTenantIsolation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, atev1.AddToScheme(scheme))
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 	ateClient := &fakeATEClient{
 		pageSize: 1,
 		actors: []*ateapipb.Actor{
@@ -872,7 +872,7 @@ func TestInventoryFamiliesHaveIndependentTrustedScopes(t *testing.T) {
 				scopes[tc.resource] = tc.scope
 			}
 			svc := system.NewService(kube, nil, inventoryAuthorizer{scopes: scopes}, ate)
-			ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+			ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "reader"}})
 			result, err := svc.GetSubstrateSummary(ctx, "", "")
 			require.NoError(t, err)
 			require.EqualValues(t, tc.actors, result.ActorCount)
@@ -905,7 +905,7 @@ func TestInventoryFamiliesHaveIndependentTrustedScopes(t *testing.T) {
 }
 
 func TestInventoryMissingIdentitiesAndScopeFailuresFailClosed(t *testing.T) {
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "reader"}})
 	ate := &fakeATEClient{actors: []*ateapipb.Actor{nil, {Metadata: &ateapipb.ResourceMetadata{Name: "missing-space"}}, {Metadata: &ateapipb.ResourceMetadata{Atespace: "team"}}}, templates: []*ateapipb.ActorTemplate{{Metadata: &ateapipb.ResourceMetadata{Name: "missing-space"}}}, workers: []*ateapipb.Worker{nil, {WorkerNamespace: "workers"}, {Metadata: &ateapipb.ResourceMetadata{Name: "missing-namespace"}}}}
 	svc := system.NewService(nil, nil, inventoryAuthorizer{scopes: map[string]apiauthorization.AuthorizationScope{"SubstrateActor": {Kind: apiauthorization.ScopeAll}, "SubstrateActorTemplate": {Kind: apiauthorization.ScopeAll}, "SubstrateWorker": {Kind: apiauthorization.ScopeAll}}}, ate)
 	result, err := svc.GetSubstrateSummary(ctx, "", "")

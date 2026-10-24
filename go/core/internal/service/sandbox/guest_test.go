@@ -36,7 +36,7 @@ import (
 type testSession string
 
 func (s testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: string(s)}}
+	return auth.Principal{ID: string(s)}
 }
 
 type testAuth struct{}
@@ -48,8 +48,8 @@ func (testAuth) Authenticate(_ context.Context, headers http.Header, _ url.Value
 	return nil, status.Error(codes.Unauthenticated, "missing test identity")
 }
 
-func (testAuth) UpstreamAuth(request *http.Request, _ auth.Session, principal auth.Principal) error {
-	request.Header.Set("X-User-Id", principal.User.ID)
+func (testAuth) UpstreamAuth(request *http.Request, session auth.Session, destinationSessionID string) error {
+	request.Header.Set("X-User-Id", session.Principal().ID)
 	return nil
 }
 

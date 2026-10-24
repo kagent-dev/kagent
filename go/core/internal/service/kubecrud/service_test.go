@@ -24,7 +24,7 @@ import (
 type testSession struct{}
 
 func (testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "test-user"}}
+	return auth.Principal{ID: "test-user"}
 }
 
 type authorizationCall struct {

@@ -444,7 +444,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, storedConfigs, 2, "stored configs: %+v", storedConfigs)
 	managedService := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil), true)
-	serviceCtx := auth.AuthSessionTo(publicCtx, &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "alice"}}})
+	serviceCtx := auth.AuthSessionTo(publicCtx, &authimpl.SimpleSession{P: auth.Principal{ID: "alice"}})
 	servicePage, err := managedService.ListTaskPushConfigs(serviceCtx, types.NamespacedName{Namespace: "team-a", Name: "assistant"},
 		&a2a.ListTaskPushConfigRequest{TaskID: a2a.TaskID(parkedID), PageSize: 1})
 	require.NoError(t, err)

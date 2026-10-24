@@ -204,7 +204,7 @@ export function AgentPage() {
                    conversation answers NotFound to everyone but the person who
                    started it. A link here would be an invitation to a 404. */
                 <Tooltip
-                  title={`Only ${row.creator || "the person who started it"} can open this conversation. An instance is read as its creator, so it answers "not found" to anyone else — a share link is the only other way in.`}
+                  title="Only the conversation’s creator can open it. Other callers need a share link."
                 >
                   <Text
                     data-testid={`conversation-unopenable-${row.id}`}
@@ -241,7 +241,7 @@ export function AgentPage() {
         render: (_, row) => <StateTag state={row.state} testId={`state-${row.id}`} />,
       },
       {
-        title: "Started by",
+        title: "Creator ID",
         key: "creator",
         width: 180,
         sorter: byText<AgentInstance>((row) => row.creator),

@@ -24,27 +24,21 @@ type Resource struct {
 	Name      string
 }
 
-type User struct {
-	ID string
-}
-
-type Agent struct {
-	ID string
-}
-
-// Actor identifies a verified runtime caller. User is its session's owner, not
-// a grant of that user's permissions; Agent is the session's namespaced agent.
+// RuntimeBinding identifies a verified runtime caller and its immutable Session binding.
 // Caller-supplied agent headers never establish an Actor identity.
-type Actor struct {
+type RuntimeBinding struct {
 	SessionID string
+	// CreatorID selects the Session's data partition, never the caller's authority.
+	CreatorID string
 }
 
-// Authn
+// Principal describes the authenticated caller, independently of the request's
+// destination. RuntimeBinding is present only for a verified runtime caller.
 type Principal struct {
-	User   User
-	Agent  Agent
-	Actor  *Actor
-	Claims map[string]any // Raw JWT claims (nil for non-JWT auth)
+	// ID is an opaque, provider-normalized identity, independent of credentials.
+	ID             string
+	RuntimeBinding *RuntimeBinding
+	Claims         map[string]any // Authenticated provider attributes, such as JWT claims.
 }
 
 type Session interface {
@@ -69,9 +63,11 @@ func (ControlPlaneSession) Principal() Principal { return Principal{} }
 // - Forward auth credentials to upstream agents
 type AuthProvider interface {
 	Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (Session, error)
-	// add auth to upstream requests of a session for upstream service account.
+	// UpstreamAuth authenticates an authorized upstream request as this caller.
+	// destinationSessionID identifies the target conversation; it is empty for
+	// upstreams without a Session, such as sandbox guest APIs.
 	// For A2A calls, UpstreamMethodFrom(r.Context()) names the outgoing method.
-	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
+	UpstreamAuth(r *http.Request, session Session, destinationSessionID string) error
 }
 
 // AccessMode is what a gRPC method requires of its caller.

@@ -196,7 +196,7 @@ func (s *Service) ListExecutions(ctx context.Context, id uuid.UUID, page *apiv1.
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (string, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
-	if !ok || session.Principal().User.ID == "" {
+	if !ok || session.Principal().ID == "" {
 		return "", serviceerrors.NewUnauthenticated("Authentication is required", nil)
 	}
 	// A session capability never grants schedule access, even for in-process callers.
@@ -207,7 +207,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "ScheduledRun", Name: name}); err != nil {
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
-	return principal.User.ID, nil
+	return principal.ID, nil
 }
 
 func (s *Service) authorizeTarget(ctx context.Context, schedule *apiv1.ScheduledRun) error {
