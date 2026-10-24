@@ -244,6 +244,23 @@ var catalog = []Pattern{
 		Cases:   []Case{{Input: "c-7", Want: []string{"out:customer c-7 is on plan pro"}}},
 	},
 	{
+		Name: "cel_router", Title: "CEL router with state (no Go code)", Go: celRouterGo,
+		Summary: "A cel node classifies with the CEL standard library and regular expressions, picks a route and writes extracted ids to state in the same event; later cel nodes format replies from input and state. The Go twin is the same graph with function nodes.",
+		Shape:   "START → classify (CEL) ─BUG→ bug\n                       ├BILLING→ billing (reads state.ids)\n                       └DEFAULT→ other",
+		Cases: []Case{
+			{Input: "App crash on login", Want: []string{"out:bug: App crash on login"}},
+			{Input: "refund for c-7 and c-9", Want: []string{"out:billing for c-7,c-9"}},
+			{Input: "refund please", Want: []string{"out:billing for unknown customer"}},
+			{Input: "hello", Want: []string{"out:other: hello"}},
+		},
+	},
+	{
+		Name: "mcp_tool", Title: "Remote MCP tool as a function node", Go: mcpToolGo, Ordered: true,
+		Summary: "A tool node with server: calls one tool of a remote MCP server declared in mcp_servers (URL from the environment); CEL builds its arguments and reads its structured result. The Go twin wraps an ADK mcptoolset in a function node. Both call the same streamable HTTP server.",
+		Shape:   "START → args (CEL) → lookup (crm MCP) → describe (CEL)",
+		Cases:   []Case{{Input: "c-7", Want: []string{"out:customer c-7 is on plan enterprise"}}},
+	},
+	{
 		Name: "typed_contract", Title: "Typed contract between steps (JSON Schema)", Go: typedContractGo, Ordered: true,
 		Summary: "A node can carry an input and an output JSON Schema. The engine validates what the node returns and what the next node receives, and compares the two schemas on every edge when it builds the graph.",
 		Shape:   "START → parse (output: {name}) → greet (input: {name})",
@@ -251,7 +268,7 @@ var catalog = []Pattern{
 	},
 	{
 		Name: "resilient", Title: "Resilient step (retry and timeout)", Go: resilientGo, Ordered: true,
-		Summary: "A node carries a retry policy and a timeout. The step below fails twice, then succeeds on the third attempt.",
+		Summary: "A node carries a retry policy, a CEL retry predicate (retry.when) and a timeout. The step below fails twice, then succeeds on the third attempt.",
 		Shape:   "START → unreliable (retry ×3, timeout 5s)",
 		Cases:   []Case{{Input: "go", Want: []string{"out:recovered: go"}}},
 	},

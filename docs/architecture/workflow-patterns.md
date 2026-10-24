@@ -708,6 +708,190 @@ agents:
 <tr>
 <td valign="top">
 
+**CEL router with state (no Go code)**
+
+A cel node classifies with the CEL standard library and regular expressions, picks a route and writes extracted ids to state in the same event; later cel nodes format replies from input and state. The Go twin is the same graph with function nodes.
+
+```text
+START → classify (CEL) ─BUG→ bug
+                       ├BILLING→ billing (reads state.ids)
+                       └DEFAULT→ other
+```
+
+Run: `"App crash on login"` → `out:bug: App crash on login`
+
+</td>
+<td valign="top">
+
+```go
+func celRouterGo() (agent.Agent, error) {
+	classify := workflow.NewEmittingFunctionNode("classify", func(ctx agent.Context, in string, emit func(*session.Event) error) (any, error) {
+		ev := session.NewEvent(ctx, ctx.InvocationID())
+		switch t := strings.ToLower(in); {
+		case bugWords.MatchString(t):
+			ev.Routes = []string{"BUG"}
+		case billingWords.MatchString(t):
+			ev.Routes = []string{"BILLING"}
+		default:
+			ev.Routes = []string{"OTHER"}
+		}
+		ev.Actions.StateDelta = map[string]any{"ids": customerIDs.FindAllString(in, -1)}
+		ev.Output = in
+		return nil, emit(ev)
+	}, workflow.NodeConfig{})
+	bug := step("bug", func(s string) string { return "bug: " + strings.TrimSpace(s) })
+	other := step("other", func(s string) string { return "other: " + strings.TrimSpace(s) })
+	billing := workflow.NewFunctionNode("billing", func(ctx agent.Context, _ string) (string, error) {
+		ids, _ := ctx.State().Get("ids")
+		list, _ := ids.([]string)
+		if len(list) == 0 {
+			return "billing for unknown customer", nil
+		}
+		return "billing for " + strings.Join(list, ","), nil
+	}, workflow.NodeConfig{})
+	return workflowagent.New(workflowagent.Config{
+		Name: "cel_router",
+		Edges: workflow.Concat(
+			workflow.Chain(workflow.Start, classify),
+			[]workflow.Edge{
+				{From: classify, To: bug, Route: workflow.StringRoute("BUG")},
+				{From: classify, To: billing, Route: workflow.StringRoute("BILLING")},
+				{From: classify, To: other, Route: workflow.Default},
+			},
+		),
+	})
+}
+```
+
+</td>
+<td valign="top">
+
+```yaml
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: cel_router
+    agent_class: Workflow
+    nodes:
+      # A CEL node with only route and state_delta forwards its input.
+      - id: classify
+        type: cel
+        route: |
+          cel.bind(t, input.lowerAscii(),
+            t.matches(r'\b(crash|error|bug)\b') ? 'BUG' :
+            t.matches(r'\b(invoice|refund)\b') ? 'BILLING' :
+            'OTHER')
+        state_delta:
+          ids: regex.extractAll(input, r'\bc-[0-9]+\b')
+      - id: bug
+        type: cel
+        output: "'bug: ' + input.trim()"
+      - id: billing
+        type: cel
+        output: |
+          'billing for ' + (size(state.ids) > 0 ? state.ids.map(i, string(i)).join(',') : 'unknown customer')
+      - id: other
+        type: cel
+        output: "'other: ' + input.trim()"
+    edges:
+      - { from: START, to: classify }
+      - { from: classify, to: bug, route: BUG }
+      - { from: classify, to: billing, route: BILLING }
+      - { from: classify, to: other, route: DEFAULT }
+```
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Remote MCP tool as a function node**
+
+A tool node with server: calls one tool of a remote MCP server declared in mcp_servers (URL from the environment); CEL builds its arguments and reads its structured result. The Go twin wraps an ADK mcptoolset in a function node. Both call the same streamable HTTP server.
+
+```text
+START → args (CEL) → lookup (crm MCP) → describe (CEL)
+```
+
+Run: `"c-7"` → `out:customer c-7 is on plan enterprise`
+
+</td>
+<td valign="top">
+
+```go
+func mcpToolGo() (agent.Agent, error) {
+	url, err := crmURL()
+	if err != nil {
+		return nil, err
+	}
+	toolset, err := mcptoolset.New(mcptoolset.Config{Transport: &mcpsdk.StreamableClientTransport{Endpoint: url}})
+	if err != nil {
+		return nil, err
+	}
+	crm := tool.FilterToolset(toolset, tool.StringPredicate([]string{"lookup_customer"}))
+	args := workflow.NewFunctionNode("args", func(_ agent.Context, in string) (map[string]any, error) {
+		return map[string]any{"customer_id": strings.TrimSpace(in)}, nil
+	}, workflow.NodeConfig{})
+	lookup := workflow.NewFunctionNode("lookup", func(ctx agent.Context, in map[string]any) (map[string]any, error) {
+		tools, err := crm.Tools(ctx)
+		if err != nil || len(tools) != 1 {
+			return nil, fmt.Errorf("lookup_customer is not available: %v", err)
+		}
+		runnable, ok := tools[0].(interface {
+			Run(agent.Context, any) (map[string]any, error)
+		})
+		if !ok {
+			return nil, errors.New("lookup_customer cannot run outside a model turn")
+		}
+		return runnable.Run(ctx, in)
+	}, workflow.NodeConfig{})
+	describe := workflow.NewFunctionNode("describe", func(_ agent.Context, in map[string]any) (string, error) {
+		c, _ := in["output"].(map[string]any)
+		return fmt.Sprintf("customer %v is on plan %v", c["id"], c["plan"]), nil
+	}, workflow.NodeConfig{})
+	return workflowagent.New(workflowagent.Config{
+		Name:  "mcp_tool",
+		Edges: workflow.Chain(workflow.Start, args, lookup, describe),
+	})
+}
+```
+
+</td>
+<td valign="top">
+
+```yaml
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+mcp_servers:
+  - name: crm
+    url_from: { env: PATTERNS_CRM_URL }
+    tools: [lookup_customer]
+agents:
+  - name: mcp_tool
+    agent_class: Workflow
+    nodes:
+      - id: args
+        type: cel
+        output: '{"customer_id": input.trim()}'
+      # A remote MCP tool as a function node: the input is its arguments.
+      - id: lookup
+        type: tool
+        server: crm
+        tool: lookup_customer
+      - id: describe
+        type: cel
+        output: "'customer %s is on plan %s'.format([input.output.id, input.output.plan])"
+    edges:
+      - { from: START, to: args }
+      - { from: args, to: lookup }
+      - { from: lookup, to: describe }
+```
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
 **Typed contract between steps (JSON Schema)**
 
 A node can carry an input and an output JSON Schema. The engine validates what the node returns and what the next node receives, and compares the two schemas on every edge when it builds the graph.
@@ -772,7 +956,7 @@ agents:
 
 **Resilient step (retry and timeout)**
 
-A node carries a retry policy and a timeout. The step below fails twice, then succeeds on the third attempt.
+A node carries a retry policy, a CEL retry predicate (retry.when) and a timeout. The step below fails twice, then succeeds on the third attempt.
 
 ```text
 START → unreliable (retry ×3, timeout 5s)
@@ -789,6 +973,9 @@ func resilientGo() (agent.Agent, error) {
 	retry.MaxAttempts = 3
 	retry.InitialDelay, retry.MaxDelay = time.Millisecond, 2*time.Millisecond
 	retry.BackoffFactor, retry.Jitter = 1, 0
+	retry.ShouldRetry = func(err error) bool {
+		return errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "transient")
+	}
 	flaky := newFlaky(2)
 	unreliable := workflow.NewFunctionNode("unreliable", func(_ agent.Context, in string) (string, error) {
 		return flaky(in)
@@ -814,7 +1001,14 @@ agents:
         type: function
         function: flaky
         timeout: 5s
-        retry: { max_attempts: 3, initial_delay: 1ms, max_delay: 2ms, backoff_factor: 1, jitter: 0 }
+        retry:
+          max_attempts: 3
+          initial_delay: 1ms
+          max_delay: 2ms
+          backoff_factor: 1
+          jitter: 0
+          # Retry only transient failures and timeouts; other errors fail at once.
+          when: error.timeout || error.message.contains("transient")
     edges:
       - { from: START, to: unreliable }
 ```

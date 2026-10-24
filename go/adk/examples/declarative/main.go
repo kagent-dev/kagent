@@ -2,11 +2,15 @@
 // document (agents.yaml) is compiled into a native ADK workflow agent by
 // pkg/declarative and served over A2A.
 //
-// The document classifies requests with CEL nodes and only names the rest of
-// its behavior; this program supplies that through a declarative.Registry: Go
-// functions, a tool, and a model resolver that maps
-// unregistered model names to OpenAI models. Use the "stub" model name in a
-// document to run without credentials.
+// The document classifies requests with CEL nodes, calls customer tools on a
+// remote MCP server, and stores tickets with the harness file tools. This
+// program supplies the rest through a declarative.Registry: a Go function,
+// the harness tools, and a model resolver that maps unregistered model names
+// to OpenAI models. Use the "stub" model name in a document to run without
+// credentials.
+//
+// CRM_MCP_URL selects the CRM MCP server; when it is unset the program serves
+// a demo CRM on a loopback port.
 //
 // Deploy through a BYO Harness. Process settings are loaded from the root
 // runtime object in /config/config.json. OPENAI_API_KEY remains a provider
@@ -29,7 +33,6 @@ import (
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
-	"google.golang.org/adk/v2/tool/functiontool"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
@@ -42,16 +45,9 @@ import (
 //go:embed agents.yaml
 var agentsDocument []byte
 
-type lookupArgs struct {
-	CustomerID string `json:"customer_id"`
-}
-
-type customer struct {
-	ID   string `json:"id"`
-	Plan string `json:"plan"`
-}
-
-func newRegistry() (*declarative.Registry, error) {
+// newRegistry returns the local library of the document. workspace is the
+// directory of the harness tools; empty uses the actor workspace.
+func newRegistry(workspace string) (*declarative.Registry, error) {
 	reg := declarative.NewRegistry()
 
 	// Unregistered model names resolve to OpenAI models.
@@ -59,34 +55,16 @@ func newRegistry() (*declarative.Registry, error) {
 		return models.NewOpenAIModel(ctx, &models.OpenAIConfig{Model: name})
 	})
 
-	lookup, err := functiontool.New(functiontool.Config{
-		Name:        "lookup_customer",
-		Description: "Looks up a customer by id.",
-	}, func(_ adkagent.Context, args lookupArgs) (customer, error) {
-		return customer{ID: args.CustomerID, Plan: "pro"}, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tool lookup_customer: %w", err)
+	if err := reg.RegisterFunction("fallback", func(adkagent.Context, any) (declarative.Result, error) {
+		return declarative.Output("I could not classify that request."), nil
+	}); err != nil {
+		return nil, err
 	}
-
-	for name, fn := range map[string]declarative.Func{
-		"bill_reply": billReply,
-		"fallback": func(adkagent.Context, any) (declarative.Result, error) {
-			return declarative.Output("I could not classify that request."), nil
-		},
-	} {
-		if err := reg.RegisterFunction(name, fn); err != nil {
-			return nil, err
-		}
-	}
-	if err := reg.RegisterTool(lookup); err != nil {
+	// read_file, write_file, list_files and bash.
+	if err := reg.RegisterHarnessTools(declarative.HarnessConfig{Workspace: workspace}); err != nil {
 		return nil, err
 	}
 	return reg, nil
-}
-
-func billReply(_ adkagent.Context, in any) (declarative.Result, error) {
-	return declarative.Output(fmt.Sprintf("Customer record: %v", in)), nil
 }
 
 // loadDocument prefers the document the controller validated and delivered
@@ -117,7 +95,21 @@ func main() {
 	slog.SetDefault(logger)
 	ctx := logging.IntoContext(context.Background(), logger)
 
-	reg, err := newRegistry()
+	if _, set := os.LookupEnv(crmURLEnv); !set { //nolint:forbidigo // demo switch for the example's own MCP server
+		url, stop, err := serveDemoCRM()
+		if err != nil {
+			logger.Error("failed to serve the demo CRM", "error", err)
+			os.Exit(1)
+		}
+		defer stop()
+		if err := os.Setenv(crmURLEnv, url); err != nil {
+			logger.Error("failed to set the CRM URL", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("serving the demo CRM MCP server", "url", url)
+	}
+
+	reg, err := newRegistry("")
 	if err != nil {
 		logger.Error("failed to create registry", "error", err)
 		os.Exit(1)
@@ -132,6 +124,7 @@ func main() {
 		logger.Error("failed to build agents", "error", err)
 		os.Exit(1)
 	}
+	defer system.Close()
 	root := system.Root()
 
 	executor := adka2a.NewExecutor(adka2a.ExecutorConfig{
@@ -155,7 +148,7 @@ func main() {
 			Skills: []a2atype.AgentSkill{{
 				ID:          "support-triage",
 				Name:        "Support triage",
-				Description: "Classifies a request with CEL and routes it to escalation, billing lookup, a model answer, or a fallback",
+				Description: "Classifies a request with CEL and routes it to escalation (saved with harness tools), a remote MCP billing lookup, a model answer, or a fallback",
 			}},
 		},
 		Port:   fmt.Sprint(cmp.Or(runtime.GetPort(), 8082)),

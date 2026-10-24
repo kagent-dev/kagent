@@ -2,6 +2,7 @@ package translator_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -175,4 +176,45 @@ func TestCompileAgentRejectsWorkflowOnSharedTemplates(t *testing.T) {
 	var validation *translator.ValidationError
 	require.ErrorAs(t, err, &validation)
 	require.ErrorContains(t, err, `AgentTemplate "child" sets workflowFrom, which is only supported on the root template`)
+}
+
+const promptWorkflowYAML = `
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: support
+    agent_class: LlmAgent
+    model: stub
+    instruction_from: { %s: { name: prompts, key: support.md } }
+`
+
+func TestCompileAgentInlinesWorkflowPromptsFromConfigMaps(t *testing.T) {
+	harness := byoHarness()
+	prompts := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "prompts", Namespace: "test", UID: "prompts-uid"},
+		Data:       map[string]string{"support.md": "Answer support tickets."},
+	}
+	document := fmt.Sprintf(promptWorkflowYAML, "config_map")
+	revision, err := compiler(t, workflowConfigMap(document), prompts, harness).CompileAgent(t.Context(), inlineAgent(harness, workflowTemplate(nil)))
+	require.NoError(t, err)
+
+	var config configv1.ADKConfig
+	require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
+	require.Contains(t, string(config.Agent.Workflow.Document), `"instruction":"Answer support tickets."`)
+	require.NotContains(t, string(config.Agent.Workflow.Document), "instruction_from")
+	require.Contains(t, string(revision.Provenance), "prompts-uid", "the prompt ConfigMap is recorded")
+
+	_, err = compiler(t, workflowConfigMap(document), harness).CompileAgent(t.Context(), inlineAgent(harness, workflowTemplate(nil)))
+	require.ErrorContains(t, err, `resolve workflow prompt ConfigMap "prompts": not found`)
+	var validation *translator.ValidationError
+	require.False(t, errors.As(err, &validation), "a prompt ConfigMap that may appear later must be retried")
+}
+
+func TestCompileAgentRejectsWorkflowPromptsFromSecrets(t *testing.T) {
+	harness := byoHarness()
+	_, err := compiler(t, workflowConfigMap(fmt.Sprintf(promptWorkflowYAML, "secret")), harness).CompileAgent(t.Context(), inlineAgent(harness, workflowTemplate(nil)))
+	var validation *translator.ValidationError
+	require.ErrorAs(t, err, &validation)
+	require.ErrorContains(t, err, "agents[0].instruction_from")
+	require.ErrorContains(t, err, "use a ConfigMap")
 }

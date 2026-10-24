@@ -29,6 +29,9 @@ func routeFunc(f func(string) []string) declarative.Func {
 // the flaky step start from zero.
 func newRegistry() (*declarative.Registry, error) {
 	reg := declarative.NewRegistry()
+	if _, err := crmURL(); err != nil {
+		return nil, err
+	}
 	if err := reg.RegisterModel("history", historyModel{}); err != nil {
 		return nil, err
 	}

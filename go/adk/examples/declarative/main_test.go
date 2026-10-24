@@ -5,6 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"maps"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,18 +26,29 @@ import (
 // registry it is served with.
 func TestAgentsDocumentBuilds(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key") // building an OpenAI model needs a key; no request is made
-	reg, err := newRegistry()
+	startCRM(t)
+	reg, err := newRegistry(t.TempDir())
 	require.NoError(t, err)
 	spec, err := reg.Parse(agentsDocument)
 	require.NoError(t, err)
 	system, err := declarative.Build(t.Context(), spec, reg)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, system.Close()) })
 	require.Equal(t, "support_triage", system.Root().Name())
+}
+
+// startCRM serves the demo CRM MCP server for the test and points the
+// document's url_from at it.
+func startCRM(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(newCRMServer())
+	t.Cleanup(srv.Close)
+	t.Setenv(crmURLEnv, srv.URL)
 }
 
 func TestLoadDocumentPrefersTheDeliveredWorkflow(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
-	reg, err := newRegistry()
+	reg, err := newRegistry(t.TempDir())
 	require.NoError(t, err)
 
 	embedded, err := loadDocument(reg, nil)
@@ -48,10 +62,13 @@ func TestLoadDocumentPrefersTheDeliveredWorkflow(t *testing.T) {
 	require.Equal(t, "delivered", delivered.Agents[0].Name)
 }
 
-// TestCELClassification runs every route of the example offline: the model
-// resolver is replaced by the stub, which echoes "[node] <user text>".
+// TestCELClassification runs every route of the example offline against the
+// demo CRM MCP server and a temporary harness workspace: the model resolver is
+// replaced by the stub, which echoes "[node] <user text>".
 func TestCELClassification(t *testing.T) {
-	reg, err := newRegistry()
+	startCRM(t)
+	workspace := t.TempDir()
+	reg, err := newRegistry(workspace)
 	require.NoError(t, err)
 	reg.SetModelResolver(func(_ context.Context, name string) (adkmodel.LLM, error) {
 		return declarative.NewStubModel(name), nil
@@ -60,21 +77,24 @@ func TestCELClassification(t *testing.T) {
 	require.NoError(t, err)
 	system, err := declarative.Build(t.Context(), spec, reg)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, system.Close()) })
 
 	for _, tc := range []struct {
 		name, input string
 		want        []string
 		state       map[string]any
+		files       bool
 	}{
 		{
 			name:  "urgent wins over billing",
 			input: "Billing portal is DOWN for c-7",
-			want:  []string{"escalated to on-call: BILLING PORTAL IS DOWN FOR C-7", "T-"},
+			want:  []string{"escalated to on-call: BILLING PORTAL IS DOWN FOR C-7", "(ticket saved to tickets/T-"},
+			files: true,
 		},
 		{
 			name:  "billing with an extracted customer id",
 			input: "Please refund invoice 12 for customer c-42",
-			want:  []string{"Customer record:", "c-42", "pro"},
+			want:  []string{"Customer c-42 is on the pro plan with a balance of 120 ({\"ticket\":\"T-"},
 			state: map[string]any{"customer_id": "c-42", "keywords": []any{"refund", "invoice"}},
 		},
 		{
@@ -106,6 +126,11 @@ func TestCELClassification(t *testing.T) {
 			}
 			for k, v := range tc.state {
 				require.Equal(t, v, state[k], "state %q", k)
+			}
+			if tc.files {
+				ticket, err := os.ReadFile(filepath.Join(workspace, "tickets", state["ticket_ref"].(string)+".txt"))
+				require.NoError(t, err)
+				require.Equal(t, state["escalation"], string(ticket))
 			}
 		})
 	}

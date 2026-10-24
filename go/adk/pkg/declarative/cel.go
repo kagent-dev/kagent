@@ -27,6 +27,7 @@ const (
 	celRequest    = "request"    // {model, text, contents, system_instruction, tools} (before_model)
 	celResponse   = "response"   // {text, partial, turn_complete, error, finish_reason, function_calls} (after_model)
 	celTool       = "tool"       // {name, args} and, after the call, {result, error}
+	celError      = "error"      // {message, timeout, canceled} (retry.when only)
 )
 
 // celScope selects the variables an expression may use.
@@ -38,6 +39,9 @@ const (
 	scopeAfterModel  celScope = "after_model"
 	scopeBeforeTool  celScope = "before_tool"
 	scopeAfterTool   celScope = "after_tool"
+	// scopeRetry sees only the error: ADK decides on a retry without the
+	// agent context.
+	scopeRetry celScope = "retry"
 )
 
 // celCostLimit bounds the work of one evaluation so that an expression cannot
@@ -53,22 +57,26 @@ var celEnvs = func() map[celScope]*cel.Env {
 		scopeAfterModel:  cel.Variable(celResponse, celObject),
 		scopeBeforeTool:  cel.Variable(celTool, celObject),
 		scopeAfterTool:   cel.Variable(celTool, celObject),
+		scopeRetry:       cel.Variable(celError, celObject),
 	}
 	envs := make(map[celScope]*cel.Env, len(extra))
 	for scope, opt := range extra {
-		env, err := cel.NewEnv(
-			cel.Variable(celState, celObject),
-			cel.Variable(celSession, celObject),
-			cel.Variable(celUser, celObject),
-			cel.Variable(celInvocation, celObject),
-			opt,
+		opts := []cel.EnvOption{opt}
+		if scope != scopeRetry {
+			opts = append(opts,
+				cel.Variable(celState, celObject),
+				cel.Variable(celSession, celObject),
+				cel.Variable(celUser, celObject),
+				cel.Variable(celInvocation, celObject))
+		}
+		env, err := cel.NewEnv(append(opts,
 			// The cel-go standard extensions: cel.bind locals, strings,
 			// base64, lists, math, sets, RE2 regex helpers (regex.extract
 			// returns an optional, hence optional types).
 			cel.OptionalTypes(), ext.Bindings(), ext.Strings(), ext.Encoders(),
 			ext.Lists(), ext.Math(), ext.Sets(), ext.Regex(),
 			jsonLibrary,
-		)
+		)...)
 		if err != nil {
 			panic(fmt.Sprintf("declarative CEL environment %s: %v", scope, err))
 		}

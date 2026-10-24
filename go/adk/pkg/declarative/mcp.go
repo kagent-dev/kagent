@@ -2,6 +2,7 @@ package declarative
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,8 +10,6 @@ import (
 	"net/http"
 	"slices"
 	"sync"
-
-	"encoding/json"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -49,10 +48,11 @@ func ConnectMCP(_ context.Context, server MCPServer) (tool.Toolset, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP toolset %q: %w", server.Name, err)
 	}
+	closer, _ := ts.(io.Closer)
 	if len(server.Tools) > 0 {
 		ts = tool.FilterToolset(ts, tool.StringPredicate(server.Tools))
 	}
-	return &serverToolset{Toolset: ts, name: server.Name}, nil
+	return &serverToolset{Toolset: ts, name: server.Name, closer: closer}, nil
 }
 
 type headerTransport struct {
@@ -73,11 +73,16 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 type serverToolset struct {
 	tool.Toolset
 	name string
+	// closer is the unfiltered MCP toolset; FilterToolset hides its Close.
+	closer io.Closer
 }
 
 func (n *serverToolset) Name() string { return n.name }
 
 func (n *serverToolset) Close() error {
+	if n.closer != nil {
+		return n.closer.Close()
+	}
 	if c, ok := n.Toolset.(io.Closer); ok {
 		return c.Close()
 	}

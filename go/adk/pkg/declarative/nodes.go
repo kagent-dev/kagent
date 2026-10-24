@@ -1,7 +1,9 @@
 package declarative
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -295,8 +297,35 @@ func nodeConfig(n *NodeSpec) (workflow.NodeConfig, error) {
 			if r.Jitter != nil {
 				rc.Jitter = *r.Jitter
 			}
+			if r.When != "" {
+				when, err := compileCEL(scopeRetry, r.When, resultBool)
+				if err != nil {
+					return cfg, err
+				}
+				rc.ShouldRetry = retryPredicate(when)
+			}
 		}
 		cfg.RetryConfig = rc
 	}
 	return cfg, nil
+}
+
+// retryPredicate adapts retry.when to ADK's ShouldRetry. An expression that
+// fails to evaluate does not retry: the original error surfaces instead.
+func retryPredicate(when *expression) func(error) bool {
+	return func(err error) bool {
+		if err == nil {
+			return false
+		}
+		retry, evalErr := when.evalBool(map[string]any{celError: errorVars(err)})
+		return evalErr == nil && retry
+	}
+}
+
+func errorVars(err error) map[string]any {
+	return map[string]any{
+		"message":  err.Error(),
+		"timeout":  errors.Is(err, context.DeadlineExceeded),
+		"canceled": errors.Is(err, context.Canceled),
+	}
 }

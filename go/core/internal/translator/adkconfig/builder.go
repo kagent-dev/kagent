@@ -164,12 +164,15 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, templates []*translator.TemplateConfiguration, models []*translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, templates []*translator.TemplateConfiguration, models []*translator.ResolvedModelConfig, environment []corev1.EnvVar, extraConfigMaps ...string) ([]byte, error) {
 	var entries []provenanceEntry
 	// The Harness is always a standalone resource. Inline template configuration
 	// is recorded by the enclosing Agent provenance below.
 	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	configMaps := map[string]struct{}{}
+	for _, name := range extraConfigMaps {
+		configMaps[name] = struct{}{}
+	}
 	for _, template := range templates {
 		if template.Source != nil {
 			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec))

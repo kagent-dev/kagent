@@ -306,4 +306,7 @@ type RetrySpec struct {
 	MaxDelay      string   `json:"max_delay,omitempty"`
 	BackoffFactor *float64 `json:"backoff_factor,omitempty"`
 	Jitter        *float64 `json:"jitter,omitempty"`
+	// When is a CEL predicate over `error` ({message, timeout, canceled})
+	// that decides whether a failure is retried. Empty retries every error.
+	When string `json:"when,omitempty"`
 }

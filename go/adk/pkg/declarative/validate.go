@@ -634,6 +634,11 @@ func (v *validator) retry(path string, r *RetrySpec) {
 	if r.Jitter != nil && (*r.Jitter < 0 || *r.Jitter > 1) {
 		v.addf(path+".jitter", "must be within [0, 1]")
 	}
+	if r.When != "" {
+		if _, err := compileCEL(scopeRetry, r.When, resultBool); err != nil {
+			v.addf(path+".when", "%v", err)
+		}
+	}
 }
 
 // agentTree checks that sub_agents form a forest: ADK names must be unique
