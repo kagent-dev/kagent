@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/agent/workflowagent"
@@ -14,6 +19,7 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/agenttool"
+	"google.golang.org/adk/v2/tool/mcptoolset"
 	"google.golang.org/adk/v2/workflow"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/declarative"
@@ -236,6 +242,9 @@ func resilientGo() (agent.Agent, error) {
 	retry.MaxAttempts = 3
 	retry.InitialDelay, retry.MaxDelay = time.Millisecond, 2*time.Millisecond
 	retry.BackoffFactor, retry.Jitter = 1, 0
+	retry.ShouldRetry = func(err error) bool {
+		return errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "transient")
+	}
 	flaky := newFlaky(2)
 	unreliable := workflow.NewFunctionNode("unreliable", func(_ agent.Context, in string) (string, error) {
 		return flaky(in)
@@ -463,5 +472,85 @@ func schemaMismatchGo() (agent.Agent, error) {
 	return workflowagent.New(workflowagent.Config{
 		Name:  "schema_mismatch",
 		Edges: workflow.Chain(workflow.Start, produce, consume),
+	})
+}
+
+var (
+	bugWords     = regexp.MustCompile(`\b(crash|error|bug)\b`)
+	billingWords = regexp.MustCompile(`\b(invoice|refund)\b`)
+	customerIDs  = regexp.MustCompile(`\bc-[0-9]+\b`)
+)
+
+func celRouterGo() (agent.Agent, error) {
+	classify := workflow.NewEmittingFunctionNode("classify", func(ctx agent.Context, in string, emit func(*session.Event) error) (any, error) {
+		ev := session.NewEvent(ctx, ctx.InvocationID())
+		switch t := strings.ToLower(in); {
+		case bugWords.MatchString(t):
+			ev.Routes = []string{"BUG"}
+		case billingWords.MatchString(t):
+			ev.Routes = []string{"BILLING"}
+		default:
+			ev.Routes = []string{"OTHER"}
+		}
+		ev.Actions.StateDelta = map[string]any{"ids": customerIDs.FindAllString(in, -1)}
+		ev.Output = in
+		return nil, emit(ev)
+	}, workflow.NodeConfig{})
+	bug := step("bug", func(s string) string { return "bug: " + strings.TrimSpace(s) })
+	other := step("other", func(s string) string { return "other: " + strings.TrimSpace(s) })
+	billing := workflow.NewFunctionNode("billing", func(ctx agent.Context, _ string) (string, error) {
+		ids, _ := ctx.State().Get("ids")
+		list, _ := ids.([]string)
+		if len(list) == 0 {
+			return "billing for unknown customer", nil
+		}
+		return "billing for " + strings.Join(list, ","), nil
+	}, workflow.NodeConfig{})
+	return workflowagent.New(workflowagent.Config{
+		Name: "cel_router",
+		Edges: workflow.Concat(
+			workflow.Chain(workflow.Start, classify),
+			[]workflow.Edge{
+				{From: classify, To: bug, Route: workflow.StringRoute("BUG")},
+				{From: classify, To: billing, Route: workflow.StringRoute("BILLING")},
+				{From: classify, To: other, Route: workflow.Default},
+			},
+		),
+	})
+}
+
+func mcpToolGo() (agent.Agent, error) {
+	url, err := crmURL()
+	if err != nil {
+		return nil, err
+	}
+	toolset, err := mcptoolset.New(mcptoolset.Config{Transport: &mcpsdk.StreamableClientTransport{Endpoint: url}})
+	if err != nil {
+		return nil, err
+	}
+	crm := tool.FilterToolset(toolset, tool.StringPredicate([]string{"lookup_customer"}))
+	args := workflow.NewFunctionNode("args", func(_ agent.Context, in string) (map[string]any, error) {
+		return map[string]any{"customer_id": strings.TrimSpace(in)}, nil
+	}, workflow.NodeConfig{})
+	lookup := workflow.NewFunctionNode("lookup", func(ctx agent.Context, in map[string]any) (map[string]any, error) {
+		tools, err := crm.Tools(ctx)
+		if err != nil || len(tools) != 1 {
+			return nil, fmt.Errorf("lookup_customer is not available: %v", err)
+		}
+		runnable, ok := tools[0].(interface {
+			Run(agent.Context, any) (map[string]any, error)
+		})
+		if !ok {
+			return nil, errors.New("lookup_customer cannot run outside a model turn")
+		}
+		return runnable.Run(ctx, in)
+	}, workflow.NodeConfig{})
+	describe := workflow.NewFunctionNode("describe", func(_ agent.Context, in map[string]any) (string, error) {
+		c, _ := in["output"].(map[string]any)
+		return fmt.Sprintf("customer %v is on plan %v", c["id"], c["plan"]), nil
+	}, workflow.NodeConfig{})
+	return workflowagent.New(workflowagent.Config{
+		Name:  "mcp_tool",
+		Edges: workflow.Chain(workflow.Start, args, lookup, describe),
 	})
 }

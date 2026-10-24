@@ -55,10 +55,15 @@ converted with the same code as structured output) and `include_contents`
 | `parallel_worker` | one of function/tool/agent | Runs the target once per item of a list input                   |
 | `dynamic`         | `function`                 | Registered `DynamicFunc` that runs children under `max_iters`, with `isolation` |
 | `hitl`            | `message`                  | Pauses for a human reply and forwards the reply                 |
+| `cel`             | one of output/route/state_delta | Evaluates CEL expressions; may select routes and write state |
 
-`function`, `tool`, `agent`, `llm`, `parallel_worker` and `dynamic` nodes accept
+`function`, `tool`, `agent`, `llm`, `parallel_worker`, `dynamic` and `cel` nodes accept
 `timeout` and `retry`, which map to `workflow.NodeConfig`. Unset retry fields
-take the ADK defaults.
+take the ADK defaults. `retry.when` is a CEL predicate over `error`
+(`message`, `timeout`, `canceled`) that decides whether a failure is retried,
+for example `error.timeout || error.message.contains("transient")`; it maps to
+`RetryConfig.ShouldRetry`, which has no context, so state and session are not
+visible there. An evaluation error means no retry.
 
 A `dynamic` node decides at run time which children to run. `children` lists
 nodes of the same graph that only that node schedules: they carry no edges, and
@@ -68,8 +73,88 @@ and every `DynamicEnv.Run`, spends one `max_iters` iteration and fails with
 
 Edges connect node ids. `START` is the entry source; `entry` is shorthand for a
 `START` edge. An edge may carry a `route`, matched against the routes a
-`function` node returns; `DEFAULT` is the edge taken when no route matched.
+`function` or `cel` node returns; `DEFAULT` is the edge taken when no route matched.
 Unknown fields anywhere in the document are decode errors.
+
+### CEL
+
+A `cel` node evaluates expressions instead of calling Go. `output` replaces
+the node output, which otherwise passes the input through; `route` returns a
+route name or a list of names; `state_delta` writes each key's value to session
+state. All three see the state as it was before the node ran.
+
+Expressions see `input` and the ADK context: `state`, `session` (`id`,
+`app_name`, `user_id`), `user` (`id`, `content`, the text that started the
+invocation) and `invocation` (`id`, `branch`, `agent_name`). Besides the CEL
+standard library, including RE2 `matches`, the environment enables the cel-go
+extensions for optional types, `cel.bind`, strings (`trim`, `lowerAscii`,
+`split`, `format`, ...), base64 encoders, lists, `math`, sets and regex
+(`regex.extract`, `regex.extractAll`, `regex.replace`). An empty optional
+result is null. Expressions compile at validation and run under a cost limit
+of 1,000,000. `go/adk/examples/declarative/agents.yaml` classifies requests
+with an ordered list of regular-expression rules.
+
+CEL also has `json.encode(value)` and `json.decode(text)` for building and
+reading JSON payloads. Callback rules and `retry.when` use the same environment
+with the variables of their scope, described below.
+
+### Prompt sources
+
+`instruction_from` and `global_instruction_from` replace `instruction` and
+`global_instruction` with a `TextSource`: exactly one of `config_map` or
+`secret` (`{name, key}` in the document's namespace) or `env`. The controller
+inlines ConfigMap text before delivery, records the ConfigMap in the revision
+provenance, and retries while it is missing. It rejects `secret` and `env`
+sources as `UnsupportedConfiguration`: kagent never delivers Secret values to a
+runtime (credentials are injected at the egress gateway), so prompt text the
+runtime must read belongs in a ConfigMap. A document built directly with the Go
+library resolves only `env`; `declarative.ResolvePrompts` lets an embedding
+program resolve the other kinds.
+
+### Remote MCP servers
+
+`mcp_servers` declares streamable HTTP MCP servers: `name`, exactly one of
+`url` or `url_from` (`{env: VAR}`), optional `headers` (`value` or
+`value_from`), and an optional `tools` allowlist. A server is used two ways:
+
+- a `tool` node with `server:` calls one of its tools as a function node; the
+  predecessor output is the arguments and the node output is the tool result,
+  `{"output": ...}` for both structured and text results;
+- an `LlmAgent` or `llm` node lists the server name in `tools`, giving the
+  model the server's allowlisted tools.
+
+Connecting creates the ADK `mcptoolset` without contacting the server: tools
+are listed when first needed, so an unreachable server fails a run, not the
+build, and a node retries per its `retry` policy. `System.Close` closes every
+MCP session. `Registry.SetMCPConnector` replaces the default connector, for
+example to add per-request credentials.
+
+### Callbacks
+
+`callbacks` on an `LlmAgent` or `llm` node maps to the ADK before/after model
+and tool callbacks: `before_model`, `after_model`, `before_tool`, `after_tool`.
+Each is an ordered list of rules. A rule applies when its CEL `when` is true
+(empty always applies) and either decides declaratively with `action: accept`
+(run the call unchanged and stop evaluating) or `action: reject` with a
+`message`, or names a registered `Hook` with `function`. A rejected model call
+is answered with the message; a rejected tool call returns `{"error": message}`
+to the model. Both carry `kagent_hook` metadata so clients can tell them from
+real output. Rules see the context variables plus `request` (before_model:
+`model`, `text`, `contents`, `system_instruction`, `tools`), `response`
+(after_model: `text`, `partial`, `turn_complete`, `error`, `finish_reason`,
+`function_calls`) or `tool` (`name`, `args`, and after the call `result` and
+`error`). For example, a `before_tool` rule with
+`when: tool.name == 'lookup_customer' && tool.args.customer_id != state.customer_id`
+and `action: reject` keeps a model from reading another customer's record.
+
+### Harness tools
+
+`Registry.RegisterHarnessTools(HarnessConfig{Workspace, DisableShell})`
+registers the local tool library: `read_file`, `write_file`, `list_files` and
+`bash`, the same implementations the kagent runtime uses. Relative paths
+resolve against the workspace; isolation comes from the sandbox the runtime
+runs in. They are opt-in, because a document's image decides what it exposes,
+and can be `tool` nodes (CEL builds their arguments) or LLM tools.
 
 ### Typed contracts
 
@@ -219,7 +304,9 @@ drift from the Go validation.
 ## Examples and tests
 
 `go/adk/examples/declarative` serves a document through the A2A application
-builder, with Go functions, a tool, and an OpenAI model resolver registered.
+builder: CEL classifies and routes requests, a remote CRM MCP server answers
+billing questions through a tool node and an LLM node guarded by a CEL tool
+callback, and harness `write_file` stores escalation tickets.
 [Workflow design patterns](workflow-patterns.md) shows router, fan-out and fan-in,
 map-reduce, loops, human approval, and more, each as Go next to YAML, with the
 graphs the engine rejects. `go/adk/pkg/declarative/testdata` holds two documents the package tests run end

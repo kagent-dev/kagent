@@ -1,0 +1,31 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: cel_router
+    agent_class: Workflow
+    nodes:
+      # A CEL node with only route and state_delta forwards its input.
+      - id: classify
+        type: cel
+        route: |
+          cel.bind(t, input.lowerAscii(),
+            t.matches(r'\b(crash|error|bug)\b') ? 'BUG' :
+            t.matches(r'\b(invoice|refund)\b') ? 'BILLING' :
+            'OTHER')
+        state_delta:
+          ids: regex.extractAll(input, r'\bc-[0-9]+\b')
+      - id: bug
+        type: cel
+        output: "'bug: ' + input.trim()"
+      - id: billing
+        type: cel
+        output: |
+          'billing for ' + (size(state.ids) > 0 ? state.ids.map(i, string(i)).join(',') : 'unknown customer')
+      - id: other
+        type: cel
+        output: "'other: ' + input.trim()"
+    edges:
+      - { from: START, to: classify }
+      - { from: classify, to: bug, route: BUG }
+      - { from: classify, to: billing, route: BILLING }
+      - { from: classify, to: other, route: DEFAULT }

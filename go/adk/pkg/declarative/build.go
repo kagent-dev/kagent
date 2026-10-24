@@ -11,6 +11,7 @@ import (
 	"google.golang.org/adk/v2/agent/workflowagents/loopagent"
 	"google.golang.org/adk/v2/agent/workflowagents/parallelagent"
 	"google.golang.org/adk/v2/agent/workflowagents/sequentialagent"
+	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/agenttool"
 	"google.golang.org/adk/v2/workflow"
 
@@ -22,6 +23,8 @@ type System struct {
 	root   agent.Agent
 	agents map[string]agent.Agent
 	names  []string
+	// servers are the toolsets of the document's MCP servers.
+	servers map[string]tool.Toolset
 }
 
 // Root is the first agent of the document.
@@ -60,18 +63,24 @@ func Build(ctx context.Context, spec *Spec, reg *Registry) (*System, error) {
 		return nil, err
 	}
 	b := &builder{
-		ctx:   ctx,
-		reg:   reg,
-		specs: make(map[string]*AgentSpec, len(spec.Agents)),
-		built: make(map[string]agent.Agent, len(spec.Agents)),
+		ctx:     ctx,
+		reg:     reg,
+		specs:   make(map[string]*AgentSpec, len(spec.Agents)),
+		built:   make(map[string]agent.Agent, len(spec.Agents)),
+		servers: make(map[string]tool.Toolset, len(spec.MCPServers)),
 	}
-	sys := &System{agents: b.built}
+	sys := &System{agents: b.built, servers: b.servers}
+	if err := b.connectMCPServers(spec.MCPServers); err != nil {
+		_ = sys.Close()
+		return nil, err
+	}
 	for i := range spec.Agents {
 		b.specs[spec.Agents[i].Name] = &spec.Agents[i]
 		sys.names = append(sys.names, spec.Agents[i].Name)
 	}
 	for _, name := range sys.names {
 		if _, err := b.agent(name); err != nil {
+			_ = sys.Close()
 			return nil, err
 		}
 	}
@@ -83,10 +92,11 @@ func Build(ctx context.Context, spec *Spec, reg *Registry) (*System, error) {
 // follows are acyclic: sub_agents form a forest and agent nodes only target
 // LlmAgents, which never reference a Workflow.
 type builder struct {
-	ctx   context.Context
-	reg   *Registry
-	specs map[string]*AgentSpec
-	built map[string]agent.Agent
+	ctx     context.Context
+	reg     *Registry
+	specs   map[string]*AgentSpec
+	built   map[string]agent.Agent
+	servers map[string]tool.Toolset
 }
 
 func (b *builder) agent(name string) (agent.Agent, error) {
@@ -136,13 +146,21 @@ func (b *builder) newLLM(name, description string, l *LLMSpec, mode Mode, subAge
 	if err != nil {
 		return nil, err
 	}
-	toolList, toolsets, err := b.reg.resolveTools(l.Tools)
+	toolList, toolsets, err := b.resolveTools(l.Tools)
 	if err != nil {
 		return nil, err
 	}
 	subs, err := b.subAgents(subAgents)
 	if err != nil {
 		return nil, err
+	}
+	instruction, err := sourcedText(l.Instruction, l.InstructionFrom)
+	if err != nil {
+		return nil, fmt.Errorf("instruction_from: %w", err)
+	}
+	globalInstruction, err := sourcedText(l.GlobalInstruction, l.GlobalInstructionFrom)
+	if err != nil {
+		return nil, fmt.Errorf("global_instruction_from: %w", err)
 	}
 	// An agent tool runs in a session of its own, so it never joins the tree.
 	for _, name := range agentTools {
@@ -156,8 +174,8 @@ func (b *builder) newLLM(name, description string, l *LLMSpec, mode Mode, subAge
 		Name:                     name,
 		Description:              description,
 		Model:                    llm,
-		Instruction:              l.Instruction,
-		GlobalInstruction:        l.GlobalInstruction,
+		Instruction:              instruction,
+		GlobalInstruction:        globalInstruction,
 		Tools:                    toolList,
 		Toolsets:                 toolsets,
 		SubAgents:                subs,
@@ -171,6 +189,9 @@ func (b *builder) newLLM(name, description string, l *LLMSpec, mode Mode, subAge
 		if cfg.OutputSchema, err = adkoutputschema.ToGenAISchema(l.OutputSchema); err != nil {
 			return nil, fmt.Errorf("failed to convert output_schema: %w", err)
 		}
+	}
+	if err := b.reg.applyCallbacks(&cfg, l.Callbacks); err != nil {
+		return nil, fmt.Errorf("callbacks: %w", err)
 	}
 	return llmagent.New(cfg)
 }
@@ -271,4 +292,21 @@ func toEdges(nodes map[string]workflow.Node, specs []EdgeSpec, entry string) []w
 		edges = append([]workflow.Edge{{From: workflow.Start, To: nodes[entry]}}, edges...)
 	}
 	return edges
+}
+
+// resolveTools splits an LLM's tools list into tools and toolsets: registered
+// tools, declared MCP servers, and registered toolsets.
+func (b *builder) resolveTools(names []string) ([]tool.Tool, []tool.Toolset, error) {
+	var tools []tool.Tool
+	var toolsets []tool.Toolset
+	for _, name := range names {
+		if t, ok := b.reg.tools[name]; ok {
+			tools = append(tools, t)
+		} else if ts, ok := b.toolset(name); ok {
+			toolsets = append(toolsets, ts)
+		} else {
+			return nil, nil, fmt.Errorf("tool %q is not registered", name)
+		}
+	}
+	return tools, toolsets, nil
 }

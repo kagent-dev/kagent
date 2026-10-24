@@ -62,7 +62,7 @@ agents:
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			canonical, err := validateWorkflow([]byte(tt.raw))
+			canonical, err := validateWorkflow([]byte(tt.raw), nil)
 			if len(tt.wantErr) > 0 {
 				require.Error(t, err)
 				for _, want := range tt.wantErr {
@@ -77,10 +77,10 @@ agents:
 }
 
 func TestValidateWorkflowCanonicalFormIsStable(t *testing.T) {
-	yamlForm, err := validateWorkflow([]byte(workflowDocument))
+	yamlForm, err := validateWorkflow([]byte(workflowDocument), nil)
 	require.NoError(t, err)
 	// The canonical form is itself a valid document with the same canonical form.
-	again, err := validateWorkflow(yamlForm)
+	again, err := validateWorkflow(yamlForm, nil)
 	require.NoError(t, err)
 	require.Equal(t, string(yamlForm), string(again))
 }
@@ -95,6 +95,6 @@ agents:
   - { name: a, agent_class: LlmAgent, model: m, instruction: "` + strings.Repeat("<", 20000) + `" }
 `
 	require.Less(t, len(raw), maxWorkflowBytes)
-	_, err := validateWorkflow([]byte(raw))
+	_, err := validateWorkflow([]byte(raw), nil)
 	require.ErrorContains(t, err, "canonical document exceeds")
 }

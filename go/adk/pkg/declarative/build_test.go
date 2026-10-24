@@ -175,6 +175,72 @@ agents:
 	require.EqualValues(t, 3, calls.Load())
 }
 
+// TestRetryWhenSelectsRetriableErrors covers retry.when, the CEL predicate
+// behind ADK's ShouldRetry.
+func TestRetryWhenSelectsRetriableErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, when string
+		failures   []error
+		calls      int32
+		wantErr    string
+	}{
+		{"matching errors are retried", "error.message.matches(r'(?i)503|unavailable')",
+			[]error{errors.New("upstream 503"), errors.New("service unavailable")}, 3, ""},
+		{"other errors fail at once", "error.message.matches(r'503')",
+			[]error{errors.New("invalid customer id")}, 1, "invalid customer id"},
+		{"timeouts are classified", "error.timeout",
+			[]error{fmt.Errorf("call: %w", context.DeadlineExceeded)}, 2, ""},
+		{"a failing expression does not retry", "error.missing == 'x'",
+			[]error{errors.New("boom")}, 1, "boom"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			reg := NewRegistry()
+			require.NoError(t, reg.RegisterFunction("flaky", func(agent.Context, any) (Result, error) {
+				if n := int(calls.Add(1)); n <= len(tc.failures) {
+					return Result{}, tc.failures[n-1]
+				}
+				return Output("recovered"), nil
+			}))
+			spec, err := reg.Parse([]byte(fmt.Sprintf(`
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: wf
+    agent_class: Workflow
+    nodes:
+      - id: only
+        type: function
+        function: flaky
+        retry: { max_attempts: 3, initial_delay: 1ms, jitter: 0, when: %q }
+    edges: [{ from: START, to: only }]
+`, tc.when)))
+			require.NoError(t, err)
+			sys, err := Build(t.Context(), spec, reg)
+			require.NoError(t, err)
+			svc, id := newSession(t)
+			events, err := tryRun(t, sys, svc, id, "go")
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, []any{"recovered"}, outputs(events))
+			}
+			require.Equal(t, tc.calls, calls.Load())
+		})
+	}
+	_, err := NewRegistry().Parse([]byte(`
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: wf
+    agent_class: Workflow
+    nodes: [{ id: c, type: cel, output: "'x'", retry: { when: "state.x == 1" } }]
+    edges: [{ from: START, to: c }]
+`))
+	require.ErrorContains(t, err, "undeclared reference to 'state'", "retry.when sees only the error")
+}
+
 func TestBuildFailures(t *testing.T) {
 	const header = "apiVersion: adk.declarative/v0.2\nkind: AgentSystem\nagents:\n"
 	tests := []struct {

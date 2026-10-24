@@ -8,6 +8,13 @@ agents:
         type: function
         function: flaky
         timeout: 5s
-        retry: { max_attempts: 3, initial_delay: 1ms, max_delay: 2ms, backoff_factor: 1, jitter: 0 }
+        retry:
+          max_attempts: 3
+          initial_delay: 1ms
+          max_delay: 2ms
+          backoff_factor: 1
+          jitter: 0
+          # Retry only transient failures and timeouts; other errors fail at once.
+          when: error.timeout || error.message.contains("transient")
     edges:
       - { from: START, to: unreliable }

@@ -126,6 +126,10 @@ type Registry struct {
 	models    map[string]adkmodel.LLM
 	resolver  ModelResolver
 	nodeTypes map[NodeType]nodeType
+	hooks     map[string]Hook
+	// mcpConnector creates the toolsets of declared MCP servers; nil uses
+	// ConnectMCP.
+	mcpConnector MCPConnector
 }
 
 // NewRegistry returns a Registry preloaded with the offline stub model and
@@ -138,6 +142,7 @@ func NewRegistry() *Registry {
 		toolsets:  map[string]tool.Toolset{},
 		models:    map[string]adkmodel.LLM{},
 		nodeTypes: map[NodeType]nodeType{},
+		hooks:     map[string]Hook{},
 	}
 	r.models[StubModel] = NewStubModel(StubModel)
 	for _, t := range []tool.Tool{preloadmemorytool.New(), loadmemorytool.New()} {
@@ -178,6 +183,14 @@ func (r *Registry) RegisterDynamic(name string, fn DynamicFunc) error {
 		return fmt.Errorf("failed to register dynamic function %q: nil func", name)
 	}
 	return register("dynamic function", name, identifier, r.dynamics, fn)
+}
+
+// RegisterHook makes h available to the function field of callback rules.
+func (r *Registry) RegisterHook(name string, h Hook) error {
+	if h == nil {
+		return fmt.Errorf("failed to register hook %q: nil hook", name)
+	}
+	return register("hook", name, identifier, r.hooks, h)
 }
 
 // RegisterTool makes t available to tool nodes and to the tools list of
@@ -269,6 +282,8 @@ func (r *Registry) hasFunction(name string) bool { _, ok := r.funcs[name]; retur
 func (r *Registry) hasDynamic(name string) bool  { _, ok := r.dynamics[name]; return ok }
 func (r *Registry) hasTool(name string) bool     { _, ok := r.tools[name]; return ok }
 
+func (r *Registry) hasToolset(name string) bool { _, ok := r.toolsets[name]; return ok }
+
 func (r *Registry) hasToolOrToolset(name string) bool {
 	_, ok := r.toolsets[name]
 	return ok || r.hasTool(name)
@@ -296,17 +311,3 @@ func (r *Registry) resolveModel(ctx context.Context, name string) (adkmodel.LLM,
 }
 
 // resolveTools expands tool names into tools and toolsets.
-func (r *Registry) resolveTools(names []string) ([]tool.Tool, []tool.Toolset, error) {
-	var tools []tool.Tool
-	var toolsets []tool.Toolset
-	for _, name := range names {
-		if t, ok := r.tools[name]; ok {
-			tools = append(tools, t)
-		} else if ts, ok := r.toolsets[name]; ok {
-			toolsets = append(toolsets, ts)
-		} else {
-			return nil, nil, fmt.Errorf("tool %q is not registered", name)
-		}
-	}
-	return tools, toolsets, nil
-}

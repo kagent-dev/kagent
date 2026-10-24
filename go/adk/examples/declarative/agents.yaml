@@ -1,27 +1,153 @@
-# A support triage workflow: classify the request, then answer it with a model
-# node, look the customer up, or fall back to a canned reply.
+# A support triage workflow built from three declarative pieces and no
+# routing code:
 #
-#   START -> classify -+- BILLING -> customer_lookup -> bill_reply
-#                      +- QUESTION -> answer (llm)
-#                      +- DEFAULT  -> fallback
+#   - CEL classifies and shapes data. CEL nodes see the node input and the ADK
+#     context (state, session, user, invocation) and use the cel-go standard
+#     library and extensions: matches (RE2), regex.extract/extractAll/replace,
+#     cel.bind, strings (trim, lowerAscii, split, format), list macros, math,
+#     base64, optionals, and json.encode/json.decode.
+#   - Remote MCP tools: customer data comes from a CRM MCP server declared in
+#     mcp_servers. A tool node with `server:` calls one of its tools as a
+#     function node; an LLM node lists the server in `tools:`.
+#   - Harness tools: write_file (with read_file, list_files and bash) from the
+#     local tool library store escalation tickets in the workspace.
+#
+#   START -> extract -> classify -+- URGENT   -> escalate -> ticket_args -> save_ticket (write_file) -> escalated
+#                                 +- BILLING  -> billing_args -> customer_lookup (crm MCP) -> bill_reply
+#                                 +- NEED_ID  -> ask_for_id
+#                                 +- GREETING -> greet
+#                                 +- QUESTION -> answer (llm, crm MCP tools, CEL tool hook)
+#                                 +- DEFAULT  -> fallback
+#
+# Raw CEL strings (r'...') keep regular expressions free of YAML and CEL
+# escaping. Every expression is compiled when the document is validated.
 apiVersion: adk.declarative/v0.2
 kind: AgentSystem
+# Remote MCP servers. The URL is read from the environment, so the same
+# document runs against the demo CRM locally and a cluster service in
+# production; headers may use value_from for credentials.
+mcp_servers:
+  - name: crm
+    url_from: { env: CRM_MCP_URL }
+    tools: [lookup_customer]
 agents:
   - name: support_triage
     agent_class: Workflow
-    description: Routes a support request to the right handler
+    description: Classifies a support request with CEL and routes it to a handler
     nodes:
-      - { id: classify, type: function, function: classify }
-      - { id: customer_lookup, type: tool, tool: lookup_customer }
-      - { id: bill_reply, type: function, function: bill_reply }
+      # Feature extraction: normalize the text, pull out identifiers with
+      # regular expressions, and redact e-mail addresses before any model
+      # sees them. state_delta records facts later nodes read from state.
+      - id: extract
+        type: cel
+        output: |
+          cel.bind(text, user.content.trim(),
+            cel.bind(lower, text.lowerAscii(), {
+              "text": text,
+              "lower": lower,
+              "words": lower.split(' ').filter(w, w != ''),
+              "customer_ids": regex.extractAll(text, r'\bc-[0-9]+\b'),
+              "redacted": regex.replace(text, r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '<email>'),
+            }))
+        state_delta:
+          customer_id: regex.extract(user.content, r'\bc-[0-9]+\b').orValue('')
+          ticket_ref: "'T-' + base64.encode(bytes(session.id + invocation.id)).substring(0, 8)"
+          ticket_length: size(user.content)
+
+      # Classification: an ordered list of regular-expression rules. The
+      # first match wins; unmatched requests take the DEFAULT edge.
+      - id: classify
+        type: cel
+        route: |
+          cel.bind(t, input.lower,
+            t.matches(r'\b(outage|down|sev ?1|p0|urgent)\b') ? 'URGENT' :
+            t.matches(r'\b(bill|billing|invoice|refund|charged?)\b') ?
+              (size(input.customer_ids) > 0 ? 'BILLING' : 'NEED_ID') :
+            t.matches(r'^(hi|hello|hey)\b') ? 'GREETING' :
+            t.endsWith('?') || t.matches(r'^(how|what|why|when|where|who|can|does|is)\b') ? 'QUESTION' :
+            'OTHER')
+        output: input.redacted
+        state_delta:
+          keywords: input.words.filter(w, w.matches(r'^(refund|invoice|outage|error|password|login)$'))
+
+      - id: escalate
+        type: cel
+        output: |
+          '%s escalated to on-call: %s'.format([
+            state.ticket_ref,
+            input.substring(0, math.least([size(input), 80])).upperAscii(),
+          ])
+      # Harness tool as a function node: CEL builds the write_file arguments.
+      - id: ticket_args
+        type: cel
+        output: '{"file_path": "tickets/" + state.ticket_ref + ".txt", "content": input}'
+        state_delta:
+          escalation: input
+      - id: save_ticket
+        type: tool
+        tool: write_file
+        retry: { max_attempts: 2, initial_delay: 10ms, when: error.timeout }
+      - id: escalated
+        type: cel
+        output: "state.escalation + ' (ticket saved to tickets/' + state.ticket_ref + '.txt)'"
+
+      - id: billing_args
+        type: cel
+        output: '{"customer_id": state.customer_id}'
+      # Remote MCP tool as a function node. Transient transport failures are
+      # retried; a CRM error (unknown customer) fails at once.
+      - id: customer_lookup
+        type: tool
+        server: crm
+        tool: lookup_customer
+        timeout: 10s
+        retry:
+          max_attempts: 3
+          initial_delay: 100ms
+          when: error.timeout || error.message.matches(r'(?i)connection (refused|reset)|unavailable|\b50[234]\b')
+      # The MCP result is {"output": <structured content>}.
+      - id: bill_reply
+        type: cel
+        output: |
+          cel.bind(c, input.output,
+            'Customer %s is on the %s plan with a balance of %d (%s).'.format([
+              c.id, c.plan, c.balance, json.encode({"ticket": state.ticket_ref})]))
+
+      - id: ask_for_id
+        type: cel
+        output: "'Billing requests need a customer id such as c-123 (ticket %s).'.format([state.ticket_ref])"
+
+      - id: greet
+        type: cel
+        output: |
+          'Hello! Describe a billing issue with your customer id, or ask a question (%d keywords noted).'.format([size(state.keywords)])
+
       - id: answer
         type: llm
         model: gpt-4o-mini
-        instruction: Answer the support question in two sentences.
+        instruction: |
+          Answer the support question in two sentences. Use lookup_customer
+          for questions about a customer id.
+        tools: [crm]
+        callbacks:
+          # Only look up the customer named in the request.
+          before_tool:
+            - when: tool.name == 'lookup_customer' && tool.args.customer_id != state.customer_id
+              action: reject
+              message: Only the customer named in the request can be looked up.
+
       - { id: fallback, type: function, function: fallback, timeout: 5s }
     edges:
-      - { from: START, to: classify }
-      - { from: classify, to: customer_lookup, route: BILLING }
+      - { from: START, to: extract }
+      - { from: extract, to: classify }
+      - { from: classify, to: escalate, route: URGENT }
+      - { from: escalate, to: ticket_args }
+      - { from: ticket_args, to: save_ticket }
+      - { from: save_ticket, to: escalated }
+      - { from: classify, to: billing_args, route: BILLING }
+      - { from: classify, to: ask_for_id, route: NEED_ID }
+      - { from: classify, to: greet, route: GREETING }
       - { from: classify, to: answer, route: QUESTION }
       - { from: classify, to: fallback, route: DEFAULT }
+      - { from: billing_args, to: customer_lookup }
       - { from: customer_lookup, to: bill_reply }
