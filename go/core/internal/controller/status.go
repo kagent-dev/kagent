@@ -147,7 +147,7 @@ func newHarnessStatuses(
 // Harness that other Agents share.
 func harnessReadyCondition(generation int64, pool types.NamespacedName, poolFound bool) metav1.Condition {
 	if !poolFound {
-		return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionFalse, "WorkerPoolNotFound", fmt.Sprintf("WorkerPool %q not found", pool.String()))
+		return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionFalse, "WorkerPoolNotFound", (&translator.WorkerPoolNotFoundError{WorkerPool: pool}).Error())
 	}
 	return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionTrue, "WorkerPoolResolved", fmt.Sprintf("WorkerPool %q resolves", pool.String()))
 }
@@ -155,9 +155,9 @@ func harnessReadyCondition(generation int64, pool types.NamespacedName, poolFoun
 // harnessBootedCondition reads the golden boots of the Agents that run on the
 // Harness. Every Agent revision boots the Harness's workload, so one
 // successful boot proves it boots; a failed boot counts only while no Agent
-// booted, since an Agent's own configuration can fail its boot too. Failures
-// before the boot (an unresolved reference, an incompatible configuration)
-// say nothing about the Harness and are skipped.
+// booted, since an Agent's own configuration can fail its boot too. Any other
+// failure (an unresolved reference, a rejected ActorTemplate, a backend error)
+// never reached a boot and says nothing about the Harness.
 func harnessBootedCondition(generation int64, agents []AgentReconciliation) metav1.Condition {
 	slices.SortFunc(agents, func(a, b AgentReconciliation) int { return strings.Compare(a.ResourceName(), b.ResourceName()) })
 	var failed *metav1.Condition
@@ -168,17 +168,16 @@ func harnessBootedCondition(generation int64, agents []AgentReconciliation) meta
 		}
 		agent := state.ResourceName()
 		switch failure := state.PreparationFailure; {
-		case failure != nil && failure.Condition == kagentv1alpha3.AgentConditionReady:
+		case failure == nil && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil:
+			return harnessCondition(kagentv1alpha3.HarnessConditionTypeBooted, generation, metav1.ConditionTrue, "Booted", fmt.Sprintf("golden boot of Agent %s succeeded", agent))
+		case failure == nil:
+			if pending == "" {
+				pending = agent
+			}
+		case failure.Reason == reasonActorTemplateFailed:
 			if failed == nil {
 				c := harnessCondition(kagentv1alpha3.HarnessConditionTypeBooted, generation, metav1.ConditionFalse, failure.Reason, fmt.Sprintf("Agent %s: %s", agent, failure.Message))
 				failed = &c
-			}
-		case failure != nil:
-		case state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil:
-			return harnessCondition(kagentv1alpha3.HarnessConditionTypeBooted, generation, metav1.ConditionTrue, "Booted", fmt.Sprintf("golden boot of Agent %s succeeded", agent))
-		default:
-			if pending == "" {
-				pending = agent
 			}
 		}
 	}

@@ -124,13 +124,20 @@ func TestHarnessBootedCondition(t *testing.T) {
 			wantStatus: metav1.ConditionTrue, wantReason: "Booted", wantMessage: "golden boot of Agent team-a/b succeeded"},
 		{name: "a failure outweighs a pending boot", agents: []AgentReconciliation{harnessAgentState("a", nil), harnessAgentState("b", bootFailed)},
 			wantStatus: metav1.ConditionFalse, wantReason: "ActorTemplateFailed", wantMessage: "Agent team-a/b: ImagePullBackOff"},
-		{name: "agent failures before the boot say nothing about the harness", agents: []AgentReconciliation{
+		{name: "failures that never reached a boot say nothing about the harness", agents: []AgentReconciliation{
 			harnessAgentState("a", func(s *AgentReconciliation) {
 				s.Target = nil
 				s.CompilationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "UnsupportedConfiguration"}
 			}),
 			harnessAgentState("b", func(s *AgentReconciliation) {
 				s.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid"}
+			}),
+			harnessAgentState("c", func(s *AgentReconciliation) {
+				s.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateRejected"}
+			}),
+			harnessAgentState("d", func(s *AgentReconciliation) {
+				s.ObservedActorTemplate = nil
+				s.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "RuntimePreparationFailed", Retryable: true}
 			}),
 		},
 			wantStatus: metav1.ConditionUnknown, wantReason: "NoAgents", wantMessage: "no Agent runs on this Harness yet"},
@@ -182,7 +189,7 @@ func TestReconcilerWritesHarnessStatus(t *testing.T) {
 	var updated *kagentv1alpha3.Harness
 	require.Eventually(t, func() bool {
 		var err error
-		updated, err = statusClient.Harnesses("team-a").Get(context.Background(), "claude", metav1.GetOptions{})
+		updated, err = statusClient.Harnesses("team-a").Get(ctx, "claude", metav1.GetOptions{})
 		return err == nil && meta.IsStatusConditionTrue(updated.Status.Conditions, kagentv1alpha3.HarnessConditionTypeBooted)
 	}, 3*time.Second, 10*time.Millisecond)
 	ready := meta.FindStatusCondition(updated.Status.Conditions, kagentv1alpha3.HarnessConditionTypeReady)
