@@ -133,7 +133,7 @@ export function UnmappedConversationsPage() {
           {orphans.length > 0 ? (
             <DeleteResourceButton
               kind="conversations"
-              name={`all ${orphans.length} unmapped`}
+              name={`all ${orphans.length} visible unmapped`}
               label="Delete all"
               outlined
               onDelete={removeAll}
@@ -143,7 +143,7 @@ export function UnmappedConversationsPage() {
                   css={{ display: "inline-block", maxWidth: 340 }}
                   data-testid="unmapped-delete-all-consequence"
                 >
-                  This will delete all conversations that do not have an agent Agent definition — {orphans.length} in all. They cannot be
+                  This will delete the {orphans.length} visible conversations whose Agent definition no longer exists. They cannot be
                   recovered, and the workers they hold are released.
                 </span>
               }
@@ -169,6 +169,10 @@ export function UnmappedConversationsPage() {
           />
         ) : null}
 
+        {conversations.widerReadRefused !== undefined && !conversations.error ? (
+          <Alert type="info" showIcon title="Showing your unmapped conversations only" data-testid="unmapped-owned-conversations" />
+        ) : null}
+
         <Alert
           type="info"
           showIcon
@@ -187,7 +191,9 @@ export function UnmappedConversationsPage() {
           locale={{
             emptyText: loadFailure
               ? " "
-              : "Every conversation belongs to an agent. Nothing to show here.",
+              : conversations.widerReadRefused !== undefined
+                ? "None of your conversations are unmapped."
+                : "No visible conversations are unmapped.",
           }}
         />
       </Space>

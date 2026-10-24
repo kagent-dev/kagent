@@ -402,3 +402,113 @@ func TestSandboxCreateRejectsDeniedTemplateBeforePersistence(t *testing.T) {
 		})
 	}
 }
+
+type sandboxOperationPolicy struct {
+	readOnly bool
+	deny     bool
+	verb     auth.Verb
+	resource auth.Resource
+}
+
+func (p *sandboxOperationPolicy) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	p.verb, p.resource = verb, resource
+	if p.deny || (p.readOnly && verb != auth.VerbGet && verb != auth.VerbList) {
+		return errors.New("denied")
+	}
+	return nil
+}
+func sandboxOperations(id string) []struct {
+	name string
+	verb auth.Verb
+	call func(context.Context, *Service) error
+} {
+	return []struct {
+		name string
+		verb auth.Verb
+		call func(context.Context, *Service) error
+	}{
+		{"get", auth.VerbGet, func(ctx context.Context, s *Service) error { _, err := s.Get(ctx, id); return err }},
+		{"list", auth.VerbList, func(ctx context.Context, s *Service) error {
+			_, err := s.List(ctx, &apiv1.ListSandboxesRequest{})
+			return err
+		}},
+		{"create", auth.VerbCreate, func(ctx context.Context, s *Service) error { _, err := s.Create(ctx, createRequest()); return err }},
+		{"suspend", auth.VerbUpdate, func(ctx context.Context, s *Service) error { _, err := s.Suspend(ctx, id); return err }},
+		{"resume", auth.VerbUpdate, func(ctx context.Context, s *Service) error { _, err := s.Resume(ctx, id); return err }},
+		{"delete", auth.VerbDelete, func(ctx context.Context, s *Service) error { _, err := s.Delete(ctx, id); return err }},
+		{"start process", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
+			_, err := s.StartProcess(ctx, id, &guestpb.StartProcessRequest{})
+			return err
+		}},
+		{"get process", auth.VerbGet, func(ctx context.Context, s *Service) error {
+			_, err := s.GetProcess(ctx, id, &guestpb.GetProcessRequest{})
+			return err
+		}},
+		{"signal process", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
+			_, err := s.SignalProcess(ctx, id, &guestpb.SignalProcessRequest{})
+			return err
+		}},
+		{"stream outputs", auth.VerbGet, func(ctx context.Context, s *Service) error {
+			return s.StreamProcessOutput(ctx, id, &guestpb.StreamProcessOutputRequest{}, func(*guestpb.ProcessOutput) error { panic("denied output") })
+		}},
+		{"read file", auth.VerbGet, func(ctx context.Context, s *Service) error {
+			return s.ReadFile(ctx, id, &guestpb.ReadFileRequest{}, func(*guestpb.ReadFileResponse) error { panic("denied file") })
+		}},
+		{"write file", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
+			_, err := s.WriteFile(ctx, id, func() (*guestpb.WriteFileRequest, error) { panic("denied input") })
+			return err
+		}},
+	}
+}
+func TestSandboxChecksEveryOperationBeforeStorageOrGuest(t *testing.T) {
+	id := "11111111-1111-4111-8111-111111111111"
+	for _, op := range sandboxOperations(id) {
+		t.Run(op.name, func(t *testing.T) {
+			policy := &sandboxOperationPolicy{deny: true}
+			svc := &Service{config: Config{Authorizer: policy}}
+			ctx := auth.AuthSessionTo(t.Context(), testSession("alice"))
+			require.True(t, serviceerrors.IsCode(op.call(ctx, svc), serviceerrors.CodePermissionDenied))
+			require.Equal(t, op.verb, policy.verb)
+			require.Equal(t, "Sandbox", policy.resource.Type)
+			shared := auth.ShareContextTo(ctx, &auth.ShareContext{SessionID: id, UserID: "alice"})
+			policy.deny = false
+			require.True(t, serviceerrors.IsCode(op.call(shared, svc), serviceerrors.CodePermissionDenied))
+		})
+	}
+}
+func TestSandboxOwnerIsolationAcrossLifecycleAndGuestOperations(t *testing.T) {
+	svc, ctx, actors := serviceFixture(t)
+	instance, err := svc.Create(ctx, createRequest())
+	require.NoError(t, err)
+	before := actors.observedCalls()
+	other := auth.AuthSessionTo(t.Context(), testSession("bob"))
+	for _, op := range sandboxOperations(instance.Id) {
+		if op.name == "create" || op.name == "list" {
+			continue
+		}
+		t.Run(op.name, func(t *testing.T) {
+			require.True(t, serviceerrors.IsCode(op.call(other, svc), serviceerrors.CodeNotFound))
+		})
+	}
+	require.Equal(t, before, actors.observedCalls())
+	listed, err := svc.List(other, &apiv1.ListSandboxesRequest{})
+	require.NoError(t, err)
+	require.Empty(t, listed.Sandboxes)
+}
+
+func TestSandboxViewPermissionCannotMutateLifecycleOrGuest(t *testing.T) {
+	svc, ctx, actors := serviceFixture(t)
+	instance, err := svc.Create(ctx, createRequest())
+	require.NoError(t, err)
+	svc.config.Authorizer = &sandboxOperationPolicy{readOnly: true}
+	before := actors.observedCalls()
+	for _, op := range sandboxOperations(instance.Id) {
+		if op.verb == auth.VerbGet || op.verb == auth.VerbList {
+			continue
+		}
+		t.Run(op.name, func(t *testing.T) {
+			require.True(t, serviceerrors.IsCode(op.call(ctx, svc), serviceerrors.CodePermissionDenied))
+		})
+	}
+	require.Equal(t, before, actors.observedCalls())
+}

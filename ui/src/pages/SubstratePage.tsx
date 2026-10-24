@@ -1089,7 +1089,7 @@ export function SubstratePage() {
   return (
     <PageFrame
       title="Substrate"
-      description="Kubernetes worker pools, plus actor templates, live actors, and worker assignments from Substrate."
+      description="Visible worker pools, actor templates, actors, and workers. Counts include only resources you can view."
       actions={
         <Space size={8}>
           <Tooltip
@@ -1256,7 +1256,7 @@ export function SubstratePage() {
             type="warning"
             showIcon
             title="Runtime actor state is incomplete"
-            description={`Worker pools come from Kubernetes and are complete. Everything else on this page — the actor templates as well as the actors and workers below — comes from ate-api, which answered with an error, so those may be short: ${inventory.ateApiError}`}
+            description={`Visible worker pools come from Kubernetes. Substrate returned an error, so visible actor templates, actors, and workers may be incomplete: ${inventory.ateApiError}`}
             data-testid="substrate-partial"
           />
         ) : null}
@@ -1312,12 +1312,12 @@ export function SubstratePage() {
             hint={unread}
           />
           <StatTile
-            label="Scope"
+            label="Requested filters"
             testId="substrate-stat-scope"
             // Not read from the response — it is what this page asked for, which is
             // known even when the read failed, and is the thing that explains an empty
             // table.
-            value={!namespace && !atespace ? "all" : `K8s: ${namespace || "all"}; ATE: ${atespace || "all"}`}
+            value={!namespace && !atespace ? "none" : `K8s: ${namespace || "any"}; ATE: ${atespace || "any"}`}
           />
         </div>
 

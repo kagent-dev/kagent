@@ -14,10 +14,10 @@ lint:
 breaking:
   use:
     - FILE
-  # Actor JWT migration removes caller-owned memory identity fields. Remove
-  # this exception once the removal is present on the comparison branch.
+  # Pre-release memory cleanup removes reservations for obsolete identity fields.
+  # Remove this exception once the cleanup is present on the comparison branch.
   ignore_only:
-    FIELD_NO_DELETE:
+    RESERVED_MESSAGE_NO_DELETE:
       - kagent/runtime/v1/memory.proto
   # Vendored upstream alpha API; upgrades follow go.mod. Kagent does not expose
   # its egress policy types, which changed incompatibly in alpha3.

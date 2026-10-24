@@ -48,14 +48,16 @@ class OTLPConfig(_message.Message):
     def __init__(self, endpoint: _Optional[str] = ..., protocol: _Optional[str] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class BuiltinToolsConfig(_message.Message):
-    __slots__ = ("disable_file_search", "bash_venv_path", "disable_bash")
+    __slots__ = ("disable_file_search", "bash_venv_path", "disable_bash", "disable_ask_user")
     DISABLE_FILE_SEARCH_FIELD_NUMBER: _ClassVar[int]
     BASH_VENV_PATH_FIELD_NUMBER: _ClassVar[int]
     DISABLE_BASH_FIELD_NUMBER: _ClassVar[int]
+    DISABLE_ASK_USER_FIELD_NUMBER: _ClassVar[int]
     disable_file_search: bool
     bash_venv_path: str
     disable_bash: bool
-    def __init__(self, disable_file_search: _Optional[bool] = ..., bash_venv_path: _Optional[str] = ..., disable_bash: _Optional[bool] = ...) -> None: ...
+    disable_ask_user: bool
+    def __init__(self, disable_file_search: _Optional[bool] = ..., bash_venv_path: _Optional[str] = ..., disable_bash: _Optional[bool] = ..., disable_ask_user: _Optional[bool] = ...) -> None: ...
 
 class TokenPropagationConfig(_message.Message):
     __slots__ = ("enabled", "sts_well_known_uri", "resources", "audiences")

@@ -24,6 +24,7 @@ func TestSharedRuntimeContract(t *testing.T) {
 	require.Equal(t, "/opt/venv", cfg.GetBuiltinTools().GetBashVenvPath())
 	require.False(t, cfg.GetBuiltinTools().GetDisableFileSearch())
 	require.True(t, cfg.GetBuiltinTools().GetDisableBash())
+	require.True(t, cfg.GetBuiltinTools().GetDisableAskUser())
 	require.False(t, cfg.Telemetry.CaptureContent)
 	require.Equal(t, int64(1500), cfg.Telemetry.Traces.Timeout.AsDuration().Milliseconds())
 	root := &configv1.ADKConfig{Runtime: &cfg, Agent: &configv1.ADKAgentConfig{SubAgents: []*configv1.ADKAgentConfig{{}}}}
@@ -37,6 +38,7 @@ func TestRuntimeDefaultsAndValidation(t *testing.T) {
 	require.Nil(t, cfg.MaxContentLength)
 	require.False(t, cfg.GetBuiltinTools().GetDisableFileSearch())
 	require.False(t, cfg.GetBuiltinTools().GetDisableBash())
+	require.False(t, cfg.GetBuiltinTools().GetDisableAskUser())
 	for _, data := range []string{
 		`{"port":"0"}`, `{"max_content_length":-1}`, `{"control_plane_url":"file:///private"}`,
 		`{"token_propagation":{"resources":[""]}}`, `{"telemetry":{"max_capture_bytes":-1}}`,

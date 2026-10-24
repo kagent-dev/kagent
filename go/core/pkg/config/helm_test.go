@@ -109,6 +109,10 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"GeminiVertexAI": "tokens.example.com"}, authorities.RuntimeDefaults.GetModelCredentialAuthorities())
 	require.Equal(t, "http://demo-controller.team.svc.cluster.local:8083", authorities.RuntimeDefaults.GetControlPlaneUrl())
+	tools, toolsChecksum, err := render("config:\n  runtimeDefaults:\n    builtinTools:\n      disableAskUser: true\n")
+	require.NoError(t, err)
+	require.True(t, tools.GetRuntimeDefaults().GetBuiltinTools().GetDisableAskUser())
+	require.NotEqual(t, checksum, toolsChecksum)
 	_, _, err = render("config:\n  loging: {level: debug}\n")
 	require.ErrorContains(t, err, "unknown field")
 }

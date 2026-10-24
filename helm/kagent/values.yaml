@@ -204,6 +204,8 @@ config:
       disableFileSearch: false
       bashVenvPath: ""
       disableBash: false
+      # Disable built-in questions across ADK agents, including Shared subagents.
+      disableAskUser: false
     logging:
       level: info
     telemetry: {}

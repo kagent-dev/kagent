@@ -677,9 +677,8 @@ type ListSubstrateActorsResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	AteApiError string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
 	Actors      []*ateapipb.Actor      `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
-	// Continuation token. A controller that watches all namespaces passes Substrate's
-	// token through. A controller that watches some issues its own, which names only
-	// watched data. A page can be empty even when another page exists.
+	// Continuation after the last returned actor. Authorization and namespace
+	// filtering precede pagination; tokens never expose filtered-out identities.
 	Page          *PageResponse          `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	ComputedAt    *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -744,10 +743,8 @@ func (x *ListSubstrateActorsResponse) GetComputedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// One page of workers. A controller that watches all namespaces filters one Substrate
-// page, in Substrate order, which may be empty and still have a next token. A
-// controller that watches some reads every Substrate worker and returns only those of
-// its watched namespaces, in worker name order; only its last page can be empty.
+// One page of authorized workers, in Substrate worker-name order. Continuation
+// resumes after the last returned worker, with authorization checked again.
 type ListSubstrateWorkersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`

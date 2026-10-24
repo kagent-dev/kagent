@@ -30,8 +30,8 @@ type store interface {
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
+	GetSessionCheckpointForkSource(context.Context, string, string) (*database.SessionCheckpointForkSource, error)
 	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error)
-	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	BeginDeleteSessionCheckpoint(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	DeleteSessionCheckpoint(context.Context, string, string) error
 	ForkSession(context.Context, string, string, string, string) (*apiv1.Session, bool, error)
@@ -76,14 +76,18 @@ func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflo
 }
 
 func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHeadTaskID string) (*apiv1.Checkpoint, error) {
-	if err := validateCreate(sessionID, requestID); err != nil {
+	sessionID, err := validateCreate(sessionID, requestID)
+	if err != nil {
 		return nil, err
 	}
 	if expectedHeadTaskID == "" {
 		return nil, status.Error(codes.InvalidArgument, "expected_head_task_id is required")
 	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, "Session", sessionID)
+	userID, err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "Checkpoint"})
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Session", Name: sessionID}); err != nil {
 		return nil, err
 	}
 	key := fmt.Sprintf("%q/%q/%q/%q", userID, sessionID, requestID, expectedHeadTaskID)
@@ -201,10 +205,11 @@ func (s *Service) verifySnapshot(ctx context.Context, actorName string, referenc
 }
 
 func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1.Checkpoint, error) {
-	if err := validateIdentity(checkpointID); err != nil {
+	checkpointID, err := validateIdentity(checkpointID)
+	if err != nil {
 		return nil, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", checkpointID)
+	userID, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Checkpoint", Name: checkpointID})
 	if err != nil {
 		return nil, err
 	}
@@ -219,10 +224,11 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1.Checkpoi
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
-	if err := validateIdentity(request.SessionID); err != nil {
+	sessionID, err := validateIdentity(request.SessionID)
+	if err != nil {
 		return ListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", request.SessionID)
+	userID, err := s.authorize(ctx, auth.VerbList, auth.Resource{Type: "Checkpoint"})
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -237,7 +243,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	rows, err := s.store.ListSessionCheckpoints(ctx, request.SessionID, userID, afterID, pageSize+1)
+	rows, err := s.store.ListSessionCheckpoints(ctx, sessionID, userID, afterID, pageSize+1)
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInternal("Failed to list checkpoints", err)
 	}
@@ -249,10 +255,11 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 }
 
 func (s *Service) Delete(ctx context.Context, checkpointID string) error {
-	if err := validateIdentity(checkpointID); err != nil {
+	checkpointID, err := validateIdentity(checkpointID)
+	if err != nil {
 		return err
 	}
-	userID, err := s.authorize(ctx, auth.VerbDelete, "Checkpoint", checkpointID)
+	userID, err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "Checkpoint", Name: checkpointID})
 	if err != nil {
 		return err
 	}
@@ -288,10 +295,11 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 // Rename sets the checkpoint's display name, which forks taken from it inherit. It
 // authorizes as a write: reading a checkpoint must not confer retitling it.
 func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1.Checkpoint, error) {
-	if err := validateIdentity(checkpointID); err != nil {
+	checkpointID, err := validateIdentity(checkpointID)
+	if err != nil {
 		return nil, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbUpdate, "Checkpoint", checkpointID)
+	userID, err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: "Checkpoint", Name: checkpointID})
 	if err != nil {
 		return nil, err
 	}
@@ -306,20 +314,42 @@ func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1
 }
 
 func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*apiv1.Session, error) {
-	if err := validateCreate(checkpointID, requestID); err != nil {
-		return nil, err
-	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, "Session", "")
+	checkpointID, err := validateCreate(checkpointID, requestID)
 	if err != nil {
 		return nil, err
 	}
-	snapshot, tagUID, err := s.store.GetSessionCheckpointSnapshot(ctx, checkpointID, userID)
+	userID, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Checkpoint", Name: checkpointID})
+	if err != nil {
+		return nil, err
+	}
+	source, err := s.store.GetSessionCheckpointForkSource(ctx, checkpointID, userID)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
+		return nil, serviceerrors.NewInternal("Failed to get checkpoint fork source", err)
 	}
+	authSession, _ := auth.AuthSessionFrom(ctx) // authorize authenticated the caller.
+	// A retained checkpoint outlives its source Session. Authorize its saved
+	// source ID and target Agent without requiring a live source Session.
+	sourceID, err := validateIdentity(source.Checkpoint.GetSessionId())
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Invalid checkpoint source Session", err)
+	}
+	if _, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Session", Name: sourceID}); err != nil {
+		return nil, err
+	}
+	agent := source.Agent
+	if agent.GetNamespace() == "" || agent.GetName() == "" {
+		return nil, serviceerrors.NewFailedPrecondition("Checkpoint has no target Agent", nil)
+	}
+	if _, err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "Session", Namespace: agent.Namespace}); err != nil {
+		return nil, err
+	}
+	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Namespace: agent.Namespace, Name: agent.Name}); err != nil {
+		return nil, serviceerrors.NewPermissionDenied("Not authorized to access target Agent", err)
+	}
+	snapshot, tagUID := source.Snapshot, source.TagUID
 	if snapshot.Fidelity != "SNAPSHOT_FIDELITY_VOLUMES" {
 		return nil, serviceerrors.NewFailedPrecondition("Only volume checkpoints can be forked", nil)
 	}
@@ -363,33 +393,38 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	return session, nil
 }
 
-func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
+func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) (string, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
+	if _, shared := auth.ShareContextFrom(ctx); shared {
+		return "", serviceerrors.NewPermissionDenied("Session shares do not grant checkpoint access", nil)
+	}
 	principal := session.Principal()
-	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: resourceType, Name: name}); err != nil {
+	if err := s.authorizer.Check(ctx, principal, verb, resource); err != nil {
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	return principal.User.ID, nil
 }
 
-func validateCreate(sessionID, requestID string) error {
-	if err := validateIdentity(sessionID); err != nil {
-		return err
+func validateCreate(id, requestID string) (string, error) {
+	canonical, err := validateIdentity(id)
+	if err != nil {
+		return "", err
 	}
 	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
-		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
+		return "", serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
 	}
-	return nil
+	return canonical, nil
 }
 
-func validateIdentity(id string) error {
-	if _, err := uuid.Parse(id); err != nil {
-		return serviceerrors.NewInvalidArgument("identifier is invalid", err)
+func validateIdentity(id string) (string, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return "", serviceerrors.NewInvalidArgument("identifier is invalid", err)
 	}
-	return nil
+	return parsed.String(), nil
 }
 
 func encodePageToken(id string) string {
@@ -406,8 +441,5 @@ func decodePageToken(token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := uuid.Parse(string(value)); err != nil {
-		return "", err
-	}
-	return string(value), nil
+	return validateIdentity(string(value))
 }

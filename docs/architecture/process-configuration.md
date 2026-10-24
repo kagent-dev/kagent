@@ -222,8 +222,9 @@ the same `TelemetryConfig` as controller settings (including protobuf durations)
 An absent request size limit uses the runtime default; zero means unlimited.
 
 Built-in tool settings live under `runtime.builtin_tools`:
-`disable_file_search`, `bash_venv_path`, and `disable_bash`. This replaces the
-former `runtime.skill_tools` block (Helm: `config.runtimeDefaults.builtinTools`).
+`disable_file_search`, `bash_venv_path`, `disable_bash`, and `disable_ask_user`.
+This replaces the former `runtime.skill_tools` block
+(Helm: `config.runtimeDefaults.builtinTools`).
 Replace the former `file_search_tools` flag with `disable_file_search`, reversing
 its value: `file_search_tools: true` becomes `disable_file_search: false`.
 Go and Python ADK register `read_file`, `write_file`, `edit_file`, `list_files`,
@@ -237,6 +238,12 @@ For controller-managed runtimes, set
 `config.runtimeDefaults.builtinTools.disableBash: true` in Helm values.
 `bash_venv_path` selects a separate environment for shell commands in both runtimes:
 its `bin` directory is prepended to `PATH`, and `VIRTUAL_ENV` is set.
+Set `runtime.builtin_tools.disable_ask_user` to `true` to omit the built-in
+question tool in the Go and Python ADKs, including Go Shared subagents. This
+defaults to `false`; for controller-managed runtimes, use
+`config.runtimeDefaults.builtinTools.disableAskUser: true` in Helm values.
+See [Configuring built-in questions](human-in-the-loop.md#configuring-built-in-questions)
+for scope and limitations.
 
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
