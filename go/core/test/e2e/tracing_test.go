@@ -427,22 +427,28 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			}
 			// Wait for the Actor to suspend then assert that the completed invocation span was exported.
 			assertActorSuspended(t, fixture)
-			// Invocations are selected by operation and segment, the way the
-			// contract tells a consumer to count turns: a native runtime's own
-			// invoke_agent span, such as Claude Code's interaction span, carries
-			// no segment. A second segment in the trace or one missing an
-			// attribute fails the test rather than going unseen. The compiler
-			// owns this identity, so the assertion holds without any
+			// Invocations are counted the way the reference collector leaves
+			// them: it removes the GenAI operation from the spans of a native
+			// harness process, such as Claude Code's interaction span, which
+			// carry kagent.genai.producer=runtime on their resource. Any other
+			// invoke_agent span in the trace, or one missing its segment or
+			// another attribute, fails the test rather than going unseen. The
+			// compiler owns this identity, so the assertion holds without any
 			// user-supplied resource marker on the Harness.
 			agentName := template
-			spans := receiver.selectSpans(traceID, "", "", "", map[string]string{
-				tracing.AttributeOperationName: tracing.OperationInvokeAgent,
-				tracing.AttributeSegment:       tracing.SegmentInitial,
-			})
+			var spans []capturedSpan
+			for _, captured := range receiver.selectSpans(traceID, "", "", "", map[string]string{tracing.AttributeOperationName: tracing.OperationInvokeAgent}) {
+				if stringAttribute(captured.resource.GetAttributes(), tracing.AttributeGenAIProducer) != conv.KagentGenaiProducerRuntime {
+					spans = append(spans, captured)
+				}
+			}
 			if len(spans) != 1 {
-				t.Fatalf("invocation segments = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
+				t.Fatalf("invoke_agent spans outside the native process = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
 			}
 			invocation := spans[0]
+			if got := stringAttribute(invocation.span.GetAttributes(), tracing.AttributeSegment); got != tracing.SegmentInitial {
+				t.Errorf("invocation %s = %q, want %q", tracing.AttributeSegment, got, tracing.SegmentInitial)
+			}
 			if got, want := invocation.span.GetName(), "invoke_agent "+agentName; got != want {
 				t.Errorf("invocation span name = %q, want %q", got, want)
 			}
