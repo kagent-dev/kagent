@@ -2622,7 +2622,8 @@ refinements:
       key: kagent.turn.sender
       provenance:
         path: telemetry/registry/kagent.yaml
-      requirement_level: required
+      requirement_level:
+        conditionally_required: The controller recorded the sender of the turn.
       stability: development
       type:
         members:
@@ -2643,7 +2644,7 @@ refinements:
     instrument: counter
     name: kagent.turn.usage.cache_read.input_tokens
     note: |
-      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -2679,7 +2680,8 @@ refinements:
       key: kagent.turn.sender
       provenance:
         path: telemetry/registry/kagent.yaml
-      requirement_level: required
+      requirement_level:
+        conditionally_required: The controller recorded the sender of the turn.
       stability: development
       type:
         members:
@@ -2700,7 +2702,7 @@ refinements:
     instrument: counter
     name: kagent.turn.usage.input_tokens
     note: |
-      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -2736,7 +2738,8 @@ refinements:
       key: kagent.turn.sender
       provenance:
         path: telemetry/registry/kagent.yaml
-      requirement_level: required
+      requirement_level:
+        conditionally_required: The controller recorded the sender of the turn.
       stability: development
       type:
         members:
@@ -2757,7 +2760,7 @@ refinements:
     instrument: counter
     name: kagent.turn.usage.output_tokens
     note: |
-      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -2793,7 +2796,8 @@ refinements:
       key: kagent.turn.sender
       provenance:
         path: telemetry/registry/kagent.yaml
-      requirement_level: required
+      requirement_level:
+        conditionally_required: The controller recorded the sender of the turn.
       stability: development
       type:
         members:
@@ -2814,7 +2818,7 @@ refinements:
     instrument: counter
     name: kagent.turn.usage.reasoning.output_tokens
     note: |
-      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -6092,7 +6096,8 @@ registry:
       key: kagent.turn.sender
       provenance:
         path: telemetry/registry/kagent.yaml
-      requirement_level: required
+      requirement_level:
+        conditionally_required: The controller recorded the sender of the turn.
       stability: development
       type:
         members:
@@ -6112,7 +6117,7 @@ registry:
     instrument: counter
     name: kagent.turn.usage.cache_read.input_tokens
     note: |
-      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -6148,7 +6153,8 @@ registry:
       key: kagent.turn.sender
       provenance:
         path: telemetry/registry/kagent.yaml
-      requirement_level: required
+      requirement_level:
+        conditionally_required: The controller recorded the sender of the turn.
       stability: development
       type:
         members:
@@ -6168,7 +6174,7 @@ registry:
     instrument: counter
     name: kagent.turn.usage.input_tokens
     note: |
-      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -6204,7 +6210,8 @@ registry:
       key: kagent.turn.sender
       provenance:
         path: telemetry/registry/kagent.yaml
-      requirement_level: required
+      requirement_level:
+        conditionally_required: The controller recorded the sender of the turn.
       stability: development
       type:
         members:
@@ -6224,7 +6231,7 @@ registry:
     instrument: counter
     name: kagent.turn.usage.output_tokens
     note: |
-      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -6260,7 +6267,8 @@ registry:
       key: kagent.turn.sender
       provenance:
         path: telemetry/registry/kagent.yaml
-      requirement_level: required
+      requirement_level:
+        conditionally_required: The controller recorded the sender of the turn.
       stability: development
       type:
         members:
@@ -6280,7 +6288,7 @@ registry:
     instrument: counter
     name: kagent.turn.usage.reasoning.output_tokens
     note: |
-      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+      Recorded when the controller publishes the turn\u0027s waiting or terminal boundary, from the runtime\u0027s usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended

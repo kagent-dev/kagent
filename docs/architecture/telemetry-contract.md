@@ -193,43 +193,43 @@ Instrument: gauge. Unit: `{revision}`. Number of cleanup-eligible runtime revisi
 
 ### `kagent.turn.usage.cache_read.input_tokens`
 
-Instrument: counter. Unit: `{token}`. Input tokens served from a provider cache in a turn. Recorded when the controller publishes the turn's waiting or terminal boundary, from the runtime's usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+Instrument: counter. Unit: `{token}`. Input tokens served from a provider cache in a turn. Recorded when the controller publishes the turn's waiting or terminal boundary, from the runtime's usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
 | `gen_ai.agent.id` | required | For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier). It's NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature. |
 | `gen_ai.response.model` | conditionally required: The runtime reported the model of the calls. | The model the harness reported. |
-| `kagent.turn.sender` | required |  |
+| `kagent.turn.sender` | conditionally required: The controller recorded the sender of the turn. |  |
 
 ### `kagent.turn.usage.input_tokens`
 
-Instrument: counter. Unit: `{token}`. Input tokens a turn added to its task, cached input included. Recorded when the controller publishes the turn's waiting or terminal boundary, from the runtime's usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+Instrument: counter. Unit: `{token}`. Input tokens a turn added to its task, cached input included. Recorded when the controller publishes the turn's waiting or terminal boundary, from the runtime's usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
 | `gen_ai.agent.id` | required | For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier). It's NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature. |
 | `gen_ai.response.model` | conditionally required: The runtime reported the model of the calls. | The model the harness reported. |
-| `kagent.turn.sender` | required |  |
+| `kagent.turn.sender` | conditionally required: The controller recorded the sender of the turn. |  |
 
 ### `kagent.turn.usage.output_tokens`
 
-Instrument: counter. Unit: `{token}`. Output tokens a turn added to its task, reasoning excluded. Recorded when the controller publishes the turn's waiting or terminal boundary, from the runtime's usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+Instrument: counter. Unit: `{token}`. Output tokens a turn added to its task, reasoning excluded. Recorded when the controller publishes the turn's waiting or terminal boundary, from the runtime's usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
 | `gen_ai.agent.id` | required | For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier). It's NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature. |
 | `gen_ai.response.model` | conditionally required: The runtime reported the model of the calls. | The model the harness reported. |
-| `kagent.turn.sender` | required |  |
+| `kagent.turn.sender` | conditionally required: The controller recorded the sender of the turn. |  |
 
 ### `kagent.turn.usage.reasoning.output_tokens`
 
-Instrument: counter. Unit: `{token}`. Reasoning tokens a turn added to its task. Recorded when the controller publishes the turn's waiting or terminal boundary, from the runtime's usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute.
+Instrument: counter. Unit: `{token}`. Reasoning tokens a turn added to its task. Recorded when the controller publishes the turn's waiting or terminal boundary, from the runtime's usage/v1 task metadata less the usage the task carried before the turn. A runtime that reports no usage adds nothing. Tokens of calls that named no model carry no model attribute. Tokens of a turn whose sender was not recorded carry no sender attribute.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
 | `gen_ai.agent.id` | required | For hosted agents, this SHOULD be the provider-assigned stable identifier of the agent resource such as [AWS Bedrock agent ARN](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_Agent.html) or [GCP Agent Registry identifier](https://docs.cloud.google.com/agent-registry/concepts#agent-identifier). It's NOT RECOMMENDED to record in-memory agent instance ids on this attribute due to their transient nature. |
 | `gen_ai.response.model` | conditionally required: The runtime reported the model of the calls. | The model the harness reported. |
-| `kagent.turn.sender` | required |  |
+| `kagent.turn.sender` | conditionally required: The controller recorded the sender of the turn. |  |
 
 ## Attribute groups
 
