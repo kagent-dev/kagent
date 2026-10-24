@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -67,6 +68,8 @@ func TestEgressConditionSurvivesRuntimeFailureAndBoundsMessages(t *testing.T) {
 	require.False(t, meta.IsStatusConditionTrue(status.Conditions, kagentv1alpha3.AgentConditionReady))
 }
 
+const testHarnessImage = "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 func harnessAgentState(name string, mutate func(*AgentReconciliation)) AgentReconciliation {
 	state := AgentReconciliation{
 		Agent: &kagentv1alpha3.Agent{
@@ -97,11 +100,20 @@ func TestHarnessReadyCondition(t *testing.T) {
 	require.Equal(t, metav1.Condition{
 		Type: kagentv1alpha3.HarnessConditionTypeReady, Status: metav1.ConditionFalse, Reason: "WorkerPoolNotFound",
 		Message: `WorkerPool "team-a/gvisor" not found`, ObservedGeneration: 3,
-	}, harnessReadyCondition(3, pool, false))
+	}, harnessReadyCondition(3, pool, false, nil))
+
+	codex := &kagentv1alpha3.Harness{Spec: kagentv1alpha3.HarnessSpec{Codex: &kagentv1alpha3.CodexHarness{}}}
+	_, imageErr := translator.HarnessImage(codex, &configv1.HarnessImagesConfig{Claude: testHarnessImage})
 	require.Equal(t, metav1.Condition{
-		Type: kagentv1alpha3.HarnessConditionTypeReady, Status: metav1.ConditionTrue, Reason: "WorkerPoolResolved",
-		Message: `WorkerPool "team-a/gvisor" resolves`, ObservedGeneration: 3,
-	}, harnessReadyCondition(3, pool, true))
+		Type: kagentv1alpha3.HarnessConditionTypeReady, Status: metav1.ConditionFalse, Reason: "UnsupportedConfiguration",
+		Message: imageErr.Error(), ObservedGeneration: 3,
+	}, harnessReadyCondition(3, pool, true, imageErr), "a release without the runtime's built-in image leaves the Harness unready")
+	require.Contains(t, imageErr.Error(), "no default image configured for codex Harness")
+
+	require.Equal(t, metav1.Condition{
+		Type: kagentv1alpha3.HarnessConditionTypeReady, Status: metav1.ConditionTrue, Reason: "Resolved",
+		Message: `WorkerPool "team-a/gvisor" and the workload image resolve`, ObservedGeneration: 3,
+	}, harnessReadyCondition(3, pool, true, nil))
 }
 
 func TestHarnessBootedCondition(t *testing.T) {
@@ -159,9 +171,10 @@ func TestReconcilerWritesHarnessStatus(t *testing.T) {
 
 	harness := &kagentv1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "claude", Generation: 2},
-		Spec: kagentv1alpha3.HarnessSpec{Substrate: kagentv1alpha3.RuntimeSubstratePolicy{
-			WorkerPoolRef: corev1.LocalObjectReference{Name: "gvisor"},
-		}},
+		Spec: kagentv1alpha3.HarnessSpec{
+			Claude:    &kagentv1alpha3.ClaudeHarness{},
+			Substrate: kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "gvisor"}},
+		},
 		Status: kagentv1alpha3.HarnessStatus{Capabilities: &kagentv1alpha3.HarnessCapabilities{Version: "v1"}},
 	}
 	mock := krttest.NewMock(t, []any{
@@ -178,7 +191,7 @@ func TestReconcilerWritesHarnessStatus(t *testing.T) {
 	collections := Collections{
 		Harnesses:           harnesses,
 		Reconciliations:     krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("NoReconciliations")...),
-		HarnessStatuses:     newHarnessStatuses(harnesses, krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock), states, opts),
+		HarnessStatuses:     newHarnessStatuses(harnesses, krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock), states, &configv1.HarnessImagesConfig{Claude: testHarnessImage}, opts),
 		AgentStatuses:       krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]](mock),
 		ModelConfigStatuses: krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
 	}
@@ -194,11 +207,27 @@ func TestReconcilerWritesHarnessStatus(t *testing.T) {
 	}, 3*time.Second, 10*time.Millisecond)
 	ready := meta.FindStatusCondition(updated.Status.Conditions, kagentv1alpha3.HarnessConditionTypeReady)
 	require.Equal(t, metav1.ConditionTrue, ready.Status)
-	require.Equal(t, "WorkerPoolResolved", ready.Reason)
+	require.Equal(t, "Resolved", ready.Reason)
 	bootedCondition := meta.FindStatusCondition(updated.Status.Conditions, kagentv1alpha3.HarnessConditionTypeBooted)
 	require.Equal(t, "Booted", bootedCondition.Reason)
 	require.Equal(t, "golden boot of Agent team-a/assistant succeeded", bootedCondition.Message, "the failed boot on another Harness does not count")
 	require.False(t, bootedCondition.LastTransitionTime.IsZero())
 	require.Equal(t, int64(2), updated.Status.ObservedGeneration)
 	require.Equal(t, harness.Status.Capabilities, updated.Status.Capabilities, "the status write keeps the capabilities")
+}
+
+func TestConditionsWithTransitionTimesMoveOnlyOnStatusChange(t *testing.T) {
+	then := metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	current := []metav1.Condition{
+		{Type: "Booted", Status: metav1.ConditionUnknown, Reason: "BootPending", Message: "waiting for Agent team-a/a", LastTransitionTime: then},
+		{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Resolved", LastTransitionTime: then},
+	}
+	desired := []metav1.Condition{
+		{Type: "Booted", Status: metav1.ConditionUnknown, Reason: "BootPending", Message: "waiting for Agent team-a/b", ObservedGeneration: 2},
+		{Type: "Ready", Status: metav1.ConditionFalse, Reason: "WorkerPoolNotFound"},
+	}
+	got := conditionsWithTransitionTimes(desired, current)
+	require.Equal(t, then, got[0].LastTransitionTime, "a new message or generation alone is no transition")
+	require.True(t, got[1].LastTransitionTime.After(then.Time), "a status change stamps a new transition time")
+	require.True(t, desired[0].LastTransitionTime.IsZero(), "the desired conditions are not mutated")
 }

@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -121,6 +122,7 @@ func newHarnessStatuses(
 	harnesses krt.Collection[*kagentv1alpha3.Harness],
 	workerPools krt.Collection[*atev1alpha1.WorkerPool],
 	states krt.Collection[AgentReconciliation],
+	images *configv1.HarnessImagesConfig,
 	opts krt.OptionsBuilder,
 ) krt.StatusCollection[*kagentv1alpha3.Harness, kagentv1alpha3.HarnessStatus] {
 	byHarness := krt.NewIndex(states, "harness", func(state AgentReconciliation) []string {
@@ -129,11 +131,12 @@ func newHarnessStatuses(
 	statuses, _ := krt.NewStatusManyCollection(harnesses, func(ctx krt.HandlerContext, harness *kagentv1alpha3.Harness) (*kagentv1alpha3.HarnessStatus, []AgentReconciliation) {
 		pool := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
 		poolFound := krt.FetchOne(ctx, workerPools, krt.FilterObjectName(pool)) != nil
+		_, imageErr := translator.HarnessImage(harness, images)
 		agents := krt.Fetch(ctx, states, krt.FilterIndex(byHarness, harness.Namespace+"/"+harness.Name))
 		return &kagentv1alpha3.HarnessStatus{
 			ObservedGeneration: harness.Generation,
 			Conditions: []metav1.Condition{
-				harnessReadyCondition(harness.Generation, pool, poolFound),
+				harnessReadyCondition(harness.Generation, pool, poolFound, imageErr),
 				harnessBootedCondition(harness.Generation, agents),
 			},
 		}, nil
@@ -142,14 +145,17 @@ func newHarnessStatuses(
 }
 
 // harnessReadyCondition states the Harness's own invariants: it is Ready once
-// the WorkerPool it references exists. What the Agents on it observed is the
-// Booted condition's, so one Agent's broken configuration never flips a
-// Harness that other Agents share.
-func harnessReadyCondition(generation int64, pool types.NamespacedName, poolFound bool) metav1.Condition {
+// the WorkerPool it references exists and its workload image resolves. What
+// the Agents on it observed is the Booted condition's, so one Agent's broken
+// configuration never flips a Harness that other Agents share.
+func harnessReadyCondition(generation int64, pool types.NamespacedName, poolFound bool, imageErr error) metav1.Condition {
 	if !poolFound {
 		return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionFalse, "WorkerPoolNotFound", (&translator.WorkerPoolNotFoundError{WorkerPool: pool}).Error())
 	}
-	return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionTrue, "WorkerPoolResolved", fmt.Sprintf("WorkerPool %q resolves", pool.String()))
+	if imageErr != nil {
+		return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionFalse, "UnsupportedConfiguration", imageErr.Error())
+	}
+	return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionTrue, "Resolved", fmt.Sprintf("WorkerPool %q and the workload image resolve", pool.String()))
 }
 
 // harnessBootedCondition reads the golden boots of the Agents that run on the
