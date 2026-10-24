@@ -9,6 +9,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -16,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 // Only task reads are implemented. Any dispatch or runtime access in these
@@ -28,7 +30,7 @@ type interactionTestStore struct {
 	dispatchErr error
 }
 
-func (s *interactionTestStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
+func (s *interactionTestStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string, *database.TurnSender) error {
 	return s.dispatchErr
 }
 
@@ -289,4 +291,26 @@ func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
 			})
 		}
 	}
+}
+
+type principalSession auth.Principal
+
+func (s principalSession) Principal() auth.Principal { return auth.Principal(s) }
+
+func TestTurnSenderNamesTheAuthenticatedPrincipal(t *testing.T) {
+	session := &apiv1.Session{Id: "session", Creator: "owner"}
+	for _, tt := range []struct {
+		name string
+		auth auth.Session
+		want *database.TurnSender
+	}{
+		{name: "person", auth: principalSession(auth.Principal{User: auth.User{ID: "alice"}}), want: &database.TurnSender{Kind: conv.KagentTurnSenderUser, UserID: "alice"}},
+		{name: "agent on its owner's behalf", auth: principalSession(auth.Principal{User: auth.User{ID: "alice"}, Agent: auth.Agent{ID: "team-a/caller"}, Actor: &auth.Actor{SessionID: "other"}}), want: &database.TurnSender{Kind: conv.KagentTurnSenderAgent, UserID: "alice", AgentID: "team-a/caller"}},
+		{name: "controller on the session owner's behalf", auth: auth.ControlPlaneSession{}, want: &database.TurnSender{Kind: conv.KagentTurnSenderController, UserID: "owner"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, turnSender(auth.AuthSessionTo(t.Context(), tt.auth), session))
+		})
+	}
+	require.Nil(t, turnSender(t.Context(), session), "an unauthenticated context has no sender")
 }

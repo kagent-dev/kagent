@@ -185,7 +185,8 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	require.ErrorIs(t, deleteSession(t.Context(), client, session.Id), ErrFailedPrecondition)
 	_, err = client.ClaimSessionQuiescence(t.Context())
 	require.ErrorIs(t, err, ErrNotFound) // The native cleanup callback has not finished.
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version)
+	require.NoError(t, err)
 	public, err = client.GetSettledSessionTask(t.Context(), session.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
@@ -209,7 +210,8 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/exact", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), work, snapshot))
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), work, snapshot))
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version)
+	require.NoError(t, err)
 	public, err = client.GetSessionTask(t.Context(), session.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
@@ -231,7 +233,8 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
-	require.NoError(t, client.SettleSessionTask(t.Context(), source.Id, string(completed.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), source.Id, string(completed.ID), version)
+	require.NoError(t, err)
 	boundary, err := client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "turn-N", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
@@ -310,7 +313,8 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 		task.Status.State = a2a.TaskStateCompleted
 		version, err := client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("finish"), task, task, "")
 		require.NoError(t, err)
-		require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+		_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+		require.NoError(t, err)
 
 		start := make(chan struct{})
 		claimed := make(chan *SessionQuiescence, 1)
@@ -326,7 +330,7 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 		dispatchID := uuid.New()
 		go func() {
 			<-start
-			err := client.ReserveSessionDispatch(ctx, session.Id, dispatchID, "")
+			err := client.ReserveSessionDispatch(ctx, session.Id, dispatchID, "", nil)
 			writeErrors <- err
 		}()
 		close(start)
@@ -334,7 +338,7 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 		if claimErr == nil {
 			require.ErrorIs(t, writeErr, ErrDispatchBusy)
 			require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatchID, ""))
+			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatchID, "", nil))
 		} else {
 			require.ErrorIs(t, claimErr, ErrNotFound)
 			require.NoError(t, writeErr)
@@ -344,7 +348,8 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 		_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("next"), next, dispatchID.String())
 		require.NoError(t, err)
 		// A lost cleanup acknowledgement cannot requeue an obsolete suspension.
-		require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+		_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+		require.NoError(t, err)
 		_, err = client.ClaimSessionQuiescence(ctx)
 		require.ErrorIs(t, err, ErrNotFound)
 		visible, err := client.GetSettledSessionTask(ctx, session.Id, string(task.ID), nil)
@@ -381,10 +386,10 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
 	dispatchID := uuid.New()
-	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatchID, ""))
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatchID, "", nil))
 	_, err := client.ClaimSessionQuiescence(ctx)
 	require.ErrorIs(t, err, ErrNotFound)
-	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""), ErrDispatchBusy)
+	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "", nil), ErrDispatchBusy)
 	revoked, err := client.RevokeSessionDispatch(ctx, session.Id, dispatchID, "new-input")
 	require.NoError(t, err)
 	require.True(t, revoked)
@@ -396,7 +401,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	dispatchID = uuid.New()
-	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatchID, ""))
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatchID, "", nil))
 	// SDKs may first append input while retaining the waiting state.
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("input-only"), waiting, waiting, dispatchID.String())
 	require.NoError(t, err)
@@ -407,7 +412,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	revoked, err = client.RevokeSessionDispatch(ctx, session.Id, dispatchID, "new-input")
 	require.NoError(t, err)
 	require.False(t, revoked, "accepted work must never be reported retryable")
-	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""), ErrConflict)
+	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "", nil), ErrConflict)
 }
 
 func TestDispatchExpiryRejectsLateSave(t *testing.T) {
@@ -416,7 +421,7 @@ func TestDispatchExpiryRejectsLateSave(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
 	id := uuid.New()
-	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, ""))
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, "", nil))
 	_, err := client.db.Exec(ctx, `UPDATE session SET dispatch_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE id = $1`, session.Id)
 	require.NoError(t, err)
 	next := newSessionTask(uuid.NewString(), "next-message")
@@ -424,7 +429,7 @@ func TestDispatchExpiryRejectsLateSave(t *testing.T) {
 	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("expired"), next, id.String())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	newID := uuid.New()
-	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, newID, ""))
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, newID, "", nil))
 	revoked, err := client.RevokeSessionDispatch(ctx, session.Id, id, "next-message")
 	require.NoError(t, err)
 	require.False(t, revoked)
@@ -437,13 +442,47 @@ func TestDispatchExpiryRejectsLateSave(t *testing.T) {
 	require.Equal(t, a2a.TaskStateInputRequired, stored.Status.State)
 }
 
+func TestSettlementReturnsTheDispatchSenderOnce(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, waiting := waitingTaskFixture(t, client)
+	sender := &TurnSender{Kind: "agent", UserID: "alice", AgentID: "team-a/caller"}
+	dispatch := uuid.New()
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, "", sender))
+	task, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(waiting.ID))
+	require.NoError(t, err)
+	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
+	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+	task.History = append(task.History, task.Status.Message, reply)
+	task.Status = a2a.TaskStatus{State: a2a.TaskStateWorking}
+	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("resume"), task, task, dispatch.String())
+	require.NoError(t, err)
+	task.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted}
+	task.Metadata = map[string]any{"turn": "finished"}
+	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("finish"), task, task, "")
+	require.NoError(t, err)
+
+	settled, err := client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
+	require.Equal(t, sender, settled.Sender)
+	require.Equal(t, a2a.TaskStateWorking, settled.Previous.Status.State)
+	require.NotContains(t, settled.Previous.Metadata, "turn")
+	require.Equal(t, a2a.TaskStateCompleted, settled.Task.Status.State)
+	require.Equal(t, "finished", settled.Task.Metadata["turn"])
+
+	settled, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
+	require.Nil(t, settled, "a retried settlement publishes nothing new")
+}
+
 func TestRevokedContinuationWithSavedInputIsNotRetryable(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
 	id := uuid.New()
-	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, ""))
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, "", nil))
 	_, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(waiting.ID))
 	require.NoError(t, err)
 	input := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("continue"))
@@ -467,7 +506,8 @@ func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	version, err := client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("finish"), task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(ctx, session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	request := &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
 	_, _, err = client.ReserveSessionCheckpoint(ctx, request, "alice", "checkpoint")
 	require.ErrorIs(t, err, ErrSnapshotPending)
@@ -501,22 +541,22 @@ func TestInitialMessageReservationDeduplicatesAfterAcceptance(t *testing.T) {
 	session, err = markSessionReady(ctx, client, session.Id, "runtime")
 	require.NoError(t, err)
 	dispatch := uuid.New()
-	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, "first-message"))
-	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "first-message"), ErrDispatchBusy)
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, "first-message", nil))
+	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "first-message", nil), ErrDispatchBusy)
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
 	message.ID, message.ContextID = "first-message", session.Id
 	task := a2a.NewSubmittedTask(message, message)
 	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("first"), task, dispatch.String())
 	require.NoError(t, err)
-	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "first-message"), ErrMessageAccepted)
-	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "different-message"), ErrConflict)
+	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "first-message", nil), ErrMessageAccepted)
+	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "different-message", nil), ErrConflict)
 	recovered, err := client.GetSessionTaskByMessage(ctx, session.Id, "", "first-message")
 	require.NoError(t, err)
 	require.Equal(t, task.ID, recovered.ID)
 	// Two concurrent retries both observe acceptance, never a new dispatch.
 	results := make(chan error, 2)
 	for range 2 {
-		go func() { results <- client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "first-message") }()
+		go func() { results <- client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "first-message", nil) }()
 	}
 	for range 2 {
 		require.ErrorIs(t, <-results, ErrMessageAccepted)
