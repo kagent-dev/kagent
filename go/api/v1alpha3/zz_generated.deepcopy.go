@@ -287,6 +287,11 @@ func (in *AgentTemplateSpec) DeepCopyInto(out *AgentTemplateSpec) {
 		*out = new(ConfigMapKeyReference)
 		**out = **in
 	}
+	if in.WorkflowFrom != nil {
+		in, out := &in.WorkflowFrom, &out.WorkflowFrom
+		*out = new(ConfigMapKeyReference)
+		**out = **in
+	}
 	if in.OutputSchema != nil {
 		in, out := &in.OutputSchema, &out.OutputSchema
 		*out = new(apiextensionsv1.JSON)

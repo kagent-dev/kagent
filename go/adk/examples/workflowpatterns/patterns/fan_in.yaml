@@ -1,0 +1,19 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: fan_in
+    agent_class: Workflow
+    nodes:
+      - { id: shout, type: function, function: upper }
+      - { id: whisper, type: function, function: lower }
+      - { id: mirror, type: function, function: reverse }
+      - { id: gather, type: join }
+      - { id: combine, type: function, function: combine }
+    edges:
+      - { from: START, to: shout }
+      - { from: START, to: whisper }
+      - { from: START, to: mirror }
+      - { from: shout, to: gather }
+      - { from: whisper, to: gather }
+      - { from: mirror, to: gather }
+      - { from: gather, to: combine }

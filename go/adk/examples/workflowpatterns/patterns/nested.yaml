@@ -1,0 +1,20 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: nested
+    agent_class: Workflow
+    nodes:
+      - { id: prep, type: function, function: clean }
+      - id: subflow
+        type: workflow
+        nodes:
+          - { id: plan, type: function, function: plan }
+          - { id: execute, type: function, function: execute }
+        edges:
+          - { from: START, to: plan }
+          - { from: plan, to: execute }
+      - { id: finish, type: function, function: exclaim }
+    edges:
+      - { from: START, to: prep }
+      - { from: prep, to: subflow }
+      - { from: subflow, to: finish }

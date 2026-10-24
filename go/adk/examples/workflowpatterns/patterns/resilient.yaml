@@ -1,0 +1,13 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: resilient
+    agent_class: Workflow
+    nodes:
+      - id: unreliable
+        type: function
+        function: flaky
+        timeout: 5s
+        retry: { max_attempts: 3, initial_delay: 1ms, max_delay: 2ms, backoff_factor: 1, jitter: 0 }
+    edges:
+      - { from: START, to: unreliable }
