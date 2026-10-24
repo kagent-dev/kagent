@@ -546,6 +546,7 @@ func newPreparationTestCollectionsFor(t *testing.T, workerPool string, template 
 		WorkerPools:              krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
 		AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
 		ModelConfigStatuses:      krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
+		HarnessStatuses:          krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.Harness, kagentv1alpha3.HarnessStatus]](mock),
 	}
 	collections.Agents = krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, runtimeHarness)}, opts.WithName("Agents")...)
 	collections.Reconciliations = newAgentReconciliations(collections.Agents, translator.Collections{
