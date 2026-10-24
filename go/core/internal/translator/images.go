@@ -2,8 +2,15 @@ package translator
 
 import (
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/image"
 )
+
+// HarnessImage returns the digest-pinned workload image a Harness runs: its
+// own override, or the release's built-in image for its runtime.
+func HarnessImage(harness *v1alpha3.Harness, images *configv1.HarnessImagesConfig) (string, error) {
+	return harnessImage(harnessConfiguration(harness), images)
+}
 
 func harnessImage(harness *HarnessConfiguration, images *configv1.HarnessImagesConfig) (string, error) {
 	var selected string
