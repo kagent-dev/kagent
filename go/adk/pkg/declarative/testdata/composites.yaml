@@ -1,0 +1,46 @@
+# The classic ADK workflow agents: sequential, parallel and loop orchestration of
+# sub-agents. Each worker is a stub-model LlmAgent that echoes its input.
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: pipeline
+    agent_class: SequentialAgent
+    description: Drafts, then reviews
+    sub_agents: [draft, review]
+
+  - name: draft
+    agent_class: LlmAgent
+    model: stub
+    instruction: Write a draft.
+    output_key: draft_text
+
+  - name: review
+    agent_class: LlmAgent
+    model: stub
+    instruction: Review the draft.
+
+  - name: panel
+    agent_class: ParallelAgent
+    description: Two perspectives at once
+    sub_agents: [optimist, pessimist]
+
+  - name: optimist
+    agent_class: LlmAgent
+    model: stub
+    instruction: Argue for it.
+
+  - name: pessimist
+    agent_class: LlmAgent
+    model: stub
+    instruction: Argue against it.
+
+  - name: refiner
+    agent_class: LoopAgent
+    description: Refines twice
+    max_iterations: 2
+    sub_agents: [polish]
+
+  - name: polish
+    agent_class: LlmAgent
+    model: stub
+    instruction: Improve the text.

@@ -516,7 +516,7 @@ export function AgentTemplateForm({
         {/* Tools — sub-agents */}
         <Form.Item
           label="Tools from other agent templates"
-          extra="Exposes another template in this namespace as a tool this one can route work to. The description is what tells the parent when to use it, so the CRD requires it."
+          extra="Exposes another template in this namespace as a tool this one can route work to. The description is what tells the parent when to use it, so the CRD requires it. An isolated session runs each call in a conversation of its own: the sub-agent never sees this one's history and cannot ask for human approval."
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             {readOnly && draft.subAgentTools.length === 0
@@ -558,6 +558,21 @@ export function AgentTemplateForm({
                   }}
                   {...readOnlyInput}
                 />
+                {readOnly ? (
+                  tool.isolated ? <Tag>Isolated session</Tag> : null
+                ) : (
+                  <Checkbox
+                    checked={Boolean(tool.isolated)}
+                    data-testid={`template-form-agent-isolated-${index}`}
+                    onChange={(event) => {
+                      const next = [...draft.subAgentTools];
+                      next[index] = { ...next[index], isolated: event.target.checked };
+                      set("subAgentTools", next);
+                    }}
+                  >
+                    Isolated session
+                  </Checkbox>
+                )}
                 {readOnly ? null : (
                   <Button
                     type="text"

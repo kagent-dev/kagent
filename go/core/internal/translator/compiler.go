@@ -57,6 +57,7 @@ type resolvedTemplate struct {
 type resolvedTemplateBinding struct {
 	Name        string
 	Description string
+	Isolation   v1alpha3.SubAgentIsolation
 	Agent       *resolvedTemplate
 }
 
@@ -67,6 +68,9 @@ type HarnessInput struct {
 	Harness      *HarnessConfiguration
 	Root         *AgentInput
 	OutputSchema *ResolvedOutputSchema
+	// Workflow is the validated declarative workflow document of the root
+	// template. Only BYO Harnesses receive one.
+	Workflow *ResolvedWorkflow
 }
 
 // AgentInput contains resolved Kubernetes inputs for one agent.
@@ -88,6 +92,7 @@ type ResolvedMCPTool struct {
 type AgentInputBinding struct {
 	Name        string
 	Description string
+	Isolation   v1alpha3.SubAgentIsolation
 	Agent       *AgentInput
 }
 
@@ -217,6 +222,9 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 			defer delete(path, template.Name)
 		}
 
+		if child && template.Spec.WorkflowFrom != nil {
+			return nil, NewValidationError("AgentTemplate %q sets workflowFrom, which is only supported on the root template", template.Name)
+		}
 		resolved := &resolvedTemplate{Template: template}
 		for _, tool := range template.Spec.Tools {
 			if tool.SubAgent == nil {
@@ -242,7 +250,7 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 			if child {
 				return nil, NewValidationError("consecutive Shared AgentTemplate tools exceed the kagent runtime boundary")
 			}
-			resolved.Shared = append(resolved.Shared, resolvedTemplateBinding{Name: binding.Name, Description: binding.Description, Agent: agent})
+			resolved.Shared = append(resolved.Shared, resolvedTemplateBinding{Name: binding.Name, Description: binding.Description, Isolation: binding.Isolation, Agent: agent})
 		}
 		return resolved, nil
 	}
@@ -261,6 +269,13 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 	}
 	if outputSchema != nil && harnessType(tree.Harness) != HarnessTypeKagent {
 		return nil, NewValidationError("Harness runtime %q does not support structured output", harnessType(tree.Harness))
+	}
+	workflow, err := c.resolveWorkflow(ctx, tree.Root.Template)
+	if err != nil {
+		return nil, err
+	}
+	if workflow != nil && harnessType(tree.Harness) != HarnessTypeBYO {
+		return nil, NewValidationError("Harness runtime %q does not run declarative workflows; use a BYO Harness", harnessType(tree.Harness))
 	}
 	var build func(*resolvedTemplate) (*AgentInput, error)
 	build = func(agent *resolvedTemplate) (*AgentInput, error) {
@@ -323,7 +338,10 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 			if err != nil {
 				return nil, err
 			}
-			input.Shared = append(input.Shared, AgentInputBinding{Name: binding.Name, Description: binding.Description, Agent: child})
+			if err := validateSubAgentIsolation(harnessType(tree.Harness), binding.Name, binding.Isolation, child); err != nil {
+				return nil, err
+			}
+			input.Shared = append(input.Shared, AgentInputBinding{Name: binding.Name, Description: binding.Description, Isolation: binding.Isolation, Agent: child})
 		}
 		return input, nil
 	}
@@ -332,5 +350,5 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 	if err != nil {
 		return nil, err
 	}
-	return &HarnessInput{Harness: tree.Harness, Root: root, OutputSchema: outputSchema}, nil
+	return &HarnessInput{Harness: tree.Harness, Root: root, OutputSchema: outputSchema, Workflow: workflow}, nil
 }

@@ -124,6 +124,18 @@ func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.Resol
 	return nil
 }
 
+// applyWorkflow delivers the validated declarative workflow document to the
+// BYO image, which builds its agents from it.
+func applyWorkflow(config *configv1.ADKAgentConfig, workflow *translator.ResolvedWorkflow) {
+	if workflow == nil {
+		return
+	}
+	config.Workflow = &configv1.ADKWorkflowConfig{
+		Document: append([]byte(nil), workflow.Document...),
+		Sha256:   workflow.SHA256,
+	}
+}
+
 func requireModels(input *translator.AgentInput) error {
 	if input.ResolvedModelConfig == nil || input.ResolvedModelConfig.Config == nil {
 		return translator.NewValidationError("kagent ModelConfig is required")
@@ -150,5 +162,23 @@ func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfigu
 	result.Models = append(result.Models, model.Resolved)
 	result.Environment = append(result.Environment, model.Environment...)
 	result.Egress = append(result.Egress, model.Egress...)
+	return nil
+}
+
+// ValidateSubAgentIsolation rejects combinations the runtime cannot honor.
+//
+// STS token exchange caches the exchanged token by session ID. An Isolated
+// subagent runs in a new session, so its MCP requests would find no token and
+// fall back to the caller's own credential, which the exchange exists to
+// replace. Refuse the combination instead of sending the wrong credential.
+func ValidateSubAgentIsolation(config *configv1.ADKConfig) error {
+	if config.GetRuntime().GetTokenPropagation().GetStsWellKnownUri() == "" {
+		return nil
+	}
+	for _, sub := range config.GetAgent().GetSubAgents() {
+		if sub.GetIsolation() == configv1.ADKAgentIsolation_ADK_AGENT_ISOLATION_SESSION {
+			return translator.NewValidationError("subagent %q is Isolated, which cannot be combined with STS token exchange: the exchanged token is cached per session and an isolated subagent runs in a new one", sub.GetName())
+		}
+	}
 	return nil
 }

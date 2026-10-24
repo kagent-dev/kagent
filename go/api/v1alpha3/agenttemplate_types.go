@@ -65,6 +65,23 @@ type MCPToolBinding struct {
 	RequireApproval bool `json:"requireApproval,omitempty"`
 }
 
+// SubAgentIsolation says how much of the Session a subagent shares with its parent.
+// +kubebuilder:validation:Enum=Shared;Isolated
+type SubAgentIsolation string
+
+const (
+	// SubAgentIsolationShared hands the conversation to the subagent in the
+	// parent's Session. The parent transfers control and the subagent answers in
+	// the same history. It is the default.
+	SubAgentIsolationShared SubAgentIsolation = "Shared"
+	// SubAgentIsolationIsolated calls the subagent as a tool in a new
+	// conversation seeded with a copy of the parent's state. The subagent never
+	// sees the parent's history, parallel calls cannot interfere, its state
+	// writes are not copied back, and it cannot pause for human input, so its
+	// MCP tools cannot require approval.
+	SubAgentIsolationIsolated SubAgentIsolation = "Isolated"
+)
+
 // SubAgentToolBinding exposes a same-namespace AgentTemplate as a logical tool.
 type SubAgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
@@ -78,6 +95,12 @@ type SubAgentToolBinding struct {
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="templateRef.name must not be empty"
 	// +required
 	TemplateRef *corev1.LocalObjectReference `json:"templateRef"`
+	// Isolation selects how the parent runs the subagent. Omitting it is Shared.
+	// Isolated gives every call its own conversation, which a parent needs when
+	// it fans out to the same subagent in parallel. Only the kagent and BYO
+	// Harnesses support Isolated.
+	// +optional
+	Isolation SubAgentIsolation `json:"isolation,omitempty"`
 
 	// Deferred until Dedicated subagents can create and invoke their own Session.
 	// AgentRef *corev1.LocalObjectReference `json:"agentRef,omitempty"`
@@ -171,6 +194,7 @@ type PluginBundle struct {
 // AgentTemplateSpec defines portable agent behavior.
 // +kubebuilder:validation:AtMostOneOf=systemPrompt;systemPromptFrom
 // +kubebuilder:validation:AtMostOneOf=outputSchema;outputSchemaFrom
+// +kubebuilder:validation:XValidation:rule="!has(self.workflowFrom) || (!has(self.systemPrompt) && !has(self.systemPromptFrom))",message="workflowFrom cannot be combined with systemPrompt or systemPromptFrom"
 // +kubebuilder:validation:XValidation:rule="!has(self.outputSchemaStrict) || !self.outputSchemaStrict || has(self.outputSchema) || has(self.outputSchemaFrom)",message="outputSchemaStrict requires outputSchema or outputSchemaFrom"
 type AgentTemplateSpec struct {
 	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
@@ -184,6 +208,13 @@ type AgentTemplateSpec struct {
 	// SystemPromptFrom references prompt text in a same-namespace ConfigMap.
 	// +optional
 	SystemPromptFrom *ConfigMapKeyReference `json:"systemPromptFrom,omitempty"`
+	// WorkflowFrom references an adk.declarative/v0.2 AgentSystem document, as
+	// YAML or JSON, in a same-namespace ConfigMap key. The controller validates
+	// the document's structure and delivers it to the runtime; the BYO image
+	// resolves the functions, tools, and models it names. Only a root template
+	// on a BYO Harness may set it.
+	// +optional
+	WorkflowFrom *ConfigMapKeyReference `json:"workflowFrom,omitempty"`
 	// OutputSchema constrains successful terminal output when this template is
 	// compiled as the root agent.
 	// +optional

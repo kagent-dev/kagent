@@ -1,0 +1,15 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: router
+    agent_class: Workflow
+    nodes:
+      - { id: classify, type: function, function: classify }
+      - { id: bug, type: function, function: bug_handler }
+      - { id: billing, type: function, function: billing_handler }
+      - { id: fallback, type: function, function: fallback_reply }
+    edges:
+      - { from: START, to: classify }
+      - { from: classify, to: bug, route: BUG }
+      - { from: classify, to: billing, route: BILLING }
+      - { from: classify, to: fallback, route: DEFAULT }

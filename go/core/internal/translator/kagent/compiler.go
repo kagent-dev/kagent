@@ -40,10 +40,14 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
-	configJSON, err := runtimeconfig.Marshal(&configv1.ADKConfig{
+	adkConfig := &configv1.ADKConfig{
 		Runtime: translator.RuntimeConfig(c.settings, input.AgentName, template.Namespace),
 		Agent:   compiled.Config,
-	})
+	}
+	if err := adkconfig.ValidateSubAgentIsolation(adkConfig); err != nil {
+		return nil, err
+	}
+	configJSON, err := runtimeconfig.Marshal(adkConfig)
 	if err != nil {
 		var invalid *protovalidate.ValidationError
 		if errors.As(err, &invalid) {

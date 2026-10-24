@@ -41,6 +41,8 @@ export interface SubAgentToolDraft {
   description: string;
   /** The template's bare name in the same namespace. */
   refName: string;
+  /** Run it in a conversation of its own instead of sharing the parent's. */
+  isolated?: boolean;
 }
 
 /** Where the system prompt comes from. The CRD rejects both at once. */
@@ -143,6 +145,7 @@ export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): Agent
         name: binding.subAgent?.name ?? "",
         description: binding.subAgent?.description ?? "",
         refName: binding.subAgent?.templateRef.name ?? "",
+        isolated: binding.subAgent?.isolation === "Isolated",
       })),
     labels: [],
   };
@@ -182,6 +185,8 @@ export function specFromDraft(
           name: tool.name.trim(),
           description: tool.description.trim(),
           templateRef: { name: tool.refName.trim() },
+          // Shared is the default and omitempty on the CRD, so only Isolated is sent.
+          ...(tool.isolated ? { isolation: "Isolated" as const } : {}),
         },
       })),
   ];

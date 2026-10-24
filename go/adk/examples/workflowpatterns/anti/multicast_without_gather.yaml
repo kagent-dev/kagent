@@ -1,0 +1,13 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: multicast_without_gather
+    agent_class: Workflow
+    nodes:
+      - { id: audience, type: function, function: audience }
+      - { id: audit, type: function, function: auditor }
+      - { id: notify, type: function, function: notifier }
+    edges:
+      - { from: START, to: audience }
+      - { from: audience, to: audit, route: audit }
+      - { from: audience, to: notify, route: notify }

@@ -86,6 +86,9 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 			return nil, err
 		}
 	}
+	if input.Harness.Spec.BYO != nil {
+		applyWorkflow(result.Config, input.Workflow)
+	}
 	// The Python runtime needs an async SQLite driver; the Go runtime accepts
 	// this URL and strips the driver before opening the same durable database.
 	result.Config.SessionDbUrl = "sqlite+aiosqlite:////data/sessions.db"
@@ -145,6 +148,10 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 			return nil, err
 		}
 		child.Config.Name, child.Config.Description = binding.Name, binding.Description
+		// Shared is the default and stays unset, so existing revisions do not change.
+		if binding.Isolation == v1alpha3.SubAgentIsolationIsolated {
+			child.Config.Isolation = configv1.ADKAgentIsolation_ADK_AGENT_ISOLATION_SESSION
+		}
 		cfg.SubAgents = append(cfg.SubAgents, child.Config)
 		result.Models = append(result.Models, child.Models...)
 		result.Templates = append(result.Templates, child.Templates...)
@@ -172,6 +179,9 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.Harne
 		}
 		if template.Spec.OutputSchemaFrom != nil {
 			configMaps[template.Spec.OutputSchemaFrom.Name] = struct{}{}
+		}
+		if template.Spec.WorkflowFrom != nil {
+			configMaps[template.Spec.WorkflowFrom.Name] = struct{}{}
 		}
 		if template.Spec.PromptTemplate != nil {
 			for _, source := range template.Spec.PromptTemplate.DataSources {
