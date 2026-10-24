@@ -10,12 +10,15 @@ metrics:
       boundary, from the runtime's usage/v1 task metadata less the usage the
       task carried before the turn. A runtime that reports no usage adds
       nothing. Tokens of calls that named no model carry no model attribute.
+      Tokens of a turn whose sender was not recorded carry no sender
+      attribute.
     stability: development
     attributes:
       - ref: gen_ai.agent.id
         requirement_level: required
       - ref: kagent.turn.sender
-        requirement_level: required
+        requirement_level:
+          conditionally_required: The controller recorded the sender of the turn.
       - ref: gen_ai.response.model
         requirement_level:
           conditionally_required: The runtime reported the model of the calls.
@@ -30,12 +33,15 @@ metrics:
       boundary, from the runtime's usage/v1 task metadata less the usage the
       task carried before the turn. A runtime that reports no usage adds
       nothing. Tokens of calls that named no model carry no model attribute.
+      Tokens of a turn whose sender was not recorded carry no sender
+      attribute.
     stability: development
     attributes:
       - ref: gen_ai.agent.id
         requirement_level: required
       - ref: kagent.turn.sender
-        requirement_level: required
+        requirement_level:
+          conditionally_required: The controller recorded the sender of the turn.
       - ref: gen_ai.response.model
         requirement_level:
           conditionally_required: The runtime reported the model of the calls.
@@ -50,12 +56,15 @@ metrics:
       boundary, from the runtime's usage/v1 task metadata less the usage the
       task carried before the turn. A runtime that reports no usage adds
       nothing. Tokens of calls that named no model carry no model attribute.
+      Tokens of a turn whose sender was not recorded carry no sender
+      attribute.
     stability: development
     attributes:
       - ref: gen_ai.agent.id
         requirement_level: required
       - ref: kagent.turn.sender
-        requirement_level: required
+        requirement_level:
+          conditionally_required: The controller recorded the sender of the turn.
       - ref: gen_ai.response.model
         requirement_level:
           conditionally_required: The runtime reported the model of the calls.
@@ -70,12 +79,15 @@ metrics:
       boundary, from the runtime's usage/v1 task metadata less the usage the
       task carried before the turn. A runtime that reports no usage adds
       nothing. Tokens of calls that named no model carry no model attribute.
+      Tokens of a turn whose sender was not recorded carry no sender
+      attribute.
     stability: development
     attributes:
       - ref: gen_ai.agent.id
         requirement_level: required
       - ref: kagent.turn.sender
-        requirement_level: required
+        requirement_level:
+          conditionally_required: The controller recorded the sender of the turn.
       - ref: gen_ai.response.model
         requirement_level:
           conditionally_required: The runtime reported the model of the calls.
