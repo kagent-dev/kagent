@@ -33,7 +33,7 @@ func newTestUsageRecorder(t *testing.T) (*UsageRecorder, *sdkmetric.ManualReader
 }
 
 // collectUsage returns the counter values per metric and model, and the
-// sender kind of every data point.
+// sender kind of every data point that carries one.
 func collectUsage(t *testing.T, reader *sdkmetric.ManualReader) (map[string]map[string]int64, []string) {
 	t.Helper()
 	var collected metricdata.ResourceMetrics
@@ -50,8 +50,9 @@ func collectUsage(t *testing.T, reader *sdkmetric.ManualReader) (map[string]map[
 				require.Equal(t, "team-a/assistant", agent.AsString())
 				_, hasUser := point.Attributes.Value("enduser.id")
 				require.False(t, hasUser, "the counters carry no user")
-				sender, _ := point.Attributes.Value(conv.KagentTurnSenderKey)
-				senders = append(senders, sender.AsString())
+				if sender, ok := point.Attributes.Value(conv.KagentTurnSenderKey); ok {
+					senders = append(senders, sender.AsString())
+				}
 				model, _ := point.Attributes.Value(conv.GenAIResponseModelKey)
 				if values[m.Name] == nil {
 					values[m.Name] = map[string]int64{}
@@ -117,7 +118,7 @@ func TestUsageRecorderChargesWhatTheBoundaryAddedToItsSender(t *testing.T) {
 	}
 }
 
-func TestUsageRecorderCountsNothingWithoutUsageOrSender(t *testing.T) {
+func TestUsageRecorderCountsNothingWithoutUsage(t *testing.T) {
 	usage := apia2a.Usage{TokenCounts: apia2a.TokenCounts{InputTokens: 10, TotalTokens: 10}}
 	for _, tt := range []struct {
 		name    string
@@ -134,10 +135,6 @@ func TestUsageRecorderCountsNothingWithoutUsageOrSender(t *testing.T) {
 			Task:     taskWithUsage(t, a2atype.TaskStateCompleted, &usage),
 			Sender:   &database.TurnSender{Kind: conv.KagentTurnSenderPrincipal, PrincipalID: "alice"},
 		}},
-		{name: "no dispatch sender", settled: &database.SettledTask{
-			Previous: taskWithUsage(t, a2atype.TaskStateWorking, nil),
-			Task:     taskWithUsage(t, a2atype.TaskStateCompleted, &usage),
-		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			recorder, reader := newTestUsageRecorder(t)
@@ -146,6 +143,20 @@ func TestUsageRecorderCountsNothingWithoutUsageOrSender(t *testing.T) {
 			require.Empty(t, values)
 		})
 	}
+}
+
+func TestUsageRecorderCountsTokensWithoutARecordedSender(t *testing.T) {
+	usage := apia2a.Usage{TokenCounts: apia2a.TokenCounts{InputTokens: 10, OutputTokens: 2, TotalTokens: 12}}
+	recorder, reader := newTestUsageRecorder(t)
+	recorder.record(t.Context(), usageTestSession, &database.SettledTask{
+		Previous: taskWithUsage(t, a2atype.TaskStateWorking, nil),
+		Task:     taskWithUsage(t, a2atype.TaskStateCompleted, &usage),
+	})
+
+	values, senders := collectUsage(t, reader)
+	require.Equal(t, int64(10), values["kagent.turn.usage.input_tokens"][""])
+	require.Equal(t, int64(2), values["kagent.turn.usage.output_tokens"][""])
+	require.Empty(t, senders)
 }
 
 func TestSettleTaskChargesTheSettledBoundary(t *testing.T) {
