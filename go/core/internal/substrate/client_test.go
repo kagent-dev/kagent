@@ -374,13 +374,15 @@ func TestDeleteTagPassesUIDPrecondition(t *testing.T) {
 
 type suspendActorFake struct {
 	ateapipb.ControlClient
-	actor   *ateapipb.Actor
-	request *ateapipb.SuspendActorRequest
-	get     func(context.Context) (*ateapipb.Actor, error)
+	actor    *ateapipb.Actor
+	request  *ateapipb.SuspendActorRequest
+	deadline time.Time
+	get      func(context.Context) (*ateapipb.Actor, error)
 }
 
-func (f *suspendActorFake) SuspendActor(_ context.Context, request *ateapipb.SuspendActorRequest, _ ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
+func (f *suspendActorFake) SuspendActor(ctx context.Context, request *ateapipb.SuspendActorRequest, _ ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
 	f.request = request
+	f.deadline, _ = ctx.Deadline()
 	return &ateapipb.SuspendActorResponse{Actor: f.actor}, nil
 }
 
@@ -437,5 +439,15 @@ func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
 		got, err := client.SuspendActor(t.Context(), "team", "actor")
 		require.NoError(t, err)
 		require.Same(t, durable, got)
+	})
+	t.Run("snapshot upload uses longer timeout than metadata calls", func(t *testing.T) {
+		durable := proto.CloneOf(actor)
+		durable.Status.Snapshots = []*ateapipb.Snapshot{completed}
+		fake := &suspendActorFake{actor: durable}
+		client := &Client{ControlClient: fake, cfg: Config{CallTimeout: 30 * time.Second}}
+		started := time.Now()
+		_, err := client.SuspendActor(t.Context(), "team", "actor")
+		require.NoError(t, err)
+		require.WithinDuration(t, started.Add(2*time.Minute), fake.deadline, time.Second)
 	})
 }

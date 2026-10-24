@@ -203,7 +203,9 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 // SuspendActor waits for durable storage, including an upload left by an earlier
 // attempt. Substrate's synchronous mode returns already-suspended Actors as-is.
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
-	ctx, cancel := c.callCtx(ctx)
+	// Snapshot upload can outlast the timeout used for metadata RPCs. The
+	// caller's deadline still bounds the full quiescence workflow.
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{
 		Actor:   actorRef(atespace, actorID),
