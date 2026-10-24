@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -18,6 +19,7 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
@@ -28,12 +30,14 @@ const credentialValue = "credential-must-not-be-serialized"
 
 func TestCompileProviderCredentials(t *testing.T) {
 	tests := []struct {
-		name       string
-		model      v1alpha3.ModelConfigSpec
-		secretData map[string][]byte
-		wantEnv    map[string]string
-		wantEgress []string
-		wantErr    string
+		name            string
+		model           v1alpha3.ModelConfigSpec
+		secretData      map[string][]byte
+		wantEnv         map[string]string
+		wantEgress      []string
+		wantCredentials []egress.Credential
+		wantErr         string
+		authorities     map[string]string
 	}{
 		{
 			name: "Anthropic",
@@ -70,19 +74,43 @@ func TestCompileProviderCredentials(t *testing.T) {
 			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-west-2.amazonaws.com:443"},
 		},
 		{
-			name: "Anthropic Vertex AI",
+			// k8s.io would set the stored service account key as the bearer token.
+			name: "Anthropic Vertex AI on the Kubernetes class",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
 				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
 				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
-			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`)},
-			wantErr:    "cannot use gateway header injection",
+			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","private_key":"` + credentialValue + `"}`)},
+			wantErr:    "set runtimeDefaults.modelCredentialAuthorities.AnthropicVertexAI",
+		},
+		{
+			name: "Anthropic Vertex AI minting authority",
+			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
+				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
+				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
+			secretData:  map[string][]byte{"credentials.json": []byte(`{"type":"service_account","private_key":"` + credentialValue + `"}`)},
+			authorities: map[string]string{"AnthropicVertexAI": "tokens.example.com"},
+			wantEnv: map[string]string{claudeconfig.UseVertexEnvName: "1", claudeconfig.SkipVertexAuthEnvName: "1",
+				claudeconfig.VertexProjectEnvName: "project", claudeconfig.VertexRegionEnvName: "us-east5",
+				claudeconfig.AnthropicCustomHeadersEnvName: "Authorization: Bearer " + translator.CredentialPlaceholder},
+			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://us-east5-aiplatform.googleapis.com:443"},
+			wantCredentials: []egress.Credential{{Origin: "https://us-east5-aiplatform.googleapis.com:443", Header: "authorization", Prefix: "Bearer ",
+				URI: "ate-secret://tokens.example.com/default/test/model-auth/credentials.json"}},
+		},
+		{
+			// Ambient Google credentials do not reach an actor.
+			name: "Anthropic Vertex AI without a Secret",
+			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
+				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
+			wantErr: "requires apiKeySecret and apiKeySecretKey",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, tt.secretData)
-			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+			settings := testRuntimeDefaults()
+			settings.ModelCredentialAuthorities = tt.authorities
+			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(t.Context(), input)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("expected unsupported credential error, got %v", err)
@@ -117,6 +145,10 @@ func TestCompileProviderCredentials(t *testing.T) {
 			if !reflect.DeepEqual(revision.EgressDestinations, tt.wantEgress) {
 				t.Errorf("egress = %v", revision.EgressDestinations)
 			}
+			if tt.wantCredentials != nil {
+				require.Equal(t, tt.wantCredentials, revision.Credentials)
+			}
+			require.NotContains(t, gotEnvironment, claudeconfig.GoogleApplicationCredentialsEnvName)
 			if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
 				t.Fatal("compiled config or provenance contains credential material")
 			}
@@ -124,7 +156,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 				t.Fatalf("provenance contains gateway-managed Secret: %s", revision.Provenance)
 			}
 
-			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+			again, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(t.Context(), input)
 			if err != nil || !reflect.DeepEqual(revision, again) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
@@ -172,6 +204,21 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	var validation *translator.ValidationError
 	if !errors.As(err, &validation) {
 		t.Fatalf("Compile() error = %v, want validation error", err)
+	}
+}
+
+// The Vertex AI provider sets ANTHROPIC_CUSTOM_HEADERS to the placeholder
+// bearer the gateway replaces, so a Harness cannot set it beside that provider.
+func TestCompileRejectsHarnessEnvironmentTheProviderSets(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
+		APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
+		AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global"}}}
+	input, reader := testInput(t, model, map[string][]byte{"credentials.json": []byte(credentialValue)})
+	for _, name := range []string{claudeconfig.AnthropicCustomHeadersEnvName, claudeconfig.SkipVertexAuthEnvName, claudeconfig.GoogleApplicationCredentialsEnvName} {
+		input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: name, Value: "x-other: value"}}
+		_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(t.Context(), input)
+		var validation *translator.ValidationError
+		require.ErrorAs(t, err, &validation, name)
 	}
 }
 

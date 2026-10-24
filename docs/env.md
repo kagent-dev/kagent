@@ -31,6 +31,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `GOOGLE_CLOUD_PROJECT` | String | `(none)` | Google Cloud project ID for Vertex AI. |
 | `GOOGLE_CLOUD_REGION` | String | `(none)` | Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | String | `(none)` | When set to 'true', use Vertex AI for Gemini models. |
+| `KAGENT_SKIP_VERTEX_AUTH` | Boolean | `false` | When true, call Vertex AI without Google credentials of the runtime's own; the egress gateway sets the access token. |
 | `MISTRAL_API_BASE` | String | `(none)` | Custom base URL for the Mistral AI API (defaults to https://api.mistral.ai/v1). |
 | `MISTRAL_API_KEY` | String | `(none)` | API key for Mistral AI. |
 | `OLLAMA_API_BASE` | String | `(none)` | Base URL for the Ollama API endpoint; falls back to http://localhost:11434 when model configuration and this variable are unset. |

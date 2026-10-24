@@ -71,7 +71,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
-		if claudeconfig.OwnsEnvironment(variable.Name) {
+		providerOwned := slices.ContainsFunc(providerEnvironment, func(owned corev1.EnvVar) bool { return owned.Name == variable.Name })
+		if claudeconfig.OwnsEnvironment(variable.Name) || providerOwned {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
@@ -110,7 +111,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, nil, environment)
+	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, nil, environment, c.settings)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +192,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 				return nil, nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
 			}
 		}
-		if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
+		if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey); err != nil {
 			return nil, nil, err
 		}
 		environment := []corev1.EnvVar{secretEnvironment(claudeconfig.AnthropicAPIKeyEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}
@@ -254,14 +255,19 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		if !reflect.DeepEqual(options, v1alpha3.AnthropicVertexAIConfig{}) {
 			return nil, nil, translator.NewValidationError("Claude does not support AnthropicVertexAI provider options beyond projectID and location yet")
 		}
-		if err := c.requireGoogleCredentials(ctx, model); err != nil {
+		if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey); err != nil {
 			return nil, nil, err
 		}
 		cfg := model.Spec.AnthropicVertexAI
+		// The gateway replaces the placeholder bearer with the access token its
+		// configured provider class serves, so Claude Code skips its own Google
+		// authentication and the Secret never enters the runtime. The gateway
+		// replaces a header a request carries and adds none.
 		return []corev1.EnvVar{
-			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
-			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{"https://" + translator.VertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
+			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.SkipVertexAuthEnvName, Value: "1"},
+			{Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
+			{Name: claudeconfig.AnthropicCustomHeadersEnvName, Value: "Authorization: Bearer " + translator.CredentialPlaceholder},
+		}, []string{translator.VertexAIOrigin(cfg.Location)}, nil
 	default:
 		return nil, nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
@@ -275,7 +281,7 @@ func anthropicBaseURLOrigin(raw string) (string, error) {
 	return egress.Origin(parsed), nil
 }
 
-func (c *Compiler) requireSecretKey(ctx context.Context, model *v1alpha3.ModelConfig, name, key string, requireJSON bool) error {
+func (c *Compiler) requireSecretKey(ctx context.Context, model *v1alpha3.ModelConfig, name, key string) error {
 	if name == "" || key == "" {
 		return translator.NewValidationError("Claude %s requires apiKeySecret and apiKeySecretKey", model.Spec.Provider)
 	}
@@ -286,40 +292,6 @@ func (c *Compiler) requireSecretKey(ctx context.Context, model *v1alpha3.ModelCo
 	value, ok := secret.Data[key]
 	if !ok || len(value) == 0 {
 		return translator.NewValidationError("Claude credential Secret %q does not contain a non-empty key %q", name, key)
-	}
-	if requireJSON && !json.Valid(value) {
-		return translator.NewValidationError("Claude Vertex credential Secret %q key %q must contain valid JSON", name, key)
-	}
-	return nil
-}
-
-func (c *Compiler) requireGoogleCredentials(ctx context.Context, model *v1alpha3.ModelConfig) error {
-	if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, true); err != nil {
-		return err
-	}
-	secret, err := c.secret(ctx, model.Namespace, model.Spec.APIKeySecret)
-	if err != nil {
-		return err
-	}
-	var credentials struct {
-		Type      string `json:"type"`
-		ProjectID string `json:"project_id"`
-		TokenURI  string `json:"token_uri"`
-	}
-	if err := json.Unmarshal(secret.Data[model.Spec.APIKeySecretKey], &credentials); err != nil {
-		return translator.NewValidationError("decode Claude Vertex credentials: %v", err)
-	}
-	if credentials.Type != "service_account" {
-		return translator.NewValidationError("Claude Vertex credentials must be a service_account key in the first release")
-	}
-	if credentials.ProjectID != model.Spec.AnthropicVertexAI.ProjectID {
-		return translator.NewValidationError("Claude Vertex credential project_id must match anthropicVertexAI.projectID")
-	}
-	if credentials.TokenURI != "" {
-		parsed, err := url.Parse(credentials.TokenURI)
-		if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "oauth2.googleapis.com" {
-			return translator.NewValidationError("Claude Vertex credential token_uri must use https://oauth2.googleapis.com")
-		}
 	}
 	return nil
 }

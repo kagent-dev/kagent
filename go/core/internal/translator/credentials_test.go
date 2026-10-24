@@ -7,7 +7,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
@@ -35,7 +37,7 @@ func TestCompileCredentialDestinations(t *testing.T) {
 			}
 			input := credentialInput(test.spec)
 			environment := []corev1.EnvVar{credentialEnv(test.env, "auth", test.spec.APIKeySecretKey)}
-			got, bindings, _, err := CompileCredentials(input, nil, environment)
+			got, bindings, _, err := CompileCredentials(input, nil, environment, nil)
 			require.NoError(t, err)
 			require.Equal(t, CredentialPlaceholder, got[0].Value)
 			require.Nil(t, got[0].ValueFrom)
@@ -49,37 +51,142 @@ func TestCompileCredentialDestinations(t *testing.T) {
 	}
 }
 
+// A Vertex AI key is bound on the provider class configured for its provider,
+// which mints the bearer token the gateway sets; no variable carries the key,
+// so the environment compiles unchanged.
+func TestCompileCredentialsBindsVertexAIWithoutEnvironment(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		spec v1alpha3.ModelConfigSpec
+		host string
+	}{
+		{"Gemini regional", vertexSpec(v1alpha3.ModelProviderGeminiVertexAI, "us-central1"), "us-central1-aiplatform.googleapis.com"},
+		{"Anthropic global", vertexSpec(v1alpha3.ModelProviderAnthropicVertexAI, "global"), "aiplatform.googleapis.com"},
+		{"Anthropic multi-region", vertexSpec(v1alpha3.ModelProviderAnthropicVertexAI, "eu"), "aiplatform.eu.rep.googleapis.com"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec := test.spec
+			spec.APIKeySecret, spec.APIKeySecretKey = "auth", "credentials.json"
+			settings := &configv1.RuntimeDefaultsConfig{ModelCredentialAuthorities: map[string]string{string(spec.Provider): "tokens.example.com"}}
+			environment := []corev1.EnvVar{{Name: "GOOGLE_CLOUD_LOCATION", Value: "somewhere"}}
+			got, bindings, _, err := CompileCredentials(credentialInput(spec), nil, environment, settings)
+			require.NoError(t, err)
+			require.Equal(t, environment, got)
+			require.Equal(t, []egress.Credential{{
+				Origin: "https://" + test.host + ":443", Header: "authorization", Prefix: "Bearer ",
+				URI: "ate-secret://tokens.example.com/default/team/auth/credentials.json",
+			}}, bindings)
+		})
+	}
+}
+
+// k8s.io would set the stored service account key itself as the bearer token,
+// so a Vertex AI key needs a class configured for its provider.
+func TestCompileCredentialsRejectsVertexAIOnKubernetesClass(t *testing.T) {
+	for _, provider := range []v1alpha3.ModelProvider{v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI} {
+		for _, settings := range []*configv1.RuntimeDefaultsConfig{
+			nil,
+			{ModelCredentialAuthorities: map[string]string{"OpenAI": "tokens.example.com"}},
+			{ModelCredentialAuthorities: map[string]string{string(provider): "k8s.io"}},
+		} {
+			t.Run(string(provider), func(t *testing.T) {
+				spec := vertexSpec(provider, "us-central1")
+				spec.APIKeySecret, spec.APIKeySecretKey = "auth", "credentials.json"
+				compiled, bindings, _, err := CompileCredentials(credentialInput(spec), nil, nil, settings)
+				require.ErrorContains(t, err, "set runtimeDefaults.modelCredentialAuthorities."+string(provider))
+				require.Nil(t, compiled)
+				require.Nil(t, bindings)
+			})
+		}
+	}
+}
+
+func TestCompileCredentialsRejectsVertexAITokenPassthrough(t *testing.T) {
+	for _, provider := range []v1alpha3.ModelProvider{v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI} {
+		t.Run(string(provider), func(t *testing.T) {
+			spec := vertexSpec(provider, "us-central1")
+			spec.TokenPassthrough = true
+			_, _, origins, err := CompileCredentials(credentialInput(spec), nil, nil, nil)
+			require.ErrorContains(t, err, "does not support tokenPassthrough")
+			require.Nil(t, origins)
+		})
+	}
+}
+
+func vertexSpec(provider v1alpha3.ModelProvider, location string) v1alpha3.ModelConfigSpec {
+	vertex := v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: location}
+	if provider == v1alpha3.ModelProviderGeminiVertexAI {
+		return v1alpha3.ModelConfigSpec{Provider: provider, GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: vertex}}
+	}
+	return v1alpha3.ModelConfigSpec{Provider: provider, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}}
+}
+
+func TestCompileCredentialsModelAuthority(t *testing.T) {
+	settings := &configv1.RuntimeDefaultsConfig{ModelCredentialAuthorities: map[string]string{"OpenAI": "tokens.example.com"}}
+	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "mcp", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
+		URL: "https://mcp.example.com/mcp",
+		HeadersFrom: []v1alpha3.ValueRef{{Name: "X-API-Key", ValueFrom: &v1alpha3.ValueSource{
+			Type: v1alpha3.SecretValueSource, Name: "mcp", Key: "token",
+		}}},
+	}}
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "auth", APIKeySecretKey: "token"})
+	input.Root.MCPTools = []ResolvedMCPTool{{Server: server}}
+	environment := []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token"), credentialEnv("KAGENT_CREDENTIAL_MCP", "mcp", "token")}
+
+	_, bindings, _, err := CompileCredentials(input, nil, environment, settings)
+	require.NoError(t, err)
+	require.Equal(t, []egress.Credential{
+		{Origin: "https://api.openai.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://tokens.example.com/default/team/auth/token"},
+		// MCP headers are not ModelConfig credentials and keep the Kubernetes class.
+		{Origin: "https://mcp.example.com:443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/mcp/token"},
+	}, bindings)
+
+	settings.ModelCredentialAuthorities["OpenAI"] = "192.0.2.1"
+	compiled, _, _, err := CompileCredentials(input, nil, environment, settings)
+	require.ErrorContains(t, err, "not an IP address")
+	require.Nil(t, compiled)
+}
+
+func TestCompileCredentialsRejectsRuntimeSigningSecrets(t *testing.T) {
+	for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "SAP_AI_CORE_CLIENT_ID", "SAP_AI_CORE_CLIENT_SECRET", "GOOGLE_APPLICATION_CREDENTIALS"} {
+		t.Run(name, func(t *testing.T) {
+			_, _, _, err := CompileCredentials(credentialInput(v1alpha3.ModelConfigSpec{}), nil, []corev1.EnvVar{credentialEnv(name, "auth", "token")}, nil)
+			require.ErrorContains(t, err, "cannot use gateway header injection")
+		})
+	}
+}
+
 func TestCompileCredentialsRejectsConflictingSharedModels(t *testing.T) {
 	spec := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "root", APIKeySecretKey: "token"}
 	input := credentialInput(spec)
 	spec.APIKeySecret = "child"
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(spec).Root}}
 	// The ADK environment is deduplicated, but every model still needs its own binding.
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
+	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")}, nil)
 	require.ErrorContains(t, err, "conflicting credentials")
 	require.Nil(t, environment)
 	input.Root.Shared[0].Agent.ResolvedModelConfig.Config.Spec.OpenAI = &v1alpha3.OpenAIConfig{BaseURL: "https://child.example.com/v1"}
-	_, bindings, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
+	_, bindings, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")}, nil)
 	require.NoError(t, err)
 	require.Len(t, bindings, 2)
 }
 
 func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
+	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")}, nil)
 	require.ErrorContains(t, err, "cannot use gateway header injection")
 	require.Nil(t, environment)
 }
 
 func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true})
-	_, bindings, _, err := CompileCredentials(input, nil, nil)
+	_, bindings, _, err := CompileCredentials(input, nil, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, bindings)
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "auth", APIKeySecretKey: "token",
 	}).Root}}
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
+	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")}, nil)
 	require.ErrorContains(t, err, "mixes tokenPassthrough with clients that do not use it")
 	require.Nil(t, environment)
 }
@@ -168,16 +275,16 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 					Spec:       tt.spec,
 				},
 			}
-			name, endpoint, _, _ := modelCredentialTarget(resolved)
-			require.Equal(t, tt.wantName, name)
-			require.Equal(t, tt.wantEndpoint, endpoint)
+			target := modelCredentialTarget(resolved, nil)
+			require.Equal(t, tt.wantName, target.name)
+			require.Equal(t, tt.wantEndpoint, target.endpoint)
 		})
 	}
 }
 
 func TestPassthroughCredentialUsesCanonicalOrigin(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
-	environment, credentials, targets, err := CompileCredentials(input, nil, nil)
+	environment, credentials, targets, err := CompileCredentials(input, nil, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, environment)
 	require.Empty(t, credentials)
@@ -190,7 +297,7 @@ func TestCompileCredentialsMCPTokenPassthrough(t *testing.T) {
 	}}
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
 	input.Root.MCPTools = []ResolvedMCPTool{{Server: passthrough}}
-	_, _, targets, err := CompileCredentials(input, nil, nil)
+	_, _, targets, err := CompileCredentials(input, nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}}, targets)
 
@@ -202,7 +309,7 @@ func TestCompileCredentialsMCPTokenPassthrough(t *testing.T) {
 		}}},
 	}}
 	input.Root.MCPTools = append(input.Root.MCPTools, ResolvedMCPTool{Server: keyed})
-	environment, _, _, err := CompileCredentials(input, nil, nil)
+	environment, _, _, err := CompileCredentials(input, nil, nil, nil)
 	require.ErrorContains(t, err, "mixes tokenPassthrough with clients that do not use it")
 	require.Nil(t, environment)
 }
@@ -303,7 +410,7 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 			if extra != nil {
 				extra = append(extra, input.Root.ResolvedModelConfig)
 			}
-			_, _, targets, err := CompileCredentials(input, extra, test.environment)
+			_, _, targets, err := CompileCredentials(input, extra, test.environment, nil)
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
 				var validation *ValidationError
