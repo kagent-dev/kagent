@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/pkg/invocationauth"
 )
 
 // defaultTimeout is the default execution timeout used by model implementations.
@@ -21,6 +24,7 @@ const defaultTimeout = 30 * time.Minute
 
 // TransportConfig holds TLS, passthrough, and header settings shared by all model providers.
 type TransportConfig struct {
+	PassthroughHeaders    []*configv1.InvocationCredentialHeader
 	Headers               map[string]string
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
@@ -53,9 +57,7 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 		}
 	}
 
-	if len(tc.Headers) > 0 {
-		transport = &headerTransport{base: transport, headers: tc.Headers}
-	}
+	transport = &headerTransport{base: transport, headers: tc.Headers, passthrough: tc.PassthroughHeaders}
 
 	// Outermost layer: inject W3C traceparent/tracestate from the active span so
 	// LLM calls stay attached to the invocation trace instead of starting fresh
@@ -67,7 +69,11 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 		timeout = *tc.Timeout
 	}
 
-	return &http.Client{Timeout: timeout, Transport: transport}, nil
+	client := &http.Client{Timeout: timeout, Transport: transport}
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return errors.New("model request redirects are not supported")
+	}
+	return client, nil
 }
 
 // withConnectTimeout returns a copy of base (which must be an *http.Transport)
@@ -144,14 +150,18 @@ func BearerTokenFromContext(ctx context.Context) string {
 
 // headerTransport wraps an http.RoundTripper and adds custom headers to all requests
 type headerTransport struct {
-	base    http.RoundTripper
-	headers map[string]string
+	passthrough []*configv1.InvocationCredentialHeader
+	base        http.RoundTripper
+	headers     map[string]string
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
+	}
+	if err := invocationauth.ApplyRequest(req.Context(), req, t.passthrough); err != nil {
+		return nil, err
 	}
 	return t.base.RoundTrip(req)
 }

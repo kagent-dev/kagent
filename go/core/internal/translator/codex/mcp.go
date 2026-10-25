@@ -1,16 +1,10 @@
 package codex
 
 import (
-	"context"
-	"crypto/sha256"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
-
-	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -18,13 +12,12 @@ import (
 )
 
 type mcpCompilation struct {
-	servers     map[string]codexconfig.MCPServer
-	environment []corev1.EnvVar
-	egress      []string
-	warnings    []string
+	servers  map[string]codexconfig.MCPServer
+	egress   []string
+	warnings []string
 }
 
-func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []translator.ResolvedMCPTool) (mcpCompilation, error) {
+func compileMCP(tools []translator.ResolvedMCPTool) (mcpCompilation, error) {
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
 	}
@@ -35,9 +28,7 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Codex MCP binding has no server")
 		}
-		if server.Spec.TokenPassthrough {
-			return mcpCompilation{}, translator.NewValidationError("Codex does not support RemoteMCPServer %q tokenPassthrough", server.Name)
-		}
+
 		name := strings.ReplaceAll(server.Name, ".", "_")
 		if previous, ok := identities[name]; ok {
 			return mcpCompilation{}, translator.NewValidationError("Codex MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
@@ -56,18 +47,20 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		if err != nil {
 			return mcpCompilation{}, translator.NewValidationError("Codex RemoteMCPServer %q URL %v", server.Name, err)
 		}
-		headers, environment, err := c.compileMCPHeaders(ctx, namespace, server.Spec.HeadersFrom)
-		if err != nil {
-			return mcpCompilation{}, fmt.Errorf("compile RemoteMCPServer %q headers: %w", server.Name, err)
-		}
 		selected := append([]string(nil), tool.Binding.Tools...)
 		slices.Sort(selected)
 		selected = slices.Compact(selected)
+		headers, passthrough, err := translator.RuntimeCredentialHeaders(server.Spec.Headers, nil)
+		if err != nil {
+			return mcpCompilation{}, err
+		}
+		if len(passthrough) > 0 {
+			return mcpCompilation{}, translator.NewValidationError("Codex RemoteMCPServer %q does not support tokenPassthrough", server.Name)
+		}
 		result.servers[name] = codexconfig.MCPServer{
 			URL: server.Spec.URL, Headers: headers, EnabledTools: selected,
 			RequireApproval: tool.Binding.RequireApproval,
 		}
-		result.environment = append(result.environment, environment...)
 		result.egress = append(result.egress, host)
 	}
 	return result, nil
@@ -88,42 +81,4 @@ func codexMCPCompatibilityWarning(server *v1alpha3.RemoteMCPServer) string {
 		return ""
 	}
 	return fmt.Sprintf("Codex RemoteMCPServer %q ignores unsupported fields %s", server.Name, strings.Join(ignored, ", "))
-}
-
-func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {
-	if len(refs) == 0 {
-		return nil, nil, nil
-	}
-	headers := make(map[string]string, len(refs))
-	var environment []corev1.EnvVar
-	for _, ref := range refs {
-		if strings.TrimSpace(ref.Name) == "" {
-			return nil, nil, translator.NewValidationError("MCP header name is required")
-		}
-		if _, ok := headers[ref.Name]; ok {
-			return nil, nil, translator.NewValidationError("duplicate MCP header %q", ref.Name)
-		}
-		switch {
-		case ref.ValueFrom == nil:
-			headers[ref.Name] = ref.Value
-		case ref.ValueFrom.Type == v1alpha3.ConfigMapValueSource:
-			configMap := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}))
-			if configMap == nil {
-				return nil, nil, fmt.Errorf("ConfigMap %q not found", ref.ValueFrom.Name)
-			}
-			value, ok := (*configMap).Data[ref.ValueFrom.Key]
-			if !ok {
-				return nil, nil, fmt.Errorf("ConfigMap %q does not contain key %q", ref.ValueFrom.Name, ref.ValueFrom.Key)
-			}
-			headers[ref.Name] = value
-		case ref.ValueFrom.Type == v1alpha3.SecretValueSource:
-			sum := sha256.Sum256([]byte(namespace + "\x00" + ref.ValueFrom.Name + "\x00" + ref.ValueFrom.Key))
-			name := mcpCredentialPrefix + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
-			headers[ref.Name] = "${" + name + "}"
-			environment = append(environment, secretEnvironment(name, ref.ValueFrom.Name, ref.ValueFrom.Key))
-		default:
-			return nil, nil, translator.NewValidationError("unsupported MCP header value source %q", ref.ValueFrom.Type)
-		}
-	}
-	return headers, environment, nil
 }

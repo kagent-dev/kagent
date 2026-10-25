@@ -15,7 +15,7 @@ import (
 
 func testEgressPolicyValidation(t *testing.T, cl ctrlclient.Client, namespace string) {
 	secret := corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"}
-	bearer := &EgressAuthentication{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: secret}
+	bearer := []Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: HeaderValueSource{SecretKeyRef: new(secret)}}}
 	for i, tc := range []struct {
 		name        string
 		destination EgressDestination
@@ -24,15 +24,15 @@ func testEgressPolicyValidation(t *testing.T, cl ctrlclient.Client, namespace st
 		{"HTTPS", EgressDestination{Origin: "https://api.example.com"}, false},
 		{"HTTP", EgressDestination{Origin: "http://registry.example.com:8080"}, false},
 		{"wildcard", EgressDestination{Origin: "https://*.example.com"}, false},
-		{"bearer", EgressDestination{Origin: "https://api.example.com:8443", Authentication: bearer}, false},
-		{"API key", EgressDestination{Origin: "https://api.example.com", Authentication: &EgressAuthentication{Header: "X-API-Key", SecretKeyRef: secret}}, false},
-		{"empty prefix", EgressDestination{Origin: "https://api.example.com", Authentication: &EgressAuthentication{Header: "X-API-Key", Prefix: new(""), SecretKeyRef: secret}}, false},
-		{"custom prefix", EgressDestination{Origin: "https://api.example.com", Authentication: &EgressAuthentication{Header: "Authorization", Prefix: new("Token "), SecretKeyRef: secret}}, false},
-		{"HTTP auth", EgressDestination{Origin: "http://api.example.com", Authentication: bearer}, false},
-		{"HTTP wildcard auth", EgressDestination{Origin: "http://*.example.com", Authentication: bearer}, true},
-		{"wildcard auth", EgressDestination{Origin: "https://*.example.com", Authentication: bearer}, true},
-		{"empty auth", EgressDestination{Origin: "https://api.example.com", Authentication: &EgressAuthentication{}}, true},
-		{"missing header", EgressDestination{Origin: "https://api.example.com", Authentication: &EgressAuthentication{SecretKeyRef: secret}}, true},
+		{"bearer", EgressDestination{Origin: "https://api.example.com:8443", Headers: bearer}, false},
+		{"API key", EgressDestination{Origin: "https://api.example.com", Headers: []Header{{Name: "X-API-Key", ValueFrom: HeaderValueSource{SecretKeyRef: new(secret)}}}}, false},
+		{"empty prefix", EgressDestination{Origin: "https://api.example.com", Headers: []Header{{Name: "X-API-Key", Prefix: new(""), ValueFrom: HeaderValueSource{SecretKeyRef: new(secret)}}}}, false},
+		{"custom prefix", EgressDestination{Origin: "https://api.example.com", Headers: []Header{{Name: "Authorization", Prefix: new("Token "), ValueFrom: HeaderValueSource{SecretKeyRef: new(secret)}}}}, false},
+		{"HTTP auth", EgressDestination{Origin: "http://api.example.com", Headers: bearer}, false},
+		{"HTTP wildcard auth", EgressDestination{Origin: "http://*.example.com", Headers: bearer}, true},
+		{"wildcard auth", EgressDestination{Origin: "https://*.example.com", Headers: bearer}, true},
+		{"empty auth", EgressDestination{Origin: "https://api.example.com", Headers: []Header{{}}}, true},
+		{"missing header", EgressDestination{Origin: "https://api.example.com", Headers: []Header{{ValueFrom: HeaderValueSource{SecretKeyRef: new(secret)}}}}, true},
 		{"path", EgressDestination{Origin: "https://api.example.com/v1"}, true},
 		{"userinfo", EgressDestination{Origin: "https://user@api.example.com"}, true},
 		{"query", EgressDestination{Origin: "https://api.example.com?"}, true},
@@ -51,20 +51,20 @@ func testEgressPolicyValidation(t *testing.T, cl ctrlclient.Client, namespace st
 			} else {
 				require.NoError(t, err)
 				require.NoError(t, cl.Get(t.Context(), ctrlclient.ObjectKeyFromObject(policy), policy))
-				require.Equal(t, tc.destination.Authentication, policy.Spec.Destinations[0].Authentication)
+				require.Equal(t, tc.destination.Headers, policy.Spec.Destinations[0].Headers)
 			}
 		})
 	}
 	for i, header := range []string{"Host", "cOnNeCtIoN", "Content-Length", "Transfer-Encoding", "Cookie", "Proxy-Authorization", "X-Key\r\nInjected"} {
-		policy := &EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("bad-header-%d", i)}, Spec: EgressPolicySpec{Destinations: []EgressDestination{{Origin: "https://api.example.com", Authentication: &EgressAuthentication{Header: header, SecretKeyRef: secret}}}}}
+		policy := &EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("bad-header-%d", i)}, Spec: EgressPolicySpec{Destinations: []EgressDestination{{Origin: "https://api.example.com", Headers: []Header{{Name: header, ValueFrom: HeaderValueSource{SecretKeyRef: new(secret)}}}}}}}
 		require.Error(t, cl.Create(t.Context(), policy), header)
 	}
 	for i, prefix := range []string{"Bearer\r", "Bearer\n", "\x00", "\x08", "\x0b", "\x1f", "\x7f", strings.Repeat("x", 257)} {
-		policy := &EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("bad-prefix-%d", i)}, Spec: EgressPolicySpec{Destinations: []EgressDestination{{Origin: "https://api.example.com", Authentication: &EgressAuthentication{Header: "Authorization", Prefix: new(prefix), SecretKeyRef: secret}}}}}
+		policy := &EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("bad-prefix-%d", i)}, Spec: EgressPolicySpec{Destinations: []EgressDestination{{Origin: "https://api.example.com", Headers: []Header{{Name: "Authorization", Prefix: new(prefix), ValueFrom: HeaderValueSource{SecretKeyRef: new(secret)}}}}}}}
 		require.Error(t, cl.Create(t.Context(), policy), "prefix %q", prefix)
 	}
 	for i, ref := range []corev1.SecretKeySelector{{Key: "token"}, {LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}}, {LocalObjectReference: secret.LocalObjectReference, Key: "token", Optional: new(true)}} {
-		policy := &EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("bad-secret-%d", i)}, Spec: EgressPolicySpec{Destinations: []EgressDestination{{Origin: "https://api.example.com", Authentication: &EgressAuthentication{Header: "Authorization", SecretKeyRef: ref}}}}}
+		policy := &EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("bad-secret-%d", i)}, Spec: EgressPolicySpec{Destinations: []EgressDestination{{Origin: "https://api.example.com", Headers: []Header{{Name: "Authorization", ValueFrom: HeaderValueSource{SecretKeyRef: new(ref)}}}}}}}
 		require.Error(t, cl.Create(t.Context(), policy))
 	}
 	for _, kind := range []string{"Agent", "SandboxTemplate", "AgentTemplate", "Harness"} {

@@ -22,6 +22,7 @@ from kagent.core.a2a._requests import KAgentUser
 import kagent.adk._agent_executor as executor_module
 from kagent.adk._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from kagent.adk._bearer_token import bearer_token
+from kagent.adk._invocation_auth import policy_url
 from kagent.adk._request_identity import request_user_id
 
 
@@ -50,14 +51,14 @@ def _request_context(*, state: dict | None = None) -> RequestContext:
     ("stream", "expected_mode"),
     [(False, StreamingMode.NONE), (True, StreamingMode.SSE)],
 )
-def test_request_converter_adds_headers_without_mutating_message_metadata(stream, expected_mode):
+def test_request_converter_keeps_credentials_out_of_session_state(stream, expected_mode):
     context = _request_context(state={"headers": {"authorization": "Bearer token"}})
     executor = A2aAgentExecutor(runner=lambda: None, config=A2aAgentExecutorConfig(stream=stream))
 
     run_request = executor._convert_request(context, None)
 
     assert run_request.run_config.streaming_mode == expected_mode
-    assert run_request.state_delta == {"headers": {"authorization": "Bearer token"}}
+    assert run_request.state_delta == {}
     assert not context.message.metadata
 
 
@@ -120,7 +121,7 @@ def test_adk_event_metadata_is_projected_at_adapter_boundary():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("caller", ["", "alice"])
 async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(monkeypatch, caller):
-    context = _request_context()
+    context = _request_context(state={"headers": {"authorization": "Bearer invocation-token"}})
     if caller:
         context.call_context.user = KAgentUser(caller)
     event_queue = object()
@@ -130,7 +131,9 @@ async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(mon
         session_id="context-1",
         run_config=RunConfig(),
     )
-    executor = A2aAgentExecutor(runner=lambda: None)
+    executor = A2aAgentExecutor(
+        runner=lambda: None, config=A2aAgentExecutorConfig(control_plane_url="https://controller/")
+    )
     executor._resolve_runner = AsyncMock(return_value=runner)
     executor._convert_request = lambda request_context, part_converter: run_request
     executor._prepare_session = AsyncMock()
@@ -145,15 +148,23 @@ async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(mon
         async def execute(self, request_context, queue):
             calls.update(context=request_context, event_queue=queue)
             assert request_user_id.get() == caller
+            assert bearer_token.get() == "invocation-token"
+            assert policy_url.get() == "https://controller/runtime/egress"
 
     monkeypatch.setattr(executor_module, "UpstreamA2aAgentExecutor", FakeUpstreamExecutor)
 
     token = request_user_id.set("outer-caller")
+    previous_policy = policy_url.set("https://outer/runtime/egress")
+    previous_bearer = bearer_token.set("outer-token")
     try:
         await executor.execute(context, event_queue)
         assert request_user_id.get() == "outer-caller"
+        assert bearer_token.get() == "outer-token"
+        assert policy_url.get() == "https://outer/runtime/egress"
     finally:
         request_user_id.reset(token)
+        policy_url.reset(previous_policy)
+        bearer_token.reset(previous_bearer)
 
     assert calls["runner"] is runner
     assert calls["force_new_version"] is True

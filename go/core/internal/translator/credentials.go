@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -74,57 +75,56 @@ func canonicalOrigin(endpoint string) (*url.URL, error) {
 	if err != nil {
 		return nil, NewValidationError("invalid passthrough credential destination")
 	}
-	origin, err := egress.ParseOrigin(egress.Origin(u))
+	origin, err := egress.ParseOrigin(egresspolicy.Origin(u))
 	if err != nil {
 		return nil, NewValidationError("invalid passthrough credential destination: %v", err)
 	}
 	return origin, nil
 }
 
-// CompileCredentials replaces secret-backed environment values with inert SDK
-// placeholders and compiles their destination-scoped gateway bindings. Models
+type CompiledCredentials struct {
+	Credentials             []egress.Credential
+	TokenPassthroughTargets []egresspolicy.GatewayTarget
+	IntegrationGrants       []egress.IntegrationGrant
+}
+
+// CompileCredentials compiles credential headers into destination-scoped
+// gateway bindings, retaining only inert environment values. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
-func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, []egresspolicy.GatewayTarget, error) {
+func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) (*CompiledCredentials, error) {
 	var bindings []egress.Credential
-	boundModels := map[string]bool{}
-	boundMCP := map[string]bool{}
+	var targets []egresspolicy.GatewayTarget
+	var destinations []string
 	var passthrough []passthroughClient
 	var directEndpoints []string
-	bind := func(rawURL, header, prefix, namespace, name, key string) error {
-		u, err := url.Parse(strings.TrimSpace(rawURL))
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
-			return NewValidationError("credential destination must be an absolute HTTP(S) URL without user information or fragment")
+	grants := make(map[string]egress.IntegrationGrant)
+	bind := func(kind string, metadata metav1.ObjectMeta, endpoint string, headers []v1alpha3.Header, ordinary []string) error {
+		access, err := CompileCredentialHeaders(endpoint, metadata.Namespace, headers)
+		if err != nil {
+			return err
 		}
-		uri := "ate-secret://k8s.io/default/" + namespace + "/" + name + "/" + key
-		bindings = append(bindings, egress.Credential{Origin: egress.Origin(u), Header: header, Prefix: prefix, URI: uri})
+		if len(access.TokenPassthroughTargets) > 0 {
+			grants[kind+"/"+metadata.Name] = egress.IntegrationGrant{Kind: kind, Name: metadata.Name, UID: string(metadata.UID), Targets: access.TokenPassthroughTargets}
+		}
+		bindings = append(bindings, access.Credentials...)
+		destinations = append(destinations, access.Destinations...)
+		if len(access.TokenPassthroughTargets) == 0 {
+			directEndpoints = append(directEndpoints, endpoint)
+		}
+		for _, target := range access.TokenPassthroughTargets {
+			passthrough = append(passthrough, passthroughClient{client: "integration", endpoint: endpoint, header: target.Header, prefix: target.Prefix, explicit: ordinary})
+		}
 		return nil
 	}
 	models := append([]*ResolvedModelConfig(nil), extraModels...)
 	var visit func(*AgentInput) error
 	visit = func(agent *AgentInput) error {
-		if len(extraModels) == 0 && agent.ResolvedModelConfig != nil {
+		if agent.ResolvedModelConfig != nil {
 			models = append(models, agent.ResolvedModelConfig)
 		}
 		for _, tool := range agent.MCPTools {
-			if tool.Server.Spec.TokenPassthrough {
-				var explicit []string
-				for _, ref := range tool.Server.Spec.HeadersFrom {
-					explicit = append(explicit, ref.Name)
-				}
-				passthrough = append(passthrough, passthroughClient{
-					client: fmt.Sprintf("%s %q", tool.Binding.Server.Kind, tool.Server.Name), endpoint: tool.Server.Spec.URL,
-					header: "authorization", prefix: "Bearer ", explicit: explicit,
-				})
-			} else {
-				directEndpoints = append(directEndpoints, tool.Server.Spec.URL)
-			}
-			for _, ref := range tool.Server.Spec.HeadersFrom {
-				if ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource {
-					boundMCP[ref.ValueFrom.Name+"\x00"+ref.ValueFrom.Key] = true
-					if err := bind(tool.Server.Spec.URL, ref.Name, "", tool.Server.Namespace, ref.ValueFrom.Name, ref.ValueFrom.Key); err != nil {
-						return err
-					}
-				}
+			if err := bind(egress.IntegrationRemoteMCPServer, tool.Server.ObjectMeta, tool.Server.Spec.URL, tool.Server.Spec.Headers, nil); err != nil {
+				return err
 			}
 		}
 		for _, child := range agent.Shared {
@@ -135,73 +135,39 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		return nil
 	}
 	if err := visit(input.Root); err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	for _, resolved := range models {
-		model := resolved.Config
-		if model.Spec.TokenPassthrough || model.Spec.APIKeySecret == "" {
-			continue
+		_, endpoint, _, _ := modelCredentialTarget(resolved)
+		headers := resolved.Config.Spec.Headers
+		if len(headers) > 0 && endpoint == "" {
+			return nil, NewValidationError("ModelConfig provider %q has no credential target", resolved.Config.Spec.Provider)
 		}
-		name, endpoint, header, prefix := modelCredentialTarget(resolved)
-		if name == "" {
-			continue
+		if err := bind(egress.IntegrationModelConfig, resolved.Config.ObjectMeta, endpoint, headers, slices.Collect(maps.Keys(resolved.Config.Spec.DefaultHeaders))); err != nil {
+			return nil, err
 		}
-		key := model.Spec.APIKeySecretKey
-		if model.Spec.Provider == v1alpha3.ModelProviderBedrock {
-			key = env.AWSBearerTokenBedrock.Name()
-			bearer := false
-			for _, variable := range environment {
-				if variable.Name == name && variable.ValueFrom != nil && variable.ValueFrom.SecretKeyRef != nil && variable.ValueFrom.SecretKeyRef.Name == model.Spec.APIKeySecret && variable.ValueFrom.SecretKeyRef.Key == key {
-					bearer = true
-				}
-			}
-			if !bearer {
-				continue
+		for _, other := range modelEndpoints(resolved, environment) {
+			if other != endpoint {
+				directEndpoints = append(directEndpoints, other)
 			}
 		}
-		if err := bind(endpoint, header, prefix, model.Namespace, model.Spec.APIKeySecret, key); err != nil {
-			return nil, nil, nil, err
-		}
-		boundModels[name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
-	}
-	for _, resolved := range models {
-		spec := resolved.Config.Spec
-		if !spec.TokenPassthrough {
-			directEndpoints = append(directEndpoints, modelEndpoints(resolved, environment)...)
-			continue
-		}
-		_, endpoint, header, prefix := modelCredentialTarget(resolved)
-		passthrough = append(passthrough, passthroughClient{
-			client: fmt.Sprintf("ModelConfig %q", resolved.Config.Name), endpoint: endpoint, header: header, prefix: prefix,
-			explicit: slices.Collect(maps.Keys(spec.DefaultHeaders)),
-		})
 	}
 	targets, err := passthroughTargets(passthrough, directEndpoints)
 	if err != nil {
-		return nil, nil, nil, err
-	}
-	var destinations []string
-	for _, binding := range bindings {
-		destinations = append(destinations, binding.Origin)
+		return nil, err
 	}
 	access, err := egress.CanonicalAccess(destinations, bindings, targets)
 	if err != nil {
-		return nil, nil, nil, NewValidationError("%v", err)
+		return nil, NewValidationError("%v", err)
 	}
-
-	result := append([]corev1.EnvVar(nil), environment...)
-	for i, variable := range result {
-		if variable.ValueFrom == nil {
-			continue
+	for _, variable := range environment {
+		if variable.ValueFrom != nil {
+			return nil, NewValidationError("environment credential %q cannot use gateway header injection; local signing and arbitrary secret environment variables are unsupported", variable.Name)
 		}
-		ref := variable.ValueFrom.SecretKeyRef
-		isMCP := strings.HasPrefix(variable.Name, "KAGENT_CREDENTIAL_") || strings.HasPrefix(variable.Name, "KAGENT_CODEX_MCP_CREDENTIAL_") || strings.HasPrefix(variable.Name, "KAGENT_CLAUDE_MCP_CREDENTIAL_")
-		if ref == nil || (!boundModels[variable.Name+"\x00"+ref.Name+"\x00"+ref.Key] && (!isMCP || !boundMCP[ref.Name+"\x00"+ref.Key])) {
-			return nil, nil, nil, NewValidationError("environment credential %q cannot use gateway header injection; local signing and arbitrary secret environment variables are unsupported", variable.Name)
-		}
-		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil
 	}
-	return result, access.Credentials, access.TokenPassthroughTargets, nil
+	result := &CompiledCredentials{Credentials: access.Credentials, TokenPassthroughTargets: access.TokenPassthroughTargets, IntegrationGrants: slices.Collect(maps.Values(grants))}
+	slices.SortFunc(result.IntegrationGrants, func(a, b egress.IntegrationGrant) int { return strings.Compare(a.Kind+"/"+a.Name, b.Kind+"/"+b.Name) })
+	return result, nil
 }
 
 func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, header, prefix string) {
@@ -235,26 +201,11 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 			endpoint = fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", spec.Bedrock.Region)
 		}
 	case v1alpha3.ModelProviderOllama:
-		// Ollama Cloud is the only keyed Ollama endpoint, so a binding is
-		// declared exactly when the model reaches it. That condition lives in
-		// models.OllamaReachesCloud, which the compiler's Secret reference and
-		// the egress list also use: a cloud model picked from the catalog, an
-		// explicit host, and a missing key were each judged differently in each
-		// place, so a valid configuration could compile with an env var that had
-		// no binding to match, or with an egress list that omitted the host it
-		// was about to call.
-		//
-		// Without a binding this leaves the name empty, and the env var is
-		// treated as a plain secret reference, which is correct — no request
-		// leaves for api.ollama.com.
-		if spec.Ollama == nil {
-			break
+		host := ""
+		if spec.Ollama != nil {
+			host = spec.Ollama.Host
 		}
-		hasCredential := spec.APIKeySecret != "" || spec.TokenPassthrough
-		if !models.OllamaReachesCloud(spec.Model, spec.Ollama.Host, hasCredential) {
-			break
-		}
-		name, endpoint, header, prefix = env.OllamaAPIKey.Name(), "https://api.ollama.com", "authorization", "Bearer "
+		name, endpoint, header, prefix = env.OllamaAPIKey.Name(), models.OllamaEndpoint(spec.Model, host, len(spec.Headers) > 0), "authorization", "Bearer "
 	case v1alpha3.ModelProviderFoundry:
 		name, endpoint, header = env.FoundryAPIKey.Name(), resolved.FoundryEndpoint, "api-key"
 		if spec.Foundry != nil && spec.Foundry.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {

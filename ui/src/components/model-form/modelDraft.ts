@@ -10,15 +10,17 @@
 import {
   toRef,
   type CreateModelConfigRequest,
+  type Header,
+  type SecretMaterial,
   type ModelConfig,
   type ModelConfigSpec,
   type TLSConfig,
 } from "@/api";
+import { credentialHeaderIssues } from "@/components/common/credentialHeaders";
 import { DEFAULT_NAMESPACE } from "@/components/common/resourceName";
 import {
   OLLAMA_DEFAULT_TAG,
   OLLAMA_PROVIDER,
-  supportsPassthrough,
 } from "./providerInfo";
 
 /**
@@ -52,6 +54,8 @@ export interface ModelDraft {
   /** Ollama only: the version tag appended to the model as `model:tag`. */
   modelTag: string;
   authType: ModelAuthType;
+  credentialHeader?: { name: string; prefix?: string };
+  additionalCredentialHeaders: Header[];
   /** An inline API key (auth `apiKey`); materialised into a Secret on create. */
   apiKey: string;
   /** An existing Secret's name and key (auth `secret`). */
@@ -85,6 +89,7 @@ export function emptyModelDraft(): ModelDraft {
     model: undefined,
     modelTag: "",
     authType: "apiKey",
+    additionalCredentialHeaders: [],
     apiKey: "",
     apiKeySecret: "",
     apiKeySecretKey: "",
@@ -172,6 +177,7 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
     modelTag = rawModel.slice(at + 1);
   }
 
+  const header = config.spec.headers?.[0];
   return {
     namespace: namespace || DEFAULT_NAMESPACE,
     name,
@@ -180,8 +186,10 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
     modelTag,
     authType: authTypeFrom(config.spec),
     apiKey: "",
-    apiKeySecret: config.spec.apiKeySecret ?? "",
-    apiKeySecretKey: config.spec.apiKeySecretKey ?? "",
+    credentialHeader: header ? { name: header.name, prefix: header.prefix } : undefined,
+    additionalCredentialHeaders: structuredClone(config.spec.headers?.slice(1) ?? []),
+    apiKeySecret: header?.valueFrom.secretKeyRef?.name ?? "",
+    apiKeySecretKey: header?.valueFrom.secretKeyRef?.key ?? "",
     params: paramsFromSpec(config.spec),
     defaultHeaders: Object.entries(config.spec.defaultHeaders ?? {}).map(
       ([key, value]) => ({ ...newHeaderRow(), key, value }),
@@ -192,41 +200,28 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
   };
 }
 
-/**
- * Which auth mode an existing spec expresses. For Ollama a named Secret is a
- * real choice — it is what authenticates an Ollama Cloud model — so it is
- * surfaced rather than collapsed to "none"; a bare local model still reads as
- * "none".
- */
 function authTypeFrom(spec: ModelConfigSpec): ModelAuthType {
-  if (spec.provider === OLLAMA_PROVIDER) {
-    return spec.apiKeySecret ? "secret" : "none";
-  }
-  if (spec.tokenPassthrough) return "passthrough";
-  if (spec.apiKeySecret) return "secret";
+  const header = spec.headers?.[0];
+  if (header?.valueFrom.tokenPassthrough) return "passthrough";
+  if (header?.valueFrom.secretKeyRef) return "secret";
   return "none";
 }
 
-/**
- * The auth mode to switch to when the provider changes.
- *
- * Keep the current mode when the new provider still offers it; otherwise land on
- * one it does. Passthrough is refused by providers the CRD does not allow it for,
- * and Ollama offers neither "apiKey" nor "passthrough", so a draft switching to
- * it from either has to move rather than leave the radio group with nothing
- * selected. The inverse of {@link authTypeFrom}.
- */
-export function authTypeForProvider(
-  provider: string | undefined,
-  current: ModelAuthType,
-): ModelAuthType {
-  if (provider === OLLAMA_PROVIDER) {
-    return current === "secret" || current === "none" ? current : "none";
-  }
-  if (current === "passthrough" && !supportsPassthrough(provider)) {
-    return "apiKey";
-  }
-  return current;
+export function authTypeForProvider(provider: string | undefined, current: ModelAuthType): ModelAuthType {
+  return provider === OLLAMA_PROVIDER && current === "apiKey" ? "none" : current;
+}
+
+export function defaultHeader(provider?: string, apiFormat?: string): { name: string; prefix?: string } {
+  if (provider === "Anthropic" || (provider === "Foundry" && apiFormat === "Anthropic")) return { name: "X-API-Key" };
+  if (provider === "AzureOpenAI" || provider === "Foundry") return { name: "api-key" };
+  if (provider === "Gemini") return { name: "X-Goog-API-Key" };
+  return { name: "Authorization", prefix: "Bearer " };
+}
+
+function defaultSecretKey(provider: string): string {
+  if (provider === "Gemini") return "GOOGLE_API_KEY";
+  if (provider === "Bedrock") return "AWS_BEARER_TOKEN_BEDROCK";
+  return `${provider.toUpperCase()}_API_KEY`;
 }
 
 /** The stored provider block, flattened to the form's string values. */
@@ -273,28 +268,19 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
     (spec as unknown as Record<string, unknown>)[blockKey] = block;
   }
 
-  // Authentication. Ollama defaults to none — a local daemon needs no
-  // credential — but a cloud model reaches api.ollama.com with one, so a Secret
-  // named here is carried through. Every other provider lets the mode decide.
-  let inlineKey = "";
-  if (!isOllama) {
-    if (draft.authType === "apiKey") {
-      inlineKey = draft.apiKey.trim();
-    } else if (draft.authType === "secret") {
-      if (draft.apiKeySecret.trim()) {
-        spec.apiKeySecret = draft.apiKeySecret.trim();
-        if (draft.apiKeySecretKey.trim()) {
-          spec.apiKeySecretKey = draft.apiKeySecretKey.trim();
-        }
-      }
-    } else if (draft.authType === "passthrough") {
-      spec.tokenPassthrough = true;
-    }
-  } else if (draft.authType === "secret" && draft.apiKeySecret.trim()) {
-    spec.apiKeySecret = draft.apiKeySecret.trim();
-    spec.apiKeySecretKey =
-      draft.apiKeySecretKey.trim() || "OLLAMA_API_KEY";
+  const credentialHeaders: Header[] = [];
+  const secrets: SecretMaterial[] = [];
+  const header = draft.credentialHeader ?? defaultHeader(draft.provider, draft.params.apiFormat);
+  if (draft.authType === "passthrough") {
+    credentialHeaders.push({ ...header, valueFrom: { tokenPassthrough: {} } });
+  } else if (draft.authType === "secret" || draft.authType === "apiKey") {
+    const name = draft.authType === "apiKey" && draft.apiKey.trim() ? draft.name.trim() : draft.apiKeySecret.trim() || draft.name.trim();
+    const key = draft.apiKeySecretKey.trim() || defaultSecretKey(draft.provider);
+    credentialHeaders.push({ ...header, valueFrom: { secretKeyRef: { name, key } } });
+    if (draft.authType === "apiKey" && draft.apiKey.trim()) secrets.push({ name, key, value: draft.apiKey.trim() });
   }
+  credentialHeaders.push(...structuredClone(draft.additionalCredentialHeaders));
+  if (credentialHeaders.length) spec.headers = credentialHeaders;
 
   const headers = headersToRecord(draft.defaultHeaders);
   if (Object.keys(headers).length > 0) spec.defaultHeaders = headers;
@@ -305,8 +291,7 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
   return {
     ref: toRef(draft.namespace.trim(), draft.name.trim()),
     spec,
-    // The backend materialises this into a Secret and fills in the spec's ref.
-    ...(inlineKey ? { apiKey: inlineKey } : {}),
+    ...(secrets.length ? { secrets } : {}),
   };
 }
 
@@ -364,31 +349,12 @@ export function modelDraftIssues(
     if (isBadNumber(key, value)) issues.push(`${key} must be a number.`);
   }
 
-  const isOllama = draft.provider === OLLAMA_PROVIDER;
-  if (!isOllama && draft.provider) {
-    // A new inline key is needed when creating; an edit keeps its existing one.
-    if (draft.authType === "apiKey" && !opts.isEdit && !draft.apiKey.trim()) {
-      issues.push(
-        "An API key is required, or choose another authentication type.",
-      );
-    }
-    // A secret key without a secret names nothing.
-    if (
-      draft.authType === "secret" &&
-      draft.apiKeySecretKey.trim() &&
-      !draft.apiKeySecret.trim()
-    ) {
-      issues.push("A secret key needs the secret that holds it.");
-    }
-  } else if (isOllama && draft.authType === "secret") {
-    // Ollama needs no credential locally, but a cloud model reaches
-    // api.ollama.com with the key that a Secret supplies, so naming the Secret
-    // is what makes that work. A Secret key is still optional: an operator
-    // relying on the chart's OLLAMA_API_KEY names only the Secret.
-    if (draft.apiKeySecretKey.trim() && !draft.apiKeySecret.trim()) {
-      issues.push("A secret key needs the secret that holds it.");
-    }
+  if (draft.authType === "apiKey" && !draft.apiKey.trim() && (!opts.isEdit || !draft.apiKeySecret.trim())) {
+    issues.push("An API key is required, or choose another authentication type.");
   }
+  if (draft.authType === "secret" && !draft.apiKeySecret.trim()) issues.push("A secret key needs the secret that holds it.");
+  const headers = draft.provider && draft.model ? buildModelPayload(draft).spec.headers ?? [] : [];
+  issues.push(...credentialHeaderIssues(headers, draft.defaultHeaders.map((row) => row.key)));
 
   return issues;
 }

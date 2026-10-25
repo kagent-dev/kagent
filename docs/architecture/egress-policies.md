@@ -81,7 +81,7 @@ access. A standalone sandbox with no references has no allowed egress.
 ## Call an API with a credential
 
 Policies authenticate requests using a header, an optional prefix, and a Secret
-in the same namespace. Authentication requires an exact HTTP(S) origin. HTTP
+in the same namespace. Credential headers require an exact HTTP(S) origin. HTTP
 supports in-cluster services whose transport is secured by a service mesh; the gateway injects the
 credential without exposing it to the guest:
 
@@ -94,18 +94,20 @@ metadata:
 spec:
   destinations:
     - origin: https://tickets.example.com
-      authentication:
-        header: Authorization
-        prefix: "Bearer "
-        secretKeyRef:
-          name: ticket-auth
-          key: token
+      headers:
+        - name: Authorization
+          prefix: "Bearer "
+          valueFrom:
+            secretKeyRef:
+              name: ticket-auth
+              key: token
     - origin: https://search.example.com:8443
-      authentication:
-        header: X-API-Key
-        secretKeyRef:
-          name: search-auth
-          key: api-key
+      headers:
+        - name: X-API-Key
+          valueFrom:
+            secretKeyRef:
+              name: search-auth
+              key: api-key
 ```
 
 The gateway sets the header value to `prefix + secretValue`. Prefixes are literal:
@@ -133,15 +135,17 @@ CA setup, inferred SDK placeholders, and rotation behavior.
 Bindings use the complete origin and a case-insensitive header name. Different
 ports can use different credentials. Identical bindings merge; conflicting
 Secret references or prefixes for the same origin/header hold new grants.
-Pinned integration bindings take precedence over additional grants. Caller-token passthrough
-cannot share its origin with static gateway credentials. Routing, framing,
+Pinned integration bindings take precedence over additional grants. A header cannot
+select both a Secret and caller-token passthrough. Routing, framing,
 hop-by-hop, proxy-authentication, and Cookie headers cannot carry credentials.
 At most 16 credential headers are supported per origin.
 
-`RemoteMCPServer.spec.headersFrom` applies the same credential-header rules to
-Secret-backed entries during Kubernetes admission. Literal and ConfigMap-backed
-headers do not use gateway credential injection. A server may configure up to
-64 headers, with names of at most 256 characters.
+`ModelConfig.spec.headers` and `RemoteMCPServer.spec.headers`
+use this same header list and validation. Select `valueFrom.tokenPassthrough: {}` in place
+of `valueFrom.secretKeyRef` to forward the authenticated invocation token. Go and Python
+model/MCP clients and native Codex/Claude transports apply effective bindings per
+request. See [credential injection](credential-injection.md) for lifecycle and
+runtime requirements. Ordinary MCP headers remain separate from credential headers.
 
 An exact credential-bearing rule wins over a matching wildcard rule. Credentials
 are never attached to wildcard rules or implicitly copied to other ports or
@@ -173,11 +177,12 @@ when there are also resolution errors. This condition never affects `Ready` or
 It reports admission from the controller's current inputs, not acknowledgement
 that every actor has received the update.
 
-Runtime revisions retain the integration access inferred from models and tools,
-including credential references and caller-token passthrough constraints. This
-pinned access is the revision's base.
-The combined additional access from a source's referenced EgressPolicies is its
-`EgressGrant`: destinations it may contact and credentials the gateway may inject.
+Runtime revisions retain required network destinations, integration Secret
+references, and expected passthrough headers. The first two form pinned access;
+expected passthrough headers only constrain compatibility with live grants.
+A source's `EgressGrant` combines its referenced EgressPolicies with passthrough
+targets from its currently compiled integrations. Both passthrough sources have
+the same live grant lifetime. A saved revision cannot authorize forwarding.
 Reconciliation and source definition structs carry it as `EgressGrant egress.Access`.
 Revision identity covers compiled runtime inputs and the owning Kubernetes UID.
 The full source specification is preserved as provenance for the first preparation
@@ -187,8 +192,10 @@ Changing a grant or its Secret reference does not prepare a new runtime image.
 Secret values remain outside compiled inputs; the gateway handles value rotation.
 
 The elected controller's Agent and SandboxTemplate reconcilers resolve current
-grants independently of runtime compilation. A missing Harness, AgentTemplate,
-or WorkerPool cannot freeze a revocation. Each preparation queue is the sole
+EgressPolicy grants independently of runtime compilation. Integration compilation
+failures withdraw integration passthrough grants; independently valid policy
+grants remain. A missing Harness, AgentTemplate, or WorkerPool cannot freeze a
+revocation. Each preparation queue is the sole
 writer of its source definition's grants in PostgreSQL. Definition updates
 persist admitted grants and retire replaced Kubernetes UIDs atomically.
 
@@ -205,9 +212,10 @@ A single store transaction records the runtime revision and, when ready, promote
 the active source still desires it. Failed runtime preparation preserves
 the last successful revision while continuing to update source grants.
 
-Effective policy is computed when read: the revision's pinned integration access
-is merged with grants from its active source UID. Retired or replaced identities
-contribute no grants. There is no separately published per-revision policy and
+Effective policy is computed when read: the revision's pinned network and Secret
+access is merged with compatible grants from its active source UID. Passthrough
+comes exclusively from those grants. Retired or replaced identities contribute
+no grants. There is no separately published per-revision policy and
 no notification needed when a revision is recorded: every read joins against
 the current persisted grants, including for newly recorded revisions.
 
@@ -275,4 +283,4 @@ should not receive or disclose them.
 This API intentionally does not expose Substrate rule effects, raw TCP/SSH,
 TLS passthrough, OAuth exchange, request signing, cross-namespace references,
 or unrestricted public-internet access. Substrate remains the enforcement
-backend; kagent exposes task-oriented reusable grants and static authentication.
+backend; kagent exposes task-oriented reusable grants and credential header bindings.

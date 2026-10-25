@@ -55,9 +55,9 @@ The repository [style guide](../../../../STYLE.md) also applies.
 - Do not use `uuid.MustParse` on runtime inputs. Pass validated values as SQL
   parameters; use checked parsing when Go needs a UUID for comparison. Store
   calls must return errors instead of panicking on malformed IDs.
-- [Migration 1](../../pkg/migrations/core/000001_initial.sql) is currently the
-  unreleased baseline: fold approved schema changes into it and recreate local
-  databases. After release, use new migrations. Keep both Up and Down valid.
+- Merged migrations are immutable, including the
+  [initial migration](../../pkg/migrations/core/000001_initial.sql). Add schema
+  changes in new migrations and keep both Up and Down valid.
 
 ## Atomicity and performance
 

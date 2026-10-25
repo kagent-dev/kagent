@@ -85,10 +85,10 @@ func createClaudeMockModel(t *testing.T, kube ctrlclient.Client, baseURL string)
 	model := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "claude-mock-", Namespace: "kagent"},
 		Spec: v1alpha3.ModelConfigSpec{
-			Provider:     v1alpha3.ModelProviderAnthropic,
-			Model:        "claude-sonnet-4-5",
-			APIKeySecret: secret.Name, APIKeySecretKey: "ANTHROPIC_API_KEY",
-			Anthropic: &v1alpha3.AnthropicConfig{BaseURL: baseURL},
+			Provider: v1alpha3.ModelProviderAnthropic,
+			Model:    "claude-sonnet-4-5",
+
+			Anthropic: &v1alpha3.AnthropicConfig{BaseURL: baseURL}, Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "ANTHROPIC_API_KEY"}}}},
 		},
 	}
 	if err := kube.Create(t.Context(), model); err != nil {

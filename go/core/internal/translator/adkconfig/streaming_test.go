@@ -66,6 +66,7 @@ func TestNonStreamingModelTurn(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			model := openAIModel("agent", server.URL+"/v1")
+			model.Spec.Headers = nil
 			model.Spec.Stream = new(false)
 			model.Spec.OpenAI.APIFormat = new(tc.format)
 			collections := contextTestCollections(t, model)

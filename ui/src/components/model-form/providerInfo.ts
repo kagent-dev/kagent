@@ -86,18 +86,14 @@ export function providerDisplayName(type: string): string {
 /** Ollama runs locally and needs no credential; nothing else is assumed keyless. */
 export const OLLAMA_PROVIDER = "Ollama";
 
-/**
- * Providers the CRD permits `tokenPassthrough` on — where the caller's own
- * credential is forwarded rather than one stored in the cluster. The passthrough
- * auth option is offered only for these.
- */
+/** Providers supported by the shared header authentication compiler. */
 export const PASSTHROUGH_ALLOWED_PROVIDERS = new Set([
   "OpenAI",
   "Anthropic",
   "AzureOpenAI",
   "Ollama",
   "Bedrock",
-  "SAPAICore",
+  "Gemini",
   "Mistral",
   "Foundry",
 ]);

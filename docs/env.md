@@ -17,7 +17,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AWS_REGION` | String | `(none)` | AWS region for Bedrock. Python Bedrock and Go Bedrock embeddings prefer AWS_DEFAULT_REGION, then AWS_REGION, then us-east-1. |
 | `AWS_SECRET_ACCESS_KEY` | String | `(none)` | AWS secret access key for IAM authentication with Bedrock. |
 | `AWS_SESSION_TOKEN` | String | `(none)` | AWS session token for temporary/SSO credentials with Bedrock. |
-| `AZURE_AD_TOKEN` | String | `(none)` | Azure Active Directory authentication token for Azure OpenAI. |
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `AZURE_OPENAI_ENDPOINT` | String | `(none)` | Endpoint URL for Azure OpenAI service. |
 | `FOUNDRY_API_KEY` | String | `(none)` | API key for Azure AI Foundry. |

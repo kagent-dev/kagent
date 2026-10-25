@@ -34,7 +34,7 @@ func TestAgentEgressErrorsDoNotBlockCompilation(t *testing.T) {
 	}{
 		{name: "missing policy", condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonNotFound},
 		{name: "invalid origin", destinations: []v1alpha3.EgressDestination{{Origin: "invalid"}}, condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonInvalidEgressPolicy},
-		{name: "missing secret", destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &v1alpha3.EgressAuthentication{Header: "Authorization", SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "token"}}}}, condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonInvalidEgressPolicy},
+		{name: "missing secret", destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Headers: []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: new(corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "token"})}}}}}, condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonInvalidEgressPolicy},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			collections, _ := newPreparationTestCollections(t, "gvisor")

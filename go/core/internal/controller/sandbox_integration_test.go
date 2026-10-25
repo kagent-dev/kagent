@@ -106,7 +106,7 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	waitUnresolved(kagentv1alpha3.EgressPoliciesReasonNotFound, "tickets")
 	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
 	grant := &kagentv1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "tickets"}, Spec: kagentv1alpha3.EgressPolicySpec{
-		Destinations: []kagentv1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &kagentv1alpha3.EgressAuthentication{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ticket-auth"}, Key: "token"}}}},
+		Destinations: []kagentv1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: new(corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ticket-auth"}, Key: "token"})}}}}},
 	}}
 	grant, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Create(t.Context(), grant, metav1.CreateOptions{})
 	require.NoError(t, err)

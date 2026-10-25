@@ -264,6 +264,7 @@ def create_ollama_llm(
     tls_ca_cert_path: Optional[str] = None,
     tls_disable_system_cas: Optional[bool] = None,
     api_key_passthrough: Optional[bool] = None,
+    passthrough_headers: list[dict[str, str]] | None = None,
 ) -> KAgentOllamaLlm:
     """Build a KAgentOllamaLlm from Ollama options.
 
@@ -279,4 +280,5 @@ def create_ollama_llm(
         tls_ca_cert_path=tls_ca_cert_path,
         tls_disable_system_cas=tls_disable_system_cas,
         api_key_passthrough=api_key_passthrough,
+        passthrough_headers=passthrough_headers or [],
     )

@@ -26,6 +26,8 @@ var nativeNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // Config is compiler-owned input to the native adapter. Credential values are
 // supplied only through the process environment.
 type Config struct {
+	ModelHeaders map[string]string `json:"model_headers,omitempty"`
+
 	MaxContentLength     *int64                 `json:"max_content_length,omitempty"`
 	ControlPlaneURL      string                 `json:"control_plane_url"`
 	LogLevel             string                 `json:"log_level,omitempty"`

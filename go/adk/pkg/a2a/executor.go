@@ -257,10 +257,19 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		userID := "A2A_USER_" + reqCtx.ContextID
 		trustedUserID := ""
 		if callCtx, ok := a2asrv.CallContextFrom(ctx); ok && callCtx.User != nil && callCtx.User.Name != "" {
-			userID = callCtx.User.Name
-			trustedUserID = userID
+			trustedUserID = callCtx.User.Name
 		}
 		sessionID := reqCtx.ContextID
+		// Native ADK storage uses the stable conversation key. Caller identity
+		// remains in the invocation context for credentials and attribution.
+		if call, ok := a2asrv.CallContextFrom(ctx); ok {
+			var native *a2asrv.CallContext
+			ctx, native = a2asrv.NewCallContext(ctx, call.ServiceParams())
+			*native = *call
+			native.User = nil
+		}
+		ctx, cancelInvocation := context.WithCancel(ctx)
+		defer cancelInvocation()
 
 		ctx = context.WithValue(ctx, publicContextIDKey{}, reqCtx.ContextID)
 		ctx = withBearerToken(ctx)

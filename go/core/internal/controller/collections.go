@@ -15,6 +15,7 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -38,14 +39,18 @@ type Collections struct {
 	AgentStatuses            krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]
 }
 
-// AgentRuntimeObservation records a Agent's preparation. The revision prevents a
-// cached observation from making changed inputs ready before reconciliation.
+// AgentRuntimeObservation records an Agent's preparation and durably applied
+// integration sources. Runtime observations are revision-scoped; integrations
+// remain bound to the Agent UID across failed compilation and are recovered from
+// the store after restart.
 type AgentRuntimeObservation struct {
-	Namespace  string
-	AgentName  string
-	RevisionID translator.RevisionID
-	Template   *ateapipb.ActorTemplate
-	Failure    *ReconciliationFailure
+	Namespace         string
+	AgentName         string
+	AgentUID          string
+	IntegrationGrants []egress.IntegrationGrant
+	RevisionID        translator.RevisionID
+	Template          *ateapipb.ActorTemplate
+	Failure           *ReconciliationFailure
 }
 
 func (p AgentRuntimeObservation) ResourceName() string {

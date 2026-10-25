@@ -40,7 +40,7 @@
         "x-test": "value"
       },
       "tls_insecure_skip_verify": false,
-      "api_key_passthrough": true,
+      "passthrough_headers": [{"name": "Authorization", "prefix": "Bearer "}],
       "openai": {
         "base_url": "https://llm.example.com/v1",
         "max_completion_tokens": "42",

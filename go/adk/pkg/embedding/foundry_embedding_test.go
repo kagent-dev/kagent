@@ -9,10 +9,10 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
@@ -104,16 +104,16 @@ func TestFoundryProviderAPIKeyPassthrough(t *testing.T) {
 	defer server.Close()
 
 	p, err := newFoundryProvider(&configv1.ADKEmbeddingConfig{
-		Provider:          "foundry",
-		Model:             "text-embedding-3-small",
-		Endpoint:          server.URL,
-		Deployment:        "text-embedding-3-small",
-		ApiVersion:        "2024-10-21",
-		ApiKeyPassthrough: true,
+		Provider:           "foundry",
+		Model:              "text-embedding-3-small",
+		Endpoint:           server.URL,
+		Deployment:         "text-embedding-3-small",
+		ApiVersion:         "2024-10-21",
+		PassthroughHeaders: []*configv1.InvocationCredentialHeader{{Name: "Api-Key"}},
 	}, nil)
 	require.NoError(t, err)
 
-	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{"Authorization": {"Bearer the-callers-token"}}))
 	embeddings, err := p.generate(ctx, []string{"hello"})
 	require.NoError(t, err)
 	require.Len(t, embeddings, 1)
@@ -133,16 +133,16 @@ func TestFoundryProviderAPIKeyPassthroughOverridesStaticKey(t *testing.T) {
 	defer server.Close()
 
 	p, err := newFoundryProvider(&configv1.ADKEmbeddingConfig{
-		Provider:          "foundry",
-		Model:             "text-embedding-3-small",
-		Endpoint:          server.URL,
-		Deployment:        "text-embedding-3-small",
-		ApiVersion:        "2024-10-21",
-		ApiKeyPassthrough: true,
+		Provider:           "foundry",
+		Model:              "text-embedding-3-small",
+		Endpoint:           server.URL,
+		Deployment:         "text-embedding-3-small",
+		ApiVersion:         "2024-10-21",
+		PassthroughHeaders: []*configv1.InvocationCredentialHeader{{Name: "Api-Key"}},
 	}, nil)
 	require.NoError(t, err)
 
-	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{"Authorization": {"Bearer the-callers-token"}}))
 	embeddings, err := p.generate(ctx, []string{"hello"})
 	require.NoError(t, err)
 	require.Len(t, embeddings, 1)

@@ -492,10 +492,10 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 func transportConfigFromBase(b *configv1.ADKModelConfig, timeout *time.Duration) models.TransportConfig {
 	return models.TransportConfig{
 		Headers:               extractHeaders(b.Headers),
+		PassthroughHeaders:    b.PassthroughHeaders,
 		TLSInsecureSkipVerify: b.TlsInsecureSkipVerify,
 		TLSCACertPath:         b.TlsCaCertPath,
 		TLSDisableSystemCAs:   b.TlsDisableSystemCas,
-		APIKeyPassthrough:     b.ApiKeyPassthrough,
 		Timeout:               timeout,
 	}
 }

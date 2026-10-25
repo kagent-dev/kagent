@@ -59,8 +59,16 @@ class ADKAgentConfig(_message.Message):
     output: ADKOutputConfig
     def __init__(self, name: _Optional[str] = ..., model: _Optional[_Union[ADKModelConfig, _Mapping]] = ..., description: _Optional[str] = ..., instruction: _Optional[str] = ..., http_tools: _Optional[_Iterable[_Union[ADKHTTPMCPServerConfig, _Mapping]]] = ..., sse_tools: _Optional[_Iterable[_Union[ADKSSEMCPServerConfig, _Mapping]]] = ..., stdio_tools: _Optional[_Iterable[_Union[ADKStdioMCPServerConfig, _Mapping]]] = ..., remote_agents: _Optional[_Iterable[_Union[ADKRemoteAgentConfig, _Mapping]]] = ..., stream: _Optional[bool] = ..., memory: _Optional[_Union[ADKMemoryConfig, _Mapping]] = ..., network: _Optional[_Union[ADKNetworkConfig, _Mapping]] = ..., agent_plugins: _Optional[_Union[ADKAgentPlugins, _Mapping]] = ..., context_config: _Optional[_Union[ADKContextConfig, _Mapping]] = ..., share_tools: _Optional[bool] = ..., session_db_url: _Optional[str] = ..., skills_directory: _Optional[str] = ..., sub_agents: _Optional[_Iterable[_Union[ADKAgentConfig, _Mapping]]] = ..., output: _Optional[_Union[ADKOutputConfig, _Mapping]] = ...) -> None: ...
 
+class InvocationCredentialHeader(_message.Message):
+    __slots__ = ("name", "prefix")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    PREFIX_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    prefix: str
+    def __init__(self, name: _Optional[str] = ..., prefix: _Optional[str] = ...) -> None: ...
+
 class ADKModelConfig(_message.Message):
-    __slots__ = ("model", "headers", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough", "openai", "azure_openai", "anthropic", "gemini_vertex_ai", "gemini_anthropic", "ollama", "gemini", "bedrock", "sap_ai_core", "foundry", "mistral")
+    __slots__ = ("model", "headers", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough", "passthrough_headers", "openai", "azure_openai", "anthropic", "gemini_vertex_ai", "gemini_anthropic", "ollama", "gemini", "bedrock", "sap_ai_core", "foundry", "mistral")
     class HeadersEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -74,6 +82,7 @@ class ADKModelConfig(_message.Message):
     TLS_CA_CERT_PATH_FIELD_NUMBER: _ClassVar[int]
     TLS_DISABLE_SYSTEM_CAS_FIELD_NUMBER: _ClassVar[int]
     API_KEY_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
+    PASSTHROUGH_HEADERS_FIELD_NUMBER: _ClassVar[int]
     OPENAI_FIELD_NUMBER: _ClassVar[int]
     AZURE_OPENAI_FIELD_NUMBER: _ClassVar[int]
     ANTHROPIC_FIELD_NUMBER: _ClassVar[int]
@@ -91,6 +100,7 @@ class ADKModelConfig(_message.Message):
     tls_ca_cert_path: str
     tls_disable_system_cas: bool
     api_key_passthrough: bool
+    passthrough_headers: _containers.RepeatedCompositeFieldContainer[InvocationCredentialHeader]
     openai: ADKOpenAI
     azure_openai: ADKAzureOpenAI
     anthropic: ADKAnthropic
@@ -102,7 +112,7 @@ class ADKModelConfig(_message.Message):
     sap_ai_core: ADKSAPAICore
     foundry: ADKFoundry
     mistral: ADKMistral
-    def __init__(self, model: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ..., api_key_passthrough: _Optional[bool] = ..., openai: _Optional[_Union[ADKOpenAI, _Mapping]] = ..., azure_openai: _Optional[_Union[ADKAzureOpenAI, _Mapping]] = ..., anthropic: _Optional[_Union[ADKAnthropic, _Mapping]] = ..., gemini_vertex_ai: _Optional[_Union[ADKGeminiVertexAI, _Mapping]] = ..., gemini_anthropic: _Optional[_Union[ADKGeminiAnthropic, _Mapping]] = ..., ollama: _Optional[_Union[ADKOllama, _Mapping]] = ..., gemini: _Optional[_Union[ADKGemini, _Mapping]] = ..., bedrock: _Optional[_Union[ADKBedrock, _Mapping]] = ..., sap_ai_core: _Optional[_Union[ADKSAPAICore, _Mapping]] = ..., foundry: _Optional[_Union[ADKFoundry, _Mapping]] = ..., mistral: _Optional[_Union[ADKMistral, _Mapping]] = ...) -> None: ...
+    def __init__(self, model: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ..., api_key_passthrough: _Optional[bool] = ..., passthrough_headers: _Optional[_Iterable[_Union[InvocationCredentialHeader, _Mapping]]] = ..., openai: _Optional[_Union[ADKOpenAI, _Mapping]] = ..., azure_openai: _Optional[_Union[ADKAzureOpenAI, _Mapping]] = ..., anthropic: _Optional[_Union[ADKAnthropic, _Mapping]] = ..., gemini_vertex_ai: _Optional[_Union[ADKGeminiVertexAI, _Mapping]] = ..., gemini_anthropic: _Optional[_Union[ADKGeminiAnthropic, _Mapping]] = ..., ollama: _Optional[_Union[ADKOllama, _Mapping]] = ..., gemini: _Optional[_Union[ADKGemini, _Mapping]] = ..., bedrock: _Optional[_Union[ADKBedrock, _Mapping]] = ..., sap_ai_core: _Optional[_Union[ADKSAPAICore, _Mapping]] = ..., foundry: _Optional[_Union[ADKFoundry, _Mapping]] = ..., mistral: _Optional[_Union[ADKMistral, _Mapping]] = ...) -> None: ...
 
 class ADKOpenAI(_message.Message):
     __slots__ = ("base_url", "frequency_penalty", "max_tokens", "max_completion_tokens", "n", "presence_penalty", "reasoning_effort", "seed", "temperature", "timeout", "top_p", "api_format", "token_exchange", "strict_output_schema")
@@ -338,32 +348,36 @@ class ADKSSEConnectionParams(_message.Message):
     def __init__(self, url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., sse_read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ...) -> None: ...
 
 class ADKHTTPMCPServerConfig(_message.Message):
-    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough")
+    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough", "passthrough_headers")
     PARAMS_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_HEADERS_FIELD_NUMBER: _ClassVar[int]
     REQUIRE_APPROVAL_FIELD_NUMBER: _ClassVar[int]
     TOKEN_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
+    PASSTHROUGH_HEADERS_FIELD_NUMBER: _ClassVar[int]
     params: ADKHTTPConnectionParams
     tools: _containers.RepeatedScalarFieldContainer[str]
     allowed_headers: _containers.RepeatedScalarFieldContainer[str]
     require_approval: bool
     token_passthrough: bool
-    def __init__(self, params: _Optional[_Union[ADKHTTPConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ...) -> None: ...
+    passthrough_headers: _containers.RepeatedCompositeFieldContainer[InvocationCredentialHeader]
+    def __init__(self, params: _Optional[_Union[ADKHTTPConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ..., passthrough_headers: _Optional[_Iterable[_Union[InvocationCredentialHeader, _Mapping]]] = ...) -> None: ...
 
 class ADKSSEMCPServerConfig(_message.Message):
-    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough")
+    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough", "passthrough_headers")
     PARAMS_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_HEADERS_FIELD_NUMBER: _ClassVar[int]
     REQUIRE_APPROVAL_FIELD_NUMBER: _ClassVar[int]
     TOKEN_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
+    PASSTHROUGH_HEADERS_FIELD_NUMBER: _ClassVar[int]
     params: ADKSSEConnectionParams
     tools: _containers.RepeatedScalarFieldContainer[str]
     allowed_headers: _containers.RepeatedScalarFieldContainer[str]
     require_approval: bool
     token_passthrough: bool
-    def __init__(self, params: _Optional[_Union[ADKSSEConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ...) -> None: ...
+    passthrough_headers: _containers.RepeatedCompositeFieldContainer[InvocationCredentialHeader]
+    def __init__(self, params: _Optional[_Union[ADKSSEConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ..., passthrough_headers: _Optional[_Iterable[_Union[InvocationCredentialHeader, _Mapping]]] = ...) -> None: ...
 
 class ADKStdioMCPServerConfig(_message.Message):
     __slots__ = ("command", "args", "env", "dir")
@@ -408,7 +422,14 @@ class ADKRemoteAgentConfig(_message.Message):
     def __init__(self, name: _Optional[str] = ..., url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., description: _Optional[str] = ..., isolate_sessions: _Optional[bool] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class ADKEmbeddingConfig(_message.Message):
-    __slots__ = ("provider", "model", "base_url", "api_key_passthrough", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "endpoint", "deployment", "api_version")
+    __slots__ = ("provider", "model", "base_url", "api_key_passthrough", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "endpoint", "deployment", "api_version", "headers", "passthrough_headers")
+    class HeadersEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     PROVIDER_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     BASE_URL_FIELD_NUMBER: _ClassVar[int]
@@ -419,6 +440,8 @@ class ADKEmbeddingConfig(_message.Message):
     ENDPOINT_FIELD_NUMBER: _ClassVar[int]
     DEPLOYMENT_FIELD_NUMBER: _ClassVar[int]
     API_VERSION_FIELD_NUMBER: _ClassVar[int]
+    HEADERS_FIELD_NUMBER: _ClassVar[int]
+    PASSTHROUGH_HEADERS_FIELD_NUMBER: _ClassVar[int]
     provider: str
     model: str
     base_url: str
@@ -429,7 +452,9 @@ class ADKEmbeddingConfig(_message.Message):
     endpoint: str
     deployment: str
     api_version: str
-    def __init__(self, provider: _Optional[str] = ..., model: _Optional[str] = ..., base_url: _Optional[str] = ..., api_key_passthrough: _Optional[bool] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ..., endpoint: _Optional[str] = ..., deployment: _Optional[str] = ..., api_version: _Optional[str] = ...) -> None: ...
+    headers: _containers.ScalarMap[str, str]
+    passthrough_headers: _containers.RepeatedCompositeFieldContainer[InvocationCredentialHeader]
+    def __init__(self, provider: _Optional[str] = ..., model: _Optional[str] = ..., base_url: _Optional[str] = ..., api_key_passthrough: _Optional[bool] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ..., endpoint: _Optional[str] = ..., deployment: _Optional[str] = ..., api_version: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., passthrough_headers: _Optional[_Iterable[_Union[InvocationCredentialHeader, _Mapping]]] = ...) -> None: ...
 
 class ADKMemoryConfig(_message.Message):
     __slots__ = ("ttl_days", "embedding")

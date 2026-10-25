@@ -155,7 +155,9 @@ class KAgentApp:
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
-            config=A2aAgentExecutorConfig(stream=self.stream),
+            config=A2aAgentExecutorConfig(
+                stream=self.stream, control_plane_url=self.kagent_api_url if not local else ""
+            ),
         )
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)

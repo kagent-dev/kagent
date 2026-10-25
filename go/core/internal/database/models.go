@@ -56,6 +56,9 @@ type AgentDefinition struct {
 	AgentName   string
 	AgentUID    string
 	EgressGrant egress.Access
+	// IntegrationGrants are applied source bindings, separate from the current
+	// admitted union so failed compilation cannot erase or invent their authority.
+	IntegrationGrants []egress.IntegrationGrant
 	// DesiredRevision is a compiled runtime digest, or empty while inputs are unresolved.
 	DesiredRevision string
 }

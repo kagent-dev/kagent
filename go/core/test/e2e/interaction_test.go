@@ -1285,8 +1285,8 @@ func createInteractionModel(t *testing.T, kube ctrlclient.Client, modelURL strin
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "interaction-", Namespace: "kagent"},
 		Spec: v1alpha3.ModelConfigSpec{
 			Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4.1-mini",
-			APIKeySecret: "kagent-openai", APIKeySecretKey: "OPENAI_API_KEY",
-			OpenAI: &v1alpha3.OpenAIConfig{BaseURL: modelURL}, DefaultHeaders: headers,
+
+			OpenAI: &v1alpha3.OpenAIConfig{BaseURL: modelURL}, DefaultHeaders: headers, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "kagent-openai"}, Key: "OPENAI_API_KEY"}}}},
 		},
 	}
 	if err := kube.Create(t.Context(), model); err != nil {

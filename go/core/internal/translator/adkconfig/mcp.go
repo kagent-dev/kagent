@@ -5,12 +5,17 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // addRemoteMCPServer translates the two remote protocols supported by the ADK.
 // This path intentionally has no proxy URL or egress-gateway indirection.
-func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1alpha3.RemoteMCPServer, tools []string, requireApproval bool, headers map[string]string) error {
+func addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1alpha3.RemoteMCPServer, tools []string, requireApproval bool) error {
 	targetURL := server.Spec.URL
+	headers, passthrough, err := translator.RuntimeCredentialHeaders(server.Spec.Headers, nil)
+	if err != nil {
+		return err
+	}
 
 	switch server.Spec.Protocol {
 	case v1alpha3.RemoteMCPServerProtocolSse:
@@ -24,7 +29,7 @@ func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1
 		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
 		config.SseTools = append(config.SseTools, &configv1.ADKSSEMCPServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
-			TokenPassthrough: server.Spec.TokenPassthrough,
+			PassthroughHeaders: passthrough,
 		})
 	default:
 		params := &configv1.ADKHTTPConnectionParams{Url: targetURL, Headers: headers}
@@ -40,7 +45,7 @@ func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1
 		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
 		config.HttpTools = append(config.HttpTools, &configv1.ADKHTTPMCPServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
-			TokenPassthrough: server.Spec.TokenPassthrough,
+			PassthroughHeaders: passthrough,
 		})
 	}
 

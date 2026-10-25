@@ -92,7 +92,7 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		resolution := translator.CompileEgressPolicies(ctx, translator.Collections{EgressPolicies: inputs.EgressPolicies, Secrets: inputs.Secrets}, template.Namespace, template.Spec.EgressPolicyRefs)
 		state.EgressGrant, state.EgressIssues = resolution.Access, resolution.Issues
 		// Sandboxes have no pinned model or tool access.
-		if _, err := egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil); err != nil {
+		if _, err := egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, state.EgressGrant.TokenPassthroughTargets); err != nil {
 			state.EgressConflict = err.Error()
 		}
 		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))

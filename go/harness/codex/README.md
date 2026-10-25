@@ -33,16 +33,17 @@ harness.
   executables, or implicit plugin MCP servers.
 - Native thread resume and bounded cancellation through `turn/interrupt`.
 
-Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
+Secret credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
 AWS IAM keys are rejected because they cannot be injected as outbound HTTP
-headers. Harness environment entries accept only literal values.
+headers. Harness environment entries accept only literal values. Caller-token passthrough
+is unsupported because Codex does not retain credentials in invocation-local context.
 
 The adapter deliberately fixes the native sandbox to `danger-full-access`; the
 Substrate Actor remains the security boundary. Its granular native approval
 policy enables MCP elicitation and rejects command, sandbox, rule, skill, and
 `request_permissions` prompts. MCP servers marked for approval prompt through
 App Server elicitation, while other MCP servers remain automatically approved.
-Account login, ModelConfig `tokenPassthrough`, custom TLS, legacy SSE MCP, Dedicated agents,
+Account login, custom TLS, legacy SSE MCP, Dedicated agents,
 checkpoint/fork guarantees, and configurable native policy are not advertised.
 
 Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and

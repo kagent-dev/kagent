@@ -268,7 +268,7 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
 			}
 			model := modelConfig()
-			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+			model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}
 			switch harnessType {
 			case translator.HarnessTypeKagent:
 				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
@@ -630,8 +630,7 @@ func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
 
 func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 	model := modelConfig()
-	model.Spec.APIKeySecret = "missing"
-	model.Spec.APIKeySecretKey = "key"
+	model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "key"}}}}
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
@@ -673,19 +672,9 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 		Data:       map[string][]byte{"token": []byte("Bearer another-secret")},
 	}
 	server := remoteMCPServer("remote", "https://mcp.example.com/mcp")
-	server.Spec.HeadersFrom = []v1alpha3.ValueRef{{
-		Name: "Authorization",
-		ValueFrom: &v1alpha3.ValueSource{
-			Type: v1alpha3.SecretValueSource, Name: secret.Name, Key: "token",
-		},
-	}}
+	server.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}}}}
 	secondServer := remoteMCPServer("second-remote", "https://second-mcp.example.com/mcp")
-	secondServer.Spec.HeadersFrom = []v1alpha3.ValueRef{{
-		Name: "Authorization",
-		ValueFrom: &v1alpha3.ValueSource{
-			Type: v1alpha3.SecretValueSource, Name: secondSecret.Name, Key: "token",
-		},
-	}}
+	secondServer.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secondSecret.Name}, Key: "token"}}}}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
@@ -723,7 +712,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	if count := bytes.Count(spec.Provenance, []byte(`"kind":"Secret"`)); count != 0 {
 		t.Fatalf("provenance contains %d Secret entries, want 0: %s", count, spec.Provenance)
 	}
-	if !bytes.Contains(spec.ConfigJSON, []byte("__KAGENT_ENV[KAGENT_CREDENTIAL_")) {
+	if !bytes.Contains(spec.ConfigJSON, []byte(translator.CredentialPlaceholder)) {
 		t.Fatalf("config does not contain credential placeholder: %s", spec.ConfigJSON)
 	}
 	foundSecretValues := map[string]bool{}
@@ -736,7 +725,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	if foundSecretValues[string(secret.Data["token"])] || foundSecretValues[string(secondSecret.Data["token"])] {
 		t.Fatal("credential leaked into runtime environment")
 	}
-	require.True(t, foundSecretValues[translator.CredentialPlaceholder])
+	require.Empty(t, spec.Environment)
 	require.Len(t, spec.Credentials, 2)
 	firstDigest, err := spec.Digest()
 	require.NoError(t, err)
@@ -1032,7 +1021,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 	} {
 		t.Run(string(kind), func(t *testing.T) {
 			model := modelConfig()
-			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+			model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("test-key")}}
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "shared-context"},
@@ -1114,15 +1103,14 @@ func inlineAgent(harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) *v
 func TestResolveModelConfigMistral(t *testing.T) {
 	model := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mistral", Namespace: "test"},
-		Spec: v1alpha3.ModelConfigSpec{Model: "mistral-large-latest", Provider: v1alpha3.ModelProviderMistral,
-			APIKeySecret: "mistral-auth", APIKeySecretKey: "MISTRAL_API_KEY"},
+		Spec:       v1alpha3.ModelConfigSpec{Model: "mistral-large-latest", Provider: v1alpha3.ModelProviderMistral, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "mistral-auth"}, Key: "MISTRAL_API_KEY"}}}}},
 	}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "mistral-auth", Namespace: "test"}, Data: map[string][]byte{"MISTRAL_API_KEY": []byte("key")}}
 	resolved := mockCollections(t, model, secret).ResolvedModelConfigs.List()[0]
 	require.True(t, resolved.Usable(), "%+v", resolved.Failure())
 
 	resolved = mockCollections(t, model).ResolvedModelConfigs.List()[0]
-	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
+	require.Equal(t, "CredentialSecretNotFound", resolved.Failure().Reason)
 }
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {

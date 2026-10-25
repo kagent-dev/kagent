@@ -153,7 +153,7 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     // namespace and the controller defaults it, so a mark there would be a lie.
     await expectRequired(page, {
       marked: ["Name", "Server URL"],
-      unmarked: ["Namespace", "TLS", "Headers"],
+      unmarked: ["Namespace", "TLS", "Credential headers"],
     });
   });
 

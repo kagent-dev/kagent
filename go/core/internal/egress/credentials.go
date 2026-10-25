@@ -36,7 +36,7 @@ func CanonicalGatewayTargets(targets []egresspolicy.GatewayTarget) ([]egresspoli
 		}
 		t.Origin = u.String()
 		t.Header = strings.ToLower(t.Header)
-		if !validCredentialHeader(t.Header) {
+		if !ValidCredentialHeader(t.Header) {
 			return nil, fmt.Errorf("invalid gateway target header %q", t.Header)
 		}
 		if !httpguts.ValidHeaderFieldValue(t.Prefix) {
@@ -66,7 +66,7 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 		}
 		c.Origin = u.String()
 		c.Header = strings.ToLower(c.Header)
-		if !validCredentialHeader(c.Header) || !httpguts.ValidHeaderFieldValue(c.Prefix) {
+		if !ValidCredentialHeader(c.Header) || !httpguts.ValidHeaderFieldValue(c.Prefix) {
 			return nil, fmt.Errorf("invalid credential injection header %q", c.Header)
 		}
 		if err := validCredentialURI(c.URI); err != nil {
@@ -124,8 +124,8 @@ func validCredentialURI(raw string) error {
 	return nil
 }
 
-// validCredentialHeader excludes routing, framing, hop-by-hop and cookie headers.
-func validCredentialHeader(header string) bool {
+// ValidCredentialHeader excludes routing, framing, hop-by-hop and cookie headers.
+func ValidCredentialHeader(header string) bool {
 	if len(header) > 256 || !httpguts.ValidHeaderFieldName(header) {
 		return false
 	}

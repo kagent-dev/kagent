@@ -13,6 +13,7 @@ import (
 
 	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 // EgressGrantIssue describes one policy resolution error.
@@ -87,6 +88,7 @@ func compileEgressPolicies(namespace string, refs []corev1.LocalObjectReference,
 		}
 		result.Access.Destinations = append(result.Access.Destinations, access.Destinations...)
 		result.Access.Credentials = append(result.Access.Credentials, access.Credentials...)
+		result.Access.TokenPassthroughTargets = append(result.Access.TokenPassthroughTargets, access.TokenPassthroughTargets...)
 	}
 	slices.SortFunc(result.Issues, func(a, b EgressGrantIssue) int { return strings.Compare(a.Policy, b.Policy) })
 	return result
@@ -98,39 +100,39 @@ func compileEgressPolicy(namespace string, policy *v1alpha3.EgressPolicy, getSec
 	}
 	var destinations []string
 	var credentials []egress.Credential
+	var targets []egresspolicy.GatewayTarget
 	for _, destination := range policy.Spec.Destinations {
 		origin, err := egress.ParseOrigin(destination.Origin)
 		if err != nil {
 			return egress.Access{}, err
 		}
 		destinations = append(destinations, origin.String())
-		auth := destination.Authentication
-		if auth == nil {
+		headers := destination.Headers
+		if len(headers) == 0 {
 			continue
 		}
 		if strings.Contains(origin.Host, "*") {
-			return egress.Access{}, NewValidationError("authentication requires an exact HTTP(S) origin")
+			return egress.Access{}, NewValidationError("credential headers require an exact HTTP(S) origin")
 		}
-		secret := auth.SecretKeyRef
-		binding := egress.Credential{Origin: origin.String(), Header: auth.Header}
-		if auth.Prefix != nil {
-			binding.Prefix = *auth.Prefix
-		}
-		if secret.Name == "" || secret.Key == "" || (secret.Optional != nil && *secret.Optional) {
-			return egress.Access{}, NewValidationError("requires a non-optional Secret name and key")
-		}
-		binding.URI = "ate-secret://k8s.io/default/" + namespace + "/" + secret.Name + "/" + secret.Key
-		if _, err := egress.CanonicalCredentials([]egress.Credential{binding}); err != nil {
+		access, err := CompileCredentialHeaders(origin.String(), namespace, headers)
+		if err != nil {
 			return egress.Access{}, err
 		}
-		found, err := getSecret(secret.Name)
-		if err != nil {
-			return egress.Access{}, fmt.Errorf("resolve Secret %q: %w", secret.Name, err)
+		for _, header := range headers {
+			secret := header.ValueFrom.SecretKeyRef
+			if secret == nil {
+				continue
+			}
+			found, err := getSecret(secret.Name)
+			if err != nil {
+				return egress.Access{}, fmt.Errorf("resolve Secret %q: %w", secret.Name, err)
+			}
+			if _, ok := found.Data[secret.Key]; !ok {
+				return egress.Access{}, NewValidationError("Secret %q is missing key %q", secret.Name, secret.Key)
+			}
 		}
-		if _, ok := found.Data[secret.Key]; !ok {
-			return egress.Access{}, NewValidationError("Secret %q is missing key %q", secret.Name, secret.Key)
-		}
-		credentials = append(credentials, binding)
+		credentials = append(credentials, access.Credentials...)
+		targets = append(targets, access.TokenPassthroughTargets...)
 	}
-	return egress.CanonicalAccess(destinations, credentials, nil)
+	return egress.CanonicalAccess(destinations, credentials, targets)
 }

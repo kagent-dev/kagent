@@ -258,7 +258,6 @@ describe("tool servers and tools", () => {
           description: "an extra server",
           protocol: "STREAMABLE_HTTP",
           url: "https://tools.internal",
-          headersFrom: [],
         },
       },
     });

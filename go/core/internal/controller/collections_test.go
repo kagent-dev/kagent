@@ -146,7 +146,7 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 			}
 			mock := krttest.NewMock(t, []any{template, runtimeHarness,
 				&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"},
-					Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-4", APIKeySecret: "auth", APIKeySecretKey: "key"}},
+					Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-4", Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "key"}}}}}},
 				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "auth"}, Data: map[string][]byte{"key": []byte("secret")}},
 				&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "selected"}},
 			})
@@ -195,8 +195,8 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			model := &kagentv1alpha3.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"},
 				Spec: kagentv1alpha3.ModelConfigSpec{
-					Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-					OpenAI: &kagentv1alpha3.OpenAIConfig{APIFormat: &responses},
+					Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5",
+					OpenAI: &kagentv1alpha3.OpenAIConfig{APIFormat: &responses}, Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 				},
 			}
 			switch harnessType {
@@ -346,7 +346,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
-		Provider: kagentv1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: kagentv1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []kagentv1alpha3.Header{{Name: "X-API-Key", ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model-auth", UID: "secret-uid"}, Data: map[string][]byte{"api-key": []byte("secret")}}
 	mock := krttest.NewMock(t, []any{
@@ -401,8 +401,8 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
-		Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-		OpenAI: &kagentv1alpha3.OpenAIConfig{APIFormat: &responses},
+		Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		OpenAI: &kagentv1alpha3.OpenAIConfig{APIFormat: &responses}, Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model-auth", UID: "secret-uid"}, Data: map[string][]byte{"api-key": []byte("secret")}}
 	mock := krttest.NewMock(t, []any{

@@ -163,10 +163,11 @@ type nativeOTLPHTTP struct {
 }
 
 type nativeModelProvider struct {
-	Name    string `toml:"name"`
-	WireAPI string `toml:"wire_api"`
-	EnvKey  string `toml:"env_key"`
-	BaseURL string `toml:"base_url,omitempty"`
+	HTTPHeaders map[string]string `toml:"http_headers,omitempty"`
+	Name        string            `toml:"name"`
+	WireAPI     string            `toml:"wire_api"`
+	EnvKey      string            `toml:"env_key"`
+	BaseURL     string            `toml:"base_url,omitempty"`
 	// TODO: REMOVE these test-only retry budgets once upstream denial handling permits
 	// bounded native retries. Alpha3 fixes DNS search fallback, not native backoff:
 	// https://github.com/agent-substrate/substrate/issues/2663
@@ -209,7 +210,8 @@ func renderConfig(cfg config.Config, codexHome string, disableRetries bool) ([]b
 	}
 	if cfg.Provider.Name == "openai" {
 		provider := nativeModelProvider{
-			Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
+			HTTPHeaders: cfg.ModelHeaders,
+			Name:        "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
 		}
 		if disableRetries {
 			provider.RequestMaxRetries = new(uint(0))

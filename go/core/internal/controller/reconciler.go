@@ -43,6 +43,7 @@ type AgentReconciliation struct {
 	EgressGrant           egress.Access // Requested union, including conflicting grants.
 	EgressIssues          []translator.EgressGrantIssue
 	EgressConflict        string
+	IntegrationGrants     []egress.IntegrationGrant // Last applied sources, or sources from a successfully compiled target.
 	Target                *compiledTarget
 	Warnings              []string
 	CompilationFailure    *ReconciliationFailure
@@ -53,9 +54,10 @@ type AgentReconciliation struct {
 // compiledTarget is published only after compilation, hashing, and ActorTemplate
 // construction all succeed. An absent target means there is no desired runtime.
 type compiledTarget struct {
-	Revision      translator.Revision
-	RevisionID    translator.RevisionID
-	ActorTemplate *ateapipb.ActorTemplate
+	Revision          translator.Revision
+	RevisionID        translator.RevisionID
+	ActorTemplate     *ateapipb.ActorTemplate
+	IntegrationGrants []egress.IntegrationGrant
 }
 
 func (c *compiledTarget) equals(other *compiledTarget) bool {
@@ -63,7 +65,7 @@ func (c *compiledTarget) equals(other *compiledTarget) bool {
 		return c == other
 	}
 	return c.RevisionID == other.RevisionID && c.Revision.Equals(other.Revision) &&
-		proto.Equal(c.ActorTemplate, other.ActorTemplate)
+		proto.Equal(c.ActorTemplate, other.ActorTemplate) && reflect.DeepEqual(c.IntegrationGrants, other.IntegrationGrants)
 }
 
 func (r AgentReconciliation) ResourceName() string { return r.Agent.Namespace + "/" + r.Agent.Name }
@@ -112,10 +114,21 @@ func newAgentReconciliations(
 		resolution := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
 		state.EgressGrant, state.EgressIssues = resolution.Access, resolution.Issues
 		state.Target, state.Warnings, state.CompilationFailure = compileAgentTarget(ctx, collections, agent, settings, images)
+		observed := krt.FetchOne(ctx, agentRuntimeObservations, krt.FilterKey(state.ResourceName()))
+		if state.Target != nil {
+			state.IntegrationGrants = state.Target.IntegrationGrants
+		} else if observed != nil && observed.AgentUID == string(agent.UID) {
+			state.IntegrationGrants = observed.IntegrationGrants
+		}
+		integrations, applied := translator.ResolveIntegrationGrants(ctx, collections, agent.Namespace, state.IntegrationGrants)
+		state.IntegrationGrants = applied
+		state.EgressGrant.Destinations = append(state.EgressGrant.Destinations, integrations.Access.Destinations...)
+		state.EgressGrant.TokenPassthroughTargets = append(state.EgressGrant.TokenPassthroughTargets, integrations.Access.TokenPassthroughTargets...)
+		state.EgressIssues = append(state.EgressIssues, integrations.Issues...)
 		var err error
 		if state.Target == nil {
 			// Unrelated compilation failures must not freeze grant updates.
-			_, err = egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil)
+			_, err = egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, state.EgressGrant.TokenPassthroughTargets)
 		} else {
 			revision := &state.Target.Revision
 			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets}
@@ -128,7 +141,6 @@ func newAgentReconciliations(
 			return state
 		}
 
-		observed := krt.FetchOne(ctx, agentRuntimeObservations, krt.FilterKey(state.ResourceName()))
 		if observed == nil || observed.RevisionID != state.Target.RevisionID {
 			return state
 		}
@@ -170,7 +182,7 @@ func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collectio
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 	}
-	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}, warnings, nil
+	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate, IntegrationGrants: compilation.IntegrationGrants}, warnings, nil
 }
 
 func compilationFailure(err error) *ReconciliationFailure {
@@ -196,6 +208,7 @@ type runtimeRevisionStore interface {
 	actorEgressStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
+	GetAgentIntegrationGrants(context.Context, string, string) ([]egress.IntegrationGrant, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
@@ -262,6 +275,7 @@ func newReconciler(
 		if event.Old != nil && event.New != nil && event.Old.Agent.UID == event.New.Agent.UID &&
 			event.Old.desiredRevision() == event.New.desiredRevision() &&
 			reflect.DeepEqual(event.Old.EgressGrant, event.New.EgressGrant) &&
+			slices.EqualFunc(event.Old.IntegrationGrants, event.New.IntegrationGrants, func(a, b egress.IntegrationGrant) bool { return reflect.DeepEqual(a, b) }) &&
 			reflect.DeepEqual(event.Old.EgressIssues, event.New.EgressIssues) &&
 			event.Old.EgressConflict == event.New.EgressConflict && event.Old.Agent.DeletionTimestamp.Equal(event.New.Agent.DeletionTimestamp) {
 			return
@@ -359,7 +373,13 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	state := r.collections.Reconciliations.GetKey(key)
 	if observation := r.collections.AgentRuntimeObservations.GetKey(key); observation != nil &&
 		(state == nil || state.Target == nil || observation.RevisionID != state.Target.RevisionID) {
-		r.collections.AgentRuntimeObservations.DeleteObject(key)
+		if state != nil && observation.AgentUID == string(state.Agent.UID) && len(observation.IntegrationGrants) > 0 {
+			r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
+				Namespace: state.Agent.Namespace, AgentName: state.Agent.Name, AgentUID: observation.AgentUID, IntegrationGrants: observation.IntegrationGrants,
+			})
+		} else {
+			r.collections.AgentRuntimeObservations.DeleteObject(key)
+		}
 	}
 	if state == nil || !state.Agent.DeletionTimestamp.IsZero() {
 		parts := strings.Split(key, "/")
@@ -374,6 +394,21 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 			return err
 		}
 		return nil
+	}
+	if state.Target == nil && state.IntegrationGrants == nil {
+		// Recover applied integration authority before replacing the grant union.
+		// Feeding it into the graph also watches the retained sources when the
+		// failed compiler never reaches their current resource references.
+		applied, err := r.store.GetAgentIntegrationGrants(ctx, state.Agent.Namespace, string(state.Agent.UID))
+		if err != nil {
+			return fmt.Errorf("read Agent %s applied integrations: %w", key, err)
+		}
+		if len(applied) > 0 {
+			r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
+				Namespace: state.Agent.Namespace, AgentName: state.Agent.Name, AgentUID: string(state.Agent.UID), IntegrationGrants: applied,
+			})
+			return nil
+		}
 	}
 	grants := state.EgressGrant
 	if state.EgressConflict != "" {
@@ -390,7 +425,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	}
 	definition := database.AgentDefinition{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
-		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(), EgressGrant: grants,
+		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(), EgressGrant: grants, IntegrationGrants: state.IntegrationGrants,
 	}
 
 	// Store the desired edge before creating compute so a concurrent collector
@@ -398,8 +433,19 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	// the old desired edge without inventing a runtime revision;
 	// the upsert preserves the current UID's last-good runtime in either case.
 	if err := r.store.UpsertAgentDefinition(ctx, definition); err != nil {
+		// A write error can follow a committed revocation. Reload its durable
+		// state before using the cache again, or require hydration on retry if
+		// the outcome cannot yet be read. Older observations cannot restore it.
+		applied, readErr := r.store.GetAgentIntegrationGrants(ctx, definition.Namespace, definition.AgentUID)
+		if readErr != nil {
+			r.collections.AgentRuntimeObservations.DeleteObject(key)
+			err = errors.Join(err, fmt.Errorf("reload applied integrations: %w", readErr))
+		} else {
+			r.observeAppliedIntegrations(*state, applied)
+		}
 		return r.observePreparationError(*state, fmt.Errorf("store Agent %s: %w", key, err))
 	}
+	r.observeAppliedIntegrations(*state, state.IntegrationGrants)
 	if err := applySourceEgress(ctx, r.store, r.templates, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: definition.Namespace, Name: definition.AgentName}); err != nil {
 		return r.observePreparationError(*state, err)
 	}
@@ -471,6 +517,21 @@ func (r *Reconciler) observePreparationError(state AgentReconciliation, err erro
 	return err
 }
 
+// observeAppliedIntegrations caches only known durable source state. Keep runtime
+// preparation observations independent from live-source revocations.
+func (r *Reconciler) observeAppliedIntegrations(state AgentReconciliation, applied []egress.IntegrationGrant) {
+	observation := AgentRuntimeObservation{Namespace: state.Agent.Namespace, AgentName: state.Agent.Name, AgentUID: string(state.Agent.UID)}
+	if previous := r.collections.AgentRuntimeObservations.GetKey(state.ResourceName()); previous != nil && previous.AgentUID == observation.AgentUID {
+		observation = *previous
+	}
+	observation.IntegrationGrants = applied
+	if len(observation.IntegrationGrants) > 0 || observation.Template != nil || observation.Failure != nil {
+		r.collections.AgentRuntimeObservations.ConditionalUpdateObject(observation)
+	} else {
+		r.collections.AgentRuntimeObservations.DeleteObject(state.ResourceName())
+	}
+}
+
 func runtimePreparationFailure(err error) *ReconciliationFailure {
 	// Backend errors can contain credentials or infrastructure details. Publish
 	// only the code, never the raw error or details.
@@ -483,15 +544,21 @@ func runtimePreparationFailure(err error) *ReconciliationFailure {
 	}
 }
 
-// Observations belong to the Agent's current preparation, independently of how
-// long sessions or checkpoints keep its old runtime alive in the database.
+// Runtime observations belong to the Agent's current preparation. Applied
+// integration sources are preserved independently until a new configuration is
+// successfully stored, even when preparation fails before a revision is recorded.
 func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, failure *ReconciliationFailure) {
-	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
+	observation := AgentRuntimeObservation{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
+		AgentUID:   string(state.Agent.UID),
 		RevisionID: state.Target.RevisionID,
 		Template:   template,
 		Failure:    failure,
-	})
+	}
+	if previous := r.collections.AgentRuntimeObservations.GetKey(state.ResourceName()); previous != nil && previous.AgentUID == observation.AgentUID {
+		observation.IntegrationGrants = previous.IntegrationGrants
+	}
+	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(observation)
 }
 
 func (r *Reconciler) reconcileAgentStatus(ctx context.Context, key string) error {

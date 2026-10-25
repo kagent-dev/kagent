@@ -9,7 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 // SkillImage is a normalized, digest-pinned artifact mounted for skill loading.
@@ -109,7 +109,7 @@ func appendArtifactSourceDestination(destinations []string, source agentplugin.S
 func appendURLOrigin(destinations []string, rawURL string) []string {
 	parsed, err := url.Parse(rawURL)
 	if err == nil && parsed.Hostname() != "" {
-		return append(destinations, egress.Origin(parsed))
+		return append(destinations, egresspolicy.Origin(parsed))
 	}
 	return destinations
 }

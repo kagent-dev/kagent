@@ -73,6 +73,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
+	"github.com/kagent-dev/kagent/go/pkg/invocationauth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
@@ -422,6 +423,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	mux := http.NewServeMux()
+	mux.Handle("GET "+invocationauth.EgressPolicyPath, auth.AuthnMiddleware(authenticator)(runtimeauth.NewEgressPolicyHandler(store)))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

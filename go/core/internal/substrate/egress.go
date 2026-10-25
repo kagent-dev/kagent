@@ -74,7 +74,8 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		if err != nil {
 			return fmt.Errorf("reload intended actor egress: %w", err)
 		}
-		if slices.Equal(access.Destinations, latest.Destinations) && slices.Equal(access.Credentials, latest.Credentials) {
+		if slices.Equal(access.Destinations, latest.Destinations) && slices.Equal(access.Credentials, latest.Credentials) &&
+			slices.Equal(access.TokenPassthroughTargets, latest.TokenPassthroughTargets) {
 			return nil
 		}
 	}

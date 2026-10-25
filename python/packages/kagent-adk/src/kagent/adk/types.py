@@ -89,6 +89,7 @@ from kagent.core._runtime_config import RuntimeConfig, optional_field
 from protovalidate import validate
 
 from kagent.adk._approval import make_approval_callback
+from kagent.adk._invocation_auth import authentication_hook, credential_source, request_headers
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
@@ -144,8 +145,8 @@ def create_header_provider(
 
         # Add allowed headers from session state first
         if normalized_allowed and readonly_context:
-            request_headers = readonly_context.state.get(HEADERS_STATE_KEY, {})
-            for header_name, header_value in request_headers.items():
+            incoming = request_headers.get() or {}
+            for header_name, header_value in incoming.items():
                 if header_name.lower() in normalized_allowed:
                     headers[header_name] = header_value
 
@@ -266,7 +267,7 @@ def _timeout_seconds(config, name):
     return duration.seconds + duration.nanos / 1_000_000_000 if duration is not None else None
 
 
-def _mcp_params(config, params_type):
+def _mcp_params(config, params_type, passthrough_headers=()):
     # Only pass present fields, so the ADK retains its own timeout defaults.
     values = {"url": config.url, "headers": dict(config.headers)}
     for name in ("timeout", "sse_read_timeout"):
@@ -283,6 +284,17 @@ def _mcp_params(config, params_type):
             ca_cert_path=optional_field(config, "tls_ca_cert_path"),
             disable_system_cas=config.tls_disable_system_cas,
         )
+    if passthrough_headers or credential_source()[0]:
+        original_factory = params.httpx_client_factory
+        bindings = [{"name": h.name, "prefix": h.prefix} for h in passthrough_headers]
+
+        def authenticated_factory(*args, **kwargs):
+            client = original_factory(*args, **kwargs)
+            client.follow_redirects = False
+            client.event_hooks["request"].append(authentication_hook(bindings, snapshot=True))
+            return client
+
+        params.httpx_client_factory = authenticated_factory
     return params
 
 
@@ -306,17 +318,12 @@ def create_agent(
     sts_header_provider = None
     if sts_integration:
         sts_header_provider = sts_integration.header_provider
-    # TODO: implement RemoteMCPServer tokenPassthrough. Fail rather than
-    # connecting without the caller's credential.
-    for mcp_tool in [*config.http_tools, *config.sse_tools]:
-        if mcp_tool.token_passthrough:
-            raise NotImplementedError("MCP token passthrough is not yet supported by the Python ADK")
     if config.http_tools:
         for http_tool in config.http_tools:  # add http tools
             # Install a TLS-aware httpx_client_factory on the params
             # before constructing the toolset, so every MCP session
             # the session manager opens trusts the configured CA.
-            params = _mcp_params(http_tool.params, StreamableHTTPConnectionParams)
+            params = _mcp_params(http_tool.params, StreamableHTTPConnectionParams, http_tool.passthrough_headers)
             # Create header provider combining STS and allowed headers for this tool
             tool_header_provider = create_header_provider(
                 allowed_headers=http_tool.allowed_headers,
@@ -335,7 +342,7 @@ def create_agent(
                 has_tools_requiring_approval = True
     if config.sse_tools:
         for sse_tool in config.sse_tools:  # add sse tools
-            params = _mcp_params(sse_tool.params, SseConnectionParams)
+            params = _mcp_params(sse_tool.params, SseConnectionParams, sse_tool.passthrough_headers)
             # Create header provider combining STS and allowed headers for this tool
             tool_header_provider = create_header_provider(
                 allowed_headers=sse_tool.allowed_headers,
@@ -517,7 +524,10 @@ def _configure_memory(agent: Agent) -> None:
 
 
 def _transport_kwargs(model_config: ModelConfig) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {"api_key_passthrough": model_config.api_key_passthrough}
+    kwargs: dict[str, Any] = {
+        "api_key_passthrough": model_config.api_key_passthrough,
+        "passthrough_headers": [{"name": h.name, "prefix": h.prefix} for h in model_config.passthrough_headers],
+    }
     for source, target in (
         ("tls_insecure_skip_verify", "tls_disable_verify"),
         ("tls_ca_cert_path", "tls_ca_cert_path"),

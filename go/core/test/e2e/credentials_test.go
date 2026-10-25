@@ -22,9 +22,9 @@ func TestModelCredentialDelivery(t *testing.T) {
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
 		const token = "gateway-injection-e2e-token"
-		header, wantCredential := "Authorization", "Bearer "+token
+		header, prefix := "Authorization", "Bearer "
 		if harness.name == claudeE2EHarness {
-			header, wantCredential = "X-Api-Key", token
+			header, prefix = "X-Api-Key", ""
 		}
 		target := interactionTarget(t)
 		kube := interactionKubeClient(t)
@@ -32,10 +32,10 @@ func TestModelCredentialDelivery(t *testing.T) {
 		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{GenerateName: "gateway-auth-", Namespace: "kagent"}, StringData: map[string]string{"token": token}}
 		require.NoError(t, kube.Create(t.Context(), secret))
 		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), secret)) })
-		origin := startCredentialMock(t, header, wantCredential)
+		origin := startCredentialMock(t, header, prefix+token)
 		model := harness.createModel(t, kube, reachableModelURL(t, origin), nil)
 		before := model.DeepCopy()
-		model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = secret.Name, "token"
+		model.Spec.Headers = []v1alpha3.Header{{Name: header, Prefix: &prefix, ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}}}}
 		require.NoError(t, kube.Patch(t.Context(), model, ctrlclient.MergeFrom(before)))
 		template := &v1alpha3.AgentTemplate{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "gateway-credentials-", Namespace: "kagent", Labels: harness.labels()},

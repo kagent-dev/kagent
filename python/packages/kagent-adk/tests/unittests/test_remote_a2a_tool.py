@@ -4,6 +4,7 @@ from typing import Any, AsyncIterator, Callable, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 from a2a.types import Message as A2AMessage
 from a2a.types import Part as A2APart
 from a2a.types import (
@@ -25,6 +26,7 @@ from kagent.core.a2a import (
     get_hitl_payload,
 )
 
+from kagent.adk._invocation_auth import request_headers
 from kagent.adk._remote_a2a_tool import (
     KAgentRemoteA2ATool,
     KAgentRemoteA2AToolset,
@@ -674,6 +676,12 @@ class TestLineageHeaderPropagation:
     chain.
     """
 
+    @pytest.fixture(autouse=True)
+    def invocation_headers(self):
+        token = request_headers.set({})
+        yield
+        request_headers.reset(token)
+
     def _build_headers(self, tool: KAgentRemoteA2ATool, ctx: MockToolContext) -> dict[str, str]:
         return tool._build_call_context(ctx.as_tool_context()).service_parameters or {}
 
@@ -693,14 +701,10 @@ class TestLineageHeaderPropagation:
         unchanged from the inbound request and replaces parent with its own
         session id."""
         tool = _make_tool()
+        request_headers.set({"x-kagent-parent-context-id": "chat-1", "x-kagent-root-context-id": "chat-1"})
         ctx = MockToolContext(
             session_id="router-2",
-            session_state={
-                "headers": {
-                    "x-kagent-parent-context-id": "chat-1",
-                    "x-kagent-root-context-id": "chat-1",
-                }
-            },
+            session_state={"headers": {"x-kagent-root-context-id": "stale-root"}},
         )
 
         headers = self._build_headers(tool, ctx)
@@ -714,6 +718,7 @@ class TestLineageHeaderPropagation:
         parent header is not a real upstream root. Root falls back to our own
         session id instead."""
         tool = _make_tool()
+        request_headers.set({"x-kagent-parent-context-id": "ignored-1"})
         ctx = MockToolContext(
             session_id="router-2",
             session_state={"headers": {"x-kagent-parent-context-id": "ignored-1"}},
@@ -723,6 +728,17 @@ class TestLineageHeaderPropagation:
 
         assert headers.get("x-kagent-parent-context-id") == "router-2"
         assert headers.get("x-kagent-root-context-id") == "router-2"
+
+    def test_later_call_does_not_reuse_persisted_or_previous_root(self):
+        tool = _make_tool()
+        ctx = MockToolContext(
+            session_id="router-2",
+            session_state={"headers": {"x-kagent-root-context-id": "legacy-root"}},
+        )
+        for root in ("first-root", "second-root", None):
+            request_headers.set({"x-kagent-root-context-id": root} if root else {})
+            headers = self._build_headers(tool, ctx)
+            assert headers["x-kagent-root-context-id"] == (root or "router-2")
 
     def test_no_session_id_emits_no_lineage_headers(self):
         """When the caller cannot resolve a session id (e.g. a stub

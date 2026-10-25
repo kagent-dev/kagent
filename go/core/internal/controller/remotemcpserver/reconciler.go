@@ -81,7 +81,6 @@ func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
 			predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{},
 		))).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.requestsForDependency)).
-		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.requestsForDependency)).
 		Complete(r)
 }
 
@@ -141,10 +140,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 	return reconcile.Result{RequeueAfter: refreshInterval}, nil
 }
 
-// discoveryDisabled reports whether the operator opted the server out of tool
-// discovery with the kagent.dev/discovery=disabled label.
+// discoveryDisabled excludes caller-specific discovery from the global catalog,
+// and honors the operator's explicit discovery opt-out.
 func discoveryDisabled(server *v1alpha3.RemoteMCPServer) bool {
-	return server.Labels[consts.DiscoveryLabel] == consts.DiscoveryDisabled
+	if server.Labels[consts.DiscoveryLabel] == consts.DiscoveryDisabled {
+		return true
+	}
+	for _, header := range server.Spec.Headers {
+		if header.ValueFrom.TokenPassthrough != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Reconciler) updateCatalog(ctx context.Context, server *v1alpha3.RemoteMCPServer, tools []*v1alpha3.MCPTool, connected bool) error {
@@ -207,16 +214,8 @@ func (r *Reconciler) requestsForDependency(ctx context.Context, object client.Ob
 func referencesDependency(server *v1alpha3.RemoteMCPServer, object client.Object) bool {
 	switch object.(type) {
 	case *corev1.Secret:
-		for i := range server.Spec.HeadersFrom {
-			from := server.Spec.HeadersFrom[i].ValueFrom
-			if from != nil && from.Type == v1alpha3.SecretValueSource && from.Name == object.GetName() {
-				return true
-			}
-		}
-	case *corev1.ConfigMap:
-		for i := range server.Spec.HeadersFrom {
-			from := server.Spec.HeadersFrom[i].ValueFrom
-			if from != nil && from.Type == v1alpha3.ConfigMapValueSource && from.Name == object.GetName() {
+		for _, header := range server.Spec.Headers {
+			if header.ValueFrom.SecretKeyRef != nil && header.ValueFrom.SecretKeyRef.Name == object.GetName() {
 				return true
 			}
 		}

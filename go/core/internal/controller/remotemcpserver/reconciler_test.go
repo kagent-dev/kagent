@@ -185,10 +185,7 @@ func TestReconcileDeletesCatalogProjection(t *testing.T) {
 
 func TestReferencesDependency(t *testing.T) {
 	server := testServer()
-	server.Spec.HeadersFrom = []v1alpha3.ValueRef{
-		{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "auth", Key: "token"}},
-		{Name: "X-Config", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.ConfigMapValueSource, Name: "headers", Key: "value"}},
-	}
+	server.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"}}}}
 
 	tests := []struct {
 		name string
@@ -196,7 +193,7 @@ func TestReferencesDependency(t *testing.T) {
 		want bool
 	}{
 		{name: "header secret", obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth"}}, want: true},
-		{name: "header ConfigMap", obj: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "headers"}}, want: true},
+		{name: "unrelated ConfigMap", obj: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "auth"}}},
 		{name: "unrelated secret", obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "other"}}},
 	}
 	for _, test := range tests {
@@ -240,4 +237,18 @@ func getServer(t *testing.T, kube client.Client, source *v1alpha3.RemoteMCPServe
 		t.Fatal(err)
 	}
 	return result
+}
+
+func TestCallerAuthenticationDoesNotPublishGlobalDiscovery(t *testing.T) {
+	server := testServer()
+	server.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}
+	discoverer := &fakeDiscoverer{}
+	catalog := &fakeCatalog{}
+	_, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if discoverer.calls != 0 || len(catalog.tools) != 0 {
+		t.Fatal("caller-specific tool discovery reached the global catalog")
+	}
 }

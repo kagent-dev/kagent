@@ -107,10 +107,10 @@ func createCodexMockModel(t *testing.T, kube ctrlclient.Client, baseURL string) 
 	model := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "codex-mock-", Namespace: "kagent"},
 		Spec: v1alpha3.ModelConfigSpec{
-			Provider:     v1alpha3.ModelProviderOpenAI,
-			Model:        "gpt-5.2-codex",
-			APIKeySecret: secret.Name, APIKeySecretKey: "OPENAI_API_KEY",
-			OpenAI: &v1alpha3.OpenAIConfig{BaseURL: baseURL, APIFormat: &responses},
+			Provider: v1alpha3.ModelProviderOpenAI,
+			Model:    "gpt-5.2-codex",
+
+			OpenAI: &v1alpha3.OpenAIConfig{BaseURL: baseURL, APIFormat: &responses}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "OPENAI_API_KEY"}}}},
 		},
 	}
 	if err := kube.Create(t.Context(), model); err != nil {

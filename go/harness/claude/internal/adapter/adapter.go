@@ -134,6 +134,14 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 	}
 
+	if len(cfg.ModelHeaders) > 0 {
+		var headers []string
+		for name, value := range cfg.ModelHeaders {
+			headers = append(headers, name+": "+value)
+		}
+		slices.Sort(headers)
+		environment = setEnvironment(environment, "ANTHROPIC_CUSTOM_HEADERS", strings.Join(headers, "\n"))
+	}
 	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,

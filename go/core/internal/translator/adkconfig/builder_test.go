@@ -124,13 +124,11 @@ func TestBuildCompaction(t *testing.T) {
 		require.Len(t, result.Models, 2)
 		require.Equal(t, "summarizer", result.Models[1].Config.Name)
 		require.Contains(t, result.Egress, "https://summarizer.example.com:443")
-		var credentials []string
 		for _, variable := range result.Environment {
-			if variable.ValueFrom != nil && variable.ValueFrom.SecretKeyRef != nil {
-				credentials = append(credentials, variable.ValueFrom.SecretKeyRef.Name)
-			}
+			require.Nil(t, variable.ValueFrom)
 		}
-		require.Equal(t, []string{"agent-auth", "summarizer-auth"}, credentials)
+		require.Equal(t, "agent-auth", result.Models[0].Config.Spec.Headers[0].ValueFrom.SecretKeyRef.Name)
+		require.Equal(t, "summarizer-auth", result.Models[1].Config.Spec.Headers[0].ValueFrom.SecretKeyRef.Name)
 	})
 
 	t.Run("missing summarizer model", func(t *testing.T) {
@@ -147,8 +145,8 @@ func openAIModel(name, baseURL string) *v1alpha3.ModelConfig {
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test"},
 		Spec: v1alpha3.ModelConfigSpec{
 			Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4.1-mini",
-			APIKeySecret: name + "-auth", APIKeySecretKey: env.OpenAIAPIKey.Name(),
-			OpenAI: &v1alpha3.OpenAIConfig{BaseURL: baseURL},
+
+			OpenAI: &v1alpha3.OpenAIConfig{BaseURL: baseURL}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: name + "-auth"}, Key: env.OpenAIAPIKey.Name()}}}},
 		},
 	}
 }
@@ -238,8 +236,8 @@ func TestOllamaEgressDestination(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
 			Spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
-				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				Ollama: &v1alpha3.OllamaConfig{},
+
+				Ollama: &v1alpha3.OllamaConfig{}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ollama-cloud"}, Key: "OLLAMA_API_KEY"}}}},
 			},
 		}
 		collections := contextTestCollections(t, model)
@@ -261,8 +259,8 @@ func TestOllamaEgressDestination(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
 			Spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
-				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
+
+				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ollama-cloud"}, Key: "OLLAMA_API_KEY"}}}},
 			},
 		}
 		collections := contextTestCollections(t, model)
@@ -282,10 +280,14 @@ func contextTestCollections(t *testing.T, models ...*v1alpha3.ModelConfig) trans
 	t.Helper()
 	objects := make([]any, 0, 2*len(models))
 	for _, model := range models {
-		objects = append(objects, model, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: model.Spec.APIKeySecret, Namespace: model.Namespace},
-			Data:       map[string][]byte{model.Spec.APIKeySecretKey: []byte("secret")},
-		})
+		objects = append(objects, model)
+		if model.Spec.Headers != nil {
+			for _, header := range model.Spec.Headers {
+				if ref := header.ValueFrom.SecretKeyRef; ref != nil {
+					objects = append(objects, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: ref.Name, Namespace: model.Namespace}, Data: map[string][]byte{ref.Key: []byte("secret")}})
+				}
+			}
+		}
 	}
 	mock := krttest.NewMock(t, objects)
 	collections := translator.Collections{
@@ -352,7 +354,8 @@ func TestBuildMemory(t *testing.T) {
 			require.Equal(t, "embedding", result.Models[1].Config.Name)
 			require.Contains(t, result.Egress, "https://embedding.example.com:443")
 			require.Len(t, result.Environment, 2)
-			require.Equal(t, "embedding-auth", result.Environment[1].ValueFrom.SecretKeyRef.Name)
+			require.Nil(t, result.Environment[1].ValueFrom)
+			require.Equal(t, "embedding-auth", result.Models[1].Config.Spec.Headers[0].ValueFrom.SecretKeyRef.Name)
 		})
 	}
 }

@@ -17,15 +17,12 @@ limitations under the License.
 package v1alpha3
 
 import (
-	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
-	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // +kubebuilder:validation:Enum=SSE;STREAMABLE_HTTP
@@ -39,8 +36,16 @@ const (
 // RemoteMCPServerSpec defines the desired state of RemoteMCPServer.
 //
 // +kubebuilder:validation:XValidation:message="spec.tls must be unset when spec.url has http:// scheme: a TLS opinion contradicts a plaintext URL. Either drop spec.tls, or use https:// / a scheme-less URL.",rule="!self.url.startsWith('http://') || !has(self.tls)"
-// +kubebuilder:validation:XValidation:message="headersFrom cannot set Authorization when tokenPassthrough is enabled",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == 'authorization')"
 type RemoteMCPServerSpec struct {
+	// Headers sets credential headers for the declared endpoint.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:XValidation:rule="self.all(a, self.filter(b, a.name.lowerAscii() == b.name.lowerAscii()).size() == 1)",message="credential header names must be unique ignoring case"
+	Headers []Header `json:"headers,omitempty"`
+
 	// +required
 	Description string `json:"description"`
 	// +kubebuilder:default=STREAMABLE_HTTP
@@ -49,20 +54,7 @@ type RemoteMCPServerSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	URL string `json:"url"`
-	// HeadersFrom supplies request headers. Secret-backed headers are injected by
-	// the egress gateway and cannot use routing, framing, hop-by-hop,
-	// proxy-authentication, or Cookie headers. At most 64 headers may be supplied.
-	// +optional
-	// +kubebuilder:validation:MaxItems=64
-	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || self.name.matches('^[!#$%&\\\\x27*+.^_`|~0-9A-Za-z-]+$')",message="Secret-backed headers require a valid HTTP header name",fieldPath=".name"
-	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || !(self.name.lowerAscii() in ['host', 'connection', 'content-length', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'keep-alive', 'proxy-authorization', 'proxy-authenticate', 'cookie'])",message="this header cannot carry an egress credential",fieldPath=".name"
-	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
-	// TokenPassthrough forwards the bearer token from the incoming A2A request
-	// to this server as its Authorization header. Requests without a caller
-	// token fail. Controller tool discovery has no caller token, so servers that
-	// require one should disable discovery with the kagent.dev/discovery label.
-	// +optional
-	TokenPassthrough bool `json:"tokenPassthrough,omitempty"`
+
 	// +optional
 	// +kubebuilder:default="30s"
 	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('9223372036s')",message="timeout must be positive and at most 9223372036s"
@@ -144,22 +136,6 @@ type RemoteMCPServer struct {
 	Spec RemoteMCPServerSpec `json:"spec,omitempty"`
 	// +optional
 	Status RemoteMCPServerStatus `json:"status,omitempty"`
-}
-
-// ResolveHeaders resolves all HeadersFrom entries using the object's namespace.
-func (r *RemoteMCPServer) ResolveHeaders(ctx context.Context, client client.Client) (map[string]string, error) {
-	result := map[string]string{}
-
-	for _, h := range r.Spec.HeadersFrom {
-		k, v, err := h.Resolve(ctx, client, r.Namespace)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve header: %v", err)
-		}
-
-		result[k] = v
-	}
-
-	return result, nil
 }
 
 // +kubebuilder:object:root=true

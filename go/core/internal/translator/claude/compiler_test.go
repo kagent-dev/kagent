@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -36,9 +37,14 @@ func TestCompileProviderCredentials(t *testing.T) {
 		wantErr    string
 	}{
 		{
-			name: "Anthropic",
-			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
+			name: "caller token passthrough is unsupported",
+			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "model", Anthropic: &v1alpha3.AnthropicConfig{},
+				Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}},
+			wantErr: "does not support tokenPassthrough",
+		},
+		{
+			name:       "Anthropic",
+			model:      v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
 			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: translator.CredentialPlaceholder},
 			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443"},
@@ -46,25 +52,19 @@ func TestCompileProviderCredentials(t *testing.T) {
 		{
 			name: "Anthropic gateway",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+
 				// cacheTTL is defaulted to "5m" by the CRD whenever the anthropic block is set.
-				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic", CacheTTL: "5m"}},
+				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic", CacheTTL: "5m"}, Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
+			},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
 			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: translator.CredentialPlaceholder,
 				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic"},
 			wantEgress: []string{"http://host.docker.internal:8090", "http://kagent-controller.kagent:8083"},
 		},
 		{
-			name: "Bedrock IAM",
-			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
-			secretData: map[string][]byte{claudeconfig.AWSAccessKeyEnvName: []byte("access"), claudeconfig.AWSSecretKeyEnvName: []byte(credentialValue), claudeconfig.AWSSessionTokenEnvName: []byte("session")},
-			wantErr:    "cannot use gateway header injection",
-		},
-		{
 			name: "Bedrock API key",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
+				Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "AWS_BEARER_TOKEN_BEDROCK"}}}}},
 			secretData: map[string][]byte{claudeconfig.AWSBedrockTokenEnvName: []byte(credentialValue)},
 			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: translator.CredentialPlaceholder},
 			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-west-2.amazonaws.com:443"},
@@ -72,10 +72,11 @@ func TestCompileProviderCredentials(t *testing.T) {
 		{
 			name: "Anthropic Vertex AI",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
-				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
-				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
+
+				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "credentials.json"}}}},
+			},
 			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`)},
-			wantErr:    "cannot use gateway header injection",
+			wantErr:    "gateway header authentication does not support",
 		},
 	}
 
@@ -138,15 +139,13 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		model v1alpha3.ModelConfigSpec
 	}{
 		{name: "provider", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt"}},
-		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: true}},
-		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
-		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
-		{name: "Anthropic cache TTL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{CacheTTL: "1h"}}},
-		{name: "Anthropic relative base URL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "/v1"}}},
-		{name: "Anthropic base URL credentials", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://user:password@example.com"}}},
-		{name: "Bedrock options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}}},
-		{name: "Vertex options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json", AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global", Temperature: "0.5"}}}},
+		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}, Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}}},
+		{name: "Anthropic cache TTL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{CacheTTL: "1h"}, Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}}},
+		{name: "Anthropic relative base URL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "/v1"}, Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}}},
+		{name: "Anthropic base URL credentials", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://user:password@example.com"}, Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}}},
+		{name: "Bedrock options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "AWS_BEARER_TOKEN_BEDROCK"}}}}}},
+		{name: "Vertex options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude", AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global", Temperature: "0.5"}}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "credentials.json"}}}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -162,8 +161,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 
 func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
@@ -177,8 +175,7 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 
 func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://other-collector:4317"
@@ -195,8 +192,7 @@ func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 
 func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "department=engineering"
@@ -213,8 +209,7 @@ func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 
 func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	input.Root.Template.Spec.Skills = []v1alpha3.AgentTemplateSkill{{
@@ -252,8 +247,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 
 func TestCompileDirectWholeServerMCP(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{
 		"api-key": []byte("model-secret"), "mcp-token": []byte(credentialValue),
@@ -264,10 +258,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 			Protocol:       v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 			URL:            "https://mcp.example.com/mcp",
 			SseReadTimeout: &metav1.Duration{Duration: 5 * time.Minute},
-			HeadersFrom: []v1alpha3.ValueRef{
-				{Name: "X-Tenant", Value: "test"},
-				{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}},
-			},
+			Headers:        []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "mcp-token"}}}},
 		},
 		Status: v1alpha3.RemoteMCPServerStatus{ObservedGeneration: 3, DiscoveredTools: []*v1alpha3.MCPTool{
 			{Name: "echo"}, {Name: "add_numbers"}, {Name: "get_time"},
@@ -291,21 +282,19 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	compiled := cfg.MCPServers["math-server"]
-	if compiled.Type != "http" || compiled.URL != server.Spec.URL || compiled.Headers["X-Tenant"] != "test" ||
-		!strings.HasPrefix(compiled.Headers["Authorization"], "${"+claudeconfig.MCPCredentialEnvPrefix) {
+	if compiled.Type != "http" || compiled.URL != server.Spec.URL || compiled.Headers["Authorization"] != translator.CredentialPlaceholder {
 		t.Fatalf("compiled MCP = %#v", cfg.MCPServers)
 	}
 	if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
 		t.Fatal("compiled MCP config or provenance contains credential material")
 	}
-	foundSecret := false
 	for _, variable := range revision.Environment {
-		if strings.HasPrefix(variable.Name, claudeconfig.MCPCredentialEnvPrefix) && variable.Value == translator.CredentialPlaceholder {
-			foundSecret = true
+		if variable.ValueFrom != nil {
+			t.Fatal("unresolved credential environment")
 		}
 	}
-	if !foundSecret {
-		t.Fatalf("MCP credential environment missing: %#v", revision.Environment)
+	if len(revision.Credentials) != 2 {
+		t.Fatalf("credentials = %v", revision.Credentials)
 	}
 	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://mcp.example.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
@@ -317,8 +306,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 
 func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	server := &v1alpha3.RemoteMCPServer{
@@ -405,8 +393,8 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 func TestCompileLocalSharedAgent(t *testing.T) {
 	modelSpec := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-root",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-		Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://gateway.example.com/anthropic"},
+
+		Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://gateway.example.com/anthropic"}, Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, modelSpec, map[string][]byte{"api-key": []byte("secret")})
 	childModelSpec := modelSpec
@@ -456,8 +444,7 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 
 func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 	modelSpec := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-root",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-root", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	tests := []struct {
 		name   string
@@ -465,7 +452,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 		want   string
 	}{
 		{name: "provider configuration", mutate: func(binding *translator.AgentInputBinding) {
-			binding.Agent.ResolvedModelConfig.Config.Spec.APIKeySecret = "different-auth"
+			binding.Agent.ResolvedModelConfig.Config.Spec.Headers[0].ValueFrom.SecretKeyRef.Name = "different-auth"
 		}, want: "root agent's provider"},
 		{name: "nested tools", mutate: func(binding *translator.AgentInputBinding) {
 			binding.Agent.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{}}}
@@ -480,7 +467,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, modelSpec, map[string][]byte{"api-key": []byte("secret")})
-			childSpec := modelSpec
+			childSpec := *modelSpec.DeepCopy()
 			childSpec.Model = "claude-child"
 			binding := translator.AgentInputBinding{
 				Name: "specialist", Description: "Handles specialist requests",
@@ -524,8 +511,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 
 func TestCompileRuntimeTelemetry(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	input.Harness.Name = "fast"
@@ -587,15 +573,14 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	settings.Telemetry = &configv1.TelemetryConfig{CaptureContent: true, CaptureRawApiBodies: true, MaxCaptureBytes: new(int32(4096)),
 		Traces: &configv1.OTLPConfig{Endpoint: "http://traces:4317", Protocol: new("grpc")}, Metrics: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}, Logs: &configv1.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: new("http/protobuf")}}
 	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), "mcp-token": []byte(credentialValue)})
 	server := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "math-server", Namespace: "test", UID: "mcp-uid", Generation: 1},
 		Spec: v1alpha3.RemoteMCPServerSpec{
 			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: "https://mcp.example.com/mcp",
-			HeadersFrom: []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}}},
+			Headers: []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "mcp-token"}}}},
 		},
 		Status: v1alpha3.RemoteMCPServerStatus{ObservedGeneration: 1, DiscoveredTools: []*v1alpha3.MCPTool{{Name: "echo"}}},
 	}
@@ -625,12 +610,10 @@ func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
 
-func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
+func TestCompileMCPAuthentication(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+		URL: "https://mcp.example.com/mcp", Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}},
 	}}
-	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
-	if want := "Claude does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("expected %q, got %v", want, err)
-	}
+	_, err := compileMCP([]translator.ResolvedMCPTool{{Server: server}})
+	require.ErrorContains(t, err, "does not support tokenPassthrough")
 }

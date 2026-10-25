@@ -311,15 +311,6 @@ type AzureOpenAIConfig struct {
 	// +optional
 	DeploymentName string `json:"azureDeployment,omitempty"`
 
-	// Azure AD token for authentication
-	// +optional
-	AzureADToken string `json:"azureAdToken,omitempty"`
-
-	// Azure AD token provider
-	// +optional
-	// TODO (peterj): We need to figure out how to implement this
-	// AzureADTokenProvider interface{} `json:"azureAdTokenProvider,omitempty"`
-
 	// Temperature for sampling
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
@@ -482,7 +473,7 @@ const (
 // FoundryConfig contains Azure AI Foundry-specific configuration options.
 //
 // Authentication is implicit and mirrors the other cloud providers: if
-// spec.apiKeySecret is set the API key is used; if it is absent, the Foundry
+// credential headers are configured they are used; otherwise the Foundry
 // runtime falls back to DefaultAzureCredential (which resolves to Azure
 // Workload Identity in-cluster, or the az CLI in local development). There is
 // no auth-type selector.
@@ -569,11 +560,16 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="provider.foundry must be nil if the provider is not Foundry",rule="!(has(self.foundry) && self.provider != 'Foundry')"
 // +kubebuilder:validation:XValidation:message="provider.mistral must be nil if the provider is not Mistral",rule="!(has(self.mistral) && self.provider != 'Mistral')"
-// +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
-// +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
-// +kubebuilder:validation:XValidation:message="tokenPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
-// +kubebuilder:validation:XValidation:message="tokenPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
 type ModelConfigSpec struct {
+	// Headers sets credential headers for the declared endpoint.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:XValidation:rule="self.all(a, self.filter(b, a.name.lowerAscii() == b.name.lowerAscii()).size() == 1)",message="credential header names must be unique ignoring case"
+	Headers []Header `json:"headers,omitempty"`
+
 	// +required
 	Model string `json:"model"`
 
@@ -582,24 +578,6 @@ type ModelConfigSpec struct {
 	// +kubebuilder:default=true
 	// +optional
 	Stream *bool `json:"stream,omitempty"`
-
-	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
-	// For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
-	// (the OAuth2 client credentials for SAP AI Core). The apiKeySecretKey field is not used for SAPAICore.
-	// +optional
-	APIKeySecret string `json:"apiKeySecret,omitempty"`
-
-	// The key in the secret that contains the API key.
-	// Not used for the SAPAICore provider (which always reads "client_id" and "client_secret" from the secret).
-	// +optional
-	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
-
-	// TokenPassthrough enables forwarding the bearer token from incoming A2A requests
-	// directly to the LLM provider as the API key. This is useful for organizations
-	// with federated identity that want to avoid separate secret management.
-	// Mutually exclusive with apiKeySecret.
-	// +optional
-	TokenPassthrough bool `json:"tokenPassthrough,omitempty"`
 
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`

@@ -105,7 +105,7 @@ export function ModelsPage() {
           namespace,
           model.spec.provider,
           model.spec.model,
-          model.spec.apiKeySecret,
+          model.spec.headers?.map((header) => header.valueFrom.secretKeyRef?.name).filter(Boolean).join(", "),
         ]);
       }),
     [models, selectedNamespaces, selectedProviders, view.query],
@@ -144,9 +144,9 @@ export function ModelsPage() {
       {
         title: "API key secret",
         key: "secret",
-        sorter: byText<ModelConfig>((row) => row.spec.apiKeySecret ?? ""),
+        sorter: byText<ModelConfig>((row) => row.spec.headers?.map((header) => header.valueFrom.secretKeyRef?.name).filter(Boolean).join(", ") ?? ""),
         sortOrder: sortOrderFor(view, "secret"),
-        render: (_, row) => row.spec.apiKeySecret ?? "—",
+        render: (_, row) => row.spec.headers?.map((header) => header.valueFrom.secretKeyRef?.name).filter(Boolean).join(", ") || "—",
       },
       {
         title: "",

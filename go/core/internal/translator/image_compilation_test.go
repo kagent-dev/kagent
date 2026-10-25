@@ -30,14 +30,12 @@ func TestCompileDefaultImageRevision(t *testing.T) {
 			model := modelConfig()
 			if variant.name == "codex" {
 				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
-				model.Spec.APIKeySecret = "auth"
-				model.Spec.APIKeySecretKey = "key"
+				model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "key"}}}}
 			}
 			if variant.name == "claude" {
 				model.Spec.Provider = v1alpha3.ModelProviderAnthropic
 				model.Spec.Model = "claude-sonnet-4-5"
-				model.Spec.APIKeySecret = "auth"
-				model.Spec.APIKeySecretKey = "key"
+				model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "key"}}}}
 			}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth", Namespace: "test"}, Data: map[string][]byte{"key": []byte("secret")}}
 			compile := func(images *configv1.HarnessImagesConfig) *translator.CompileResult {

@@ -38,6 +38,7 @@ type Config struct {
 }
 
 type Client struct {
+	apiURL           string
 	connection       *grpc.ClientConn
 	timeout          time.Duration
 	maxMessageBytes  int
@@ -86,6 +87,7 @@ func New(config Config) (*Client, error) {
 		return nil, fmt.Errorf("create controller API client for %q: %w", config.APIURL, err)
 	}
 	return &Client{
+		apiURL:           config.APIURL,
 		connection:       connection,
 		timeout:          config.Timeout,
 		maxMessageBytes:  config.MaxMessageBytes,
@@ -113,6 +115,9 @@ func targetFromURL(rawURL string) (string, bool, error) {
 		return "", false, fmt.Errorf("controller API URL %q must use http or https", rawURL)
 	}
 }
+
+// GetAPIURL returns the validated control-plane origin shared by its HTTP and gRPC APIs.
+func (client *Client) GetAPIURL() string { return client.apiURL }
 
 func (client *Client) MemoryService() runtimev1.MemoryServiceClient {
 	return client.memoryService

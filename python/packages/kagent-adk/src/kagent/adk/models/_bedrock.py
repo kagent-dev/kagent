@@ -12,16 +12,20 @@ import json
 import logging
 import os
 import re
+from contextvars import copy_context
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 import boto3
+import httpx
+from botocore import UNSIGNED
 from botocore.config import Config as BotocoreConfig
 from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 from pydantic import Field
 
+from .._invocation_auth import authentication_hook, credential_source
 from ._ssl import KAgentTLSMixin
 from ._utils import function_declaration_schema
 
@@ -90,6 +94,7 @@ def _get_bedrock_client(
     tls_disable_system_cas: Optional[bool] = None,
     read_timeout: Optional[float] = None,
     connect_timeout: Optional[float] = None,
+    passthrough_headers: Optional[list[dict[str, str]]] = None,
 ):
     region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
     kwargs: dict[str, Any] = {"region_name": region}
@@ -99,16 +104,19 @@ def _get_bedrock_client(
     # ReadTimeoutError. Allow callers to raise it. Only build a Config when an
     # override is set so we keep botocore's defaults otherwise.
     timeout_config: dict[str, Any] = {}
+    bindings = passthrough_headers or []
+    if any(name.lower() == "authorization" for name in (extra_headers or {})) or any(
+        binding["name"].lower() == "authorization" for binding in bindings
+    ):
+        # The configured header owns Authorization. Do not require ambient IAM
+        # credentials or sign a request that will use a different credential.
+        timeout_config["signature_version"] = UNSIGNED
     if read_timeout is not None:
         timeout_config["read_timeout"] = read_timeout
     if connect_timeout is not None:
         timeout_config["connect_timeout"] = connect_timeout
     if timeout_config:
         kwargs["config"] = BotocoreConfig(**timeout_config)
-
-    if extra_headers:
-        # boto3 doesn't support custom headers natively; log and ignore
-        logger.warning("extra_headers are not supported for Bedrock models and will be ignored.")
 
     # TLS/SSL configuration via boto3 verify parameter
     if tls_disable_verify:
@@ -122,7 +130,23 @@ def _get_bedrock_client(
             "using custom CA bundle only. System CAs may still be trusted."
         )
 
-    return boto3.client("bedrock-runtime", **kwargs)
+    client = boto3.client("bedrock-runtime", **kwargs)
+    authenticate = authentication_hook(bindings)
+
+    def before_send(request, **kwargs):
+        if not (extra_headers or bindings or credential_source()[0]):
+            return
+        outgoing = httpx.Request(request.method, request.url, headers=request.headers)
+        outgoing.headers.update(extra_headers or {})
+        if bindings or credential_source()[0]:
+            # boto3 calls run in worker threads. Resolve again for every send,
+            # including retries, using that invocation's ContextVars.
+            asyncio.run(authenticate(outgoing))
+        request.headers.clear()
+        request.headers.update(outgoing.headers)
+
+    client.meta.events.register("before-send.bedrock-runtime", before_send)
+    return client
 
 
 def _convert_content_to_converse_messages(
@@ -301,6 +325,7 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
             tls_disable_system_cas=self.tls_disable_system_cas,
             read_timeout=self.read_timeout,
             connect_timeout=self.connect_timeout,
+            passthrough_headers=self.passthrough_headers,
         )
 
     @classmethod
@@ -384,7 +409,7 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
                     finally:
                         loop.call_soon_threadsafe(q.put_nowait, None)
 
-                loop.run_in_executor(None, _produce)
+                loop.run_in_executor(None, copy_context().run, _produce)
 
                 aggregated_text = ""
                 tool_uses: dict[str, dict] = {}  # toolUseId -> {name, input_json}

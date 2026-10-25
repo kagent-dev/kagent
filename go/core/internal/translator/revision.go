@@ -35,7 +35,8 @@ func (id RevisionID) IsZero() bool { return id == RevisionID{} }
 // Diagnostics do not enter the revision's identity.
 type CompileResult struct {
 	Revision
-	Warnings []string
+	Warnings          []string
+	IntegrationGrants []egress.IntegrationGrant
 }
 
 // Revision is the resolved runtime configuration for one immutable revision.
@@ -68,7 +69,8 @@ type Revision struct {
 	Provenance json.RawMessage
 	// Credentials contains references resolved by the egress gateway.
 	Credentials []egress.Credential
-	// TokenPassthroughTargets reserve their origins against Secret credentials.
+	// TokenPassthroughTargets record the headers expected by runtime clients.
+	// They constrain compatible live grants but do not authorize forwarding.
 	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string

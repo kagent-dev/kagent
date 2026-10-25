@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
+import { CredentialHeadersEditor } from "@/components/common/CredentialHeadersEditor";
 import { SubmitError } from "@/components/common/SubmitError";
 import {
   RESOURCE_NAME_HINT,
@@ -37,6 +38,7 @@ import {
 } from "@/api";
 import {
   authTypeForProvider,
+  defaultHeader,
   buildModelPayload,
   emptyModelDraft,
   isBadNumber,
@@ -213,28 +215,13 @@ export function ModelForm({
   const isOllama = draft.provider === OLLAMA_PROVIDER;
   const info = draft.provider ? PROVIDER_INFO[draft.provider] : undefined;
 
-  // Passthrough only where the CRD allows it; `changeProvider` resets the mode
-  // when switching to a provider that forbids it, so this never strands an
-  // invalid selection. Ollama gets "Existing secret" alone: it needs no
-  // credential locally, but one is what authenticates an Ollama Cloud model, and
-  // the chart's OLLAMA_API_KEY already lives in a Secret.
-  //
-  // "No credential" has to be offered alongside it: a new draft starts on
-  // "apiKey" (see newDraft), so with only "Existing secret" here an Ollama draft
-  // opened with nothing selected and no way back once that button was clicked.
-  const authOptions: { label: string; value: ModelAuthType }[] = isOllama
-    ? [
-        { label: "Existing secret", value: "secret" },
-        { label: "No credential", value: "none" },
-      ]
-    : [
-        { label: "API key", value: "apiKey" },
-        { label: "Existing secret", value: "secret" },
-        ...(supportsPassthrough(draft.provider)
-          ? [{ label: "Passthrough", value: "passthrough" as const }]
-          : []),
-        { label: "No credential", value: "none" },
-      ];
+  const authOptions: { label: string; value: ModelAuthType }[] = [
+    { label: "API key", value: "apiKey" },
+    { label: "Existing secret", value: "secret" },
+    ...(supportsPassthrough(draft.provider) ? [{ label: "Passthrough", value: "passthrough" as const }] : []),
+    { label: "No credential", value: "none" },
+  ];
+  const credentialHeader = draft.credentialHeader ?? defaultHeader(draft.provider, draft.params.apiFormat);
 
   // The name follows the chosen model until the field is edited, since the model's
   // own name is almost always what a new configuration should be called.
@@ -317,6 +304,7 @@ export function ModelForm({
       modelTag: "",
       params: {},
       authType: authTypeForProvider(type, current.authType),
+      credentialHeader: undefined,
     }));
     setFailure(undefined);
     onProviderChange?.(type);
@@ -584,32 +572,7 @@ export function ModelForm({
           />
         </Form.Item>
 
-        {/* Authentication. Ollama needs no key for a local model, so it defaults
-            to no credential, but an Ollama Cloud model authenticates against
-            api.ollama.com with a key — hence the Secret option. Every other
-            provider picks a mode: a key typed here (stored in a Secret the
-            backend creates), an existing Secret referenced by name, forwarding
-            the caller's own credential (passthrough), or no credential. */}
-        {isOllama ? (
-          <>
-            <Form.Item
-              label="Authentication"
-              extra="A local Ollama model needs no API key. To run a cloud model against api.ollama.com, name a Secret holding OLLAMA_API_KEY — an explicit host is used instead when one is set."
-            >
-              <Radio.Group
-                data-testid="model-auth-type"
-                value={draft.authType}
-                onChange={(event) =>
-                  set("authType", event.target.value as ModelAuthType)
-                }
-                options={authOptions}
-                optionType="button"
-              />
-            </Form.Item>
-            {draft.authType === "secret" ? secretFields : null}
-          </>
-        ) : (
-          <>
+        <>
             <Form.Item label="Authentication">
               <Radio.Group
                 data-testid="model-auth-type"
@@ -674,11 +637,23 @@ export function ModelForm({
                 type="info"
                 showIcon
                 data-testid="model-passthrough-note"
-                title="The credential on each incoming request is forwarded to the provider; nothing is stored in the cluster."
+                title="The authenticated invocation token is forwarded for human and machine callers. A missing or expired token fails the request."
               />
             ) : null}
           </>
-        )}
+
+
+        {draft.authType !== "none" && <Row gutter={16}>
+          <Col span={12}><Form.Item label="Credential header">
+            <Input aria-label="Credential header" value={credentialHeader.name} onChange={(event) => set("credentialHeader", { ...credentialHeader, name: event.target.value })} />
+          </Form.Item></Col>
+          <Col span={12}><Form.Item label="Credential prefix" help='Include any separating space, for example "Bearer ".'>
+            <Input aria-label="Credential prefix" value={credentialHeader.prefix ?? ""} onChange={(event) => set("credentialHeader", { ...credentialHeader, prefix: event.target.value })} />
+          </Form.Item></Col>
+        </Row>}
+        <Form.Item label="Additional credential headers">
+          <CredentialHeadersEditor value={draft.additionalCredentialHeaders} onChange={(headers) => set("additionalCredentialHeaders", headers)} maxHeaders={draft.authType === "none" ? 16 : 15} />
+        </Form.Item>
 
         {/* Provider parameters. Required ones (an Azure endpoint, a Bedrock region)
             gate submission; the optional tuning knobs are tucked away until asked

@@ -40,11 +40,11 @@ func TestEgressPolicyCredentialDelivery(t *testing.T) {
 		t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), secret))) })
 		ref := corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}
 		var refs []corev1.LocalObjectReference
-		for _, authentication := range []*v1alpha3.EgressAuthentication{
-			{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: ref},
-			{Header: "X-API-Key", SecretKeyRef: ref},
+		for _, headers := range [][]v1alpha3.Header{
+			{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &ref}}},
+			{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &ref}}},
 		} {
-			policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-header-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: destination, Authentication: authentication}}}}
+			policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-header-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: destination, Headers: headers}}}}
 			require.NoError(t, kube.Create(t.Context(), policy))
 			t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), policy))) })
 			refs = append(refs, corev1.LocalObjectReference{Name: policy.Name})

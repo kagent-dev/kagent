@@ -51,66 +51,92 @@ spec:
                   description: EgressDestination grants access to one HTTP(S) origin,
                     including all its paths.
                   properties:
-                    authentication:
-                      description: |-
-                        Authentication replaces a placeholder header at the gateway. Requests
-                        must send the header; its credential value is never supplied to the runtime.
-                      properties:
-                        header:
-                          description: |-
-                            Header is the request header carrying the credential, for example
-                            Authorization or X-API-Key.
-                          maxLength: 256
-                          pattern: ^[!#$%&'*+.^_|~0-9A-Za-z-]+$
-                          type: string
-                          x-kubernetes-validations:
-                          - message: this header cannot carry an egress credential
-                            rule: '!(self.lowerAscii() in [''host'', ''connection'',
-                              ''content-length'', ''transfer-encoding'', ''te'', ''trailer'',
-                              ''upgrade'', ''keep-alive'', ''proxy-authorization'',
-                              ''proxy-authenticate'', ''cookie''])'
-                        prefix:
-                          description: |-
-                            Prefix is prepended verbatim to the Secret value, for example "Bearer ".
-                            Include any separating space. Omitted or empty means no prefix.
-                          maxLength: 256
-                          pattern: ^[^\x00-\x08\x0a-\x1f\x7f]*$
-                          type: string
-                        secretKeyRef:
-                          description: SecretKeyRef selects a required key in the
-                            EgressPolicy's namespace.
-                          properties:
-                            key:
-                              description: The key of the secret to select from.  Must
-                                be a valid secret key.
-                              type: string
-                            name:
-                              default: ""
-                              description: |-
-                                Name of the referent.
-                                This field is effectively required, but due to backwards compatibility is
-                                allowed to be empty. Instances of this type with an empty value here are
-                                almost certainly wrong.
-                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                              type: string
-                            optional:
-                              description: Specify whether the Secret or its key must
-                                be defined
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                          x-kubernetes-map-type: atomic
-                          x-kubernetes-validations:
-                          - message: secretKeyRef requires a name and key
-                            rule: has(self.name) && self.name != '' && self.key !=
-                              ''
-                          - message: egress credentials cannot be optional
-                            rule: '!has(self.optional) || !self.optional'
-                      required:
-                      - header
-                      - secretKeyRef
-                      type: object
+                    headers:
+                      description: Headers sets credential headers for the declared
+                        endpoint.
+                      items:
+                        description: |-
+                          Header sets an HTTP header from a credential source for the declared endpoint.
+                          Literal values are not supported by this contract.
+                        properties:
+                          name:
+                            description: Name is the HTTP credential header, for example
+                              Authorization or X-API-Key.
+                            maxLength: 256
+                            pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: this header cannot carry an egress credential
+                              rule: '!(self.lowerAscii() in [''host'', ''connection'',
+                                ''content-length'', ''transfer-encoding'', ''te'',
+                                ''trailer'', ''upgrade'', ''keep-alive'', ''proxy-authorization'',
+                                ''proxy-authenticate'', ''cookie''])'
+                          prefix:
+                            description: Prefix is prepended verbatim, including any
+                              separating space. For example, "Bearer ".
+                            maxLength: 256
+                            pattern: ^[^\x00-\x08\x0a-\x1f\x7f]*$
+                            type: string
+                          valueFrom:
+                            description: ValueFrom selects exactly one credential
+                              source.
+                            properties:
+                              secretKeyRef:
+                                description: SecretKeyRef selects a required Secret
+                                  key in the resource's namespace.
+                                properties:
+                                  key:
+                                    description: The key of the secret to select from.  Must
+                                      be a valid secret key.
+                                    type: string
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                  optional:
+                                    description: Specify whether the Secret or its
+                                      key must be defined
+                                    type: boolean
+                                required:
+                                - key
+                                type: object
+                                x-kubernetes-map-type: atomic
+                                x-kubernetes-validations:
+                                - message: secretKeyRef requires a name and key
+                                  rule: has(self.name) && self.name != '' && self.key
+                                    != ''
+                                - message: credentials cannot be optional
+                                  rule: '!has(self.optional) || !self.optional'
+                              tokenPassthrough:
+                                description: |-
+                                  TokenPassthrough selects the authenticated invocation's bearer credential.
+                                  Missing or expired credentials fail without selecting another source.
+                                type: object
+                            type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of the fields in [secretKeyRef
+                                tokenPassthrough] must be set
+                              rule: (has(self.secretKeyRef)?1:0)+(has(self.tokenPassthrough)?1:0)
+                                == 1
+                        required:
+                        - name
+                        - valueFrom
+                        type: object
+                      maxItems: 16
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                      x-kubernetes-validations:
+                      - message: credential header names must be unique ignoring case
+                        rule: self.all(a, self.filter(b, a.name.lowerAscii() == b.name.lowerAscii()).size()
+                          == 1)
                     origin:
                       description: |-
                         Origin is a scheme, DNS hostname, and optional port. A wildcard replaces
@@ -122,8 +148,8 @@ spec:
                   - origin
                   type: object
                   x-kubernetes-validations:
-                  - message: authentication requires an exact HTTP(S) origin
-                    rule: '!has(self.authentication) || !self.origin.contains(''*'')'
+                  - message: credential headers require an exact HTTP(S) origin
+                    rule: '!has(self.headers) || !self.origin.contains(''*'')'
                 maxItems: 64
                 minItems: 1
                 type: array

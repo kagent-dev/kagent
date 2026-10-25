@@ -1,10 +1,4 @@
-"""LLM API key passthrough plugin.
-
-Sets the LLM API key from the incoming request's Bearer token.
-Reuses the same session state headers pattern as create_header_provider()
-and ADKTokenPropagationPlugin. Reads the Authorization header from
-callback_context.state["headers"] (set by _agent_executor.py).
-"""
+"""Set an LLM API key from the current invocation's credential."""
 
 import logging
 from typing import Optional, Protocol, runtime_checkable
@@ -14,7 +8,7 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.plugins.base_plugin import BasePlugin
 
-from ._bearer_token import extract_bearer_token
+from ._invocation_auth import invocation_credential
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +23,7 @@ class SupportsPassthroughAuth(Protocol):
 
 
 class LLMPassthroughPlugin(BasePlugin):
-    """Sets the LLM API key from the incoming request's Bearer token."""
+    """Sets the LLM API key from the current invocation's credential."""
 
     def __init__(self):
         super().__init__(name="llm_passthrough")
@@ -37,16 +31,12 @@ class LLMPassthroughPlugin(BasePlugin):
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> Optional[LlmResponse]:
-        token = extract_bearer_token(callback_context.state.get("headers", {}))
-        if not token:
-            return None
-
         model = callback_context._invocation_context.agent.model
         if not isinstance(model, SupportsPassthroughAuth):
             return None
         if not model.api_key_passthrough:
             return None
 
-        model.set_passthrough_key(token)
-        logger.debug("Set LLM API key from Bearer token")
+        model.set_passthrough_key(await invocation_credential())
+        logger.debug("Set LLM API key from invocation credential")
         return None

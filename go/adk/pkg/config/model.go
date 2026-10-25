@@ -25,16 +25,14 @@ func ModelToEmbeddingConfig(m *configv1.ADKModelConfig) *configv1.ADKEmbeddingCo
 	if m == nil {
 		return nil
 	}
-	e := &configv1.ADKEmbeddingConfig{Provider: ModelType(m), Model: m.Model, TlsInsecureSkipVerify: m.TlsInsecureSkipVerify, TlsCaCertPath: m.TlsCaCertPath, TlsDisableSystemCas: m.TlsDisableSystemCas}
+	e := &configv1.ADKEmbeddingConfig{Provider: ModelType(m), Model: m.Model, Headers: m.Headers, PassthroughHeaders: m.PassthroughHeaders, TlsInsecureSkipVerify: m.TlsInsecureSkipVerify, TlsCaCertPath: m.TlsCaCertPath, TlsDisableSystemCas: m.TlsDisableSystemCas}
 	switch p := m.Provider.(type) {
 	case *configv1.ADKModelConfig_Openai:
 		e.BaseUrl = p.Openai.BaseUrl
-		e.ApiKeyPassthrough = m.ApiKeyPassthrough
 	case *configv1.ADKModelConfig_AzureOpenai:
 		e.Endpoint = p.AzureOpenai.Endpoint
 		e.Deployment = p.AzureOpenai.Deployment
 		e.ApiVersion = p.AzureOpenai.ApiVersion
-		e.ApiKeyPassthrough = m.ApiKeyPassthrough
 	case *configv1.ADKModelConfig_Anthropic:
 		e.BaseUrl = p.Anthropic.BaseUrl
 	case *configv1.ADKModelConfig_Mistral:
@@ -45,7 +43,6 @@ func ModelToEmbeddingConfig(m *configv1.ADKModelConfig) *configv1.ADKEmbeddingCo
 		e.Endpoint = p.Foundry.Endpoint
 		e.Deployment = p.Foundry.Deployment
 		e.ApiVersion = p.Foundry.ApiVersion
-		e.ApiKeyPassthrough = m.ApiKeyPassthrough
 	}
 	return e
 }

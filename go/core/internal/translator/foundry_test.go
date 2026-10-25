@@ -19,10 +19,10 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 			model := &v1alpha3.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
 				Spec: v1alpha3.ModelConfigSpec{
-					Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry, APIKeySecret: "foundry-auth", APIKeySecretKey: "token",
+					Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry,
 					Foundry: &v1alpha3.FoundryConfig{Deployment: "chat", APIVersion: "2024-10-21", EndpointFrom: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint",
-					}},
+					}}, Headers: []v1alpha3.Header{{Name: "api-key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-auth"}, Key: "token"}}}},
 				},
 			}
 			original := model.DeepCopy()
@@ -42,7 +42,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
 			}
 			objects := []any{model, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: model.Spec.APIKeySecret, Namespace: model.Namespace},
+				ObjectMeta: metav1.ObjectMeta{Name: model.Spec.Headers[0].ValueFrom.SecretKeyRef.Name, Namespace: model.Namespace},
 				Data:       map[string][]byte{"token": []byte("secret-value")},
 			}}
 			switch location {

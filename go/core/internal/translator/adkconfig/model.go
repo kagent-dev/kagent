@@ -6,10 +6,8 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -17,22 +15,13 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
-// modelDeploymentData collects the Kubernetes inputs required by a provider.
-// Volumes are retained even though the current Substrate ActorTemplate path
-// rejects them, so the compiler can report incompatibility instead of silently
-// dropping credentials.
-type modelDeploymentData struct {
-	EnvVars      []corev1.EnvVar
-	Volumes      []corev1.Volume
-	VolumeMounts []corev1.VolumeMount
-}
+// modelDeploymentData holds provider-specific non-secret SDK settings.
+type modelDeploymentData struct{ EnvVars []corev1.EnvVar }
 
-// modelRuntime is the provider-neutral result consumed by the rest of the
-// compiler.
+// modelRuntime is the provider-neutral result consumed by the compiler.
 type modelRuntime struct {
-	Model                 *configv1.ADKModelConfig
-	Environment           []corev1.EnvVar
-	HasUnsupportedVolumes bool
+	Model       *configv1.ADKModelConfig
+	Environment []corev1.EnvVar
 }
 
 // resolveModel collapses provider-specific translation output into the subset
@@ -42,13 +31,16 @@ func resolveModel(resolved *translator.ResolvedModelConfig) (*modelRuntime, erro
 	if err != nil {
 		return nil, err
 	}
+	headers, passthrough, environment, err := translator.ModelCredentialHeaders(resolved, model.Headers)
+	if err != nil {
+		return nil, err
+	}
+	model.Headers, model.PassthroughHeaders = headers, passthrough
+	data.EnvVars = append(data.EnvVars, environment...)
 	return &modelRuntime{
 		Model: model, Environment: data.EnvVars,
-		HasUnsupportedVolumes: len(data.Volumes) > 0 || len(data.VolumeMounts) > 0,
 	}, nil
 }
-
-const googleCredsVolumeName = "google-creds"
 
 // tlsInsecureSkipVerify leaves empty configs unset to preserve SDK client defaults.
 func tlsInsecureSkipVerify(tlsConfig *v1alpha3.TLSConfig) *bool {
@@ -74,19 +66,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: env.OpenAIAPIKey.Name(),
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
-					},
-				},
-			})
-		}
+
 		openai := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
@@ -94,7 +74,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(openai, model.Spec.TLS)
-		openai.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		if model.Spec.OpenAI != nil {
 			openai.GetOpenai().BaseUrl = model.Spec.OpenAI.BaseURL
@@ -135,19 +114,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		return openai, modelDeploymentData, nil
 	case v1alpha3.ModelProviderAnthropic:
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: env.AnthropicAPIKey.Name(),
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
-					},
-				},
-			})
-		}
+
 		anthropic := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
@@ -155,7 +122,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(anthropic, model.Spec.TLS)
-		anthropic.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		if model.Spec.Anthropic != nil {
 			spec := model.Spec.Anthropic
@@ -176,25 +142,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: env.AzureOpenAIAPIKey.Name(),
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
-					},
-				},
-			})
-		}
-		if model.Spec.AzureOpenAI.AzureADToken != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  env.AzureADToken.Name(),
-				Value: model.Spec.AzureOpenAI.AzureADToken,
-			})
-		}
+
 		if model.Spec.AzureOpenAI.APIVersion != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  env.OpenAIAPIVersion.Name(),
@@ -221,7 +169,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(azureOpenAI, model.Spec.TLS)
-		azureOpenAI.ApiKeyPassthrough = model.Spec.TokenPassthrough
+
 		if model.Spec.AzureOpenAI.APIFormat != nil && *model.Spec.AzureOpenAI.APIFormat != "" {
 			azureOpenAI.GetAzureOpenai().ApiFormat = string(*model.Spec.AzureOpenAI.APIFormat)
 		}
@@ -243,24 +191,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 			Name:  env.GoogleGenAIUseVertexAI.Name(),
 			Value: "true",
 		})
-		if model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  env.GoogleApplicationCredentials.Name(),
-				Value: "/creds/" + model.Spec.APIKeySecretKey,
-			})
-			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
-				Name: googleCredsVolumeName,
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName: model.Spec.APIKeySecret,
-					},
-				},
-			})
-			modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
-				Name:      googleCredsVolumeName,
-				MountPath: "/creds",
-			})
-		}
+
 		gemini := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
@@ -268,7 +199,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(gemini, model.Spec.TLS)
-		gemini.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		if model.Spec.GeminiVertexAI.MaxOutputTokens > 0 {
 			gemini.GetGeminiVertexAi().MaxOutputTokens = runtimeInt(&model.Spec.GeminiVertexAI.MaxOutputTokens)
@@ -287,24 +217,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 			Name:  env.GoogleCloudLocation.Name(),
 			Value: model.Spec.AnthropicVertexAI.Location,
 		})
-		if model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  env.GoogleApplicationCredentials.Name(),
-				Value: "/creds/" + model.Spec.APIKeySecretKey,
-			})
-			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
-				Name: googleCredsVolumeName,
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName: model.Spec.APIKeySecret,
-					},
-				},
-			})
-			modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
-				Name:      googleCredsVolumeName,
-				MountPath: "/creds",
-			})
-		}
+
 		anthropic := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
@@ -312,7 +225,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(anthropic, model.Spec.TLS)
-		anthropic.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return anthropic, modelDeploymentData, nil
 	case v1alpha3.ModelProviderOllama:
@@ -329,25 +241,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 				Value: withDefaultScheme(model.Spec.Ollama.Host),
 			})
 		}
-		// Bind the Secret only when the model reaches api.ollama.com; the
-		// gateway injects the key at egress, while the agent sees only a
-		// placeholder. The same predicate decides the credential binding.
-		// Local models and operator-supplied daemon hosts have no cloud
-		// binding, so they must not receive a Secret-backed environment ref.
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" &&
-			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true) {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: env.OllamaAPIKey.Name(),
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
-					},
-				},
-			})
-		}
+
 		ollama := &configv1.ADKModelConfig{
 			Model:   model.Spec.Model,
 			Headers: model.Spec.DefaultHeaders,
@@ -357,21 +251,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(ollama, model.Spec.TLS)
-		ollama.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return ollama, modelDeploymentData, nil
 	case v1alpha3.ModelProviderGemini:
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name: env.GoogleAPIKey.Name(),
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: model.Spec.APIKeySecret,
-					},
-					Key: model.Spec.APIKeySecretKey,
-				},
-			},
-		})
+
 		gemini := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
@@ -394,66 +277,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 			Value: model.Spec.Bedrock.Region,
 		})
 
-		// If AWS_BEARER_TOKEN_BEDROCK key exists: use bearer token auth
-		// Otherwise, use IAM credentials
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
-			secret := types.NamespacedName{Namespace: model.Namespace, Name: model.Spec.APIKeySecret}
-			hasSecretKey := func(key string) bool {
-				for _, ref := range resolved.References {
-					if ref.Kind == "Secret" && ref.NamespacedName == secret && ref.Key == key {
-						return true
-					}
-				}
-				return false
-			}
-			if hasSecretKey(env.AWSBearerTokenBedrock.Name()) {
-				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name: env.AWSBearerTokenBedrock.Name(),
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: model.Spec.APIKeySecret,
-							},
-							Key: env.AWSBearerTokenBedrock.Name(),
-						},
-					},
-				})
-			} else {
-				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name: env.AWSAccessKeyID.Name(),
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: model.Spec.APIKeySecret,
-							},
-							Key: env.AWSAccessKeyID.Name(),
-						},
-					},
-				})
-				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name: env.AWSSecretAccessKey.Name(),
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: model.Spec.APIKeySecret,
-							},
-							Key: env.AWSSecretAccessKey.Name(),
-						},
-					},
-				})
-				if hasSecretKey(env.AWSSessionToken.Name()) {
-					modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-						Name: env.AWSSessionToken.Name(),
-						ValueFrom: &corev1.EnvVarSource{
-							SecretKeyRef: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{Name: model.Spec.APIKeySecret},
-								Key:                  env.AWSSessionToken.Name(),
-							},
-						},
-					})
-				}
-			}
-		}
 		var additionalFields []byte
 		if model.Spec.Bedrock.AdditionalModelRequestFields != nil {
 			additionalFields = slices.Clone(model.Spec.Bedrock.AdditionalModelRequestFields.Raw)
@@ -480,37 +303,11 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 
 		// Populate shared transport settings.
 		populateTLSFields(bedrock, model.Spec.TLS)
-		bedrock.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return bedrock, modelDeploymentData, nil
 	case v1alpha3.ModelProviderSAPAICore:
 		if model.Spec.SAPAICore == nil {
 			return nil, nil, fmt.Errorf("sapAICore model config is required")
-		}
-
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: env.SAPAICoreClientID.Name(),
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: "client_id",
-					},
-				},
-			})
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: env.SAPAICoreClientSecret.Name(),
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: "client_secret",
-					},
-				},
-			})
 		}
 
 		sapAICore := &configv1.ADKModelConfig{
@@ -524,7 +321,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 
 		populateTLSFields(sapAICore, model.Spec.TLS)
-		sapAICore.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return sapAICore, modelDeploymentData, nil
 	case v1alpha3.ModelProviderFoundry:
@@ -534,23 +330,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		cfg := model.Spec.Foundry
 
 		endpoint := resolved.FoundryEndpoint
-
-		// Implicit auth: mount the API key only when a secret is provided and
-		// passthrough is off; otherwise the runtime uses DefaultAzureCredential
-		// (Workload Identity) or the passed-through caller token.
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: env.FoundryAPIKey.Name(),
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
-					},
-				},
-			})
-		}
 
 		// The shared resolver supplies the endpoint; Deployment (required) and
 		// APIVersion (defaulted) are guaranteed by the CRD.
@@ -588,30 +367,16 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 			}},
 		}
 		populateTLSFields(foundry, model.Spec.TLS)
-		foundry.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return foundry, modelDeploymentData, nil
 	case v1alpha3.ModelProviderMistral:
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: env.MistralAPIKey.Name(),
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
-					},
-				},
-			})
-		}
+
 		mistral := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
 			Provider: &configv1.ADKModelConfig_Mistral{Mistral: &configv1.ADKMistral{}},
 		}
 		populateTLSFields(mistral, model.Spec.TLS)
-		mistral.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		if model.Spec.Mistral != nil {
 			spec := model.Spec.Mistral

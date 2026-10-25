@@ -145,17 +145,6 @@ spec:
                 - location
                 - projectID
                 type: object
-              apiKeySecret:
-                description: |-
-                  The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
-                  For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
-                  (the OAuth2 client credentials for SAP AI Core). The apiKeySecretKey field is not used for SAPAICore.
-                type: string
-              apiKeySecretKey:
-                description: |-
-                  The key in the secret that contains the API key.
-                  Not used for the SAPAICore provider (which always reads "client_id" and "client_secret" from the secret).
-                type: string
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
                 properties:
@@ -171,9 +160,6 @@ spec:
                   apiVersion:
                     description: API version for the Azure OpenAI API. Required unless
                       apiFormat is responses.
-                    type: string
-                  azureAdToken:
-                    description: Azure AD token for authentication
                     type: string
                   azureDeployment:
                     description: Deployment name for the Azure OpenAI API
@@ -420,6 +406,90 @@ spec:
                 - location
                 - projectID
                 type: object
+              headers:
+                description: Headers sets credential headers for the declared endpoint.
+                items:
+                  description: |-
+                    Header sets an HTTP header from a credential source for the declared endpoint.
+                    Literal values are not supported by this contract.
+                  properties:
+                    name:
+                      description: Name is the HTTP credential header, for example
+                        Authorization or X-API-Key.
+                      maxLength: 256
+                      pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
+                      type: string
+                      x-kubernetes-validations:
+                      - message: this header cannot carry an egress credential
+                        rule: '!(self.lowerAscii() in [''host'', ''connection'', ''content-length'',
+                          ''transfer-encoding'', ''te'', ''trailer'', ''upgrade'',
+                          ''keep-alive'', ''proxy-authorization'', ''proxy-authenticate'',
+                          ''cookie''])'
+                    prefix:
+                      description: Prefix is prepended verbatim, including any separating
+                        space. For example, "Bearer ".
+                      maxLength: 256
+                      pattern: ^[^\x00-\x08\x0a-\x1f\x7f]*$
+                      type: string
+                    valueFrom:
+                      description: ValueFrom selects exactly one credential source.
+                      properties:
+                        secretKeyRef:
+                          description: SecretKeyRef selects a required Secret key
+                            in the resource's namespace.
+                          properties:
+                            key:
+                              description: The key of the secret to select from.  Must
+                                be a valid secret key.
+                              type: string
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                            optional:
+                              description: Specify whether the Secret or its key must
+                                be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: secretKeyRef requires a name and key
+                            rule: has(self.name) && self.name != '' && self.key !=
+                              ''
+                          - message: credentials cannot be optional
+                            rule: '!has(self.optional) || !self.optional'
+                        tokenPassthrough:
+                          description: |-
+                            TokenPassthrough selects the authenticated invocation's bearer credential.
+                            Missing or expired credentials fail without selecting another source.
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of the fields in [secretKeyRef tokenPassthrough]
+                          must be set
+                        rule: (has(self.secretKeyRef)?1:0)+(has(self.tokenPassthrough)?1:0)
+                          == 1
+                  required:
+                  - name
+                  - valueFrom
+                  type: object
+                maxItems: 16
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: credential header names must be unique ignoring case
+                  rule: self.all(a, self.filter(b, a.name.lowerAscii() == b.name.lowerAscii()).size()
+                    == 1)
               mistral:
                 description: Mistral-specific configuration
                 properties:
@@ -586,13 +656,6 @@ spec:
                       Production deployments MUST use proper certificates.
                     type: boolean
                 type: object
-              tokenPassthrough:
-                description: |-
-                  TokenPassthrough enables forwarding the bearer token from incoming A2A requests
-                  directly to the LLM provider as the API key. This is useful for organizations
-                  with federated identity that want to avoid separate secret management.
-                  Mutually exclusive with apiKeySecret.
-                type: boolean
             required:
             - model
             type: object
@@ -621,19 +684,6 @@ spec:
               rule: '!(has(self.foundry) && self.provider != ''Foundry'')'
             - message: provider.mistral must be nil if the provider is not Mistral
               rule: '!(has(self.mistral) && self.provider != ''Mistral'')'
-            - message: apiKeySecret must be set if apiKeySecretKey is set
-              rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
-            - message: apiKeySecretKey must be set if apiKeySecret is set (except
-                for Bedrock and SAPAICore providers)
-              rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
-                != ''Bedrock'' && self.provider != ''SAPAICore'')'
-            - message: tokenPassthrough and apiKeySecret are mutually exclusive
-              rule: '!(has(self.tokenPassthrough) && self.tokenPassthrough && has(self.apiKeySecret)
-                && size(self.apiKeySecret) > 0)'
-            - message: tokenPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI
-              rule: '!(has(self.tokenPassthrough) && self.tokenPassthrough && (self.provider
-                == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
-                == ''AnthropicVertexAI''))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

@@ -2,7 +2,6 @@ package egress
 
 import (
 	"context"
-	"fmt"
 	"slices"
 )
 
@@ -12,20 +11,19 @@ type PolicyStore interface {
 	GetRuntimeEgressPolicy(context.Context, string) (Access, error)
 }
 
-// EffectiveAccess retains the base and all grants compatible with this revision.
-// Stored grants can conflict with an older actor's pinned base.
+// EffectiveAccess retains pinned destinations and Secret bindings, and all live
+// grants compatible with this revision. Pinned passthrough targets reserve the
+// runtime's expected headers but never authorize forwarding without a live grant.
 func EffectiveAccess(base, grants Access) (Access, error) {
 	filtered, _ := FilterConflicts(base, grants)
+	base.TokenPassthroughTargets = nil
 	return MergeAccess(base, filtered)
 }
 
 // MergeAccess validates live grants against the pinned runtime's credentials and
 // tokenPassthrough targets. Inputs are never modified.
 func MergeAccess(base, grants Access) (Access, error) {
-	if len(grants.TokenPassthroughTargets) != 0 {
-		return Access{}, fmt.Errorf("egress grants cannot carry tokenPassthrough targets")
-	}
-	return CanonicalAccess(append(slices.Clone(base.Destinations), grants.Destinations...), append(slices.Clone(base.Credentials), grants.Credentials...), base.TokenPassthroughTargets)
+	return CanonicalAccess(append(slices.Clone(base.Destinations), grants.Destinations...), append(slices.Clone(base.Credentials), grants.Credentials...), append(slices.Clone(base.TokenPassthroughTargets), grants.TokenPassthroughTargets...))
 }
 
 // IntersectAccess retains only destinations and complete credential bindings
@@ -41,6 +39,11 @@ func IntersectAccess(a, b Access) Access {
 	for _, credential := range a.Credentials {
 		if slices.Contains(result.Destinations, credential.Origin) && slices.Contains(b.Credentials, credential) {
 			result.Credentials = append(result.Credentials, credential)
+		}
+	}
+	for _, target := range a.TokenPassthroughTargets {
+		if slices.Contains(result.Destinations, target.Origin) && slices.Contains(b.TokenPassthroughTargets, target) {
+			result.TokenPassthroughTargets = append(result.TokenPassthroughTargets, target)
 		}
 	}
 	return result
@@ -75,6 +78,18 @@ func FilterConflicts(base, grants Access) (Access, []string) {
 		}
 		if _, err := MergeAccess(base, candidate); err != nil {
 			dropped = append(dropped, credential.Origin)
+		} else {
+			result = candidate
+		}
+	}
+	for _, target := range grants.TokenPassthroughTargets {
+		if !slices.Contains(result.Destinations, target.Origin) {
+			continue
+		}
+		candidate := result
+		candidate.TokenPassthroughTargets = append(slices.Clone(result.TokenPassthroughTargets), target)
+		if _, err := MergeAccess(base, candidate); err != nil {
+			dropped = append(dropped, target.Origin)
 		} else {
 			result = candidate
 		}

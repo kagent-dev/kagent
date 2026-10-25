@@ -6,11 +6,13 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 func TestTokenPassthroughRoundTripper(t *testing.T) {
@@ -57,6 +59,70 @@ func TestTokenPassthroughRoundTripper(t *testing.T) {
 			require.NoError(t, err)
 			resp.Body.Close()
 			require.Equal(t, tt.wantAuth, gotAuth)
+		})
+	}
+}
+
+func TestMCPTransportKeepsCallerForBackgroundRequests(t *testing.T) {
+	for _, protocol := range []string{"http", "sse"} {
+		t.Run(protocol, func(t *testing.T) {
+			server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "bound-caller", Version: "1"}, nil)
+			mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami"}, func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, any, error) {
+				return &mcpsdk.CallToolResult{}, nil, nil
+			})
+			var handler http.Handler = mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return server }, nil)
+			if protocol == "sse" {
+				handler = mcpsdk.NewSSEHandler(func(*http.Request) *mcpsdk.Server { return server }, nil)
+			}
+			gets := make(chan struct{}, 1)
+			deletes := make(chan struct{}, 1)
+			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer original-caller" {
+					t.Errorf("%s used the wrong caller", r.Method)
+					http.Error(w, "wrong caller", http.StatusUnauthorized)
+					return
+				}
+				switch r.Method {
+				case http.MethodGet:
+					select {
+					case gets <- struct{}{}:
+					default:
+					}
+				case http.MethodDelete:
+					select {
+					case deletes <- struct{}{}:
+					default:
+					}
+				}
+				handler.ServeHTTP(w, r)
+			}))
+			t.Cleanup(endpoint.Close)
+			t.Cleanup(endpoint.CloseClientConnections)
+			ctx := a2aCtx(map[string][]string{"Authorization": {"Bearer original-caller"}})
+			transport, err := createTransport(ctx, mcpServerParams{URL: endpoint.URL, ServerType: protocol,
+				PassthroughHeaders: []*configv1.InvocationCredentialHeader{{Name: "Authorization", Prefix: "Bearer "}},
+			})
+			require.NoError(t, err)
+			client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "1"}, nil)
+			session, err := client.Connect(ctx, transport, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = session.Close() })
+			otherCaller := a2aCtx(map[string][]string{"Authorization": {"Bearer other-caller"}})
+			_, err = session.ListTools(otherCaller, nil)
+			require.NoError(t, err)
+			select {
+			case <-gets:
+			case <-time.After(5 * time.Second):
+				t.Fatal("MCP connection did not open its background stream")
+			}
+			require.NoError(t, session.Close())
+			if protocol == "http" {
+				select {
+				case <-deletes:
+				case <-time.After(5 * time.Second):
+					t.Fatal("MCP connection did not send session termination")
+				}
+			}
 		})
 	}
 }

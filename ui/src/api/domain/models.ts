@@ -1,6 +1,7 @@
 /** ModelConfig domain models, mirroring the `api.kagent.dev/v1alpha3` ModelConfig CRD. */
 
 import type { TLSConfig } from "./common";
+import type { Header } from "./headers";
 
 export interface OpenAIConfig {
   baseUrl?: string;
@@ -28,7 +29,6 @@ export interface AzureOpenAIConfig {
   azureEndpoint: string;
   apiVersion: string;
   azureDeployment?: string;
-  azureAdToken?: string;
   temperature?: string;
   maxTokens?: number;
   topP?: string;
@@ -91,9 +91,7 @@ export interface FoundryConfig {
 export interface ModelConfigSpec {
   model: string;
   provider: string;
-  apiKeySecret?: string;
-  apiKeySecretKey?: string;
-  tokenPassthrough?: boolean;
+  headers?: Header[];
   defaultHeaders?: Record<string, string>;
   tls?: TLSConfig;
   openAI?: OpenAIConfig;

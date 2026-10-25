@@ -39,13 +39,14 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 			return err
 		}
 		if err := execSQL(ctx, tx, `
-			INSERT INTO sandbox_template_definition (namespace, sandbox_template_name, sandbox_template_uid, desired_revision, grant_destinations, grant_credentials)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO sandbox_template_definition (namespace, sandbox_template_name, sandbox_template_uid, desired_revision, grant_destinations, grant_credentials, grant_token_passthrough_targets)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (namespace, sandbox_template_uid) DO UPDATE SET
 			    sandbox_template_name = EXCLUDED.sandbox_template_name, desired_revision = EXCLUDED.desired_revision,
 			    grant_destinations = EXCLUDED.grant_destinations, grant_credentials = EXCLUDED.grant_credentials,
+			    grant_token_passthrough_targets = EXCLUDED.grant_token_passthrough_targets,
 			    retired_at = NULL, updated_at = NOW()
-		`, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID, definition.DesiredRevision, grants.Destinations, grants.Credentials); err != nil {
+		`, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID, definition.DesiredRevision, grants.Destinations, grants.Credentials, grants.TokenPassthroughTargets); err != nil {
 			return err
 		}
 
@@ -74,7 +75,7 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 // Missing or retired identities return empty access; malformed stored grants fail.
 func (c *Client) GetSandboxEgressGrant(ctx context.Context, namespace, uid string) (egress.Access, error) {
 	grants, err := queryOne(ctx, c.db, `
-		SELECT grant_destinations AS destinations, grant_credentials AS credentials
+		SELECT grant_destinations AS destinations, grant_credentials AS credentials, grant_token_passthrough_targets AS token_passthrough_targets
 		FROM sandbox_template_definition WHERE namespace = $1 AND sandbox_template_uid = $2 AND retired_at IS NULL
 	`, pgx.RowToStructByName[egress.Access], namespace, uid)
 	return decodeEgressGrant(grants, err)

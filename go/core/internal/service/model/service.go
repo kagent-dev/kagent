@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -94,17 +95,15 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 		return nil, serviceerrors.NewInvalidArgument("Invalid Ref", err)
 	}
 
-	if err := validateAPIKeySecretRef(request.Spec.APIKeySecret, request.Spec.APIKeySecretKey, request.Spec.Provider); err != nil {
-		return nil, err
-	}
 	if err := secretmaterial.ValidateMaterials(request.Secrets); err != nil {
 		return nil, err
 	}
 
 	spec := request.Spec
-	if request.APIKey != "" && spec.APIKeySecret == "" && spec.Provider != v1alpha3.ModelProviderOllama {
-		spec.APIKeySecret = ref.Name
-		spec.APIKeySecretKey = providerAPIKeySecretKey(spec.Provider)
+	if request.APIKey != "" {
+		if _, err := configureAPIKey(&spec, ref.Name); err != nil {
+			return nil, err
+		}
 	}
 
 	modelConfig := &v1alpha3.ModelConfig{
@@ -135,14 +134,18 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 // createOwnedSecrets writes every Secret a new ModelConfig owns, so one failure rolls back the same way.
 func (s *Service) createOwnedSecrets(ctx context.Context, modelConfig *v1alpha3.ModelConfig, request CreateRequest) error {
 	spec := modelConfig.Spec
-	if request.APIKey != "" && spec.Provider != v1alpha3.ModelProviderOllama {
+	if request.APIKey != "" {
+		key, err := configureAPIKey(&spec, modelConfig.Name)
+		if err != nil {
+			return err
+		}
 		if err := secretmaterial.CreateOwnedOpaqueSecret(
 			ctx,
 			s.kubeClient,
 			modelConfig,
 			modelConfigGVK,
 			modelConfig.Name,
-			map[string]string{spec.APIKeySecretKey: request.APIKey},
+			map[string]string{key: request.APIKey},
 		); err != nil {
 			return serviceerrors.NewInternal("Failed to create API key secret", err)
 		}
@@ -160,28 +163,24 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 	if err != nil {
 		return nil, err
 	}
-	if err := validateAPIKeySecretRef(request.Spec.APIKeySecret, request.Spec.APIKeySecretKey, request.Spec.Provider); err != nil {
-		return nil, err
-	}
 	if err := secretmaterial.ValidateMaterials(request.Secrets); err != nil {
 		return nil, err
 	}
 
 	oldRefs := referencedSecretNames(modelConfig.Spec)
 	spec := request.Spec
-	if request.APIKey != nil && *request.APIKey != "" && spec.APIKeySecret == "" && spec.Provider != v1alpha3.ModelProviderOllama {
-		spec.APIKeySecret = request.Ref.Name
-		spec.APIKeySecretKey = providerAPIKeySecretKey(spec.Provider)
-	}
-
-	if request.APIKey != nil && *request.APIKey != "" && spec.Provider != v1alpha3.ModelProviderOllama {
+	if request.APIKey != nil && *request.APIKey != "" {
+		key, err := configureAPIKey(&spec, modelConfig.Name)
+		if err != nil {
+			return nil, err
+		}
 		if err := secretmaterial.CreateOrUpdateOwnedOpaqueSecret(
 			ctx,
 			s.kubeClient,
 			modelConfig,
 			modelConfigGVK,
 			modelConfig.Name,
-			map[string]string{spec.APIKeySecretKey: *request.APIKey},
+			map[string]string{key: *request.APIKey},
 		); err != nil {
 			return nil, serviceerrors.NewInternal("Failed to update API key secret", err)
 		}
@@ -233,23 +232,47 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) error {
 	return s.modelConfigs.Delete(ctx, request.Ref)
 }
 
-func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1alpha3.ModelProvider) error {
-	if apiKeySecret != "" && apiKeySecretKey == "" &&
-		provider != v1alpha3.ModelProviderBedrock &&
-		provider != v1alpha3.ModelProviderSAPAICore {
-		return serviceerrors.NewInvalidArgument("apiKeySecretKey is required when apiKeySecret is set", nil)
+// configureAPIKey translates the RPC's API-key convenience field into the shared
+// credential header contract. Arbitrary credential sets use companion Secrets.
+func configureAPIKey(spec *v1alpha3.ModelConfigSpec, owner string) (string, error) {
+	if len(spec.Headers) > 0 {
+		headers := spec.Headers
+		if len(headers) != 1 || headers[0].ValueFrom.TokenPassthrough != nil || headers[0].ValueFrom.SecretKeyRef == nil || headers[0].ValueFrom.SecretKeyRef.Name != owner || headers[0].ValueFrom.SecretKeyRef.Key == "" {
+			return "", serviceerrors.NewInvalidArgument("api_key requires one credential header referencing the ModelConfig's owned Secret; use secrets for other credential sets", nil)
+		}
+		return headers[0].ValueFrom.SecretKeyRef.Key, nil
 	}
-	return nil
-}
-
-func providerAPIKeySecretKey(provider v1alpha3.ModelProvider) string {
-	return fmt.Sprintf("%s_API_KEY", strings.ToUpper(string(provider)))
+	header, prefix := "Authorization", "Bearer "
+	switch spec.Provider {
+	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderMistral, v1alpha3.ModelProviderBedrock, v1alpha3.ModelProviderOllama:
+	case v1alpha3.ModelProviderAnthropic:
+		header, prefix = "X-API-Key", ""
+	case v1alpha3.ModelProviderAzureOpenAI, v1alpha3.ModelProviderFoundry:
+		header, prefix = "api-key", ""
+		if spec.Foundry != nil && spec.Foundry.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {
+			header = "X-API-Key"
+		}
+	case v1alpha3.ModelProviderGemini:
+		header, prefix = "X-Goog-API-Key", ""
+	default:
+		return "", serviceerrors.NewInvalidArgument("this provider requires explicit credential headers", nil)
+	}
+	key := fmt.Sprintf("%s_API_KEY", strings.ToUpper(string(spec.Provider)))
+	spec.Headers = []v1alpha3.Header{{
+		Name: header, Prefix: &prefix,
+		ValueFrom: v1alpha3.HeaderValueSource{
+			SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: owner}, Key: key},
+		},
+	}}
+	return key, nil
 }
 
 func referencedSecretNames(spec v1alpha3.ModelConfigSpec) map[string]struct{} {
 	references := map[string]struct{}{}
-	if spec.APIKeySecret != "" {
-		references[spec.APIKeySecret] = struct{}{}
+	for _, header := range spec.Headers {
+		if header.ValueFrom.SecretKeyRef != nil {
+			references[header.ValueFrom.SecretKeyRef.Name] = struct{}{}
+		}
 	}
 	return references
 }

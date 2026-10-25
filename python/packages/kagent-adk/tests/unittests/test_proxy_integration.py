@@ -536,25 +536,3 @@ def test_sse_mcp_tool_without_proxy():
     connection_params = getattr(mcp_tool, "_connection_params", None) or getattr(mcp_tool, "connection_params", None)
     assert connection_params is not None
     assert connection_params.url == "http://test-sse-mcp-server.kagent:8084/mcp"
-
-
-def test_mcp_token_passthrough_not_implemented():
-    """Python ADK must refuse passthrough servers rather than connect without the caller's token."""
-    from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
-
-    from kagent.adk.types import HttpMcpServerConfig
-
-    config = AgentConfig(
-        model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
-        description="Test agent",
-        instruction="You are a test agent",
-        http_tools=[
-            HttpMcpServerConfig(
-                params=StreamableHTTPConnectionParams(url="http://test-mcp-server.kagent:8084/mcp"),
-                token_passthrough=True,
-            )
-        ],
-    )
-
-    with pytest.raises(NotImplementedError, match="token passthrough"):
-        create_agent(config, "test_agent")

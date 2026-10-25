@@ -10,6 +10,7 @@ from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.utils._google_client_headers import get_tracking_headers
 from google.genai import Client, types
 
+from .._invocation_auth import credential_source
 from ._ssl import KAgentTLSMixin
 
 
@@ -59,6 +60,8 @@ class KAgentGeminiLlm(KAgentTLSMixin, _GeminiGenerationConfigMixin, GeminiLLM):
                 "client_args": {"verify": verify},
                 "async_client_args": {"verify": verify, "ssl": verify},
             }
+        if self.passthrough_headers or credential_source()[0]:
+            kwargs["httpx_async_client"] = self._httpx_async_client_if_tls()
         return types.HttpOptions(
             headers=_merge_headers(self.extra_headers),
             retry_options=self.retry_options,

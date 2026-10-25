@@ -8,6 +8,8 @@ from typing import Optional
 
 import httpx
 
+from .._invocation_auth import authentication_hook, credential_source
+
 logger = logging.getLogger(__name__)
 
 
@@ -246,6 +248,7 @@ def create_ssl_context(
 class KAgentTLSMixin:
     """Mixin for model wrappers that accept kagent TLS configuration."""
 
+    passthrough_headers: list[dict[str, str]] = []
     tls_disable_verify: Optional[bool] = None
     tls_ca_cert_path: Optional[str] = None
     tls_disable_system_cas: Optional[bool] = None
@@ -267,9 +270,11 @@ class KAgentTLSMixin:
     def _tls_httpx_kwargs(self) -> dict[str, object]:
         """Return the HTTPX kwargs for the model."""
         verify = self._tls_verify()
-        if verify is None:
-            return {}
-        return {"verify": verify}
+        kwargs = {"verify": verify} if verify is not None else {}
+        if self.passthrough_headers or credential_source()[0]:
+            kwargs["event_hooks"] = {"request": [authentication_hook(self.passthrough_headers)]}
+            kwargs["follow_redirects"] = False
+        return kwargs
 
     def _httpx_async_client_if_tls(self, client_cls=httpx.AsyncClient, **kwargs) -> httpx.AsyncClient | None:
         """

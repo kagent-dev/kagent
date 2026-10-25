@@ -83,7 +83,6 @@ const INPUTS = {
           description: "a swept server",
           protocol: "STREAMABLE_HTTP" as const,
           url: "https://example.test/mcp",
-          headersFrom: [],
         },
       },
     },

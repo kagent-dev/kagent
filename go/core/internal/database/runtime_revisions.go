@@ -18,25 +18,32 @@ import (
 // UpsertAgentDefinition records the desired runtime revision for a
 // Kubernetes Agent identity. Updating an existing definition revives it if retired and
 // preserves its latest successful revision. It atomically retires older identities
-// at the same names and rejects revisions whose deletion has started. Grants
-// are canonicalized before writing; errors may include an uncertain commit outcome.
+// at the same names and rejects revisions whose deletion has started. Applied
+// integration bindings and admitted grants are replaced atomically after
+// validation; errors may include an uncertain commit outcome.
 func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefinition) error {
 	grants, err := canonicalStoredGrants(definition.EgressGrant)
 	if err != nil {
 		return fmt.Errorf("validate source grants: %w", err)
+	}
+	integrations, err := egress.CanonicalIntegrationGrants(definition.IntegrationGrants)
+	if err != nil {
+		return fmt.Errorf("validate applied integrations: %w", err)
 	}
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		if err := retireAgentIdentities(ctx, tx, definition.Namespace, definition.AgentName, definition.AgentUID); err != nil {
 			return err
 		}
 		if err := execSQL(ctx, tx, `
-			INSERT INTO agent_definition (namespace, agent_name, agent_uid, desired_revision, grant_destinations, grant_credentials)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO agent_definition (namespace, agent_name, agent_uid, desired_revision, grant_destinations, grant_credentials, grant_token_passthrough_targets, integration_grants)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (namespace, agent_uid) DO UPDATE SET
 			    agent_name = EXCLUDED.agent_name, desired_revision = EXCLUDED.desired_revision,
 			    grant_destinations = EXCLUDED.grant_destinations, grant_credentials = EXCLUDED.grant_credentials,
+			    grant_token_passthrough_targets = EXCLUDED.grant_token_passthrough_targets,
+			    integration_grants = EXCLUDED.integration_grants,
 			    retired_at = NULL, updated_at = NOW()
-		`, definition.Namespace, definition.AgentName, definition.AgentUID, definition.DesiredRevision, grants.Destinations, grants.Credentials); err != nil {
+		`, definition.Namespace, definition.AgentName, definition.AgentUID, definition.DesiredRevision, grants.Destinations, grants.Credentials, grants.TokenPassthroughTargets, integrations); err != nil {
 			return err
 		}
 
@@ -73,10 +80,27 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 // Missing or retired identities return empty access; malformed stored grants fail.
 func (c *Client) GetAgentEgressGrant(ctx context.Context, namespace, uid string) (egress.Access, error) {
 	grants, err := queryOne(ctx, c.db, `
-		SELECT grant_destinations AS destinations, grant_credentials AS credentials
+		SELECT grant_destinations AS destinations, grant_credentials AS credentials, grant_token_passthrough_targets AS token_passthrough_targets
 		FROM agent_definition WHERE namespace = $1 AND agent_uid = $2 AND retired_at IS NULL
 	`, pgx.RowToStructByName[egress.Access], namespace, uid)
 	return decodeEgressGrant(grants, err)
+}
+
+// GetAgentIntegrationGrants returns the active identity's applied integration
+// bindings independently of runtime preparation. Missing or retired identities
+// return no bindings; malformed durable source identities or bindings fail.
+func (c *Client) GetAgentIntegrationGrants(ctx context.Context, namespace, uid string) ([]egress.IntegrationGrant, error) {
+	grants, err := queryOne(ctx, c.db, `
+		SELECT integration_grants FROM agent_definition
+		WHERE namespace = $1 AND agent_uid = $2 AND retired_at IS NULL
+	`, pgx.RowTo[[]egress.IntegrationGrant], namespace, uid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read applied integration grants: %w", err)
+	}
+	return egress.CanonicalIntegrationGrants(grants)
 }
 
 // ListAgentEgressSources returns names for active Agent definitions and retired

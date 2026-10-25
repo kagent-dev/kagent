@@ -21,11 +21,9 @@ spec:
   {{- with $model }}
   provider: {{ .provider | quote }}
   model: {{ .model | quote }}
-  {{- if $model.apiKeySecretRef }}
-  apiKeySecret: {{.apiKeySecretRef}}
-  {{- end }}
-  {{- if $model.apiKeySecretKey }}
-  apiKeySecretKey: {{.apiKeySecretKey}}
+  {{- with $model.headers }}
+  headers:
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- if hasKey $model "defaultHeaders" }}
   defaultHeaders:

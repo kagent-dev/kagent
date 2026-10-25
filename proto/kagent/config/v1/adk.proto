@@ -40,13 +40,20 @@ message ADKAgentConfig {
 }
 
 // ADKModelConfig shares transport settings across a single selected provider.
+// InvocationCredentialHeader selects and formats the authenticated call's token.
+message InvocationCredentialHeader {
+  string name = 1 [(buf.validate.field).string.min_len = 1];
+  string prefix = 2;
+}
+
 message ADKModelConfig {
   string model = 1;
   map<string, string> headers = 2;
   optional bool tls_insecure_skip_verify = 3;
   optional string tls_ca_cert_path = 4;
   optional bool tls_disable_system_cas = 5;
-  bool api_key_passthrough = 6;
+  bool api_key_passthrough = 6 [deprecated = true, (buf.validate.field).bool.const = false];
+  repeated InvocationCredentialHeader passthrough_headers = 7;
   oneof provider {
     option (buf.validate.oneof).required = true;
     ADKOpenAI openai = 10;
@@ -280,7 +287,8 @@ message ADKHTTPMCPServerConfig {
   repeated string allowed_headers = 3;
   bool require_approval = 4;
   // Forward the incoming A2A bearer token as this server's Authorization header.
-  bool token_passthrough = 5;
+  bool token_passthrough = 5 [deprecated = true, (buf.validate.field).bool.const = false];
+  repeated InvocationCredentialHeader passthrough_headers = 6;
 }
 message ADKSSEMCPServerConfig {
   ADKSSEConnectionParams params = 1 [(buf.validate.field).required = true];
@@ -288,7 +296,8 @@ message ADKSSEMCPServerConfig {
   repeated string allowed_headers = 3;
   bool require_approval = 4;
   // Forward the incoming A2A bearer token as this server's Authorization header.
-  bool token_passthrough = 5;
+  bool token_passthrough = 5 [deprecated = true, (buf.validate.field).bool.const = false];
+  repeated InvocationCredentialHeader passthrough_headers = 6;
 }
 message ADKStdioMCPServerConfig {
   string command = 1;
@@ -311,13 +320,15 @@ message ADKEmbeddingConfig {
   string provider = 1;
   string model = 2;
   string base_url = 3;
-  bool api_key_passthrough = 4;
+  bool api_key_passthrough = 4 [deprecated = true, (buf.validate.field).bool.const = false];
   optional bool tls_insecure_skip_verify = 5;
   optional string tls_ca_cert_path = 6;
   optional bool tls_disable_system_cas = 7;
   string endpoint = 8;
   string deployment = 9;
   string api_version = 10;
+  map<string, string> headers = 11;
+  repeated InvocationCredentialHeader passthrough_headers = 12;
 }
 message ADKMemoryConfig {
   // Zero uses the server default. Bound days to Go's time.Duration range.

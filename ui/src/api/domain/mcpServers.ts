@@ -4,7 +4,8 @@
  * Kagent agents bind RemoteMCPServer resources that describe HTTP MCP endpoints.
  */
 
-import type { ResourceMetadata, TLSConfig, ValueRef } from "./common";
+import type { ResourceMetadata, TLSConfig } from "./common";
+import type { Header } from "./headers";
 import type { SecretMaterial } from "./models";
 
 export type RemoteMCPServerProtocol = "SSE" | "STREAMABLE_HTTP";
@@ -13,7 +14,7 @@ export interface RemoteMCPServerSpec {
   description: string;
   protocol: RemoteMCPServerProtocol;
   url: string;
-  headersFrom: ValueRef[];
+  headers?: Header[];
   timeout?: string;
   sseReadTimeout?: string;
   terminateOnClose?: boolean;

@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/pkg/invocationauth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -116,7 +117,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	runtimeExecutor := tasks.WrapExecutor(executor, cfg.Telemetry.Runtime, cfg.Flush)
 	executor = runtimeExecutor
 	// Append any caller-supplied handler options.
-	handlerOpts := append(handlerOptions(tasks, runtimeExecutor), cfg.HandlerOpts...)
+	handlerOpts := append(handlerOptions(tasks, runtimeExecutor, controller.GetAPIURL()), cfg.HandlerOpts...)
 
 	serverConfig := server.ServerConfig{
 		Host:             cfg.Host,
@@ -143,13 +144,14 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 
 // handlerOptions coordinates native execution with SDK persistence and cleanup.
 // The runtime interceptor admits one send; the SDK limiter frees only after settlement.
-func handlerOptions(tasks *runtimetaskstore.Store, runtime a2asrv.CallInterceptor) []a2asrv.RequestHandlerOption {
+func handlerOptions(tasks *runtimetaskstore.Store, runtime a2asrv.CallInterceptor, controlPlaneURL string) []a2asrv.RequestHandlerOption {
 	return []a2asrv.RequestHandlerOption{
 		a2asrv.WithTaskStore(tasks),
 		a2asrv.WithCallInterceptors(
 			a2a.HITLActivationInterceptor(),
 			a2a.UsageActivationInterceptor(),
 			a2a.UserIDCallInterceptor(),
+			invocationauth.PolicyCallInterceptor(controlPlaneURL),
 			runtime,
 		),
 	}

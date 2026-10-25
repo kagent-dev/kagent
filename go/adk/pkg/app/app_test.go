@@ -245,7 +245,7 @@ func TestSettledTaskAdmitsNextSend(t *testing.T) {
 			yield(a2atype.NewStatusUpdateEvent(input, a2atype.TaskStateCompleted, nil), nil)
 		}
 	}), "", nil)
-	handler := a2asrv.NewHandler(wrapper, handlerOptions(store, wrapper)...)
+	handler := a2asrv.NewHandler(wrapper, handlerOptions(store, wrapper, "")...)
 	send := func(text string) error {
 		_, err := handler.SendMessage(t.Context(), &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))})
 		return err
