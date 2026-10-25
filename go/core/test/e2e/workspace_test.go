@@ -127,8 +127,9 @@ func TestSandboxWorkspaceSource(t *testing.T) {
 	template := &v1alpha3.SandboxTemplate{}
 	key := ctrlclient.ObjectKey{Namespace: f.template.Namespace, Name: f.template.Name}
 	require.NoError(t, kube.Get(f.ctx, key, template))
+	before := template.DeepCopy()
 	template.Spec.Workspace = workspaceFixture()
-	require.NoError(t, kube.Update(f.ctx, template))
+	require.NoError(t, kube.Patch(f.ctx, template, ctrlclient.MergeFrom(before)))
 	require.Eventually(t, func() bool {
 		require.NoError(t, kube.Get(f.ctx, key, template))
 		return template.Status.ObservedGeneration == template.Generation && meta.IsStatusConditionTrue(template.Status.Conditions, "Ready")
