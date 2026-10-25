@@ -55,7 +55,7 @@ converted with the same code as structured output) and `include_contents`
 | `parallel_worker` | one of function/tool/agent | Runs the target once per item of a list input                   |
 | `dynamic`         | `function`                 | Registered `DynamicFunc` that runs children under `max_iters`, with `isolation` |
 | `hitl`            | `message`                  | Pauses for a human reply and forwards the reply                 |
-| `cel`             | one of output/route/state_delta | Evaluates CEL expressions; may select routes and write state |
+| `cel`             | one of output/route/routes/state_delta | Evaluates CEL expressions with `vars`; may select routes and write state |
 
 `function`, `tool`, `agent`, `llm`, `parallel_worker`, `dynamic` and `cel` nodes accept
 `timeout` and `retry`, which map to `workflow.NodeConfig`. Unset retry fields
