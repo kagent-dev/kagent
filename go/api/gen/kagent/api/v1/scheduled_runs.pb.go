@@ -1239,7 +1239,7 @@ const file_kagent_api_v1_scheduled_runs_proto_rawDesc = "" +
 	"\x06prompt\x18\x04 \x01(\tB\x0f\xbaH\fr\n" +
 	"\x10\x01(\x80\x80\x022\x02\\SR\x06prompt\x12\x16\n" +
 	"\x06paused\x18\x05 \x01(\bR\x06paused\x12[\n" +
-	"\x11execution_timeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationB\x13\xbaH\x10\xaa\x01\r\"\x06\b\x84\xfa\x85\xae\"2\x03\x10\xe8\aR\x10executionTimeout\"\xe1\x03\n" +
+	"\x11execution_timeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationB\x13\xbaH\x10\xaa\x01\r\"\x06\b\x84\xfa\x85\xae\"2\x03\x10\xe8\aR\x10executionTimeout\"\xbc\x03\n" +
 	"\fScheduledRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acreator\x18\x02 \x01(\tR\acreator\x126\n" +
@@ -1253,13 +1253,13 @@ const file_kagent_api_v1_scheduled_runs_proto_rawDesc = "" +
 	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x129\n" +
 	"\n" +
 	"deleted_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tdeletedAtJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\aharnessR\x0eagent_template\"\xee\x01\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tdeletedAt\"\xc9\x01\n" +
 	"\x19CreateScheduledRunRequest\x12>\n" +
 	"\x05agent\x18\x05 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x05agent\x12)\n" +
 	"\n" +
 	"request_id\x18\x03 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\x12A\n" +
-	"\x06config\x18\x04 \x01(\v2!.kagent.api.v1.ScheduledRunConfigB\x06\xbaH\x03\xc8\x01\x01R\x06configJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\aharnessR\x0eagent_template\"^\n" +
+	"\x06config\x18\x04 \x01(\v2!.kagent.api.v1.ScheduledRunConfigB\x06\xbaH\x03\xc8\x01\x01R\x06config\"^\n" +
 	"\x1aCreateScheduledRunResponse\x12@\n" +
 	"\rscheduled_run\x18\x01 \x01(\v2\x1b.kagent.api.v1.ScheduledRunR\fscheduledRun\"L\n" +
 	"\x16GetScheduledRunRequest\x122\n" +

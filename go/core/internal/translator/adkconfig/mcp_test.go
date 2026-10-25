@@ -46,8 +46,7 @@ func TestAddRemoteMCPServerPreservesBindingApproval(t *testing.T) {
 				tools = []string{"write"}
 			}
 
-			err := (&Builder{}).addRemoteMCPServer(config, server, tools, true, nil)
-			require.NoError(t, err)
+			addRemoteMCPServer(config, server, tools, true)
 			test.assert(t, config)
 		})
 	}
@@ -57,10 +56,10 @@ func TestAddRemoteMCPServerTokenPassthrough(t *testing.T) {
 	config := &configv1.ADKAgentConfig{}
 	for _, protocol := range []v1alpha3.RemoteMCPServerProtocol{v1alpha3.RemoteMCPServerProtocolStreamableHttp, v1alpha3.RemoteMCPServerProtocolSse} {
 		server := &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{
-			URL: "https://mcp.example.test", Protocol: protocol, TokenPassthrough: true,
+			URL: "https://mcp.example.test", Protocol: protocol, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}},
 		}}
-		require.NoError(t, (&Builder{}).addRemoteMCPServer(config, server, nil, false, nil))
+		addRemoteMCPServer(config, server, nil, false)
 	}
-	require.True(t, config.HttpTools[0].TokenPassthrough)
-	require.True(t, config.SseTools[0].TokenPassthrough)
+	require.Empty(t, config.HttpTools[0].Params.Headers)
+	require.Empty(t, config.SseTools[0].Params.Headers)
 }

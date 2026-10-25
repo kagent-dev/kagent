@@ -113,7 +113,7 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	require.Empty(t, remaining)
 }
 
-func TestRuntimeEgressTokenOriginsAreNotGrants(t *testing.T) {
+func TestRuntimeEgressUnallowedTokenOriginsFailClosed(t *testing.T) {
 	many := make([]string, 257)
 	for i := range many {
 		many[i] = fmt.Sprintf("https://model-%d.example.com", i)
@@ -138,8 +138,8 @@ func TestRuntimeEgressTokenOriginsAreNotGrants(t *testing.T) {
 				TokenPassthroughTargets: targets,
 			}, RecordRevisionOptions{}))
 			policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
-			require.NoError(t, err)
-			require.Empty(t, policy.Destinations, "token origins constrain credentials without granting network access")
+			require.Error(t, err)
+			require.Empty(t, policy.Destinations, "invalid token destinations cannot grant network access")
 		})
 	}
 }
@@ -155,6 +155,7 @@ func TestRuntimeEgressCanonicalTokenOriginWithholdsCredentials(t *testing.T) {
 	require.NoError(t, client.RecordRuntimeRevision(ctx, RuntimeRevision{
 		Revision: "revision", Namespace: "team", AgentName: "source", AgentUID: "uid",
 		SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime",
+		EgressDestinations:      []string{"https://model.example.com:443"},
 		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://MODEL.example.com.", Header: "Authorization"}},
 	}, RecordRevisionOptions{}))
 	policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
@@ -238,7 +239,7 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 func TestSourceGrantsRollbackWithInvalidRevision(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
-	grants := egress.Access{Destinations: []string{"https://tickets.example.com:443"}}
+	grants := egress.Access{Destinations: []string{"https://tickets.example.com:443"}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://tickets.example.com:443", Header: "authorization", Prefix: "Bearer "}}}
 	definition := AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", EgressGrant: grants}
 	err := client.UpsertAgentDefinition(ctx, definition)
 	require.NoError(t, err)
@@ -257,6 +258,7 @@ func TestSourceGrantsRollbackWithInvalidRevision(t *testing.T) {
 
 func TestRuntimeEgressMalformedInputsFailClosed(t *testing.T) {
 	for _, test := range []struct{ name, statement string }{
+		{"grant passthrough", `UPDATE agent_definition SET grant_token_passthrough_targets = '[{"origin":"https://tickets.example.com","header":"cookie"}]'`},
 		{"grant credentials", `UPDATE agent_definition SET grant_credentials = '[{"hostname":"legacy.example.com"}]'`},
 		{"grant origin", `UPDATE agent_definition SET grant_destinations = ARRAY['invalid']`},
 		{"pinned credentials", `UPDATE runtime_revision SET credentials = '[{"hostname":"legacy.example.com"}]'`},
@@ -296,11 +298,12 @@ func TestReadAdmittedGrantsScopesIdentity(t *testing.T) {
 			} else {
 				read, retire = client.GetSandboxEgressGrant, client.RetireSandboxTemplateIdentities
 			}
-			grants := egress.Access{Destinations: []string{"https://tickets.example.com:443"}}
+			grants := egress.Access{Destinations: []string{"https://tickets.example.com:443"}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://tickets.example.com:443", Header: "authorization", Prefix: "Bearer "}}}
 			require.NoError(t, upsert("uid", grants))
 			got, err := read(ctx, "team", "uid")
 			require.NoError(t, err)
 			require.Equal(t, grants.Destinations, got.Destinations)
+			require.Equal(t, grants.TokenPassthroughTargets, got.TokenPassthroughTargets)
 			for _, scope := range [][2]string{{"team", "new"}, {"other", "uid"}} {
 				got, err = read(ctx, scope[0], scope[1])
 				require.NoError(t, err)
@@ -316,4 +319,43 @@ func TestReadAdmittedGrantsScopesIdentity(t *testing.T) {
 			require.Empty(t, got.Destinations, "grants belong to the exact source UID")
 		})
 	}
+}
+
+func TestPassthroughRequiresLiveGrantForEveryRevision(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	target := egresspolicy.GatewayTarget{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}
+	grant := egress.Access{Destinations: []string{target.Origin}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{target}}
+	definition := AgentDefinition{Namespace: "team", AgentName: "agent", AgentUID: "uid", EgressGrant: grant}
+	require.NoError(t, client.UpsertAgentDefinition(ctx, definition))
+	for _, revision := range []string{"integration", "policy"} {
+		r := RuntimeRevision{Revision: revision, Namespace: "team", AgentName: "agent", AgentUID: "uid",
+			SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: revision,
+			EgressDestinations: []string{target.Origin}}
+		if revision == "integration" {
+			r.TokenPassthroughTargets = []egresspolicy.GatewayTarget{target}
+		}
+		require.NoError(t, client.RecordRuntimeRevision(ctx, r, RecordRevisionOptions{}))
+	}
+	check := func(want []egresspolicy.GatewayTarget) {
+		t.Helper()
+		for _, revision := range []string{"integration", "policy"} {
+			access, err := client.GetRuntimeEgressPolicy(ctx, revision)
+			require.NoError(t, err)
+			require.Equal(t, []string{target.Origin}, access.Destinations)
+			require.Equal(t, want, access.TokenPassthroughTargets, revision)
+		}
+	}
+	check(grant.TokenPassthroughTargets)
+	definition.EgressGrant = egress.Access{}
+	require.NoError(t, client.UpsertAgentDefinition(ctx, definition))
+	check(nil)
+	definition.EgressGrant = grant
+	require.NoError(t, client.UpsertAgentDefinition(ctx, definition))
+	check(grant.TokenPassthroughTargets)
+	require.NoError(t, client.RetireAgentIdentities(ctx, "team", "agent"))
+	check(nil)
+	definition.AgentUID = "replacement"
+	require.NoError(t, client.UpsertAgentDefinition(ctx, definition))
+	check(nil)
 }

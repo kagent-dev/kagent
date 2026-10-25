@@ -1,36 +1,25 @@
 package claude
 
 import (
-	"context"
-	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
-	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 )
 
 type mcpCompilation struct {
-	servers     map[string]claudeconfig.MCPServer
-	environment []corev1.EnvVar
-	egress      []string
-	warnings    []string
+	servers  map[string]claudeconfig.MCPServer
+	egress   []string
+	warnings []string
 }
 
-func (c *Compiler) compileMCP(
-	ctx context.Context,
-	namespace string,
-	tools []translator.ResolvedMCPTool,
-) (mcpCompilation, error) {
+func compileMCP(tools []translator.ResolvedMCPTool) (mcpCompilation, error) {
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
 	}
@@ -41,9 +30,7 @@ func (c *Compiler) compileMCP(
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Claude MCP binding has no server")
 		}
-		if server.Spec.TokenPassthrough {
-			return mcpCompilation{}, translator.NewValidationError("Claude does not support RemoteMCPServer %q tokenPassthrough", server.Name)
-		}
+
 		name := strings.ReplaceAll(server.Name, ".", "_")
 		if previous, exists := identities[name]; exists {
 			return mcpCompilation{}, translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
@@ -67,15 +54,17 @@ func (c *Compiler) compileMCP(
 		if err != nil {
 			return mcpCompilation{}, err
 		}
-		headers, headerEnvironment, err := c.compileMCPHeaders(ctx, namespace, server.Spec.HeadersFrom)
+		headers, passthrough, err := translator.RuntimeCredentialHeaders(server.Spec.Headers, nil)
 		if err != nil {
-			return mcpCompilation{}, fmt.Errorf("compile RemoteMCPServer %q headers: %w", server.Name, err)
+			return mcpCompilation{}, err
+		}
+		if passthrough {
+			return mcpCompilation{}, translator.NewValidationError("Claude RemoteMCPServer %q does not support tokenPassthrough", server.Name)
 		}
 		result.servers[name] = claudeconfig.MCPServer{
 			Type: transport, URL: server.Spec.URL, Headers: headers,
 			RequireApproval: tool.Binding.RequireApproval,
 		}
-		result.environment = append(result.environment, headerEnvironment...)
 		result.egress = append(result.egress, hostname)
 	}
 	return result, nil
@@ -152,45 +141,5 @@ func mcpOrigin(raw string) (string, error) {
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
 		return "", translator.NewValidationError("Claude RemoteMCPServer URL must be absolute HTTP(S) without credentials or fragment")
 	}
-	return egress.Origin(parsed), nil
-}
-
-func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {
-	if len(refs) == 0 {
-		return nil, nil, nil
-	}
-	headers := make(map[string]string, len(refs))
-	var environment []corev1.EnvVar
-	for _, ref := range refs {
-		if strings.TrimSpace(ref.Name) == "" {
-			return nil, nil, translator.NewValidationError("MCP header name is required")
-		}
-		if _, exists := headers[ref.Name]; exists {
-			return nil, nil, translator.NewValidationError("duplicate MCP header %q", ref.Name)
-		}
-		switch {
-		case ref.ValueFrom == nil:
-			headers[ref.Name] = ref.Value
-		case ref.ValueFrom.Type == v1alpha3.ConfigMapValueSource:
-			key := types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}
-			fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(key))
-			if fetched == nil {
-				return nil, nil, fmt.Errorf("ConfigMap %q not found", ref.ValueFrom.Name)
-			}
-			configMap := *fetched
-			value, exists := configMap.Data[ref.ValueFrom.Key]
-			if !exists {
-				return nil, nil, fmt.Errorf("ConfigMap %q does not contain key %q", configMap.Name, ref.ValueFrom.Key)
-			}
-			headers[ref.Name] = value
-		case ref.ValueFrom.Type == v1alpha3.SecretValueSource:
-			sum := sha256.Sum256([]byte(namespace + "\x00" + ref.ValueFrom.Name + "\x00" + ref.ValueFrom.Key))
-			name := claudeconfig.MCPCredentialEnvPrefix + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
-			headers[ref.Name] = "${" + name + "}"
-			environment = append(environment, secretEnvironment(name, ref.ValueFrom.Name, ref.ValueFrom.Key))
-		default:
-			return nil, nil, translator.NewValidationError("unsupported MCP header value source %q", ref.ValueFrom.Type)
-		}
-	}
-	return headers, environment, nil
+	return egresspolicy.Origin(parsed), nil
 }

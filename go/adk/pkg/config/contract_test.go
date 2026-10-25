@@ -79,17 +79,14 @@ func TestSharedAgentContract(t *testing.T) {
 }
 
 func TestModelToEmbeddingConfig(t *testing.T) {
-	model := &configv1.ADKModelConfig{Model: "embedding", ApiKeyPassthrough: true, TlsInsecureSkipVerify: new(false), Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{Endpoint: "https://foundry.example.com", Deployment: "embedding", ApiVersion: "version"}}}
+	model := &configv1.ADKModelConfig{Model: "embedding", TlsInsecureSkipVerify: new(false), Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{Endpoint: "https://foundry.example.com", Deployment: "embedding", ApiVersion: "version"}}}
 	cfg := runtimeconfig.ModelToEmbeddingConfig(model)
 	require.Equal(t, "foundry", cfg.Provider)
 	require.Equal(t, "https://foundry.example.com", cfg.Endpoint)
 	require.Equal(t, "embedding", cfg.Deployment)
 	require.Equal(t, "version", cfg.ApiVersion)
-	require.True(t, cfg.ApiKeyPassthrough)
 	require.NotNil(t, cfg.TlsInsecureSkipVerify)
 	require.False(t, *cfg.TlsInsecureSkipVerify)
-	model.Provider = &configv1.ADKModelConfig_Bedrock{Bedrock: &configv1.ADKBedrock{}}
-	require.False(t, runtimeconfig.ModelToEmbeddingConfig(model).ApiKeyPassthrough)
 }
 
 // Both runtimes load these cases to enforce the same numeric boundaries.

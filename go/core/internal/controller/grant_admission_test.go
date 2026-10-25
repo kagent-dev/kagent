@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -8,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -118,10 +121,10 @@ func TestGrantAdmissionAcrossSources(t *testing.T) {
 	}
 }
 
-func TestAgentGrantAdmissionReservesTokenPassthroughOrigins(t *testing.T) {
+func TestAgentGrantAdmissionReservesTokenPassthroughHeaders(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const origin = "https://mcp.example.com:443"
-		server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com/mcp", TokenPassthrough: true}}
+		server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com/mcp", Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}}}
 		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"lookup"}}}},
 		}}
@@ -138,15 +141,21 @@ func TestAgentGrantAdmissionReservesTokenPassthroughOrigins(t *testing.T) {
 		store := &fakeRuntimeRevisionStore{}
 		r := &Reconciler{collections: collections, templates: &fakeActorTemplates{template: prepared}, store: store}
 		policies := collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy])
-		// Any Secret header on a passthrough origin conflicts, not just the target's.
+		// Only the same header conflicts; another credential can share the origin.
 		for _, header := range []string{"Authorization", "X-API-Key"} {
 			policies.UpdateObject(&v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "keys"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{
-				Origin: origin, Authentication: &v1alpha3.EgressAuthentication{Header: header, SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"}},
+				Origin: origin, Headers: []v1alpha3.Header{{Name: header, ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: new(corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"})}}},
 			}}}})
 			synctest.Wait()
-			require.NotEmpty(t, collections.Reconciliations.GetKey(initial.ResourceName()).EgressConflict, header)
+			conflict := collections.Reconciliations.GetKey(initial.ResourceName()).EgressConflict
 			require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
-			require.Empty(t, store.pair.EgressGrant.Credentials, header)
+			if header == "Authorization" {
+				require.NotEmpty(t, conflict)
+				require.Empty(t, store.pair.EgressGrant.Credentials)
+			} else {
+				require.Empty(t, conflict)
+				require.Len(t, store.pair.EgressGrant.Credentials, 1)
+			}
 		}
 		require.Equal(t, []egresspolicy.GatewayTarget{target}, store.revision.TokenPassthroughTargets)
 	})
@@ -203,5 +212,174 @@ func TestAgentGrantAdmissionWithAndWithoutCompiledBase(t *testing.T) {
 		agent.UID = "replacement"
 		agents.UpdateObject(agent)
 		check(false, true)
+	})
+}
+
+func TestIntegrationAndPolicyPassthroughShareGrantLifetime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		header := v1alpha3.Header{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}
+		server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "mcp", UID: "mcp-uid"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com/mcp", Headers: []v1alpha3.Header{header}}}
+		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"lookup"}}}},
+		}}
+		collections, harnesses := newPreparationTestCollectionsFor(t, "gvisor", template, server)
+		initial := collections.Reconciliations.List()[0]
+		base := egress.Access{Destinations: initial.Target.Revision.EgressDestinations, TokenPassthroughTargets: initial.Target.Revision.TokenPassthroughTargets}
+		prepared := proto.CloneOf(initial.Target.ActorTemplate)
+		prepared.Metadata.Uid, prepared.Status = "prepared", sandboxGoldenStatus()
+		store := &fakeRuntimeRevisionStore{}
+		r := &Reconciler{collections: collections, templates: &fakeActorTemplates{template: prepared}, store: store}
+		check := func(allowed bool) {
+			t.Helper()
+			synctest.Wait()
+			require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+			access, err := egress.EffectiveAccess(base, store.pair.EgressGrant)
+			require.NoError(t, err)
+			if allowed {
+				require.Equal(t, base.TokenPassthroughTargets, access.TokenPassthroughTargets)
+			} else {
+				require.Empty(t, access.TokenPassthroughTargets)
+			}
+		}
+		check(true)
+		agent := initial.Agent.DeepCopy()
+		agent.Spec.Template = v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{}}
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+		check(false)
+		policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "access"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: "https://mcp.example.com", Headers: []v1alpha3.Header{header}}}}}
+		policies := collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy])
+		policies.UpdateObject(policy)
+		agent = agent.DeepCopy()
+		agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+		check(true)
+		harness := harnesses.List()[0]
+		harnesses.DeleteObject("team-a/byo")
+		check(true)
+		policies.DeleteObject("team-a/access")
+		check(false)
+		// Failed runtime compilation preserves the applied integration while
+		// continuing to reconcile policy and integration source revocations.
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(initial.Agent.DeepCopy())
+		harnesses.UpdateObject(harness)
+		check(true)
+		harnesses.DeleteObject("team-a/byo")
+		check(true)
+		uncompiled := initial.Agent.DeepCopy()
+		uncompiled.Spec.Template = v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{}}
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(uncompiled)
+		check(true)
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(initial.Agent.DeepCopy())
+		check(true)
+		servers := collections.RemoteMCPServers.(krt.StaticCollection[*v1alpha3.RemoteMCPServer])
+		invalid := server.DeepCopy()
+		invalid.Spec.Headers[0].Prefix = new("invalid\r\n")
+		servers.UpdateObject(invalid)
+		check(true)
+		removed := server.DeepCopy()
+		removed.Spec.Headers = nil
+		servers.UpdateObject(removed)
+		check(false)
+		servers.UpdateObject(invalid)
+		check(false)
+		// A separate policy may still grant the same header. Neither that
+		// overlap nor restart can erase the integration source's revocation.
+		policies.UpdateObject(policy)
+		agent = initial.Agent.DeepCopy()
+		agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+		check(true)
+		collections.AgentRuntimeObservations.DeleteObject(initial.ResourceName())
+		synctest.Wait()
+		require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+		check(true)
+		policies.DeleteObject("team-a/access")
+		check(false)
+		servers.UpdateObject(server)
+		check(true)
+		for _, readUnavailable := range []bool{false, true} {
+			// The fake store commits the definition before returning pairErr.
+			// Recovery must prefer that durable revocation over the older cache.
+			store.pairErr = errors.New("commit response lost")
+			if readUnavailable {
+				store.integrationReadErr = errors.New("database unavailable")
+			}
+			servers.UpdateObject(removed)
+			synctest.Wait()
+			require.Error(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+			require.Empty(t, store.pair.EgressGrant.TokenPassthroughTargets)
+			store.pairErr, store.integrationReadErr = nil, nil
+			servers.UpdateObject(invalid)
+			synctest.Wait()
+			if readUnavailable {
+				require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+			}
+			check(false)
+			servers.UpdateObject(server)
+			check(true)
+		}
+		servers.DeleteObject("team-a/mcp")
+		check(false)
+		replacement := server.DeepCopy()
+		replacement.UID = "replacement"
+		servers.UpdateObject(replacement)
+		check(false)
+		harnesses.UpdateObject(harness)
+		check(true)
+	})
+}
+
+func TestAppliedIntegrationGrantsRecoverBeforeRuntimePreparation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		header := v1alpha3.Header{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}
+		server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "mcp", UID: "mcp-uid"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com/mcp", Headers: []v1alpha3.Header{header}}}
+		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"lookup"}}}},
+		}}
+		collections, harnesses := newPreparationTestCollectionsFor(t, "gvisor", template, server)
+		initial := collections.Reconciliations.List()[0]
+		store := &fakeRuntimeRevisionStore{}
+		backend := &fakeActorTemplates{getErr: status.Error(codes.Unavailable, "unavailable")}
+		r := &Reconciler{collections: collections, templates: backend, store: store}
+		require.Error(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+		require.Nil(t, store.revision, "grants can be applied before any revision snapshot is stored")
+		require.Len(t, store.pair.IntegrationGrants, 1)
+		applied := store.pair.EgressGrant
+
+		// Lose all observations as on restart, with unresolvable runtime inputs.
+		harnesses.DeleteObject("team-a/byo")
+		collections.AgentRuntimeObservations.DeleteObject(initial.ResourceName())
+		synctest.Wait()
+		require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+		require.Equal(t, applied, store.pair.EgressGrant, "hydration must not transiently replace applied grants")
+		synctest.Wait()
+		require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+		require.Equal(t, applied.TokenPassthroughTargets, store.pair.EgressGrant.TokenPassthroughTargets)
+
+		// Policy updates and removals still apply while the old integration is retained.
+		policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "access"}, Spec: v1alpha3.EgressPolicySpec{
+			Destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Headers: []v1alpha3.Header{header}}},
+		}}
+		policies := collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy])
+		policies.UpdateObject(policy)
+		agent := initial.Agent.DeepCopy()
+		agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+		synctest.Wait()
+		require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+		require.Len(t, store.pair.EgressGrant.TokenPassthroughTargets, 2)
+		policies.DeleteObject("team-a/access")
+		synctest.Wait()
+		require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+		require.Equal(t, applied.TokenPassthroughTargets, store.pair.EgressGrant.TokenPassthroughTargets)
+
+		// Replacing the Agent itself must not inherit its old integration bindings.
+		agent = agent.DeepCopy()
+		agent.UID = "replacement-agent"
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+		synctest.Wait()
+		require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+		require.Empty(t, store.pair.EgressGrant.TokenPassthroughTargets)
+		require.Empty(t, store.pair.IntegrationGrants)
 	})
 }

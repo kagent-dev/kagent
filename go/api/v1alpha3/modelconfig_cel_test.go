@@ -194,14 +194,13 @@ func TestOpenAIConfigValidation(t *testing.T) {
 				return &ModelConfig{
 					ObjectMeta: metav1.ObjectMeta{Name: "mc-mistral-ok", Namespace: ns},
 					Spec: ModelConfigSpec{
-						Model:           "mistral-large-latest",
-						Provider:        ModelProviderMistral,
-						APIKeySecret:    "mistral-secret",
-						APIKeySecretKey: "api-key",
+						Model:    "mistral-large-latest",
+						Provider: ModelProviderMistral,
+
 						Mistral: &MistralConfig{
 							BaseURL:     &baseURL,
 							Temperature: &temp,
-						},
+						}, Headers: []Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "mistral-secret"}, Key: "api-key"}}}},
 					},
 				}
 			},
@@ -212,10 +211,8 @@ func TestOpenAIConfigValidation(t *testing.T) {
 				return &ModelConfig{
 					ObjectMeta: metav1.ObjectMeta{Name: "mc-mistral-plain", Namespace: ns},
 					Spec: ModelConfigSpec{
-						Model:           "mistral-medium-latest",
-						Provider:        ModelProviderMistral,
-						APIKeySecret:    "mistral-secret",
-						APIKeySecretKey: "api-key",
+						Model:    "mistral-medium-latest",
+						Provider: ModelProviderMistral, Headers: []Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "mistral-secret"}, Key: "api-key"}}}},
 					},
 				}
 			},
@@ -226,11 +223,10 @@ func TestOpenAIConfigValidation(t *testing.T) {
 				return &ModelConfig{
 					ObjectMeta: metav1.ObjectMeta{Name: "mc-mistral-bad-provider", Namespace: ns},
 					Spec: ModelConfigSpec{
-						Model:           "mistral-large-latest",
-						Provider:        ModelProviderOpenAI,
-						APIKeySecret:    "openai-secret",
-						APIKeySecretKey: "api-key",
-						Mistral:         &MistralConfig{},
+						Model:    "mistral-large-latest",
+						Provider: ModelProviderOpenAI,
+
+						Mistral: &MistralConfig{}, Headers: []Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "openai-secret"}, Key: "api-key"}}}},
 					},
 				}
 			},
@@ -243,11 +239,10 @@ func TestOpenAIConfigValidation(t *testing.T) {
 				return &ModelConfig{
 					ObjectMeta: metav1.ObjectMeta{Name: "mc-mistral-maxtokens-neg", Namespace: ns},
 					Spec: ModelConfigSpec{
-						Model:           "mistral-large-latest",
-						Provider:        ModelProviderMistral,
-						APIKeySecret:    "mistral-secret",
-						APIKeySecretKey: "api-key",
-						Mistral:         &MistralConfig{MaxTokens: &neg},
+						Model:    "mistral-large-latest",
+						Provider: ModelProviderMistral,
+
+						Mistral: &MistralConfig{MaxTokens: &neg}, Headers: []Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "mistral-secret"}, Key: "api-key"}}}},
 					},
 				}
 			},

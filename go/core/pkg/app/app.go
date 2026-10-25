@@ -361,7 +361,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		cfg.GetSubstrate().GetRouterUrl(),
-		authenticator,
+		authenticator, store,
 	)
 	if err != nil {
 		return err

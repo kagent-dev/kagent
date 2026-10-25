@@ -18,8 +18,8 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 // provenanceEntry records a non-secret Kubernetes input to a compiled revision.
@@ -103,9 +103,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 			return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
 		}
 	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
-	}
+
 	stream := new(true)
 	if modelConfig != nil && modelConfig.Spec.Stream != nil {
 		stream = modelConfig.Spec.Stream
@@ -119,16 +117,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		cfg.AgentPlugins = runtimeconfig.PluginConfig(plugins.Resources)
 	}
 	for _, tool := range input.MCPTools {
-		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
-		if err != nil {
-			return nil, fmt.Errorf("resolve %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
-		}
-		server := tool.Server.DeepCopy()
-		server.Spec.HeadersFrom = nil
-		if err := c.addRemoteMCPServer(cfg, server, tool.Binding.Tools, tool.Binding.RequireApproval, headers); err != nil {
-			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
-		}
-		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
+		addRemoteMCPServer(cfg, tool.Server, tool.Binding.Tools, tool.Binding.RequireApproval)
 	}
 	result := &Result{
 		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
@@ -244,52 +233,6 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
 }
 
-// resolveAgentTemplateHeaders keeps Secret values out of serialized agent
-// config. The runtime expands __KAGENT_ENV[...]__ from the corresponding
-// Secret-backed environment variable when it constructs the MCP request.
-func (c *Builder) resolveAgentTemplateHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {
-	headers := make(map[string]string, len(refs))
-	var environment []corev1.EnvVar
-	for _, ref := range refs {
-		if ref.ValueFrom == nil || ref.ValueFrom.Type != v1alpha3.SecretValueSource {
-			name, value, err := c.resolveValueRef(ctx, namespace, ref)
-			if err != nil {
-				return nil, nil, err
-			}
-			headers[name] = value
-			continue
-		}
-		selector := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.ValueFrom.Name}, Key: ref.ValueFrom.Key}
-		sum := sha256.Sum256([]byte(namespace + "\x00" + selector.Name + "\x00" + selector.Key))
-		envName := "KAGENT_CREDENTIAL_" + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
-		headers[ref.Name] = "__KAGENT_ENV[" + envName + "]__"
-		environment = append(environment, corev1.EnvVar{Name: envName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: selector}})
-	}
-	return headers, environment, nil
-}
-
-func (c *Builder) resolveValueRef(ctx context.Context, namespace string, ref v1alpha3.ValueRef) (string, string, error) {
-	if ref.ValueFrom == nil {
-		return ref.Name, ref.Value, nil
-	}
-	if ref.ValueFrom.Type != v1alpha3.ConfigMapValueSource {
-		return "", "", fmt.Errorf("unsupported value source type %q", ref.ValueFrom.Type)
-	}
-	fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}))
-	if fetched == nil {
-		return "", "", fmt.Errorf("config map %q not found", ref.ValueFrom.Name)
-	}
-	configMap := *fetched
-	value, found := configMap.Data[ref.ValueFrom.Key]
-	if !found {
-		return "", "", fmt.Errorf("config map %q does not contain key %q", ref.ValueFrom.Name, ref.ValueFrom.Key)
-	}
-	return ref.Name, value, nil
-}
-
-// agentTemplateCard describes the runtime-local A2A server. Substrate routes
-// DedupeEnv preserves first-seen ordering but gives the last value for a name
-// precedence, matching how compiler layers are applied.
 func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 	result := make([]corev1.EnvVar, 0, len(values))
 	index := map[string]int{}
@@ -353,7 +296,7 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 			// ignoring the operator's host. That over-allowed egress: with a
 			// host set the request goes to that host, so api.ollama.com never
 			// needs to be reachable.
-			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.TokenPassthrough
+			hasCredential := len(modelConfig.Spec.Headers) > 0
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
 				destinations = append(destinations, "https://api.ollama.com:443")
 			}
@@ -375,13 +318,7 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 // https here, which is what the runtime's own copy of this does — the two
 // disagreed, and the actor was pinned to http://api.ollama.com.
 func withDefaultScheme(host string) string {
-	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
-		return host
-	}
-	if models.IsOllamaCloudEndpoint(host) {
-		return "https://" + host
-	}
-	return "http://" + host
+	return models.OllamaEndpoint("", host, false)
 }
 
 // appendURLValues walks serialized provider config because endpoint fields are
@@ -405,7 +342,7 @@ func appendURLValues(destinations []string, value any) []string {
 func appendURLOrigin(destinations []string, raw string) []string {
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Hostname() != "" {
-		return append(destinations, egress.Origin(parsed))
+		return append(destinations, egresspolicy.Origin(parsed))
 	}
 	return destinations
 }

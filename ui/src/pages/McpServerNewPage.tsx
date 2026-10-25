@@ -14,6 +14,7 @@ import { useTheme } from "@emotion/react";
 import { Link, useNavigate } from "react-router-dom";
 import { Info } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { CredentialHeadersEditor } from "@/components/common/CredentialHeadersEditor";
 import { SubmitError } from "@/components/common/SubmitError";
 import {
   type McpServerFormValues,
@@ -242,24 +243,9 @@ export function McpServerNewPage() {
                 </Space>
               </Form.Item>
 
-              <Form.Item
-                label="Headers"
-                validateStatus={issueFor("headersJson") ? "error" : undefined}
-                help={
-                  issueFor("headersJson") ??
-                  'A JSON object, for example {"Authorization": "Bearer …"}.'
-                }
-              >
-                <Input.TextArea
-                  data-testid="mcp-headers"
-                  placeholder="{}"
-                  value={values.headersJson}
-                  onChange={(event) => set("headersJson", event.target.value)}
-                  autoSize={{ minRows: 2, maxRows: 8 }}
-                  css={{ fontFamily: theme.font.mono }}
-                />
+              <Form.Item label="Credential headers" help={issueFor("credentialHeaders")} validateStatus={issueFor("credentialHeaders") ? "error" : undefined}>
+                <CredentialHeadersEditor value={values.credentialHeaders} onChange={(headers) => set("credentialHeaders", headers)} />
               </Form.Item>
-
               <Form.Item label="Connection timeout">
                 <Input
                   data-testid="mcp-timeout"

@@ -23,7 +23,6 @@ def make_client(
     provider: str,
     model: str,
     base_url: str | None = None,
-    api_key_passthrough: bool = False,
     endpoint: str | None = None,
     deployment: str | None = None,
     api_version: str | None = None,
@@ -33,7 +32,6 @@ def make_client(
             provider=provider,
             model=model,
             base_url=base_url,
-            api_key_passthrough=api_key_passthrough,
             endpoint=endpoint,
             deployment=deployment,
             api_version=api_version,
@@ -338,96 +336,6 @@ class TestEmbeddingDispatch:
             await client.generate("test")
 
         mock_boto.assert_called_once_with("bedrock-runtime", region_name="eu-west-1")
-
-
-class TestAPIKeyPassthrough:
-    @pytest.mark.asyncio
-    async def test_openai_uses_bearer_token(self):
-        client = make_client(provider="openai", model="text-embedding-3-small", api_key_passthrough=True)
-        bearer_token.set("the-callers-token")
-        mock_response = make_openai_embedding_response([[0.1] * 768])
-        with mock.patch("openai.AsyncOpenAI") as mock_cls:
-            instance = mock.AsyncMock()
-            instance.embeddings.create = mock.AsyncMock(return_value=mock_response)
-            mock_cls.return_value = instance
-            await client.generate("hello")
-        assert mock_cls.call_args.kwargs["api_key"] == "the-callers-token"
-
-    @pytest.mark.asyncio
-    async def test_azure_openai_uses_bearer_token(self):
-        client = make_client(
-            provider="azure_openai",
-            model="text-embedding-ada-002",
-            base_url="https://myazure.openai.azure.com",
-            api_key_passthrough=True,
-        )
-        bearer_token.set("the-callers-token")
-        mock_response = make_openai_embedding_response([[0.1] * 768])
-        with mock.patch("kagent.adk.models._azure.AsyncAzureOpenAI") as mock_cls:
-            instance = mock.AsyncMock()
-            instance.embeddings.create = mock.AsyncMock(return_value=mock_response)
-            mock_cls.return_value = instance
-            await client.generate("hello")
-        assert mock_cls.call_args.kwargs["api_key"] == "the-callers-token"
-
-    @pytest.mark.asyncio
-    async def test_foundry_uses_bearer_token(self):
-        client = make_client(
-            provider="foundry",
-            model="text-embedding-3-small",
-            endpoint="https://example.cognitiveservices.azure.com/",
-            deployment="embedding-deployment",
-            api_key_passthrough=True,
-        )
-        bearer_token.set("the-callers-token")
-        mock_response = make_openai_embedding_response([[0.1] * 768])
-        with mock.patch("kagent.adk.models._azure.AsyncAzureOpenAI") as mock_cls:
-            instance = mock.AsyncMock()
-            instance.embeddings.create = mock.AsyncMock(return_value=mock_response)
-            mock_cls.return_value = instance
-            await client.generate("hello")
-
-        assert mock_cls.call_args.kwargs["api_key"] == "the-callers-token"
-        assert mock_cls.call_args.kwargs["azure_ad_token_provider"] is None
-
-    @pytest.mark.asyncio
-    async def test_foundry_passthrough_without_token_ignores_environment_key(self):
-        client = make_client(
-            provider="foundry",
-            model="text-embedding-3-small",
-            endpoint="https://example.cognitiveservices.azure.com/",
-            deployment="embedding-deployment",
-            api_key_passthrough=True,
-        )
-
-        with mock.patch.dict("os.environ", {"FOUNDRY_API_KEY": "must-not-win"}, clear=True):
-            with pytest.raises(ValueError, match="No Azure credential resolved"):
-                await client._embed_foundry(["hello"])
-
-    @pytest.mark.asyncio
-    async def test_disabled_ignores_bearer_token(self):
-        client = make_client(provider="openai", model="text-embedding-3-small", api_key_passthrough=False)
-        bearer_token.set("should-be-ignored")
-        mock_response = make_openai_embedding_response([[0.1] * 768])
-        with mock.patch("openai.AsyncOpenAI") as mock_cls:
-            instance = mock.AsyncMock()
-            instance.embeddings.create = mock.AsyncMock(return_value=mock_response)
-            mock_cls.return_value = instance
-            await client.generate("hello")
-        assert mock_cls.call_args.kwargs["api_key"] is None
-
-    @pytest.mark.asyncio
-    async def test_enabled_but_no_token_falls_back_to_none(self):
-        # No fallback credential - falls back to the SDK's own OPENAI_API_KEY
-        # env var lookup, same as before passthrough support existed.
-        client = make_client(provider="openai", model="text-embedding-3-small", api_key_passthrough=True)
-        mock_response = make_openai_embedding_response([[0.1] * 768])
-        with mock.patch("openai.AsyncOpenAI") as mock_cls:
-            instance = mock.AsyncMock()
-            instance.embeddings.create = mock.AsyncMock(return_value=mock_response)
-            mock_cls.return_value = instance
-            await client.generate("hello")
-        assert mock_cls.call_args.kwargs["api_key"] is None
 
 
 class TestEmbeddingNormalization:

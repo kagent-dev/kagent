@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/pkg/invocationauth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -131,7 +133,6 @@ func CreateToolsets(
 			Headers:               httpTool.Params.Headers,
 			AllowedHeaders:        httpTool.AllowedHeaders,
 			PropagateToken:        propagateToken,
-			TokenPassthrough:      httpTool.TokenPassthrough,
 			HeaderProvider:        headerProvider,
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
@@ -154,7 +155,6 @@ func CreateToolsets(
 			Headers:               sseTool.Params.Headers,
 			AllowedHeaders:        sseTool.AllowedHeaders,
 			PropagateToken:        propagateToken,
-			TokenPassthrough:      sseTool.TokenPassthrough,
 			HeaderProvider:        headerProvider,
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
@@ -190,6 +190,9 @@ func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, t
 		log.InfoContext(ctx, "adding MCP tool", "transport", label, "index", index, "url", params.URL, "tool_filter_count", "all")
 	}
 
+	if params.ServerType != "stdio" {
+		return &invocationToolset{params: params, filter: toolFilter, approval: requireApproval}, nil
+	}
 	ts, err := initializeToolSet(ctx, params, toolFilter)
 	if err != nil {
 		log.ErrorContext(ctx, "failed to fetch MCP tools", "transport", label, "error", err, "url", params.URL)
@@ -264,16 +267,18 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		baseTransport.TLSClientConfig = tlsConfig
 	}
 
-	var httpTransport http.RoundTripper = baseTransport
-	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken || params.HeaderProvider != nil || params.TokenPassthrough {
-		httpTransport = &headerRoundTripper{
-			base:             baseTransport,
-			headers:          params.Headers,
-			allowedHeaders:   params.AllowedHeaders,
-			propagateToken:   params.PropagateToken,
-			headerProvider:   params.HeaderProvider,
-			tokenPassthrough: params.TokenPassthrough,
-		}
+	credentials, err := invocationauth.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var httpTransport http.RoundTripper = &headerRoundTripper{
+		base:             baseTransport,
+		headers:          params.Headers,
+		allowedHeaders:   params.AllowedHeaders,
+		propagateToken:   params.PropagateToken,
+		headerProvider:   params.HeaderProvider,
+		tokenPassthrough: params.TokenPassthrough,
+		credentials:      credentials,
 	}
 
 	// Outermost layer: inject W3C traceparent/tracestate, and baggage when
@@ -286,6 +291,7 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		Transport: httpTransport,
 	}
 
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	var mcpTransport mcpsdk.Transport
 	if params.ServerType == "sse" {
 		mcpTransport = &mcpsdk.SSEClientTransport{
@@ -315,6 +321,7 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 // caller's bearer token, and requests without one fail rather than falling
 // back to a weaker credential.
 type headerRoundTripper struct {
+	credentials      invocationauth.Source
 	base             http.RoundTripper
 	headers          map[string]string
 	allowedHeaders   []string // header names (case-insensitive) to forward from A2A context
@@ -368,6 +375,9 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		req.Header.Set(constants.AuthorizationHeader, "Bearer "+token)
 	}
 
+	if err := rt.credentials.ApplyRequest(req); err != nil {
+		return nil, err
+	}
 	return rt.base.RoundTrip(req)
 }
 
@@ -403,6 +413,7 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
+	closeOnInvocationEnd(ctx, toolset.(io.Closer))
 	visibleTools := tool.Toolset(toolset)
 	if toolPredicate != nil {
 		visibleTools = tool.FilterToolset(toolset, toolPredicate)

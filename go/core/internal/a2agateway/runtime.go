@@ -3,9 +3,11 @@ package a2agateway
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -18,8 +20,10 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/invocationauth"
 )
 
 // RuntimeDialer connects public gateway calls to the single root Actor used by
@@ -30,11 +34,12 @@ type RuntimeDialer struct {
 	target        string
 	transport     credentials.TransportCredentials
 	authenticator auth.AuthProvider
+	policies      egress.PolicyStore
 }
 
 // NewRuntimeDialer configures private A2A gRPC calls through Substrate's
 // shared Atenet router; ate-target-actor selects the Actor.
-func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*RuntimeDialer, error) {
+func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider, policies egress.PolicyStore) (*RuntimeDialer, error) {
 	router, err := url.Parse(routerURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse Atenet router URL %q: %w", routerURL, err)
@@ -54,7 +59,7 @@ func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*Runti
 	default:
 		return nil, fmt.Errorf("atenet router URL %q must use http or https", routerURL)
 	}
-	return &RuntimeDialer{target: router.Host, transport: transport, authenticator: authenticator}, nil
+	return &RuntimeDialer{target: router.Host, transport: transport, authenticator: authenticator, policies: policies}, nil
 }
 
 func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1.Session) (*a2aclient.Client, error) {
@@ -74,7 +79,7 @@ func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1.Session) (*a2ac
 		),
 		a2aclient.WithCallInterceptors(
 			a2aext.NewClientPropagator(nil),
-			&upstreamAuthInterceptor{authenticator: d.authenticator, session: session, targetActor: targetActor},
+			&upstreamAuthInterceptor{authenticator: d.authenticator, session: session, targetActor: targetActor, policies: d.policies},
 		),
 	)
 }
@@ -87,6 +92,7 @@ type upstreamAuthInterceptor struct {
 	authenticator auth.AuthProvider
 	session       *apiv1.Session
 	targetActor   string
+	policies      egress.PolicyStore
 }
 
 func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
@@ -103,6 +109,23 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 		for _, value := range values {
 			req.ServiceParams.Append(key, value)
 		}
+	}
+	// Only the control plane may choose the invocation's header bindings.
+	for key := range req.ServiceParams {
+		if strings.EqualFold(key, invocationauth.HeadersMetadataKey) {
+			delete(req.ServiceParams, key)
+		}
+	}
+	if req.Method == "SendMessage" || req.Method == "SendStreamingMessage" {
+		access, err := u.policies.GetRuntimeEgressPolicy(ctx, u.session.GetPreparedRevision())
+		if err != nil {
+			return ctx, nil, fmt.Errorf("resolve invocation header bindings: %w", err)
+		}
+		data, err := json.Marshal(invocationTargets(access))
+		if err != nil {
+			return ctx, nil, fmt.Errorf("encode invocation header bindings: %w", err)
+		}
+		req.ServiceParams[invocationauth.HeadersMetadataKey] = []string{string(data)}
 	}
 	req.ServiceParams["ate-target-actor"] = []string{u.targetActor}
 	return ctx, nil, nil

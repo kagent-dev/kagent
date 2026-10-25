@@ -14,7 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
-// An MCP session is shared by every request the runtime serves, and opens
+// An MCP session is shared by the tool operations of one invocation, and opens
 // with the context of the call that first needs it. The SDK keeps that
 // context's values, not its cancellation, for the session's own requests: its
 // event stream, the replies to server requests, and its close. Trace context

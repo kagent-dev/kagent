@@ -33,7 +33,7 @@ func TestModelConfigReconciliationTracksSecret(t *testing.T) {
 
 	modelConfig := &kagentv1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"},
-		Spec:       kagentv1alpha3.ModelConfigSpec{Model: "gpt-5", Provider: kagentv1alpha3.ModelProviderOpenAI, APIKeySecret: "credentials"},
+		Spec:       kagentv1alpha3.ModelConfigSpec{Model: "gpt-5", Provider: kagentv1alpha3.ModelProviderOpenAI, Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "credentials"}, Key: "token"}}}}},
 	}
 	mock := krttest.NewMock(t, []any{modelConfig})
 	modelConfigs := krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock)
@@ -106,10 +106,8 @@ func TestModelConfigReconciliationMissingAPIKeySecretKey(t *testing.T) {
 	modelConfig := &kagentv1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"},
 		Spec: kagentv1alpha3.ModelConfigSpec{
-			Model:           "gpt-5",
-			Provider:        kagentv1alpha3.ModelProviderOpenAI,
-			APIKeySecret:    "credentials",
-			APIKeySecretKey: "NON_EXISTENT_KEY",
+			Model:    "gpt-5",
+			Provider: kagentv1alpha3.ModelProviderOpenAI, Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "credentials"}, Key: "NON_EXISTENT_KEY"}}}},
 		},
 	}
 	secret := &corev1.Secret{
@@ -129,8 +127,8 @@ func TestModelConfigReconciliationMissingAPIKeySecretKey(t *testing.T) {
 		t.Fatalf("expected Accepted condition with Status=True, got: %+v", acceptedCond)
 	}
 	resolvedRefsCond := apimeta.FindStatusCondition(status.Conditions, kagentv1alpha3.ModelConfigConditionTypeResolvedRefs)
-	if resolvedRefsCond == nil || resolvedRefsCond.Status != metav1.ConditionFalse || resolvedRefsCond.Reason != "APIKeySecretKeyNotFound" {
-		t.Fatalf("expected ResolvedRefs condition with Status=False and Reason=APIKeySecretKeyNotFound, got: %+v", resolvedRefsCond)
+	if resolvedRefsCond == nil || resolvedRefsCond.Status != metav1.ConditionFalse || resolvedRefsCond.Reason != "CredentialKeyNotFound" {
+		t.Fatalf("expected ResolvedRefs condition with Status=False and Reason=CredentialKeyNotFound, got: %+v", resolvedRefsCond)
 	}
 }
 
@@ -144,16 +142,16 @@ func TestModelConfigReconciliationValidatesEffectiveProviderReferences(t *testin
 	}{
 
 		{
-			name: "SAP credentials", spec: kagentv1alpha3.ModelConfigSpec{
+			name: "additional provider credential", spec: kagentv1alpha3.ModelConfigSpec{
 				Model: "gpt-5", Provider: kagentv1alpha3.ModelProviderSAPAICore,
-				SAPAICore: &kagentv1alpha3.SAPAICoreConfig{BaseURL: "https://sap.example.com"}, APIKeySecret: "credentials",
-			}, secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "credentials"}, Data: map[string][]byte{"client_id": []byte("id")}}, expectedReason: "SAPAICoreCredentialKeyNotFound",
+				SAPAICore: &kagentv1alpha3.SAPAICoreConfig{BaseURL: "https://sap.example.com"}, Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "credentials"}, Key: "token"}}}},
+			}, secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "credentials"}, Data: map[string][]byte{"client_id": []byte("id")}}, expectedReason: "CredentialKeyNotFound",
 		},
 		{
-			name: "Bedrock IAM credentials", spec: kagentv1alpha3.ModelConfigSpec{
+			name: "Bedrock bearer credential", spec: kagentv1alpha3.ModelConfigSpec{
 				Model: "claude", Provider: kagentv1alpha3.ModelProviderBedrock,
-				Bedrock: &kagentv1alpha3.BedrockConfig{Region: "us-east-1"}, APIKeySecret: "credentials",
-			}, secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "credentials"}, Data: map[string][]byte{"AWS_ACCESS_KEY_ID": []byte("access")}}, expectedReason: "BedrockCredentialKeyNotFound",
+				Bedrock: &kagentv1alpha3.BedrockConfig{Region: "us-east-1"}, Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "credentials"}, Key: "AWS_BEARER_TOKEN_BEDROCK"}}}},
+			}, secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "credentials"}, Data: map[string][]byte{"AWS_ACCESS_KEY_ID": []byte("access")}}, expectedReason: "CredentialKeyNotFound",
 		},
 		{
 			name: "Foundry endpoint", spec: kagentv1alpha3.ModelConfigSpec{

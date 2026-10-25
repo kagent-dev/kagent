@@ -183,3 +183,25 @@ func TestEnsureActorEgressPolicyRequiresPersistedPolicy(t *testing.T) {
 	require.Zero(t, fake.created)
 	require.Zero(t, fake.updated)
 }
+
+func TestEnsureActorEgressPolicyCatchesPassthroughChangeDuringCreation(t *testing.T) {
+	access := egress.Access{Destinations: []string{"https://api.example.com:443"}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer "}}}
+	fake := &egressPolicyFake{afterCreate: func() { access.TokenPassthroughTargets = nil }}
+	var observed [][]egresspolicy.GatewayTarget
+	extension := compilerFunc(func(_ context.Context, input egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
+		observed = append(observed, slices.Clone(input.GatewayTargets))
+		if len(input.GatewayTargets) > 0 {
+			policy.Rules[0].GetHttps().Effects = &ateapipb.HttpRuleEffects{ReplaceHeaders: []*ateapipb.CredentialHeader{{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://k8s.io/default/team/token/value"}}}
+		}
+		return nil
+	})
+	client := &Client{ControlClient: fake, cfg: Config{ControlPlaneURL: testControlPlaneURL,
+		EgressPolicies:        egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil }),
+		EgressPolicyCompilers: []egresspolicy.Compiler{extension},
+	}}
+	require.NoError(t, client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision"))
+	require.Len(t, observed, 2, "a passthrough-only change must recompile extension policy")
+	require.Len(t, observed[0], 1)
+	require.Empty(t, observed[1])
+	require.Empty(t, fake.policy.Rules[0].GetHttps().GetEffects().GetReplaceHeaders())
+}

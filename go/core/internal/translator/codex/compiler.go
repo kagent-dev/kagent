@@ -18,21 +18,20 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
-	codexHomeEnv        = "CODEX_HOME"
-	openAIAPIKeyEnv     = "OPENAI_API_KEY"
-	awsRegionEnv        = "AWS_REGION"
-	awsBedrockTokenEnv  = "AWS_BEARER_TOKEN_BEDROCK"
-	awsAccessKeyEnv     = "AWS_ACCESS_KEY_ID"
-	awsSecretKeyEnv     = "AWS_SECRET_ACCESS_KEY"
-	awsSessionTokenEnv  = "AWS_SESSION_TOKEN"
-	mcpCredentialPrefix = "KAGENT_CODEX_MCP_CREDENTIAL_"
+	codexHomeEnv       = "CODEX_HOME"
+	openAIAPIKeyEnv    = "OPENAI_API_KEY"
+	awsRegionEnv       = "AWS_REGION"
+	awsBedrockTokenEnv = "AWS_BEARER_TOKEN_BEDROCK"
+	awsAccessKeyEnv    = "AWS_ACCESS_KEY_ID"
+	awsSecretKeyEnv    = "AWS_SECRET_ACCESS_KEY"
+	awsSessionTokenEnv = "AWS_SESSION_TOKEN"
 )
 
 var ownedEnvironment = map[string]struct{}{
@@ -58,8 +57,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, translator.NewValidationError("Codex ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.TokenPassthrough {
-		return nil, translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough")
+	if !model.Spec.TLS.IsEmpty() {
+		return nil, translator.NewValidationError("Codex does not support ModelConfig TLS")
 	}
 	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
 	if err != nil {
@@ -80,14 +79,14 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	mcp, err := c.compileMCP(ctx, input.Root.Template.Namespace, input.Root.MCPTools)
+	mcp, err := compileMCP(input.Root.MCPTools)
 	if err != nil {
 		return nil, err
 	}
-	environment := append(providerEnvironment, mcp.environment...)
+	environment := providerEnvironment
 	for _, variable := range input.Harness.Spec.Env {
 		_, reserved := ownedEnvironment[variable.Name]
-		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
+		if reserved {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
@@ -98,6 +97,14 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
+	headers, passthrough, _, err := translator.ModelCredentialHeaders(input.Root.ResolvedModelConfig, model.Spec.DefaultHeaders)
+	if err != nil {
+		return nil, err
+	}
+	if passthrough {
+		return nil, translator.NewValidationError("Codex does not support tokenPassthrough")
+	}
+	cfg.ModelHeaders = headers
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
 	cfg.RuntimeTelemetry = runtimeTelemetry
 	cfg.ControlPlaneURL = c.settings.GetControlPlaneUrl()
@@ -130,7 +137,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Codex revision provenance: %w", err)
 	}
-	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, nil, environment)
+	credentials, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -140,13 +147,13 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
-	return &translator.CompileResult{
+	return &translator.CompileResult{IntegrationGrants: credentials.IntegrationGrants,
 		Revision: translator.Revision{
 			Namespace:   template.Namespace,
 			SkillImages: skills.Images,
 			Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
+			TokenPassthroughTargets: credentials.TokenPassthroughTargets, Credentials: credentials.Credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -164,9 +171,7 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 		if !reflect.DeepEqual(options, v1alpha3.OpenAIConfig{}) {
 			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support OpenAI provider options beyond baseUrl and apiFormat responses")
 		}
-		if err := c.requireSecretKey(ctx, model.Namespace, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey); err != nil {
-			return codexconfig.Provider{}, nil, nil, err
-		}
+
 		provider := codexconfig.Provider{Name: "openai", BaseURL: baseURL}
 		egress := []string{"https://api.openai.com:443"}
 		if baseURL != "" {
@@ -176,7 +181,7 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 			}
 			egress = []string{host}
 		}
-		return provider, []corev1.EnvVar{secretEnvironment(openAIAPIKeyEnv, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}, egress, nil
+		return provider, []corev1.EnvVar{{Name: openAIAPIKeyEnv, Value: translator.CredentialPlaceholder}}, egress, nil
 	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil || strings.TrimSpace(model.Spec.Bedrock.Region) == "" {
 			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock requires bedrock.region")
@@ -193,27 +198,7 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 		if !reflect.DeepEqual(options, v1alpha3.BedrockConfig{}) {
 			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support Bedrock provider options beyond region")
 		}
-		if model.Spec.APIKeySecret == "" || model.Spec.APIKeySecretKey != "" {
-			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock requires apiKeySecret and an empty apiKeySecretKey")
-		}
-		secret, err := c.secret(ctx, model.Namespace, model.Spec.APIKeySecret)
-		if err != nil {
-			return codexconfig.Provider{}, nil, nil, err
-		}
-		environment := []corev1.EnvVar{{Name: awsRegionEnv, Value: region}}
-		if len(secret.Data[awsBedrockTokenEnv]) != 0 {
-			environment = append(environment, secretEnvironment(awsBedrockTokenEnv, secret.Name, awsBedrockTokenEnv))
-		} else {
-			for _, key := range []string{awsAccessKeyEnv, awsSecretKeyEnv} {
-				if len(secret.Data[key]) == 0 {
-					return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock Secret %q requires %s and %s, or %s", secret.Name, awsAccessKeyEnv, awsSecretKeyEnv, awsBedrockTokenEnv)
-				}
-				environment = append(environment, secretEnvironment(key, secret.Name, key))
-			}
-			if len(secret.Data[awsSessionTokenEnv]) != 0 {
-				environment = append(environment, secretEnvironment(awsSessionTokenEnv, secret.Name, awsSessionTokenEnv))
-			}
-		}
+		environment := []corev1.EnvVar{{Name: awsRegionEnv, Value: region}, {Name: awsBedrockTokenEnv, Value: translator.CredentialPlaceholder}}
 		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"https://bedrock-runtime." + region + ".amazonaws.com:443"}, nil
 	default:
 		return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support ModelConfig provider %q", model.Spec.Provider)
@@ -249,20 +234,6 @@ func sameProviderConfiguration(root, child v1alpha3.ModelConfigSpec) bool {
 	return reflect.DeepEqual(root, child)
 }
 
-func (c *Compiler) requireSecretKey(ctx context.Context, namespace, name, key string) error {
-	if name == "" || key == "" {
-		return translator.NewValidationError("Codex OpenAI requires apiKeySecret and apiKeySecretKey")
-	}
-	secret, err := c.secret(ctx, namespace, name)
-	if err != nil {
-		return err
-	}
-	if len(secret.Data[key]) == 0 {
-		return translator.NewValidationError("Codex credential Secret %q does not contain a non-empty key %q", name, key)
-	}
-	return nil
-}
-
 func (c *Compiler) secret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
 	secret := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
 	if secret == nil {
@@ -271,18 +242,12 @@ func (c *Compiler) secret(ctx context.Context, namespace, name string) (*corev1.
 	return *secret, nil
 }
 
-func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
-	return corev1.EnvVar{Name: environmentName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: key,
-	}}}
-}
-
 func absoluteHTTPOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
 		return "", fmt.Errorf("must be an absolute HTTP(S) URL without credentials or fragment")
 	}
-	return egress.Origin(parsed), nil
+	return egresspolicy.Origin(parsed), nil
 }
 
 type provenanceEntry struct {
@@ -330,11 +295,6 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 				if _, ok := seenObjects[identity]; !ok {
 					seenObjects[identity] = struct{}{}
 					entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", tool.Server.Name, tool.Server.UID, tool.Server.Generation, tool.Server.Spec))
-				}
-				for _, header := range tool.Server.Spec.HeadersFrom {
-					if header.ValueFrom != nil && header.ValueFrom.Type == v1alpha3.ConfigMapValueSource {
-						configMaps[header.ValueFrom.Name] = struct{}{}
-					}
 				}
 			}
 		}

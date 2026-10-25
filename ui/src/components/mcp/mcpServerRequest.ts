@@ -1,11 +1,12 @@
 /**
  * Turning the MCP server form's fields into the request the API takes.
  *
- * Kept apart from the form component so header parsing and protocol-specific
+ * Kept apart from the form component so header validation and protocol-specific
  * timeout rules can be reasoned about and unit-tested without a DOM.
  */
 
-import type { ToolServerCreateRequest, ValueRef } from "@/api";
+import { credentialHeaderIssues } from "@/components/common/credentialHeaders";
+import type { Header, ToolServerCreateRequest } from "@/api";
 import {
   DEFAULT_NAMESPACE,
   RESOURCE_NAME_HINT,
@@ -44,7 +45,7 @@ export interface McpServerFormValues {
   // Selects HTTPS or plaintext HTTP for the scheme-less URL.
   tlsEnabled: boolean;
   streamableHttp: boolean;
-  headersJson: string;
+  credentialHeaders: Header[];
   timeout: string;
   sseReadTimeout: string;
   terminateOnClose: boolean;
@@ -58,7 +59,7 @@ export function emptyMcpServerForm(): McpServerFormValues {
     tlsEnabled: false,
     // Matches the CRD's own default, and the only protocol Codex accepts.
     streamableHttp: true,
-    headersJson: "",
+    credentialHeaders: [],
     timeout: "5s",
     sseReadTimeout: "300s",
     terminateOnClose: true,
@@ -106,32 +107,8 @@ export function validateMcpServerForm(
       message: "Enter a valid host and path, for example api.example.com/mcp.",
     });
   }
-  if (values.headersJson.trim() && parseHeaders(values.headersJson) === undefined) {
-    issues.push({
-      field: "headersJson",
-      message: "Headers must be a JSON object, for example {\"Authorization\": \"...\"}.",
-    });
-  }
-
+  for (const message of credentialHeaderIssues(values.credentialHeaders)) { issues.push({ field: "credentialHeaders", message }); }
   return issues;
-}
-
-/** Parses the headers box into `ValueRef`s, or `undefined` if it isn't valid. */
-export function parseHeaders(json: string): ValueRef[] | undefined {
-  const text = json.trim();
-  if (!text) return [];
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return undefined;
-    }
-    return Object.entries(parsed as Record<string, unknown>).map(([name, value]) => ({
-      name,
-      value: String(value),
-    }));
-  } catch {
-    return undefined;
-  }
 }
 
 /** Maps validated form values onto the API's create request. */
@@ -153,7 +130,7 @@ export function toCreateRequest(
         description: "",
         protocol: values.streamableHttp ? "STREAMABLE_HTTP" : "SSE",
         url,
-        headersFrom: parseHeaders(values.headersJson) ?? [],
+        ...(values.credentialHeaders.length ? { headers: structuredClone(values.credentialHeaders) } : {}),
         timeout: values.timeout.trim() || undefined,
         // Only meaningful for SSE; sending it for streamable HTTP would
         // describe a timeout that never applies.

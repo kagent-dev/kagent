@@ -18,8 +18,8 @@ func TestCanonicalAccess(t *testing.T) {
 	require.Len(t, access.Credentials, 1)
 	require.Equal(t, "https://api.example.com:443", access.Credentials[0].Origin)
 	_, err = CanonicalAccess([]string{credential.Origin}, []Credential{credential}, []egresspolicy.GatewayTarget{{Origin: "https://API.example.com", Header: "authorization"}})
-	require.ErrorContains(t, err, "cannot combine caller-token passthrough with gateway credentials")
-	_, err = CanonicalAccess([]string{credential.Origin}, []Credential{credential}, []egresspolicy.GatewayTarget{{Origin: "https://api.example.com:8443", Header: "authorization"}, {Origin: "http://api.example.com:443", Header: "authorization"}})
+	require.ErrorContains(t, err, "cannot use two credential sources for the same header")
+	_, err = CanonicalAccess([]string{credential.Origin, "https://api.example.com:8443", "http://api.example.com:8080"}, []Credential{credential}, []egresspolicy.GatewayTarget{{Origin: "https://api.example.com:8443", Header: "authorization"}, {Origin: "http://api.example.com:8080", Header: "authorization"}})
 	require.NoError(t, err, "caller tokens on different origins do not conflict")
 	for _, raw := range []string{"https://*", "https://*.com", "https://foo.*.com", "https://192.0.2.1", "https://[::1]", "https://user@api.example.com", "https://api.example.com/", "https://api.example.com?", "https://api.example.com#", "https://api.example.com:", "https://api.example.com:0", "https://api.example.com:65536", "ftp://api.example.com"} {
 		t.Run(raw, func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestOrigin(t *testing.T) {
 		t.Run(tt.raw, func(t *testing.T) {
 			u, err := url.Parse(tt.raw)
 			require.NoError(t, err)
-			require.Equal(t, tt.want, Origin(u))
+			require.Equal(t, tt.want, egresspolicy.Origin(u))
 		})
 	}
 }

@@ -110,7 +110,7 @@ func TestOpenAIProvider_UsesAPIKeyNotKagentToken(t *testing.T) {
 }
 
 func TestOpenAIProvider_APIKeyPassthrough(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "kagent-credential-injected")
 
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,17 +122,16 @@ func TestOpenAIProvider_APIKeyPassthrough(t *testing.T) {
 
 	client, err := New(Config{
 		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
-			Provider:          "openai",
-			Model:             "text-embedding-3-small",
-			BaseUrl:           srv.URL,
-			ApiKeyPassthrough: true,
+			Provider: "openai",
+			Model:    "text-embedding-3-small",
+			BaseUrl:  srv.URL,
 		},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	ctx := embeddingInvocation(t, srv.URL, "the-callers-token", "Authorization", "Bearer ")
 	if _, err := client.Generate(ctx, []string{"hello"}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
@@ -304,7 +303,7 @@ func TestAzureOpenAIProvider_RequestShape(t *testing.T) {
 }
 
 func TestAzureOpenAIProvider_APIKeyPassthrough(t *testing.T) {
-	t.Setenv("AZURE_OPENAI_API_KEY", "")
+	t.Setenv("AZURE_OPENAI_API_KEY", "kagent-credential-injected")
 
 	var gotAPIKey, gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -317,17 +316,16 @@ func TestAzureOpenAIProvider_APIKeyPassthrough(t *testing.T) {
 
 	client, err := New(Config{
 		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
-			Provider:          "azure_openai",
-			Model:             "text-embedding-3-small",
-			Endpoint:          srv.URL,
-			ApiKeyPassthrough: true,
+			Provider: "azure_openai",
+			Model:    "text-embedding-3-small",
+			Endpoint: srv.URL,
 		},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	ctx := embeddingInvocation(t, srv.URL, "the-callers-token", "Api-Key", "")
 	if _, err := client.Generate(ctx, []string{"hello"}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
@@ -352,17 +350,16 @@ func TestAzureOpenAIProvider_APIKeyPassthroughOverridesStaticKey(t *testing.T) {
 
 	client, err := New(Config{
 		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
-			Provider:          "azure_openai",
-			Model:             "text-embedding-3-small",
-			Endpoint:          srv.URL,
-			ApiKeyPassthrough: true,
+			Provider: "azure_openai",
+			Model:    "text-embedding-3-small",
+			Endpoint: srv.URL,
 		},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	ctx := embeddingInvocation(t, srv.URL, "the-callers-token", "Api-Key", "")
 	if _, err := client.Generate(ctx, []string{"hello"}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}

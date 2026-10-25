@@ -1,11 +1,11 @@
 package v1alpha3
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -21,13 +21,13 @@ func testMCPCredentialHeaderValidation(t *testing.T, cl ctrlclient.Client, names
 		{name: "api-key", header: "X-API-Key"},
 		{name: "token-characters", header: "X-!#$%&'*+-.^_`|~0123456789"},
 		{name: "max-length", header: strings.Repeat("x", 256)},
-		{name: "empty", reject: "valid HTTP header name"},
+		{name: "empty", reject: "should match"},
 		{name: "too-long", header: strings.Repeat("x", 257), reject: "may not be more than 256"},
-		{name: "whitespace", header: "X Key", reject: "valid HTTP header name"},
-		{name: "newline", header: "X-Key\r\nInjected", reject: "valid HTTP header name"},
-		{name: "colon", header: "X:Key", reject: "valid HTTP header name"},
-		{name: "backslash", header: "X\\Key", reject: "valid HTTP header name"},
-		{name: "unicode", header: "X-名", reject: "valid HTTP header name"},
+		{name: "whitespace", header: "X Key", reject: "should match"},
+		{name: "newline", header: "X-Key\r\nInjected", reject: "should match"},
+		{name: "colon", header: "X:Key", reject: "should match"},
+		{name: "backslash", header: "X\\Key", reject: "should match"},
+		{name: "unicode", header: "X-名", reject: "should match"},
 		{name: "host", header: "Host", reject: "cannot carry an egress credential"},
 		{name: "connection", header: "cOnNeCtIoN", reject: "cannot carry an egress credential"},
 		{name: "content-length", header: "Content-Length", reject: "cannot carry an egress credential"},
@@ -45,46 +45,20 @@ func testMCPCredentialHeaderValidation(t *testing.T, cl ctrlclient.Client, names
 				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "mcp-header-" + tc.name},
 				Spec: RemoteMCPServerSpec{
 					Description: "MCP credential header validation",
-					URL:         "https://mcp.example.com/mcp",
-					HeadersFrom: []ValueRef{{Name: tc.header, ValueFrom: &ValueSource{Type: SecretValueSource, Name: "auth", Key: "token"}}},
+					URL:         "https://mcp.example.com/mcp", Headers: []Header{{Name: tc.header, ValueFrom: HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"}}}},
 				},
 			}
 			err := cl.Create(t.Context(), server)
 			if tc.reject != "" {
 				require.ErrorContains(t, err, tc.reject)
-				require.ErrorContains(t, err, "spec.headersFrom[0].name")
+				require.ErrorContains(t, err, "spec.headers[0].name")
 				return
 			}
 			require.NoError(t, err)
 			require.NoError(t, cl.Get(t.Context(), ctrlclient.ObjectKeyFromObject(server), server))
-			require.Equal(t, tc.header, server.Spec.HeadersFrom[0].Name)
-			server.Spec.HeadersFrom[0].Name = "Cookie"
+			require.Equal(t, tc.header, server.Spec.Headers[0].Name)
+			server.Spec.Headers[0].Name = "Cookie"
 			require.ErrorContains(t, cl.Update(t.Context(), server), "cannot carry an egress credential")
 		})
 	}
-	for _, source := range []ValueRef{
-		{Name: "Cookie", Value: "session=example"},
-		{Name: "Cookie", ValueFrom: &ValueSource{Type: ConfigMapValueSource, Name: "headers", Key: "cookie"}},
-	} {
-		server := &RemoteMCPServer{
-			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, GenerateName: "mcp-ordinary-header-"},
-			Spec:       RemoteMCPServerSpec{Description: "Ordinary headers are not gateway credentials", URL: "https://mcp.example.com/mcp", HeadersFrom: []ValueRef{source}},
-		}
-		require.NoError(t, cl.Create(t.Context(), server))
-		server.Spec.HeadersFrom[0] = ValueRef{Name: "Cookie", ValueFrom: &ValueSource{Type: SecretValueSource, Name: "auth", Key: "token"}}
-		require.ErrorContains(t, cl.Update(t.Context(), server), "cannot carry an egress credential")
-	}
-	t.Run("header count", func(t *testing.T) {
-		headers := make([]ValueRef, 64)
-		for i := range headers {
-			headers[i] = ValueRef{Name: fmt.Sprintf("X-Header-%d", i), Value: "example"}
-		}
-		server := &RemoteMCPServer{
-			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "mcp-header-count"},
-			Spec:       RemoteMCPServerSpec{Description: "Header count validation", URL: "https://mcp.example.com/mcp", HeadersFrom: headers},
-		}
-		require.NoError(t, cl.Create(t.Context(), server))
-		server.Spec.HeadersFrom = append(server.Spec.HeadersFrom, ValueRef{Name: "X-Extra", Value: "example"})
-		require.ErrorContains(t, cl.Update(t.Context(), server), "must have at most 64 items")
-	})
 }

@@ -52,8 +52,6 @@ message ScheduledRun {
   string id = 1;
   // Human owner; this does not select credentials for execution or tool calls.
   string creator = 2;
-  reserved 3, 4;
-  reserved "harness", "agent_template";
   ResourceReference agent = 11;
   ScheduledRunConfig config = 5;
   string etag = 6;
@@ -65,8 +63,6 @@ message ScheduledRun {
 }
 
 message CreateScheduledRunRequest {
-  reserved 1, 2;
-  reserved "harness", "agent_template";
   ResourceReference agent = 5 [(buf.validate.field).required = true];
   string request_id = 3 [(buf.validate.field).string = {
     min_len: 1

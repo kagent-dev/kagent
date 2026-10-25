@@ -45,12 +45,16 @@ func TestFilterConflicts(t *testing.T) {
 	tokenBase, err := CanonicalAccess([]string{binding.Origin}, nil, []egresspolicy.GatewayTarget{{Origin: binding.Origin, Header: "authorization", Prefix: "Bearer "}})
 	require.NoError(t, err)
 	_, err = MergeAccess(Access{}, tokenBase)
-	require.ErrorContains(t, err, "grants cannot carry tokenPassthrough targets")
+	require.NoError(t, err)
 	for _, test := range []struct {
 		name               string
 		base, grants, want Access
 		dropped            []string
 	}{
+		{name: "passthrough grant", grants: tokenBase, want: tokenBase},
+		{name: "passthrough requirement without grant", base: tokenBase},
+		{name: "passthrough requirement with live grant", base: tokenBase, grants: tokenBase, want: tokenBase},
+		{name: "passthrough conflicts with pinned Secret", base: base, grants: tokenBase, want: canonicalTestAccess(t, base.Destinations), dropped: base.Destinations},
 		{name: "additive", base: base, grants: canonicalTestAccess(t, []string{extra}), want: canonicalTestAccess(t, []string{extra})},
 		{name: "duplicate", base: base, grants: base, want: base},
 		{name: "credential conflict keeps network access", base: base, grants: canonicalTestAccess(t, []string{binding.Origin, extra}, conflict),
@@ -67,7 +71,9 @@ func TestFilterConflicts(t *testing.T) {
 			require.Equal(t, test.dropped, dropped)
 			effective, err := EffectiveAccess(test.base, test.grants)
 			require.NoError(t, err)
-			want, err := MergeAccess(test.base, test.want)
+			pinned := test.base
+			pinned.TokenPassthroughTargets = nil
+			want, err := MergeAccess(pinned, test.want)
 			require.NoError(t, err)
 			require.Equal(t, want, effective)
 			require.Equal(t, beforeBase, test.base)
@@ -102,4 +108,14 @@ func TestFilterConflictsLimits(t *testing.T) {
 	require.Empty(t, filtered.Credentials)
 	require.Equal(t, base.Destinations, filtered.Destinations)
 	require.Equal(t, base.Destinations, dropped)
+}
+
+func TestIntersectPassthroughGrants(t *testing.T) {
+	target := egresspolicy.GatewayTarget{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer "}
+	previous := Access{Destinations: []string{target.Origin}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{target}}
+	require.Equal(t, previous, IntersectAccess(previous, previous))
+	changed := cloneAccess(previous)
+	changed.TokenPassthroughTargets[0].Prefix = "Token "
+	require.Empty(t, IntersectAccess(previous, changed).TokenPassthroughTargets)
+	require.Empty(t, IntersectAccess(previous, Access{}).TokenPassthroughTargets)
 }

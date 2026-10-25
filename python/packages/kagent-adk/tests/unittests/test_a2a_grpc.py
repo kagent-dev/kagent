@@ -1,3 +1,5 @@
+import json
+
 import grpc
 import pytest
 from a2a.types import AgentCard, a2a_pb2, a2a_pb2_grpc
@@ -121,3 +123,36 @@ async def test_grpc_ingress_is_traced_except_health(monkeypatch):
     assert span.name == "/lf.a2a.v1.A2AService/ListTasks"
     assert span.context.trace_id == trace_id
     assert span.parent.span_id == 0x00F067AA0BA902B7
+
+
+@pytest.mark.asyncio
+async def test_grpc_carries_large_private_invocation_snapshot(monkeypatch):
+    from kagent.adk._invocation_auth import HEADERS_METADATA_KEY, parse_targets
+
+    captured = []
+
+    class CaptureContext(KAgentGrpcServerCallContextBuilder):
+        def build(self, context):
+            call = super().build(context)
+            captured.append(parse_targets(call.state["headers"]))
+            return call
+
+    monkeypatch.setattr(_a2a, "KAgentGrpcServerCallContextBuilder", CaptureContext)
+    bindings = [
+        {
+            "origin": f"https://tools-{i}.example:443",
+            "passthrough": [{"name": f"X-Caller-{h}", "prefix": "a" * 256} for h in range(16)],
+        }
+        for i in range(16)
+    ]
+    snapshot = json.dumps(bindings).encode()
+    assert len(snapshot) > 65536
+    app = make_app().build(local=True)
+    async with app.router.lifespan_context(app):
+        async with grpc.aio.insecure_channel(f"127.0.0.1:{app.state.a2a_grpc_port}") as channel:
+            await a2a_pb2_grpc.A2AServiceStub(channel).ListTasks(
+                a2a_pb2.ListTasksRequest(), metadata=((HEADERS_METADATA_KEY, snapshot),)
+            )
+    assert len(captured) == 1
+    assert len(captured[0]) == 16
+    assert captured[0][-1].passthrough[-1].prefix == "a" * 256

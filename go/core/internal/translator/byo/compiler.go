@@ -70,7 +70,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, compiled.Models, environment)
+	credentials, err := translator.CompileCredentials(input, compiled.Models, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -78,13 +78,13 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	compiled.Egress = append(compiled.Egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(compiled.Egress)
 
-	return &translator.CompileResult{Revision: translator.Revision{
+	return &translator.CompileResult{IntegrationGrants: credentials.IntegrationGrants, Revision: translator.Revision{
 		Namespace: template.Namespace,
 		Command:   harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
+		TokenPassthroughTargets: credentials.TokenPassthroughTargets, Credentials: credentials.Credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
 	}}, nil
 }
 

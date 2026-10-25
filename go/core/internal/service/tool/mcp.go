@@ -132,13 +132,11 @@ func (c *RuntimeMCPClient) connect(ctx context.Context, ref MCPServerRef) (*mcp.
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, timeout)
 
-	headers, err := server.ResolveHeaders(connectCtx, c.kubeClient)
+	httpClient, err := c.authenticatedMCPClient(ctx, server)
 	if err != nil {
 		cancel()
-		return nil, nil, fmt.Errorf("failed to resolve RemoteMCPServer headers: %w", err)
+		return nil, nil, err
 	}
-
-	httpClient := newMCPAppsHTTPClient(headers)
 	var transport mcp.Transport
 	switch server.Spec.Protocol {
 	case v1alpha3.RemoteMCPServerProtocolSse:
@@ -253,23 +251,3 @@ var mcpTracedTransport = sync.OnceValue(func() http.RoundTripper {
 		return trace.SpanContextFromContext(request.Context()).IsValid()
 	}))
 })
-
-func newMCPAppsHTTPClient(headers map[string]string) *http.Client {
-	if len(headers) == 0 {
-		return &http.Client{Transport: mcpTracedTransport()}
-	}
-	return &http.Client{Transport: &mcpAppsHeaderTransport{headers: headers, base: mcpTracedTransport()}}
-}
-
-type mcpAppsHeaderTransport struct {
-	headers map[string]string
-	base    http.RoundTripper
-}
-
-func (t *mcpAppsHeaderTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	request = request.Clone(request.Context())
-	for key, value := range t.headers {
-		request.Header.Set(key, value)
-	}
-	return t.base.RoundTrip(request)
-}

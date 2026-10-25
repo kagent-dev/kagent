@@ -666,8 +666,13 @@ providers:
   openAI:
     provider: OpenAI
     model: "gpt-4.1-mini"
-    apiKeySecretRef: kagent-openai
-    apiKeySecretKey: OPENAI_API_KEY
+    headers:
+      - name: Authorization
+        prefix: "Bearer "
+        valueFrom:
+          secretKeyRef:
+            name: kagent-openai
+            key: OPENAI_API_KEY
     # apiKey: ""
     # Optional TLS settings for the generated ModelConfig.
     # This same block can be used under any provider.
@@ -679,13 +684,18 @@ providers:
     # the UI (see the controller's static catalog) and reached with a ":cloud" tag
     # or bare cloud tag such as "deepseek-v4.1-flash".
     model: "llama3.2"
-    # apiKeySecretRef/apiKeySecretKey point at the Secret holding OLLAMA_API_KEY.
+    # Headers select the credential sent to the configured endpoint.
     # With no explicit host, a cloud model reaches api.ollama.com via gateway
     # credential injection; without a Secret it uses the signed-in local daemon.
     # Remove config.host below for direct cloud routing (the default host pins
     # requests to the local daemon even when a Secret is configured).
-    # apiKeySecretRef: "kagent-ollama-cloud"
-    # apiKeySecretKey: "OLLAMA_API_KEY"
+    # headers:
+    #   - name: Authorization
+    #     prefix: "Bearer "
+    #     valueFrom:
+    #       secretKeyRef:
+    #         name: kagent-ollama-cloud
+    #         key: OLLAMA_API_KEY
     config:
       host: host.docker.internal:11434
       options:
@@ -694,8 +704,13 @@ providers:
   anthropic:
     provider: Anthropic
     model: "claude-haiku-4-5"
-    apiKeySecretRef: kagent-anthropic
-    apiKeySecretKey: ANTHROPIC_API_KEY
+    headers:
+      - name: X-API-Key
+        prefix: ""
+        valueFrom:
+          secretKeyRef:
+            name: kagent-anthropic
+            key: ANTHROPIC_API_KEY
     # apiKey: ""
     # Provider options rendered into spec.anthropic of the generated ModelConfig.
     # promptCaching bills the stable prefix of every agent-loop call (tools,
@@ -706,25 +721,39 @@ providers:
   azureOpenAI:
     provider: AzureOpenAI
     model: "gpt-4.1-mini"
-    apiKeySecretRef: kagent-azure-openai
-    apiKeySecretKey: AZUREOPENAI_API_KEY
+    headers:
+      - name: api-key
+        prefix: ""
+        valueFrom:
+          secretKeyRef:
+            name: kagent-azure-openai
+            key: AZUREOPENAI_API_KEY
     # apiKey: ""
     config:
       apiVersion: "2023-05-15"
-      azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
   gemini:
     provider: Gemini
     model: "gemini-3.5-flash-lite"
-    apiKeySecretRef: kagent-gemini
-    apiKeySecretKey: GOOGLE_API_KEY
+    headers:
+      - name: X-Goog-API-Key
+        prefix: ""
+        valueFrom:
+          secretKeyRef:
+            name: kagent-gemini
+            key: GOOGLE_API_KEY
     # apiKey: ""
   mistral:
     provider: Mistral
     model: "mistral-large-latest"
-    apiKeySecretRef: kagent-mistral
-    apiKeySecretKey: MISTRAL_API_KEY
+    headers:
+      - name: Authorization
+        prefix: "Bearer "
+        valueFrom:
+          secretKeyRef:
+            name: kagent-mistral
+            key: MISTRAL_API_KEY
     # apiKey: ""
 
 # ==============================================================================

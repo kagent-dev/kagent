@@ -13,7 +13,7 @@ import (
 
 // canonicalStoredGrants validates and normalizes source grants for NOT NULL storage.
 func canonicalStoredGrants(grants egress.Access) (egress.Access, error) {
-	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials, nil)
+	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials, grants.TokenPassthroughTargets)
 	if err != nil {
 		return egress.Access{}, err
 	}
@@ -23,25 +23,31 @@ func canonicalStoredGrants(grants egress.Access) (egress.Access, error) {
 	if canonical.Credentials == nil {
 		canonical.Credentials = []egress.Credential{}
 	}
+	if canonical.TokenPassthroughTargets == nil {
+		canonical.TokenPassthroughTargets = []egresspolicy.GatewayTarget{}
+	}
 	return canonical, nil
 }
 
 // GetRuntimeEgressPolicy merges pinned inputs with the active source UID's grants
 // in one database snapshot. Missing/deleting revisions and malformed inputs fail
 // closed. Retired or replaced identities contribute no grants. Older revisions
-// retain their pinned base and only the grants compatible with it.
+// retain pinned destinations and Secret bindings. Their passthrough targets are
+// header reservations, not authority: only compatible live grants permit tokens.
 func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, error) {
 	type policyInputs struct {
-		EgressDestinations      []string
-		Credentials             []egress.Credential
-		TokenPassthroughTargets []egresspolicy.GatewayTarget
-		GrantDestinations       []string
-		GrantCredentials        []egress.Credential
+		EgressDestinations           []string
+		Credentials                  []egress.Credential
+		TokenPassthroughTargets      []egresspolicy.GatewayTarget
+		GrantDestinations            []string
+		GrantCredentials             []egress.Credential
+		GrantTokenPassthroughTargets []egresspolicy.GatewayTarget
 	}
 	row, err := queryOne(ctx, c.db, `
   SELECT r.egress_destinations, r.credentials, r.token_passthrough_targets,
     COALESCE(ad.grant_destinations, sd.grant_destinations, '{}') AS grant_destinations,
-    COALESCE(ad.grant_credentials, sd.grant_credentials, '[]') AS grant_credentials
+    COALESCE(ad.grant_credentials, sd.grant_credentials, '[]') AS grant_credentials,
+    COALESCE(ad.grant_token_passthrough_targets, sd.grant_token_passthrough_targets, '[]') AS grant_token_passthrough_targets
   FROM runtime_revision r
   LEFT JOIN agent_revision a ON r.kind = 'agent' AND a.revision = r.revision
   LEFT JOIN sandbox_revision s ON r.kind = 'sandbox' AND s.revision = r.revision
@@ -57,7 +63,7 @@ func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (e
 	if err != nil {
 		return egress.Access{}, fmt.Errorf("decode runtime egress base %s: %w", revision, err)
 	}
-	grants, err := egress.CanonicalAccess(row.GrantDestinations, row.GrantCredentials, nil)
+	grants, err := egress.CanonicalAccess(row.GrantDestinations, row.GrantCredentials, row.GrantTokenPassthroughTargets)
 	if err != nil {
 		return egress.Access{}, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
 	}
@@ -142,7 +148,7 @@ func decodeEgressGrant(grants egress.Access, err error) (egress.Access, error) {
 	if err != nil {
 		return egress.Access{}, err
 	}
-	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials, nil)
+	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials, grants.TokenPassthroughTargets)
 	if err != nil {
 		return egress.Access{}, fmt.Errorf("decode source egress grants: %w", err)
 	}

@@ -15,10 +15,15 @@ breaking:
   use:
     - FILE
   ignore_only:
-    # Pre-release memory cleanup removes obsolete identity reservations.
+    # Pre-v1 cleanup removes obsolete identity reservations and credential flags.
     # Remove once the cleanup is present on the comparison branch.
     RESERVED_MESSAGE_NO_DELETE:
       - kagent/runtime/v1/memory.proto
+      - kagent/api/v1/agent_templates.proto
+      - kagent/api/v1/sessions.proto
+      - kagent/api/v1/scheduled_runs.proto
+    FIELD_NO_DELETE:
+      - kagent/config/v1/adk.proto
     # Substrate v0.7.0-alpha1 renames the inventory types to substrate.ateapi.v1
     # without changing their wire shape. Remove after the upgrade reaches main.
     FIELD_SAME_TYPE:

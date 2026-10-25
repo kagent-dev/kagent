@@ -31,8 +31,6 @@ message AgentTemplate {
 
   string description = 4;
 
-  reserved 5;
-  reserved "admitting_harnesses";
 }
 
 message ListAgentTemplatesRequest {

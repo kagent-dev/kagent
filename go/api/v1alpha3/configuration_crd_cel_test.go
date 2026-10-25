@@ -93,34 +93,6 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("MCP token passthrough owns Authorization", func(t *testing.T) {
-		for _, test := range []struct {
-			name        string
-			passthrough bool
-			header      string
-			wantReject  bool
-		}{
-			{"passthrough without headers", true, "", false},
-			{"passthrough with other header", true, "X-Tenant", false},
-			{"passthrough with Authorization", true, "authorization", true},
-			{"static Authorization without passthrough", false, "Authorization", false},
-		} {
-			t.Run(test.name, func(t *testing.T) {
-				server := &RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-passthrough-", Namespace: namespace},
-					Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com", TokenPassthrough: test.passthrough}}
-				if test.header != "" {
-					server.Spec.HeadersFrom = []ValueRef{{Name: test.header, Value: "value"}}
-				}
-				err := cl.Create(ctx, server)
-				if test.wantReject {
-					require.ErrorContains(t, err, "headersFrom cannot set Authorization when tokenPassthrough is enabled")
-				} else {
-					require.NoError(t, err)
-				}
-			})
-		}
-	})
-
 	t.Run("optional Harness workload", func(t *testing.T) {
 		for _, variant := range []struct {
 			name string
@@ -509,7 +481,17 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	}
 
 	t.Run("egress policies", func(t *testing.T) { testEgressPolicyValidation(t, cl, namespace) })
+	t.Run("credential headers", func(t *testing.T) { testHeaderValidation(t, cl, namespace) })
 	t.Run("MCP credential headers", func(t *testing.T) { testMCPCredentialHeaderValidation(t, cl, namespace) })
+	t.Run("MCP headersFrom is not served", func(t *testing.T) {
+		object := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "api.kagent.dev/v1alpha3", "kind": "RemoteMCPServer",
+			"metadata": map[string]any{"name": "removed-headers-from", "namespace": namespace},
+			"spec":     map[string]any{"url": "https://mcp.example.com/mcp", "headersFrom": []any{map[string]any{"name": "X-Tenant", "value": "tenant"}}},
+		}}
+		err := cl.Create(t.Context(), object, &ctrlclient.CreateOptions{FieldValidation: metav1.FieldValidationStrict})
+		require.ErrorContains(t, err, `unknown field "spec.headersFrom"`)
+	})
 
 	t.Run("literal runtime environment", func(t *testing.T) {
 		harness := validHarness(namespace, "env-harness", HarnessSpec{Kagent: &KagentHarness{}})

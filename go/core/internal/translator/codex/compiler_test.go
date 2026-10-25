@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -38,20 +39,22 @@ func TestCompileProviderCredentials(t *testing.T) {
 		wantErr     string
 	}{
 		{
-			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
+			name: "caller token passthrough is unsupported",
+			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "model", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+				Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}},
+			wantErr: "does not support tokenPassthrough",
+		},
+		{
+			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}},
 			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
 		},
 		{
-			name: "OpenAI gateway", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"}},
+			name: "OpenAI gateway", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}},
 			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://gateway.example.com:443"},
 		},
 		{
-			name: "Bedrock API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
+			name: "Bedrock API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "AWS_BEARER_TOKEN_BEDROCK"}}}}},
 			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-east-1.amazonaws.com:443"},
-		},
-		{
-			name: "Bedrock IAM", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
-			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, wantErr: "cannot use gateway header injection",
 		},
 	}
 	for _, test := range tests {
@@ -104,8 +107,8 @@ func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://other-collector:4317"
@@ -124,8 +127,8 @@ func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "x-tenant=team-a"
@@ -144,9 +147,9 @@ func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	responses, chat := v1alpha3.OpenAIAPIFormatResponses, v1alpha3.OpenAIAPIFormatChatCompletions
 	tests := []v1alpha3.ModelConfigSpec{
 		{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude"},
-		{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &chat}},
-		{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, Temperature: "1"}},
-		{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}},
+		{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}, OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &chat}},
+		{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}, OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, Temperature: "1"}},
+		{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt", Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "AWS_BEARER_TOKEN_BEDROCK"}}}}, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}},
 	}
 	for _, model := range tests {
 		input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte("secret")})
@@ -160,10 +163,10 @@ func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 
 func TestCompileMCPAndSharedAgent(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
-	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-root", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}}
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-root", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}}}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), "mcp-token": []byte(credentialValue)})
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test", UID: "mcp"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: "https://mcp.example.com/mcp", HeadersFrom: []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}}},
+		Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: "https://mcp.example.com/mcp", Headers: []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "mcp-token"}}}},
 	}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{Tools: []string{"read"}, RequireApproval: true}, Server: server}}
 	childModel := model
@@ -189,7 +192,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	if cfg.Agents["reviewer"].Model != "gpt-child" || !cfg.MCPServers["tools"].RequireApproval || !reflect.DeepEqual(cfg.MCPServers["tools"].EnabledTools, []string{"read"}) {
 		t.Fatalf("config = %#v", cfg)
 	}
-	if !strings.HasPrefix(cfg.MCPServers["tools"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
+	if cfg.MCPServers["tools"].Headers["Authorization"] != translator.CredentialPlaceholder {
 		t.Fatalf("MCP headers = %#v", cfg.MCPServers["tools"].Headers)
 	}
 	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443", "https://mcp.example.com:443"}) {
@@ -201,8 +204,8 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-root",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	terminateOnClose := false
@@ -267,8 +270,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}, Key: "api-key"}}}},
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	input.Harness.Name = "fast"
@@ -335,12 +338,10 @@ func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
 
-func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
+func TestCompileMCPAuthentication(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+		URL: "https://mcp.example.com/mcp", Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}},
 	}}
-	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
-	if want := "Codex does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("expected %q, got %v", want, err)
-	}
+	_, err := compileMCP([]translator.ResolvedMCPTool{{Server: server}})
+	require.ErrorContains(t, err, "does not support tokenPassthrough")
 }

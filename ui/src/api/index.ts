@@ -66,6 +66,7 @@ export * from "./domain/agentInstances";
 export * from "./domain/common";
 export * from "./domain/mcpServers";
 export * from "./domain/models";
+export * from "./domain/headers";
 export * from "./domain/namespaces";
 export * from "./domain/substrate";
 export * from "./domain/prompts";

@@ -18,7 +18,7 @@ import httpx
 import numpy as np
 from kagent.core._runtime_config import optional_field
 
-from kagent.adk._bearer_token import bearer_token
+from kagent.adk._invocation_auth import InvocationCredentialError, authentication_hook, credential_source
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.types import EmbeddingConfig
 
@@ -73,6 +73,8 @@ class KAgentEmbedding:
 
         try:
             raw_embeddings = await self._call_provider(text_list)
+        except InvocationCredentialError:
+            raise
         except Exception as e:
             logger.error(
                 "Error generating embedding with provider=%s model=%s: %s",
@@ -155,34 +157,36 @@ class KAgentEmbedding:
             norm = np.linalg.norm(x, 2, axis=1, keepdims=True)
             return np.where(norm == 0, x, x / norm)
 
-    def _passthrough_api_key(self) -> Optional[str]:
-        """Bearer token to use as the API key when api_key_passthrough is
-        enabled, mirroring BaseOpenAI.set_passthrough_key for chat models.
-        Azure providers treat a missing token as an error rather than falling
-        back to a provider environment key.
-        """
-        if not self.config.api_key_passthrough:
-            return None
-        return bearer_token.get()
+    def _tls_httpx_kwargs(self) -> dict[str, Any]:
+        """Shared HTTPX options for embedding SDK transports."""
+        if not (
+            self.config.tls_insecure_skip_verify
+            or self.config.tls_ca_cert_path
+            or self.config.tls_disable_system_cas
+            or self.config.headers
+            or (credential_source()[0] is not None)
+        ):
+            return {}
+        kwargs = {}
+        if self.config.headers:
+            kwargs["headers"] = dict(self.config.headers)
+        if credential_source()[0] is not None:
+            kwargs.update(event_hooks={"request": [authentication_hook()]}, follow_redirects=False)
+        kwargs["verify"] = create_ssl_context(
+            disable_verify=self.config.tls_insecure_skip_verify or False,
+            ca_cert_path=optional_field(self.config, "tls_ca_cert_path"),
+            disable_system_cas=self.config.tls_disable_system_cas or False,
+        )
+        return kwargs
 
     def _tls_http_client(self) -> Optional[httpx.AsyncClient]:
-        """httpx client honoring ModelConfig TLS settings, or None when unset."""
-        if not (
-            self.config.tls_insecure_skip_verify or self.config.tls_ca_cert_path or self.config.tls_disable_system_cas
-        ):
-            return None
-        return httpx.AsyncClient(
-            verify=create_ssl_context(
-                disable_verify=self.config.tls_insecure_skip_verify or False,
-                ca_cert_path=optional_field(self.config, "tls_ca_cert_path"),
-                disable_system_cas=self.config.tls_disable_system_cas or False,
-            )
-        )
+        kwargs = self._tls_httpx_kwargs()
+        return httpx.AsyncClient(**kwargs) if kwargs else None
 
     async def _embed_openai(self, texts: List[str]) -> List[List[float]]:
         """Embed using the OpenAI or Azure OpenAI SDK."""
         provider = self.config.provider.lower()
-        api_key = self._passthrough_api_key()
+        api_key = None
 
         http_client = self._tls_http_client()
         client = None
@@ -193,7 +197,7 @@ class KAgentEmbedding:
                 )
                 api_key = resolve_azure_api_key(
                     api_key,
-                    api_key_passthrough=self.config.api_key_passthrough,
+                    api_key_passthrough=False,
                     environment_variable="AZURE_OPENAI_API_KEY",
                 )
                 client = self._build_azure_client(
@@ -229,8 +233,8 @@ class KAgentEmbedding:
             self.config.endpoint, self.config.deployment, self.config.api_version
         )
         api_key = resolve_azure_api_key(
-            self._passthrough_api_key(),
-            api_key_passthrough=self.config.api_key_passthrough,
+            None,
+            api_key_passthrough=False,
             environment_variable="FOUNDRY_API_KEY",
         )
 
@@ -270,12 +274,11 @@ class KAgentEmbedding:
             azure_endpoint=endpoint,
             azure_deployment=deployment,
             api_key=api_key,
-            api_key_passthrough=self.config.api_key_passthrough,
+            api_key_passthrough=False,
             default_headers=None,
             http_client=http_client,
             missing_credential_hint=(
-                "No Azure credential resolved for embeddings: set an API key, enable "
-                "api_key_passthrough, or configure Azure Workload Identity"
+                "No Azure credential resolved for embeddings: configure credential headers or Azure Workload Identity"
             ),
         )
 
@@ -284,8 +287,11 @@ class KAgentEmbedding:
         import ollama
 
         host = self.config.base_url or os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
-        client = ollama.AsyncClient(host=host)
-        result = await client.embed(model=self.config.model, input=texts)
+        client = ollama.AsyncClient(host=host, **self._tls_httpx_kwargs())
+        try:
+            result = await client.embed(model=self.config.model, input=texts)
+        finally:
+            await client.close()
         # Ollama returns embeddings as a list of lists
         embeddings = result.embeddings
         if embeddings and not isinstance(embeddings[0], list):
@@ -298,19 +304,27 @@ class KAgentEmbedding:
         from google import genai
         from google.genai import types as genai_types
 
-        if self.config.provider.lower() == "vertex_ai":
-            client = genai.Client(vertexai=True)
-        else:
-            client = genai.Client()
-
-        # Use asyncio.to_thread since genai may not have async methods
-        response = await asyncio.to_thread(
-            client.models.embed_content,
-            model=self.config.model,
-            contents=texts,
-            config=genai_types.EmbedContentConfig(output_dimensionality=self.TARGET_DIMENSION),
-        )
-        return [list(emb.values) for emb in response.embeddings]
+        http_client = self._tls_http_client()
+        try:
+            with genai.Client(
+                vertexai=self.config.provider.lower() == "vertex_ai",
+                http_options=genai_types.HttpOptions(
+                    base_url=self.config.base_url or None,
+                    headers=dict(self.config.headers) or None,
+                    httpx_async_client=http_client,
+                ),
+            ) as client:
+                async with client.aio as async_client:
+                    response = await async_client.models.embed_content(
+                        model=self.config.model,
+                        contents=texts,
+                        config=genai_types.EmbedContentConfig(output_dimensionality=self.TARGET_DIMENSION),
+                    )
+                    return [list(emb.values) for emb in response.embeddings]
+        finally:
+            # google-genai only closes clients it created itself.
+            if http_client is not None:
+                await http_client.aclose()
 
     async def _embed_bedrock(
         self,
@@ -322,22 +336,38 @@ class KAgentEmbedding:
         KAgentBedrockLlm.  Each text is embedded individually because the
         Titan Embedding API accepts a single ``inputText`` per invocation.
         """
-        import boto3
+        from ._bedrock import _get_bedrock_client
 
-        region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
-        client = boto3.client("bedrock-runtime", region_name=region)
+        client = _get_bedrock_client(
+            extra_headers=dict(self.config.headers),
+            tls_disable_verify=self.config.tls_insecure_skip_verify,
+            tls_ca_cert_path=optional_field(self.config, "tls_ca_cert_path"),
+            tls_disable_system_cas=self.config.tls_disable_system_cas,
+        )
 
-        async def _invoke_single(text: str) -> List[float]:
+        def _invoke_single(text: str) -> List[float]:
             body = json.dumps({"inputText": text})
-            response = await asyncio.to_thread(
-                client.invoke_model,
+            response = client.invoke_model(
                 modelId=self.config.model,
                 body=body,
                 contentType="application/json",
                 accept="application/json",
             )
-            result = json.loads(response["body"].read())
-            return result["embedding"]
+            try:
+                result = json.loads(response["body"].read())
+                return result["embedding"]
+            finally:
+                response["body"].close()
 
-        embeddings = await asyncio.gather(*[_invoke_single(t) for t in texts])
-        return list(embeddings)
+        try:
+            # Finish all in-flight SDK calls before closing their shared client,
+            # including when one request fails authentication or embedding.
+            embeddings = await asyncio.gather(
+                *[asyncio.to_thread(_invoke_single, t) for t in texts], return_exceptions=True
+            )
+            for embedding in embeddings:
+                if isinstance(embedding, BaseException):
+                    raise embedding
+            return list(embeddings)
+        finally:
+            client.close()

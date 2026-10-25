@@ -2,6 +2,22 @@ suite: test modelconfig
 templates:
   - modelconfig.yaml
 tests:
+  - it: should render invocation token passthrough using the shared header shape
+    set:
+      providers.openAI.headers:
+        - name: Authorization
+          prefix: "Bearer "
+          valueFrom:
+            tokenPassthrough: {}
+    asserts:
+      - equal:
+          path: spec.headers
+          value:
+            - name: Authorization
+              prefix: "Bearer "
+              valueFrom:
+                tokenPassthrough: {}
+
   - it: should render modelconfig with default provider
     asserts:
       - hasDocuments:
@@ -25,10 +41,10 @@ tests:
           path: spec.model
           value: "gpt-4.1-mini"
       - equal:
-          path: spec.apiKeySecret
+          path: spec.headers[0].valueFrom.secretKeyRef.name
           value: kagent-openai
       - equal:
-          path: spec.apiKeySecretKey
+          path: spec.headers[0].valueFrom.secretKeyRef.key
           value: OPENAI_API_KEY
 
   - it: should use anthropic when set as default provider
@@ -43,10 +59,10 @@ tests:
           path: spec.model
           value: "claude-haiku-4-5"
       - equal:
-          path: spec.apiKeySecret
+          path: spec.headers[0].valueFrom.secretKeyRef.name
           value: kagent-anthropic
       - equal:
-          path: spec.apiKeySecretKey
+          path: spec.headers[0].valueFrom.secretKeyRef.key
           value: ANTHROPIC_API_KEY
 
   - it: should use azure openai when set as default provider
@@ -61,10 +77,10 @@ tests:
           path: spec.model
           value: "gpt-4.1-mini"
       - equal:
-          path: spec.apiKeySecret
+          path: spec.headers[0].valueFrom.secretKeyRef.name
           value: kagent-azure-openai
       - equal:
-          path: spec.apiKeySecretKey
+          path: spec.headers[0].valueFrom.secretKeyRef.key
           value: AZUREOPENAI_API_KEY
 
   - it: should configure ollama provider

@@ -127,7 +127,7 @@ func policyHeaders(policy *ateapipb.EgressPolicy) (map[string]*ateapipb.Credenti
 			return nil, fmt.Errorf("credential headers require a rule with one hostname and port")
 		}
 		u := url.URL{Scheme: scheme, Host: net.JoinHostPort(hostnames[0], strconv.Itoa(int(ports.GetNumbers()[0])))}
-		origin := egress.Origin(&u)
+		origin := egresspolicy.Origin(&u)
 		for _, header := range effects.GetReplaceHeaders() {
 			key := origin + "\x00" + strings.ToLower(header.GetHeader())
 			if headers[key] != nil {

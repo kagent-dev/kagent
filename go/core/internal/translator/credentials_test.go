@@ -29,59 +29,58 @@ func TestCompileCredentialDestinations(t *testing.T) {
 		{"Bedrock bearer", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}}, "AWS_BEARER_TOKEN_BEDROCK", "bedrock-runtime.us-east-1.amazonaws.com", "authorization", "Bearer "},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			test.spec.APIKeySecret, test.spec.APIKeySecretKey = "auth", "token"
-			if test.spec.Provider == v1alpha3.ModelProviderBedrock {
-				test.spec.APIKeySecretKey = test.env
-			}
+			test.spec.Headers = []v1alpha3.Header{{Name: test.header, Prefix: &test.prefix, ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"}}}}
 			input := credentialInput(test.spec)
-			environment := []corev1.EnvVar{credentialEnv(test.env, "auth", test.spec.APIKeySecretKey)}
-			got, bindings, _, err := CompileCredentials(input, nil, environment)
+			environment := []corev1.EnvVar{{Name: test.env, Value: CredentialPlaceholder}}
+			got, err := CompileCredentials(input, nil, environment)
 			require.NoError(t, err)
-			require.Equal(t, CredentialPlaceholder, got[0].Value)
-			require.Nil(t, got[0].ValueFrom)
-			require.NotNil(t, environment[0].ValueFrom, "compilation must not mutate inputs")
+			bindings := got.Credentials
 			require.Len(t, bindings, 1)
 			require.Equal(t, "https://"+test.host+":443", bindings[0].Origin)
 			require.Equal(t, test.header, bindings[0].Header)
 			require.Equal(t, test.prefix, bindings[0].Prefix)
-			require.Equal(t, "ate-secret://k8s.io/default/team/auth/"+test.spec.APIKeySecretKey, bindings[0].URI)
+			require.Equal(t, "ate-secret://k8s.io/default/team/auth/"+test.spec.Headers[0].ValueFrom.SecretKeyRef.Key, bindings[0].URI)
 		})
 	}
 }
 
 func TestCompileCredentialsRejectsConflictingSharedModels(t *testing.T) {
-	spec := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "root", APIKeySecretKey: "token"}
+	spec := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.
+
+		// The ADK environment is deduplicated, but every model still needs its own binding.
+		LocalObjectReference{Name: "root"}, Key: "token"}}}}}
 	input := credentialInput(spec)
-	spec.APIKeySecret = "child"
+	spec = *spec.DeepCopy()
+	spec.Headers[0].ValueFrom.SecretKeyRef.Name = "child"
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(spec).Root}}
-	// The ADK environment is deduplicated, but every model still needs its own binding.
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
+
+	compiled, err := CompileCredentials(input, nil, []corev1.EnvVar{{Name: "OPENAI_API_KEY", Value: CredentialPlaceholder}})
 	require.ErrorContains(t, err, "conflicting credentials")
-	require.Nil(t, environment)
+	require.Nil(t, compiled)
 	input.Root.Shared[0].Agent.ResolvedModelConfig.Config.Spec.OpenAI = &v1alpha3.OpenAIConfig{BaseURL: "https://child.example.com/v1"}
-	_, bindings, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
+	compiled, err = CompileCredentials(input, nil, []corev1.EnvVar{{Name: "OPENAI_API_KEY", Value: CredentialPlaceholder}})
 	require.NoError(t, err)
-	require.Len(t, bindings, 2)
+	require.Len(t, compiled.Credentials, 2)
 }
 
 func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
+	compiled, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot use gateway header injection")
-	require.Nil(t, environment)
+	require.Nil(t, compiled)
 }
 
 func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true})
-	_, bindings, _, err := CompileCredentials(input, nil, nil)
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}})
+	compiled, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
-	require.Empty(t, bindings)
+	require.Empty(t, compiled.Credentials)
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "auth", APIKeySecretKey: "token",
+		Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"}}}},
 	}).Root}}
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
+	compiled, err = CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "mixes tokenPassthrough with clients that do not use it")
-	require.Nil(t, environment)
+	require.Nil(t, compiled)
 }
 
 func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {
@@ -99,122 +98,68 @@ func credentialEnv(name, secret, key string) corev1.EnvVar {
 	return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret}, Key: key}}}
 }
 
-// A cloud-tagged Ollama model reaches api.ollama.com with the key, which is a
-// gateway-injected credential like any other — without this binding the
-// translator rejects OLLAMA_API_KEY as an unsupported local secret and the
-// AgentTemplate goes Compatible=False.
-func TestModelCredentialTargetOllamaCloud(t *testing.T) {
-	secret := v1alpha3.ModelConfigSpec{
-		Provider:     v1alpha3.ModelProviderOllama,
-		Model:        "deepseek-v4-flash:0731-cloud",
-		APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-		Ollama: &v1alpha3.OllamaConfig{},
-	}
-
-	tests := []struct {
-		name         string
-		spec         v1alpha3.ModelConfigSpec
-		wantName     string
-		wantEndpoint string
+func TestModelCredentialTargetOllama(t *testing.T) {
+	for _, tc := range []struct {
+		name, model, host, endpoint string
+		auth                        bool
 	}{
-		{
-			name:         "cloud model with a secret binds the cloud",
-			spec:         secret,
-			wantName:     "OLLAMA_API_KEY",
-			wantEndpoint: "https://api.ollama.com",
-		},
-		{
-			name: "cloud model with passthrough binds the cloud",
-			spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				TokenPassthrough: true, Ollama: &v1alpha3.OllamaConfig{},
-			},
-			wantName:     "OLLAMA_API_KEY",
-			wantEndpoint: "https://api.ollama.com",
-		},
-		{
-			// A local model must declare no binding: no request leaves for the
-			// cloud, so there is nothing to inject a header into.
-			name: "local model declares no binding",
-			spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
-				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				Ollama: &v1alpha3.OllamaConfig{},
-			},
-		},
-		{
-			// An explicit host wins over the cloud route, so the key stays a
-			// plain secret reference rather than a gateway binding.
-			name: "explicit host declares no binding",
-			spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
-			},
-		},
-		{
-			name: "cloud model without any key declares no binding",
-			spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				Ollama: &v1alpha3.OllamaConfig{},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resolved := &ResolvedModelConfig{
-				Config: &v1alpha3.ModelConfig{
-					ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
-					Spec:       tt.spec,
-				},
+		{"cloud", "minimax-m3:cloud", "", "https://api.ollama.com", true},
+		{"explicit host", "minimax-m3:cloud", "models.example.com:11434", "http://models.example.com:11434", true},
+		{"local model", "llama3", "", "http://localhost:11434", true},
+		{"keyless cloud model", "minimax-m3:cloud", "", "http://localhost:11434", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOllama, Model: tc.model, Ollama: &v1alpha3.OllamaConfig{Host: tc.host}}
+			if tc.auth {
+				spec.Headers = []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}
 			}
-			name, endpoint, _, _ := modelCredentialTarget(resolved)
-			require.Equal(t, tt.wantName, name)
-			require.Equal(t, tt.wantEndpoint, endpoint)
+			_, endpoint, _, _ := modelCredentialTarget(credentialInput(spec).Root.ResolvedModelConfig)
+			require.Equal(t, tc.endpoint, endpoint)
 		})
 	}
 }
 
 func TestPassthroughCredentialUsesCanonicalOrigin(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
-	environment, credentials, targets, err := CompileCredentials(input, nil, nil)
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}})
+	compiled, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
-	require.Empty(t, environment)
-	require.Empty(t, credentials)
-	require.Equal(t, []egresspolicy.GatewayTarget{{Origin: "https://api.openai.com:443", Header: "authorization", Prefix: "Bearer "}}, targets)
+	require.Empty(t, compiled.Credentials)
+	require.Equal(t, []egresspolicy.GatewayTarget{{Origin: "https://api.openai.com:443", Header: "authorization", Prefix: "Bearer "}}, compiled.TokenPassthroughTargets)
 }
 
 func TestCompileCredentialsMCPTokenPassthrough(t *testing.T) {
 	passthrough := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+		URL: "https://mcp.example.com/mcp", Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}},
 	}}
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
 	input.Root.MCPTools = []ResolvedMCPTool{{Server: passthrough}}
-	_, _, targets, err := CompileCredentials(input, nil, nil)
+	compiled, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
-	require.Equal(t, []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}}, targets)
+	require.Equal(t, []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}}, compiled.TokenPassthroughTargets)
 
 	// A gateway credential on the same origin would overwrite the caller's token.
 	keyed := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "keyed", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		URL: "https://mcp.example.com/other",
-		HeadersFrom: []v1alpha3.ValueRef{{Name: "X-API-Key", ValueFrom: &v1alpha3.ValueSource{
-			Type: v1alpha3.SecretValueSource, Name: "mcp", Key: "token",
-		}}},
+		URL:     "https://mcp.example.com/other",
+		Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "mcp"}, Key: "token"}}}},
 	}}
 	input.Root.MCPTools = append(input.Root.MCPTools, ResolvedMCPTool{Server: keyed})
-	environment, _, _, err := CompileCredentials(input, nil, nil)
+	compiled, err = CompileCredentials(input, nil, nil)
 	require.ErrorContains(t, err, "mixes tokenPassthrough with clients that do not use it")
-	require.Nil(t, environment)
+	require.Nil(t, compiled)
 }
 
 func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 	server := func(name, url string, passthrough bool) ResolvedMCPTool {
-		return ResolvedMCPTool{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: url, TokenPassthrough: passthrough}}}
+		spec := v1alpha3.RemoteMCPServerSpec{URL: url}
+		if passthrough {
+			spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}
+		}
+		return ResolvedMCPTool{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "team"}, Spec: spec}}
 	}
 	model := func(spec v1alpha3.ModelConfigSpec) *ResolvedModelConfig {
 		return credentialInput(spec).Root.ResolvedModelConfig
 	}
-	passthroughOpenAI := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true}
+	passthroughOpenAI := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}}
 	for _, test := range []struct {
 		name        string
 		spec        v1alpha3.ModelConfigSpec
@@ -232,24 +177,23 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 			},
 		},
 		{
-			name: "auxiliary model", extra: []*ResolvedModelConfig{model(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderMistral, TokenPassthrough: true})},
+			name: "auxiliary model", extra: []*ResolvedModelConfig{model(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderMistral, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}})},
 			want: []egresspolicy.GatewayTarget{{Origin: "https://api.mistral.ai:443", Header: "authorization", Prefix: "Bearer "}},
 		},
 		{
-			name: "Bedrock", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, TokenPassthrough: true, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+			name: "Bedrock", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}},
 			want: []egresspolicy.GatewayTarget{{Origin: "https://bedrock-runtime.us-east-1.amazonaws.com:443", Header: "authorization", Prefix: "Bearer "}},
 		},
 		{
 			name: "Secret header on the passthrough origin",
 			tools: []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
-				URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
-				HeadersFrom: []v1alpha3.ValueRef{{Name: "X-Tenant-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "mcp", Key: "token"}}},
+				URL:     "https://mcp.example.com/mcp",
+				Headers: []v1alpha3.Header{{Name: "X-Tenant-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "mcp"}, Key: "token"}}}, {Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}},
 			}}}},
-			environment: []corev1.EnvVar{credentialEnv("KAGENT_CREDENTIAL_TENANT", "mcp", "token")},
-			wantErr:     "cannot combine caller-token passthrough",
+			want: []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}},
 		},
 		{name: "HTTP origin", tools: []ResolvedMCPTool{server("user", "http://mcp.example.com/mcp", true)}, want: []egresspolicy.GatewayTarget{{Origin: "http://mcp.example.com:80", Header: "authorization", Prefix: "Bearer "}}},
-		{name: "no gateway target", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderSAPAICore, TokenPassthrough: true, SAPAICore: &v1alpha3.SAPAICoreConfig{BaseURL: "https://sap.example.com"}}, wantErr: "has no credential target"},
+		{name: "no gateway target", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderSAPAICore, SAPAICore: &v1alpha3.SAPAICoreConfig{BaseURL: "https://sap.example.com"}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}}, wantErr: "has no credential target"},
 		{
 			name: "MCP without passthrough", tools: []ResolvedMCPTool{server("user", "https://mcp.example.com/mcp", true), server("shared", "https://mcp.example.com/other", false)},
 			wantErr: "mixes tokenPassthrough",
@@ -280,13 +224,17 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 			want: []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}},
 		},
 		{
-			name: "explicit target header", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true, DefaultHeaders: map[string]string{"Authorization": "Bearer static"}},
+			name: "explicit target header", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, DefaultHeaders: map[string]string{"Authorization": "Bearer static"}, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}},
 			wantErr: "explicit \"authorization\" header",
 		},
 		{
-			name: "explicit header on another client", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, TokenPassthrough: true, Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://same.example.com"}},
+			name: "explicit header on another client", spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOpenAI, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://same.example.com"},
+				DefaultHeaders: map[string]string{"X-API-Key": "static"},
+				Headers:        []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}},
+			},
 			tools: []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
-				URL: "https://SAME.example.com.:0443/mcp", TokenPassthrough: true, HeadersFrom: []v1alpha3.ValueRef{{Name: "X-API-Key", Value: "static"}},
+				URL: "https://SAME.example.com.:0443/mcp", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}},
 			}}}},
 			wantErr: "explicit \"x-api-key\" header",
 		},
@@ -303,7 +251,7 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 			if extra != nil {
 				extra = append(extra, input.Root.ResolvedModelConfig)
 			}
-			_, _, targets, err := CompileCredentials(input, extra, test.environment)
+			compiled, err := CompileCredentials(input, extra, test.environment)
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
 				var validation *ValidationError
@@ -311,7 +259,7 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, test.want, targets)
+			require.Equal(t, test.want, compiled.TokenPassthroughTargets)
 		})
 	}
 }

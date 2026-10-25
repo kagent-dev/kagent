@@ -141,8 +141,8 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "test-config", created.Spec.APIKeySecret)
-		assert.Equal(t, "OPENAI_API_KEY", created.Spec.APIKeySecretKey)
+		assert.Equal(t, "test-config", created.Spec.Headers[0].ValueFrom.SecretKeyRef.Name)
+		assert.Equal(t, "OPENAI_API_KEY", created.Spec.Headers[0].ValueFrom.SecretKeyRef.Key)
 
 		secret := &corev1.Secret{}
 		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "test-config"}, secret)
@@ -196,10 +196,8 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 				Value: `{"token":"secret"}`,
 			}},
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:           "gpt-4",
-				Provider:        v1alpha3.ModelProviderOpenAI,
-				APIKeySecret:    "provider-credentials",
-				APIKeySecretKey: "credentials.json",
+				Model:    "gpt-4",
+				Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "provider-credentials"}, Key: "credentials.json"}}}},
 			},
 		})
 		require.Error(t, err)
@@ -218,10 +216,8 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		config := &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default", UID: types.UID("cfg-uid")},
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:           "gpt-4",
-				Provider:        v1alpha3.ModelProviderOpenAI,
-				APIKeySecret:    "auth-v1",
-				APIKeySecretKey: "token",
+				Model:    "gpt-4",
+				Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth-v1"}, Key: "token"}}}},
 			},
 		}
 		oldSecret := &corev1.Secret{
@@ -243,10 +239,8 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		updated, err := service.Update(ctx, model.UpdateRequest{
 			Ref: types.NamespacedName{Namespace: "default", Name: "cfg"},
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:           "gpt-4.1",
-				Provider:        v1alpha3.ModelProviderOpenAI,
-				APIKeySecret:    "auth-v2",
-				APIKeySecretKey: "token",
+				Model:    "gpt-4.1",
+				Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth-v2"}, Key: "token"}}}},
 			},
 			Secrets: []secretmaterial.Material{{Name: "auth-v2", Key: "token", Value: "NEW"}},
 		})
@@ -267,10 +261,8 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		config := &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default", UID: types.UID("cfg-uid")},
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:           "gpt-4",
-				Provider:        v1alpha3.ModelProviderOpenAI,
-				APIKeySecret:    "cfg",
-				APIKeySecretKey: "OPENAI_API_KEY",
+				Model:    "gpt-4",
+				Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "cfg"}, Key: "OPENAI_API_KEY"}}}},
 			},
 		}
 		secret := &corev1.Secret{
@@ -298,10 +290,8 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 			Ref:    types.NamespacedName{Namespace: "default", Name: "cfg"},
 			APIKey: &rotatedKey,
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:           "gpt-4.1",
-				Provider:        v1alpha3.ModelProviderOpenAI,
-				APIKeySecret:    "cfg",
-				APIKeySecretKey: "OPENAI_API_KEY",
+				Model:    "gpt-4.1",
+				Provider: v1alpha3.ModelProviderOpenAI, Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "cfg"}, Key: "OPENAI_API_KEY"}}}},
 			},
 		})
 		require.NoError(t, err)

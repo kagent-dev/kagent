@@ -31,8 +31,7 @@ export const mockModels: ModelConfig[] = [
     spec: {
       model: "gpt-4.1",
       provider: "OpenAI",
-      apiKeySecret: "kagent-openai",
-      apiKeySecretKey: "OPENAI_API_KEY",
+      headers: [{ name: "Authorization", prefix: "Bearer ", valueFrom: { secretKeyRef: { name: "kagent-openai", key: "OPENAI_API_KEY" } } }],
       openAI: { temperature: "0.2", maxTokens: 8192 },
     },
   },
@@ -41,8 +40,7 @@ export const mockModels: ModelConfig[] = [
     spec: {
       model: "claude-sonnet-4",
       provider: "Anthropic",
-      apiKeySecret: "kagent-anthropic",
-      apiKeySecretKey: "ANTHROPIC_API_KEY",
+      headers: [{ name: "X-API-Key", valueFrom: { secretKeyRef: { name: "kagent-anthropic", key: "ANTHROPIC_API_KEY" } } }],
       anthropic: { maxTokens: 16384, temperature: "0.1" },
     },
   },
@@ -131,7 +129,7 @@ export const mockProviders: Provider[] = [
     name: "AzureOpenAI",
     type: "AzureOpenAI",
     requiredParams: ["azureEndpoint"],
-    optionalParams: ["apiVersion", "azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"],
+    optionalParams: ["apiVersion", "azureDeployment", "temperature", "maxTokens", "topP", "apiFormat"],
   },
   {
     name: "Ollama",

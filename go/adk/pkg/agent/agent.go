@@ -495,7 +495,6 @@ func transportConfigFromBase(b *configv1.ADKModelConfig, timeout *time.Duration)
 		TLSInsecureSkipVerify: b.TlsInsecureSkipVerify,
 		TLSCACertPath:         b.TlsCaCertPath,
 		TLSDisableSystemCAs:   b.TlsDisableSystemCas,
-		APIKeyPassthrough:     b.ApiKeyPassthrough,
 		Timeout:               timeout,
 	}
 }

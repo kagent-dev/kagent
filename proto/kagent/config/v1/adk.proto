@@ -46,7 +46,6 @@ message ADKModelConfig {
   optional bool tls_insecure_skip_verify = 3;
   optional string tls_ca_cert_path = 4;
   optional bool tls_disable_system_cas = 5;
-  bool api_key_passthrough = 6;
   oneof provider {
     option (buf.validate.oneof).required = true;
     ADKOpenAI openai = 10;
@@ -279,16 +278,12 @@ message ADKHTTPMCPServerConfig {
   repeated string tools = 2;
   repeated string allowed_headers = 3;
   bool require_approval = 4;
-  // Forward the incoming A2A bearer token as this server's Authorization header.
-  bool token_passthrough = 5;
 }
 message ADKSSEMCPServerConfig {
   ADKSSEConnectionParams params = 1 [(buf.validate.field).required = true];
   repeated string tools = 2;
   repeated string allowed_headers = 3;
   bool require_approval = 4;
-  // Forward the incoming A2A bearer token as this server's Authorization header.
-  bool token_passthrough = 5;
 }
 message ADKStdioMCPServerConfig {
   string command = 1;
@@ -311,13 +306,13 @@ message ADKEmbeddingConfig {
   string provider = 1;
   string model = 2;
   string base_url = 3;
-  bool api_key_passthrough = 4;
   optional bool tls_insecure_skip_verify = 5;
   optional string tls_ca_cert_path = 6;
   optional bool tls_disable_system_cas = 7;
   string endpoint = 8;
   string deployment = 9;
   string api_version = 10;
+  map<string, string> headers = 11;
 }
 message ADKMemoryConfig {
   // Zero uses the server default. Bound days to Go's time.Duration range.

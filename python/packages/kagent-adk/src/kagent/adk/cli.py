@@ -18,6 +18,7 @@ from kagent.core._runtime_config import RuntimeConfig, TokenPropagationConfig
 from kagent.core.telemetry import conv
 
 from . import Config, KAgentApp
+from ._invocation_auth import invocation_credential
 from .tools import add_builtin_tools_to_agent
 from .types import create_agent, parse_config
 
@@ -31,7 +32,10 @@ def create_sts_integration(settings: TokenPropagationConfig) -> Optional[ADKToke
     if settings.sts_well_known_uri or settings.enabled:
         integration = ADKSTSIntegration(settings.sts_well_known_uri) if settings.sts_well_known_uri else None
         return ADKTokenPropagationPlugin(
-            integration, resource=list(settings.resources) or None, audience=list(settings.audiences) or None
+            integration,
+            resource=list(settings.resources) or None,
+            audience=list(settings.audiences) or None,
+            get_caller_token=invocation_credential,
         )
     return None
 
@@ -84,13 +88,6 @@ def static(
     sts_integration = create_sts_integration(runtime.token_propagation)
     if sts_integration:
         plugins = [sts_integration]
-
-    if config.agent.model.api_key_passthrough:
-        from ._llm_passthrough_plugin import LLMPassthroughPlugin
-
-        if plugins is None:
-            plugins = []
-        plugins.append(LLMPassthroughPlugin())
 
     def root_agent_factory() -> BaseAgent:
         root_agent = create_agent(

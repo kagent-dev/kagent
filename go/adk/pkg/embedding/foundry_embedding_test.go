@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
@@ -92,7 +91,7 @@ func TestFoundryProviderWorkloadIdentity(t *testing.T) {
 }
 
 func TestFoundryProviderAPIKeyPassthrough(t *testing.T) {
-	t.Setenv("FOUNDRY_API_KEY", "")
+	t.Setenv("FOUNDRY_API_KEY", "kagent-credential-injected")
 
 	var gotAPIKey, gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,16 +103,15 @@ func TestFoundryProviderAPIKeyPassthrough(t *testing.T) {
 	defer server.Close()
 
 	p, err := newFoundryProvider(&configv1.ADKEmbeddingConfig{
-		Provider:          "foundry",
-		Model:             "text-embedding-3-small",
-		Endpoint:          server.URL,
-		Deployment:        "text-embedding-3-small",
-		ApiVersion:        "2024-10-21",
-		ApiKeyPassthrough: true,
+		Provider:   "foundry",
+		Model:      "text-embedding-3-small",
+		Endpoint:   server.URL,
+		Deployment: "text-embedding-3-small",
+		ApiVersion: "2024-10-21",
 	}, nil)
 	require.NoError(t, err)
 
-	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	ctx := embeddingInvocation(t, server.URL, "the-callers-token", "Api-Key", "")
 	embeddings, err := p.generate(ctx, []string{"hello"})
 	require.NoError(t, err)
 	require.Len(t, embeddings, 1)
@@ -133,16 +131,15 @@ func TestFoundryProviderAPIKeyPassthroughOverridesStaticKey(t *testing.T) {
 	defer server.Close()
 
 	p, err := newFoundryProvider(&configv1.ADKEmbeddingConfig{
-		Provider:          "foundry",
-		Model:             "text-embedding-3-small",
-		Endpoint:          server.URL,
-		Deployment:        "text-embedding-3-small",
-		ApiVersion:        "2024-10-21",
-		ApiKeyPassthrough: true,
+		Provider:   "foundry",
+		Model:      "text-embedding-3-small",
+		Endpoint:   server.URL,
+		Deployment: "text-embedding-3-small",
+		ApiVersion: "2024-10-21",
 	}, nil)
 	require.NoError(t, err)
 
-	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	ctx := embeddingInvocation(t, server.URL, "the-callers-token", "Api-Key", "")
 	embeddings, err := p.generate(ctx, []string{"hello"})
 	require.NoError(t, err)
 	require.Len(t, embeddings, 1)

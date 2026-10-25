@@ -9,7 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // ModelConfigReference records an object consulted while resolving a ModelConfig.
@@ -104,27 +103,9 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 		}
 		return secret
 	}
-	requireAPIKey := func() {
-		if config.Spec.APIKeySecret == "" {
-			return
-		}
-		requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "APIKeySecretKeyNotFound", config.Spec.APIKeySecretKey)
-	}
-
-	switch config.Spec.Provider {
-	case v1alpha3.ModelProviderOpenAI:
-		if !config.Spec.TokenPassthrough && config.Spec.APIKeySecret != "" {
-			requireAPIKey()
-		}
-	case v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderAzureOpenAI, v1alpha3.ModelProviderFoundry, v1alpha3.ModelProviderMistral:
-		if !config.Spec.TokenPassthrough && config.Spec.APIKeySecret != "" {
-			requireAPIKey()
-		}
-	case v1alpha3.ModelProviderGemini:
-		requireAPIKey()
-	case v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI:
-		if config.Spec.APIKeySecret != "" {
-			requireAPIKey()
+	for _, header := range config.Spec.Headers {
+		if ref := header.ValueFrom.SecretKeyRef; ref != nil {
+			requireSecret(ref.Name, "CredentialSecretNotFound", "CredentialKeyNotFound", ref.Key)
 		}
 	}
 
@@ -150,30 +131,12 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 			addSemanticFailure("InvalidProviderConfig", "bedrock model config is required")
 			break
 		}
-		if !config.Spec.TokenPassthrough && config.Spec.APIKeySecret != "" {
-			key := types.NamespacedName{Namespace: config.Namespace, Name: config.Spec.APIKeySecret}
-			fetched := krt.FetchOne(ctx, collections.Secrets, krt.FilterObjectName(key))
-			if fetched == nil {
-				addReferenceFailure("APIKeySecretNotFound", fmt.Sprintf("secret %s not found", config.Spec.APIKeySecret))
-				break
-			}
-			secret := *fetched
-			if _, ok := secret.Data[env.AWSBearerTokenBedrock.Name()]; ok {
-				resolved.References = append(resolved.References, ModelConfigReference{NamespacedName: key, Kind: "Secret", Key: env.AWSBearerTokenBedrock.Name()})
-			} else {
-				requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "BedrockCredentialKeyNotFound", env.AWSAccessKeyID.Name(), env.AWSSecretAccessKey.Name())
-				if _, ok := secret.Data[env.AWSSessionToken.Name()]; ok {
-					resolved.References = append(resolved.References, ModelConfigReference{NamespacedName: key, Kind: "Secret", Key: env.AWSSessionToken.Name()})
-				}
-			}
-		}
+
 	case v1alpha3.ModelProviderSAPAICore:
 		if config.Spec.SAPAICore == nil {
 			addSemanticFailure("InvalidProviderConfig", "sapAICore model config is required")
 		}
-		if !config.Spec.TokenPassthrough && config.Spec.APIKeySecret != "" {
-			requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "SAPAICoreCredentialKeyNotFound", "client_id", "client_secret")
-		}
+
 	case v1alpha3.ModelProviderFoundry:
 		if config.Spec.Foundry == nil {
 			addSemanticFailure("InvalidProviderConfig", "foundry model config is required")

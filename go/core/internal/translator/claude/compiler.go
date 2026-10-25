@@ -19,8 +19,8 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -43,8 +43,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, translator.NewValidationError("Claude ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.TokenPassthrough {
-		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough yet")
+	if !model.Spec.TLS.IsEmpty() {
+		return nil, translator.NewValidationError("Claude does not support ModelConfig TLS yet")
 	}
 	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
 	if err != nil {
@@ -64,12 +64,11 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	mcp, err := c.compileMCP(ctx, input.Root.Template.Namespace, input.Root.MCPTools)
+	mcp, err := compileMCP(input.Root.MCPTools)
 	if err != nil {
 		return nil, err
 	}
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
-	environment = append(environment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
 		if claudeconfig.OwnsEnvironment(variable.Name) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
@@ -86,6 +85,14 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
+	headers, passthrough, _, err := translator.ModelCredentialHeaders(input.Root.ResolvedModelConfig, model.Spec.DefaultHeaders)
+	if err != nil {
+		return nil, err
+	}
+	if passthrough {
+		return nil, translator.NewValidationError("Claude does not support tokenPassthrough")
+	}
+	config.ModelHeaders = headers
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
 	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()
@@ -110,7 +117,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, nil, environment)
+	credentials, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +128,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
-	return &translator.CompileResult{
+	return &translator.CompileResult{IntegrationGrants: credentials.IntegrationGrants,
 		Revision: translator.Revision{
 			Namespace:   template.Namespace,
 			SkillImages: skills.Images,
@@ -129,7 +136,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 			ConfigJSON:  configJSON, AgentCard: card,
 			WorkerPoolName:          harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation:        harness.Spec.Substrate.SnapshotPolicy.Location,
-			TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
+			TokenPassthroughTargets: credentials.TokenPassthroughTargets, Credentials: credentials.Credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -191,10 +198,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 				return nil, nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
 			}
 		}
-		if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
-			return nil, nil, err
-		}
-		environment := []corev1.EnvVar{secretEnvironment(claudeconfig.AnthropicAPIKeyEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}
+		environment := []corev1.EnvVar{{Name: claudeconfig.AnthropicAPIKeyEnvName, Value: translator.CredentialPlaceholder}}
 		egress := []string{"https://api.anthropic.com:443"}
 		if baseURL != "" {
 			hostname, err := anthropicBaseURLOrigin(baseURL)
@@ -219,49 +223,12 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		if !reflect.DeepEqual(options, v1alpha3.BedrockConfig{}) {
 			return nil, nil, translator.NewValidationError("Claude does not support Bedrock provider options beyond region yet")
 		}
-		if model.Spec.APIKeySecret == "" {
-			return nil, nil, translator.NewValidationError("Claude Bedrock requires apiKeySecret with AWS credentials")
-		}
-		if model.Spec.APIKeySecretKey != "" {
-			return nil, nil, translator.NewValidationError("Claude Bedrock reads standard AWS keys from apiKeySecret; apiKeySecretKey must be empty")
-		}
-		secret, err := c.secret(ctx, model.Namespace, model.Spec.APIKeySecret)
-		if err != nil {
-			return nil, nil, err
-		}
-		environment := []corev1.EnvVar{{Name: claudeconfig.UseBedrockEnvName, Value: "1"}, {Name: claudeconfig.AWSRegionEnvName, Value: model.Spec.Bedrock.Region}}
-		if value := secret.Data[claudeconfig.AWSBedrockTokenEnvName]; len(value) != 0 {
-			environment = append(environment, secretEnvironment(claudeconfig.AWSBedrockTokenEnvName, secret.Name, claudeconfig.AWSBedrockTokenEnvName))
-		} else {
-			for _, key := range []string{claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName} {
-				if len(secret.Data[key]) == 0 {
-					return nil, nil, translator.NewValidationError("Claude Bedrock Secret %q requires %s and %s, or %s", secret.Name, claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName, claudeconfig.AWSBedrockTokenEnvName)
-				}
-				environment = append(environment, secretEnvironment(key, secret.Name, key))
-			}
-			if len(secret.Data[claudeconfig.AWSSessionTokenEnvName]) != 0 {
-				environment = append(environment, secretEnvironment(claudeconfig.AWSSessionTokenEnvName, secret.Name, claudeconfig.AWSSessionTokenEnvName))
-			}
-		}
+		environment := []corev1.EnvVar{{Name: claudeconfig.UseBedrockEnvName, Value: "1"}, {Name: claudeconfig.AWSRegionEnvName, Value: model.Spec.Bedrock.Region}, {Name: claudeconfig.AWSBedrockTokenEnvName, Value: translator.CredentialPlaceholder}}
 		return environment, []string{"https://bedrock-runtime." + model.Spec.Bedrock.Region + ".amazonaws.com:443"}, nil
 
 	case v1alpha3.ModelProviderAnthropicVertexAI:
-		if model.Spec.AnthropicVertexAI == nil || strings.TrimSpace(model.Spec.AnthropicVertexAI.ProjectID) == "" || strings.TrimSpace(model.Spec.AnthropicVertexAI.Location) == "" {
-			return nil, nil, translator.NewValidationError("Claude Vertex requires anthropicVertexAI.projectID and location")
-		}
-		options := *model.Spec.AnthropicVertexAI
-		options.ProjectID, options.Location = "", ""
-		if !reflect.DeepEqual(options, v1alpha3.AnthropicVertexAIConfig{}) {
-			return nil, nil, translator.NewValidationError("Claude does not support AnthropicVertexAI provider options beyond projectID and location yet")
-		}
-		if err := c.requireGoogleCredentials(ctx, model); err != nil {
-			return nil, nil, err
-		}
-		cfg := model.Spec.AnthropicVertexAI
-		return []corev1.EnvVar{
-			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
-			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{"https://" + translator.VertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
+		return nil, nil, translator.NewValidationError("Claude Vertex requires local signing, which gateway header authentication does not support")
+
 	default:
 		return nil, nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
@@ -272,56 +239,7 @@ func anthropicBaseURLOrigin(raw string) (string, error) {
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", translator.NewValidationError("Claude Anthropic baseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment")
 	}
-	return egress.Origin(parsed), nil
-}
-
-func (c *Compiler) requireSecretKey(ctx context.Context, model *v1alpha3.ModelConfig, name, key string, requireJSON bool) error {
-	if name == "" || key == "" {
-		return translator.NewValidationError("Claude %s requires apiKeySecret and apiKeySecretKey", model.Spec.Provider)
-	}
-	secret, err := c.secret(ctx, model.Namespace, name)
-	if err != nil {
-		return err
-	}
-	value, ok := secret.Data[key]
-	if !ok || len(value) == 0 {
-		return translator.NewValidationError("Claude credential Secret %q does not contain a non-empty key %q", name, key)
-	}
-	if requireJSON && !json.Valid(value) {
-		return translator.NewValidationError("Claude Vertex credential Secret %q key %q must contain valid JSON", name, key)
-	}
-	return nil
-}
-
-func (c *Compiler) requireGoogleCredentials(ctx context.Context, model *v1alpha3.ModelConfig) error {
-	if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, true); err != nil {
-		return err
-	}
-	secret, err := c.secret(ctx, model.Namespace, model.Spec.APIKeySecret)
-	if err != nil {
-		return err
-	}
-	var credentials struct {
-		Type      string `json:"type"`
-		ProjectID string `json:"project_id"`
-		TokenURI  string `json:"token_uri"`
-	}
-	if err := json.Unmarshal(secret.Data[model.Spec.APIKeySecretKey], &credentials); err != nil {
-		return translator.NewValidationError("decode Claude Vertex credentials: %v", err)
-	}
-	if credentials.Type != "service_account" {
-		return translator.NewValidationError("Claude Vertex credentials must be a service_account key in the first release")
-	}
-	if credentials.ProjectID != model.Spec.AnthropicVertexAI.ProjectID {
-		return translator.NewValidationError("Claude Vertex credential project_id must match anthropicVertexAI.projectID")
-	}
-	if credentials.TokenURI != "" {
-		parsed, err := url.Parse(credentials.TokenURI)
-		if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "oauth2.googleapis.com" {
-			return translator.NewValidationError("Claude Vertex credential token_uri must use https://oauth2.googleapis.com")
-		}
-	}
-	return nil
+	return egresspolicy.Origin(parsed), nil
 }
 
 func (c *Compiler) secret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
@@ -330,12 +248,6 @@ func (c *Compiler) secret(ctx context.Context, namespace, name string) (*corev1.
 		return nil, fmt.Errorf("read Claude credential Secret %q: not found", name)
 	}
 	return *secret, nil
-}
-
-func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
-	return corev1.EnvVar{Name: environmentName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: key,
-	}}}
 }
 
 type provenanceEntry struct {

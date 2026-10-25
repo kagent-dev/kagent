@@ -184,6 +184,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         sts_integration: Optional[STSIntegrationBase] = None,
         resource: Optional[Union[str, List[str]]] = None,
         audience: Optional[Union[str, List[str]]] = None,
+        get_caller_token: Optional[Callable[[], Union[Optional[str], Awaitable[Optional[str]]]]] = None,
     ):
         """Initialize the token propagation plugin.
 
@@ -192,11 +193,17 @@ class ADKTokenPropagationPlugin(BasePlugin):
             resource: RFC 8707 resource indicator sent on the token exchange to
                 scope the issued token to a target backend. Omitted when None.
             audience: RFC 8693 audience sent on the token exchange. Omitted when None.
+            get_caller_token: Optional sync or async resolver for the current
+                invocation's credential. When supplied, session headers are never
+                used to identify the caller or as the default subject token.
+                An explicit STS get_subject_token still selects the exchange
+                subject, independently of the caller used to partition the cache.
         """
         super().__init__("ADKTokenPropagationPlugin")
         self.sts_integration = sts_integration
         self.resource = resource
         self.audience = audience
+        self.get_caller_token = get_caller_token
         self.token_cache: Dict[str, _TokenCacheEntry] = {}
         # Propagation outcome per invocation id, with the invocation's session:
         # the entry the run resolved, or None when it refused to propagate.
@@ -284,8 +291,20 @@ class ADKTokenPropagationPlugin(BasePlugin):
         # whichever caller arrived first. get_subject_token supplies the exchange
         # payload; on its own it is not caller-scoped.
         state = invocation_context.session.state
-        credential = _acting_credential(state)
-        subject_token = self._read_subject_token(state)
+        if self.get_caller_token is None:
+            credential = _acting_credential(state)
+        else:
+            try:
+                credential = self.get_caller_token()
+                if inspect.isawaitable(credential):
+                    credential = await credential
+            except Exception:
+                logger.warning("Failed to resolve invocation caller credential, not propagating a token for this run")
+                return None
+            if not isinstance(credential, str) or not credential:
+                logger.warning("No invocation caller credential, not propagating a token for this run")
+                return None
+        subject_token = self._read_subject_token(state, credential)
         caller = credential or subject_token
         cache_key = _cache_key(invocation_context.session.id, caller)
         if cache_key is None or not subject_token:
@@ -384,7 +403,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         """Forget the propagation outcome of an invocation that has ended."""
         self._invocations.pop(getattr(invocation_context, "invocation_id", None), None)
 
-    def _read_subject_token(self, state: dict) -> Optional[str]:
+    def _read_subject_token(self, state: dict, credential: Optional[str] = None) -> Optional[str]:
         """Resolve the acting caller's subject token from session state.
 
         get_subject_token is caller-supplied, so a raising implementation fails
@@ -395,6 +414,8 @@ class ADKTokenPropagationPlugin(BasePlugin):
             if self.sts_integration and self.sts_integration.get_subject_token
             else _default_get_subject_token
         )
+        if self.get_caller_token is not None and get_subject_token is _default_get_subject_token:
+            return credential
         try:
             return get_subject_token(state)
         except Exception as e:
@@ -470,7 +491,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
             f"Dropped {overflow} valid cached token(s) to stay within the {bound} capacity; callers may re-exchange"
         )
 
-    def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
+    def cache_key(self, invocation_context: InvocationContext, *, caller_token: Optional[str] = None) -> Optional[str]:
         """Key the cache on the session and the acting subject, so a session
         carrying messages from several subjects keeps one token per subject
         instead of collapsing onto whichever arrived first.
@@ -478,10 +499,15 @@ class ADKTokenPropagationPlugin(BasePlugin):
         get_subject_token is consulted only when no inbound credential
         identifies the caller, and it stands in for the caller then: that mode
         has no per-caller identity to preserve.
+
+        With an injected caller resolver, pass the resolved caller_token:
+        this synchronous helper cannot invoke a potentially async resolver.
         """
         session = getattr(invocation_context, "session", None)
         if session is None:
             return None
+        if self.get_caller_token is not None:
+            return _cache_key(session.id, caller_token)
         caller = _acting_credential(session.state) or self._read_subject_token(session.state)
         return _cache_key(session.id, caller)
 

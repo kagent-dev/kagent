@@ -12,6 +12,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -26,6 +27,31 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
+
+func TestCallerSwitchRetainsNativeConversation(t *testing.T) {
+	var callers []string
+	var histories []int
+	agent, err := adkagent.New(adkagent.Config{Name: "agent", Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+		return func(yield func(*adksession.Event, error) bool) {
+			callers = append(callers, auth.UserIDFromContext(ic))
+			histories = append(histories, ic.Session().Events().Len())
+			yield(&adksession.Event{Author: "agent", InvocationID: ic.InvocationID(), LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("reply", genai.RoleModel)}}, nil)
+		}
+	}})
+	require.NoError(t, err)
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{AppName: "app", SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler), RunnerConfig: runner.Config{AppName: "app", Agent: agent}})
+	require.NoError(t, err)
+	for _, caller := range []string{"scheduler", "human"} {
+		ctx, call := a2asrv.NewCallContext(t.Context(), nil)
+		call.User = a2asrv.NewAuthenticatedUser(caller, nil)
+		for _, err := range executor.Execute(ctx, &a2asrv.ExecutorContext{ContextID: "conversation", TaskID: a2atype.TaskID(caller), Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(caller))}) {
+			require.NoError(t, err)
+		}
+	}
+	require.Equal(t, []string{"scheduler", "human"}, callers)
+	require.Len(t, histories, 2)
+	require.Greater(t, histories[1], histories[0], "the human continuation must include the scheduled turn")
+}
 
 func TestUserIDCallInterceptorPropagatesUserID(t *testing.T) {
 	_, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{"x-user-id": {"alice"}}))

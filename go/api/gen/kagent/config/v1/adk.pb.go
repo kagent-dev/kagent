@@ -268,7 +268,6 @@ type ADKModelConfig struct {
 	TlsInsecureSkipVerify *bool                  `protobuf:"varint,3,opt,name=tls_insecure_skip_verify,json=tlsInsecureSkipVerify,proto3,oneof" json:"tls_insecure_skip_verify,omitempty"`
 	TlsCaCertPath         *string                `protobuf:"bytes,4,opt,name=tls_ca_cert_path,json=tlsCaCertPath,proto3,oneof" json:"tls_ca_cert_path,omitempty"`
 	TlsDisableSystemCas   *bool                  `protobuf:"varint,5,opt,name=tls_disable_system_cas,json=tlsDisableSystemCas,proto3,oneof" json:"tls_disable_system_cas,omitempty"`
-	ApiKeyPassthrough     bool                   `protobuf:"varint,6,opt,name=api_key_passthrough,json=apiKeyPassthrough,proto3" json:"api_key_passthrough,omitempty"`
 	// Types that are valid to be assigned to Provider:
 	//
 	//	*ADKModelConfig_Openai
@@ -348,13 +347,6 @@ func (x *ADKModelConfig) GetTlsCaCertPath() string {
 func (x *ADKModelConfig) GetTlsDisableSystemCas() bool {
 	if x != nil && x.TlsDisableSystemCas != nil {
 		return *x.TlsDisableSystemCas
-	}
-	return false
-}
-
-func (x *ADKModelConfig) GetApiKeyPassthrough() bool {
-	if x != nil {
-		return x.ApiKeyPassthrough
 	}
 	return false
 }
@@ -1737,10 +1729,8 @@ type ADKHTTPMCPServerConfig struct {
 	Tools           []string                 `protobuf:"bytes,2,rep,name=tools,proto3" json:"tools,omitempty"`
 	AllowedHeaders  []string                 `protobuf:"bytes,3,rep,name=allowed_headers,json=allowedHeaders,proto3" json:"allowed_headers,omitempty"`
 	RequireApproval bool                     `protobuf:"varint,4,opt,name=require_approval,json=requireApproval,proto3" json:"require_approval,omitempty"`
-	// Forward the incoming A2A bearer token as this server's Authorization header.
-	TokenPassthrough bool `protobuf:"varint,5,opt,name=token_passthrough,json=tokenPassthrough,proto3" json:"token_passthrough,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ADKHTTPMCPServerConfig) Reset() {
@@ -1801,23 +1791,14 @@ func (x *ADKHTTPMCPServerConfig) GetRequireApproval() bool {
 	return false
 }
 
-func (x *ADKHTTPMCPServerConfig) GetTokenPassthrough() bool {
-	if x != nil {
-		return x.TokenPassthrough
-	}
-	return false
-}
-
 type ADKSSEMCPServerConfig struct {
 	state           protoimpl.MessageState  `protogen:"open.v1"`
 	Params          *ADKSSEConnectionParams `protobuf:"bytes,1,opt,name=params,proto3" json:"params,omitempty"`
 	Tools           []string                `protobuf:"bytes,2,rep,name=tools,proto3" json:"tools,omitempty"`
 	AllowedHeaders  []string                `protobuf:"bytes,3,rep,name=allowed_headers,json=allowedHeaders,proto3" json:"allowed_headers,omitempty"`
 	RequireApproval bool                    `protobuf:"varint,4,opt,name=require_approval,json=requireApproval,proto3" json:"require_approval,omitempty"`
-	// Forward the incoming A2A bearer token as this server's Authorization header.
-	TokenPassthrough bool `protobuf:"varint,5,opt,name=token_passthrough,json=tokenPassthrough,proto3" json:"token_passthrough,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ADKSSEMCPServerConfig) Reset() {
@@ -1874,13 +1855,6 @@ func (x *ADKSSEMCPServerConfig) GetAllowedHeaders() []string {
 func (x *ADKSSEMCPServerConfig) GetRequireApproval() bool {
 	if x != nil {
 		return x.RequireApproval
-	}
-	return false
-}
-
-func (x *ADKSSEMCPServerConfig) GetTokenPassthrough() bool {
-	if x != nil {
-		return x.TokenPassthrough
 	}
 	return false
 }
@@ -2042,13 +2016,13 @@ type ADKEmbeddingConfig struct {
 	Provider              string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	Model                 string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
 	BaseUrl               string                 `protobuf:"bytes,3,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
-	ApiKeyPassthrough     bool                   `protobuf:"varint,4,opt,name=api_key_passthrough,json=apiKeyPassthrough,proto3" json:"api_key_passthrough,omitempty"`
 	TlsInsecureSkipVerify *bool                  `protobuf:"varint,5,opt,name=tls_insecure_skip_verify,json=tlsInsecureSkipVerify,proto3,oneof" json:"tls_insecure_skip_verify,omitempty"`
 	TlsCaCertPath         *string                `protobuf:"bytes,6,opt,name=tls_ca_cert_path,json=tlsCaCertPath,proto3,oneof" json:"tls_ca_cert_path,omitempty"`
 	TlsDisableSystemCas   *bool                  `protobuf:"varint,7,opt,name=tls_disable_system_cas,json=tlsDisableSystemCas,proto3,oneof" json:"tls_disable_system_cas,omitempty"`
 	Endpoint              string                 `protobuf:"bytes,8,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	Deployment            string                 `protobuf:"bytes,9,opt,name=deployment,proto3" json:"deployment,omitempty"`
 	ApiVersion            string                 `protobuf:"bytes,10,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
+	Headers               map[string]string      `protobuf:"bytes,11,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -2104,13 +2078,6 @@ func (x *ADKEmbeddingConfig) GetBaseUrl() string {
 	return ""
 }
 
-func (x *ADKEmbeddingConfig) GetApiKeyPassthrough() bool {
-	if x != nil {
-		return x.ApiKeyPassthrough
-	}
-	return false
-}
-
 func (x *ADKEmbeddingConfig) GetTlsInsecureSkipVerify() bool {
 	if x != nil && x.TlsInsecureSkipVerify != nil {
 		return *x.TlsInsecureSkipVerify
@@ -2151,6 +2118,13 @@ func (x *ADKEmbeddingConfig) GetApiVersion() string {
 		return x.ApiVersion
 	}
 	return ""
+}
+
+func (x *ADKEmbeddingConfig) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
 }
 
 type ADKMemoryConfig struct {
@@ -2982,14 +2956,13 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"sub_agents\x18\x11 \x03(\v2 .kagent.config.v1.ADKAgentConfigR\tsubAgents\x129\n" +
 	"\x06output\x18\x12 \x01(\v2!.kagent.config.v1.ADKOutputConfigR\x06outputB\t\n" +
 	"\a_streamB\x0e\n" +
-	"\f_share_tools\"\xa1\t\n" +
+	"\f_share_tools\"\xf1\b\n" +
 	"\x0eADKModelConfig\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12G\n" +
 	"\aheaders\x18\x02 \x03(\v2-.kagent.config.v1.ADKModelConfig.HeadersEntryR\aheaders\x12<\n" +
 	"\x18tls_insecure_skip_verify\x18\x03 \x01(\bH\x01R\x15tlsInsecureSkipVerify\x88\x01\x01\x12,\n" +
 	"\x10tls_ca_cert_path\x18\x04 \x01(\tH\x02R\rtlsCaCertPath\x88\x01\x01\x128\n" +
-	"\x16tls_disable_system_cas\x18\x05 \x01(\bH\x03R\x13tlsDisableSystemCas\x88\x01\x01\x12.\n" +
-	"\x13api_key_passthrough\x18\x06 \x01(\bR\x11apiKeyPassthrough\x125\n" +
+	"\x16tls_disable_system_cas\x18\x05 \x01(\bH\x03R\x13tlsDisableSystemCas\x88\x01\x01\x125\n" +
 	"\x06openai\x18\n" +
 	" \x01(\v2\x1b.kagent.config.v1.ADKOpenAIH\x00R\x06openai\x12E\n" +
 	"\fazure_openai\x18\v \x01(\v2 .kagent.config.v1.ADKAzureOpenAIH\x00R\vazureOpenai\x12>\n" +
@@ -3169,19 +3142,17 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
-	"\x17_tls_disable_system_cas\"\xfa\x01\n" +
+	"\x17_tls_disable_system_cas\"\xcd\x01\n" +
 	"\x16ADKHTTPMCPServerConfig\x12I\n" +
 	"\x06params\x18\x01 \x01(\v2).kagent.config.v1.ADKHTTPConnectionParamsB\x06\xbaH\x03\xc8\x01\x01R\x06params\x12\x14\n" +
 	"\x05tools\x18\x02 \x03(\tR\x05tools\x12'\n" +
 	"\x0fallowed_headers\x18\x03 \x03(\tR\x0eallowedHeaders\x12)\n" +
-	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\x12+\n" +
-	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\"\xf8\x01\n" +
+	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\"\xcb\x01\n" +
 	"\x15ADKSSEMCPServerConfig\x12H\n" +
 	"\x06params\x18\x01 \x01(\v2(.kagent.config.v1.ADKSSEConnectionParamsB\x06\xbaH\x03\xc8\x01\x01R\x06params\x12\x14\n" +
 	"\x05tools\x18\x02 \x03(\tR\x05tools\x12'\n" +
 	"\x0fallowed_headers\x18\x03 \x03(\tR\x0eallowedHeaders\x12)\n" +
-	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\x12+\n" +
-	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\"\xd7\x01\n" +
+	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\"\xd7\x01\n" +
 	"\x17ADKStdioMCPServerConfig\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12D\n" +
@@ -3200,12 +3171,11 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\atimeout\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe1\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xba\x04\n" +
 	"\x12ADKEmbeddingConfig\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x19\n" +
-	"\bbase_url\x18\x03 \x01(\tR\abaseUrl\x12.\n" +
-	"\x13api_key_passthrough\x18\x04 \x01(\bR\x11apiKeyPassthrough\x12<\n" +
+	"\bbase_url\x18\x03 \x01(\tR\abaseUrl\x12<\n" +
 	"\x18tls_insecure_skip_verify\x18\x05 \x01(\bH\x00R\x15tlsInsecureSkipVerify\x88\x01\x01\x12,\n" +
 	"\x10tls_ca_cert_path\x18\x06 \x01(\tH\x01R\rtlsCaCertPath\x88\x01\x01\x128\n" +
 	"\x16tls_disable_system_cas\x18\a \x01(\bH\x02R\x13tlsDisableSystemCas\x88\x01\x01\x12\x1a\n" +
@@ -3215,7 +3185,11 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"deployment\x12\x1f\n" +
 	"\vapi_version\x18\n" +
 	" \x01(\tR\n" +
-	"apiVersionB\x1b\n" +
+	"apiVersion\x12K\n" +
+	"\aheaders\x18\v \x03(\v21.kagent.config.v1.ADKEmbeddingConfig.HeadersEntryR\aheaders\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
 	"\x17_tls_disable_system_cas\"}\n" +
@@ -3302,7 +3276,7 @@ func file_kagent_config_v1_adk_proto_rawDescGZIP() []byte {
 	return file_kagent_config_v1_adk_proto_rawDescData
 }
 
-var file_kagent_config_v1_adk_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_kagent_config_v1_adk_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_kagent_config_v1_adk_proto_goTypes = []any{
 	(*ADKConfig)(nil),                  // 0: kagent.config.v1.ADKConfig
 	(*ADKAgentConfig)(nil),             // 1: kagent.config.v1.ADKAgentConfig
@@ -3346,10 +3320,11 @@ var file_kagent_config_v1_adk_proto_goTypes = []any{
 	nil,                                // 39: kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
 	nil,                                // 40: kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
 	nil,                                // 41: kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
-	(*durationpb.Duration)(nil),        // 42: google.protobuf.Duration
-	(*TokenPropagationConfig)(nil),     // 43: kagent.config.v1.TokenPropagationConfig
-	(*TelemetryConfig)(nil),            // 44: kagent.config.v1.TelemetryConfig
-	(*BuiltinToolsConfig)(nil),         // 45: kagent.config.v1.BuiltinToolsConfig
+	nil,                                // 42: kagent.config.v1.ADKEmbeddingConfig.HeadersEntry
+	(*durationpb.Duration)(nil),        // 43: google.protobuf.Duration
+	(*TokenPropagationConfig)(nil),     // 44: kagent.config.v1.TokenPropagationConfig
+	(*TelemetryConfig)(nil),            // 45: kagent.config.v1.TelemetryConfig
+	(*BuiltinToolsConfig)(nil),         // 46: kagent.config.v1.BuiltinToolsConfig
 }
 var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	35, // 0: kagent.config.v1.ADKConfig.runtime:type_name -> kagent.config.v1.ADKRuntimeConfig
@@ -3377,43 +3352,44 @@ var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	15, // 22: kagent.config.v1.ADKModelConfig.sap_ai_core:type_name -> kagent.config.v1.ADKSAPAICore
 	16, // 23: kagent.config.v1.ADKModelConfig.foundry:type_name -> kagent.config.v1.ADKFoundry
 	8,  // 24: kagent.config.v1.ADKModelConfig.mistral:type_name -> kagent.config.v1.ADKMistral
-	42, // 25: kagent.config.v1.ADKOpenAI.timeout:type_name -> google.protobuf.Duration
+	43, // 25: kagent.config.v1.ADKOpenAI.timeout:type_name -> google.protobuf.Duration
 	4,  // 26: kagent.config.v1.ADKOpenAI.token_exchange:type_name -> kagent.config.v1.ADKTokenExchangeConfig
 	5,  // 27: kagent.config.v1.ADKTokenExchangeConfig.gdch_service_account:type_name -> kagent.config.v1.ADKGDCHTokenExchangeConfig
-	42, // 28: kagent.config.v1.ADKAnthropic.timeout:type_name -> google.protobuf.Duration
-	42, // 29: kagent.config.v1.ADKMistral.timeout:type_name -> google.protobuf.Duration
+	43, // 28: kagent.config.v1.ADKAnthropic.timeout:type_name -> google.protobuf.Duration
+	43, // 29: kagent.config.v1.ADKMistral.timeout:type_name -> google.protobuf.Duration
 	37, // 30: kagent.config.v1.ADKOllama.options:type_name -> kagent.config.v1.ADKOllama.OptionsEntry
 	14, // 31: kagent.config.v1.ADKBedrock.guardrail:type_name -> kagent.config.v1.ADKBedrockGuardrail
-	42, // 32: kagent.config.v1.ADKBedrock.read_timeout:type_name -> google.protobuf.Duration
-	42, // 33: kagent.config.v1.ADKBedrock.connect_timeout:type_name -> google.protobuf.Duration
+	43, // 32: kagent.config.v1.ADKBedrock.read_timeout:type_name -> google.protobuf.Duration
+	43, // 33: kagent.config.v1.ADKBedrock.connect_timeout:type_name -> google.protobuf.Duration
 	38, // 34: kagent.config.v1.ADKHTTPConnectionParams.headers:type_name -> kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
-	42, // 35: kagent.config.v1.ADKHTTPConnectionParams.timeout:type_name -> google.protobuf.Duration
-	42, // 36: kagent.config.v1.ADKHTTPConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
+	43, // 35: kagent.config.v1.ADKHTTPConnectionParams.timeout:type_name -> google.protobuf.Duration
+	43, // 36: kagent.config.v1.ADKHTTPConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
 	39, // 37: kagent.config.v1.ADKSSEConnectionParams.headers:type_name -> kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
-	42, // 38: kagent.config.v1.ADKSSEConnectionParams.timeout:type_name -> google.protobuf.Duration
-	42, // 39: kagent.config.v1.ADKSSEConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
+	43, // 38: kagent.config.v1.ADKSSEConnectionParams.timeout:type_name -> google.protobuf.Duration
+	43, // 39: kagent.config.v1.ADKSSEConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
 	17, // 40: kagent.config.v1.ADKHTTPMCPServerConfig.params:type_name -> kagent.config.v1.ADKHTTPConnectionParams
 	18, // 41: kagent.config.v1.ADKSSEMCPServerConfig.params:type_name -> kagent.config.v1.ADKSSEConnectionParams
 	40, // 42: kagent.config.v1.ADKStdioMCPServerConfig.env:type_name -> kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
 	41, // 43: kagent.config.v1.ADKRemoteAgentConfig.headers:type_name -> kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
-	42, // 44: kagent.config.v1.ADKRemoteAgentConfig.timeout:type_name -> google.protobuf.Duration
-	23, // 45: kagent.config.v1.ADKMemoryConfig.embedding:type_name -> kagent.config.v1.ADKEmbeddingConfig
-	27, // 46: kagent.config.v1.ADKContextConfig.compaction:type_name -> kagent.config.v1.ADKCompressionConfig
-	2,  // 47: kagent.config.v1.ADKCompressionConfig.summarizer_model:type_name -> kagent.config.v1.ADKModelConfig
-	30, // 48: kagent.config.v1.ADKAgentPlugins.skills:type_name -> kagent.config.v1.ADKSkill
-	31, // 49: kagent.config.v1.ADKAgentPlugins.plugins:type_name -> kagent.config.v1.ADKPluginBundle
-	32, // 50: kagent.config.v1.ADKSkill.source:type_name -> kagent.config.v1.ADKPluginSource
-	32, // 51: kagent.config.v1.ADKPluginBundle.source:type_name -> kagent.config.v1.ADKPluginSource
-	33, // 52: kagent.config.v1.ADKPluginSource.git:type_name -> kagent.config.v1.ADKPluginGitSource
-	34, // 53: kagent.config.v1.ADKPluginSource.s3:type_name -> kagent.config.v1.ADKPluginS3Source
-	43, // 54: kagent.config.v1.ADKRuntimeConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	44, // 55: kagent.config.v1.ADKRuntimeConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	45, // 56: kagent.config.v1.ADKRuntimeConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
-	57, // [57:57] is the sub-list for method output_type
-	57, // [57:57] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	43, // 44: kagent.config.v1.ADKRemoteAgentConfig.timeout:type_name -> google.protobuf.Duration
+	42, // 45: kagent.config.v1.ADKEmbeddingConfig.headers:type_name -> kagent.config.v1.ADKEmbeddingConfig.HeadersEntry
+	23, // 46: kagent.config.v1.ADKMemoryConfig.embedding:type_name -> kagent.config.v1.ADKEmbeddingConfig
+	27, // 47: kagent.config.v1.ADKContextConfig.compaction:type_name -> kagent.config.v1.ADKCompressionConfig
+	2,  // 48: kagent.config.v1.ADKCompressionConfig.summarizer_model:type_name -> kagent.config.v1.ADKModelConfig
+	30, // 49: kagent.config.v1.ADKAgentPlugins.skills:type_name -> kagent.config.v1.ADKSkill
+	31, // 50: kagent.config.v1.ADKAgentPlugins.plugins:type_name -> kagent.config.v1.ADKPluginBundle
+	32, // 51: kagent.config.v1.ADKSkill.source:type_name -> kagent.config.v1.ADKPluginSource
+	32, // 52: kagent.config.v1.ADKPluginBundle.source:type_name -> kagent.config.v1.ADKPluginSource
+	33, // 53: kagent.config.v1.ADKPluginSource.git:type_name -> kagent.config.v1.ADKPluginGitSource
+	34, // 54: kagent.config.v1.ADKPluginSource.s3:type_name -> kagent.config.v1.ADKPluginS3Source
+	44, // 55: kagent.config.v1.ADKRuntimeConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	45, // 56: kagent.config.v1.ADKRuntimeConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	46, // 57: kagent.config.v1.ADKRuntimeConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
+	58, // [58:58] is the sub-list for method output_type
+	58, // [58:58] is the sub-list for method input_type
+	58, // [58:58] is the sub-list for extension type_name
+	58, // [58:58] is the sub-list for extension extendee
+	0,  // [0:58] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_adk_proto_init() }
@@ -3461,7 +3437,7 @@ func file_kagent_config_v1_adk_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_config_v1_adk_proto_rawDesc), len(file_kagent_config_v1_adk_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   42,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -1,13 +1,22 @@
 """Tests for header propagation to MCP tools."""
 
+import pytest
 from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
 from kagent.config.v1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
 
+from kagent.adk._invocation_auth import request_headers
 from kagent.adk.types import (
     HttpMcpServerConfig,
     SseMcpServerConfig,
     create_header_provider,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_request_headers():
+    token = request_headers.set({})
+    yield
+    request_headers.reset(token)
 
 
 class MockReadonlyContext:
@@ -49,6 +58,7 @@ class TestCreateHeaderProvider:
             }
         )
 
+        request_headers.set(context.state.get("headers", {}))
         headers = provider(context)
         assert headers == {
             "x-user-email": "test@example.com",
@@ -69,6 +79,7 @@ class TestCreateHeaderProvider:
             }
         )
 
+        request_headers.set(context.state.get("headers", {}))
         headers = provider(context)
         assert headers == {"x-user-email": "test@example.com"}
 
@@ -92,6 +103,7 @@ class TestCreateHeaderProvider:
             }
         )
 
+        request_headers.set(context.state.get("headers", {}))
         headers = provider(context)
         assert headers == {
             "Authorization": "Bearer token123",
@@ -126,6 +138,7 @@ class TestCreateHeaderProvider:
             }
         )
 
+        request_headers.set(context.state.get("headers", {}))
         headers = provider(context)
         # STS token should take precedence, and lowercase "authorization" should be removed
         assert "authorization" not in headers  # lowercase version should be removed
@@ -143,6 +156,7 @@ class TestCreateHeaderProvider:
         assert provider is not None
 
         context = MockReadonlyContext(state={"headers": {}})
+        request_headers.set(context.state.get("headers", {}))
         headers = provider(context)
         assert headers == {"Authorization": "Bearer token123"}
 
@@ -152,6 +166,7 @@ class TestCreateHeaderProvider:
         assert provider is not None
 
         context = MockReadonlyContext(state={})  # No headers key
+        request_headers.set(context.state.get("headers", {}))
         headers = provider(context)
         assert headers == {}
 

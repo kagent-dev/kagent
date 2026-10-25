@@ -323,16 +323,17 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 
 type fakeRuntimeRevisionStore struct {
 	egressTargetStoreStub
-	pair              *database.AgentDefinition
-	revision          *database.RuntimeRevision
-	markedSuccessful  bool
-	retired           string
-	revisionErr       error
-	recordCalls       int
-	pairErr           error
-	pairCalls         int
-	definitionSources []database.RuntimeEgressSource
-	sourcesErr        error
+	pair               *database.AgentDefinition
+	revision           *database.RuntimeRevision
+	markedSuccessful   bool
+	retired            string
+	revisionErr        error
+	recordCalls        int
+	pairErr            error
+	pairCalls          int
+	definitionSources  []database.RuntimeEgressSource
+	sourcesErr         error
+	integrationReadErr error
 }
 
 func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error) {
@@ -370,9 +371,8 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 	modelConfig := &kagentv1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", Generation: 1},
 		Spec: kagentv1alpha3.ModelConfigSpec{
-			Model:        "gpt-5",
-			Provider:     kagentv1alpha3.ModelProviderOpenAI,
-			APIKeySecret: "credentials",
+			Model:    "gpt-5",
+			Provider: kagentv1alpha3.ModelProviderOpenAI, Headers: []kagentv1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: kagentv1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "credentials"}, Key: ""}}}},
 		},
 	}
 	secret := &corev1.Secret{
@@ -474,4 +474,14 @@ func (s *fakeRuntimeRevisionStore) GetAgentEgressGrant(_ context.Context, namesp
 		return s.pair.EgressGrant, nil
 	}
 	return egress.Access{}, nil
+}
+
+func (s *fakeRuntimeRevisionStore) GetAgentIntegrationGrants(_ context.Context, namespace, uid string) ([]egress.IntegrationGrant, error) {
+	if s.integrationReadErr != nil {
+		return nil, s.integrationReadErr
+	}
+	if s.pair != nil && s.pair.Namespace == namespace && s.pair.AgentUID == uid && s.retired == "" {
+		return s.pair.IntegrationGrants, nil
+	}
+	return nil, nil
 }

@@ -56,6 +56,7 @@ from pydantic import BaseModel
 
 from ._bearer_token import bearer_token, extract_bearer_token
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
+from ._invocation_auth import invocation_targets, parse_targets, request_headers
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from ._request_identity import public_context_id, request_user_id
 from ._turn_usage import TurnUsage, attach_turn_usage
@@ -250,7 +251,13 @@ class A2aAgentExecutor(AgentExecutor):
             self._running_usage[task_id] = execution_state.usage
         identity_token = public_context_id.set(context.context_id)
         user_token = None
+        incoming = _call_state(context).get("headers", {})
+        incoming = incoming if isinstance(incoming, dict) else {}
+        headers_token = request_headers.set(incoming)
+        targets_token = invocation_targets.set(None)
+        bearer_context_token = bearer_token.set(extract_bearer_token(incoming))
         try:
+            invocation_targets.set(parse_targets(incoming))
             context = self._translate_hitl_response(context)
             runner = await self._resolve_runner()
             attach_turn_usage(runner, execution_state.usage)
@@ -313,6 +320,9 @@ class A2aAgentExecutor(AgentExecutor):
                 # so a cancel arriving meanwhile still reports this execution.
                 if task_id and self._running_usage.get(task_id) is execution_state.usage:
                     del self._running_usage[task_id]
+                invocation_targets.reset(targets_token)
+                request_headers.reset(headers_token)
+                bearer_token.reset(bearer_context_token)
 
     def _translate_hitl_response(self, context: RequestContext) -> RequestContext:
         payload = get_hitl_payload(context.message)
@@ -349,6 +359,8 @@ class A2aAgentExecutor(AgentExecutor):
             run_request = convert_a2a_request_to_agent_run_request(context)
         else:
             run_request = convert_a2a_request_to_agent_run_request(context, part_converter)
+        # ADK storage follows the conversation, independently of the caller.
+        run_request.user_id = "A2A_USER_" + (context.context_id or "")
         run_config = run_request.run_config
         if run_config is None:
             raise ValueError("ADK request converter did not create a run config")
@@ -359,7 +371,7 @@ class A2aAgentExecutor(AgentExecutor):
         )
         headers = _call_state(context).get("headers", {})
         headers = headers if isinstance(headers, dict) else {}
-        run_request.state_delta = {"headers": headers}
+        run_request.state_delta = {}  # Request credentials are invocation context, never durable state.
         # Also stash the token in a ContextVar for consumers with no
         # callback_context of their own - see _bearer_token.py.
         bearer_token.set(extract_bearer_token(headers))

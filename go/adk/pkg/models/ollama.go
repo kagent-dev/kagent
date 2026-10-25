@@ -161,10 +161,23 @@ func withDefaultScheme(host string) string {
 // local; its presence never promotes a local model, which would send a privately
 // pulled name to an endpoint that does not have it.
 func resolveOllamaEndpoint(config *OllamaConfig, host string) string {
+	return OllamaEndpoint(config.Model, host, config.APIKey != "")
+}
+
+// OllamaEndpoint returns the actual request endpoint for runtime and credential
+// compilation, including the default daemon and authenticated cloud route.
+func OllamaEndpoint(modelName, host string, hasCredential bool) string {
 	if host != "" {
-		return host
+		lower := strings.ToLower(host)
+		if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+			return host
+		}
+		if IsOllamaCloudEndpoint(host) {
+			return "https://" + host
+		}
+		return "http://" + host
 	}
-	if OllamaReachesCloud(config.Model, host, config.APIKey != "") {
+	if OllamaReachesCloud(modelName, host, hasCredential) {
 		return ollamaCloudURL
 	}
 	return ollamaLocalURL

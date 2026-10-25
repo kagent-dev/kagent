@@ -9,12 +9,12 @@ import (
 
 // addRemoteMCPServer translates the two remote protocols supported by the ADK.
 // This path intentionally has no proxy URL or egress-gateway indirection.
-func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1alpha3.RemoteMCPServer, tools []string, requireApproval bool, headers map[string]string) error {
+func addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1alpha3.RemoteMCPServer, tools []string, requireApproval bool) {
 	targetURL := server.Spec.URL
 
 	switch server.Spec.Protocol {
 	case v1alpha3.RemoteMCPServerProtocolSse:
-		params := &configv1.ADKSSEConnectionParams{Url: targetURL, Headers: headers}
+		params := &configv1.ADKSSEConnectionParams{Url: targetURL}
 		if server.Spec.Timeout != nil {
 			params.Timeout = durationpb.New(server.Spec.Timeout.Duration)
 		}
@@ -24,10 +24,9 @@ func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1
 		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
 		config.SseTools = append(config.SseTools, &configv1.ADKSSEMCPServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
-			TokenPassthrough: server.Spec.TokenPassthrough,
 		})
 	default:
-		params := &configv1.ADKHTTPConnectionParams{Url: targetURL, Headers: headers}
+		params := &configv1.ADKHTTPConnectionParams{Url: targetURL}
 		if server.Spec.Timeout != nil {
 			params.Timeout = durationpb.New(server.Spec.Timeout.Duration)
 		}
@@ -40,9 +39,6 @@ func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1
 		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
 		config.HttpTools = append(config.HttpTools, &configv1.ADKHTTPMCPServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
-			TokenPassthrough: server.Spec.TokenPassthrough,
 		})
 	}
-
-	return nil
 }

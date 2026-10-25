@@ -578,3 +578,9 @@ func (p *preparationTestBackend) GetAgentEgressGrant(ctx context.Context, namesp
 	defer p.mu.Unlock()
 	return p.store.GetAgentEgressGrant(ctx, namespace, uid)
 }
+
+func (p *preparationTestBackend) GetAgentIntegrationGrants(ctx context.Context, namespace, uid string) ([]egress.IntegrationGrant, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.GetAgentIntegrationGrants(ctx, namespace, uid)
+}

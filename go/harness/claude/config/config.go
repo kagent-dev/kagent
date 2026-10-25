@@ -65,6 +65,8 @@ func OwnsEnvironment(name string) bool {
 }
 
 type Config struct {
+	ModelHeaders map[string]string `json:"model_headers,omitempty"`
+
 	MaxContentLength      *int64                 `json:"max_content_length,omitempty"`
 	ControlPlaneURL       string                 `json:"control_plane_url"`
 	LogLevel              string                 `json:"log_level,omitempty"`

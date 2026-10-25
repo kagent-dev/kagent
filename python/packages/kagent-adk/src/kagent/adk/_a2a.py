@@ -223,7 +223,15 @@ class KAgentApp:
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             server = grpc.aio.server(
-                interceptors=[aio_server_interceptor(filter_=filters.negate(filters.health_check()))]
+                # Private invocation metadata includes admitted header bindings;
+                # large policies can exceed gRPC's default 16 KiB hard limit.
+                options=[
+                    (
+                        "grpc.max_metadata_size",
+                        get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
+                    )
+                ],
+                interceptors=[aio_server_interceptor(filter_=filters.negate(filters.health_check()))],
             )
             context_builder = KAgentGrpcServerCallContextBuilder()
             a2a_pb2_grpc.add_A2AServiceServicer_to_server(

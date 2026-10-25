@@ -88,7 +88,9 @@ func (c *MCPCaller) Call(ctx context.Context, server, tool string, args map[stri
 	return session.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args})
 }
 
-type mcpHeaderTransport struct{ headers http.Header }
+type mcpHeaderTransport struct {
+	headers http.Header
+}
 
 func (t *mcpHeaderTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	request = request.Clone(request.Context())

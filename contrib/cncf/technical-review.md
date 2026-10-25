@@ -323,7 +323,7 @@ Default values can be found in [helm/kagent/values.yaml](https://github.com/kage
 For production use, configure:
 
 - External PostgreSQL connection (configure `database.postgres.ownerConnectionStringSecretRef` and `database.postgres.readWriteConnectionStringSecretRef`)
-- LLM API keys via Secrets (`providers.openAI.apiKeySecretRef`)
+- LLM API keys via Secrets (`providers.openAI.headers[].valueFrom.secretKeyRef`)
 - TLS for external LLM connections (`modelConfig.tls`)
 - Resource limits based on workload (`agents.*.resources`)
 - OpenTelemetry endpoints (`config.runtimeDefaults.telemetry.traces`, `config.runtimeDefaults.telemetry.traces.endpoint`)

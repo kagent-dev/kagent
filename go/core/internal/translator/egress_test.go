@@ -16,9 +16,7 @@ import (
 
 func egressPolicy() (*v1alpha3.EgressPolicy, *corev1.Secret) {
 	return &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "tickets"}, Spec: v1alpha3.EgressPolicySpec{
-		Destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &v1alpha3.EgressAuthentication{
-			Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ticket-auth"}, Key: "token"},
-		}}},
+		Destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Headers: []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: new(corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ticket-auth"}, Key: "token"})}}}}},
 	}}, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "ticket-auth"}, Data: map[string][]byte{"token": []byte("private-ticket-token")}}
 }
 
@@ -37,8 +35,8 @@ func TestEgressPolicyCredentialPrefixes(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			policy, secret := egressPolicy()
-			auth := policy.Spec.Destinations[0].Authentication
-			auth.Header, auth.Prefix = tc.header, tc.prefix
+			auth := policy.Spec.Destinations[0].Headers
+			auth[0].Name, auth[0].Prefix = tc.header, tc.prefix
 			resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
 			require.Empty(t, resolution.Issues)
 			access := resolution.Access
@@ -81,12 +79,12 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 			}
 			model := modelConfig()
 			if kind == "codex" {
-				model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = secret.Name, "token"
+				model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}}}}
 				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
 			}
 			if kind == "claude" {
 				model.Spec.Provider, model.Spec.Model = v1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5"
-				model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = secret.Name, "token"
+				model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}}}}
 			}
 			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "helper"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"}}
 			agent := inlineAgent(harness, template)
@@ -127,14 +125,14 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 			require.NotContains(t, result.EgressDestinations, "https://registry.npmjs.org:443", "previous revision remains pinned")
 			// Conflicting and missing policies are independent of runtime compilation.
 			policy.Spec.Destinations[0].Origin = "https://api.openai.com"
-			auth := policy.Spec.Destinations[0].Authentication
+			auth := policy.Spec.Destinations[0].Headers
 			if kind == "claude" {
 				policy.Spec.Destinations[0].Origin = "https://api.anthropic.com"
-				auth.Header, auth.Prefix = "x-api-key", nil
+				auth[0].Name, auth[0].Prefix = "x-api-key", nil
 			}
-			auth.SecretKeyRef.Key = "alternate"
+			auth[0].ValueFrom.SecretKeyRef.Key = "alternate"
 			secret.Data["alternate"] = []byte("different-token")
-			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = secret.Name, "token"
+			model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}}}}
 			_, err = compiler(t, model, harness, policy, secret).CompileAgent(t.Context(), agent)
 			require.NoError(t, err)
 			withConflict, err := compile().Digest()
@@ -147,8 +145,8 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 			if kind == "claude" || kind == "codex" {
 				return
 			}
-			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "", ""
-			model.Spec.TokenPassthrough = true
+			model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ""}, Key: ""}}}}
+			model.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", Prefix: new("Bearer "), ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}
 			_, err = compiler(t, model, harness, policy, secret).CompileAgent(t.Context(), agent)
 			require.NoError(t, err)
 		})
@@ -171,24 +169,24 @@ func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
 			case "missing key":
 				secret.Data = nil
 			case "optional secret":
-				policy.Spec.Destinations[0].Authentication.SecretKeyRef.Optional = new(true)
+				policy.Spec.Destinations[0].Headers[0].ValueFrom.SecretKeyRef.Optional = new(true)
 			case "wildcard auth":
 				policy.Spec.Destinations[0].Origin = "https://*.example.com"
 			case "empty auth":
-				policy.Spec.Destinations[0].Authentication = &v1alpha3.EgressAuthentication{}
+				policy.Spec.Destinations[0].Headers = []v1alpha3.Header{{}}
 			case "missing header":
-				policy.Spec.Destinations[0].Authentication.Header = ""
+				policy.Spec.Destinations[0].Headers[0].Name = ""
 			case "protected header":
-				policy.Spec.Destinations[0].Authentication.Header = "Host"
+				policy.Spec.Destinations[0].Headers[0].Name = "Host"
 			case "invalid prefix":
-				policy.Spec.Destinations[0].Authentication.Prefix = new("Bearer\r\nInjected: ")
+				policy.Spec.Destinations[0].Headers[0].Prefix = new("Bearer\r\nInjected: ")
 			case "conflicting auth", "conflicting prefix":
 				other := policy.DeepCopy()
 				other.Name = "other"
 				if name == "conflicting prefix" {
-					other.Spec.Destinations[0].Authentication.Prefix = new("Token ")
+					other.Spec.Destinations[0].Headers[0].Prefix = new("Token ")
 				} else {
-					other.Spec.Destinations[0].Authentication.SecretKeyRef.Key = "other"
+					other.Spec.Destinations[0].Headers[0].ValueFrom.SecretKeyRef.Key = "other"
 					secret.Data["other"] = []byte("different")
 				}
 				objects = append(objects, other)
@@ -212,7 +210,7 @@ func TestEgressPoliciesMergeCredentialsAndOrigins(t *testing.T) {
 	other := policy.DeepCopy()
 	other.Name = "registries"
 	other.Spec.Destinations = append(other.Spec.Destinations, v1alpha3.EgressDestination{Origin: "https://*.npmjs.org"}, v1alpha3.EgressDestination{
-		Origin: "https://tickets.example.com:8443", Authentication: &v1alpha3.EgressAuthentication{Header: "X-API-Key", SecretKeyRef: policy.Spec.Destinations[0].Authentication.SecretKeyRef},
+		Origin: "https://tickets.example.com:8443", Headers: []v1alpha3.Header{{Name: "X-API-Key", ValueFrom: v1alpha3.HeaderValueSource{SecretKeyRef: policy.Spec.Destinations[0].Headers[0].ValueFrom.SecretKeyRef}}},
 	})
 	collections := mockCollections(t, policy, other, secret)
 	refs := []corev1.LocalObjectReference{{Name: policy.Name}, {Name: other.Name}}

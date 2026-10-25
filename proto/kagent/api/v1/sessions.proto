@@ -36,8 +36,6 @@ message Failure {
 message Session {
   string id = 1;
   string creator = 2;
-  reserved 3, 4;
-  reserved "harness", "agent_template";
   ResourceReference agent = 15;
   string prepared_revision = 5;
   string a2a_authority = 6;
@@ -46,8 +44,6 @@ message Session {
   Failure failure = 9;
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;
-  reserved 12;
-  reserved "labels";
   // Reader-supplied display name for the conversation. Empty means unnamed,
   // which is the state every session created before this field existed is in.
   string name = 13;
@@ -57,8 +53,6 @@ message Session {
 }
 
 message CreateSessionRequest {
-  reserved 1, 2;
-  reserved "harness", "agent_template";
   ResourceReference agent = 5 [(buf.validate.field).required = true];
   string request_id = 3 [(buf.validate.field).string = {
     min_len: 1
@@ -84,13 +78,9 @@ message GetSessionResponse {
 }
 
 message ListSessionsRequest {
-  reserved 1;
-  reserved "match_labels";
   // Includes sessions created by other users when authorized.
   bool all_creators = 2;
   PageRequest page = 3;
-  reserved 4, 5;
-  reserved "agent_template", "harness";
   // Filters by the Agent that produced each session's pinned revision.
   ResourceReference agent = 6;
 }
