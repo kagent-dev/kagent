@@ -14,9 +14,14 @@ WORKDIR /workspace
 COPY go.mod go.sum .
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
+# go mod download retries a transient proxy error; a missing module still fails on the third attempt.
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
     --mount=type=cache,target=/root/.cache/go-build,rw \
-     go mod download
+    for attempt in 1 2 3; do \
+        go mod download && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "go mod download failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done
 # Copy all source
 COPY api/ api/
 COPY core/ core/
@@ -38,7 +43,12 @@ ARG TARGETPLATFORM
 # The runtime user gets a passwd entry and a home it owns: commands an agent
 # runs (git config --global, CLIs that keep a config under $HOME/.config)
 # write there.
-RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git && \
+# apk retries a transient mirror error; a missing package still fails on the third attempt.
+RUN for attempt in 1 2 3; do \
+        apk upgrade --no-cache && apk add --no-cache bash ca-certificates git && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done && \
     addgroup -S -g 65532 kagent && \
     adduser -S -D -u 65532 -G kagent -h /home/kagent kagent && \
     mkdir -p /skills /plugins /data/plugins && \
