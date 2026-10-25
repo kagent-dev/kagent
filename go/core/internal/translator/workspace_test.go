@@ -93,7 +93,7 @@ func TestWorkspaceSelectionAndPreparationAccess(t *testing.T) {
 					}
 					require.NotNil(t, result.GoldenAccess)
 					require.NotNil(t, actor.GoldenEgressPolicy)
-					require.EqualValues(t, 300, actor.Containers[0].WakeupProbe.TimeoutSeconds)
+					require.EqualValues(t, 240, actor.Containers[0].WakeupProbe.TimeoutSeconds)
 					if selection == "public" {
 						require.False(t, compiled.Workspace.Authorization)
 						require.Empty(t, result.GoldenAccess.Credentials)

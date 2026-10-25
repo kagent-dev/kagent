@@ -184,6 +184,12 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 	if !substrate.ActorTemplateSpecEqual(observed, state.DesiredActorTemplate) {
 		return s.observeError(*state, fmt.Errorf("sandbox ActorTemplate immutable inputs disagree"), false)
 	}
+	if substrate.FailedWorkspacePreparation(observed) {
+		if err := s.actors.RetryActorTemplatePreparation(ctx, observed); err != nil {
+			return s.observeError(*state, fmt.Errorf("retry sandbox workspace preparation: %w", err), true)
+		}
+		return s.observeError(*state, fmt.Errorf("failed sandbox workspace preparation removed; retrying"), true)
+	}
 	if message := observed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
 		return s.observeError(*state, fmt.Errorf("sandbox golden snapshot failed: %s", message), true)
 	}

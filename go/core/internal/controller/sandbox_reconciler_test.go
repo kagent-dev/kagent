@@ -113,6 +113,13 @@ func (s *sandboxTestActors) CreateActorTemplate(_ context.Context, template *ate
 	return proto.CloneOf(template), nil
 }
 
+func (s *sandboxTestActors) RetryActorTemplatePreparation(_ context.Context, template *ateapipb.ActorTemplate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.templates, template.GetMetadata().GetAtespace()+"/"+template.GetMetadata().GetName())
+	return nil
+}
+
 func sandboxGoldenStatus() *ateapipb.ActorTemplateStatus {
 	return &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 }
@@ -300,17 +307,26 @@ func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *te
 	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
 	const key = "team-a/scratch"
 	require.NoError(t, s.reconcile(t.Context(), key))
-	syncSandboxTemplate(t, s, templates)
+	template := syncSandboxTemplate(t, s, templates).DeepCopy()
+	template.Spec.Workspace = &kagentv1alpha3.WorkspaceSpec{Git: &kagentv1alpha3.GitWorkspaceSource{URL: "https://github.com/org/repo.git", Ref: "main"}}
+	templates.UpdateObject(template)
+	waitFor(t, func() bool { return s.collections.states.GetKey(key).Template.Spec.Workspace != nil })
 	require.NoError(t, s.reconcile(t.Context(), key))
 	ref := s.collections.states.GetKey(key).DesiredActorTemplate.Metadata
 	observed := s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name]
+	observed.Metadata.Uid = "failed-uid"
 	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "snapshot backend unavailable"}}
-	require.ErrorContains(t, s.reconcile(t.Context(), key), "golden snapshot failed")
+	require.ErrorContains(t, s.reconcile(t.Context(), key), "retrying")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	require.True(t, s.collections.states.GetKey(key).canPrepare())
-	observed.Status = sandboxGoldenStatus()
+	require.Nil(t, s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name])
+	s.actors.(*sandboxTestActors).autoReady = true
 	require.NoError(t, s.reconcile(t.Context(), key))
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure == nil })
+	observed = s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name]
+	require.NotEqual(t, "failed-uid", observed.Metadata.Uid)
+	require.Equal(t, observed.Metadata.Uid, s.store.(*sandboxTestStore).revision.ActorTemplateUID)
+	require.True(t, s.store.(*sandboxTestStore).ready)
 	observed.Containers[0].Image = "unexpected"
 	require.ErrorContains(t, s.reconcile(t.Context(), key), "immutable inputs disagree")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })

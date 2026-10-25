@@ -155,6 +155,41 @@ func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.Act
 	return c.ControlClient.CreateActorTemplate(ctx, &ateapipb.CreateActorTemplateRequest{ActorTemplate: template})
 }
 
+// FailedWorkspacePreparation identifies unpublished workspace preparations that
+// can recover from transient checkout failures or corrected credentials.
+func FailedWorkspacePreparation(template *ateapipb.ActorTemplate) bool {
+	golden := template.GetStatus().GetGoldenSnapshotStatus()
+	return template.GetGoldenEgressPolicy() != nil && golden.GetErrorMessage() != "" && golden.GetGoldenTag() == nil
+}
+
+// RetryActorTemplatePreparation removes a failed workspace preparation so its
+// owner can recreate it on the next reconcile. Substrate owns golden cleanup.
+func (c *Client) RetryActorTemplatePreparation(ctx context.Context, template *ateapipb.ActorTemplate) error {
+	if !FailedWorkspacePreparation(template) {
+		return fmt.Errorf("ActorTemplate is not a failed workspace preparation")
+	}
+	ref := template.GetMetadata()
+	if ref.GetUid() == "" || ref.GetVersion() <= 0 || ref.GetCreateTime() == nil {
+		return fmt.Errorf("failed ActorTemplate is missing lifecycle metadata")
+	}
+	// Bound repeated failures without adding durable retry state. Successful
+	// preparations are never refreshed, including when credentials rotate.
+	if time.Since(ref.GetCreateTime().AsTime()) < 30*time.Second {
+		return fmt.Errorf("waiting to retry failed workspace preparation")
+	}
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	_, err := c.ControlClient.DeleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{
+		ActorTemplate: actorRef(ref.GetAtespace(), ref.GetName()),
+		// Do not delete a replacement or a snapshot published since observation.
+		Options: &ateapipb.DeleteOptions{Uid: ref.GetUid(), Version: ref.GetVersion()},
+	})
+	if status.Code(err) == codes.NotFound {
+		return nil
+	}
+	return err
+}
+
 // DeleteActorTemplate delegates golden Actor and Tag cleanup to Substrate.
 func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name string) error {
 	ctx, cancel := c.callCtx(ctx)

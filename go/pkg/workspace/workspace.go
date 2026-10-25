@@ -27,7 +27,7 @@ import (
 )
 
 // StartupTimeout bounds checkout and fits inside the platform wakeup probe.
-const StartupTimeout = 4 * time.Minute
+const StartupTimeout = 3 * time.Minute
 
 const stateDirectory = ".kagent-workspace"
 
@@ -228,18 +228,17 @@ func requireEmpty(path string) error {
 }
 
 func checkout(ctx context.Context, directory string, config *configv1.GitWorkspaceConfig) (string, error) {
-	for _, args := range [][]string{{"init", "--quiet"}, {"remote", "add", "origin", config.Url}} {
-		if _, err := git(ctx, directory, args...); err != nil {
-			return "", err
-		}
-	}
-	args := []string{"-c", "http.followRedirects=false"}
+	transport := []string{"-c", "http.followRedirects=false"}
 	if config.Authorization {
-		args = append(args, "-c", "http.extraHeader=Authorization: kagent-credential-injected")
+		transport = append(transport, "-c", "http.extraHeader=Authorization: kagent-credential-injected")
 	}
-	// Fetch the selected ref directly; clone --branch does not accept commits.
-	args = append(args, "fetch", "--quiet", "--depth=1", "origin", config.Ref)
-	if _, err := git(ctx, directory, args...); err != nil {
+	// Clone negotiates the remote object format (SHA-1 or SHA-256). A plain
+	// init followed by fetch cannot fetch from a SHA-256 repository.
+	if _, err := git(ctx, directory, append(transport, "clone", "--quiet", "--no-checkout", "--no-tags", "--depth=1", "--", config.Url, ".")...); err != nil {
+		return "", fmt.Errorf("clone workspace: %w", err)
+	}
+	// Fetch the selected ref explicitly; clone --branch does not accept commits.
+	if _, err := git(ctx, directory, append(transport, "fetch", "--quiet", "--depth=1", "origin", config.Ref)...); err != nil {
 		return "", fmt.Errorf("fetch workspace ref: %w", err)
 	}
 	if _, err := git(ctx, directory, "checkout", "--quiet", "--detach", "FETCH_HEAD"); err != nil {

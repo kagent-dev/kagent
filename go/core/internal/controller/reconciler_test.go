@@ -321,6 +321,10 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 	return nil
 }
 
+func (f *fakeActorTemplates) RetryActorTemplatePreparation(ctx context.Context, template *ateapipb.ActorTemplate) error {
+	return f.DeleteActorTemplate(ctx, template.GetMetadata().GetAtespace(), template.GetMetadata().GetName())
+}
+
 type fakeRuntimeRevisionStore struct {
 	egressTargetStoreStub
 	pair              *database.AgentDefinition

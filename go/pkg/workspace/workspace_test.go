@@ -31,12 +31,12 @@ type repositoryFixture struct {
 }
 
 // Use real Git's smart HTTPS protocol, including shallow fetch and commit refs.
-func repository(t *testing.T, authorization bool) repositoryFixture {
+func repository(t *testing.T, authorization bool, objectFormat string) repositoryFixture {
 	t.Helper()
 	root := t.TempDir()
 	work := filepath.Join(root, "work")
 	require.NoError(t, os.Mkdir(work, 0o755))
-	runGit(t, work, "init", "--initial-branch=main")
+	runGit(t, work, "init", "--initial-branch=main", "--object-format="+objectFormat)
 	for _, name := range []string{"README.md", "AGENTS.md", "CLAUDE.md"} {
 		require.NoError(t, os.WriteFile(filepath.Join(work, name), []byte("initial repository instructions\n"), 0o644))
 	}
@@ -73,7 +73,7 @@ func runGit(t *testing.T, directory string, args ...string) string {
 }
 
 func TestInitializeAndRestore(t *testing.T) {
-	fixture := repository(t, true)
+	fixture := repository(t, true, "sha1")
 	config, server, requests, commit := fixture.config, fixture.server, fixture.requests, fixture.commit
 	seed := t.TempDir()
 	require.NoError(t, Initialize(t.Context(), seed, config))
@@ -117,17 +117,28 @@ func TestInitializeAndRestore(t *testing.T) {
 	require.Equal(t, before, requests.Load(), "restores must never access the source")
 }
 
-func TestInitializeCommit(t *testing.T) {
-	fixture := repository(t, false)
-	config, commit := fixture.config, fixture.commit
-	config.Ref = commit
-	root := t.TempDir()
-	require.NoError(t, Initialize(t.Context(), root, config))
-	require.Equal(t, commit, runGit(t, Path(root), "rev-parse", "HEAD"))
+func TestInitializeObjectFormats(t *testing.T) {
+	for _, format := range []string{"sha1", "sha256"} {
+		t.Run(format, func(t *testing.T) {
+			fixture := repository(t, true, format)
+			work := filepath.Join(fixture.root, "work")
+			runGit(t, work, "tag", "-a", "v1", "-m", "annotated tag")
+			runGit(t, work, "push", filepath.Join(fixture.root, "repo.git"), "refs/tags/v1")
+			for _, ref := range []string{"main", "refs/heads/main", "refs/tags/v1", fixture.commit} {
+				t.Run(ref, func(t *testing.T) {
+					fixture.config.Ref = ref
+					root := t.TempDir()
+					require.NoError(t, Initialize(t.Context(), root, fixture.config))
+					require.Equal(t, fixture.commit, runGit(t, Path(root), "rev-parse", "HEAD"))
+					require.Equal(t, format, runGit(t, Path(root), "rev-parse", "--show-object-format"))
+				})
+			}
+		})
+	}
 }
 
 func TestMovingBranchIsResolvedOnlyDuringPreparation(t *testing.T) {
-	fixture := repository(t, false)
+	fixture := repository(t, false, "sha1")
 	seed := t.TempDir()
 	require.NoError(t, Initialize(t.Context(), seed, fixture.config))
 	work := filepath.Join(fixture.root, "work")
@@ -153,7 +164,7 @@ func TestMovingBranchIsResolvedOnlyDuringPreparation(t *testing.T) {
 func TestInitializeRecoversPublication(t *testing.T) {
 	for _, phase := range []string{"staged", "published"} {
 		t.Run(phase, func(t *testing.T) {
-			fixture := repository(t, false)
+			fixture := repository(t, false, "sha1")
 			config, server, commit := fixture.config, fixture.server, fixture.commit
 			root := t.TempDir()
 			require.NoError(t, Initialize(t.Context(), root, config))
@@ -171,7 +182,7 @@ func TestInitializeRecoversPublication(t *testing.T) {
 }
 
 func TestInitializeFailuresPreserveFiles(t *testing.T) {
-	config := repository(t, false).config
+	config := repository(t, false, "sha1").config
 	for _, test := range []struct {
 		name  string
 		setup func(*testing.T, string)
@@ -207,7 +218,7 @@ func TestInitializeFailuresPreserveFiles(t *testing.T) {
 }
 
 func TestInitializeRejectsCorruptPreparedCheckout(t *testing.T) {
-	fixture := repository(t, false)
+	fixture := repository(t, false, "sha1")
 	root := t.TempDir()
 	require.NoError(t, Initialize(t.Context(), root, fixture.config))
 	state := filepath.Join(root, stateDirectory)

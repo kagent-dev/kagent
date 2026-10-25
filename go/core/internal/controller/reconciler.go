@@ -144,7 +144,7 @@ func newAgentReconciliations(
 				Message:   "existing immutable ActorTemplate differs from the compiled revision",
 			}
 		} else if message := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateFailed", Message: message}
+			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateFailed", Message: message, Retryable: substrate.FailedWorkspacePreparation(state.ObservedActorTemplate)}
 		}
 		return state
 	}, opts.WithName("AgentReconciliations")...)
@@ -206,6 +206,7 @@ type actorTemplateClient interface {
 	EnsureAtespace(context.Context, string) error
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
 	CreateActorTemplate(context.Context, *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error)
+	RetryActorTemplatePreparation(context.Context, *ateapipb.ActorTemplate) error
 }
 
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
@@ -437,6 +438,12 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	if !substrate.ActorTemplateSpecEqual(observed, target.ActorTemplate) {
 		r.observePreparation(*state, observed, nil)
 		return nil
+	}
+	if substrate.FailedWorkspacePreparation(observed) {
+		if err := r.templates.RetryActorTemplatePreparation(ctx, observed); err != nil {
+			return r.observePreparationError(*state, fmt.Errorf("retry workspace preparation: %w", err))
+		}
+		return r.observePreparationError(*state, fmt.Errorf("failed workspace preparation removed; retrying"))
 	}
 
 	revision := database.RuntimeRevision{

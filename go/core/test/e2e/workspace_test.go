@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/kagent-dev/mockllm"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -28,7 +30,11 @@ import (
 )
 
 // Pin the source fixture independently of whichever revision is under test.
-const workspaceFixtureCommit = "b8bbcf64174caccc8b71f158b309a00d5166fcf8"
+const (
+	workspaceFixtureCommit          = "b8bbcf64174caccc8b71f158b309a00d5166fcf8"
+	invalidWorkspaceAuthorization   = "Basic aW52YWxpZDppbnZhbGlk"
+	anonymousWorkspaceAuthorization = "Basic Og=="
+)
 
 func workspaceFixture() *v1alpha3.WorkspaceSpec {
 	return &v1alpha3.WorkspaceSpec{Git: &v1alpha3.GitWorkspaceSource{URL: "https://github.com/kagent-dev/kagent.git", Ref: workspaceFixtureCommit}}
@@ -38,8 +44,10 @@ func workspaceFixture() *v1alpha3.WorkspaceSpec {
 var workspaceMocks embed.FS
 
 func TestSessionWorkspaceSource(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		if harness.name == "byo-adk-e2e" {
 			t.Skip("BYO has no managed workspace initialization contract")
 		}
@@ -50,11 +58,32 @@ func TestSessionWorkspaceSource(t *testing.T) {
 			ModelConfig: &corev1.LocalObjectReference{Name: config.Name}, SystemPrompt: "Run the requested workspace checks.",
 		}}
 		createSharedTemplate(t, kube, template)
+		secret := createWorkspaceCredential(t, kube, template.Namespace)
 		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: template.Name, Namespace: template.Namespace}, Spec: v1alpha3.AgentSpec{
 			Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
 			HarnessRef: corev1.LocalObjectReference{Name: harness.name}, Workspace: workspaceFixture(),
 		}}
-		createAndWaitInteractionAgent(t, kube, agent)
+		agent.Spec.Workspace.Git.CredentialRef = &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "authorization"}
+		require.NoError(t, kube.Create(t.Context(), agent))
+		t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), agent))) })
+		key := ctrlclient.ObjectKeyFromObject(agent)
+		require.Eventually(t, func() bool {
+			require.NoError(t, kube.Get(t.Context(), key, agent))
+			condition := meta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionReady)
+			return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == "RuntimePreparationFailed"
+		}, 7*time.Minute, time.Second, "invalid Git credentials must fail preparation after the startup probe times out")
+		revision, generation := agent.Status.DesiredRevision, agent.Generation
+		require.NotEmpty(t, revision)
+		setWorkspaceCredential(t, kube, secret, anonymousWorkspaceAuthorization)
+		require.Eventually(t, func() bool {
+			require.NoError(t, kube.Get(t.Context(), key, agent))
+			return meta.IsStatusConditionTrue(agent.Status.Conditions, v1alpha3.AgentConditionReady)
+		}, 5*time.Minute, time.Second, "correcting only the Secret must recover the failed golden")
+		require.Equal(t, generation, agent.Generation)
+		require.Equal(t, revision, agent.Status.LatestSuccessfulRevision)
+		// Published workspaces remain usable even if credentials rotate to an
+		// invalid value. New Sessions and resumes must use their prepared files.
+		setWorkspaceCredential(t, kube, secret, invalidWorkspaceAuthorization)
 		for instance := range 2 {
 			fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
 			for _, phase := range []string{"initial", "restored"} {
@@ -79,6 +108,24 @@ func TestSessionWorkspaceSource(t *testing.T) {
 			}
 		}
 	})
+}
+
+// GitHub rejects invalid Basic credentials even for public repositories. Empty
+// Basic credentials select anonymous access, exercising gateway replacement
+// without requiring a private repository or a real token in the test suite.
+func createWorkspaceCredential(t *testing.T, kube ctrlclient.Client, namespace string) *corev1.Secret {
+	t.Helper()
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{GenerateName: "workspace-credential-", Namespace: namespace}, Data: map[string][]byte{"authorization": []byte(invalidWorkspaceAuthorization)}}
+	require.NoError(t, kube.Create(t.Context(), secret))
+	t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), secret))) })
+	return secret
+}
+
+func setWorkspaceCredential(t *testing.T, kube ctrlclient.Client, secret *corev1.Secret, value string) {
+	t.Helper()
+	before := secret.DeepCopy()
+	secret.Data["authorization"] = []byte(value)
+	require.NoError(t, kube.Patch(t.Context(), secret, ctrlclient.MergeFrom(before)))
 }
 
 func startWorkspaceMock(t *testing.T) (*modelRecorder, func(string)) {
@@ -122,23 +169,32 @@ func startWorkspaceMock(t *testing.T) (*modelRecorder, func(string)) {
 }
 
 func TestSandboxWorkspaceSource(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	kube := interactionKubeClient(t)
 	template := &v1alpha3.SandboxTemplate{}
 	key := ctrlclient.ObjectKey{Namespace: f.template.Namespace, Name: f.template.Name}
 	require.NoError(t, kube.Get(f.ctx, key, template))
+	secret := createWorkspaceCredential(t, kube, template.Namespace)
 	before := template.DeepCopy()
 	template.Spec.Workspace = workspaceFixture()
+	template.Spec.Workspace.Git.CredentialRef = &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "authorization"}
 	require.NoError(t, kube.Patch(f.ctx, template, ctrlclient.MergeFrom(before)))
+	require.Eventually(t, func() bool {
+		require.NoError(t, kube.Get(f.ctx, key, template))
+		condition := meta.FindStatusCondition(template.Status.Conditions, "Ready")
+		return condition != nil && condition.ObservedGeneration == template.Generation && condition.Status == metav1.ConditionFalse && condition.Reason == "PreparationFailed"
+	}, 7*time.Minute, time.Second, "invalid Git credentials must fail preparation after the startup probe times out")
+	generation := template.Generation
+	setWorkspaceCredential(t, kube, secret, anonymousWorkspaceAuthorization)
 	require.Eventually(t, func() bool {
 		require.NoError(t, kube.Get(f.ctx, key, template))
 		return template.Status.ObservedGeneration == template.Generation && meta.IsStatusConditionTrue(template.Status.Conditions, "Ready")
 	}, 5*time.Minute, time.Second)
-	first, second := f.create(t, 10*time.Minute), f.create(t, 10*time.Minute)
-	require.Equal(t, first.PreparedRevision, second.PreparedRevision)
-	for _, instance := range []*apiv1.Sandbox{first, second} {
-		require.Equal(t, workspaceFixtureCommit+"\n", string(f.read(t, instance.Id, ".git/HEAD")))
-	}
+	require.Equal(t, generation, template.Generation)
+	first := f.create(t, 10*time.Minute)
+	// Keep source credentials valid while checking runtime isolation: a leaked
+	// source grant must not be hidden by GitHub rejecting invalid credentials.
 	command := "printf edited > README.md; printf private > workspace-untracked; if timeout 10 git ls-remote https://github.com/kagent-dev/kagent.git; then exit 1; fi"
 	started, err := f.processes.StartProcess(f.guestContext(first.Id), &guestpb.StartProcessRequest{Command: []string{"sh", "-c", command}})
 	require.NoError(t, err)
@@ -147,6 +203,12 @@ func TestSandboxWorkspaceSource(t *testing.T) {
 		require.NoError(t, err)
 		return exitedCleanly(process)
 	}, 15*time.Second, 100*time.Millisecond, "runtime must not inherit the source's Git grant")
+	setWorkspaceCredential(t, kube, secret, invalidWorkspaceAuthorization)
+	second := f.create(t, 10*time.Minute)
+	require.Equal(t, first.PreparedRevision, second.PreparedRevision)
+	for _, instance := range []*apiv1.Sandbox{first, second} {
+		require.Equal(t, workspaceFixtureCommit+"\n", string(f.read(t, instance.Id, ".git/HEAD")))
+	}
 	_, err = f.client.SuspendSandbox(f.ctx, &apiv1.SuspendSandboxRequest{SandboxId: first.Id})
 	require.NoError(t, err)
 	f.wait(t, first.Id, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED)

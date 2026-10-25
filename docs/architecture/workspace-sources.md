@@ -40,6 +40,7 @@ root Agent's disk.
 checks out its commit with detached HEAD, retaining `.git`. New Sessions and
 Sandboxes reuse the prepared commit even if the branch moves. There is no fetch
 at Session creation, first turn, resume, or checkpoint fork.
+Both SHA-1 and SHA-256 Git repositories are supported.
 
 For example, if `main` points to commit A during preparation and later advances
 to B, new instances may continue to receive A. A configuration change that causes
@@ -52,6 +53,15 @@ Wait for the desired revision to become Ready before creating instances that
 require the updated source. A preparation failure leaves the previous successful
 revision available. Existing instances, create retries, and forks retain their
 pinned revision and saved files.
+
+Failed workspace preparations retry automatically, so transient Git failures and
+corrected credentials can recover without changing the source specification.
+Kagent conditionally removes only failed, unpublished preparations through
+Substrate's cleanup workflow, with at least 30 seconds between preparation
+attempts. Published snapshots are retained when credentials rotate.
+The checkout timeout is shorter than the wakeup probe, which is shorter than
+Substrate's startup RPC deadline. This lets Substrate record a startup failure
+before transport cancellation would leave the attempt pending.
 
 ## Ownership and lifecycle
 
@@ -106,8 +116,8 @@ BYO runtimes explicitly reject configured sources.
 
 Sandbox tools images must contain Git. The managed guest is mounted as an
 executable volume, so Git in the guest image is not available to a different
-tools image. Missing Git fails preparation. Checkout has a four-minute timeout
-within a five-minute platform wakeup probe. Submodules, LFS downloads, dependency
+tools image. Missing Git fails preparation. Checkout has a three-minute timeout
+within a four-minute platform wakeup probe. Submodules, LFS downloads, dependency
 installation, setup scripts, SSH, and multiple repositories are not implemented.
 
 This requires Substrate v0.7.0-alpha1 or later with boot egress support. The

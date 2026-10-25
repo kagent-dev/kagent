@@ -32,7 +32,9 @@ const (
 	durableDataMount            = "/data"
 	// Matches EnvVar.value's maxLength in Substrate's ateapi.proto.
 	maxEnvironmentValueRunes = 32768
-	// Leave startup time after the initializer's bounded checkout.
+	// Leave startup time after checkout, and keep the probe below Substrate's
+	// five-minute startup RPC deadline. If that RPC expires first, the failure
+	// remains resumable and Substrate never records the crashed golden.
 	workspaceWakeupTimeoutSeconds = int32((workspace.StartupTimeout + time.Minute) / time.Second)
 )
 
