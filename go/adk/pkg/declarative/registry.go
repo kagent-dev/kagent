@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sync/atomic"
 
 	"google.golang.org/adk/v2/agent"
 	adkmodel "google.golang.org/adk/v2/model"
@@ -55,17 +56,19 @@ type DynamicEnv struct {
 	ctx       agent.Context
 	children  map[string]workflow.Node
 	isolation Isolation
-	runs      int
+	runs      atomic.Int64
 }
 
 // Run executes child as part of this node and returns its output, isolated as
 // the node's isolation says. Each call spends one iteration of the max_iters
 // budget.
 func (e *DynamicEnv) Run(child workflow.Node, input any) (any, error) {
-	if e.MaxIters > 0 && e.runs >= e.MaxIters {
+	// A DynamicFunc may run children concurrently, so the budget is claimed
+	// atomically and released when it is already spent.
+	if n := e.runs.Add(1); e.MaxIters > 0 && n > int64(e.MaxIters) {
+		e.runs.Add(-1)
 		return nil, ErrIterationBudget
 	}
-	e.runs++
 	return workflow.RunNode[any](e.ctx, child, input, e.runOptions()...)
 }
 
@@ -92,7 +95,7 @@ func (e *DynamicEnv) RunChild(id string, input any) (any, error) {
 }
 
 // Runs reports how many iterations were spent so far.
-func (e *DynamicEnv) Runs() int { return e.runs }
+func (e *DynamicEnv) Runs() int { return int(e.runs.Load()) }
 
 // ModelResolver resolves model names that are not registered by value, for
 // example by delegating to the provider factories of the kagent runtime.
