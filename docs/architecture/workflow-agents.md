@@ -19,7 +19,7 @@ A document lists agents; the first is the root. Every agent has an
 
 | Class             | ADK type                       | Required                 |
 | ----------------- | ------------------------------ | ------------------------ |
-| `Workflow`        | `workflowagent` graph          | `nodes`                  |
+| `Workflow`        | `workflowagent` graph          | `nodes`; `max_concurrency` caps it |
 | `LlmAgent`        | `llmagent`                     | `model`, `instruction`   |
 | `SequentialAgent` | `workflowagents/sequentialagent` | `sub_agents`           |
 | `ParallelAgent`   | `workflowagents/parallelagent` | `sub_agents`             |
@@ -289,9 +289,15 @@ the document, then wrap or compose the resulting agents.
   route its own terminal. A `join` suits fan-out that always runs every branch.
 - An `agent` node is named after its agent inside the engine, so two nodes of
   one graph cannot wrap the same agent and an agent name cannot equal a node id.
-- `workflowagent.Config` exposes no engine options, so a concurrency cap for the
-  whole graph is not available; `parallel_worker.max_concurrency` bounds one
-  worker.
+- Fan-out from edges starts every successor at once unless the Workflow agent
+  sets `max_concurrency`. The cap is graph-wide: at most that many nodes of the
+  graph run at once and further ready nodes wait. A nested `workflow` node and
+  the items of a `parallel_worker` run inside their parent node and are not
+  counted separately; `parallel_worker.max_concurrency` bounds the items of one
+  worker. `workflowagent.Config` does not accept engine options, so a capped
+  Workflow is built with `workflow.WithMaxConcurrency` behind a small agent that
+  runs or resumes the graph; its telemetry span is `invoke_agent`, not
+  `invoke_workflow`.
 - A `parallel_worker` target runs without routes; a `Func` result's routes are
   ignored there.
 - A `hitl` node re-runs on resume. Its interrupt id combines the node id and the

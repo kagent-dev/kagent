@@ -3,6 +3,7 @@ kind: AgentSystem
 agents:
   - name: fan_in
     agent_class: Workflow
+    max_concurrency: 2
     nodes:
       - { id: shout, type: function, function: upper }
       - { id: whisper, type: function, function: lower }

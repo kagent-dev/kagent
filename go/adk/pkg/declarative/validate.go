@@ -165,7 +165,7 @@ type agentRule struct {
 var llmAgentFields = []string{"mode", "global_instruction", "instruction_from", "global_instruction_from", "callbacks", "tools", "output_key", "output_schema", "include_contents"}
 
 var agentRules = map[AgentClass]agentRule{
-	ClassWorkflow: {required: []string{"nodes"}, optional: []string{"description", "sub_agents", "entry", "edges"}},
+	ClassWorkflow: {required: []string{"nodes"}, optional: []string{"description", "sub_agents", "entry", "edges", "max_concurrency"}},
 	ClassLlmAgent: {
 		required: []string{"model", "instruction"},
 		optional: append([]string{"description", "sub_agents", "agent_tools", "disallow_transfer_to_parent", "disallow_transfer_to_peers"}, llmAgentFields...),
@@ -184,6 +184,7 @@ func presentAgentFields(a *AgentSpec) map[string]bool {
 		"disallow_transfer_to_parent": a.DisallowTransferToParent,
 		"disallow_transfer_to_peers":  a.DisallowTransferToPeers,
 		"max_iterations":              a.MaxIterations != 0,
+		"max_concurrency":             a.MaxConcurrency != 0,
 	})
 	return present
 }
@@ -237,6 +238,9 @@ func (v *validator) agent(path string, a *AgentSpec, classes map[string]AgentCla
 
 	switch a.AgentClass {
 	case ClassWorkflow:
+		if a.MaxConcurrency < 0 {
+			v.addf(path+".max_concurrency", "must not be negative")
+		}
 		v.graph(path, a.Nodes, a.Edges, a.Entry, classes, 0, true)
 	case ClassLlmAgent:
 		v.llm(path, &a.LLMSpec)

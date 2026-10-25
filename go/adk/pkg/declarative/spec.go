@@ -223,6 +223,11 @@ type AgentSpec struct {
 	Entry string     `json:"entry,omitempty"`
 	Nodes []NodeSpec `json:"nodes,omitempty"`
 	Edges []EdgeSpec `json:"edges,omitempty"`
+	// MaxConcurrency bounds how many nodes of the whole graph run at once,
+	// across fan-out branches; further ready nodes wait. Zero is unlimited.
+	// Nested workflow nodes and the items of a parallel_worker run inside
+	// their parent node and are not counted separately.
+	MaxConcurrency int `json:"max_concurrency,omitempty"`
 
 	// LlmAgent fields.
 	LLMSpec

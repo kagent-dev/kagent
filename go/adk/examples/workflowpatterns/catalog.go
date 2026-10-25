@@ -194,7 +194,7 @@ var catalog = []Pattern{
 	},
 	{
 		Name: "fan_in", Title: "Fan-out and fan-in (scatter-gather)", Go: fanInGo,
-		Summary: "Several unconditional edges leave one node and its branches run concurrently. A join node is the barrier that waits for all of them and hands their outputs, keyed by node, to one aggregator.",
+		Summary: "Several unconditional edges leave one node and its branches run concurrently. A join node is the barrier that waits for all of them and hands their outputs, keyed by node, to one aggregator. max_concurrency caps how many nodes of the graph run at once.",
 		Shape:   "START → shout   ─┐\n      ├→ whisper ─┼→ gather → combine\n      └→ mirror  ─┘",
 		Cases:   []Case{{Input: "Go", Want: []string{"out:mirror=oG|shout=GO|whisper=go"}}},
 	},
