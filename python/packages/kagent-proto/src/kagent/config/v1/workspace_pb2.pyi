@@ -6,13 +6,11 @@ from typing import ClassVar as _ClassVar, Optional as _Optional
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class GitWorkspaceConfig(_message.Message):
-    __slots__ = ("url", "ref", "authorization", "refresh_token")
+    __slots__ = ("url", "ref", "authorization")
     URL_FIELD_NUMBER: _ClassVar[int]
     REF_FIELD_NUMBER: _ClassVar[int]
     AUTHORIZATION_FIELD_NUMBER: _ClassVar[int]
-    REFRESH_TOKEN_FIELD_NUMBER: _ClassVar[int]
     url: str
     ref: str
     authorization: bool
-    refresh_token: str
-    def __init__(self, url: _Optional[str] = ..., ref: _Optional[str] = ..., authorization: _Optional[bool] = ..., refresh_token: _Optional[str] = ...) -> None: ...
+    def __init__(self, url: _Optional[str] = ..., ref: _Optional[str] = ..., authorization: _Optional[bool] = ...) -> None: ...

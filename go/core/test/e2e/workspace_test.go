@@ -6,7 +6,6 @@ package e2e_test
 import (
 	"embed"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -130,14 +129,10 @@ func TestSandboxWorkspaceSource(t *testing.T) {
 	require.NoError(t, kube.Get(f.ctx, key, template))
 	template.Spec.Workspace = workspaceFixture()
 	require.NoError(t, kube.Update(f.ctx, template))
-	waitPrepared := func() {
-		t.Helper()
-		require.Eventually(t, func() bool {
-			require.NoError(t, kube.Get(f.ctx, key, template))
-			return template.Status.ObservedGeneration == template.Generation && meta.IsStatusConditionTrue(template.Status.Conditions, "Ready")
-		}, 5*time.Minute, time.Second)
-	}
-	waitPrepared()
+	require.Eventually(t, func() bool {
+		require.NoError(t, kube.Get(f.ctx, key, template))
+		return template.Status.ObservedGeneration == template.Generation && meta.IsStatusConditionTrue(template.Status.Conditions, "Ready")
+	}, 5*time.Minute, time.Second)
 	first, second := f.create(t, 10*time.Minute), f.create(t, 10*time.Minute)
 	require.Equal(t, first.PreparedRevision, second.PreparedRevision)
 	for _, instance := range []*apiv1.Sandbox{first, second} {
@@ -160,12 +155,4 @@ func TestSandboxWorkspaceSource(t *testing.T) {
 	require.Equal(t, "edited", string(f.read(t, first.Id, "README.md")))
 	require.Equal(t, "private", string(f.read(t, first.Id, "workspace-untracked")))
 	require.NotEqual(t, "edited", string(f.read(t, second.Id, "README.md")))
-
-	template.Spec.Workspace.Git.RefreshToken = new("explicit-refresh")
-	require.NoError(t, kube.Update(f.ctx, template))
-	waitPrepared()
-	refreshed := f.create(t, 5*time.Minute)
-	require.NotEqual(t, first.PreparedRevision, refreshed.PreparedRevision)
-	require.Equal(t, fmt.Sprintln(workspaceFixtureCommit), string(f.read(t, refreshed.Id, ".git/HEAD")))
-	require.Equal(t, "edited", string(f.read(t, first.Id, "README.md")))
 }

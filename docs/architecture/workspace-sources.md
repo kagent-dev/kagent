@@ -6,6 +6,10 @@ before runtime readiness. Substrate captures the checkout in its VOLUMES snapsho
 new instances receive independent writable copies before their first turn or
 guest operation. Repository setup is independent of the agent's prompt.
 
+Use a full commit SHA for reproducible source contents. A branch or tag is resolved
+when the runtime is prepared; newly created Sessions and Sandboxes can therefore
+start from an older commit even after the remote ref moves.
+
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
@@ -18,9 +22,8 @@ spec:
   workspace:
     git:
       url: https://github.com/org/repo.git
-      ref: main
+      ref: 0123456789abcdef0123456789abcdef01234567
       credentialRef: {name: github-git, key: authorization}
-      refreshToken: "build-2"
 ```
 
 The same `workspace` value can be placed on `SandboxTemplate.spec`. Omitting it
@@ -31,25 +34,24 @@ behavior and have no workspace field, including when used inline. Several Agents
 can reuse the same template with different repositories. Shared subagents use the
 root Agent's disk.
 
-## Commit selection and refresh
+## Commit selection
 
-`ref` is a required branch, tag, or full commit. Preparation fetches that ref and
+`ref` is a required full commit SHA, branch, or tag. Preparation fetches that ref and
 checks out its commit with detached HEAD, retaining `.git`. New Sessions and
 Sandboxes reuse the prepared commit even if the branch moves. There is no fetch
 at Session creation, first turn, resume, or checkpoint fork.
 
-Changing `refreshToken` requests a new immutable preparation through the existing
-revision controller. Updating the ref also prepares a new revision. Reapplying
-identical configuration, rotating a Secret's value, or editing a live egress grant
-does not refresh the source. Other compiled runtime changes, such as an image
-update, may also prepare a new checkout of a moving branch. Use a full commit when
-the source must remain reproducible across runtime changes.
+For example, if `main` points to commit A during preparation and later advances
+to B, new instances may continue to receive A. A configuration change that causes
+another preparation, such as a runtime image update, can resolve `main` to B.
+Branch and tag names therefore do not guarantee either the latest commit on every
+Session or the same commit across preparations. Pin a full SHA when the exact
+source version matters, and update `ref` to a new SHA to select a new version.
 
 Wait for the desired revision to become Ready before creating instances that
-require the refreshed source. A preparation failure leaves the previous successful
+require the updated source. A preparation failure leaves the previous successful
 revision available. Existing instances, create retries, and forks retain their
-pinned revision and saved files. A terminal golden failure requires a new input,
-such as a changed refresh token, to start a new preparation.
+pinned revision and saved files.
 
 ## Ownership and lifecycle
 

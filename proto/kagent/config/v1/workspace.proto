@@ -10,6 +10,9 @@ option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;co
 // It contains no credentials. Authorization is an inert header replaced by the
 // golden actor's egress gateway. Restored instances reuse the saved checkout.
 message GitWorkspaceConfig {
+  reserved 4;
+  reserved "refresh_token";
+
   string url = 1 [(buf.validate.field).string = {
     min_len: 1
     max_len: 2048
@@ -21,6 +24,4 @@ message GitWorkspaceConfig {
     pattern: "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
   }];
   bool authorization = 3;
-  // Changing this token requests a new prepared checkout of the same ref.
-  string refresh_token = 4 [(buf.validate.field).string.max_len = 128];
 }

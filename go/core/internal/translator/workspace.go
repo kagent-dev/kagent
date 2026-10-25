@@ -25,9 +25,6 @@ func CompileWorkspace(ctx krt.HandlerContext, secrets krt.Collection[*corev1.Sec
 	}
 	source := selected.Git
 	config := &configv1.GitWorkspaceConfig{Url: source.URL, Ref: source.Ref, Authorization: source.CredentialRef != nil}
-	if source.RefreshToken != nil {
-		config.RefreshToken = *source.RefreshToken
-	}
 	if err := workspace.Validate(config); err != nil {
 		return nil, egress.Access{}, NewValidationError("invalid workspace: %v", err)
 	}

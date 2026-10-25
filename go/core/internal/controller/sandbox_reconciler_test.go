@@ -287,9 +287,9 @@ func TestSandboxWorkspacePreparationTracksSourceCredentials(t *testing.T) {
 	waitFor(t, func() bool { return collections.states.GetKey(key).CompilationError != "" })
 	secrets.UpdateObject(rotated)
 	waitFor(t, func() bool { return collections.states.GetKey(key).RevisionID == prepared.RevisionID })
-	refreshed := changed.DeepCopy()
-	refreshed.Spec.Workspace.Git.RefreshToken = new("refresh")
-	templates.UpdateObject(refreshed)
+	pinned := changed.DeepCopy()
+	pinned.Spec.Workspace.Git.Ref = "0123456789abcdef0123456789abcdef01234567"
+	templates.UpdateObject(pinned)
 	waitFor(t, func() bool {
 		state := collections.states.GetKey(key)
 		return state.RevisionID != "" && state.RevisionID != prepared.RevisionID

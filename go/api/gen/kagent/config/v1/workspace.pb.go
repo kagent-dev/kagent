@@ -30,8 +30,6 @@ type GitWorkspaceConfig struct {
 	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
 	Ref           string                 `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
 	Authorization bool                   `protobuf:"varint,3,opt,name=authorization,proto3" json:"authorization,omitempty"`
-	// Changing this token requests a new prepared checkout of the same ref.
-	RefreshToken  string `protobuf:"bytes,4,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -87,23 +85,15 @@ func (x *GitWorkspaceConfig) GetAuthorization() bool {
 	return false
 }
 
-func (x *GitWorkspaceConfig) GetRefreshToken() string {
-	if x != nil {
-		return x.RefreshToken
-	}
-	return ""
-}
-
 var File_kagent_config_v1_workspace_proto protoreflect.FileDescriptor
 
 const file_kagent_config_v1_workspace_proto_rawDesc = "" +
 	"\n" +
-	" kagent/config/v1/workspace.proto\x12\x10kagent.config.v1\x1a\x1bbuf/validate/validate.proto\"\xce\x01\n" +
+	" kagent/config/v1/workspace.proto\x12\x10kagent.config.v1\x1a\x1bbuf/validate/validate.proto\"\xb4\x01\n" +
 	"\x12GitWorkspaceConfig\x12&\n" +
 	"\x03url\x18\x01 \x01(\tB\x14\xbaH\x11r\x0f\x10\x01\x18\x80\x10:\bhttps://R\x03url\x12;\n" +
 	"\x03ref\x18\x02 \x01(\tB)\xbaH&r$\x10\x01\x18\x80\x022\x1d^[A-Za-z0-9][A-Za-z0-9._/-]*$R\x03ref\x12$\n" +
-	"\rauthorization\x18\x03 \x01(\bR\rauthorization\x12-\n" +
-	"\rrefresh_token\x18\x04 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x01R\frefreshTokenBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
+	"\rauthorization\x18\x03 \x01(\bR\rauthorizationJ\x04\b\x04\x10\x05R\rrefresh_tokenBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
 
 var (
 	file_kagent_config_v1_workspace_proto_rawDescOnce sync.Once

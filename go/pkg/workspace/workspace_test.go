@@ -117,19 +117,13 @@ func TestInitializeAndRestore(t *testing.T) {
 	require.Equal(t, before, requests.Load(), "restores must never access the source")
 }
 
-func TestInitializeCommitAndRefresh(t *testing.T) {
+func TestInitializeCommit(t *testing.T) {
 	fixture := repository(t, false)
-	config, requests, commit := fixture.config, fixture.requests, fixture.commit
+	config, commit := fixture.config, fixture.commit
 	config.Ref = commit
 	root := t.TempDir()
 	require.NoError(t, Initialize(t.Context(), root, config))
-	before := requests.Load()
-	config.RefreshToken = "next"
-	require.ErrorContains(t, Initialize(t.Context(), root, config), "conflicts")
-	require.Equal(t, before, requests.Load(), "changing input cannot overwrite existing files")
-	fresh := t.TempDir()
-	require.NoError(t, Initialize(t.Context(), fresh, config))
-	require.Greater(t, requests.Load(), before, "a refresh prepares a fresh golden")
+	require.Equal(t, commit, runGit(t, Path(root), "rev-parse", "HEAD"))
 }
 
 func TestMovingBranchIsResolvedOnlyDuringPreparation(t *testing.T) {
@@ -148,10 +142,12 @@ func TestMovingBranchIsResolvedOnlyDuringPreparation(t *testing.T) {
 	require.NoError(t, Initialize(t.Context(), restored, fixture.config))
 	require.Equal(t, fixture.commit, runGit(t, Path(restored), "rev-parse", "HEAD"))
 	require.Equal(t, before, fixture.requests.Load())
-	fixture.config.RefreshToken = "explicit-refresh"
 	fresh := t.TempDir()
 	require.NoError(t, Initialize(t.Context(), fresh, fixture.config))
 	require.Equal(t, next, runGit(t, Path(fresh), "rev-parse", "HEAD"))
+	pinned := t.TempDir()
+	require.NoError(t, Initialize(t.Context(), pinned, &configv1.GitWorkspaceConfig{Url: fixture.config.Url, Ref: fixture.commit}))
+	require.Equal(t, fixture.commit, runGit(t, Path(pinned), "rev-parse", "HEAD"), "a full SHA remains reproducible after the branch moves")
 }
 
 func TestInitializeRecoversPublication(t *testing.T) {

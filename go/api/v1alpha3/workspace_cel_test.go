@@ -30,7 +30,7 @@ func testWorkspaceValidation(t *testing.T, cl ctrlclient.Client, namespace strin
 		}{
 			{"omitted", nil, false},
 			{"empty", map[string]any{}, false},
-			{"git", map[string]any{"git": map[string]any{"url": "https://github.com/org/repo.git", "ref": "main", "credentialRef": map[string]any{"name": "git-auth", "key": "authorization"}, "refreshToken": "revision-2"}}, false},
+			{"git", map[string]any{"git": map[string]any{"url": "https://github.com/org/repo.git", "ref": "main", "credentialRef": map[string]any{"name": "git-auth", "key": "authorization"}}}, false},
 			{"missing-ref", map[string]any{"git": map[string]any{"url": "https://github.com/org/repo.git"}}, true},
 			{"http", map[string]any{"git": map[string]any{"url": "http://github.com/org/repo.git", "ref": "main"}}, true},
 			{"credential-url", map[string]any{"git": map[string]any{"url": "https://token@github.com/org/repo.git", "ref": "main"}}, true},

@@ -12,7 +12,7 @@ The standalone sandbox suite needs a Substrate WorkerPool with available capacit
 Substrate v0.7.0-alpha1 with `GoldenEgressPolicy` enabled by the installer, Git in
 the runtime/tools image, and outbound HTTPS to GitHub during preparation. They
 use a pinned repository commit and check first-turn files, independent instances,
-suspend/resume, explicit refresh, and absence of the source grant at runtime.
+suspend/resume, and absence of the source grant at runtime.
 Set `config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference
 unchanged to Substrate.

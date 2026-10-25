@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n kagent/config/v1/workspace.proto\x12\x10kagent.config.v1\x1a\x1b\x62uf/validate/validate.proto\"\xce\x01\n\x12GitWorkspaceConfig\x12&\n\x03url\x18\x01 \x01(\tB\x14\xbaH\x11r\x0f\x10\x01\x18\x80\x10:\x08https://R\x03url\x12;\n\x03ref\x18\x02 \x01(\tB)\xbaH&r$\x10\x01\x18\x80\x02\x32\x1d^[A-Za-z0-9][A-Za-z0-9._/-]*$R\x03ref\x12$\n\rauthorization\x18\x03 \x01(\x08R\rauthorization\x12-\n\rrefresh_token\x18\x04 \x01(\tB\x08\xbaH\x05r\x03\x18\x80\x01R\x0crefreshTokenBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n kagent/config/v1/workspace.proto\x12\x10kagent.config.v1\x1a\x1b\x62uf/validate/validate.proto\"\xb4\x01\n\x12GitWorkspaceConfig\x12&\n\x03url\x18\x01 \x01(\tB\x14\xbaH\x11r\x0f\x10\x01\x18\x80\x10:\x08https://R\x03url\x12;\n\x03ref\x18\x02 \x01(\tB)\xbaH&r$\x10\x01\x18\x80\x02\x32\x1d^[A-Za-z0-9][A-Za-z0-9._/-]*$R\x03ref\x12$\n\rauthorization\x18\x03 \x01(\x08R\rauthorizationJ\x04\x08\x04\x10\x05R\rrefresh_tokenBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -37,8 +37,6 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_GITWORKSPACECONFIG'].fields_by_name['url']._serialized_options = b'\272H\021r\017\020\001\030\200\020:\010https://'
   _globals['_GITWORKSPACECONFIG'].fields_by_name['ref']._loaded_options = None
   _globals['_GITWORKSPACECONFIG'].fields_by_name['ref']._serialized_options = b'\272H&r$\020\001\030\200\0022\035^[A-Za-z0-9][A-Za-z0-9._/-]*$'
-  _globals['_GITWORKSPACECONFIG'].fields_by_name['refresh_token']._loaded_options = None
-  _globals['_GITWORKSPACECONFIG'].fields_by_name['refresh_token']._serialized_options = b'\272H\005r\003\030\200\001'
   _globals['_GITWORKSPACECONFIG']._serialized_start=84
-  _globals['_GITWORKSPACECONFIG']._serialized_end=290
+  _globals['_GITWORKSPACECONFIG']._serialized_end=264
 # @@protoc_insertion_point(module_scope)

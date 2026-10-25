@@ -21,8 +21,9 @@ type GitWorkspaceSource struct {
 	// +kubebuilder:validation:MaxLength=2048
 	// +required
 	URL string `json:"url"`
-	// Ref selects a branch, tag, or full commit when preparing a new runtime.
-	// Use a full commit for reproducibility across runtime revisions.
+	// Ref selects a full commit SHA (recommended), branch, or tag.
+	// Branches and tags are resolved during preparation; moving them does not
+	// update the prepared workspace automatically. Use a SHA for reproducibility.
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9._/-]*$`
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
@@ -33,9 +34,4 @@ type GitWorkspaceSource struct {
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != '' && (!has(self.optional) || !self.optional)",message="credentialRef requires a Secret name and cannot be optional"
 	// +optional
 	CredentialRef *corev1.SecretKeySelector `json:"credentialRef,omitempty"`
-	// RefreshToken requests a new prepared checkout when changed. It is not
-	// passed to Git. Existing instances retain their saved workspace.
-	// +kubebuilder:validation:MaxLength=128
-	// +optional
-	RefreshToken *string `json:"refreshToken,omitempty"`
 }

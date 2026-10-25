@@ -123,13 +123,13 @@ func TestWorkspaceRevisionIdentity(t *testing.T) {
 	require.Equal(t, original, compile(), "Secret values are resolved only at the gateway")
 	agent.Generation++
 	agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "live"}}
-	require.Equal(t, original, compile(), "live policy edits and incidental generations are not refreshes")
-	agent.Spec.Workspace.Git.RefreshToken = new("refresh-1")
-	refreshed := compile()
-	require.NotEqual(t, original, refreshed)
+	require.Equal(t, original, compile(), "live policy edits and incidental generations do not change the prepared revision")
+	agent.Spec.Workspace.Git.Ref = "0123456789abcdef0123456789abcdef01234567"
+	pinned := compile()
+	require.NotEqual(t, original, pinned)
 	agent.Spec.Workspace.Git.CredentialRef.Key = "other"
 	secret.Data["other"] = secret.Data["authorization"]
-	require.NotEqual(t, refreshed, compile(), "the reference, not its value, is immutable input")
+	require.NotEqual(t, pinned, compile(), "the reference, not its value, is immutable input")
 }
 
 func TestAgentsChooseRepositoriesIndependentlyOfTemplate(t *testing.T) {

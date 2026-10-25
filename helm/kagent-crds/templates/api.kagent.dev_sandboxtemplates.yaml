@@ -192,17 +192,12 @@ spec:
                             || !self.optional)
                       ref:
                         description: |-
-                          Ref selects a branch, tag, or full commit when preparing a new runtime.
-                          Use a full commit for reproducibility across runtime revisions.
+                          Ref selects a full commit SHA (recommended), branch, or tag.
+                          Branches and tags are resolved during preparation; moving them does not
+                          update the prepared workspace automatically. Use a SHA for reproducibility.
                         maxLength: 256
                         minLength: 1
                         pattern: ^[A-Za-z0-9][A-Za-z0-9._/-]*$
-                        type: string
-                      refreshToken:
-                        description: |-
-                          RefreshToken requests a new prepared checkout when changed. It is not
-                          passed to Git. Existing instances retain their saved workspace.
-                        maxLength: 128
                         type: string
                       url:
                         description: URL is an HTTPS repository URL without embedded
