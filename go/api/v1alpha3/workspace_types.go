@@ -6,7 +6,7 @@ package v1alpha3
 import corev1 "k8s.io/api/core/v1"
 
 // WorkspaceSpec selects the initial files captured in the prepared runtime.
-// An empty object selects an empty workspace and disables an inherited source.
+// An empty object selects an empty workspace.
 type WorkspaceSpec struct {
 	// Git initializes /data/workspace before golden readiness.
 	// +optional

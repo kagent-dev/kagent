@@ -173,11 +173,6 @@ type PluginBundle struct {
 // +kubebuilder:validation:AtMostOneOf=outputSchema;outputSchemaFrom
 // +kubebuilder:validation:XValidation:rule="!has(self.outputSchemaStrict) || !self.outputSchemaStrict || has(self.outputSchema) || has(self.outputSchemaFrom)",message="outputSchemaStrict requires outputSchema or outputSchemaFrom"
 type AgentTemplateSpec struct {
-	// Workspace selects the initial repository for a root agent. Shared
-	// subagents use their parent's disk and cannot select a workspace.
-	// +optional
-	Workspace *WorkspaceSpec `json:"workspace,omitempty"`
-
 	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +optional

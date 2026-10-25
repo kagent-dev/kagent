@@ -159,10 +159,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 		return nil, err
 	}
 	input.AgentName = agent.Name
-	selectedWorkspace := template.Spec.Workspace
-	if agent.Spec.Workspace != nil {
-		selectedWorkspace = agent.Spec.Workspace
-	}
+	selectedWorkspace := agent.Spec.Workspace
 	if selectedWorkspace != nil && selectedWorkspace.Git != nil && harnessType(harness) == HarnessTypeBYO {
 		return nil, NewValidationError("BYO Harnesses do not support workspace sources")
 	}
@@ -218,9 +215,6 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 	seen, path, names := map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
 	var resolve func(*TemplateConfiguration, bool) (*resolvedTemplate, error)
 	resolve = func(template *TemplateConfiguration, child bool) (*resolvedTemplate, error) {
-		if child && template.Spec.Workspace != nil {
-			return nil, NewValidationError("Shared AgentTemplate %q cannot select a workspace", template.Name)
-		}
 		if template.Namespace != harness.Namespace {
 			return nil, NewValidationError("Harness and AgentTemplate must be in the same namespace")
 		}

@@ -1,6 +1,6 @@
 # Prepared repository workspaces
 
-`Agent`, `AgentTemplate`, and `SandboxTemplate` can select an initial Git
+`Agent` and `SandboxTemplate` can select an initial Git
 repository. Kagent checks it out into `/data/workspace` during golden preparation,
 before runtime readiness. Substrate captures the checkout in its VOLUMES snapshot;
 new instances receive independent writable copies before their first turn or
@@ -23,13 +23,13 @@ spec:
       refreshToken: "build-2"
 ```
 
-The same `workspace` value can be placed on `AgentTemplate.spec` or
-`SandboxTemplate.spec`. On an Agent, omission inherits the root template's value,
-including an inline template. A specified value replaces the entire workspace;
-`workspace: {}` selects an empty initial workspace. Replacement does not inherit
-the previous URL, ref, or credential. Overridden Secret references are not resolved.
-Shared subagent templates cannot select a workspace because they share the root's
-disk.
+The same `workspace` value can be placed on `SandboxTemplate.spec`. Omitting it
+or setting `workspace: {}` selects an empty initial workspace.
+
+Repository selection belongs to the concrete Agent. AgentTemplates contain reusable
+behavior and have no workspace field, including when used inline. Several Agents
+can reuse the same template with different repositories. Shared subagents use the
+root Agent's disk.
 
 ## Commit selection and refresh
 

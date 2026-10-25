@@ -48,9 +48,14 @@ func TestSessionWorkspaceSource(t *testing.T) {
 		kube := interactionKubeClient(t)
 		config := harness.createModel(t, kube, reachableModelURL(t, model.URL), nil)
 		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "workspace-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: config.Name}, SystemPrompt: "Run the requested workspace checks.", Workspace: workspaceFixture(),
+			ModelConfig: &corev1.LocalObjectReference{Name: config.Name}, SystemPrompt: "Run the requested workspace checks.",
 		}}
-		createAndWaitInteractionTemplate(t, harness, kube, template)
+		createSharedTemplate(t, kube, template)
+		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: template.Name, Namespace: template.Namespace}, Spec: v1alpha3.AgentSpec{
+			Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
+			HarnessRef: corev1.LocalObjectReference{Name: harness.name}, Workspace: workspaceFixture(),
+		}}
+		createAndWaitInteractionAgent(t, kube, agent)
 		for instance := range 2 {
 			fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
 			for _, phase := range []string{"initial", "restored"} {

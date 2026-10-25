@@ -18,8 +18,7 @@ import (
 )
 
 // CompileWorkspace resolves the selected source and its preparation-only access.
-// Resolve inheritance before calling: overridden sources must not fetch Secrets
-// or contribute permissions. Secret values never enter the compiled inputs.
+// Secret values never enter the compiled inputs.
 func CompileWorkspace(ctx krt.HandlerContext, secrets krt.Collection[*corev1.Secret], namespace string, selected *v1alpha3.WorkspaceSpec) (*configv1.GitWorkspaceConfig, egress.Access, error) {
 	if selected == nil || selected.Git == nil {
 		return nil, egress.Access{}, nil

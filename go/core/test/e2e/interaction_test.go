@@ -1338,6 +1338,11 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 			HarnessRef: corev1.LocalObjectReference{Name: harnessName},
 		},
 	}
+	createAndWaitInteractionAgent(t, kube, agent)
+}
+
+func createAndWaitInteractionAgent(t *testing.T, kube ctrlclient.Client, agent *v1alpha3.Agent) {
+	t.Helper()
 	if err := kube.Create(t.Context(), agent); err != nil {
 		t.Fatalf("create Agent: %v", err)
 	}

@@ -21,7 +21,6 @@ func testWorkspaceValidation(t *testing.T, cl ctrlclient.Client, namespace strin
 		object ctrlclient.Object
 	}{
 		{"Agent", &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "workspace-agent"}, Spec: AgentSpec{Template: AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: "behavior"}}, HarnessRef: corev1.LocalObjectReference{Name: "runtime"}}}},
-		{"AgentTemplate", validAgentTemplate(namespace, "workspace-template", nil)},
 		{"SandboxTemplate", sandboxTemplateForValidation(namespace, "workspace-sandbox", nil)},
 	} {
 		for _, test := range []struct {
@@ -57,9 +56,30 @@ func testWorkspaceValidation(t *testing.T, cl ctrlclient.Client, namespace strin
 				require.NoError(t, cl.Get(t.Context(), ctrlclient.ObjectKeyFromObject(object), object))
 				value, found, err := unstructured.NestedMap(object.Object, "spec", "workspace")
 				require.NoError(t, err)
-				require.Equal(t, test.workspace != nil, found, "empty and omitted must remain distinct")
+				require.Equal(t, test.workspace != nil, found)
 				require.Equal(t, test.workspace, value)
 			})
 		}
+	}
+
+	for _, resource := range []struct {
+		kind   string
+		object ctrlclient.Object
+		path   []string
+	}{
+		{"AgentTemplate", validAgentTemplate(namespace, "workspace-template-rejected", nil), []string{"spec", "workspace"}},
+		{"Agent", &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "workspace-inline-rejected"}, Spec: AgentSpec{Template: AgentTemplateSource{Inline: validAgentTemplate(namespace, "behavior", nil).Spec.DeepCopy()}, HarnessRef: corev1.LocalObjectReference{Name: "runtime"}}}, []string{"spec", "template", "inline", "workspace"}},
+	} {
+		t.Run(resource.kind+" rejects template workspace", func(t *testing.T) {
+			data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(resource.object)
+			require.NoError(t, err)
+			object := &unstructured.Unstructured{Object: data}
+			object.SetAPIVersion(GroupVersion.String())
+			object.SetKind(resource.kind)
+			require.NoError(t, unstructured.SetNestedMap(object.Object, map[string]any{"git": map[string]any{"url": "https://github.com/org/repo.git", "ref": "main"}}, resource.path...))
+			err = cl.Create(t.Context(), object, &ctrlclient.CreateOptions{FieldValidation: metav1.FieldValidationStrict})
+			require.ErrorContains(t, err, "unknown field")
+			require.ErrorContains(t, err, "workspace")
+		})
 	}
 }
