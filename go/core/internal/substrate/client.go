@@ -169,12 +169,13 @@ func (c *Client) RetryActorTemplatePreparation(ctx context.Context, template *at
 		return fmt.Errorf("ActorTemplate is not a failed workspace preparation")
 	}
 	ref := template.GetMetadata()
-	if ref.GetUid() == "" || ref.GetVersion() <= 0 || ref.GetCreateTime() == nil {
+	if ref.GetUid() == "" || ref.GetVersion() <= 0 || ref.GetUpdateTime() == nil {
 		return fmt.Errorf("failed ActorTemplate is missing lifecycle metadata")
 	}
-	// Bound repeated failures without adding durable retry state. Successful
-	// preparations are never refreshed, including when credentials rotate.
-	if time.Since(ref.GetCreateTime().AsTime()) < 30*time.Second {
+	// Substrate updates this timestamp when it records the terminal failure.
+	// Back off from that failure, including when startup itself took minutes.
+	// Keeping the failed attempt during backoff also makes its status observable.
+	if time.Since(ref.GetUpdateTime().AsTime()) < 30*time.Second {
 		return fmt.Errorf("waiting to retry failed workspace preparation")
 	}
 	ctx, cancel := c.callCtx(ctx)

@@ -198,12 +198,12 @@ func TestRetryActorTemplatePreparation(t *testing.T) {
 		}, wantErr: true},
 		{name: "missing UID", change: func(template *ateapipb.ActorTemplate) { template.Metadata.Uid = "" }, wantErr: true},
 		{name: "missing version", change: func(template *ateapipb.ActorTemplate) { template.Metadata.Version = 0 }, wantErr: true},
-		{name: "missing creation time", change: func(template *ateapipb.ActorTemplate) { template.Metadata.CreateTime = nil }, wantErr: true},
-		{name: "retry interval", change: func(template *ateapipb.ActorTemplate) { template.Metadata.CreateTime = timestamppb.Now() }, wantErr: true},
+		{name: "missing failure time", change: func(template *ateapipb.ActorTemplate) { template.Metadata.UpdateTime = nil }, wantErr: true},
+		{name: "recent failure after slow startup", change: func(template *ateapipb.ActorTemplate) { template.Metadata.UpdateTime = timestamppb.Now() }, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			template := &ateapipb.ActorTemplate{
-				Metadata:           &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "template", Uid: "failed-uid", Version: 7, CreateTime: timestamppb.New(time.Now().Add(-time.Minute))},
+				Metadata:           &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "template", Uid: "failed-uid", Version: 7, CreateTime: timestamppb.New(time.Now().Add(-10 * time.Minute)), UpdateTime: timestamppb.New(time.Now().Add(-time.Minute))},
 				GoldenEgressPolicy: &ateapipb.EgressPolicyTemplate{},
 				Status:             &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "checkout failed"}},
 			}

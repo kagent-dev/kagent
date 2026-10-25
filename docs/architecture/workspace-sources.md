@@ -57,8 +57,8 @@ pinned revision and saved files.
 Failed workspace preparations retry automatically, so transient Git failures and
 corrected credentials can recover without changing the source specification.
 Kagent conditionally removes only failed, unpublished preparations through
-Substrate's cleanup workflow, with at least 30 seconds between preparation
-attempts. Published snapshots are retained when credentials rotate.
+Substrate's cleanup workflow, waiting at least 30 seconds after the failure
+before retrying. Published snapshots are retained when credentials rotate.
 The checkout timeout is shorter than the wakeup probe, which is shorter than
 Substrate's startup RPC deadline. This lets Substrate record a startup failure
 before transport cancellation would leave the attempt pending.
