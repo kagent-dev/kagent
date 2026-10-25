@@ -73,14 +73,17 @@ func fanInGo() (agent.Agent, error) {
 	merge := workflow.NewFunctionNode("combine", func(_ agent.Context, in map[string]any) (string, error) {
 		return combine(in), nil
 	}, workflow.NodeConfig{})
-	return workflowagent.New(workflowagent.Config{
-		Name: "fan_in",
-		Edges: workflow.NewEdgeBuilder().
-			AddFanOut(workflow.Start, shout, whisper, mirror).
-			AddFanIn(gather, shout, whisper, mirror).
-			Add(gather, merge).
-			Build(),
-	})
+	// workflowagent.Config takes no engine options, so cap the graph with
+	// workflow.New and run it from a plain agent.
+	wf, err := workflow.New("fan_in", workflow.NewEdgeBuilder().
+		AddFanOut(workflow.Start, shout, whisper, mirror).
+		AddFanIn(gather, shout, whisper, mirror).
+		Add(gather, merge).
+		Build(), workflow.WithMaxConcurrency(2))
+	if err != nil {
+		return nil, err
+	}
+	return agent.New(agent.Config{Name: "fan_in", Run: wf.Run})
 }
 
 func mapReduceGo() (agent.Agent, error) {

@@ -224,6 +224,9 @@ func (b *builder) workflowAgent(spec *AgentSpec) (agent.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	if spec.MaxConcurrency > 0 {
+		return cappedWorkflowAgent(spec.Name, spec.Description, subs, edges, spec.MaxConcurrency)
+	}
 	return workflowagent.New(workflowagent.Config{
 		Name:        spec.Name,
 		Description: spec.Description,

@@ -112,6 +112,11 @@ func TestValidateReportsFieldPaths(t *testing.T) {
 		{"max_iterations only belongs to LoopAgent", docHeader +
 			"  - { name: w, agent_class: LlmAgent, model: m, instruction: i, max_iterations: 3 }\n",
 			[]string{"agents[0].max_iterations: not allowed on agent_class LlmAgent"}},
+		{"negative workflow max_concurrency", wf("[{ id: a, type: function, function: f }]", "[{ from: START, to: a }]") + "    max_concurrency: -1\n",
+			[]string{"agents[0].max_concurrency: must not be negative"}},
+		{"max_concurrency only belongs to Workflow", docHeader +
+			"  - { name: w, agent_class: LlmAgent, model: m, instruction: i, max_concurrency: 2 }\n",
+			[]string{"agents[0].max_concurrency: not allowed on agent_class LlmAgent"}},
 		{"unknown agent class lists the known ones", docHeader + "  - { name: a, agent_class: Graph }\n",
 			[]string{"LlmAgent, LoopAgent, ParallelAgent, SequentialAgent, Workflow"}},
 		{"bad include_contents", docHeader + "  - { name: a, agent_class: LlmAgent, model: m, instruction: i, include_contents: all }\n",

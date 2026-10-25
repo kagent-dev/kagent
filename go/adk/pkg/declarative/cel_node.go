@@ -84,6 +84,9 @@ func celNode(n *NodeSpec, in, out *jsonschema.Schema, cfg workflow.NodeConfig, r
 		if err := p.evalVars(vars); err != nil {
 			return nil, err
 		}
+		// The node runs concurrently across sessions and branches, so every
+		// run needs its own err.
+		var err error
 		result := input
 		if p.output != nil {
 			if result, err = p.output.eval(vars); err != nil {

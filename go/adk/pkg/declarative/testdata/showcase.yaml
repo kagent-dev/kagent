@@ -16,6 +16,8 @@ agents:
     agent_class: Workflow
     description: Multi-agent orchestrator with fan-out/join, string routes and every node type
     entry: branch_a
+    # Graph-wide cap: at most two nodes run at once across the fan-out.
+    max_concurrency: 2
     sub_agents: [specialist_helper]
     nodes:
       # Fan-out branches and their join.
