@@ -24,6 +24,7 @@ import (
 	processconfig "github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 const (
@@ -64,6 +65,9 @@ func run(logLevel, host, port, configDir string) error {
 		return err
 	}
 	slog.SetDefault(logger)
+	if err := workspace.Initialize(logging.IntoContext(context.Background(), logger), "/data", compiled.Workspace); err != nil {
+		return fmt.Errorf("initialize repository workspace: %w", err)
+	}
 	host = cmp.Or(host, runtime.Host)
 	if port == "" && runtime.Port != nil {
 		port = fmt.Sprint(runtime.GetPort())

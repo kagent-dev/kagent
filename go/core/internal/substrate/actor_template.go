@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -16,9 +17,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 const (
@@ -29,6 +32,8 @@ const (
 	durableDataMount            = "/data"
 	// Matches EnvVar.value's maxLength in Substrate's ateapi.proto.
 	maxEnvironmentValueRunes = 32768
+	// Leave startup time after the initializer's bounded checkout.
+	workspaceWakeupTimeoutSeconds = int32((workspace.StartupTimeout + time.Minute) / time.Second)
 )
 
 const egressTrustVolume = "egress-trust"
@@ -139,6 +144,19 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			Name: name, MountPath: image.MountPath(),
 		})
 	}
+	if spec.GoldenAccess != nil {
+		// Startup may also materialize compiled plugins or connect to MCP tools.
+		// Only pinned inputs belong here; live egressPolicyRefs never enter a golden.
+		access, err := egress.MergeAccess(egress.Access{Destinations: spec.EgressDestinations, Credentials: spec.Credentials, TokenPassthroughTargets: spec.TokenPassthroughTargets}, *spec.GoldenAccess)
+		if err != nil {
+			return nil, fmt.Errorf("combine preparation access: %w", err)
+		}
+		template.GoldenEgressPolicy, err = goldenEgressPolicy(spec.Namespace, access)
+		if err != nil {
+			return nil, fmt.Errorf("compile workspace preparation policy: %w", err)
+		}
+		template.Containers[0].WakeupProbe.TimeoutSeconds = workspaceWakeupTimeoutSeconds
+	}
 	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
@@ -160,11 +178,12 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector: template.GetWorkerSelector(),
-		Containers:     template.GetContainers(),
-		Volumes:        template.GetVolumes(),
-		SnapshotConfig: template.GetSnapshotConfig(),
-		Resources:      template.GetResources(),
+		WorkerSelector:     template.GetWorkerSelector(),
+		Containers:         template.GetContainers(),
+		Volumes:            template.GetVolumes(),
+		SnapshotConfig:     template.GetSnapshotConfig(),
+		Resources:          template.GetResources(),
+		GoldenEgressPolicy: template.GetGoldenEgressPolicy(),
 	}
 }
 

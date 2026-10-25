@@ -8,6 +8,11 @@ fixtures. The test checks runtime readiness, effective-image status, and that
 the controller leaves the user spec unchanged.
 
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
+`TestSessionWorkspaceSource` and `TestSandboxWorkspaceSource` additionally need
+Substrate v0.7.0-alpha1 with `GoldenEgressPolicy` enabled by the installer, Git in
+the runtime/tools image, and outbound HTTPS to GitHub during preparation. They
+use a pinned repository commit and check first-turn files, independent instances,
+suspend/resume, explicit refresh, and absence of the source grant at runtime.
 Set `config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference
 unchanged to Substrate.

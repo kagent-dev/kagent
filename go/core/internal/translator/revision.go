@@ -72,6 +72,9 @@ type Revision struct {
 	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
+	// GoldenAccess grants repository access only during preparation. It is
+	// immutable and never contributes to an instance's live egress policy.
+	GoldenAccess *egress.Access
 }
 
 // Equals compares the Agent Card's contents without inspecting protobuf caches.
@@ -113,6 +116,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		TokenPassthroughTargets []egresspolicy.GatewayTarget `json:"tokenPassthroughTargets,omitempty"`
 		EgressDestinations      []string                     `json:"egressDestinations"`
 		SandboxClass            atev1.SandboxClass           `json:"sandboxClass"`
+		GoldenAccess            *egress.Access               `json:"goldenAccess,omitempty"`
 
 		// Placement now matches the pool's namespace as well as its name.
 		// Hash it explicitly so existing immutable templates do not conflict after upgrades.
@@ -125,6 +129,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
 		TokenPassthroughTargets: r.TokenPassthroughTargets, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
+		GoldenAccess: r.GoldenAccess,
 	})
 	if err != nil {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision inputs: %w", err)

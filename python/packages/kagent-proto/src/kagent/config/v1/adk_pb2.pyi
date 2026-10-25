@@ -3,6 +3,7 @@ import datetime
 from buf.validate import validate_pb2 as _validate_pb2
 from google.protobuf import duration_pb2 as _duration_pb2
 from kagent.config.v1 import config_pb2 as _config_pb2
+from kagent.config.v1 import workspace_pb2 as _workspace_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -12,12 +13,14 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class ADKConfig(_message.Message):
-    __slots__ = ("runtime", "agent")
+    __slots__ = ("runtime", "agent", "workspace")
     RUNTIME_FIELD_NUMBER: _ClassVar[int]
     AGENT_FIELD_NUMBER: _ClassVar[int]
+    WORKSPACE_FIELD_NUMBER: _ClassVar[int]
     runtime: ADKRuntimeConfig
     agent: ADKAgentConfig
-    def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., agent: _Optional[_Union[ADKAgentConfig, _Mapping]] = ...) -> None: ...
+    workspace: _workspace_pb2.GitWorkspaceConfig
+    def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., agent: _Optional[_Union[ADKAgentConfig, _Mapping]] = ..., workspace: _Optional[_Union[_workspace_pb2.GitWorkspaceConfig, _Mapping]] = ...) -> None: ...
 
 class ADKAgentConfig(_message.Message):
     __slots__ = ("name", "model", "description", "instruction", "http_tools", "sse_tools", "stdio_tools", "remote_agents", "stream", "memory", "network", "agent_plugins", "context_config", "share_tools", "session_db_url", "skills_directory", "sub_agents", "output")

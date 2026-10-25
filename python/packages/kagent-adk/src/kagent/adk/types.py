@@ -258,6 +258,8 @@ def _build_tls_httpx_client_factory(
 def parse_config(value: dict | str) -> Config:
     config = Parse(value, Config()) if isinstance(value, str) else ParseDict(value, Config())
     validate(config)
+    if config.HasField("workspace"):
+        raise ValueError("Repository workspace sources require the Go ADK, Codex, or Claude runtime")
     return config
 
 

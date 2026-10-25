@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	otel "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 const approvalMCPServerName = "kagent_hitl"
@@ -46,6 +47,12 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("workspace, durable, and ephemeral directories must be absolute paths")
 	}
 	claudeDir := filepath.Join(input.DurableDir, "claude")
+	if cfg.Workspace != nil && filepath.Clean(input.Workspace) != workspace.Path(input.DurableDir) {
+		return nil, fmt.Errorf("repository workspace must be under the durable directory")
+	}
+	if err := workspace.Initialize(ctx, input.DurableDir, cfg.Workspace); err != nil {
+		return nil, err
+	}
 	var skillRoot string
 	if cfg.SkillResources != nil {
 		skillRoot = filepath.Join(input.DurableDir, "generated", "claude")

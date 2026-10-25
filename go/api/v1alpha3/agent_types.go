@@ -44,6 +44,11 @@ type Agent struct {
 // are local to the Agent's namespace, including references nested in inline
 // template specs.
 type AgentSpec struct {
+	// Workspace replaces the root template's workspace. Omit to inherit it;
+	// use an empty object to select an empty initial workspace.
+	// +optional
+	Workspace *WorkspaceSpec `json:"workspace,omitempty"`
+
 	// Template selects the portable behavior this Agent exposes.
 	// +required
 	Template AgentTemplateSource `json:"template"`

@@ -167,7 +167,17 @@ func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name string)
 }
 
 func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
-	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, nil)
+	template, err := c.GetActorTemplate(ctx, tmplNS, tmplName)
+	if err != nil {
+		return nil, fmt.Errorf("get prepared ActorTemplate: %w", err)
+	}
+	golden := template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag()
+	if golden.GetAtespace() == "" || golden.GetName() == "" {
+		return nil, fmt.Errorf("ActorTemplate %s/%s has no prepared golden snapshot", tmplNS, tmplName)
+	}
+	// Pin the source explicitly. Substrate otherwise permits a cold boot when
+	// the golden is absent, which would lose the prepared workspace contract.
+	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, golden)
 }
 
 func (c *Client) CreateActorFromTag(ctx context.Context, atespace, actorID, tmplNS, tmplName, tagAtespace, tagName string) (*ateapipb.Actor, error) {

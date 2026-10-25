@@ -27,6 +27,23 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		return nil, fmt.Errorf("invalid runtime control-plane origin: %w", err)
 	}
 	runtimeOrigin := u.String()
+	return originEgressPolicy(atespace, access, runtimeOrigin)
+}
+
+// goldenEgressPolicy has no Session identity or live runtime grants.
+func goldenEgressPolicy(atespace string, access egress.Access) (*ateapipb.EgressPolicyTemplate, error) {
+	canonical, err := egress.CanonicalAccess(access.Destinations, access.Credentials, nil)
+	if err != nil {
+		return nil, err
+	}
+	policy, err := originEgressPolicy(atespace, canonical, "")
+	if err != nil {
+		return nil, err
+	}
+	return &ateapipb.EgressPolicyTemplate{Rules: policy.Rules}, nil
+}
+
+func originEgressPolicy(atespace string, access egress.Access, runtimeOrigin string) (*ateapipb.EgressPolicy, error) {
 	effects := map[string]*ateapipb.HttpRuleEffects{}
 	for _, binding := range access.Credentials {
 		if binding.Origin == runtimeOrigin && binding.Header == "authorization" {

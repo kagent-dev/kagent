@@ -130,6 +130,8 @@ func (f *createAtespaceFake) GetAtespace(_ context.Context, in *ateapipb.GetAtes
 type createActorFake struct {
 	ateapipb.ControlClient
 	actor *ateapipb.Actor
+	tag   *ateapipb.ObjectRef
+	err   error
 }
 
 type createActorTemplateFake struct {
@@ -170,12 +172,38 @@ func (f *createActorFake) CreateActor(_ context.Context, in *ateapipb.CreateActo
 	return f.actor, nil
 }
 
+func (f *createActorFake) GetActorTemplate(_ context.Context, _ *ateapipb.GetActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
+	return &ateapipb.ActorTemplate{Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: f.tag}}}, f.err
+}
+
 func TestCreateActorUsesStableTemplateRef(t *testing.T) {
-	fake := &createActorFake{}
+	fake := &createActorFake{tag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "prepared"}}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
 	_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
+	require.Equal(t, fake.tag, fake.actor.GetSourceTag())
+}
+
+func TestCreateActorRequiresPreparedGolden(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{"missing golden", nil},
+		{"deleted template", status.Error(codes.NotFound, "deleted")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &createActorFake{err: test.err}
+			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+			_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
+			require.Error(t, err)
+			require.Nil(t, fake.actor, "never request a cold boot")
+			_, err = client.CreateActorFromTag(t.Context(), "team-a", "fork", "team-a", "template", "snapshots", "checkpoint")
+			require.NoError(t, err)
+			require.Equal(t, "checkpoint", fake.actor.GetSourceTag().GetName(), "forks use their saved files")
+		})
+	}
 }
 
 func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {

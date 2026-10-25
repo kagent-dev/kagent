@@ -487,6 +487,7 @@ A database that kagent install did not deploy, such as one used with
 func substrateInstallValues(namespace string) string {
 	return fmt.Sprintf(`preview:
   - PerTemplateSnapshotLocation
+  - GoldenEgressPolicy
 ateApi:
   authorization:
     bootstrapOwners:

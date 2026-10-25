@@ -312,6 +312,7 @@ func TestSubstrateInstallValues(t *testing.T) {
 			}
 			require.NoError(t, yaml.Unmarshal([]byte(substrateInstallValues(namespace)), &values))
 			require.Contains(t, values.Preview, "PerTemplateSnapshotLocation")
+			require.Contains(t, values.Preview, "GoldenEgressPolicy")
 			require.Equal(t, []string{"spiffe://cluster.local/ns/" + namespace + "/sa/kagent-controller"}, values.AteAPI.Authorization.BootstrapOwners)
 			require.Len(t, values.CredentialProvider.NamespacePolicies, 1)
 			require.Equal(t, namespace, values.CredentialProvider.NamespacePolicies[0].Atespace)

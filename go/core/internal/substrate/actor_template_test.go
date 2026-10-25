@@ -160,6 +160,9 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	if !ActorTemplateSpecEqual(left, right) {
 		t.Fatal("server-owned fields changed the immutable spec comparison")
 	}
+	right.GoldenEgressPolicy = &ateapipb.EgressPolicyTemplate{Rules: []*ateapipb.EgressRule{{Https: &ateapipb.HttpsRule{Hostnames: []string{"github.com"}}}}}
+	require.False(t, ActorTemplateSpecEqual(left, right), "preparation access is immutable")
+	right.GoldenEgressPolicy = nil
 	right.Containers[0].Image = "agent:v2"
 	if ActorTemplateSpecEqual(left, right) {
 		t.Fatal("different container image was accepted")

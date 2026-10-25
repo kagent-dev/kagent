@@ -151,6 +151,70 @@ spec:
                 required:
                 - image
                 type: object
+              workspace:
+                description: |-
+                  Workspace selects the repository captured during preparation. The
+                  workload image must include Git when a Git source is configured.
+                properties:
+                  git:
+                    description: Git initializes /data/workspace before golden readiness.
+                    properties:
+                      credentialRef:
+                        description: |-
+                          CredentialRef selects a same-namespace Secret key containing the complete
+                          Git HTTPS Authorization value. Only golden preparation receives this grant.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                        x-kubernetes-validations:
+                        - message: credentialRef requires a Secret name and cannot
+                            be optional
+                          rule: has(self.name) && self.name != '' && (!has(self.optional)
+                            || !self.optional)
+                      ref:
+                        description: |-
+                          Ref selects a branch, tag, or full commit when preparing a new runtime.
+                          Use a full commit for reproducibility across runtime revisions.
+                        maxLength: 256
+                        minLength: 1
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9._/-]*$
+                        type: string
+                      refreshToken:
+                        description: |-
+                          RefreshToken requests a new prepared checkout when changed. It is not
+                          passed to Git. Existing instances retain their saved workspace.
+                        maxLength: 128
+                        type: string
+                      url:
+                        description: URL is an HTTPS repository URL without embedded
+                          credentials or a query.
+                        maxLength: 2048
+                        pattern: ^https://[^[:space:]@?#]+$
+                        type: string
+                    required:
+                    - ref
+                    - url
+                    type: object
+                type: object
             required:
             - substrate
             - workload
