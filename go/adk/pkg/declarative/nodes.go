@@ -310,11 +310,13 @@ func nodeConfig(n *NodeSpec) (workflow.NodeConfig, error) {
 	return cfg, nil
 }
 
-// retryPredicate adapts retry.when to ADK's ShouldRetry. An expression that
-// fails to evaluate does not retry: the original error surfaces instead.
+// retryPredicate adapts retry.when to ADK's ShouldRetry. Like ADK's default,
+// an input validation error is never retried because the same input fails
+// again. An expression that fails to evaluate does not retry: the original
+// error surfaces instead.
 func retryPredicate(when *expression) func(error) bool {
 	return func(err error) bool {
-		if err == nil {
+		if err == nil || errors.Is(err, workflow.ErrInputValidation) {
 			return false
 		}
 		retry, evalErr := when.evalBool(map[string]any{celError: errorVars(err)})

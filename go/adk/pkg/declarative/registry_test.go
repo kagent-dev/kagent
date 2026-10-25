@@ -2,8 +2,10 @@ package declarative
 
 import (
 	"context"
+	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/agent"
 	adkmodel "google.golang.org/adk/v2/model"
@@ -78,7 +80,8 @@ func TestRegisterNodeTypeRules(t *testing.T) {
 
 func TestDynamicEnvBudget(t *testing.T) {
 	child := workflow.NewFunctionNode("c", func(agent.Context, any) (string, error) { return "ok", nil }, workflow.NodeConfig{})
-	bounded := &DynamicEnv{MaxIters: 1, runs: 1}
+	bounded := &DynamicEnv{MaxIters: 1}
+	bounded.runs.Store(1)
 	_, err := bounded.Run(child, nil)
 	require.ErrorIs(t, err, ErrIterationBudget)
 	require.Equal(t, 1, bounded.Runs(), "a refused run is not counted")
@@ -167,4 +170,19 @@ agents:
 func TestResultHelpers(t *testing.T) {
 	require.Equal(t, Result{Output: 1}, Output(1))
 	require.Equal(t, Result{Output: 1, Routes: []string{"a", "b"}}, Route(1, "a", "b"))
+}
+
+func TestDynamicEnvBudgetHoldsUnderConcurrentRuns(t *testing.T) {
+	child := workflow.NewFunctionNode("c", func(agent.Context, any) (string, error) { return "ok", nil }, workflow.NodeConfig{})
+	env := &DynamicEnv{MaxIters: 2}
+	env.runs.Store(2)
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			_, err := env.Run(child, nil)
+			assert.ErrorIs(t, err, ErrIterationBudget)
+		})
+	}
+	wg.Wait()
+	require.Equal(t, 2, env.Runs(), "refused runs release their claim")
 }

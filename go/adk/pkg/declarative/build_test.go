@@ -190,6 +190,8 @@ func TestRetryWhenSelectsRetriableErrors(t *testing.T) {
 			[]error{errors.New("invalid customer id")}, 1, "invalid customer id"},
 		{"timeouts are classified", "error.timeout",
 			[]error{fmt.Errorf("call: %w", context.DeadlineExceeded)}, 2, ""},
+		{"input validation errors are never retried", "true",
+			[]error{fmt.Errorf("bad input: %w", workflow.ErrInputValidation)}, 1, "bad input"},
 		{"a failing expression does not retry", "error.missing == 'x'",
 			[]error{errors.New("boom")}, 1, "boom"},
 	} {
