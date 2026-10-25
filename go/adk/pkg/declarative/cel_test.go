@@ -1,6 +1,8 @@
 package declarative
 
 import (
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -46,6 +48,44 @@ agents:
 		svc, id := newSession(t)
 		reply := replyText(run(t, sys.Root(), genai.NewContentFromText(in, genai.RoleUser), svc, id))
 		require.Equal(t, want, reply, in)
+	}
+}
+
+// TestCELNodeRunsConcurrently runs one built cel node from many sessions at
+// once. Each run must see only its own evaluation error; run it with -race.
+func TestCELNodeRunsConcurrently(t *testing.T) {
+	sys := buildDoc(t, NewRegistry(), head+`
+agents:
+  - name: double
+    agent_class: Workflow
+    nodes:
+      - { id: double, type: cel, output: "string(int(input) * 2)" }
+    edges:
+      - { from: START, to: double }
+`)
+	const runs = 32
+	errs := make([]error, runs)
+	replies := make([]string, runs)
+	var wg sync.WaitGroup
+	for i := range runs {
+		wg.Go(func() {
+			input := strconv.Itoa(i)
+			if i%2 == 1 {
+				input = "not a number"
+			}
+			svc, id := newSession(t)
+			events, err := tryRun(t, sys, svc, id, input)
+			errs[i], replies[i] = err, replyText(events)
+		})
+	}
+	wg.Wait()
+	for i := range runs {
+		if i%2 == 1 {
+			require.Error(t, errs[i], "run %d", i)
+			continue
+		}
+		require.NoError(t, errs[i], "run %d", i)
+		require.Equal(t, strconv.Itoa(i*2), replies[i], "run %d", i)
 	}
 }
 

@@ -185,6 +185,14 @@ func TestIsolationIsRejectedWhereItCannotWork(t *testing.T) {
 				Params: &configv1.ADKHTTPConnectionParams{Url: "http://tools.example.com/mcp"}, RequireApproval: true,
 			}}
 		}, `isolated subagent "reviewer" cannot pause for approval`},
+		{"approval on a shared child of an isolated subagent", func(c *configv1.ADKConfig) {
+			c.Agent.SubAgents[0].SubAgents = []*configv1.ADKAgentConfig{{
+				Name: "checker", Description: "checks work", Model: openAIModel("http://127.0.0.1:1", "child-model"), Instruction: "check",
+				HttpTools: []*configv1.ADKHTTPMCPServerConfig{{
+					Params: &configv1.ADKHTTPConnectionParams{Url: "http://tools.example.com/mcp"}, RequireApproval: true,
+				}},
+			}}
+		}, `isolated subagent "checker" cannot pause for approval`},
 		{"STS token exchange", func(c *configv1.ADKConfig) {
 			c.Runtime = &configv1.ADKRuntimeConfig{TokenPropagation: &configv1.TokenPropagationConfig{
 				Enabled: true, StsWellKnownUri: new("https://sts.example.com/.well-known/oauth-authorization-server"),

@@ -159,7 +159,8 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 		if isolated && runtime.GetTokenPropagation().GetStsWellKnownUri() != "" {
 			return nil, fmt.Errorf("subagent %q is isolated, which cannot be combined with STS token exchange: the exchanged token is cached per session", childConfig.Name)
 		}
-		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, runtime, isolated)
+		// A shared child of a standalone agent runs in that agent's session too.
+		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, runtime, standalone || isolated)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create sub-agent %q: %w", childConfig.Name, err)
 		}
