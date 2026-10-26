@@ -1,6 +1,6 @@
 ### STAGE 1: Dependencies and Build
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-ARG TOOLS_NODE_VERSION=24.22.1
+ARG TOOLS_NODE_VERSION=24
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@sha256:bc76fa39ddd1482dd56a761b3331e03ba8f0e093ebb525618a56d014b480da88 AS deps
 ENV LANG=C.UTF-8
@@ -10,7 +10,7 @@ ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip "ca-certificates>=20260909-r3" nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" node-gyp \
+    && apk add --no-cache curl bash openssl unzip "ca-certificates>=20260909-r3" nginx supervisor "nodejs-${TOOLS_NODE_VERSION}>=24.22.1" node-gyp \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1
@@ -49,7 +49,7 @@ ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip "ca-certificates>=20260909-r3" nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" \
+    && apk add --no-cache curl bash openssl unzip "ca-certificates>=20260909-r3" nginx supervisor "nodejs-${TOOLS_NODE_VERSION}>=24.22.1" \
     && update-ca-certificates
 
 RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp  \
