@@ -40,7 +40,7 @@ func newRecordingUpstream(t *testing.T) (*httptest.Server, func() []recordedRequ
 
 func newForwarder(t *testing.T, servers map[string]MCPServer) *Forwarder {
 	t.Helper()
-	forwarder, err := New(servers, 1<<20)
+	forwarder, err := New(Routes{MCPServers: servers}, 1<<20)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = forwarder.Close() })
 	return forwarder
@@ -118,7 +118,7 @@ func TestForwarderRejectsUnknownServersAndInputs(t *testing.T) {
 		"bad scheme":    {"tools": {URL: "ftp://mcp.example.com"}},
 		"name with '/'": {"a/b": {URL: upstream.URL}},
 	} {
-		_, err := New(servers, 1<<20)
+		_, err := New(Routes{MCPServers: servers}, 1<<20)
 		require.Error(t, err, name)
 	}
 }

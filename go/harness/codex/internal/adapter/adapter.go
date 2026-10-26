@@ -2,6 +2,7 @@
 package adapter
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -23,6 +24,10 @@ import (
 
 const (
 	codexHomeEnv = "CODEX_HOME"
+	// openAIAPIKeyEnv is the env_key of the OpenAI provider.
+	openAIAPIKeyEnv = "OPENAI_API_KEY"
+	// openAIAPIURL is the endpoint Codex calls without a provider base_url.
+	openAIAPIURL = "https://api.openai.com/v1"
 	// forwarderAuthorizationEnv carries the loopback token to the fronted MCP
 	// servers' env_http_headers, so it never enters the durable config.toml.
 	// The compiler reserves its prefix from Harness env.
@@ -90,12 +95,9 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	environment := nativeEnvironment(input.Environment, codexHome, nativeDefaults)
 	cfg.Telemetry = effectiveTelemetry(cfg.Telemetry, environment)
 	cfg.Telemetry.CaptureContent = nativeDefaults.WithEnvironment(input.Environment).CaptureContent
-	credentialForwarder, err := frontMCPServers(&cfg, environment)
+	credentialForwarder, environment, err := routeThroughForwarder(&cfg, environment)
 	if err != nil {
 		return nil, err
-	}
-	if credentialForwarder != nil {
-		environment = setEnvironment(environment, forwarderAuthorizationEnv, credentialForwarder.Authorization())
 	}
 	closeForwarder := func() {
 		if credentialForwarder != nil {
@@ -129,34 +131,45 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}), nil
 }
 
-// frontMCPServers starts the credential forwarder for the MCP servers that
-// receive the caller's credential (every server when token propagation is on,
-// and a token passthrough server always) and rewrites them to their loopback
-// endpoints. Codex and the deferred tool caller then reach them with the
-// loopback token only, so config.toml carries no upstream URL, no static
-// header and no credential for them. It returns nil when no server is fronted.
-func frontMCPServers(cfg *config.Config, environment []string) (*forwarder.Forwarder, error) {
-	upstream := make(map[string]forwarder.MCPServer)
+// routeThroughForwarder starts the credential forwarder for the upstreams that
+// receive the caller's credential and points Codex at their loopback routes:
+// every MCP server when token propagation is on, a token passthrough MCP
+// server always, and the OpenAI provider with tokenPassthrough. Codex and the
+// deferred tool caller then reach them with the loopback token only, so
+// config.toml carries no upstream URL, no static header and no credential for
+// them. It returns a nil forwarder when nothing is routed.
+func routeThroughForwarder(cfg *config.Config, environment []string) (*forwarder.Forwarder, []string, error) {
+	routes := forwarder.Routes{MCPServers: make(map[string]forwarder.MCPServer)}
 	for name, server := range cfg.MCPServers {
 		if !cfg.PropagateToken && !server.TokenPassthrough {
 			continue
 		}
 		headers, err := forwarder.ResolveHeaders(server.Headers, environment)
 		if err != nil {
-			return nil, fmt.Errorf("Codex MCP server %q: %w", name, err)
+			return nil, nil, fmt.Errorf("Codex MCP server %q: %w", name, err)
 		}
-		upstream[name] = forwarder.MCPServer{URL: server.URL, Headers: headers, TokenPassthrough: server.TokenPassthrough}
+		routes.MCPServers[name] = forwarder.MCPServer{URL: server.URL, Headers: headers, TokenPassthrough: server.TokenPassthrough}
 	}
-	if len(upstream) == 0 {
-		return nil, nil
+	if cfg.Provider.TokenPassthrough {
+		routes.Model = &forwarder.Model{URL: cmp.Or(cfg.Provider.BaseURL, openAIAPIURL), Header: "Authorization", Prefix: "Bearer "}
 	}
-	credentialForwarder, err := forwarder.New(upstream, cfg.MaxFrameBytes)
+	if len(routes.MCPServers) == 0 && routes.Model == nil {
+		return nil, environment, nil
+	}
+	credentialForwarder, err := forwarder.New(routes, cfg.MaxFrameBytes)
 	if err != nil {
-		return nil, fmt.Errorf("start Codex credential forwarder: %w", err)
+		return nil, nil, fmt.Errorf("start Codex credential forwarder: %w", err)
+	}
+	if len(routes.MCPServers) != 0 {
+		environment = setEnvironment(environment, forwarderAuthorizationEnv, credentialForwarder.Authorization())
+	}
+	if routes.Model != nil {
+		cfg.Provider.BaseURL = credentialForwarder.ModelURL()
+		environment = setEnvironment(environment, openAIAPIKeyEnv, credentialForwarder.Token())
 	}
 	fronted := make(map[string]config.MCPServer, len(cfg.MCPServers))
 	for name, server := range cfg.MCPServers {
-		if _, ok := upstream[name]; ok {
+		if _, ok := routes.MCPServers[name]; ok {
 			server = config.MCPServer{
 				URL: credentialForwarder.MCPURL(name), Headers: map[string]string{"Authorization": "${" + forwarderAuthorizationEnv + "}"},
 				EnabledTools: server.EnabledTools, RequireApproval: server.RequireApproval,
@@ -165,7 +178,7 @@ func frontMCPServers(cfg *config.Config, environment []string) (*forwarder.Forwa
 		fronted[name] = server
 	}
 	cfg.MCPServers = fronted
-	return credentialForwarder, nil
+	return credentialForwarder, environment, nil
 }
 
 type nativeConfig struct {
@@ -270,7 +283,7 @@ func renderConfig(cfg config.Config, codexHome string, disableRetries bool) ([]b
 	}
 	if cfg.Provider.Name == "openai" {
 		provider := nativeModelProvider{
-			Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
+			Name: "OpenAI", WireAPI: "responses", EnvKey: openAIAPIKeyEnv, BaseURL: cfg.Provider.BaseURL,
 		}
 		if disableRetries {
 			provider.RequestMaxRetries = new(uint(0))

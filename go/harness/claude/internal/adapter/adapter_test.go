@@ -440,3 +440,42 @@ func TestNewRefusesAFrontedServerWithAnUnsetHeaderVariable(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "KAGENT_CLAUDE_MCP_CREDENTIAL_MISSING")
 }
+
+func TestRouteThroughForwarderPointsClaudeAtTheModelRoute(t *testing.T) {
+	var gotPath, gotAPIKey string
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		gotPath, gotAPIKey = request.URL.Path, request.Header.Get("X-Api-Key")
+	}))
+	t.Cleanup(upstream.Close)
+	cfg := config.Production("claude-test", "help")
+	cfg.ModelTokenPassthrough = true
+	credentialForwarder, environment, err := routeThroughForwarder(&cfg, []string{"PATH=/bin", config.AnthropicBaseURLEnvName + "=" + upstream.URL + "/gateway"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = credentialForwarder.Close() })
+	baseURL, apiKey := lookupEnvironment(environment, config.AnthropicBaseURLEnvName), lookupEnvironment(environment, config.AnthropicAPIKeyEnvName)
+	require.Equal(t, credentialForwarder.ModelURL(), baseURL)
+	require.Equal(t, credentialForwarder.Token(), apiKey)
+	require.Empty(t, cfg.MCPServers, "no MCP server is fronted for the model route")
+
+	defer credentialForwarder.Bind("Bearer person-token")()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, baseURL+"/v1/messages", strings.NewReader("{}"))
+	require.NoError(t, err)
+	request.Header.Set("X-Api-Key", apiKey)
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, "/gateway/v1/messages", gotPath)
+	require.Equal(t, "person-token", gotAPIKey)
+}
+
+func TestRouteThroughForwarderStartsNothingWithoutCallerCredentials(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	cfg.MCPServers = map[string]config.MCPServer{"tools": {Type: "http", URL: "https://tools.example.com/mcp"}}
+	environment := []string{"PATH=/bin", config.AnthropicAPIKeyEnvName + "=kagent-credential-injected"}
+	credentialForwarder, got, err := routeThroughForwarder(&cfg, environment)
+	require.NoError(t, err)
+	require.Nil(t, credentialForwarder)
+	require.Equal(t, environment, got)
+	require.Equal(t, "https://tools.example.com/mcp", cfg.MCPServers["tools"].URL)
+}

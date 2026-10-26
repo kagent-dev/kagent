@@ -371,3 +371,37 @@ func TestCompilePropagatesTheCallerTokenFromRuntimeDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileModelTokenPassthrough(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", TokenPassthrough: true,
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"},
+	}
+	input, reader := testInput(t, model, nil)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := codexconfig.Parse(revision.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (codexconfig.Provider{Name: "openai", BaseURL: "https://gateway.example.com/v1", TokenPassthrough: true}); config.Provider != want {
+		t.Fatalf("provider = %#v, want %#v", config.Provider, want)
+	}
+	for _, variable := range revision.Environment {
+		if variable.Name == openAIAPIKeyEnv {
+			t.Fatalf("a passthrough model compiled an API key: %#v", variable)
+		}
+	}
+	if len(revision.TokenPassthroughTargets) != 1 || revision.TokenPassthroughTargets[0].Header != "authorization" || revision.TokenPassthroughTargets[0].Prefix != "Bearer " {
+		t.Fatalf("token passthrough targets = %#v, want the OpenAI bearer header", revision.TokenPassthroughTargets)
+	}
+
+	model.Provider, model.OpenAI, model.Bedrock = v1alpha3.ModelProviderBedrock, nil, &v1alpha3.BedrockConfig{Region: "us-east-1"}
+	input, reader = testInput(t, model, nil)
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "tokenPassthrough for the OpenAI provider only") {
+		t.Fatalf("Bedrock passthrough Compile() error = %v", err)
+	}
+}

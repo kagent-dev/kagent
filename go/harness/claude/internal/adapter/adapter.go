@@ -21,7 +21,11 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-const approvalMCPServerName = "kagent_hitl"
+const (
+	approvalMCPServerName = "kagent_hitl"
+	// anthropicAPIURL is the endpoint Claude Code calls without ANTHROPIC_BASE_URL.
+	anthropicAPIURL = "https://api.anthropic.com"
+)
 
 // Input contains compiler output and Actor-owned locations used to construct
 // the Claude driver.
@@ -100,7 +104,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
 		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}
-	credentialForwarder, err := frontMCPServers(&cfg, environment)
+	credentialForwarder, environment, err := routeThroughForwarder(&cfg, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -162,35 +166,47 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}), nil
 }
 
-// frontMCPServers starts the credential forwarder for the MCP servers that
-// receive the caller's credential (every streamable HTTP server when token
-// propagation is on, and a token passthrough server always) and rewrites them
-// to their loopback endpoints, so the written configuration carries no
-// upstream URL, no static header and no credential for them. An SSE server is
-// not fronted: its upstream announces the message endpoint. It returns nil
-// when no server is fronted.
-func frontMCPServers(cfg *config.Config, environment []string) (*forwarder.Forwarder, error) {
-	upstream := make(map[string]forwarder.MCPServer)
+// routeThroughForwarder starts the credential forwarder for the upstreams that
+// receive the caller's credential and points Claude at their loopback routes:
+// every streamable HTTP MCP server when token propagation is on, a token
+// passthrough MCP server always, and the model with tokenPassthrough. The
+// written configuration and Claude's environment then carry no upstream URL,
+// no static header and no credential for them. An SSE server is not fronted:
+// its upstream announces the message endpoint. It returns a nil forwarder when
+// nothing is routed.
+func routeThroughForwarder(cfg *config.Config, environment []string) (*forwarder.Forwarder, []string, error) {
+	routes := forwarder.Routes{MCPServers: make(map[string]forwarder.MCPServer)}
 	for name, server := range cfg.MCPServers {
 		if server.Type != "http" || !cfg.PropagateToken && !server.TokenPassthrough {
 			continue
 		}
 		headers, err := forwarder.ResolveHeaders(server.Headers, environment)
 		if err != nil {
-			return nil, fmt.Errorf("Claude MCP server %q: %w", name, err)
+			return nil, nil, fmt.Errorf("Claude MCP server %q: %w", name, err)
 		}
-		upstream[name] = forwarder.MCPServer{URL: server.URL, Headers: headers, TokenPassthrough: server.TokenPassthrough}
+		routes.MCPServers[name] = forwarder.MCPServer{URL: server.URL, Headers: headers, TokenPassthrough: server.TokenPassthrough}
 	}
-	if len(upstream) == 0 {
-		return nil, nil
+	if cfg.ModelTokenPassthrough {
+		baseURL := lookupEnvironment(environment, config.AnthropicBaseURLEnvName)
+		if baseURL == "" {
+			baseURL = anthropicAPIURL
+		}
+		routes.Model = &forwarder.Model{URL: baseURL, Header: "X-Api-Key"}
 	}
-	credentialForwarder, err := forwarder.New(upstream, cfg.MaxEventBytes)
+	if len(routes.MCPServers) == 0 && routes.Model == nil {
+		return nil, environment, nil
+	}
+	credentialForwarder, err := forwarder.New(routes, cfg.MaxEventBytes)
 	if err != nil {
-		return nil, fmt.Errorf("start Claude credential forwarder: %w", err)
+		return nil, nil, fmt.Errorf("start Claude credential forwarder: %w", err)
+	}
+	if routes.Model != nil {
+		environment = setEnvironment(environment, config.AnthropicBaseURLEnvName, credentialForwarder.ModelURL())
+		environment = setEnvironment(environment, config.AnthropicAPIKeyEnvName, credentialForwarder.Token())
 	}
 	fronted := make(map[string]config.MCPServer, len(cfg.MCPServers))
 	for name, server := range cfg.MCPServers {
-		if _, ok := upstream[name]; !ok {
+		if _, ok := routes.MCPServers[name]; !ok {
 			fronted[name] = server
 			continue
 		}
@@ -201,7 +217,17 @@ func frontMCPServers(cfg *config.Config, environment []string) (*forwarder.Forwa
 		}
 	}
 	cfg.MCPServers = fronted
-	return credentialForwarder, nil
+	return credentialForwarder, environment, nil
+}
+
+func lookupEnvironment(environment []string, name string) string {
+	var value string
+	for _, entry := range environment {
+		if variable, ok := strings.CutPrefix(entry, name+"="); ok {
+			value = variable
+		}
+	}
+	return value
 }
 
 func approvalServerNames(servers map[string]config.MCPServer) (protected []string) {

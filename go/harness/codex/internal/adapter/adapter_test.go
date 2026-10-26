@@ -443,7 +443,7 @@ func TestNewFrontsMCPServersThatReceiveTheCallerCredential(t *testing.T) {
 	}
 }
 
-func TestFrontMCPServersForwardsWithTheCallerCredential(t *testing.T) {
+func TestRouteThroughForwarderSendsTheCallerCredentialToMCPServers(t *testing.T) {
 	var got http.Header
 	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
 		got = request.Header.Clone()
@@ -452,7 +452,7 @@ func TestFrontMCPServersForwardsWithTheCallerCredential(t *testing.T) {
 	cfg := config.Production("gpt-5.2-codex", "help")
 	cfg.PropagateToken = true
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {URL: upstream.URL + "/mcp", Headers: map[string]string{"X-Tenant": "${KAGENT_CODEX_MCP_CREDENTIAL_ABC}"}}}
-	credentialForwarder, err := frontMCPServers(&cfg, []string{"KAGENT_CODEX_MCP_CREDENTIAL_ABC=from-secret"})
+	credentialForwarder, _, err := routeThroughForwarder(&cfg, []string{"KAGENT_CODEX_MCP_CREDENTIAL_ABC=from-secret"})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = credentialForwarder.Close() })
 	defer credentialForwarder.Bind("Bearer person-token")()
@@ -476,4 +476,41 @@ func TestNewLeavesServersAsCompiledWithoutCallerCredentials(t *testing.T) {
 	native := newWithConfig(t, cfg)
 	require.Equal(t, "https://tools.example.com/mcp", native.MCPServers["tools"].URL)
 	require.Equal(t, map[string]string{"X-Tenant": "test"}, native.MCPServers["tools"].HTTPHeaders)
+}
+
+func TestRouteThroughForwarderPointsCodexAtTheModelRoute(t *testing.T) {
+	var gotPath, gotAuthorization string
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		gotPath, gotAuthorization = request.URL.Path, request.Header.Get("Authorization")
+	}))
+	t.Cleanup(upstream.Close)
+	cfg := config.Production("gpt-5.2-codex", "help")
+	cfg.Provider = config.Provider{Name: "openai", BaseURL: upstream.URL + "/v1", TokenPassthrough: true}
+	credentialForwarder, environment, err := routeThroughForwarder(&cfg, []string{"PATH=/bin"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = credentialForwarder.Close() })
+	require.Equal(t, credentialForwarder.ModelURL(), cfg.Provider.BaseURL)
+	require.Contains(t, environment, openAIAPIKeyEnv+"="+credentialForwarder.Token())
+	require.False(t, slices.ContainsFunc(environment, func(entry string) bool { return strings.HasPrefix(entry, forwarderAuthorizationEnv+"=") }),
+		"no MCP server is fronted for the model route")
+
+	defer credentialForwarder.Bind("Bearer person-token")()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, cfg.Provider.BaseURL+"/responses", strings.NewReader("{}"))
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+credentialForwarder.Token())
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, "/v1/responses", gotPath)
+	require.Equal(t, "Bearer person-token", gotAuthorization)
+}
+
+func TestNewWritesTheModelRouteAsTheProviderBaseURL(t *testing.T) {
+	cfg := config.Production("gpt-5.2-codex", "help")
+	cfg.StrictVersion = false
+	cfg.Provider = config.Provider{Name: "openai", TokenPassthrough: true}
+	provider := newWithConfig(t, cfg).ModelProviders["kagent-openai"]
+	require.True(t, strings.HasPrefix(provider.BaseURL, "http://127.0.0.1:"), "base_url = %q, want the loopback model route", provider.BaseURL)
+	require.Equal(t, openAIAPIKeyEnv, provider.EnvKey)
 }

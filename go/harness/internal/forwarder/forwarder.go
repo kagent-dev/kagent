@@ -20,7 +20,18 @@ import (
 	"time"
 )
 
-const mcpPathPrefix = "/mcp/"
+const (
+	mcpPathPrefix = "/mcp/"
+	modelPath     = "/model"
+)
+
+// Routes are the upstreams a forwarder fronts.
+type Routes struct {
+	MCPServers map[string]MCPServer
+	// Model is set when the model receives the caller's credential as its API
+	// key (ModelConfig tokenPassthrough).
+	Model *Model
+}
 
 // MCPServer is one compiled MCP server the forwarder fronts: its real URL and
 // the static headers the compiler assigned to it, with their values resolved.
@@ -32,6 +43,18 @@ type MCPServer struct {
 	TokenPassthrough bool
 }
 
+// Model is the provider endpoint the native process sends its model requests
+// to, and the header that carries the API key there.
+type Model struct {
+	// URL is the base URL the native client would call, such as
+	// https://api.openai.com/v1; request paths are joined onto it.
+	URL string
+	// Header and Prefix place the caller's bearer token the way the provider
+	// reads an API key: X-Api-Key with no prefix for Anthropic, Authorization
+	// with "Bearer " for OpenAI.
+	Header, Prefix string
+}
+
 // Forwarder adds the caller's credential of the current turn to every request
 // it forwards.
 type Forwarder struct {
@@ -40,6 +63,7 @@ type Forwarder struct {
 	listener net.Listener
 	server   *http.Server
 	targets  map[string]*mcpTarget
+	model    *modelTarget
 
 	mu         sync.Mutex
 	credential string
@@ -52,22 +76,30 @@ type mcpTarget struct {
 	proxy       *httputil.ReverseProxy
 }
 
-// New binds an authenticated loopback endpoint per MCP server. Only
-// streamable HTTP servers are supported: an SSE server announces its message
-// endpoint from the upstream host, which the forwarder does not rewrite.
-func New(servers map[string]MCPServer, maxBodyBytes int) (*Forwarder, error) {
-	if len(servers) == 0 || maxBodyBytes <= 0 {
-		return nil, fmt.Errorf("MCP servers and a positive body limit are required")
+type modelTarget struct {
+	url            *url.URL
+	header, prefix string
+	proxy          *httputil.ReverseProxy
+}
+
+// New binds an authenticated loopback endpoint per MCP server, and one for the
+// model. Only streamable HTTP MCP servers are supported: an SSE server
+// announces its message endpoint from the upstream host, which the forwarder
+// does not rewrite. maxMCPBodyBytes bounds an MCP request body; a model
+// request is bounded by its provider.
+func New(routes Routes, maxMCPBodyBytes int) (*Forwarder, error) {
+	if len(routes.MCPServers) == 0 && routes.Model == nil || maxMCPBodyBytes <= 0 {
+		return nil, fmt.Errorf("a route and a positive MCP body limit are required")
 	}
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, fmt.Errorf("generate credential forwarder token: %w", err)
 	}
 	forwarder := &Forwarder{
-		token: hex.EncodeToString(tokenBytes), maxBody: int64(maxBodyBytes),
-		targets: make(map[string]*mcpTarget, len(servers)),
+		token: hex.EncodeToString(tokenBytes), maxBody: int64(maxMCPBodyBytes),
+		targets: make(map[string]*mcpTarget, len(routes.MCPServers)),
 	}
-	for name, server := range servers {
+	for name, server := range routes.MCPServers {
 		if strings.TrimSpace(name) == "" || strings.ContainsAny(name, "/?#") {
 			return nil, fmt.Errorf("MCP server name %q cannot be forwarded", name)
 		}
@@ -83,13 +115,24 @@ func New(servers map[string]MCPServer, maxBodyBytes int) (*Forwarder, error) {
 		entry.proxy = &httputil.ReverseProxy{Rewrite: entry.rewrite, FlushInterval: -1}
 		forwarder.targets[name] = entry
 	}
+	if model := routes.Model; model != nil {
+		target, err := upstreamURL(model.URL)
+		if err != nil {
+			return nil, fmt.Errorf("model: %w", err)
+		}
+		if strings.TrimSpace(model.Header) == "" {
+			return nil, fmt.Errorf("model API key header is required")
+		}
+		forwarder.model = &modelTarget{url: target, header: http.CanonicalHeaderKey(model.Header), prefix: model.Prefix}
+		forwarder.model.proxy = &httputil.ReverseProxy{Rewrite: forwarder.model.rewrite, FlushInterval: -1}
+	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("listen for forwarded calls: %w", err)
 	}
 	forwarder.listener = listener
 	forwarder.server = &http.Server{
-		Handler:           forwarder.authorizeAndLimit(http.HandlerFunc(forwarder.serve)),
+		Handler:           forwarder.authorize(http.HandlerFunc(forwarder.serve)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() { _ = forwarder.server.Serve(listener) }()
@@ -108,6 +151,15 @@ func upstreamURL(raw string) (*url.URL, error) {
 func (f *Forwarder) MCPURL(name string) string {
 	return "http://" + f.listener.Addr().String() + mcpPathPrefix + name
 }
+
+// ModelURL is the loopback base URL the native process uses for the model.
+func (f *Forwarder) ModelURL() string {
+	return "http://" + f.listener.Addr().String() + modelPath
+}
+
+// Token is the per-process secret that authenticates the native process to the
+// loopback endpoint, sent as its model API key or as a bearer token.
+func (f *Forwarder) Token() string { return f.token }
 
 // Authorization is the header value that authenticates the native process to
 // the loopback endpoint.
@@ -135,14 +187,16 @@ func (f *Forwarder) current() string {
 	return f.credential
 }
 
-func (f *Forwarder) authorizeAndLimit(next http.Handler) http.Handler {
+// authorize admits a request that carries the loopback token as a bearer
+// token or, as an Anthropic client sends its API key, in X-Api-Key.
+func (f *Forwarder) authorize(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		want, got := f.Authorization(), request.Header.Get("Authorization")
-		if subtle.ConstantTimeCompare([]byte(want), []byte(got)) != 1 {
+		bearer := subtle.ConstantTimeCompare([]byte(f.Authorization()), []byte(request.Header.Get("Authorization"))) == 1
+		apiKey := subtle.ConstantTimeCompare([]byte(f.token), []byte(request.Header.Get("X-Api-Key"))) == 1
+		if !bearer && !apiKey {
 			http.Error(response, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		request.Body = http.MaxBytesReader(response, request.Body, f.maxBody)
 		next.ServeHTTP(response, request)
 	})
 }
@@ -152,6 +206,10 @@ func (f *Forwarder) serve(response http.ResponseWriter, request *http.Request) {
 	// a request must not climb out of its server's path with the credential.
 	if !forwardablePath(request) {
 		http.Error(response, "path holds a dot segment, an encoded slash or a character the forwarder refuses", http.StatusBadRequest)
+		return
+	}
+	if suffix, ok := modelSuffix(request.URL.Path); ok && f.model != nil {
+		f.serveModel(response, request, suffix)
 		return
 	}
 	rest, ok := strings.CutPrefix(request.URL.Path, mcpPathPrefix)
@@ -170,8 +228,38 @@ func (f *Forwarder) serve(response http.ResponseWriter, request *http.Request) {
 		http.Error(response, "MCP token passthrough requires a caller bearer token", http.StatusUnauthorized)
 		return
 	}
+	request.Body = http.MaxBytesReader(response, request.Body, f.maxBody)
 	request = request.WithContext(context.WithValue(request.Context(), forwardInfoKey{}, forwardInfo{suffix: suffix, credential: credential}))
 	target.proxy.ServeHTTP(response, request)
+}
+
+// serveModel forwards a model request with the caller's bearer token as the
+// API key, as the Go ADK does under tokenPassthrough. A turn without one is
+// refused rather than sent with the loopback token.
+func (f *Forwarder) serveModel(response http.ResponseWriter, request *http.Request, suffix string) {
+	token := bearerToken(f.current())
+	if token == "" {
+		http.Error(response, "model token passthrough requires a caller bearer token", http.StatusUnauthorized)
+		return
+	}
+	request = request.WithContext(context.WithValue(request.Context(), forwardInfoKey{}, forwardInfo{suffix: suffix, credential: token}))
+	f.model.proxy.ServeHTTP(response, request)
+}
+
+func modelSuffix(path string) (string, bool) {
+	if path == modelPath {
+		return "", true
+	}
+	return strings.CutPrefix(path, modelPath+"/")
+}
+
+// bearerToken returns the token of a Bearer authorization, or the empty string.
+func bearerToken(authorization string) string {
+	scheme, token, ok := strings.Cut(strings.TrimSpace(authorization), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 // forwardInfo is what serve decided for one request: the path under the
@@ -232,6 +320,23 @@ func forwardablePath(request *http.Request) bool {
 		}
 	}
 	return true
+}
+
+// credentialHeaders are the request headers a model client authenticates with.
+// The native process sends the loopback token in one of them, so none is
+// forwarded; the provider's API key header is set from the caller's token.
+var credentialHeaders = []string{"Authorization", "X-Api-Key", "Api-Key", "Proxy-Authorization", "Cookie"}
+
+// rewrite keeps the native client's other headers, because provider APIs
+// select versions and features through them.
+func (t *modelTarget) rewrite(proxied *httputil.ProxyRequest) {
+	out := proxied.Out
+	info, _ := proxied.In.Context().Value(forwardInfoKey{}).(forwardInfo)
+	setUpstream(out, t.url, info.suffix, proxied.In.URL.RawQuery)
+	for _, header := range credentialHeaders {
+		out.Header.Del(header)
+	}
+	out.Header.Set(t.header, t.prefix+info.credential)
 }
 
 // mcpTransportHeaders are the headers of the native process's request that

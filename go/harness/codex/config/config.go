@@ -69,6 +69,9 @@ type OTLPExporter struct {
 type Provider struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url,omitempty"`
+	// TokenPassthrough sends the caller's bearer token of each A2A turn as
+	// the API key, the ModelConfig tokenPassthrough the Go ADK also follows.
+	TokenPassthrough bool `json:"token_passthrough,omitempty"`
 }
 
 type Agent struct {
@@ -155,6 +158,9 @@ func (c Config) Validate() error {
 		if err := validateExporter("log", c.Telemetry.Logs); err != nil {
 			return err
 		}
+	}
+	if c.Provider.TokenPassthrough && c.Provider.Name != "openai" {
+		return fmt.Errorf("token passthrough is supported only for the OpenAI provider")
 	}
 	if c.Provider.BaseURL != "" {
 		if c.Provider.Name != "openai" {

@@ -138,7 +138,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		model v1alpha3.ModelConfigSpec
 	}{
 		{name: "provider", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt"}},
-		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: true}},
+		{name: "Bedrock passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", TokenPassthrough: true, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
 		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
@@ -666,5 +666,29 @@ func TestCompilePropagatesTheCallerTokenFromRuntimeDefaults(t *testing.T) {
 		if config.PropagateToken != enabled {
 			t.Fatalf("propagate_token = %v with token propagation enabled = %v", config.PropagateToken, enabled)
 		}
+	}
+}
+
+func TestCompileModelTokenPassthrough(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: true}
+	input, reader := testInput(t, model, nil)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := claudeconfig.Parse(revision.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.ModelTokenPassthrough {
+		t.Fatal("model_token_passthrough is not compiled")
+	}
+	for _, variable := range revision.Environment {
+		if variable.Name == claudeconfig.AnthropicAPIKeyEnvName {
+			t.Fatalf("a passthrough model compiled an API key: %#v", variable)
+		}
+	}
+	if len(revision.TokenPassthroughTargets) != 1 || revision.TokenPassthroughTargets[0].Header != "x-api-key" || !strings.Contains(revision.TokenPassthroughTargets[0].Origin, "api.anthropic.com") {
+		t.Fatalf("token passthrough targets = %#v, want the Anthropic API key header", revision.TokenPassthroughTargets)
 	}
 }

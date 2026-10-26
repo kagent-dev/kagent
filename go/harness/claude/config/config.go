@@ -81,6 +81,10 @@ type Config struct {
 	// every MCP call, the runtime defaults' token propagation switch the Go
 	// ADK also follows.
 	PropagateToken bool `json:"propagate_token,omitempty"`
+	// ModelTokenPassthrough sends the caller's bearer token of each A2A turn
+	// as the Anthropic API key, the ModelConfig tokenPassthrough the Go ADK
+	// also follows.
+	ModelTokenPassthrough bool `json:"model_token_passthrough,omitempty"`
 	// RuntimeTelemetry carries the compiler-owned span identity and content
 	// capture policy. It is absent for standalone runs, which fall back to the
 	// environment for service identity and leave capture disabled.
