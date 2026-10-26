@@ -72,8 +72,10 @@ func newTaskUsage(stored *a2atype.Task) *taskUsage {
 }
 
 // add counts one model call as reported, in the totals and in the entry of the
-// model it names. A sink without an accumulator, one that serves no task,
-// counts nothing.
+// model it names. A call names its response model. One that names none, such
+// as every Codex call or the tokens Claude Code's session totals hold beyond
+// the calls it reported, counts under the model it was requested as. A sink
+// without an accumulator, one that serves no task, counts nothing.
 func (u *taskUsage) add(call runtime.ModelCall) {
 	if u == nil {
 		return
@@ -84,7 +86,7 @@ func (u *taskUsage) add(call runtime.ModelCall) {
 	}
 	u.total = u.total.add(tokens)
 	model := call.ResponseModel
-	if model == "" && call.UsageOnly && call.RequestModel != "" {
+	if model == "" && call.RequestModel != "" {
 		model = u.familyEntry(call.RequestModel)
 	}
 	if model != "" {
@@ -92,15 +94,14 @@ func (u *taskUsage) add(call runtime.ModelCall) {
 	}
 }
 
-// familyEntry names the entry a usage-only call counts in. Such a call, the
-// tokens Claude Code's session totals hold beyond the calls it reported, names
-// the model it was requested as: the totals key a model by its undated name,
-// such as claude-sonnet-4-5, while a response names the dated model, such as
-// claude-sonnet-4-5-20250929. The remainder belongs to that family as a whole.
-// Its one entry takes the call, or a new entry under the undated name when the
-// family has none. Several entries are folded into one under the undated name
-// first, so the reasoning the call names is split out of the output that holds
-// it instead of being counted beside it.
+// familyEntry names the entry a call that was requested as name counts in.
+// Claude Code's session totals key a model by its undated name, such as
+// claude-sonnet-4-5, while a response names the dated model, such as
+// claude-sonnet-4-5-20250929, so the remainder they leave belongs to that
+// family as a whole. Its one entry takes the call, or a new entry under the
+// requested name when the family has none. Several entries are folded into one
+// under the requested name first, so the reasoning the call names is split out
+// of the output that holds it instead of being counted beside it.
 func (u *taskUsage) familyEntry(name string) string {
 	var members []string
 	for model := range u.models {
