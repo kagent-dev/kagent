@@ -6,20 +6,21 @@
 # executeCodeBlocks) and for sandboxed BYO agents.
 
 ### STAGE 1: uv binary
-ARG UV_VERSION=0.12.3
+ARG UV_VERSION=0.13.5
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 ### STAGE 2: base os + sandbox runtime
 # node:26-bookworm-slim is a digest-pinnable debian-bookworm base that ships Node 26 (the
 # sandbox-runtime requires node >= 20; debian's own nodejs package is still on 18).
 # Digest = multi-arch index resolved via `docker buildx imagetools inspect node:26-bookworm-slim`.
-FROM node:26-bookworm-slim@sha256:2d49d876e96237d76de412761cf05dbfe5aee325cc4406a4d41d5824c5bb8beb AS python-os
+FROM node:26.12.1-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS python-os
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONOPTIMIZE=2
 ENV PYTHONUNBUFFERED=1
+ENV GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
 
 # Optimize malloc for containerized Python workloads
 ENV MALLOC_TRIM_THRESHOLD_=262144
@@ -39,8 +40,8 @@ ENV UV_PYTHON_PREFERENCE=only-managed
 
 # node/npm come from the base image; add the remaining runtime tooling.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl openssl bash git ca-certificates \
+    && apt-get satisfy -y --no-install-recommends \
+        curl openssl bash git 'ca-certificates (>= 20250419~deb12u2)' \
         bubblewrap socat ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
