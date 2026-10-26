@@ -35,11 +35,17 @@
 - apiGroups:
   - ""
   resources:
-  - "*"
+  - secrets
+  - configmaps
   verbs:
   - create
   - update
-  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
   - delete
 {{- end -}}
 
