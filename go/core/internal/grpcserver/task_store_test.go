@@ -141,7 +141,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	pushWake := make(chan struct{}, 1)
 	tasks := taskstore.NewService(store, nil, pushWake)
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	runtimeToken := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(id), "actor-uid"))
 	memories := &runtimeMemoryStore{Client: store.Client}

@@ -80,12 +80,20 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 				sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
-			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies())
+			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies(), nil)
 			if got := status.Code(err); got != test.wantCode {
 				t.Fatalf("authenticate(%s) code = %v (%v), want %v", test.method, got, err, test.wantCode)
 			}
 		})
 	}
+}
+
+func TestAgentIdentityRequiresItsOwnAuthenticator(t *testing.T) {
+	method := apiv1.AgentIdentityService_ResolveAgentIdentity_FullMethodName
+	policies := DefaultMethodPolicies()
+	require.Equal(t, pkgauth.AccessRead, policies[method])
+	_, err := authenticate(t.Context(), method, &authimpl.InsecureAuthenticator{}, nil, policies, nil)
+	require.Equal(t, codes.Unauthenticated, status.Code(err), "missing lookup authentication cannot fall back to user authentication")
 }
 
 func TestSandboxGuestPoliciesMatchTheirEffect(t *testing.T) {
@@ -108,7 +116,7 @@ func TestSandboxGuestPoliciesMatchTheirEffect(t *testing.T) {
 
 func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	sessionID := uuid.NewString()
 	store := &memoryRPCStore{session: &apiv1.Session{Id: sessionID, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(sessionID), "")}}
@@ -161,7 +169,7 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 						md.Set("authorization", test.token)
 					}
 					ctx := metadata.NewIncomingContext(t.Context(), md)
-					result, err := authenticate(ctx, test.method, users, nil, policies)
+					result, err := authenticate(ctx, test.method, users, nil, policies, nil)
 					require.Equal(t, test.want, status.Code(err), "%v", err)
 					if test.want == codes.OK && test.token == actor {
 						identity, ok := pkgauth.AuthSessionFrom(result)
@@ -172,7 +180,7 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 				})
 			}
 			shared := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", actor, "x-share-token", "share"))
-			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, nil, policies)
+			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, nil, policies, nil)
 			require.Equal(t, codes.Unauthenticated, status.Code(err))
 		})
 	}

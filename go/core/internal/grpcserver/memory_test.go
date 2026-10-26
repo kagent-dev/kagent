@@ -109,7 +109,7 @@ func TestHumanMemoryPermissionsAndPartitionsThroughGeneratedClient(t *testing.T)
 	}}
 	policy := &memoryRPCPolicy{}
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
 		config.Authenticator = runtimeauth.NewProvider(authimpl.NewProxyAuthenticator("sub"), verifier, store, issuer.URL)
@@ -180,7 +180,7 @@ func TestRuntimeMemoryUsesAcceptedActorBindingInsteadOfHumanClaims(t *testing.T)
 	policy := &memoryRPCPolicy{}
 	policy.denied.Store(true) // Accepted runtime authority survives later human grant removal.
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
 		config.Authenticator = runtimeauth.NewProvider(authimpl.NewProxyAuthenticator("sub"), verifier, store, issuer.URL)
