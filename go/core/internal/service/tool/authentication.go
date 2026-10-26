@@ -32,6 +32,9 @@ func (c *RuntimeMCPClient) authenticatedMCPClient(ctx context.Context, server *v
 	}
 	names := map[string]bool{}
 	for _, header := range configuration {
+		if header.ValueFrom.ActorToken != nil {
+			return nil, fmt.Errorf("actor token headers require an executing Actor; control-plane MCP calls cannot supply them")
+		}
 		name := strings.ToLower(header.Name)
 		if names[name] || !egress.ValidCredentialHeader(header.Name) {
 			return nil, fmt.Errorf("invalid or duplicate credential header")

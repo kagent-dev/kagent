@@ -1,8 +1,8 @@
 # Runtime credential injection
 
 ModelConfig, RemoteMCPServer, and EgressPolicy use the same `headers`
-contract. Each header has exactly one source: a same-namespace Secret key or the
-authenticated invocation's token. Integration endpoints determine destinations;
+contract. Each header has exactly one source: a same-namespace Secret key, the
+authenticated invocation's token, or a Substrate Actor token. Integration endpoints determine destinations;
 there is no need to repeat their hosts in an EgressPolicy.
 
 Kagent requires Substrate **v0.7.0-alpha1**.
@@ -22,7 +22,7 @@ provider requires them. For example, OpenAI commonly uses `Authorization` with
 `"Bearer "`, Anthropic uses `x-api-key`, Azure uses `api-key`, and Gemini uses
 `x-goog-api-key`. The former `apiKeySecret`, RemoteMCPServer `headersFrom`, and top-level
 `tokenPassthrough` fields are replaced in this clean-install v1alpha3 API.
-Each `valueFrom` requires exactly one of the two sources; literal `value` is not
+Each `valueFrom` requires exactly one of the three sources; literal `value` is not
 supported. ModelConfig `defaultHeaders` remain separate and cannot override a
 credential header. RemoteMCPServer has only the shared credential header API.
 
@@ -131,13 +131,53 @@ credential-bearing redirects. Downstream services must trust the caller's issuer
 and accept the token's audience and permissions.
 
 The Claude and Codex harnesses do not support caller-token passthrough. Their
-compilers reject ModelConfig and RemoteMCPServer passthrough bindings. Secret headers continue to use gateway injection. There is no
+compilers reject ModelConfig and RemoteMCPServer passthrough bindings. Secret and
+Substrate Actor token headers continue to use gateway injection. There is no
 invocation HTTP proxy or caller token written to native process configuration.
 
 Tool discovery requiring passthrough needs an authenticated invocation. The
 controller does not substitute its own credential during global discovery;
 set `kagent.dev/discovery: disabled` for such MCP servers. Runtime discovery
 occurs in the caller's invocation context.
+
+## Substrate Actor token injection
+
+Use `valueFrom.actorToken` when a downstream service should authenticate the
+executing Actor independently of the human or machine that invoked it:
+
+```yaml
+headers:
+  - name: Authorization
+    prefix: "Bearer "
+    valueFrom:
+      actorToken:
+        audiences: ["https://mcp.example.com"]
+        expirationSeconds: 900
+```
+
+The same option is available on ModelConfig, RemoteMCPServer, and EgressPolicy.
+The runtime supplies a placeholder and Substrate's gateway mints and injects the
+Actor JWT. No caller credential or Secret provider is needed, and the token never
+enters runtime memory or configuration. Downstream services must trust Substrate's
+issuer and validate their audience. Claims identify the Actor's atespace, name,
+and UID; they do not identify the invocation caller or contain the Agent CRD.
+
+The audience list requires 1–16 distinct nonempty values, up to 512 characters
+each. The `kagent-runtime` audience is reserved for the Actor's internal Kagent
+access and cannot be exported through this option. Token lifetime defaults to
+900 seconds and supports 300–3600 seconds. The gateway refreshes these tokens
+independently of caller-token expiry; an Actor-token-only task is not limited by
+the initiating caller's token lifetime.
+
+Integration Actor token bindings are compiled revision inputs, like Secret
+bindings. EgressPolicy Actor token bindings are live grants, including withdrawal
+on policy removal. Full origin, header, audience set, and lifetime determine
+binding compatibility; changing any source cannot silently override another
+credential for the same origin/header. Gateway injection replaces only headers
+present in the request, so arbitrary BYO clients must supply a placeholder.
+MCP servers using Actor tokens are excluded from global discovery. Discovery and
+tool calls run inside the Actor; direct control-plane MCP calls cannot mint a
+token for an Actor they do not represent.
 
 ## Deferred API fields
 

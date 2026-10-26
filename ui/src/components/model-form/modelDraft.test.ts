@@ -315,3 +315,17 @@ it("preserves multiple credential headers when editing unrelated model settings"
   edited.additionalCredentialHeaders[0].name = "X-Changed";
   expect(config.spec.headers?.[1].name).toBe("X-Tenant-Key");
 });
+
+it("preserves an actor token as the first model credential header", () => {
+  const config: ModelConfig = { ref: "kagent/model", spec: { provider: "OpenAI", model: "model", headers: [
+    { name: "Authorization", prefix: "Bearer ", valueFrom: { actorToken: { audiences: ["model-service"], expirationSeconds: 600 } } },
+    { name: "X-Tenant-Key", valueFrom: { secretKeyRef: { name: "tenant", key: "key" } } },
+  ] } };
+  const draft = modelDraftFrom(config);
+  draft.model = "model-new";
+  const payload = buildModelPayload(draft);
+  expect(payload.spec.headers).toEqual(config.spec.headers);
+  expect(payload.secrets).toBeUndefined();
+  draft.additionalCredentialHeaders[0].valueFrom.actorToken?.audiences.push("another-service");
+  expect(config.spec.headers?.[0].valueFrom.actorToken?.audiences).toEqual(["model-service"]);
+});

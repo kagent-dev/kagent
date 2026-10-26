@@ -40,7 +40,17 @@ func CompileCredentialHeaders(endpoint, namespace string, bindings []v1alpha3.He
 		if header.Prefix != nil {
 			prefix = *header.Prefix
 		}
-		if (header.ValueFrom.SecretKeyRef == nil) == (header.ValueFrom.TokenPassthrough == nil) {
+		sources := 0
+		if header.ValueFrom.SecretKeyRef != nil {
+			sources++
+		}
+		if header.ValueFrom.TokenPassthrough != nil {
+			sources++
+		}
+		if header.ValueFrom.ActorToken != nil {
+			sources++
+		}
+		if sources != 1 {
 			return egress.Access{}, NewValidationError("credential header %q requires exactly one source", header.Name)
 		}
 		if secret := header.ValueFrom.SecretKeyRef; secret != nil {
@@ -49,6 +59,13 @@ func CompileCredentialHeaders(endpoint, namespace string, bindings []v1alpha3.He
 			}
 			credentials = append(credentials, egress.Credential{Origin: origin.String(), Header: name, Prefix: prefix,
 				URI: fmt.Sprintf("ate-secret://k8s.io/default/%s/%s/%s", namespace, secret.Name, secret.Key)})
+		} else if actor := header.ValueFrom.ActorToken; actor != nil {
+			ttl := int64(900)
+			if actor.ExpirationSeconds != nil {
+				ttl = *actor.ExpirationSeconds
+			}
+			credentials = append(credentials, egress.Credential{Origin: origin.String(), Header: name, Prefix: prefix,
+				ActorToken: &egress.ActorToken{Audiences: actor.Audiences, ExpirationSeconds: ttl}})
 		} else {
 			targets = append(targets, egresspolicy.GatewayTarget{Origin: origin.String(), Header: name, Prefix: prefix})
 		}

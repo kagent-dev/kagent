@@ -177,7 +177,9 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
     modelTag = rawModel.slice(at + 1);
   }
 
-  const header = config.spec.headers?.[0];
+  const firstHeader = config.spec.headers?.[0];
+  // Actor credentials are edited by the shared header editor.
+  const header = firstHeader?.valueFrom.actorToken ? undefined : firstHeader;
   return {
     namespace: namespace || DEFAULT_NAMESPACE,
     name,
@@ -187,7 +189,7 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
     authType: authTypeFrom(config.spec),
     apiKey: "",
     credentialHeader: header ? { name: header.name, prefix: header.prefix } : undefined,
-    additionalCredentialHeaders: structuredClone(config.spec.headers?.slice(1) ?? []),
+    additionalCredentialHeaders: structuredClone(config.spec.headers?.slice(header ? 1 : 0) ?? []),
     apiKeySecret: header?.valueFrom.secretKeyRef?.name ?? "",
     apiKeySecretKey: header?.valueFrom.secretKeyRef?.key ?? "",
     params: paramsFromSpec(config.spec),

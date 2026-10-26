@@ -28,6 +28,15 @@ type mcpTestTokenSource struct {
 
 func (s *mcpTestTokenSource) Token(context.Context) (string, error) { return s.token, s.err }
 
+func TestControlPlaneCannotSubstituteCallerForActorToken(t *testing.T) {
+	service := NewRuntimeMCPClient(fake.NewClientBuilder().Build())
+	ctx := auth.AuthSessionTo(t.Context(), auth.NewCredentialSession(auth.Principal{ID: "caller"}, &mcpTestTokenSource{token: "caller-token"}))
+	server := &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com", Headers: []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{ActorToken: &v1alpha3.ActorToken{Audiences: []string{"mcp"}}}}}}}
+	client, err := service.authenticatedMCPClient(ctx, server)
+	require.ErrorContains(t, err, "require an executing Actor")
+	require.Nil(t, client)
+}
+
 func TestMCPAuthenticationBindsAndRenewsConnectionCredentials(t *testing.T) {
 	for _, principal := range []string{"human", "machine"} {
 		t.Run(principal, func(t *testing.T) {

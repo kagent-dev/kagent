@@ -15,6 +15,22 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
+func TestActorTokenGrantPersistenceAndRevocation(t *testing.T) {
+	c := NewClient(setupTestDB(t), "public")
+	grant := egress.Access{Destinations: []string{"https://mcp.example.com:443"}, Credentials: []egress.Credential{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer ", ActorToken: &egress.ActorToken{Audiences: []string{"mcp"}, ExpirationSeconds: 900}}}}
+	definition := AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", EgressGrant: grant}
+	require.NoError(t, c.UpsertAgentDefinition(t.Context(), definition))
+	require.NoError(t, c.RecordRuntimeRevision(t.Context(), RuntimeRevision{Revision: "actor-token", Namespace: "team", AgentName: "source", AgentUID: "uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime"}, RecordRevisionOptions{}))
+	policy, err := c.GetRuntimeEgressPolicy(t.Context(), "actor-token")
+	require.NoError(t, err)
+	require.Equal(t, grant, policy)
+	definition.EgressGrant = egress.Access{}
+	require.NoError(t, c.UpsertAgentDefinition(t.Context(), definition))
+	policy, err = c.GetRuntimeEgressPolicy(t.Context(), "actor-token")
+	require.NoError(t, err)
+	require.Empty(t, policy.Credentials, "live policy removal revokes Actor token injection on existing revisions")
+}
+
 func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()

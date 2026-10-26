@@ -49,9 +49,8 @@ const (
 	refreshInterval   = 5 * time.Minute
 
 	// discoveryDisabledMessage explains an Accepted RemoteMCPServer that publishes
-	// no discovered tools because its operator opted out of discovery.
-	discoveryDisabledMessage = "Tool discovery is disabled by the " + consts.DiscoveryLabel + "=" + consts.DiscoveryDisabled +
-		" label; agents resolve the tool list at run time"
+	// no discovered tools because discovery is disabled or needs runtime identity.
+	discoveryDisabledMessage = "Global tool discovery is disabled by configuration or requires runtime identity; agents resolve the tool list at run time"
 )
 
 var remoteGroupKind = v1alpha3.GroupVersion.WithKind("RemoteMCPServer").GroupKind().String()
@@ -147,7 +146,7 @@ func discoveryDisabled(server *v1alpha3.RemoteMCPServer) bool {
 		return true
 	}
 	for _, header := range server.Spec.Headers {
-		if header.ValueFrom.TokenPassthrough != nil {
+		if header.ValueFrom.TokenPassthrough != nil || header.ValueFrom.ActorToken != nil {
 			return true
 		}
 	}
