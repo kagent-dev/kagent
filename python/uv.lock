@@ -324,7 +324,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "1.15.0"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -336,9 +336,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/10/37/5a2a4316df8babd28f096477a707cd75f240b4264c97fb128c32375105d6/anthropic-1.15.0.tar.gz", hash = "sha256:90caa9df83e2fc8bddb4ddeb83b7191bce255f635c03eae055deec521741df08", size = 1726101, upload-time = "2026-10-15T19:45:34.635Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/15/6e79e28f4a04b54712d646d6156f2d0f74667e049d46c06388f6e3ee4890/anthropic-2.2.0.tar.gz", hash = "sha256:6b28d4b7299587a3a0edbcbd7431b0a06d749a2f4196efaf044fe6dc474ec144", size = 1849600, upload-time = "2026-10-23T13:10:33.258Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/65/54437e7edea49a3be9ef56f6b5965999bfdc52b9dadc9b448124ca51a594/anthropic-1.15.0-py3-none-any.whl", hash = "sha256:10189a7993c5c71a0a2d4bb80020ca6a2fd27679f51e627405da37251d15ff49", size = 2047755, upload-time = "2026-10-15T19:45:32.951Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/dc/f593c0d9ae20c0b738dac80db7129296060027d5e768af8d1c4585f8279b/anthropic-2.2.0-py3-none-any.whl", hash = "sha256:ba8388e843521b3eb3cfadf99ec415f13e124a8d1587236969b0a3d84e427d36", size = 2172150, upload-time = "2026-10-23T13:10:31.356Z" },
 ]
 
 [package.optional-dependencies]
@@ -1892,7 +1892,7 @@ requires-dist = [
     { name = "agentsts-adk", editable = "packages/agentsts-adk" },
     { name = "agentsts-core", editable = "packages/agentsts-core" },
     { name = "aiofiles", specifier = ">=24.1.0" },
-    { name = "anthropic", extras = ["vertex"], specifier = ">=1.15.0" },
+    { name = "anthropic", extras = ["vertex"], specifier = ">=2.2.0" },
     { name = "anyio", specifier = ">=4.14.2" },
     { name = "azure-identity", specifier = ">=1.19.0" },
     { name = "boto3", specifier = ">=1.28.57" },
