@@ -43,7 +43,7 @@ func TestForwarderRefusesPathsThatLeaveTheServer(t *testing.T) {
 		"/mcp/tools%2f..%2fother",
 		"/mcp/tools/%252e%252e/%252e%252e/other",
 		"/mcp/tools/..%5c..%5cother",
-		"/mcp/tools/..\\..\\other",
+		"/mcp/tools/..\\..\\elsewhere",
 		`/mcp/tools/a%2Fb"`,
 		"/mcp/tools/..%2Fother{",
 		`/mcp/tools/a%5cb"`,
