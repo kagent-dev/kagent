@@ -62,6 +62,9 @@ func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, m
 	// Ollama streams tool calls in intermediate chunks (done=false), not in the
 	// final done=true chunk, so accumulate them across all chunks.
 	var aggregatedToolCalls []api.ToolCall
+	// Set when the caller stops ranging over the iterator; yield must not be
+	// called again after it returns false.
+	consumerStopped := false
 
 	streamValue := true
 	chatReq := &api.ChatRequest{
@@ -91,6 +94,7 @@ func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, m
 				TurnComplete: false,
 			}
 			if !yield(response, nil) {
+				consumerStopped = true
 				return fmt.Errorf("streaming cancelled")
 			}
 		}
@@ -151,7 +155,7 @@ func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, m
 		return nil
 	})
 
-	if err != nil {
+	if err != nil && !consumerStopped {
 		yield(&model.LLMResponse{
 			ErrorCode:    "API_ERROR",
 			ErrorMessage: err.Error(),
