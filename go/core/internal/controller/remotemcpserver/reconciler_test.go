@@ -240,15 +240,17 @@ func getServer(t *testing.T, kube client.Client, source *v1alpha3.RemoteMCPServe
 }
 
 func TestCallerAuthenticationDoesNotPublishGlobalDiscovery(t *testing.T) {
-	server := testServer()
-	server.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", ValueFrom: v1alpha3.HeaderValueSource{TokenPassthrough: &v1alpha3.TokenPassthrough{}}}}
-	discoverer := &fakeDiscoverer{}
-	catalog := &fakeCatalog{}
-	_, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if discoverer.calls != 0 || len(catalog.tools) != 0 {
-		t.Fatal("caller-specific tool discovery reached the global catalog")
+	for _, source := range []v1alpha3.HeaderValueSource{{TokenPassthrough: &v1alpha3.TokenPassthrough{}}, {ActorToken: &v1alpha3.ActorToken{Audiences: []string{"mcp"}}}} {
+		server := testServer()
+		server.Spec.Headers = []v1alpha3.Header{{Name: "Authorization", ValueFrom: source}}
+		discoverer := &fakeDiscoverer{}
+		catalog := &fakeCatalog{}
+		_, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if discoverer.calls != 0 || len(catalog.tools) != 0 {
+			t.Fatal("caller-specific tool discovery reached the global catalog")
+		}
 	}
 }

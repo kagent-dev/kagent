@@ -434,6 +434,37 @@ spec:
                     valueFrom:
                       description: ValueFrom selects exactly one credential source.
                       properties:
+                        actorToken:
+                          description: ActorToken asks Substrate's gateway to mint
+                            a token for the executing Actor.
+                          properties:
+                            audiences:
+                              description: |-
+                                Audiences names the services permitted to accept this token. The runtime
+                                control-plane audience is reserved and cannot be exported downstream.
+                              items:
+                                maxLength: 512
+                                minLength: 1
+                                type: string
+                              maxItems: 16
+                              minItems: 1
+                              type: array
+                              x-kubernetes-list-type: set
+                              x-kubernetes-validations:
+                              - message: the runtime control-plane audience is reserved
+                                rule: '!self.exists(a, a == ''kagent-runtime'')'
+                            expirationSeconds:
+                              default: 900
+                              description: |-
+                                ExpirationSeconds requests a token lifetime. Substrate refreshes tokens at
+                                the gateway independently of the invocation caller's token lifetime.
+                              format: int64
+                              maximum: 3600
+                              minimum: 300
+                              type: integer
+                          required:
+                          - audiences
+                          type: object
                         secretKeyRef:
                           description: SecretKeyRef selects a required Secret key
                             in the resource's namespace.
@@ -472,9 +503,9 @@ spec:
                           type: object
                       type: object
                       x-kubernetes-validations:
-                      - message: exactly one of the fields in [secretKeyRef tokenPassthrough]
-                          must be set
-                        rule: (has(self.secretKeyRef)?1:0)+(has(self.tokenPassthrough)?1:0)
+                      - message: exactly one of the fields in [secretKeyRef tokenPassthrough
+                          actorToken] must be set
+                        rule: (has(self.secretKeyRef)?1:0)+(has(self.tokenPassthrough)?1:0)+(has(self.actorToken)?1:0)
                           == 1
                   required:
                   - name

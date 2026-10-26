@@ -128,7 +128,10 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 func TestRuntimeDispatchSnapshotsHeaders(t *testing.T) {
 	const origin = "https://tools.example:443"
 	policies := &runtimeTestPolicies{access: egress.Access{
-		Credentials:             []egress.Credential{{Origin: origin, Header: "x-api-key", Prefix: "Secret ", URI: "ate-secret://k8s.io/default/team/access/key"}},
+		Credentials: []egress.Credential{
+			{Origin: origin, Header: "x-api-key", Prefix: "Secret ", URI: "ate-secret://k8s.io/default/team/access/key"},
+			{Origin: origin, Header: "x-actor", Prefix: "Bearer ", ActorToken: &egress.ActorToken{Audiences: []string{"tools"}, ExpirationSeconds: 900}},
+		},
 		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: origin, Header: "authorization", Prefix: "Bearer "}},
 	}}
 	interceptor := &upstreamAuthInterceptor{policies: policies, session: &apiv1.Session{PreparedRevision: "revision"}}
@@ -147,6 +150,7 @@ func TestRuntimeDispatchSnapshotsHeaders(t *testing.T) {
 	require.Len(t, targets, 1)
 	require.Equal(t, "Bearer ", targets[0].Passthrough[0].Prefix)
 	require.Equal(t, "Secret kagent-credential-injected", targets[0].Headers["x-api-key"])
+	require.Equal(t, "Bearer kagent-credential-injected", targets[0].Headers["x-actor"])
 
 	policies.access = egress.Access{}
 	next := request()
