@@ -28,7 +28,7 @@ type TransportConfig struct {
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
-// TLS → custom headers → timeout.
+// TLS → custom headers → trace propagation → timeout.
 func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	transport, err := BuildTLSTransport(
 		http.DefaultTransport,
