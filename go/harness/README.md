@@ -40,6 +40,7 @@ runtime events -> runtime/a2a      private A2A task stream
 | [`runtime/runtime.go`](runtime/runtime.go) | Public runtime-neutral turn, event, sink, and outcome model |
 | [`runtime/a2a`](runtime/a2a) | Serializes Actor execution and maps runtime events to upstream A2A events |
 | [`runtime/continuation`](runtime/continuation) | Atomically persists the one native continuation ID owned by an Actor |
+| [`internal/forwarder`](internal/forwarder) | Loopback routes that add the caller's credential to MCP and model requests |
 | [`internal/utils`](internal/utils) | Bounded diagnostic capture, private-file materialization, and process-group signaling |
 
 The native runtimes deliberately share only mechanisms. Claude- or
@@ -81,6 +82,34 @@ The executor also serializes access to the Actor's one native conversation. Its
 state is either active, parked on a `PendingTurn`, canceling that handle, or
 idle. Drivers therefore implement native protocol and process cleanup without
 maintaining a second global parked-task state.
+
+## Caller credentials
+
+The Go ADK sends the caller's bearer token on MCP calls under
+`runtimeDefaults.tokenPropagation.enabled`, to a RemoteMCPServer with
+`tokenPassthrough`, and to a model with ModelConfig `tokenPassthrough`. Native
+harnesses get the same behavior from a loopback forwarder in the harness process.
+
+- The adapter starts the forwarder when a route is needed and rewrites the native
+  configuration to point at loopback routes: `/mcp/<server>` for each fronted MCP
+  server and `/model` for the model. The native process authenticates with a
+  per-process token, as a bearer token or, for an Anthropic client, as `x-api-key`.
+- The A2A executor binds the `authorization` of each request around `Run` and
+  `Resume`, for a runner that implements `CallerCredentialBinder`, and drops it before
+  the outcome is handled. A parked or suspended Actor holds no credential, and a
+  resumed turn runs as the request that resumed it.
+- An MCP route sends the caller's credential first and the server's compiled headers
+  last, so a static `Authorization` wins. A passthrough server gets the caller's
+  credential only, and a turn without one is refused with 401. Of the native
+  request's headers, only those of the streamable HTTP transport and of trace
+  propagation are forwarded.
+- The model route sends the caller's bearer token in the provider's API key header,
+  keeps the client's other headers, and refuses a turn without a bearer token.
+- A path with a `.` or `..` segment, decoded or not, an encoded slash, backslash or
+  `%`, a `;` or a control byte is refused with 400, since the path is joined onto
+  the upstream URL.
+
+The caller's credential never enters the native process's environment or files.
 
 ## Development
 
