@@ -67,7 +67,7 @@
       "match": {
         "match_type": "contains",
         "message": {
-          "content": "call is rejected",
+          "content": "rejected",
           "role": "tool",
           "tool_call_id": "call_1"
         }
