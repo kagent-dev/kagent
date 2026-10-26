@@ -163,6 +163,39 @@ func (c *Client) GetSessionForRuntime(ctx context.Context, id, actorUID string) 
 	return toSession(row)
 }
 
+// GetSessionTurn returns a session without filtering by owner, and whether it
+// runs a turn: a task is submitted or working, no lifecycle operation is
+// underway, and no finished task awaits native cleanup. One statement reads
+// both. Missing or deleted sessions return ErrNotFound; callers authorize access.
+func (c *Client) GetSessionTurn(ctx context.Context, id string) (*apiv1.Session, bool, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid Session ID: %w", err)
+	}
+	type turnRow struct {
+		sessionRow
+		Running bool
+	}
+	row, err := queryOne(ctx, c.db, `
+		SELECT s.id, s.user_id, s.prepared_revision, s.state, s.data, s.operation, s.context_id,
+		    s.source_checkpoint_id, s.history_id, s.operation_id, s.executor_id,
+		    s.state = 'RUNTIME_STATE_READY' AND s.operation = 'RUNTIME_OPERATION_NONE'
+		    AND EXISTS (SELECT 1 FROM session_task t WHERE t.history_id = s.history_id
+		        AND t.state IN ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING'))
+		    AND NOT EXISTS (SELECT 1 FROM session_task_event e WHERE e.history_id = s.history_id
+		        AND NOT e.published) AS running
+		FROM session_record s WHERE s.id = $1 AND s.state <> 'RUNTIME_STATE_DELETED'
+	`, pgx.RowToStructByName[turnRow], uid.String())
+	if err != nil {
+		return nil, false, fmt.Errorf("get Session %s turn: %w", id, notFoundOr(err))
+	}
+	session, err := toSession(row.sessionRow)
+	if err != nil {
+		return nil, false, err
+	}
+	return session, row.Running, nil
+}
+
 // GetSession returns a session only when it belongs to userID. Missing sessions
 // and sessions owned by another user return ErrNotFound. Tombstones are hidden.
 func (c *Client) GetSession(ctx context.Context, id, userID string) (*apiv1.Session, error) {

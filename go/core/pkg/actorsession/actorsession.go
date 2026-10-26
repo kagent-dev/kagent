@@ -14,7 +14,8 @@ var ErrNotFound = errors.New("actor serves no session")
 // Session is the Session an actor serves.
 type Session struct {
 	ID string
-	// Active reports that the Session has an A2A task submitted or working.
+	// Active reports that the Session runs a turn: an A2A task is submitted or
+	// working, and no lifecycle operation or native cleanup is underway.
 	Active bool
 }
 

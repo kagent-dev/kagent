@@ -124,7 +124,8 @@ type Options struct {
 	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
 	// all must be bound. Authenticator must not forward the caller token.
 	EgressPolicyCompilers []egresspolicy.Compiler
-	// ActorSessions receives a Reader that names the actor's Session and whether it is active.
+	// ActorSessions receives a Reader that names the actor's Session and whether
+	// it is active. Run calls it once, before SetupWithManager.
 	ActorSessions func(actorsession.Reader)
 }
 
