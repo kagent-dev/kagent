@@ -40,7 +40,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("http://atenet-router.ate-system.svc:80"), ActorJwtIssuer: new("https://idp.ate-system.svc")},
 		Sessions:         &configv1.SessionsConfig{IdleTtl: durationpb.New(7 * 24 * time.Hour), ExpirationInterval: durationpb.New(time.Minute), QuiescenceRecoveryInterval: durationpb.New(time.Minute)},
 		Gateway:          &configv1.GatewayConfig{PublicUrl: new("http://localhost:8083")},
-		Push:             &configv1.PushConfig{RecoveryInterval: durationpb.New(time.Minute)},
+		Push:             &configv1.PushConfig{RecoveryInterval: durationpb.New(time.Minute), MaxConcurrency: new(int32(10)), SendTimeout: durationpb.New(5 * time.Second)},
 		Sandboxes:        &configv1.SandboxConfig{Cpu: new("1"), Memory: new("1Gi"), DefaultTtl: durationpb.New(time.Hour), MaxTtl: durationpb.New(24 * time.Hour), ExpirationInterval: durationpb.New(time.Second)},
 		ScheduledRuns:    &configv1.ScheduledRunsConfig{PollInterval: durationpb.New(time.Second), ExecutionInterval: durationpb.New(time.Second)},
 		RuntimeRevisions: &configv1.RuntimeRevisionsConfig{GcInterval: durationpb.New(time.Minute)},

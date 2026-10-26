@@ -16,7 +16,7 @@ spec:
   sandboxClasses:
     - name: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
       configRef:
-        name: {{ if eq (.Values.substrateWorkerPool.sandboxClass | default "gvisor") "microvm" }}microvm{{ else }}gvisor-default{{ end }}
+        name: {{ .Values.substrateWorkerPool.sandboxConfigRef | default (ternary "microvm" "gvisor-default" (eq (.Values.substrateWorkerPool.sandboxClass | default "gvisor") "microvm")) | quote }}
   template:
     {{- toYaml (set (deepCopy (.Values.substrateWorkerPool.template | default dict)) "serviceAccountName" (include "kagent.substrateWorkerPool.serviceAccountName" .)) | nindent 4 }}
 {{- end }}

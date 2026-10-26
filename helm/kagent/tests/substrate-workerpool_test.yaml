@@ -51,6 +51,13 @@ tests:
       - equal:
           path: spec.sandboxClasses[0].configRef.name
           value: gvisor-default
+  - it: should use a custom SandboxConfig reference when configured
+    set:
+      substrateWorkerPool.sandboxConfigRef: custom-gvisor-config
+    asserts:
+      - equal:
+          path: spec.sandboxClasses[0].configRef.name
+          value: custom-gvisor-config
   - it: should scope a same-named pool to its release namespace
     release:
       namespace: tenant-b

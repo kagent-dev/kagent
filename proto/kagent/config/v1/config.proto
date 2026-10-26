@@ -265,6 +265,13 @@ message PushConfig {
     gt: {}
     lte: {seconds: 9223372036}
   }];
+  // Maximum concurrent callback deliveries per controller replica. Defaults to 10.
+  optional int32 max_concurrency = 6 [(buf.validate.field).int32.gt = 0];
+  // Timeout for each callback attempt. Defaults to 5s.
+  google.protobuf.Duration send_timeout = 7 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message SandboxConfig {
