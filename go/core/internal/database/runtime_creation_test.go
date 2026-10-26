@@ -81,3 +81,39 @@ func TestRuntimeCreationUsesLatestSuccessfulRevision(t *testing.T) {
 		})
 	}
 }
+
+func TestReferenceRevocationBlocksNewSessions(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool, "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
+	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "")
+	pinned, _, err := client.CreateSession(ctx, request, "pinned")
+	require.NoError(t, err)
+	prepared, err := client.GetPreparedAgentRevision(ctx, "team-a", "assistant-uid")
+	require.NoError(t, err)
+	require.Equal(t, "revision-1", prepared.Revision)
+	_, err = client.GetPreparedAgentRevision(ctx, "team-a", "other-uid")
+	require.ErrorIs(t, err, ErrNotFound)
+	// Revoke the fallback while allowing a different desired revision to prepare.
+	require.NoError(t, client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "assistant-uid", DesiredRevision: "revision-2", RevokePreparedRevision: true}))
+	_, err = client.GetPreparedAgentRevision(ctx, "team-a", "assistant-uid")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, created, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "denied")
+	require.ErrorIs(t, err, ErrNotFound)
+	require.False(t, created)
+	retried, created, err := client.CreateSession(ctx, request, "pinned")
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, pinned.PreparedRevision, retried.PreparedRevision)
+	// A delayed readiness observation cannot restore a revoked desired revision.
+	revision, err := client.GetRuntimeRevision(ctx, "revision-1")
+	require.NoError(t, err)
+	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
+	_, _, err = client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "still-denied")
+	require.ErrorIs(t, err, ErrNotFound)
+	sessionFixture(t, client, ctx, "team-a", "revision-2", "assistant", "kagent")
+	fresh, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "restored")
+	require.NoError(t, err)
+	require.Equal(t, "revision-2", fresh.PreparedRevision)
+}

@@ -342,6 +342,9 @@ func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]da
 func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) error {
 	s.pairCalls++
 	s.pair = &pair
+	if pair.RevokePreparedRevision && s.pairErr == nil {
+		s.markedSuccessful = false
+	}
 	return s.pairErr
 }
 
@@ -474,4 +477,27 @@ func (s *fakeRuntimeRevisionStore) GetAgentEgressGrant(_ context.Context, namesp
 		return s.pair.EgressGrant, nil
 	}
 	return egress.Access{}, nil
+}
+
+func TestReconcilerPersistsReferenceRevocation(t *testing.T) {
+	opts := krt.NewOptionsBuilder(t.Context().Done(), "revocation", nil)
+	agent := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "uid"}}
+	state := AgentReconciliation{Agent: agent, CompilationFailure: compilationFailure(&translator.ReferencePolicyError{Err: errors.New("denied")})}
+	store := &fakeRuntimeRevisionStore{}
+	reconciler := &Reconciler{store: store, templates: &fakeActorTemplates{}, collections: Collections{
+		Reconciliations:          krt.NewStaticCollection(nil, []AgentReconciliation{state}, opts.WithName("States")...),
+		AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("Observations")...),
+	}}
+	require.NoError(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()))
+	require.NotNil(t, store.pair)
+	require.True(t, store.pair.RevokePreparedRevision)
+	require.Empty(t, store.pair.DesiredRevision)
+	require.Zero(t, store.recordCalls, "denial must not re-record the previous revision as ready")
+}
+
+func (s *fakeRuntimeRevisionStore) GetPreparedAgentRevision(context.Context, string, string) (*database.PreparedAgentRevision, error) {
+	if s.markedSuccessful && s.revision != nil {
+		return &database.PreparedAgentRevision{Revision: s.revision.Revision, SourceSnapshot: s.revision.SourceSnapshot}, nil
+	}
+	return nil, database.ErrNotFound
 }

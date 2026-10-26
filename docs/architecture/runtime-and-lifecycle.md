@@ -13,6 +13,10 @@ revision. Explicit egress grants are applied from the controller's persisted
 intended policy before execution. Lifecycle
 operations do not read or translate Kubernetes policy.
 
+Reference-policy failures are an exception: [shared model/MCP authorization](cross-namespace-references.md)
+revokes the previous revision for new sessions until authorization and preparation
+succeed again. Existing pinned sessions are unaffected.
+
 The control plane creates a deterministic Actor initially suspended and marks the session
 ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume

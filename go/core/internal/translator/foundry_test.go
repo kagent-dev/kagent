@@ -39,7 +39,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 			}
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
-				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "help"},
 			}
 			objects := []any{model, &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: model.Spec.APIKeySecret, Namespace: model.Namespace},
@@ -55,7 +55,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}}}
 				objects = append(objects, child, modelConfig())
 			case "memory":
-				harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: model.Name}}
+				harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ObjectReference{Name: model.Name}}
 				template.Spec.ModelConfig.Name = "default-model"
 				objects = append(objects, modelConfig())
 			case "BYO":

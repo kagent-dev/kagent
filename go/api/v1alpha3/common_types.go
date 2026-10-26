@@ -30,6 +30,27 @@ import (
 	"github.com/kagent-dev/kagent/go/api/utils"
 )
 
+// ObjectReference identifies a resource; an omitted namespace means the owner's namespace.
+type ObjectReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +required
+	Name string `json:"name"`
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// NamespacedName resolves the reference relative to its owner.
+func (r ObjectReference) NamespacedName(ownerNamespace string) types.NamespacedName {
+	if r.Namespace != "" {
+		ownerNamespace = r.Namespace
+	}
+	return types.NamespacedName{Namespace: ownerNamespace, Name: r.Name}
+}
+
 // ConfigMapKeyReference identifies a key in a same-namespace ConfigMap.
 type ConfigMapKeyReference struct {
 	// +kubebuilder:validation:MinLength=1
@@ -81,11 +102,25 @@ type AllowedNamespaces struct {
 // The targetNamespace is the namespace where the resource being referenced lives.
 // The sourceNamespace is the namespace where the referencing resource lives.
 func (a *AllowedNamespaces) AllowsNamespace(ctx context.Context, c client.Client, sourceNamespace, targetNamespace string) (bool, error) {
-	// If AllowedNamespaces is nil, default to same namespace only
+	var namespace *corev1.Namespace
+	if a != nil && a.From == NamespacesFromSelector && a.Selector != nil {
+		namespace = &corev1.Namespace{}
+		if err := c.Get(ctx, types.NamespacedName{Name: sourceNamespace}, namespace); err != nil {
+			if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+				return false, fmt.Errorf("allowedNamespaces.from=Selector requires namespace read access: %w", err)
+			}
+			return false, fmt.Errorf("failed to get namespace %s: %w", sourceNamespace, err)
+		}
+	}
+	return a.AllowsNamespaceMetadata(sourceNamespace, targetNamespace, namespace)
+}
+
+// AllowsNamespaceMetadata evaluates policy without I/O. Selector policies require
+// observed source metadata, including when source and target namespaces are equal.
+func (a *AllowedNamespaces) AllowsNamespaceMetadata(sourceNamespace, targetNamespace string, namespace *corev1.Namespace) (bool, error) {
 	if a == nil {
 		return sourceNamespace == targetNamespace, nil
 	}
-
 	switch a.From {
 	case NamespacesFromAll:
 		return true, nil
@@ -95,22 +130,14 @@ func (a *AllowedNamespaces) AllowsNamespace(ctx context.Context, c client.Client
 		if a.Selector == nil {
 			return false, fmt.Errorf("selector must be specified when from is Selector")
 		}
-
-		// Get the source namespace to check its labels
-		ns := &corev1.Namespace{}
-		if err := c.Get(ctx, types.NamespacedName{Name: sourceNamespace}, ns); err != nil {
-			if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
-				return false, fmt.Errorf("allowedNamespaces.from=Selector requires namespace read access: %w", err)
-			}
-			return false, fmt.Errorf("failed to get namespace %s: %w", sourceNamespace, err)
+		if namespace == nil || namespace.Name != sourceNamespace {
+			return false, fmt.Errorf("allowedNamespaces.from=Selector requires observed namespace metadata for %q", sourceNamespace)
 		}
-
 		selector, err := metav1.LabelSelectorAsSelector(a.Selector)
 		if err != nil {
 			return false, fmt.Errorf("invalid label selector: %w", err)
 		}
-
-		return selector.Matches(labels.Set(ns.Labels)), nil
+		return selector.Matches(labels.Set(namespace.Labels)), nil
 	default:
 		return false, fmt.Errorf("unknown from value: %s", a.From)
 	}

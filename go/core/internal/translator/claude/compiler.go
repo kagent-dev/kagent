@@ -156,7 +156,7 @@ func (c *Compiler) compileLocalAgents(root *translator.AgentInput) (map[string]c
 		if strings.TrimSpace(childModel.Spec.Model) == "" {
 			return nil, translator.NewValidationError("Claude local agent %q ModelConfig model is required", binding.Name)
 		}
-		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, childModel.Spec) {
+		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, childModel.Spec) || !translator.SameModelCredentials(root.ResolvedModelConfig.Config, childModel) {
 			return nil, translator.NewValidationError("Claude local agent %q must use the root agent's provider and authentication configuration", binding.Name)
 		}
 		if _, exists := agents[binding.Name]; exists {
@@ -173,6 +173,7 @@ func (c *Compiler) compileLocalAgents(root *translator.AgentInput) (map[string]c
 
 func sameProviderConfiguration(root, child v1alpha3.ModelConfigSpec) bool {
 	root.Model, child.Model = "", ""
+	root.AllowedNamespaces, child.AllowedNamespaces = nil, nil
 	return reflect.DeepEqual(root, child)
 }
 
@@ -367,7 +368,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 	// The Harness is always a standalone resource. Inline template configuration
 	// is recorded by the enclosing Agent provenance below.
 	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
-	configMaps := map[string]struct{}{}
+	configMaps := map[types.NamespacedName]struct{}{}
 	objects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, content any) {
 		identity := kind + "\x00" + name
@@ -383,13 +384,15 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 		if template.Source != nil {
 			addObject("AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec)
 		}
-		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
+		// Qualify shared models so same-name resources in different namespaces
+		// remain distinct when deduplicating provenance and computing revisions.
+		addObject("ModelConfig", model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec)
 		if template.Spec.SystemPromptFrom != nil {
-			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
+			configMaps[types.NamespacedName{Namespace: harness.Namespace, Name: template.Spec.SystemPromptFrom.Name}] = struct{}{}
 		}
 		if template.Spec.PromptTemplate != nil {
 			for _, source := range template.Spec.PromptTemplate.DataSources {
-				configMaps[source.Name] = struct{}{}
+				configMaps[types.NamespacedName{Namespace: harness.Namespace, Name: source.Name}] = struct{}{}
 			}
 		}
 		for _, child := range agent.Shared {
@@ -398,37 +401,23 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 		for _, tool := range agent.MCPTools {
 			server := tool.Server
 			if server != nil {
-				addObject("RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec)
+				// Shared MCP servers also need namespace-qualified provenance identities.
+				addObject("RemoteMCPServer", server.Namespace+"/"+server.Name, server.UID, server.Generation, server.Spec)
+				for _, header := range server.Spec.HeadersFrom {
+					if header.ValueFrom != nil && header.ValueFrom.Type == v1alpha3.ConfigMapValueSource {
+						configMaps[types.NamespacedName{Namespace: server.Namespace, Name: header.ValueFrom.Name}] = struct{}{}
+					}
+				}
 			}
 		}
 	}
 	addAgent(input.Root)
 	for name := range configMaps {
-		configMap := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
+		configMap := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(name))
 		if configMap == nil {
 			return nil, fmt.Errorf("ConfigMap %q not found", name)
 		}
-		entries = append(entries, objectProvenance("v1", "ConfigMap", name, (*configMap).UID, (*configMap).Generation, (*configMap).Data))
-	}
-	seen := map[string]struct{}{}
-	for _, variable := range environment {
-		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
-			continue
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		identity := ref.Name + "\x00" + ref.Key
-		if _, ok := seen[identity]; ok {
-			continue
-		}
-		seen[identity] = struct{}{}
-		secret, err := c.secret(ctx, harness.Namespace, ref.Name)
-		if err != nil {
-			return nil, err
-		}
-		_, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
+		entries = append(entries, objectProvenance("v1", "ConfigMap", name.String(), (*configMap).UID, (*configMap).Generation, (*configMap).Data))
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)

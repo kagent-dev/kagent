@@ -11,6 +11,8 @@ import (
 // Collections contains every typed input used while compiling a revision.
 // Production supplies informer-backed collections; tests supply KRT mocks.
 type Collections struct {
+	PreparedReferences   krt.Collection[PreparedAgentReferences]
+	Namespaces           krt.Collection[NamespaceObservation]
 	EgressPolicies       krt.Collection[*v1alpha3.EgressPolicy]
 	Harnesses            krt.Collection[*v1alpha3.Harness]
 	AgentTemplates       krt.Collection[*v1alpha3.AgentTemplate]

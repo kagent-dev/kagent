@@ -48,6 +48,8 @@ type AgentReconciliation struct {
 	CompilationFailure    *ReconciliationFailure
 	ObservedActorTemplate *ateapipb.ActorTemplate
 	PreparationFailure    *ReconciliationFailure
+	PreparedReferences    *translator.PreparedAgentReferences
+	PreparedPolicyFailure *ReconciliationFailure
 }
 
 // compiledTarget is published only after compilation, hashing, and ActorTemplate
@@ -88,12 +90,17 @@ func (r AgentReconciliation) desiredRevision() string {
 	return r.Target.RevisionID.String()
 }
 
+func (r AgentReconciliation) revokesPreparedRevision() bool {
+	return r.PreparedPolicyFailure != nil || (r.CompilationFailure != nil && r.CompilationFailure.RevokePreparedRevision)
+}
+
 // ReconciliationFailure identifies the condition stage blocked by an Agent.
 type ReconciliationFailure struct {
-	Condition string
-	Reason    string
-	Message   string
-	Retryable bool
+	Condition              string
+	Reason                 string
+	Message                string
+	Retryable              bool
+	RevokePreparedRevision bool
 }
 
 func newAgentReconciliations(
@@ -112,6 +119,19 @@ func newAgentReconciliations(
 		resolution := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
 		state.EgressGrant, state.EgressIssues = resolution.Access, resolution.Issues
 		state.Target, state.Warnings, state.CompilationFailure = compileAgentTarget(ctx, collections, agent, settings, images)
+
+		if collections.PreparedReferences != nil {
+			prepared := krt.FetchOne(ctx, collections.PreparedReferences, krt.FilterKey(state.ResourceName()))
+			if prepared != nil && prepared.AgentUID == string(agent.UID) {
+				state.PreparedReferences = prepared
+				if err := translator.AuthorizePreparedReferences(ctx, collections, prepared); err != nil {
+					state.PreparedPolicyFailure = compilationFailure(err)
+					if state.Target == nil {
+						state.CompilationFailure = state.PreparedPolicyFailure
+					}
+				}
+			}
+		}
 		var err error
 		if state.Target == nil {
 			// Unrelated compilation failures must not freeze grant updates.
@@ -186,7 +206,8 @@ func compilationFailure(err error) *ReconciliationFailure {
 	case errors.As(err, &missingPool):
 		reason = "WorkerPoolNotFound"
 	}
-	return &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
+	var policy *translator.ReferencePolicyError
+	return &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error(), RevokePreparedRevision: errors.As(err, &policy)}
 }
 
 // runtimeRevisionStore is the controller's narrow view of the shared database.
@@ -196,6 +217,7 @@ type runtimeRevisionStore interface {
 	actorEgressStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
+	GetPreparedAgentRevision(context.Context, string, string) (*database.PreparedAgentRevision, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
@@ -261,6 +283,8 @@ func newReconciler(
 		// and status writes do not. Grants must reconcile without a new revision.
 		if event.Old != nil && event.New != nil && event.Old.Agent.UID == event.New.Agent.UID &&
 			event.Old.desiredRevision() == event.New.desiredRevision() &&
+			event.Old.revokesPreparedRevision() == event.New.revokesPreparedRevision() &&
+			reflect.DeepEqual(event.Old.PreparedReferences, event.New.PreparedReferences) &&
 			reflect.DeepEqual(event.Old.EgressGrant, event.New.EgressGrant) &&
 			reflect.DeepEqual(event.Old.EgressIssues, event.New.EgressIssues) &&
 			event.Old.EgressConflict == event.New.EgressConflict && event.Old.Agent.DeletionTimestamp.Equal(event.New.Agent.DeletionTimestamp) {
@@ -370,10 +394,18 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		if err != nil {
 			return fmt.Errorf("retire Agent %s: %w", key, err)
 		}
+		if r.collections.PreparedReferences != nil {
+			r.collections.PreparedReferences.DeleteObject(key)
+		}
 		if err := applySourceEgress(ctx, r.store, r.templates, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: parts[0], Name: parts[1]}); err != nil {
 			return err
 		}
 		return nil
+	}
+	// Restore durable fallback inputs before acting on a graph that only knows
+	// the desired spec. Publishing them causes KRT to evaluate their policies.
+	if changed, err := r.syncPreparedReferences(ctx, *state); err != nil || changed {
+		return err
 	}
 	grants := state.EgressGrant
 	if state.EgressConflict != "" {
@@ -391,14 +423,20 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	definition := database.AgentDefinition{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
 		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(), EgressGrant: grants,
+		RevokePreparedRevision: state.revokesPreparedRevision(),
 	}
 
 	// Store the desired edge before creating compute so a concurrent collector
 	// cannot mistake the revision for abandoned state. Unresolved inputs clear
 	// the old desired edge without inventing a runtime revision;
-	// the upsert preserves the current UID's last-good runtime in either case.
+	// Reference-policy failure also revokes the last-good runtime for new sessions.
 	if err := r.store.UpsertAgentDefinition(ctx, definition); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store Agent %s: %w", key, err))
+	}
+	if definition.RevokePreparedRevision {
+		if _, err := r.syncPreparedReferences(ctx, *state); err != nil {
+			return err
+		}
 	}
 	if err := applySourceEgress(ctx, r.store, r.templates, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: definition.Namespace, Name: definition.AgentName}); err != nil {
 		return r.observePreparationError(*state, err)
@@ -451,6 +489,10 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
 	if err := r.store.RecordRuntimeRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
+	}
+
+	if _, err := r.syncPreparedReferences(ctx, *state); err != nil {
+		return err
 	}
 
 	// This observation drives Kubernetes Ready status on a separate queue.
@@ -555,4 +597,29 @@ func modelConfigStatusWithTransitionTimes(desired, current kagentv1alpha3.ModelC
 		condition.LastTransitionTime = metav1.Now()
 	}
 	return desired
+}
+
+// syncPreparedReferences mirrors the database's eligible revision into KRT.
+// Read failures retry without changing the cache; corrupt provenance is published
+// as a policy failure so the graph revokes eligibility instead of dropping checks.
+func (r *Reconciler) syncPreparedReferences(ctx context.Context, state AgentReconciliation) (bool, error) {
+	if r.collections.PreparedReferences == nil {
+		return false, nil
+	}
+	prepared := translator.PreparedAgentReferences{Namespace: state.Agent.Namespace, AgentName: state.Agent.Name, AgentUID: string(state.Agent.UID)}
+	revision, err := r.store.GetPreparedAgentRevision(ctx, prepared.Namespace, prepared.AgentUID)
+	if err != nil && !errors.Is(err, database.ErrNotFound) {
+		return false, fmt.Errorf("read prepared Agent revision: %w", err)
+	}
+	if err == nil {
+		prepared.Revision = revision.Revision
+		prepared.References, err = translator.PreparedReferencesFromProvenance(revision.SourceSnapshot, prepared.Namespace)
+		if err != nil {
+			prepared.Error = err.Error()
+		}
+	}
+	if !reflect.DeepEqual(r.collections.PreparedReferences.GetKey(state.ResourceName()), &prepared) {
+		r.collections.PreparedReferences.UpdateObject(prepared)
+	}
+	return !reflect.DeepEqual(state.PreparedReferences, &prepared), nil
 }

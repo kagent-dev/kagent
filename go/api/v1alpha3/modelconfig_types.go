@@ -584,6 +584,11 @@ type ModelConfigSpec struct {
 	// +required
 	Model string `json:"model"`
 
+	// AllowedNamespaces controls which namespaces may use this model and its credentials.
+	// Omitted policy permits only references from the same namespace.
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+
 	// Stream controls LLM response streaming for the kagent harness. Set to false
 	// for model endpoints that do not support streaming. Defaults to true.
 	// +kubebuilder:default=true

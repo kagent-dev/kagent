@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -42,7 +41,7 @@ func TestOCISkillsSurviveSuspension(t *testing.T) {
 		template := &v1alpha3.AgentTemplate{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "oci-skills-", Namespace: "kagent", Labels: harness.labels()},
 			Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig:  &corev1.LocalObjectReference{Name: config.Name},
+				ModelConfig:  &v1alpha3.ObjectReference{Name: config.Name},
 				SystemPrompt: "Load the requested skills and follow their instructions.",
 				Skills:       []v1alpha3.AgentTemplateSkill{{Name: "standalone", Source: v1alpha3.ArtifactSource{OCI: image, Path: "standalone"}}},
 				Plugins:      []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{OCI: image, Path: "plugin"}, Skills: []string{"selected"}}},

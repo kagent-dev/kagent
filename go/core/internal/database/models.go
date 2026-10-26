@@ -58,6 +58,9 @@ type AgentDefinition struct {
 	EgressGrant egress.Access
 	// DesiredRevision is a compiled runtime digest, or empty while inputs are unresolved.
 	DesiredRevision string
+	// RevokePreparedRevision removes eligibility for new sessions when reference
+	// authorization fails. Existing sessions retain their pinned revision.
+	RevokePreparedRevision bool
 }
 
 type RuntimeRevision struct {
@@ -73,6 +76,12 @@ type RuntimeRevision struct {
 	ActorTemplateAtespace   string
 	ActorTemplateName       string
 	ActorTemplateUID        string
+}
+
+// PreparedAgentRevision supplies durable inputs for fallback authorization.
+type PreparedAgentRevision struct {
+	Revision       string
+	SourceSnapshot json.RawMessage
 }
 
 // SessionQuery narrows a page of sessions to an optional Agent.

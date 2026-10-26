@@ -179,6 +179,12 @@ jobs:
             workerImage: ghcr.io/kagent-dev/substrate/ateworker-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
           EOF
           cat > "$RUNNER_TEMP/substrate-values.yaml" <<EOF
+          # CI-only grants for cross-namespace model and MCP credential tests.
+          # Keep kagent-untrusted excluded to verify credential-provider denial.
+          credentialProvider:
+            namespacePolicies:
+              - atespace: kagent
+                allowedNamespaces: [kagent, kagent-shared-models, kagent-shared-tools]
           atelet:
             resources:
               limits:

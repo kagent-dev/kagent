@@ -240,6 +240,10 @@ while a configuration edit is unresolved, preparing, or failed. Initial creation
 still requires a successful revision. Existing instances and checkpoint forks
 retain their runtime configuration.
 
+Reference-policy failures are an exception: [shared model/MCP authorization](cross-namespace-references.md)
+revokes the previous revision for new sessions until authorization and preparation
+succeed again. Existing pinned sessions are unaffected.
+
 Create, creation retries, and resume load and apply the effective policy from
 persisted revision inputs and source grants. They do not read or translate
 Kubernetes policy. The workflow creates a suspended Actor and installs its
