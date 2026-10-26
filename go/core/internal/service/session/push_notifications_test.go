@@ -18,6 +18,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/protobuf/proto"
@@ -776,7 +777,8 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 			for range restarts {
 				ctx, cancel := context.WithCancel(t.Context())
 				done := make(chan error, 1)
-				worker := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(time.Minute))
+				// Recover transient empty claims well before the assertion deadline.
+				worker := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(10*time.Millisecond))
 				go func() { done <- worker.Start(ctx) }()
 				select {
 				case <-started:
@@ -788,15 +790,20 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 				cancel()
 				require.NoError(t, <-done)
 			}
-			next, err := store.ClaimDuePushDelivery(t.Context(), time.Second)
-			require.NoError(t, err)
 			if delivered {
+				next, err := store.ClaimDuePushDelivery(t.Context(), time.Second)
+				require.NoError(t, err)
 				require.Nil(t, next, "successful delivery must remain acknowledged after shutdown")
 				pending, err := store.HasPendingPushDelivery(t.Context())
 				require.NoError(t, err)
 				require.False(t, pending)
 			} else {
-				require.NotNil(t, next, "repeated shutdowns must not exhaust the delivery budget")
+				// SKIP LOCKED can return no claim while a canceled transaction unwinds.
+				require.EventuallyWithT(t, func(collect *assert.CollectT) {
+					next, err := store.ClaimDuePushDelivery(t.Context(), time.Second)
+					require.NoError(collect, err)
+					require.NotNil(collect, next, "repeated shutdowns must not exhaust the delivery budget")
+				}, 5*time.Second, 10*time.Millisecond)
 			}
 		})
 	}
