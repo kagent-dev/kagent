@@ -40,8 +40,8 @@ ENV UV_PYTHON_PREFERENCE=only-managed
 
 # node/npm come from the base image; add the remaining runtime tooling.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl openssl bash git ca-certificates \
+    && apt-get satisfy -y --no-install-recommends \
+        curl openssl bash git 'ca-certificates (>= 20250419~deb12u2)' \
         bubblewrap socat ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
