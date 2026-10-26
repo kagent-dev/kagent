@@ -33,8 +33,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// Creator-owned automation stored in PostgreSQL. Each occurrence creates a fresh
-// Session; Task state and history belong to upstream A2A.
+// Kubernetes-owned automation. Each occurrence creates a fresh Session using
+// the scheduler's principal; task state and history belong to upstream A2A.
 type ScheduledRunServiceClient interface {
 	CreateScheduledRun(ctx context.Context, in *CreateScheduledRunRequest, opts ...grpc.CallOption) (*CreateScheduledRunResponse, error)
 	GetScheduledRun(ctx context.Context, in *GetScheduledRunRequest, opts ...grpc.CallOption) (*GetScheduledRunResponse, error)
@@ -138,8 +138,8 @@ func (c *scheduledRunServiceClient) ListScheduledRunExecutions(ctx context.Conte
 // All implementations must embed UnimplementedScheduledRunServiceServer
 // for forward compatibility.
 //
-// Creator-owned automation stored in PostgreSQL. Each occurrence creates a fresh
-// Session; Task state and history belong to upstream A2A.
+// Kubernetes-owned automation. Each occurrence creates a fresh Session using
+// the scheduler's principal; task state and history belong to upstream A2A.
 type ScheduledRunServiceServer interface {
 	CreateScheduledRun(context.Context, *CreateScheduledRunRequest) (*CreateScheduledRunResponse, error)
 	GetScheduledRun(context.Context, *GetScheduledRunRequest) (*GetScheduledRunResponse, error)

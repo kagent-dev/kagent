@@ -119,7 +119,20 @@ export function AgentDetailsPage() {
             <ValueOrNotReported value={undefined} />
           ),
         },
-        {
+        ...(data.scheduledRun ? [{
+    key: "scheduledRun",
+    label: "Scheduled run",
+    span: 2,
+    children: <Link to={`/schedules/${encodeURIComponent(`${data.scheduledRun.namespace}:${data.scheduledRun.name}:${data.scheduledRun.uid}`)}`}>
+      {`${data.scheduledRun.namespace}/${data.scheduledRun.name}`}
+    </Link>,
+  }, {
+    key: "scheduledExecution",
+    label: "Execution ID",
+    span: 2,
+    children: <ValueOrNotReported value={data.scheduledRun.executionId} mono />,
+  }] : []),
+  {
           key: "preparedRevision",
           label: "Prepared revision",
           children: <ValueOrNotReported value={data.preparedRevision} mono />,

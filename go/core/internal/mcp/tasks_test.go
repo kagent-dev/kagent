@@ -530,7 +530,7 @@ func (*fakeSessionStore) GetSession(_ context.Context, id, _ string) (*apiv1.Ses
 	if id != testSessionID {
 		return nil, database.ErrNotFound
 	}
-	return &apiv1.Session{Id: id, ContextId: id, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
+	return &apiv1.Session{Id: id, ContextId: id, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, nil
 }
 
 func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1.Session, error) {
@@ -539,8 +539,7 @@ func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv
 
 func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error) {
 	return []*apiv1.Session{{
-		Id: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
-		Agent: &apiv1.ResourceReference{Name: "assistant"},
+		Id: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "assistant"}},
 	}}, nil
 }
 

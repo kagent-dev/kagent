@@ -244,7 +244,7 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	later := a2a.NewSubmittedTask(newInput, newInput)
 	_, err = client.CreateRuntimeTask(t.Context(), source.Id, hash[:], later, "")
 	require.NoError(t, err)
-	fork, _, err := client.ForkSession(t.Context(), checkpoint.Id, "alice", uuid.NewString(), uuid.NewString())
+	fork, _, err := client.ForkSession(t.Context(), checkpoint.Id, "alice", "alice", uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)
 	fork, err = markSessionReady(t.Context(), client, fork.Id, "fork.example")
 	require.NoError(t, err)

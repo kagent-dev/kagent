@@ -156,10 +156,16 @@ config:
   server:
     auth:
       mode: insecure
-      # Opt in to Kubernetes TokenReview authentication independently of the mode.
-      # serviceAccount:
-      #   authority: kubernetes
+      # Kubernetes TokenReview authentication, also used by ScheduledRuns.
+      serviceAccount:
+        authority: kubernetes
     grpcReflection: false
+  scheduledRuns:
+    outboundCredential:
+      # Audience accepted by downstream services; must differ from server authentication.
+      audience: kagent-egress
+      # Requested TTL; each invocation is limited by the issued token's remaining lifetime.
+      expirationSeconds: 3600
   database:
     # Role each login assumes after connecting. Set distinct roles for each install sharing a database.
     # The owner applies migrations and is not used when skipMigrations is true.

@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +17,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -22,8 +25,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
@@ -98,27 +101,32 @@ type scheduledControllerAuth struct {
 }
 
 func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, destinationSessionID string) error {
-	if _, ok := session.(auth.ControlPlaneSession); !ok || session.Principal().ID != "" || destinationSessionID == "" {
-		return errors.New("expected control-plane session and destination session")
+	if session.Principal().ID != "scheduler" || destinationSessionID == "" {
+		return errors.New("expected scheduler principal and destination Session")
 	}
-	req.Header.Set("Authorization", "Bearer controller-test-credential")
-	return nil
+	return auth.ForwardCredential(req, session)
 }
 
 type scheduledControllerAuthorizer struct{}
 
-func (scheduledControllerAuthorizer) Check(ctx context.Context, principal auth.Principal, _ auth.Verb, _ auth.Resource) error {
-	session, ok := auth.AuthSessionFrom(ctx)
-	if !ok {
-		return errors.New("missing controller session")
-	}
-	if _, ok := session.(auth.ControlPlaneSession); !ok || principal.ID != "" {
-		return errors.New("controller impersonated owner")
+func (scheduledControllerAuthorizer) Check(_ context.Context, principal auth.Principal, _ auth.Verb, _ auth.Resource) error {
+	if principal.ID != "scheduler" {
+		return errors.New("scheduler principal required")
 	}
 	return nil
 }
 
+type schedulerTokenSource struct{}
+
+func (schedulerTokenSource) Token(context.Context) (string, error) {
+	return "controller-test-credential", nil
+}
+func schedulerIdentity() auth.Session {
+	return auth.NewCredentialSession(auth.Principal{ID: "scheduler"}, schedulerTokenSource{})
+}
+
 type scheduledControllerRuntime struct {
+	downstreamURL string
 	a2apb.UnimplementedA2AServiceServer
 	mu              sync.Mutex
 	store           *database.Client
@@ -137,6 +145,7 @@ type scheduledControllerRuntime struct {
 func (r *scheduledControllerRuntime) SendStreamingMessage(req *a2apb.SendMessageRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
 	ctx := stream.Context()
 	sessionID := strings.TrimPrefix(strings.Split(metadata.ValueFromIncomingContext(ctx, "ate-target-actor")[0], "/")[1], "session-")
+
 	r.mu.Lock()
 	// Release the lock before waiting for the test to allow streaming.
 	task, err := r.acceptMessage(ctx, req)
@@ -194,14 +203,35 @@ func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, req *a2a
 	if got := metadata.ValueFromIncomingContext(ctx, "authorization"); len(got) != 1 || got[0] != "Bearer controller-test-credential" {
 		return nil, status.Error(codes.Unauthenticated, "controller credential missing")
 	}
-	if len(metadata.ValueFromIncomingContext(ctx, "x-user-id")) != 0 {
-		return nil, status.Error(codes.Unauthenticated, "unexpected human credentials")
+	if got := metadata.ValueFromIncomingContext(ctx, "x-user-id"); len(got) != 1 || got[0] != "scheduler" {
+		return nil, status.Error(codes.Unauthenticated, "scheduler principal missing")
 	}
 	send, err := pbconv.FromProtoSendMessageRequest(req)
 	if err != nil {
 		return nil, err
 	}
 	sessionID := strings.TrimPrefix(strings.Split(metadata.ValueFromIncomingContext(ctx, "ate-target-actor")[0], "/")[1], "session-")
+	incoming, _ := metadata.FromIncomingContext(ctx)
+	invocation, _ := a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(map[string][]string(incoming)))
+	client, err := models.BuildHTTPClient(models.TransportConfig{TLSInsecureSkipVerify: new(true)})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(invocation, http.MethodPost, r.downstreamURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+models.BearerFromCallContext(invocation))
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		return nil, errors.New("downstream rejected scheduler credential")
+	}
+
 	current := a2atype.NewSubmittedTask(send.Message, send.Message)
 	initial, err := pbconv.ToProtoTask(current)
 	if err != nil {
@@ -334,21 +364,28 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			a2apb.RegisterA2AServiceServer(server, runtime)
 			go func() { _ = server.Serve(listener) }()
 			t.Cleanup(server.Stop)
+			var downstreamCalls atomic.Int32
+			downstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if request.Header.Get("Authorization") != "Bearer controller-test-credential" {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				downstreamCalls.Add(1)
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			t.Cleanup(downstream.Close)
+			runtime.downstreamURL = strings.Replace(downstream.URL, "127.0.0.1", "localhost", 1)
 			authenticator := &scheduledControllerAuth{}
 			dialer, err := a2agateway.NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
 			require.NoError(t, err)
 			workflow := &scheduledControllerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
-			created, err := client.CreateScheduledRun(owner, &apiv1.CreateScheduledRunRequest{
-				Agent: &apiv1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "worker",
-				Config: &apiv1.ScheduledRunConfig{Schedule: "* * * * *", Paused: true, Prompt: "immutable scheduled prompt", ExecutionTimeout: durationpb.New(tc.timeout)},
-			})
-			require.NoError(t, err)
-			trigger := &apiv1.TriggerScheduledRunRequest{ScheduledRunId: created.ScheduledRun.Id, RequestId: "firing"}
+			resource := createScheduleRPC(t, store, client, owner, tc.timeout)
+			trigger := &apiv1.TriggerScheduledRunRequest{ScheduledRunId: string(resource.UID), RequestId: "firing"}
 			accepted, err := client.TriggerScheduledRun(owner, trigger)
 			require.NoError(t, err)
-			// Accepted work survives both editing and deleting its parent schedule.
-			_, err = client.DeleteScheduledRun(owner, &apiv1.DeleteScheduledRunRequest{ScheduledRunId: created.ScheduledRun.Id})
+			_, err = client.DeleteScheduledRun(owner, &apiv1.DeleteScheduledRunRequest{Ref: &apiv1.ResourceReference{Namespace: resource.Namespace, Name: resource.Name}, Uid: string(resource.UID), ResourceVersion: resource.ResourceVersion})
 			require.NoError(t, err)
+			require.NoError(t, store.RetireScheduledRun(t.Context(), uuid.MustParse(string(resource.UID))))
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
 			controllerStore := lostTaskLinkStore{Client: store, updated: make(chan struct{}, 1)}
@@ -356,7 +393,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 				controllerStore.loseTaskLink = true
 			}
 			interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, scheduledControllerAuthorizer{}, nil), false)
-			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(interactions, dialer, "http://gateway.test"), time.Second)
+			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(interactions, dialer, "http://gateway.test"), schedulerIdentity(), time.Second)
 			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 			if tc.want == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
@@ -397,7 +434,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 				ctx, cancel = context.WithCancel(t.Context())
 				defer cancel()
 				done = make(chan error, 1)
-				controller = scheduledrun.NewController(store, workflow, a2agateway.New(interactions, dialer, "http://gateway.test"), time.Second)
+				controller = scheduledrun.NewController(store, workflow, a2agateway.New(interactions, dialer, "http://gateway.test"), schedulerIdentity(), time.Second)
 				go func() { done <- controller.Start(ctx) }()
 			}
 			var execution *apiv1.ScheduledRunExecution
@@ -416,9 +453,9 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			require.NotEmpty(t, execution.TaskId)
 			require.NotEqual(t, execution.Id, execution.TaskId)
 			require.NotEmpty(t, execution.SessionId)
-			session, err := store.GetSession(t.Context(), execution.SessionId, "alice")
+			session, err := store.GetSession(t.Context(), execution.SessionId, "scheduler")
 			require.NoError(t, err)
-			require.Equal(t, "alice", session.Creator)
+			require.Equal(t, "scheduler", session.Creator)
 			task, err := store.GetSessionTask(t.Context(), session.Id, execution.TaskId, nil)
 			require.NoError(t, err)
 			wantTaskState := tc.state
@@ -435,6 +472,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			runtime.mu.Lock()
 			defer runtime.mu.Unlock()
 			require.Equal(t, 1, runtime.sends)
+			require.Equal(t, int32(1), downstreamCalls.Load(), "accepted work forwards the scheduler credential exactly once")
 			require.Equal(t, "immutable scheduled prompt", runtime.prompt)
 		})
 	}

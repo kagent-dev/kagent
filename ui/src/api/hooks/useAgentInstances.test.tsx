@@ -13,6 +13,8 @@ function wrapper({ children }: { children: ReactNode }) {
 
 afterEach(() => setApiTransport(undefined));
 
+const source = { case: "agent" as const, value: { ref: { namespace: "team-a", name: "assistant" }, uid: "agent-uid" } };
+
 describe.each(["collection", "agent"] as const)("%s conversations", (mode) => {
   const useConversations: () => ReturnType<typeof useAgentInstances> | ReturnType<typeof useAgentConversations> = mode === "collection"
     ? () => useAgentInstances(true)
@@ -26,7 +28,7 @@ describe.each(["collection", "agent"] as const)("%s conversations", (mode) => {
         expect(request.agent?.name).toBe(mode === "agent" ? "assistant" : undefined);
         if (request.allCreators) throw new ConnectError("Broad list refused", Code.PermissionDenied);
         if (!request.page?.pageToken) return { page: { nextPageToken: "next" } };
-        return { sessions: [{ id: "owned", creator: "alice" }] };
+        return { sessions: [{ id: "owned", creator: "alice", source }] };
       },
     })));
     const { result } = renderHook(useConversations, { wrapper });
@@ -94,8 +96,8 @@ describe.each(["collection", "agent"] as const)("%s conversations", (mode) => {
 it("keeps broad metadata separate from the owned list on agent details", async () => {
   setApiTransport(createRouterTransport(({ service }) => service(SessionService, {
     listSessions: (request) => ({ sessions: request.allCreators
-      ? [{ id: "other", creator: "bob" }, { id: "owned", creator: "alice" }]
-      : [{ id: "owned", creator: "alice" }] }),
+      ? [{ id: "other", creator: "bob", source }, { id: "owned", creator: "alice", source }]
+      : [{ id: "owned", creator: "alice", source }] }),
   })));
   const { result } = renderHook(() => useAgentConversations("team-a", "assistant"), { wrapper });
   await waitFor(() => expect(result.current.data?.all).toHaveLength(2));
@@ -111,7 +113,7 @@ it("loads owned conversations while the broad collection is still pending", asyn
     listSessions: async (request) => {
       requests.push(request.allCreators);
       if (request.allCreators) await broadPending;
-      return { sessions: [{ id: request.allCreators ? "other" : "owned", creator: "alice" }] };
+      return { sessions: [{ id: request.allCreators ? "other" : "owned", creator: "alice", source }] };
     },
   })));
   const { result } = renderHook(() => useAgentConversations("team-a", "assistant"), { wrapper });

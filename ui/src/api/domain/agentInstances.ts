@@ -87,9 +87,7 @@ export interface AgentInstance {
   /**
    * The reader's own title for this conversation. Empty means unnamed.
    *
-   * Empty is ordinary rather than a gap: the column was added after the table
-   * existed, so every conversation created before it reads back empty, and
-   * `CreateAgentInstance` still accepts a create with no name. Never render it raw
+   * `CreateSession` accepts a create with no name. Never render it raw
    * — `conversationTitle` in `components/agent-instances/instanceLabels` is what
    * turns it, or its absence, into something to put on screen.
    */
@@ -98,6 +96,15 @@ export interface AgentInstance {
   creator: string;
   /** `namespace/name` of the Agent it was created from, when recorded. */
   agent?: string;
+  /** Immutable Kubernetes UID of the Agent used to prepare this conversation. */
+  agentUid?: string;
+  /** Present when this conversation was accepted from a schedule. */
+  scheduledRun?: {
+    namespace: string;
+    name: string;
+    uid: string;
+    executionId: string;
+  };
   /** The runtime revision this instance was prepared against. */
   preparedRevision?: string;
   /** Where its A2A endpoint is served, for a caller that wants to reach it. */

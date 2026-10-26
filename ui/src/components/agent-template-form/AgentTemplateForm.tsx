@@ -207,7 +207,7 @@ export function AgentTemplateForm({
         />
       )}
 
-      <Form layout="vertical">
+      <Form layout="vertical" component={embedded ? "div" : "form"}>
         {isCreate ? (
           <Form.Item
             label="Name"

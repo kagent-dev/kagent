@@ -75,7 +75,7 @@ func (s *InteractionService) storedSession(ctx context.Context, verb auth.Verb, 
 	if err != nil {
 		return nil, interactionError(ctx, err)
 	}
-	if session.GetAgent().GetNamespace() != agent.Namespace || session.GetAgent().GetName() != agent.Name {
+	if session.GetAgent().GetRef().GetNamespace() != agent.Namespace || session.GetAgent().GetRef().GetName() != agent.Name {
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "context does not belong to this Agent")
 	}
 	return session, nil

@@ -239,7 +239,7 @@ func TestSessionExpirationCheckpointAdmission(t *testing.T) {
 	_, err = client.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "s3://snapshot", "")
 	require.NoError(t, err)
 	beforeFork := time.Now()
-	fork, _, err := client.ForkSession(t.Context(), checkpoint.Id, session.Creator, "fork", uuid.NewString())
+	fork, _, err := client.ForkSession(t.Context(), checkpoint.Id, session.Creator, session.Creator, "fork", uuid.NewString())
 	require.NoError(t, err)
 	fork, err = markSessionReady(t.Context(), client, fork.Id, "fork.example")
 	require.NoError(t, err)

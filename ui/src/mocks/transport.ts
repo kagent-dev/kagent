@@ -1,10 +1,11 @@
+import type { ScheduledRun } from "@/api/domain/scheduledRuns";
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
 import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
 import { ActorState, SnapshotStorageStatus, type WorkerSchema, type ActorSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
-import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
+import { ScheduledRunService, ScheduledRunExecutionSchema, ScheduledRunExecutionState } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
  *
@@ -638,7 +639,8 @@ function agentInstanceMessage(
     // turns it into a title rather than treating it as a gap.
     name: row.name,
     creator: row.creator,
-    agent: row.agent ? splitRef(row.agent) : undefined,
+    agent: row.agent ? { ref: { namespace: row.agent.split("/")[0], name: row.agent.split("/")[1] }, uid: row.agentUid ?? "mock-agent" } : undefined,
+    scheduledRun: row.scheduledRun ? { ref: { namespace: row.scheduledRun.namespace, name: row.scheduledRun.name }, uid: row.scheduledRun.uid, executionId: row.scheduledRun.executionId } : undefined,
     // Proto3 cannot carry an absent string, so an unset field goes back as the
     // empty one the controller would also send — and `orUndefined` on the client
     // turns it back into "not reported".
@@ -859,7 +861,7 @@ on(SessionService.method.createSession, (input, call) => {
     id: randomId(),
     name,
     creator: MOCK_INSTANCE_CREATOR,
-    agent: `${namespace}/${input.agent?.name}`,
+    agent: `${namespace}/${input.agent.name}`, agentUid: `mock-agent-${namespace}/${input.agent.name}`,
     preparedRevision: "rev-mock",
     a2aAuthority: `${input.agent?.name}.${namespace}.svc.cluster.local:8080`,
     state: "ready" as const,
@@ -1513,31 +1515,15 @@ function publishCallCounts(): void {
 publishCallCounts();
 
 // Scheduling fixtures do not run agents. Manual triggers remain pending.
-const scheduledRuns = [1, 2, 3].map((n) => create(ScheduledRunSchema, {
-  id: `c686bd1d-9124-4e96-8df7-00000000000${n}`,
-  etag: `d686bd1d-9124-4e96-8df7-00000000000${n}`,
-  creator: MOCK_INSTANCE_CREATOR,
-  agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
-  config: { name: n === 1 ? "Daily cluster report" : `Schedule ${n}`, schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
-  createdAt: stamp("2026-09-01T09:00:00Z"),
+const scheduledRuns: ScheduledRun[] = [1, 2, 3, 4].map(n => ({
+ metadata: { namespace: "kagent", name: n === 1 ? "daily-cluster-report" : `schedule-${n}`, uid: `c686bd1d-9124-4e96-8df7-00000000000${n}`, resourceVersion: "1", generation: 1, creationTimestamp: "2026-09-01T09:00:00Z", ...(n === 4 ? { deletionTimestamp: "2026-09-02T09:00:00Z" } : {}) },
+ spec: { agentRef: { name: "k8s-agent-7f3a91c" }, schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: "15m" },
+ status: { observedGeneration: 1, conditions: [{ type: "Ready", status: "True" }] },
 }));
-/*
- * One already deleted, because a delete now leaves the detail page and a reload resets
- * these fixtures — so the state a held link lands on had no way to be read otherwise.
- * Absent from the list, since `listScheduledRuns` drops what is deleted.
- */
-scheduledRuns.push(create(ScheduledRunSchema, {
-  id: "c686bd1d-9124-4e96-8df7-000000000004",
-  etag: "d686bd1d-9124-4e96-8df7-000000000004",
-  creator: MOCK_INSTANCE_CREATOR,
-  agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
-  config: { name: "Retired sweep", schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
-  createdAt: stamp("2026-09-01T09:00:00Z"),
-  deletedAt: stamp("2026-09-02T09:00:00Z"),
-}));
+const scheduledMessage = (schedule: ScheduledRun) => ({ ref: { namespace: schedule.metadata.namespace ?? "", name: schedule.metadata.name }, resource: structured("ScheduledRun", schedule) });
 const scheduleExecutions = Array.from({ length: 26 }, (_, i) => create(ScheduledRunExecutionSchema, {
   id: `a686bd1d-9124-4e96-8df7-${String(i).padStart(12, "0")}`,
-  scheduledRunId: scheduledRuns[0].id,
+  scheduledRunId: scheduledRuns[0].metadata.uid,
   creator: MOCK_INSTANCE_CREATOR,
   trigger: { case: "scheduledTime", value: stamp("2026-09-01T09:00:00Z")! },
   prompt: "Summarize cluster health.", createdAt: stamp("2026-09-01T09:00:00Z"),
@@ -1546,11 +1532,21 @@ const scheduleExecutions = Array.from({ length: 26 }, (_, i) => create(Scheduled
   failureReason: i === 1 ? "Execution deadline exceeded" : "",
   sessionId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44", taskId: `mock-scheduled-task-${i}`,
 }));
-const scheduleRequests = new Map<string, ScheduledRun>();
+// Execution records survive removal of their ScheduledRun CRD.
+scheduleExecutions.push(create(ScheduledRunExecutionSchema, {
+  ...scheduleExecutions[0],
+  id: "a686bd1d-9124-4e96-8df7-000000000026",
+  scheduledRunId: scheduledRuns[3].metadata.uid ?? "",
+}));
 function scheduledRunFor(id: string, call: MockCall) {
-  const schedule = call.scenario !== "empty" && scheduledRuns.find((row) => row.id === id);
-  if (!schedule) throw notFound("schedule");
-  return schedule;
+ const schedule = call.scenario !== "empty" && scheduledRuns.find(row => row.metadata.uid === id);
+ if (!schedule) throw notFound("schedule");
+ return schedule;
+}
+function liveSchedule(ref: { namespace: string; name: string } | undefined, call: MockCall) {
+ const schedule = call.scenario !== "empty" && scheduledRuns.find(row => row.metadata.namespace === ref?.namespace && row.metadata.name === ref?.name && !row.metadata.deletionTimestamp);
+ if (!schedule) throw notFound("schedule");
+ return schedule;
 }
 function schedulePage<T extends { id: string }>(rows: T[], page: { limit: number; pageToken: string } | undefined) {
   const start = page?.pageToken ? rows.findIndex((row) => row.id === page.pageToken) + 1 : 0;
@@ -1559,48 +1555,54 @@ function schedulePage<T extends { id: string }>(rows: T[], page: { limit: number
   return { rows: result, page: { nextPageToken: start + size < rows.length ? result[result.length - 1].id : "" } };
 }
 on(ScheduledRunService.method.listScheduledRuns, (input, call) => {
-  const page = schedulePage(call.scenario === "empty" ? [] : scheduledRuns.filter((row) => !row.deletedAt), input.page);
-  return { scheduledRuns: page.rows, page: page.page };
+ const rows = call.scenario === "empty" ? [] : scheduledRuns.filter(row => !row.metadata.deletionTimestamp && (!input.namespace || row.metadata.namespace === input.namespace));
+ const page = schedulePage(rows.map(row => ({ id: row.metadata.uid ?? "", resource: row })), input.page);
+ return { scheduledRuns: page.rows.map(row => scheduledMessage(row.resource)), page: page.page };
 });
-on(ScheduledRunService.method.getScheduledRun, (input, call) => ({ scheduledRun: scheduledRunFor(input.scheduledRunId, call) }));
+on(ScheduledRunService.method.getScheduledRun, (input, call) => ({ scheduledRun: scheduledMessage(liveSchedule(input.ref, call)) }));
 on(ScheduledRunService.method.createScheduledRun, (input) => {
-  const prior = scheduleRequests.get(input.requestId);
-  if (prior) return { scheduledRun: prior };
-  if (!input.requestId || !input.config?.prompt.trim() || !input.agent?.name || !input.agent.namespace) {
-    throw new ConnectError("A prompt, request ID and an agent in one namespace are required", Code.InvalidArgument);
-  }
-  const schedule = create(ScheduledRunSchema, {
-    id: randomId(), etag: randomId(), creator: MOCK_INSTANCE_CREATOR,
-    agent: input.agent, config: input.config,
-    createdAt: timestampFromDate(new Date()),
-  });
-  scheduledRuns.unshift(schedule);
-  scheduleRequests.set(input.requestId, schedule);
-  return { scheduledRun: schedule };
+ const resource = input.resource?.value as unknown as ScheduledRun;
+ if (!input.ref?.namespace || !input.ref.name || !resource?.spec?.prompt?.trim() || !resource.spec.agentRef?.name) throw new ConnectError("A resource name, prompt and Agent are required", Code.InvalidArgument);
+ if (scheduledRuns.some(row => row.metadata.name === input.ref?.name && row.metadata.namespace === input.ref.namespace && !row.metadata.deletionTimestamp)) throw new ConnectError("Schedule already exists", Code.AlreadyExists);
+ const schedule: ScheduledRun = { ...resource, metadata: { ...resource.metadata, ...input.ref, uid: randomId(), resourceVersion: "1", generation: 1, creationTimestamp: new Date().toISOString() } };
+ scheduledRuns.unshift(schedule);
+ return { scheduledRun: scheduledMessage(schedule) };
 });
 on(ScheduledRunService.method.updateScheduledRun, (input, call) => {
-  const schedule = scheduledRunFor(input.scheduledRunId, call);
-  if (schedule.deletedAt) throw new ConnectError("Schedule was deleted", Code.FailedPrecondition);
-  if (schedule.etag !== input.etag) throw new ConnectError("Schedule changed. Reopen the editor and retry.", Code.Aborted);
-  schedule.config = input.config;
-  schedule.etag = randomId();
-  return { scheduledRun: schedule };
+ const schedule = liveSchedule(input.ref, call);
+ const resource = input.resource?.value as unknown as ScheduledRun;
+ if (schedule.metadata.resourceVersion !== resource?.metadata.resourceVersion) throw new ConnectError("Schedule changed. Reopen the editor and retry.", Code.Aborted);
+ schedule.spec = resource.spec;
+ schedule.metadata.resourceVersion = String(Number(schedule.metadata.resourceVersion) + 1);
+ schedule.metadata.generation = (schedule.metadata.generation ?? 0) + 1;
+ return { scheduledRun: scheduledMessage(schedule) };
 });
 on(ScheduledRunService.method.deleteScheduledRun, (input, call) => {
-  const schedule = scheduledRunFor(input.scheduledRunId, call);
-  schedule.deletedAt ??= timestampFromDate(new Date());
-  schedule.nextExecutionTime = undefined;
-  return { scheduledRun: schedule };
+ const schedule = liveSchedule(input.ref, call);
+ if (schedule.metadata.uid !== input.uid || schedule.metadata.resourceVersion !== input.resourceVersion) throw new ConnectError("Schedule changed", Code.Aborted);
+ schedule.metadata.deletionTimestamp = new Date().toISOString();
+ return {};
 });
 on(ScheduledRunService.method.triggerScheduledRun, (input, call) => {
   const schedule = scheduledRunFor(input.scheduledRunId, call);
-  if (schedule.deletedAt) throw new ConnectError("Schedule was deleted", Code.FailedPrecondition);
-  const prior = scheduleExecutions.find((row) => row.scheduledRunId === schedule.id && row.trigger.case === "manualRequestId" && row.trigger.value === input.requestId);
+  if (schedule.metadata.deletionTimestamp) throw new ConnectError("Schedule was deleted", Code.FailedPrecondition);
+  const prior = scheduleExecutions.find((row) => row.scheduledRunId === schedule.metadata.uid && row.trigger.case === "manualRequestId" && row.trigger.value === input.requestId);
   if (prior) return { execution: prior };
   const execution = create(ScheduledRunExecutionSchema, {
-    id: randomId(), scheduledRunId: schedule.id, creator: MOCK_INSTANCE_CREATOR,
-    trigger: { case: "manualRequestId", value: input.requestId }, prompt: schedule.config?.prompt,
+    id: randomId(), scheduledRunId: schedule.metadata.uid, creator: "scheduler", initiator: MOCK_INSTANCE_CREATOR,
+    trigger: { case: "manualRequestId", value: input.requestId }, prompt: schedule.spec.prompt,
     state: ScheduledRunExecutionState.PENDING, createdAt: timestampFromDate(new Date()),
+    sessionId: randomId(), runtimeRevision: "rev-mock-scheduled",
+    scheduledRun: { namespace: schedule.metadata.namespace, name: schedule.metadata.name },
+    scheduledRunGeneration: BigInt(schedule.metadata.generation ?? 1),
+    deadline: timestampFromDate(new Date(Date.now() + 15 * 60 * 1000)),
+  });
+  saveAgentInstance({
+    id: execution.sessionId, name: "", creator: "scheduler",
+    agent: `${schedule.metadata.namespace}/${schedule.spec.agentRef.name}`,
+    scheduledRun: { namespace: schedule.metadata.namespace ?? "", name: schedule.metadata.name, uid: schedule.metadata.uid ?? "", executionId: execution.id },
+    preparedRevision: execution.runtimeRevision, state: "creating", operation: "create",
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   });
   scheduleExecutions.unshift(execution);
   return { execution };

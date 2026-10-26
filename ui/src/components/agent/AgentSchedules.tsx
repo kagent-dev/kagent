@@ -8,7 +8,7 @@ import { linkInk } from "@/components/common/linkStyles";
 import { rowClickHandler } from "@/components/table/rowClick";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { buildPath, paths } from "@/router/routes";
-import { schedulesFor, type ScheduledAgentRef } from "./scheduleTargets";
+import { scheduleRouteID } from "@/api/domain/scheduledRuns";
 
 const { Text } = Typography;
 
@@ -21,17 +21,21 @@ const { Text } = Typography;
  * Last on the page deliberately: it is a second read, and anything below it would be
  * pushed down as that read lands.
  */
-export function AgentSchedules({ agent }: { agent: ScheduledAgentRef }) {
+export function AgentSchedules({ agent }: { agent: { namespace: string; name: string } }) {
   const theme = useTheme();
   const navigate = useNavigate();
 
-  // `ListScheduledRuns` takes only a page, so the narrowing is done here. Past 100
-  // schedules that needs a server-side filter on the RPC, not a second page read.
-  const schedules = useApiResource(["scheduledRuns.list", "agents"], () =>
-    invoke("scheduledRuns.list", { page: { limit: 100 } }),
-  );
-
-  const rows = schedulesFor(schedules.data?.scheduledRuns ?? [], agent);
+  const schedules = useApiResource(["scheduledRuns.list", agent.namespace], async () => {
+    const rows = [];
+    let pageToken = "";
+    do {
+      const response = await invoke("scheduledRuns.list", { namespace: agent.namespace, page: { limit: 100, pageToken } });
+      rows.push(...response.scheduledRuns);
+      pageToken = response.page?.nextPageToken ?? "";
+    } while (pageToken);
+    return rows;
+  });
+  const rows = (schedules.data ?? []).filter(schedule => schedule.spec.agentRef.name === agent.name);
 
   return (
     <Card title="Schedules" size="small" data-testid="agent-schedules">
@@ -64,10 +68,10 @@ export function AgentSchedules({ agent }: { agent: ScheduledAgentRef }) {
         >
           {rows.map((schedule) => (
             <li
-              key={schedule.id}
-              data-testid={`agent-schedule-${schedule.id}`}
+              key={scheduleRouteID(schedule)}
+              data-testid={`agent-schedule-${scheduleRouteID(schedule)}`}
               onClick={rowClickHandler(() =>
-                void navigate(buildPath(paths.scheduledRun, { id: schedule.id })),
+                void navigate(buildPath(paths.scheduledRun, { id: scheduleRouteID(schedule) })),
               )}
               css={{
                 display: "flex",
@@ -92,16 +96,16 @@ export function AgentSchedules({ agent }: { agent: ScheduledAgentRef }) {
               }}
             >
               <Link
-                to={buildPath(paths.scheduledRun, { id: schedule.id })}
-                data-testid={`agent-schedule-link-${schedule.id}`}
+                to={buildPath(paths.scheduledRun, { id: scheduleRouteID(schedule) })}
+                data-testid={`agent-schedule-link-${scheduleRouteID(schedule)}`}
                 css={linkInk(theme)}
               >
-                {schedule.config?.name || schedule.id}
+                {schedule.metadata.name}
               </Link>
               <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                {schedule.config ? scheduleDescription(schedule.config.schedule) : "—"}
+                {scheduleDescription(schedule.spec.schedule)}
               </Text>
-              {schedule.config?.paused ? (
+              {schedule.spec.paused ? (
                 <Tag color="warning">Paused</Tag>
               ) : (
                 <Tag color="success">Active</Tag>

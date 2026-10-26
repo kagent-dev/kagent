@@ -1,3 +1,5 @@
+import type { AgentSpec } from "../../../src/api/domain/agents";
+import { wrap } from "../../../src/api/grpc/wire";
 import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import { AgentService } from "../../../src/generated/kagent/api/v1/agents_pb";
@@ -10,6 +12,9 @@ export function liveApi(baseURL: string) {
   const sessions = createClient(SessionService, transport);
 
   return {
+    async createAgent(namespace: string, name: string, spec: AgentSpec) {
+      return agents.createAgent({ ref: { namespace, name }, resource: wrap("Agent", { metadata: { namespace, name }, spec }) });
+    },
     /** The Agent's last successful revision, as the controller reports it. */
     async latestRevision(namespace: string, name: string): Promise<string | undefined> {
       const { agent } = await agents.getAgent({ ref: { namespace, name } });

@@ -4,6 +4,7 @@
   resources:
   - harnesses
   - agents
+  - scheduledruns
   - egresspolicies
   - sandboxtemplates
   - agenttemplates
@@ -19,6 +20,7 @@
   resources:
   - harnesses/finalizers
   - agents/finalizers
+  - scheduledruns/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers
@@ -29,6 +31,7 @@
   resources:
   - harnesses/status
   - agents/status
+  - scheduledruns/status
   - modelconfigs/status
   - modelproviderconfigs/status
   - remotemcpservers/status

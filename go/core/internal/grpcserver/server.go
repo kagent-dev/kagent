@@ -150,7 +150,7 @@ func New(config Config) (*Server, error) {
 	runtimev1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
 	runtimev1.RegisterTaskStoreServiceServer(grpcServer, &taskStoreServer{service: config.TaskStoreService})
 	apiv1.RegisterSessionServiceServer(grpcServer, &sessionServer{service: config.SessionService})
-	apiv1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
+	apiv1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService, maxMessageBytes: config.MaxMessageBytes})
 	apiv1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
 	// The pinned SDK gRPC handler drops the next-page token for push config List.
 	// Override only that method until upstream preserves the service response.

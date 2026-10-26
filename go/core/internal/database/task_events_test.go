@@ -120,7 +120,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, "DELETE FROM session_task WHERE history_id = $1", sessionRow.HistoryID)
 	require.NoError(t, err)
-	fork, _, err := client.ForkSession(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
+	fork, _, err := client.ForkSession(ctx, checkpoint.Id, "alice", "alice", "fork", uuid.NewString())
 	require.NoError(t, err)
 	forkTasks, _, err := client.ListSessionTasks(ctx, fork.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)

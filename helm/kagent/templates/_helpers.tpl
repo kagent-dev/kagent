@@ -439,3 +439,12 @@ tag wins over the component tag.
 {{- define "kagent.database.skipMigrations" -}}
 {{- if dig "database" "skipMigrations" false (.Values.config | default dict) -}}true{{- end -}}
 {{- end -}}
+
+{{/* The chart owns scheduler credential paths and their projected mounts. */}}
+{{- define "kagent.invocationTokenFile" -}}
+/run/kagent-invocation/token
+{{- end -}}
+
+{{- define "kagent.outboundTokenFile" -}}
+/run/kagent-egress/token
+{{- end -}}

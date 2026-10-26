@@ -24,6 +24,19 @@ func RegisterTypes() {
 
 func registerTypes() {
 	kubeclient.Register(
+		kagentv1alpha3.GroupVersion.WithResource("scheduledruns"),
+		kagentv1alpha3.GroupVersion.WithKind("ScheduledRun"),
+		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {
+			return c.(Client).Kagent().ApiV1alpha3().ScheduledRuns(namespace).List(context.Background(), options)
+		},
+		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (watch.Interface, error) {
+			return c.(Client).Kagent().ApiV1alpha3().ScheduledRuns(namespace).Watch(context.Background(), options)
+		},
+		func(c kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*kagentv1alpha3.ScheduledRun] {
+			return c.(Client).Kagent().ApiV1alpha3().ScheduledRuns(namespace)
+		},
+	)
+	kubeclient.Register(
 		kagentv1alpha3.GroupVersion.WithResource("egresspolicies"),
 		kagentv1alpha3.GroupVersion.WithKind("EgressPolicy"),
 		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {

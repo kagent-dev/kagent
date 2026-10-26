@@ -17,22 +17,24 @@ import (
 
 // Collections contains shared Kubernetes inputs and compiled Agent state.
 type Collections struct {
-	watchNamespaces          []string
-	EgressPolicies           krt.Collection[*kagentv1alpha3.EgressPolicy]
-	SandboxTemplates         krt.Collection[*kagentv1alpha3.SandboxTemplate]
-	Agents                   krt.Collection[*kagentv1alpha3.Agent]
-	AgentTemplates           krt.Collection[*kagentv1alpha3.AgentTemplate]
-	Harnesses                krt.Collection[*kagentv1alpha3.Harness]
-	ModelConfigs             krt.Collection[*kagentv1alpha3.ModelConfig]
-	RemoteMCPServers         krt.Collection[*kagentv1alpha3.RemoteMCPServer]
-	ConfigMaps               krt.Collection[*corev1.ConfigMap]
-	Secrets                  krt.Collection[*corev1.Secret]
-	WorkerPools              krt.Collection[*atev1.WorkerPool]
-	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
-	Reconciliations          krt.Collection[AgentReconciliation]
-	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
-	ResolvedModelConfigs     krt.Collection[translator.ResolvedModelConfig]
-	AgentStatuses            krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]
+	watchNamespaces             []string
+	ScheduledRuns               krt.Collection[*kagentv1alpha3.ScheduledRun]
+	ScheduledRunReconciliations krt.Collection[ScheduledRunReconciliation]
+	EgressPolicies              krt.Collection[*kagentv1alpha3.EgressPolicy]
+	SandboxTemplates            krt.Collection[*kagentv1alpha3.SandboxTemplate]
+	Agents                      krt.Collection[*kagentv1alpha3.Agent]
+	AgentTemplates              krt.Collection[*kagentv1alpha3.AgentTemplate]
+	Harnesses                   krt.Collection[*kagentv1alpha3.Harness]
+	ModelConfigs                krt.Collection[*kagentv1alpha3.ModelConfig]
+	RemoteMCPServers            krt.Collection[*kagentv1alpha3.RemoteMCPServer]
+	ConfigMaps                  krt.Collection[*corev1.ConfigMap]
+	Secrets                     krt.Collection[*corev1.Secret]
+	WorkerPools                 krt.Collection[*atev1.WorkerPool]
+	AgentRuntimeObservations    krt.StaticCollection[AgentRuntimeObservation]
+	Reconciliations             krt.Collection[AgentReconciliation]
+	ModelConfigStatuses         krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
+	ResolvedModelConfigs        krt.Collection[translator.ResolvedModelConfig]
+	AgentStatuses               krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]
 }
 
 // AgentRuntimeObservation records a Agent's preparation. The revision prevents a
@@ -52,6 +54,7 @@ func (p AgentRuntimeObservation) ResourceName() string {
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
 func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) Collections {
+	scheduledRuns := typedCollection[*kagentv1alpha3.ScheduledRun](client, watchNamespaces, "ScheduledRuns", opts)
 	egressPolicies := typedCollection[*kagentv1alpha3.EgressPolicy](client, watchNamespaces, "EgressPolicies", opts)
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
@@ -74,22 +77,24 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 
 	return Collections{
-		watchNamespaces:          slices.Clone(watchNamespaces),
-		EgressPolicies:           egressPolicies,
-		SandboxTemplates:         sandboxTemplates,
-		Agents:                   agents,
-		AgentTemplates:           agentTemplates,
-		Harnesses:                harnesses,
-		ModelConfigs:             modelConfigs,
-		RemoteMCPServers:         remoteMCPServers,
-		ConfigMaps:               configMaps,
-		Secrets:                  secrets,
-		WorkerPools:              workerPools,
-		AgentRuntimeObservations: agentRuntimeObservations,
-		Reconciliations:          reconciliations,
-		ModelConfigStatuses:      modelConfigStatuses,
-		ResolvedModelConfigs:     resolvedModelConfigs,
-		AgentStatuses:            statuses,
+		ScheduledRuns:               scheduledRuns,
+		ScheduledRunReconciliations: newScheduledRunReconciliations(scheduledRuns, agents, opts),
+		watchNamespaces:             slices.Clone(watchNamespaces),
+		EgressPolicies:              egressPolicies,
+		SandboxTemplates:            sandboxTemplates,
+		Agents:                      agents,
+		AgentTemplates:              agentTemplates,
+		Harnesses:                   harnesses,
+		ModelConfigs:                modelConfigs,
+		RemoteMCPServers:            remoteMCPServers,
+		ConfigMaps:                  configMaps,
+		Secrets:                     secrets,
+		WorkerPools:                 workerPools,
+		AgentRuntimeObservations:    agentRuntimeObservations,
+		Reconciliations:             reconciliations,
+		ModelConfigStatuses:         modelConfigStatuses,
+		ResolvedModelConfigs:        resolvedModelConfigs,
+		AgentStatuses:               statuses,
 	}
 }
 

@@ -244,7 +244,7 @@ func (m *workspaceModel) loadSessions() tea.Cmd {
 func (m *workspaceModel) loadHistory(session *apiv1.Session) tea.Cmd {
 	id := session.GetId()
 	return func() tea.Msg {
-		a2aClient, err := m.client.A2A.ForAgent(m.ctx, session.GetAgent())
+		a2aClient, err := m.client.A2A.ForAgent(m.ctx, session.GetAgent().GetRef())
 		if err != nil {
 			return sessionHistoryLoadedMsg{sessionID: id, err: err}
 		}
@@ -564,7 +564,7 @@ func (m *workspaceModel) applySessions(msg sessionsLoadedMsg) tea.Cmd {
 
 	// The API lists all sessions; this panel browses one namespace.
 	m.all = slices.DeleteFunc(msg.sessions, func(session *apiv1.Session) bool {
-		targetNamespace := session.GetAgent().GetNamespace()
+		targetNamespace := session.GetAgent().GetRef().GetNamespace()
 		return targetNamespace != "" && targetNamespace != m.namespace
 	})
 	slices.SortStableFunc(m.all, func(a, b *apiv1.Session) int {
@@ -600,7 +600,7 @@ func (m *workspaceModel) rebuildPanels() {
 // rebuildAgents also rebuilds the sessions below it, since SetItems resets this panel's cursor.
 func (m *workspaceModel) rebuildAgents() {
 	m.agents.SetItems(countedNames(m.catalogAgents, m.all, func(i *apiv1.Session) string {
-		return i.GetAgent().GetName()
+		return sessionSourceName(i)
 	}))
 	m.agent = ""
 	m.rebuildSessions()
@@ -697,7 +697,7 @@ func countedNames(catalogNames []string, sessions []*apiv1.Session, name func(*a
 func (m *workspaceModel) visibleSessions() []*apiv1.Session {
 	var kept []*apiv1.Session
 	for _, session := range m.all {
-		if m.agent == "" || session.GetAgent().GetName() == m.agent {
+		if m.agent == "" || sessionSourceName(session) == m.agent {
 			kept = append(kept, session)
 		}
 	}
@@ -730,7 +730,7 @@ func (m *workspaceModel) selectSession(session *apiv1.Session) tea.Cmd {
 	}
 
 	m.status = ""
-	a2aClient, err := m.client.A2A.ForAgent(m.ctx, session.GetAgent())
+	a2aClient, err := m.client.A2A.ForAgent(m.ctx, session.GetAgent().GetRef())
 	if err != nil {
 		m.chat = nil
 		m.status = fmt.Sprintf("Failed to connect to Session: %v", err)
@@ -740,7 +740,7 @@ func (m *workspaceModel) selectSession(session *apiv1.Session) tea.Cmd {
 	send := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
-	m.chat = newChatModel(m.ctx, session.GetAgent().GetName(), session.GetId(), send, m.verbose)
+	m.chat = newChatModel(m.ctx, sessionSourceName(session), session.GetId(), send, m.verbose)
 	m.chat.setHeaderMeta(stateBadge(session.GetState()), session.GetUpdatedAt().AsTime())
 	if !m.sidebar {
 		m.focus = panelChat // the sidebar hides once a chat opens, so the chat is the only panel left
@@ -951,7 +951,7 @@ func (m *workspaceModel) renderDetails() {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "ID\n%s\n\n", m.current.GetId())
-	fmt.Fprintf(&b, "Agent\n%s\n\n", m.current.GetAgent().GetName())
+	fmt.Fprintf(&b, "Agent\n%s\n\n", m.current.GetAgent().GetRef().GetName())
 	fmt.Fprintf(&b, "State\n%s\n\n", sessionview.StateLabel(m.current.GetState()))
 
 	if failure := m.current.GetFailure(); failure != nil {

@@ -237,13 +237,13 @@ Worker-for-actor tokens are not accepted. Signing keys refresh every
 minute; publish new verification keys at least a minute before using them.
 
 The service checks the verified actor name against the requested session and
-matches its atespace and recorded Actor UID. Memory derives its agent namespace
+matches its atespace and recorded Actor UID. Memory derives its Agent
 and user from that persisted session binding, ignoring caller-supplied identity
 fields. Users can also list and delete their own memories on the same endpoint.
 Both actor and user memory operations check the `Memory` resource, whose name is
-the agent key (including legacy keys). User management calls use the requested
-agent key and the authenticated user ID,
-ignoring the request's user ID, and do not require a live actor or session.
+the Agent key (`namespace/name`). User
+management calls use the requested Agent key and the authenticated user ID,
+and do not require a live actor or session.
 User and share credentials cannot grant access to actor-only methods. The
 unsigned identity header is not accepted.
 
@@ -251,9 +251,7 @@ Substrate supplies the calling Actor's current identity after restore and fork;
 no token is persisted in a runtime snapshot. Only the projected actor name is
 read locally, to choose the session being addressed. Controller and runtime
 images must be upgraded together; snapshots of older runtime images still send
-the removed header and must be recreated. Memory keys now use the stored
-`namespace/name` agent reference; existing memories keyed by runtime display
-names are not migrated.
+the removed header and must be recreated. Memory keys use the Agent namespace and name from persisted Session provenance.
 
 ## Push notifications
 

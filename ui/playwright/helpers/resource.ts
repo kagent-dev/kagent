@@ -154,11 +154,12 @@ export async function clickRefresh(page: Page): Promise<void> {
 export function optionNamed(page: Page, label?: string): Locator {
   // Matched on `title`, not on text: antd sets the attribute from the option's label
   // while the rendered text may carry more — a namespace prefix, an icon's alt.
+  // Closed dropdowns retain their options, including labels reused by another field.
   return page.locator(
     label === undefined
       ? ".ant-select-item-option"
       : `.ant-select-item-option[title="${label}"]`,
-  );
+  ).filter({ visible: true });
 }
 
 /** Opens a Select by its test id and picks one option by the label a reader sees. */

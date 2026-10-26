@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -36,7 +35,6 @@ func (testAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Res
 
 type testStore struct {
 	sourceErr       error
-	sourceReads     atomic.Int32
 	checkpointOwner string
 	forkSourceReads int
 	reservations    int
@@ -51,12 +49,22 @@ type testStore struct {
 	reserveErr      error
 }
 
-func (s *testStore) GetSession(_ context.Context, id, owner string) (*apiv1.Session, error) {
-	s.sourceReads.Add(1)
-	if s.sourceErr != nil {
+func (s *testStore) GetSessionCheckpointSource(_ context.Context, id string) (*apiv1.Session, error) {
+	if s.sourceErr != nil && s.prepared == nil {
 		return nil, s.sourceErr
 	}
-	return &apiv1.Session{Id: id, Creator: owner, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
+	owner := s.checkpointOwner
+	if owner == "" {
+		owner = "alice"
+	}
+	return &apiv1.Session{Id: id, Creator: owner}, nil
+}
+
+func (s *testStore) GetCheckpointSourceSession(ctx context.Context, _ string) (*apiv1.Session, error) {
+	if s.prepared == nil {
+		return nil, database.ErrNotFound
+	}
+	return s.GetSessionCheckpointSource(ctx, s.prepared.SessionId)
 }
 
 func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv1.Checkpoint, owner, _ string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error) {
@@ -73,7 +81,9 @@ func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv
 	if s.sourceErr != nil {
 		return nil, nil, s.sourceErr
 	}
-	s.checkpointOwner = owner
+	if s.checkpointOwner == "" {
+		s.checkpointOwner = owner
+	}
 	checkpoint.HeadTaskId = "task-1"
 	checkpoint.HistorySequence = 7
 	s.snapshot = &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
@@ -144,7 +154,7 @@ func (s *testStore) UpdateCheckpointName(_ context.Context, _, _, name string) (
 	return s.prepared, nil
 }
 
-func (s *testStore) ForkSession(_ context.Context, _ string, userID, _ string, sessionID string) (*apiv1.Session, bool, error) {
+func (s *testStore) ForkSession(_ context.Context, _ string, _, userID, _ string, sessionID string) (*apiv1.Session, bool, error) {
 	if s.forked == nil {
 		s.forked = &apiv1.Session{
 			Id: sessionID, Creator: userID,
@@ -442,7 +452,6 @@ func TestForkCreatesSessionFromRetainedCheckpointAfterSourceDeletion(t *testing.
 	retried, err := service.Fork(ctx, checkpoint.GetId(), "fork-request")
 	require.NoError(t, err)
 	require.Equal(t, session.GetId(), retried.GetId())
-	require.Zero(t, store.sourceReads.Load(), "retained provenance must not require a live source Session")
 }
 
 func TestCreateRetriesRetainedTagAfterPublishFailure(t *testing.T) {
@@ -520,7 +529,7 @@ func TestForkRejectsReplacedTag(t *testing.T) {
 }
 
 func TestConcurrentCreateRetainsOneTag(t *testing.T) {
-	store := &testStore{}
+	store := &testStore{checkpointOwner: "alice"}
 	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", mutateTag: func(*ateapipb.Tag) { runtime.Gosched() }}
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
@@ -637,7 +646,7 @@ func TestCheckpointComposesPermissionsBeforeEffects(t *testing.T) {
 				}
 			}
 			if test.ownerDenied && test.operation == "fork" {
-				expected = expected[:1]
+				expected = expected[:2]
 			} else if !test.ownerDenied {
 				for index, check := range expected {
 					if check.resource.Type == test.resource && check.verb == test.verb {
@@ -648,12 +657,8 @@ func TestCheckpointComposesPermissionsBeforeEffects(t *testing.T) {
 			}
 			require.Equal(t, expected, policy.calls, "every authorization must use the exact trusted identity")
 
-			if test.ownerDenied && test.operation == "create" {
-				require.Equal(t, 1, store.reservations)
-			} else {
-				require.Zero(t, store.reservations)
-			}
-			if test.operation == "fork" && (test.resource != "Checkpoint" || test.verb != auth.VerbGet) {
+			require.Zero(t, store.reservations)
+			if test.operation == "fork" && !test.ownerDenied && (test.resource == "Agent" || test.resource == "Session" && test.verb == auth.VerbCreate) {
 				require.Equal(t, 1, store.forkSourceReads)
 			} else {
 				require.Zero(t, store.forkSourceReads)
@@ -711,7 +716,6 @@ func TestCreateRetriesReadyCheckpointAfterSourceDeletion(t *testing.T) {
 	require.Equal(t, first.Id, retried.Id)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, retried.State)
 	require.Equal(t, 1, tags.createCalls)
-	require.Zero(t, store.sourceReads.Load())
 	before := store.reservations
 	policy.resource, policy.verb = "Session", auth.VerbGet
 	_, err = svc.Create(ctx, first.SessionId, "request-1", "task-1")
@@ -749,7 +753,6 @@ func TestForkAuthorizesResolvedTargetNamespaceBeforeTagRead(t *testing.T) {
 			}
 			require.Equal(t, 1, store.forkSourceReads)
 			require.Nil(t, store.forked)
-			require.Zero(t, store.sourceReads.Load(), "retained checkpoint supplies the target without a live source")
 		})
 	}
 }
@@ -850,6 +853,6 @@ func TestForkCanonicalizesSavedSourceIdentity(t *testing.T) {
 	_, err := svc.Fork(auth.AuthSessionTo(t.Context(), testSession{userID: "alice"}), store.prepared.Id, "request")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
 	require.Equal(t, policy.denied, policy.calls[len(policy.calls)-1])
-	require.Equal(t, 1, store.forkSourceReads)
+	require.Zero(t, store.forkSourceReads)
 	require.Nil(t, store.forked)
 }

@@ -40,6 +40,10 @@ func (c *FakeApiV1alpha3) SandboxTemplates(namespace string) v1alpha3.SandboxTem
 	return newFakeSandboxTemplates(c, namespace)
 }
 
+func (c *FakeApiV1alpha3) ScheduledRuns(namespace string) v1alpha3.ScheduledRunInterface {
+	return newFakeScheduledRuns(c, namespace)
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeApiV1alpha3) RESTClient() rest.Interface {

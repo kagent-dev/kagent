@@ -10,7 +10,6 @@ import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -84,114 +83,18 @@ func (ScheduledRunExecutionState) EnumDescriptor() ([]byte, []int) {
 	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{0}
 }
 
-// Mutable configuration. Changes affect only subsequently reserved executions.
-type ScheduledRunConfig struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Schedule string                 `protobuf:"bytes,2,opt,name=schedule,proto3" json:"schedule,omitempty"`
-	// An omitted time zone defaults to UTC.
-	TimeZone string `protobuf:"bytes,3,opt,name=time_zone,json=timeZone,proto3" json:"time_zone,omitempty"`
-	Prompt   string `protobuf:"bytes,4,opt,name=prompt,proto3" json:"prompt,omitempty"`
-	Paused   bool   `protobuf:"varint,5,opt,name=paused,proto3" json:"paused,omitempty"`
-	// Omitted means 15 minutes. Includes queueing and provisioning. Minimum one
-	// microsecond matches PostgreSQL timestamp precision.
-	ExecutionTimeout *durationpb.Duration `protobuf:"bytes,6,opt,name=execution_timeout,json=executionTimeout,proto3" json:"execution_timeout,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *ScheduledRunConfig) Reset() {
-	*x = ScheduledRunConfig{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ScheduledRunConfig) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ScheduledRunConfig) ProtoMessage() {}
-
-func (x *ScheduledRunConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ScheduledRunConfig.ProtoReflect.Descriptor instead.
-func (*ScheduledRunConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *ScheduledRunConfig) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *ScheduledRunConfig) GetSchedule() string {
-	if x != nil {
-		return x.Schedule
-	}
-	return ""
-}
-
-func (x *ScheduledRunConfig) GetTimeZone() string {
-	if x != nil {
-		return x.TimeZone
-	}
-	return ""
-}
-
-func (x *ScheduledRunConfig) GetPrompt() string {
-	if x != nil {
-		return x.Prompt
-	}
-	return ""
-}
-
-func (x *ScheduledRunConfig) GetPaused() bool {
-	if x != nil {
-		return x.Paused
-	}
-	return false
-}
-
-func (x *ScheduledRunConfig) GetExecutionTimeout() *durationpb.Duration {
-	if x != nil {
-		return x.ExecutionTimeout
-	}
-	return nil
-}
-
+// Kubernetes ScheduledRun resource, including metadata, spec, and status.
 type ScheduledRun struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Human owner; this does not select credentials for execution or tool calls.
-	Creator           string                 `protobuf:"bytes,2,opt,name=creator,proto3" json:"creator,omitempty"`
-	Agent             *ResourceReference     `protobuf:"bytes,11,opt,name=agent,proto3" json:"agent,omitempty"`
-	Config            *ScheduledRunConfig    `protobuf:"bytes,5,opt,name=config,proto3" json:"config,omitempty"`
-	Etag              string                 `protobuf:"bytes,6,opt,name=etag,proto3" json:"etag,omitempty"`
-	NextExecutionTime *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=next_execution_time,json=nextExecutionTime,proto3" json:"next_execution_time,omitempty"`
-	CreatedAt         *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt         *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	// Deleted schedules retain identity and history but accept no new executions.
-	DeletedAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=deleted_at,json=deletedAt,proto3" json:"deleted_at,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Resource      *StructuredObject      `protobuf:"bytes,2,opt,name=resource,proto3" json:"resource,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ScheduledRun) Reset() {
 	*x = ScheduledRun{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[1]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -203,7 +106,7 @@ func (x *ScheduledRun) String() string {
 func (*ScheduledRun) ProtoMessage() {}
 
 func (x *ScheduledRun) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[1]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -216,84 +119,34 @@ func (x *ScheduledRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScheduledRun.ProtoReflect.Descriptor instead.
 func (*ScheduledRun) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{1}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *ScheduledRun) GetId() string {
+func (x *ScheduledRun) GetRef() *ResourceReference {
 	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-func (x *ScheduledRun) GetCreator() string {
-	if x != nil {
-		return x.Creator
-	}
-	return ""
-}
-
-func (x *ScheduledRun) GetAgent() *ResourceReference {
-	if x != nil {
-		return x.Agent
+		return x.Ref
 	}
 	return nil
 }
 
-func (x *ScheduledRun) GetConfig() *ScheduledRunConfig {
+func (x *ScheduledRun) GetResource() *StructuredObject {
 	if x != nil {
-		return x.Config
-	}
-	return nil
-}
-
-func (x *ScheduledRun) GetEtag() string {
-	if x != nil {
-		return x.Etag
-	}
-	return ""
-}
-
-func (x *ScheduledRun) GetNextExecutionTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.NextExecutionTime
-	}
-	return nil
-}
-
-func (x *ScheduledRun) GetCreatedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return nil
-}
-
-func (x *ScheduledRun) GetUpdatedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.UpdatedAt
-	}
-	return nil
-}
-
-func (x *ScheduledRun) GetDeletedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.DeletedAt
+		return x.Resource
 	}
 	return nil
 }
 
 type CreateScheduledRunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Agent         *ResourceReference     `protobuf:"bytes,5,opt,name=agent,proto3" json:"agent,omitempty"`
-	RequestId     string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Config        *ScheduledRunConfig    `protobuf:"bytes,4,opt,name=config,proto3" json:"config,omitempty"`
+	Ref           *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Resource      *StructuredObject      `protobuf:"bytes,2,opt,name=resource,proto3" json:"resource,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateScheduledRunRequest) Reset() {
 	*x = CreateScheduledRunRequest{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[2]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -305,7 +158,7 @@ func (x *CreateScheduledRunRequest) String() string {
 func (*CreateScheduledRunRequest) ProtoMessage() {}
 
 func (x *CreateScheduledRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[2]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -318,26 +171,19 @@ func (x *CreateScheduledRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateScheduledRunRequest.ProtoReflect.Descriptor instead.
 func (*CreateScheduledRunRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{2}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *CreateScheduledRunRequest) GetAgent() *ResourceReference {
+func (x *CreateScheduledRunRequest) GetRef() *ResourceReference {
 	if x != nil {
-		return x.Agent
+		return x.Ref
 	}
 	return nil
 }
 
-func (x *CreateScheduledRunRequest) GetRequestId() string {
+func (x *CreateScheduledRunRequest) GetResource() *StructuredObject {
 	if x != nil {
-		return x.RequestId
-	}
-	return ""
-}
-
-func (x *CreateScheduledRunRequest) GetConfig() *ScheduledRunConfig {
-	if x != nil {
-		return x.Config
+		return x.Resource
 	}
 	return nil
 }
@@ -351,7 +197,7 @@ type CreateScheduledRunResponse struct {
 
 func (x *CreateScheduledRunResponse) Reset() {
 	*x = CreateScheduledRunResponse{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[3]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -363,7 +209,7 @@ func (x *CreateScheduledRunResponse) String() string {
 func (*CreateScheduledRunResponse) ProtoMessage() {}
 
 func (x *CreateScheduledRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[3]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -376,7 +222,7 @@ func (x *CreateScheduledRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateScheduledRunResponse.ProtoReflect.Descriptor instead.
 func (*CreateScheduledRunResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{3}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateScheduledRunResponse) GetScheduledRun() *ScheduledRun {
@@ -387,15 +233,15 @@ func (x *CreateScheduledRunResponse) GetScheduledRun() *ScheduledRun {
 }
 
 type GetScheduledRunRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ScheduledRunId string                 `protobuf:"bytes,1,opt,name=scheduled_run_id,json=scheduledRunId,proto3" json:"scheduled_run_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetScheduledRunRequest) Reset() {
 	*x = GetScheduledRunRequest{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[4]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -407,7 +253,7 @@ func (x *GetScheduledRunRequest) String() string {
 func (*GetScheduledRunRequest) ProtoMessage() {}
 
 func (x *GetScheduledRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[4]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -420,14 +266,14 @@ func (x *GetScheduledRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetScheduledRunRequest.ProtoReflect.Descriptor instead.
 func (*GetScheduledRunRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{4}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *GetScheduledRunRequest) GetScheduledRunId() string {
+func (x *GetScheduledRunRequest) GetRef() *ResourceReference {
 	if x != nil {
-		return x.ScheduledRunId
+		return x.Ref
 	}
-	return ""
+	return nil
 }
 
 type GetScheduledRunResponse struct {
@@ -439,7 +285,7 @@ type GetScheduledRunResponse struct {
 
 func (x *GetScheduledRunResponse) Reset() {
 	*x = GetScheduledRunResponse{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[5]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -451,7 +297,7 @@ func (x *GetScheduledRunResponse) String() string {
 func (*GetScheduledRunResponse) ProtoMessage() {}
 
 func (x *GetScheduledRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[5]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -464,7 +310,7 @@ func (x *GetScheduledRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetScheduledRunResponse.ProtoReflect.Descriptor instead.
 func (*GetScheduledRunResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{5}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetScheduledRunResponse) GetScheduledRun() *ScheduledRun {
@@ -477,13 +323,14 @@ func (x *GetScheduledRunResponse) GetScheduledRun() *ScheduledRun {
 type ListScheduledRunsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Page          *PageRequest           `protobuf:"bytes,1,opt,name=page,proto3" json:"page,omitempty"`
+	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListScheduledRunsRequest) Reset() {
 	*x = ListScheduledRunsRequest{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[6]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -495,7 +342,7 @@ func (x *ListScheduledRunsRequest) String() string {
 func (*ListScheduledRunsRequest) ProtoMessage() {}
 
 func (x *ListScheduledRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[6]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -508,7 +355,7 @@ func (x *ListScheduledRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListScheduledRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListScheduledRunsRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{6}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListScheduledRunsRequest) GetPage() *PageRequest {
@@ -516,6 +363,13 @@ func (x *ListScheduledRunsRequest) GetPage() *PageRequest {
 		return x.Page
 	}
 	return nil
+}
+
+func (x *ListScheduledRunsRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
 }
 
 type ListScheduledRunsResponse struct {
@@ -528,7 +382,7 @@ type ListScheduledRunsResponse struct {
 
 func (x *ListScheduledRunsResponse) Reset() {
 	*x = ListScheduledRunsResponse{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[7]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -540,7 +394,7 @@ func (x *ListScheduledRunsResponse) String() string {
 func (*ListScheduledRunsResponse) ProtoMessage() {}
 
 func (x *ListScheduledRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[7]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -553,7 +407,7 @@ func (x *ListScheduledRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListScheduledRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListScheduledRunsResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{7}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListScheduledRunsResponse) GetScheduledRuns() []*ScheduledRun {
@@ -571,17 +425,17 @@ func (x *ListScheduledRunsResponse) GetPage() *PageResponse {
 }
 
 type UpdateScheduledRunRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ScheduledRunId string                 `protobuf:"bytes,1,opt,name=scheduled_run_id,json=scheduledRunId,proto3" json:"scheduled_run_id,omitempty"`
-	Etag           string                 `protobuf:"bytes,2,opt,name=etag,proto3" json:"etag,omitempty"`
-	Config         *ScheduledRunConfig    `protobuf:"bytes,3,opt,name=config,proto3" json:"config,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Ref   *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	// metadata.resourceVersion is required and is passed unchanged to Kubernetes.
+	Resource      *StructuredObject `protobuf:"bytes,2,opt,name=resource,proto3" json:"resource,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateScheduledRunRequest) Reset() {
 	*x = UpdateScheduledRunRequest{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[8]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -593,7 +447,7 @@ func (x *UpdateScheduledRunRequest) String() string {
 func (*UpdateScheduledRunRequest) ProtoMessage() {}
 
 func (x *UpdateScheduledRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[8]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -606,26 +460,19 @@ func (x *UpdateScheduledRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateScheduledRunRequest.ProtoReflect.Descriptor instead.
 func (*UpdateScheduledRunRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{8}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *UpdateScheduledRunRequest) GetScheduledRunId() string {
+func (x *UpdateScheduledRunRequest) GetRef() *ResourceReference {
 	if x != nil {
-		return x.ScheduledRunId
+		return x.Ref
 	}
-	return ""
+	return nil
 }
 
-func (x *UpdateScheduledRunRequest) GetEtag() string {
+func (x *UpdateScheduledRunRequest) GetResource() *StructuredObject {
 	if x != nil {
-		return x.Etag
-	}
-	return ""
-}
-
-func (x *UpdateScheduledRunRequest) GetConfig() *ScheduledRunConfig {
-	if x != nil {
-		return x.Config
+		return x.Resource
 	}
 	return nil
 }
@@ -639,7 +486,7 @@ type UpdateScheduledRunResponse struct {
 
 func (x *UpdateScheduledRunResponse) Reset() {
 	*x = UpdateScheduledRunResponse{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[9]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -651,7 +498,7 @@ func (x *UpdateScheduledRunResponse) String() string {
 func (*UpdateScheduledRunResponse) ProtoMessage() {}
 
 func (x *UpdateScheduledRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[9]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -664,7 +511,7 @@ func (x *UpdateScheduledRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateScheduledRunResponse.ProtoReflect.Descriptor instead.
 func (*UpdateScheduledRunResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{9}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UpdateScheduledRunResponse) GetScheduledRun() *ScheduledRun {
@@ -675,15 +522,17 @@ func (x *UpdateScheduledRunResponse) GetScheduledRun() *ScheduledRun {
 }
 
 type DeleteScheduledRunRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ScheduledRunId string                 `protobuf:"bytes,1,opt,name=scheduled_run_id,json=scheduledRunId,proto3" json:"scheduled_run_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Ref             *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Uid             string                 `protobuf:"bytes,2,opt,name=uid,proto3" json:"uid,omitempty"`
+	ResourceVersion string                 `protobuf:"bytes,3,opt,name=resource_version,json=resourceVersion,proto3" json:"resource_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DeleteScheduledRunRequest) Reset() {
 	*x = DeleteScheduledRunRequest{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[10]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -695,7 +544,7 @@ func (x *DeleteScheduledRunRequest) String() string {
 func (*DeleteScheduledRunRequest) ProtoMessage() {}
 
 func (x *DeleteScheduledRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[10]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -708,26 +557,39 @@ func (x *DeleteScheduledRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteScheduledRunRequest.ProtoReflect.Descriptor instead.
 func (*DeleteScheduledRunRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{10}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *DeleteScheduledRunRequest) GetScheduledRunId() string {
+func (x *DeleteScheduledRunRequest) GetRef() *ResourceReference {
 	if x != nil {
-		return x.ScheduledRunId
+		return x.Ref
+	}
+	return nil
+}
+
+func (x *DeleteScheduledRunRequest) GetUid() string {
+	if x != nil {
+		return x.Uid
+	}
+	return ""
+}
+
+func (x *DeleteScheduledRunRequest) GetResourceVersion() string {
+	if x != nil {
+		return x.ResourceVersion
 	}
 	return ""
 }
 
 type DeleteScheduledRunResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ScheduledRun  *ScheduledRun          `protobuf:"bytes,1,opt,name=scheduled_run,json=scheduledRun,proto3" json:"scheduled_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeleteScheduledRunResponse) Reset() {
 	*x = DeleteScheduledRunResponse{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[11]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -739,7 +601,7 @@ func (x *DeleteScheduledRunResponse) String() string {
 func (*DeleteScheduledRunResponse) ProtoMessage() {}
 
 func (x *DeleteScheduledRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[11]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -752,27 +614,21 @@ func (x *DeleteScheduledRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteScheduledRunResponse.ProtoReflect.Descriptor instead.
 func (*DeleteScheduledRunResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *DeleteScheduledRunResponse) GetScheduledRun() *ScheduledRun {
-	if x != nil {
-		return x.ScheduledRun
-	}
-	return nil
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{10}
 }
 
 type TriggerScheduledRunRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ScheduledRunId string                 `protobuf:"bytes,1,opt,name=scheduled_run_id,json=scheduledRunId,proto3" json:"scheduled_run_id,omitempty"`
-	RequestId      string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Kubernetes UID; a reconciled projection is required before triggering.
+	ScheduledRunId string `protobuf:"bytes,1,opt,name=scheduled_run_id,json=scheduledRunId,proto3" json:"scheduled_run_id,omitempty"`
+	RequestId      string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TriggerScheduledRunRequest) Reset() {
 	*x = TriggerScheduledRunRequest{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[12]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -784,7 +640,7 @@ func (x *TriggerScheduledRunRequest) String() string {
 func (*TriggerScheduledRunRequest) ProtoMessage() {}
 
 func (x *TriggerScheduledRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[12]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -797,7 +653,7 @@ func (x *TriggerScheduledRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerScheduledRunRequest.ProtoReflect.Descriptor instead.
 func (*TriggerScheduledRunRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{12}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TriggerScheduledRunRequest) GetScheduledRunId() string {
@@ -823,7 +679,7 @@ type TriggerScheduledRunResponse struct {
 
 func (x *TriggerScheduledRunResponse) Reset() {
 	*x = TriggerScheduledRunResponse{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[13]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -835,7 +691,7 @@ func (x *TriggerScheduledRunResponse) String() string {
 func (*TriggerScheduledRunResponse) ProtoMessage() {}
 
 func (x *TriggerScheduledRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[13]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -848,7 +704,7 @@ func (x *TriggerScheduledRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerScheduledRunResponse.ProtoReflect.Descriptor instead.
 func (*TriggerScheduledRunResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{13}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TriggerScheduledRunResponse) GetExecution() *ScheduledRunExecution {
@@ -862,7 +718,7 @@ func (x *TriggerScheduledRunResponse) GetExecution() *ScheduledRunExecution {
 type ScheduledRunExecution struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Human owner inherited from the schedule, independent of runtime identity.
+	// Scheduler principal, independent of runtime identity or manual initiator.
 	Creator        string `protobuf:"bytes,2,opt,name=creator,proto3" json:"creator,omitempty"`
 	ScheduledRunId string `protobuf:"bytes,3,opt,name=scheduled_run_id,json=scheduledRunId,proto3" json:"scheduled_run_id,omitempty"`
 	// Types that are valid to be assigned to Trigger:
@@ -873,7 +729,7 @@ type ScheduledRunExecution struct {
 	Prompt    string                          `protobuf:"bytes,6,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	CreatedAt *timestamppb.Timestamp          `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Deadline  *timestamppb.Timestamp          `protobuf:"bytes,8,opt,name=deadline,proto3" json:"deadline,omitempty"`
-	// Empty until a session is reserved. Retained after that session is deleted;
+	// Reserved atomically when the execution is accepted. Retained after deletion;
 	// it is a historical reference and does not imply that the session still exists.
 	SessionId string                     `protobuf:"bytes,9,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	State     ScheduledRunExecutionState `protobuf:"varint,10,opt,name=state,proto3,enum=kagent.api.v1.ScheduledRunExecutionState" json:"state,omitempty"`
@@ -882,13 +738,19 @@ type ScheduledRunExecution struct {
 	CompletedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
 	// Stable explanation of failure. Runtime diagnostics remain in A2A/telemetry.
 	FailureReason string `protobuf:"bytes,13,opt,name=failure_reason,json=failureReason,proto3" json:"failure_reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Immutable accepted inputs and provenance. These survive resource deletion.
+	ScheduledRun           *ResourceReference `protobuf:"bytes,14,opt,name=scheduled_run,json=scheduledRun,proto3" json:"scheduled_run,omitempty"`
+	ScheduledRunGeneration int64              `protobuf:"varint,15,opt,name=scheduled_run_generation,json=scheduledRunGeneration,proto3" json:"scheduled_run_generation,omitempty"`
+	// Revision pinned when this occurrence was accepted.
+	RuntimeRevision string `protobuf:"bytes,16,opt,name=runtime_revision,json=runtimeRevision,proto3" json:"runtime_revision,omitempty"`
+	Initiator       string `protobuf:"bytes,18,opt,name=initiator,proto3" json:"initiator,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ScheduledRunExecution) Reset() {
 	*x = ScheduledRunExecution{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[14]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -900,7 +762,7 @@ func (x *ScheduledRunExecution) String() string {
 func (*ScheduledRunExecution) ProtoMessage() {}
 
 func (x *ScheduledRunExecution) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[14]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -913,7 +775,7 @@ func (x *ScheduledRunExecution) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScheduledRunExecution.ProtoReflect.Descriptor instead.
 func (*ScheduledRunExecution) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{14}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ScheduledRunExecution) GetId() string {
@@ -1018,6 +880,34 @@ func (x *ScheduledRunExecution) GetFailureReason() string {
 	return ""
 }
 
+func (x *ScheduledRunExecution) GetScheduledRun() *ResourceReference {
+	if x != nil {
+		return x.ScheduledRun
+	}
+	return nil
+}
+
+func (x *ScheduledRunExecution) GetScheduledRunGeneration() int64 {
+	if x != nil {
+		return x.ScheduledRunGeneration
+	}
+	return 0
+}
+
+func (x *ScheduledRunExecution) GetRuntimeRevision() string {
+	if x != nil {
+		return x.RuntimeRevision
+	}
+	return ""
+}
+
+func (x *ScheduledRunExecution) GetInitiator() string {
+	if x != nil {
+		return x.Initiator
+	}
+	return ""
+}
+
 type isScheduledRunExecution_Trigger interface {
 	isScheduledRunExecution_Trigger()
 }
@@ -1043,7 +933,7 @@ type GetScheduledRunExecutionRequest struct {
 
 func (x *GetScheduledRunExecutionRequest) Reset() {
 	*x = GetScheduledRunExecutionRequest{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[15]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1055,7 +945,7 @@ func (x *GetScheduledRunExecutionRequest) String() string {
 func (*GetScheduledRunExecutionRequest) ProtoMessage() {}
 
 func (x *GetScheduledRunExecutionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[15]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1068,7 +958,7 @@ func (x *GetScheduledRunExecutionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetScheduledRunExecutionRequest.ProtoReflect.Descriptor instead.
 func (*GetScheduledRunExecutionRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{15}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetScheduledRunExecutionRequest) GetExecutionId() string {
@@ -1087,7 +977,7 @@ type GetScheduledRunExecutionResponse struct {
 
 func (x *GetScheduledRunExecutionResponse) Reset() {
 	*x = GetScheduledRunExecutionResponse{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[16]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1099,7 +989,7 @@ func (x *GetScheduledRunExecutionResponse) String() string {
 func (*GetScheduledRunExecutionResponse) ProtoMessage() {}
 
 func (x *GetScheduledRunExecutionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[16]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1112,7 +1002,7 @@ func (x *GetScheduledRunExecutionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetScheduledRunExecutionResponse.ProtoReflect.Descriptor instead.
 func (*GetScheduledRunExecutionResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{16}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetScheduledRunExecutionResponse) GetExecution() *ScheduledRunExecution {
@@ -1132,7 +1022,7 @@ type ListScheduledRunExecutionsRequest struct {
 
 func (x *ListScheduledRunExecutionsRequest) Reset() {
 	*x = ListScheduledRunExecutionsRequest{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[17]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1144,7 +1034,7 @@ func (x *ListScheduledRunExecutionsRequest) String() string {
 func (*ListScheduledRunExecutionsRequest) ProtoMessage() {}
 
 func (x *ListScheduledRunExecutionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[17]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1157,7 +1047,7 @@ func (x *ListScheduledRunExecutionsRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ListScheduledRunExecutionsRequest.ProtoReflect.Descriptor instead.
 func (*ListScheduledRunExecutionsRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{17}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListScheduledRunExecutionsRequest) GetScheduledRunId() string {
@@ -1184,7 +1074,7 @@ type ListScheduledRunExecutionsResponse struct {
 
 func (x *ListScheduledRunExecutionsResponse) Reset() {
 	*x = ListScheduledRunExecutionsResponse{}
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[18]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1196,7 +1086,7 @@ func (x *ListScheduledRunExecutionsResponse) String() string {
 func (*ListScheduledRunExecutionsResponse) ProtoMessage() {}
 
 func (x *ListScheduledRunExecutionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[18]
+	mi := &file_kagent_api_v1_scheduled_runs_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1209,7 +1099,7 @@ func (x *ListScheduledRunExecutionsResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use ListScheduledRunExecutionsResponse.ProtoReflect.Descriptor instead.
 func (*ListScheduledRunExecutionsResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{18}
+	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListScheduledRunExecutionsResponse) GetExecutions() []*ScheduledRunExecution {
@@ -1230,64 +1120,42 @@ var File_kagent_api_v1_scheduled_runs_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_scheduled_runs_proto_rawDesc = "" +
 	"\n" +
-	"\"kagent/api/v1/scheduled_runs.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\"\x9f\x02\n" +
-	"\x12ScheduledRunConfig\x12\x1c\n" +
-	"\x04name\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x18\xc8\x01R\x04name\x12&\n" +
-	"\bschedule\x18\x02 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\bschedule\x12%\n" +
-	"\ttime_zone\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\xfd\x01R\btimeZone\x12'\n" +
-	"\x06prompt\x18\x04 \x01(\tB\x0f\xbaH\fr\n" +
-	"\x10\x01(\x80\x80\x022\x02\\SR\x06prompt\x12\x16\n" +
-	"\x06paused\x18\x05 \x01(\bR\x06paused\x12[\n" +
-	"\x11execution_timeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationB\x13\xbaH\x10\xaa\x01\r\"\x06\b\x84\xfa\x85\xae\"2\x03\x10\xe8\aR\x10executionTimeout\"\xe1\x03\n" +
-	"\fScheduledRun\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\acreator\x18\x02 \x01(\tR\acreator\x126\n" +
-	"\x05agent\x18\v \x01(\v2 .kagent.api.v1.ResourceReferenceR\x05agent\x129\n" +
-	"\x06config\x18\x05 \x01(\v2!.kagent.api.v1.ScheduledRunConfigR\x06config\x12\x12\n" +
-	"\x04etag\x18\x06 \x01(\tR\x04etag\x12J\n" +
-	"\x13next_execution_time\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x11nextExecutionTime\x129\n" +
-	"\n" +
-	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
-	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x129\n" +
-	"\n" +
-	"deleted_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tdeletedAtJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\aharnessR\x0eagent_template\"\xee\x01\n" +
-	"\x19CreateScheduledRunRequest\x12>\n" +
-	"\x05agent\x18\x05 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x05agent\x12)\n" +
-	"\n" +
-	"request_id\x18\x03 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\x12A\n" +
-	"\x06config\x18\x04 \x01(\v2!.kagent.api.v1.ScheduledRunConfigB\x06\xbaH\x03\xc8\x01\x01R\x06configJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\aharnessR\x0eagent_template\"^\n" +
+	"\"kagent/api/v1/scheduled_runs.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\"\x7f\n" +
+	"\fScheduledRun\x122\n" +
+	"\x03ref\x18\x01 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x03ref\x12;\n" +
+	"\bresource\x18\x02 \x01(\v2\x1f.kagent.api.v1.StructuredObjectR\bresource\"\x9c\x01\n" +
+	"\x19CreateScheduledRunRequest\x12:\n" +
+	"\x03ref\x18\x01 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x03ref\x12C\n" +
+	"\bresource\x18\x02 \x01(\v2\x1f.kagent.api.v1.StructuredObjectB\x06\xbaH\x03\xc8\x01\x01R\bresource\"^\n" +
 	"\x1aCreateScheduledRunResponse\x12@\n" +
-	"\rscheduled_run\x18\x01 \x01(\v2\x1b.kagent.api.v1.ScheduledRunR\fscheduledRun\"L\n" +
-	"\x16GetScheduledRunRequest\x122\n" +
-	"\x10scheduled_run_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0escheduledRunId\"[\n" +
+	"\rscheduled_run\x18\x01 \x01(\v2\x1b.kagent.api.v1.ScheduledRunR\fscheduledRun\"T\n" +
+	"\x16GetScheduledRunRequest\x12:\n" +
+	"\x03ref\x18\x01 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x03ref\"[\n" +
 	"\x17GetScheduledRunResponse\x12@\n" +
-	"\rscheduled_run\x18\x01 \x01(\v2\x1b.kagent.api.v1.ScheduledRunR\fscheduledRun\"J\n" +
+	"\rscheduled_run\x18\x01 \x01(\v2\x1b.kagent.api.v1.ScheduledRunR\fscheduledRun\"\x95\x01\n" +
 	"\x18ListScheduledRunsRequest\x12.\n" +
-	"\x04page\x18\x01 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\"\x90\x01\n" +
+	"\x04page\x18\x01 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\x12I\n" +
+	"\tnamespace\x18\x02 \x01(\tB+\xbaH(\xd8\x01\x01r#\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\tnamespace\"\x90\x01\n" +
 	"\x19ListScheduledRunsResponse\x12B\n" +
 	"\x0escheduled_runs\x18\x01 \x03(\v2\x1b.kagent.api.v1.ScheduledRunR\rscheduledRuns\x12/\n" +
-	"\x04page\x18\x02 \x01(\v2\x1b.kagent.api.v1.PageResponseR\x04page\"\xb0\x01\n" +
-	"\x19UpdateScheduledRunRequest\x122\n" +
-	"\x10scheduled_run_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0escheduledRunId\x12\x1c\n" +
-	"\x04etag\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x04etag\x12A\n" +
-	"\x06config\x18\x03 \x01(\v2!.kagent.api.v1.ScheduledRunConfigB\x06\xbaH\x03\xc8\x01\x01R\x06config\"^\n" +
+	"\x04page\x18\x02 \x01(\v2\x1b.kagent.api.v1.PageResponseR\x04page\"\x9c\x01\n" +
+	"\x19UpdateScheduledRunRequest\x12:\n" +
+	"\x03ref\x18\x01 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x03ref\x12C\n" +
+	"\bresource\x18\x02 \x01(\v2\x1f.kagent.api.v1.StructuredObjectB\x06\xbaH\x03\xc8\x01\x01R\bresource\"^\n" +
 	"\x1aUpdateScheduledRunResponse\x12@\n" +
-	"\rscheduled_run\x18\x01 \x01(\v2\x1b.kagent.api.v1.ScheduledRunR\fscheduledRun\"O\n" +
-	"\x19DeleteScheduledRunRequest\x122\n" +
-	"\x10scheduled_run_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0escheduledRunId\"^\n" +
-	"\x1aDeleteScheduledRunResponse\x12@\n" +
-	"\rscheduled_run\x18\x01 \x01(\v2\x1b.kagent.api.v1.ScheduledRunR\fscheduledRun\"{\n" +
+	"\rscheduled_run\x18\x01 \x01(\v2\x1b.kagent.api.v1.ScheduledRunR\fscheduledRun\"\xa7\x01\n" +
+	"\x19DeleteScheduledRunRequest\x12:\n" +
+	"\x03ref\x18\x01 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x03ref\x12\x1a\n" +
+	"\x03uid\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x03uid\x122\n" +
+	"\x10resource_version\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fresourceVersion\"\x1c\n" +
+	"\x1aDeleteScheduledRunResponse\"{\n" +
 	"\x1aTriggerScheduledRunRequest\x122\n" +
 	"\x10scheduled_run_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0escheduledRunId\x12)\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"a\n" +
 	"\x1bTriggerScheduledRunResponse\x12B\n" +
-	"\texecution\x18\x01 \x01(\v2$.kagent.api.v1.ScheduledRunExecutionR\texecution\"\xd3\x04\n" +
+	"\texecution\x18\x01 \x01(\v2$.kagent.api.v1.ScheduledRunExecutionR\texecution\"\x9d\x06\n" +
 	"\x15ScheduledRunExecution\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acreator\x18\x02 \x01(\tR\acreator\x12(\n" +
@@ -1304,7 +1172,11 @@ const file_kagent_api_v1_scheduled_runs_proto_rawDesc = "" +
 	" \x01(\x0e2).kagent.api.v1.ScheduledRunExecutionStateR\x05state\x12\x17\n" +
 	"\atask_id\x18\v \x01(\tR\x06taskId\x12=\n" +
 	"\fcompleted_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x12%\n" +
-	"\x0efailure_reason\x18\r \x01(\tR\rfailureReasonB\t\n" +
+	"\x0efailure_reason\x18\r \x01(\tR\rfailureReason\x12E\n" +
+	"\rscheduled_run\x18\x0e \x01(\v2 .kagent.api.v1.ResourceReferenceR\fscheduledRun\x128\n" +
+	"\x18scheduled_run_generation\x18\x0f \x01(\x03R\x16scheduledRunGeneration\x12)\n" +
+	"\x10runtime_revision\x18\x10 \x01(\tR\x0fruntimeRevision\x12\x1c\n" +
+	"\tinitiator\x18\x12 \x01(\tR\tinitiatorB\t\n" +
 	"\atrigger\"N\n" +
 	"\x1fGetScheduledRunExecutionRequest\x12+\n" +
 	"\fexecution_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\vexecutionId\"f\n" +
@@ -1348,83 +1220,80 @@ func file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP() []byte {
 }
 
 var file_kagent_api_v1_scheduled_runs_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_kagent_api_v1_scheduled_runs_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_kagent_api_v1_scheduled_runs_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_kagent_api_v1_scheduled_runs_proto_goTypes = []any{
 	(ScheduledRunExecutionState)(0),            // 0: kagent.api.v1.ScheduledRunExecutionState
-	(*ScheduledRunConfig)(nil),                 // 1: kagent.api.v1.ScheduledRunConfig
-	(*ScheduledRun)(nil),                       // 2: kagent.api.v1.ScheduledRun
-	(*CreateScheduledRunRequest)(nil),          // 3: kagent.api.v1.CreateScheduledRunRequest
-	(*CreateScheduledRunResponse)(nil),         // 4: kagent.api.v1.CreateScheduledRunResponse
-	(*GetScheduledRunRequest)(nil),             // 5: kagent.api.v1.GetScheduledRunRequest
-	(*GetScheduledRunResponse)(nil),            // 6: kagent.api.v1.GetScheduledRunResponse
-	(*ListScheduledRunsRequest)(nil),           // 7: kagent.api.v1.ListScheduledRunsRequest
-	(*ListScheduledRunsResponse)(nil),          // 8: kagent.api.v1.ListScheduledRunsResponse
-	(*UpdateScheduledRunRequest)(nil),          // 9: kagent.api.v1.UpdateScheduledRunRequest
-	(*UpdateScheduledRunResponse)(nil),         // 10: kagent.api.v1.UpdateScheduledRunResponse
-	(*DeleteScheduledRunRequest)(nil),          // 11: kagent.api.v1.DeleteScheduledRunRequest
-	(*DeleteScheduledRunResponse)(nil),         // 12: kagent.api.v1.DeleteScheduledRunResponse
-	(*TriggerScheduledRunRequest)(nil),         // 13: kagent.api.v1.TriggerScheduledRunRequest
-	(*TriggerScheduledRunResponse)(nil),        // 14: kagent.api.v1.TriggerScheduledRunResponse
-	(*ScheduledRunExecution)(nil),              // 15: kagent.api.v1.ScheduledRunExecution
-	(*GetScheduledRunExecutionRequest)(nil),    // 16: kagent.api.v1.GetScheduledRunExecutionRequest
-	(*GetScheduledRunExecutionResponse)(nil),   // 17: kagent.api.v1.GetScheduledRunExecutionResponse
-	(*ListScheduledRunExecutionsRequest)(nil),  // 18: kagent.api.v1.ListScheduledRunExecutionsRequest
-	(*ListScheduledRunExecutionsResponse)(nil), // 19: kagent.api.v1.ListScheduledRunExecutionsResponse
-	(*durationpb.Duration)(nil),                // 20: google.protobuf.Duration
-	(*ResourceReference)(nil),                  // 21: kagent.api.v1.ResourceReference
-	(*timestamppb.Timestamp)(nil),              // 22: google.protobuf.Timestamp
-	(*PageRequest)(nil),                        // 23: kagent.api.v1.PageRequest
-	(*PageResponse)(nil),                       // 24: kagent.api.v1.PageResponse
+	(*ScheduledRun)(nil),                       // 1: kagent.api.v1.ScheduledRun
+	(*CreateScheduledRunRequest)(nil),          // 2: kagent.api.v1.CreateScheduledRunRequest
+	(*CreateScheduledRunResponse)(nil),         // 3: kagent.api.v1.CreateScheduledRunResponse
+	(*GetScheduledRunRequest)(nil),             // 4: kagent.api.v1.GetScheduledRunRequest
+	(*GetScheduledRunResponse)(nil),            // 5: kagent.api.v1.GetScheduledRunResponse
+	(*ListScheduledRunsRequest)(nil),           // 6: kagent.api.v1.ListScheduledRunsRequest
+	(*ListScheduledRunsResponse)(nil),          // 7: kagent.api.v1.ListScheduledRunsResponse
+	(*UpdateScheduledRunRequest)(nil),          // 8: kagent.api.v1.UpdateScheduledRunRequest
+	(*UpdateScheduledRunResponse)(nil),         // 9: kagent.api.v1.UpdateScheduledRunResponse
+	(*DeleteScheduledRunRequest)(nil),          // 10: kagent.api.v1.DeleteScheduledRunRequest
+	(*DeleteScheduledRunResponse)(nil),         // 11: kagent.api.v1.DeleteScheduledRunResponse
+	(*TriggerScheduledRunRequest)(nil),         // 12: kagent.api.v1.TriggerScheduledRunRequest
+	(*TriggerScheduledRunResponse)(nil),        // 13: kagent.api.v1.TriggerScheduledRunResponse
+	(*ScheduledRunExecution)(nil),              // 14: kagent.api.v1.ScheduledRunExecution
+	(*GetScheduledRunExecutionRequest)(nil),    // 15: kagent.api.v1.GetScheduledRunExecutionRequest
+	(*GetScheduledRunExecutionResponse)(nil),   // 16: kagent.api.v1.GetScheduledRunExecutionResponse
+	(*ListScheduledRunExecutionsRequest)(nil),  // 17: kagent.api.v1.ListScheduledRunExecutionsRequest
+	(*ListScheduledRunExecutionsResponse)(nil), // 18: kagent.api.v1.ListScheduledRunExecutionsResponse
+	(*ResourceReference)(nil),                  // 19: kagent.api.v1.ResourceReference
+	(*StructuredObject)(nil),                   // 20: kagent.api.v1.StructuredObject
+	(*PageRequest)(nil),                        // 21: kagent.api.v1.PageRequest
+	(*PageResponse)(nil),                       // 22: kagent.api.v1.PageResponse
+	(*timestamppb.Timestamp)(nil),              // 23: google.protobuf.Timestamp
 }
 var file_kagent_api_v1_scheduled_runs_proto_depIdxs = []int32{
-	20, // 0: kagent.api.v1.ScheduledRunConfig.execution_timeout:type_name -> google.protobuf.Duration
-	21, // 1: kagent.api.v1.ScheduledRun.agent:type_name -> kagent.api.v1.ResourceReference
-	1,  // 2: kagent.api.v1.ScheduledRun.config:type_name -> kagent.api.v1.ScheduledRunConfig
-	22, // 3: kagent.api.v1.ScheduledRun.next_execution_time:type_name -> google.protobuf.Timestamp
-	22, // 4: kagent.api.v1.ScheduledRun.created_at:type_name -> google.protobuf.Timestamp
-	22, // 5: kagent.api.v1.ScheduledRun.updated_at:type_name -> google.protobuf.Timestamp
-	22, // 6: kagent.api.v1.ScheduledRun.deleted_at:type_name -> google.protobuf.Timestamp
-	21, // 7: kagent.api.v1.CreateScheduledRunRequest.agent:type_name -> kagent.api.v1.ResourceReference
-	1,  // 8: kagent.api.v1.CreateScheduledRunRequest.config:type_name -> kagent.api.v1.ScheduledRunConfig
-	2,  // 9: kagent.api.v1.CreateScheduledRunResponse.scheduled_run:type_name -> kagent.api.v1.ScheduledRun
-	2,  // 10: kagent.api.v1.GetScheduledRunResponse.scheduled_run:type_name -> kagent.api.v1.ScheduledRun
-	23, // 11: kagent.api.v1.ListScheduledRunsRequest.page:type_name -> kagent.api.v1.PageRequest
-	2,  // 12: kagent.api.v1.ListScheduledRunsResponse.scheduled_runs:type_name -> kagent.api.v1.ScheduledRun
-	24, // 13: kagent.api.v1.ListScheduledRunsResponse.page:type_name -> kagent.api.v1.PageResponse
-	1,  // 14: kagent.api.v1.UpdateScheduledRunRequest.config:type_name -> kagent.api.v1.ScheduledRunConfig
-	2,  // 15: kagent.api.v1.UpdateScheduledRunResponse.scheduled_run:type_name -> kagent.api.v1.ScheduledRun
-	2,  // 16: kagent.api.v1.DeleteScheduledRunResponse.scheduled_run:type_name -> kagent.api.v1.ScheduledRun
-	15, // 17: kagent.api.v1.TriggerScheduledRunResponse.execution:type_name -> kagent.api.v1.ScheduledRunExecution
-	22, // 18: kagent.api.v1.ScheduledRunExecution.scheduled_time:type_name -> google.protobuf.Timestamp
-	22, // 19: kagent.api.v1.ScheduledRunExecution.created_at:type_name -> google.protobuf.Timestamp
-	22, // 20: kagent.api.v1.ScheduledRunExecution.deadline:type_name -> google.protobuf.Timestamp
-	0,  // 21: kagent.api.v1.ScheduledRunExecution.state:type_name -> kagent.api.v1.ScheduledRunExecutionState
-	22, // 22: kagent.api.v1.ScheduledRunExecution.completed_at:type_name -> google.protobuf.Timestamp
-	15, // 23: kagent.api.v1.GetScheduledRunExecutionResponse.execution:type_name -> kagent.api.v1.ScheduledRunExecution
-	23, // 24: kagent.api.v1.ListScheduledRunExecutionsRequest.page:type_name -> kagent.api.v1.PageRequest
-	15, // 25: kagent.api.v1.ListScheduledRunExecutionsResponse.executions:type_name -> kagent.api.v1.ScheduledRunExecution
-	24, // 26: kagent.api.v1.ListScheduledRunExecutionsResponse.page:type_name -> kagent.api.v1.PageResponse
-	3,  // 27: kagent.api.v1.ScheduledRunService.CreateScheduledRun:input_type -> kagent.api.v1.CreateScheduledRunRequest
-	5,  // 28: kagent.api.v1.ScheduledRunService.GetScheduledRun:input_type -> kagent.api.v1.GetScheduledRunRequest
-	7,  // 29: kagent.api.v1.ScheduledRunService.ListScheduledRuns:input_type -> kagent.api.v1.ListScheduledRunsRequest
-	9,  // 30: kagent.api.v1.ScheduledRunService.UpdateScheduledRun:input_type -> kagent.api.v1.UpdateScheduledRunRequest
-	11, // 31: kagent.api.v1.ScheduledRunService.DeleteScheduledRun:input_type -> kagent.api.v1.DeleteScheduledRunRequest
-	13, // 32: kagent.api.v1.ScheduledRunService.TriggerScheduledRun:input_type -> kagent.api.v1.TriggerScheduledRunRequest
-	16, // 33: kagent.api.v1.ScheduledRunService.GetScheduledRunExecution:input_type -> kagent.api.v1.GetScheduledRunExecutionRequest
-	18, // 34: kagent.api.v1.ScheduledRunService.ListScheduledRunExecutions:input_type -> kagent.api.v1.ListScheduledRunExecutionsRequest
-	4,  // 35: kagent.api.v1.ScheduledRunService.CreateScheduledRun:output_type -> kagent.api.v1.CreateScheduledRunResponse
-	6,  // 36: kagent.api.v1.ScheduledRunService.GetScheduledRun:output_type -> kagent.api.v1.GetScheduledRunResponse
-	8,  // 37: kagent.api.v1.ScheduledRunService.ListScheduledRuns:output_type -> kagent.api.v1.ListScheduledRunsResponse
-	10, // 38: kagent.api.v1.ScheduledRunService.UpdateScheduledRun:output_type -> kagent.api.v1.UpdateScheduledRunResponse
-	12, // 39: kagent.api.v1.ScheduledRunService.DeleteScheduledRun:output_type -> kagent.api.v1.DeleteScheduledRunResponse
-	14, // 40: kagent.api.v1.ScheduledRunService.TriggerScheduledRun:output_type -> kagent.api.v1.TriggerScheduledRunResponse
-	17, // 41: kagent.api.v1.ScheduledRunService.GetScheduledRunExecution:output_type -> kagent.api.v1.GetScheduledRunExecutionResponse
-	19, // 42: kagent.api.v1.ScheduledRunService.ListScheduledRunExecutions:output_type -> kagent.api.v1.ListScheduledRunExecutionsResponse
-	35, // [35:43] is the sub-list for method output_type
-	27, // [27:35] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	19, // 0: kagent.api.v1.ScheduledRun.ref:type_name -> kagent.api.v1.ResourceReference
+	20, // 1: kagent.api.v1.ScheduledRun.resource:type_name -> kagent.api.v1.StructuredObject
+	19, // 2: kagent.api.v1.CreateScheduledRunRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	20, // 3: kagent.api.v1.CreateScheduledRunRequest.resource:type_name -> kagent.api.v1.StructuredObject
+	1,  // 4: kagent.api.v1.CreateScheduledRunResponse.scheduled_run:type_name -> kagent.api.v1.ScheduledRun
+	19, // 5: kagent.api.v1.GetScheduledRunRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	1,  // 6: kagent.api.v1.GetScheduledRunResponse.scheduled_run:type_name -> kagent.api.v1.ScheduledRun
+	21, // 7: kagent.api.v1.ListScheduledRunsRequest.page:type_name -> kagent.api.v1.PageRequest
+	1,  // 8: kagent.api.v1.ListScheduledRunsResponse.scheduled_runs:type_name -> kagent.api.v1.ScheduledRun
+	22, // 9: kagent.api.v1.ListScheduledRunsResponse.page:type_name -> kagent.api.v1.PageResponse
+	19, // 10: kagent.api.v1.UpdateScheduledRunRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	20, // 11: kagent.api.v1.UpdateScheduledRunRequest.resource:type_name -> kagent.api.v1.StructuredObject
+	1,  // 12: kagent.api.v1.UpdateScheduledRunResponse.scheduled_run:type_name -> kagent.api.v1.ScheduledRun
+	19, // 13: kagent.api.v1.DeleteScheduledRunRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	14, // 14: kagent.api.v1.TriggerScheduledRunResponse.execution:type_name -> kagent.api.v1.ScheduledRunExecution
+	23, // 15: kagent.api.v1.ScheduledRunExecution.scheduled_time:type_name -> google.protobuf.Timestamp
+	23, // 16: kagent.api.v1.ScheduledRunExecution.created_at:type_name -> google.protobuf.Timestamp
+	23, // 17: kagent.api.v1.ScheduledRunExecution.deadline:type_name -> google.protobuf.Timestamp
+	0,  // 18: kagent.api.v1.ScheduledRunExecution.state:type_name -> kagent.api.v1.ScheduledRunExecutionState
+	23, // 19: kagent.api.v1.ScheduledRunExecution.completed_at:type_name -> google.protobuf.Timestamp
+	19, // 20: kagent.api.v1.ScheduledRunExecution.scheduled_run:type_name -> kagent.api.v1.ResourceReference
+	14, // 21: kagent.api.v1.GetScheduledRunExecutionResponse.execution:type_name -> kagent.api.v1.ScheduledRunExecution
+	21, // 22: kagent.api.v1.ListScheduledRunExecutionsRequest.page:type_name -> kagent.api.v1.PageRequest
+	14, // 23: kagent.api.v1.ListScheduledRunExecutionsResponse.executions:type_name -> kagent.api.v1.ScheduledRunExecution
+	22, // 24: kagent.api.v1.ListScheduledRunExecutionsResponse.page:type_name -> kagent.api.v1.PageResponse
+	2,  // 25: kagent.api.v1.ScheduledRunService.CreateScheduledRun:input_type -> kagent.api.v1.CreateScheduledRunRequest
+	4,  // 26: kagent.api.v1.ScheduledRunService.GetScheduledRun:input_type -> kagent.api.v1.GetScheduledRunRequest
+	6,  // 27: kagent.api.v1.ScheduledRunService.ListScheduledRuns:input_type -> kagent.api.v1.ListScheduledRunsRequest
+	8,  // 28: kagent.api.v1.ScheduledRunService.UpdateScheduledRun:input_type -> kagent.api.v1.UpdateScheduledRunRequest
+	10, // 29: kagent.api.v1.ScheduledRunService.DeleteScheduledRun:input_type -> kagent.api.v1.DeleteScheduledRunRequest
+	12, // 30: kagent.api.v1.ScheduledRunService.TriggerScheduledRun:input_type -> kagent.api.v1.TriggerScheduledRunRequest
+	15, // 31: kagent.api.v1.ScheduledRunService.GetScheduledRunExecution:input_type -> kagent.api.v1.GetScheduledRunExecutionRequest
+	17, // 32: kagent.api.v1.ScheduledRunService.ListScheduledRunExecutions:input_type -> kagent.api.v1.ListScheduledRunExecutionsRequest
+	3,  // 33: kagent.api.v1.ScheduledRunService.CreateScheduledRun:output_type -> kagent.api.v1.CreateScheduledRunResponse
+	5,  // 34: kagent.api.v1.ScheduledRunService.GetScheduledRun:output_type -> kagent.api.v1.GetScheduledRunResponse
+	7,  // 35: kagent.api.v1.ScheduledRunService.ListScheduledRuns:output_type -> kagent.api.v1.ListScheduledRunsResponse
+	9,  // 36: kagent.api.v1.ScheduledRunService.UpdateScheduledRun:output_type -> kagent.api.v1.UpdateScheduledRunResponse
+	11, // 37: kagent.api.v1.ScheduledRunService.DeleteScheduledRun:output_type -> kagent.api.v1.DeleteScheduledRunResponse
+	13, // 38: kagent.api.v1.ScheduledRunService.TriggerScheduledRun:output_type -> kagent.api.v1.TriggerScheduledRunResponse
+	16, // 39: kagent.api.v1.ScheduledRunService.GetScheduledRunExecution:output_type -> kagent.api.v1.GetScheduledRunExecutionResponse
+	18, // 40: kagent.api.v1.ScheduledRunService.ListScheduledRunExecutions:output_type -> kagent.api.v1.ListScheduledRunExecutionsResponse
+	33, // [33:41] is the sub-list for method output_type
+	25, // [25:33] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1_scheduled_runs_proto_init() }
@@ -1433,7 +1302,7 @@ func file_kagent_api_v1_scheduled_runs_proto_init() {
 		return
 	}
 	file_kagent_api_v1_common_proto_init()
-	file_kagent_api_v1_scheduled_runs_proto_msgTypes[14].OneofWrappers = []any{
+	file_kagent_api_v1_scheduled_runs_proto_msgTypes[13].OneofWrappers = []any{
 		(*ScheduledRunExecution_ScheduledTime)(nil),
 		(*ScheduledRunExecution_ManualRequestId)(nil),
 	}
@@ -1443,7 +1312,7 @@ func file_kagent_api_v1_scheduled_runs_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1_scheduled_runs_proto_rawDesc), len(file_kagent_api_v1_scheduled_runs_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   19,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

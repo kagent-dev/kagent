@@ -33,7 +33,7 @@ func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
 			return err
 		}},
 		{"fork", func() error {
-			_, _, err := client.ForkSession(ctx, "invalid", "alice", "request", uuid.NewString())
+			_, _, err := client.ForkSession(ctx, "invalid", "alice", "alice", "request", uuid.NewString())
 			return err
 		}},
 		{"create share", func() error {
@@ -273,7 +273,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, _, err := client.GetSessionCheckpointSnapshot(ctx, checkpoint.GetId(), "alice"); err != nil {
 		t.Fatalf("creating checkpoint is unavailable to lifecycle work: %v", err)
 	}
-	if _, _, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "premature-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
+	if _, _, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "alice", "premature-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("fork from creating checkpoint = %v, want not found", err)
 	}
 	if _, _, err := client.GetSessionCheckpointSnapshot(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) {
@@ -302,7 +302,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || ready.State != apiv1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("ready checkpoint = %+v, error %v", ready, err)
 	}
-	if _, _, err := client.ForkSession(ctx, checkpoint.GetId(), "mallory", "unauthorized-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
+	if _, _, err := client.ForkSession(ctx, checkpoint.GetId(), "mallory", "mallory", "unauthorized-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("fork by another user = %v, want not found", err)
 	}
 	renamed, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "Before the detour")
@@ -385,18 +385,13 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	sourceID := "66666666-6666-4666-8666-666666666666"
 	forkID := "77777777-7777-4777-8777-777777777777"
 	fork2ID := "88888888-8888-4888-8888-888888888888"
-	revision := RuntimeRevision{
-		Revision: "revision-1", Namespace: "team-a",
-		AgentName: "assistant", AgentUID: "template-uid",
+	revision := RuntimeRevision{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", Revision: "revision-1",
 
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid",
 	}
-	pair := AgentDefinition{
-		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
-		DesiredRevision: revision.Revision,
-	}
+	pair := AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision}
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
@@ -405,9 +400,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	}
 
 	source, _, err := client.CreateSession(ctx, &apiv1.Session{
-		Id: sourceID, Creator: "alice", Name: "Namespace explanation",
-
-		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Id: sourceID, Creator: "alice", Name: "Namespace explanation", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}, "source-request")
 	if err != nil {
 		t.Fatal(err)
@@ -484,14 +477,15 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	_, err = client.GetSessionCheckpointForkSource(ctx, uuid.NewString(), "alice")
 	require.ErrorIs(t, err, ErrNotFound)
 
-	fork, created, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "fork-request-1", forkID)
+	fork, created, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "alice", "fork-request-1", forkID)
 	require.Equal(t, "Before the detour", fork.GetName())
 	if err != nil || !created {
 		t.Fatalf("ForkSession() = %+v, created %v, error %v", fork, created, err)
 	}
+	require.Equal(t, revision.AgentUID, fork.GetAgent().GetUid())
 	if fork.GetId() != forkID || fork.GetPreparedRevision() != revision.Revision || fork.GetA2AAuthority() != "" ||
 		fork.GetState() != apiv1.RuntimeState_RUNTIME_STATE_CREATING ||
-		fork.GetAgent().GetName() != "assistant" {
+		fork.GetAgent().GetRef().GetName() != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
 	sessions, err := client.ListSessions(ctx, SessionQuery{
@@ -518,11 +512,11 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
   WHERE history_id = (SELECT history_id FROM session WHERE id = $1) AND id = $2
  `, fork.GetId(), copied.ID).Scan(&snapshotUID))
 	require.Equal(t, "s3://tags/checkpoint", snapshotUID)
-	replayed, created, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "fork-request-1", "ignored")
+	replayed, created, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "alice", "fork-request-1", "ignored")
 	if err != nil || created || replayed.GetId() != fork.GetId() {
 		t.Fatalf("replayed fork = %+v, created %v, error %v", replayed, created, err)
 	}
-	if _, _, err := client.ForkSession(ctx, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "fork-request-1", "ignored"); !errors.Is(err, ErrIdempotencyConflict) {
+	if _, _, err := client.ForkSession(ctx, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "alice", "fork-request-1", "ignored"); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting fork request error = %v", err)
 	}
 	if _, _, err := client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
@@ -542,7 +536,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err := deleteSession(ctx, client, fork.GetId()); err != nil {
 		t.Fatal(err)
 	}
-	fork2, created, err := client.ForkSession(ctx, checkpoint2.GetId(), "alice", "fork-request-2", fork2ID)
+	fork2, created, err := client.ForkSession(ctx, checkpoint2.GetId(), "alice", "alice", "fork-request-2", fork2ID)
 	require.Equal(t, fork.GetId()+"-"+string(copied.ID), fork2.GetName())
 	if err != nil || !created || fork2.GetId() != fork2ID {
 		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
@@ -552,27 +546,22 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
 	require.NoError(t, err)
 	require.NoError(t, client.DeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"))
-	_, _, err = client.ForkSession(ctx, checkpoint.GetId(), "alice", "fork-request-1", uuid.NewString())
+	_, _, err = client.ForkSession(ctx, checkpoint.GetId(), "alice", "alice", "fork-request-1", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
-	_, _, err = client.ForkSession(ctx, checkpoint2.GetId(), "alice", "fork-request-1", uuid.NewString())
+	_, _, err = client.ForkSession(ctx, checkpoint2.GetId(), "alice", "alice", "fork-request-1", uuid.NewString())
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 }
 
 func TestSessionCreateAndTransitions(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := context.Background()
-	revision := RuntimeRevision{
-		Revision: "revision-1", Namespace: "team-a",
-		AgentName: "assistant", AgentUID: "template-uid",
+	revision := RuntimeRevision{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", Revision: "revision-1",
 
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid", ActorTemplateSpecDigest: "spec-digest",
 	}
-	pair := AgentDefinition{
-		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
-		DesiredRevision: revision.Revision,
-	}
+	pair := AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision}
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
@@ -592,19 +581,21 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	}
 
 	request := &apiv1.Session{
-		Id: "11111111-1111-4111-8111-111111111111", Creator: "alice",
-
-		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Id: "11111111-1111-4111-8111-111111111111", Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}
 	created, wasCreated, err := client.CreateSession(ctx, request, "request-1")
 	if err != nil || !wasCreated {
 		t.Fatalf("first CreateSession() = created %v, error %v", wasCreated, err)
 	}
+	require.Equal(t, revision.AgentUID, created.GetAgent().GetUid())
+	require.True(t, proto.Equal(request.GetAgent().Ref, created.GetAgent().Ref))
 	request.Id = "22222222-2222-4222-8222-222222222222"
+	request.GetAgent().Uid = "caller-cannot-replace-provenance"
 	replayed, wasCreated, err := client.CreateSession(ctx, request, "request-1")
 	if err != nil || wasCreated {
 		t.Fatalf("replayed CreateSession() = created %v, error %v", wasCreated, err)
 	}
+	require.True(t, proto.Equal(created.GetAgent(), replayed.GetAgent()))
 	if replayed.GetId() != created.GetId() || replayed.GetPreparedRevision() != revision.Revision {
 		t.Fatalf("replayed session = %+v, want id %q revision %q", replayed, created.GetId(), revision.Revision)
 	}
@@ -630,7 +621,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
 
-	request.Agent.Name = "different"
+	request.GetAgent().Ref.Name = "different"
 	if _, _, err := client.CreateSession(ctx, request, "request-1"); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting request error = %v", err)
 	}
@@ -666,31 +657,21 @@ func insertReadySessionFixture(t *testing.T, db dbExecutor, id, requestID string
 // successful revision — so sessions can be created against it.
 func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace, revisionID, template, harness string) {
 	t.Helper()
-	revision := RuntimeRevision{
-		Revision: revisionID, Namespace: namespace,
-		AgentName: template, AgentUID: template + "-uid",
+	agentRevisionFixture(t, client, ctx, namespace, template, template+"-uid", revisionID)
+}
 
+func agentRevisionFixture(t *testing.T, client *Client, ctx context.Context, namespace, name, uid, revisionID string) {
+	t.Helper()
+	require.NoError(t, client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: namespace, AgentName: name, AgentUID: uid, DesiredRevision: revisionID}))
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(ctx, RuntimeRevision{Namespace: namespace, AgentName: name, AgentUID: uid, Revision: revisionID,
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
-		ActorTemplateAtespace: namespace, ActorTemplateName: revisionID + "-actor-template",
-		ActorTemplateUID: revisionID + "-actor-uid",
-	}
-	pair := AgentDefinition{
-		Namespace: namespace, AgentName: template, AgentUID: template + "-uid",
-		DesiredRevision: revisionID,
-	}
-	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
-		t.Fatal(err)
-	}
-	if err := recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})); err != nil {
-		t.Fatal(err)
-	}
+		ActorTemplateAtespace: namespace, ActorTemplateName: revisionID + "-actor-template", ActorTemplateUID: revisionID + "-actor-uid",
+	}, RecordRevisionOptions{Ready: true})))
 }
 
 func newSessionRequest(id, template, harness, name string) *apiv1.Session {
 	return &apiv1.Session{
-		Id: id, Creator: "alice", Name: name,
-
-		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: template},
+		Id: id, Creator: "alice", Name: name, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: template}},
 	}
 }
 
@@ -705,7 +686,7 @@ func TestSessionsUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
 	require.NoError(t, err)
 	second := proto.CloneOf(first)
 	second.Id = uuid.NewString()
-	second.Agent.Namespace = "team-b"
+	second.GetAgent().Ref.Namespace = "team-b"
 	_, _, err = c.CreateSession(ctx, second, "request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict, "request IDs belong to the caller, across targets")
 	other, _, err := c.CreateSession(ctx, second, "other-request")
@@ -713,13 +694,13 @@ func TestSessionsUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
 	rows, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
-	filtered, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Agent: second.Agent})
+	filtered, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Agent: second.GetAgent().Ref})
 	require.NoError(t, err)
 	require.Len(t, filtered, 1)
 	require.Equal(t, other.Id, filtered[0].Id)
 	loaded, err := c.GetSession(ctx, created.Id, "alice")
 	require.NoError(t, err)
-	require.Equal(t, "team-a", loaded.Agent.Namespace)
+	require.Equal(t, "team-a", loaded.GetAgent().Ref.Namespace)
 	_, err = c.GetSession(ctx, created.Id, "bob")
 	require.ErrorIs(t, err, ErrNotFound)
 }
@@ -835,9 +816,9 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.ErrorIs(t, saveRuntimeTask(t, client, source.GetId(), waiting, waiting, nil), ErrFailedPrecondition)
 	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag", "tag-snapshot", "")
 	require.NoError(t, err)
-	_, _, err = client.ForkSession(ctx, checkpoint.GetId(), "bob", uuid.NewString(), uuid.NewString())
+	_, _, err = client.ForkSession(ctx, checkpoint.GetId(), "bob", "bob", uuid.NewString(), uuid.NewString())
 	require.ErrorIs(t, err, ErrNotFound)
-	fork, _, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", uuid.NewString(), uuid.NewString())
+	fork, _, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "alice", uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)
 	_, err = markSessionReady(ctx, client, fork.GetId(), "fork.example")
 	require.NoError(t, err)
@@ -870,7 +851,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.Equal(t, "tag-snapshot", snapshot.URI)
 	_, err = client.FinalizeSessionCheckpoint(ctx, nested.GetId(), "nested-tag", "nested-snapshot", "")
 	require.NoError(t, err)
-	fork2, _, err := client.ForkSession(ctx, nested.GetId(), "alice", uuid.NewString(), uuid.NewString())
+	fork2, _, err := client.ForkSession(ctx, nested.GetId(), "alice", "alice", uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)
 	tasks, _, err := client.ListSessionTasks(ctx, fork2.GetId(), "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
@@ -991,7 +972,7 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	_, created, err := client.CreateSession(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	require.False(t, created)
-	request.Agent.Name = "different"
+	request.GetAgent().Ref.Name = "different"
 	_, _, err = client.CreateSession(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 	// Tombstones release the revision FK and no longer block runtime cleanup.

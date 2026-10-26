@@ -45,8 +45,7 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			id := uuid.NewString()
 			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
 			stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
-				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
-				Agent:     &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
+				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
 			original := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
 			originalPosition := time.Now().Add(-time.Hour).UTC()
 			apia2a.SetTimelinePosition(original, originalPosition)
@@ -206,8 +205,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, denied: true, want: a2atype.ErrUnauthorized},
 		} {
 			t.Run(operation.name+"/"+test.name, func(t *testing.T) {
-				stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED,
-					Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
+				stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
 				sessionStore := &serviceTestStore{getResult: stored, getErr: test.getErr}
 				authorizer := &recordingAuthorizer{denied: map[string]bool{id: test.denied}}
 				if test.getErr != nil {
@@ -262,7 +260,7 @@ func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
 		t.Run(fmt.Sprintf("session-denied=%v", denySession), func(t *testing.T) {
 			id := uuid.NewString()
 			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
-			stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
+			stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
 			policy := &recordingAuthorizer{deniedTypes: map[string]bool{"Agent": true, "Session": denySession}}
 			sessions := NewService(&serviceTestStore{getResult: stored}, policy, serviceTestWorkflow{})
 			ctx := serviceTestContext("alice")

@@ -1,3 +1,4 @@
+import type { ScheduledRun } from "./domain/scheduledRuns";
 import type { Agent, AgentResource } from "./domain/agents";
 import type { Client } from "@connectrpc/connect";
 import type { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
@@ -119,10 +120,10 @@ export interface OperationMap {
  "agents.update": { input: ResourceRefInput & {resource: AgentResource}; output: Agent };
  "agents.delete": { input: ResourceRefInput; output: void };
 
-  "scheduledRuns.list": ScheduledRunRpc<"listScheduledRuns">;
-  "scheduledRuns.get": ScheduledRunRpc<"getScheduledRun">;
-  "scheduledRuns.create": ScheduledRunRpc<"createScheduledRun">;
-  "scheduledRuns.update": ScheduledRunRpc<"updateScheduledRun">;
+  "scheduledRuns.list": { input: ScheduledRunRpc<"listScheduledRuns">["input"]; output: { scheduledRuns: ScheduledRun[]; page?: { nextPageToken: string } } };
+  "scheduledRuns.get": { input: { ref: ResourceRefInput }; output: { scheduledRun: ScheduledRun } };
+  "scheduledRuns.create": { input: { ref: ResourceRefInput; resource: ScheduledRun }; output: { scheduledRun: ScheduledRun } };
+  "scheduledRuns.update": { input: { ref: ResourceRefInput; resource: ScheduledRun }; output: { scheduledRun: ScheduledRun } };
   "scheduledRuns.delete": ScheduledRunRpc<"deleteScheduledRun">;
   "scheduledRuns.trigger": ScheduledRunRpc<"triggerScheduledRun">;
   "scheduledRuns.executions": ScheduledRunRpc<"listScheduledRunExecutions">;

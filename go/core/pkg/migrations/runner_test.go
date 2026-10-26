@@ -353,10 +353,13 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	execSQL(t, dsn, "INSERT INTO session_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", historyID, []byte{})
 	scheduleID := "00000000-0000-0000-0000-000000000003"
 	executionID := "00000000-0000-0000-0000-000000000004"
-	execSQL(t, dsn, `INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
-        VALUES ($1, 'user', 'schedule', $2, $3)`, scheduleID, make([]byte, 32), []byte{})
-	execSQL(t, dsn, `INSERT INTO scheduled_run_execution (id, scheduled_run_id, manual_request_id, session_id, data, deadline)
-        VALUES ($1, $2, 'manual', $3, $4, statement_timestamp() + interval '1 minute')`, executionID, scheduleID, sessionID, []byte{})
+	execSQL(t, dsn, `INSERT INTO scheduled_run (id, creator, namespace, name, generation, data)
+        VALUES ($1, 'scheduler', 'team', 'schedule', 1, $2)`, scheduleID, []byte{})
+	execSQL(t, dsn, `INSERT INTO scheduled_run_execution (initiator, id, scheduled_run_id, manual_request_id, session_id, data, deadline)
+        VALUES ('operator', $1, $2, 'manual', $3, $4, statement_timestamp() + interval '1 minute')`, executionID, scheduleID, sessionID, []byte{})
+	if !testColumnExists(t, dsn, "scheduled_run", "namespace") || testColumnExists(t, dsn, "scheduled_run", "request_id") {
+		t.Fatal("initial migration must create the ScheduledRun CRD projection schema")
+	}
 	for _, source := range slices.Backward(sources) {
 		if err := WithProvider(context.Background(), config, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(context.Background(), 0)

@@ -1,3 +1,4 @@
+import { scheduleRouteID } from "@/api/domain/scheduledRuns";
 import { Button } from "antd";
 import { ArrowLeft } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
@@ -27,7 +28,7 @@ export function ScheduledRunNewPage() {
     >
       <ScheduledRunForm
         onCancel={() => void navigate(paths.scheduledRuns)}
-        onSaved={(saved) => void navigate(buildPath(paths.scheduledRun, { id: saved.id }))}
+        onSaved={(saved) => void navigate(buildPath(paths.scheduledRun, { id: scheduleRouteID(saved) }))}
       />
     </PageFrame>
   );

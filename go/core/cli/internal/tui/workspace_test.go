@@ -70,10 +70,8 @@ func workspaceSession(id, template string, state apiv1.RuntimeState, created tim
 	return &apiv1.Session{
 		Id: id,
 
-		Agent: &apiv1.ResourceReference{Namespace: "kagent", Name: template},
-
 		State:     state,
-		CreatedAt: timestamppb.New(created),
+		CreatedAt: timestamppb.New(created), Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "kagent", Name: template}},
 	}
 }
 
@@ -582,4 +580,24 @@ func TestWorkspaceDigitsTypeInTheChat(t *testing.T) {
 	}
 	assert.Equal(t, panelChat, m.focus)
 	assert.Equal(t, "3 pods", m.chat.input.Value())
+}
+
+func TestWorkspaceGroupsScheduledSessionsByAgent(t *testing.T) {
+	direct := &apiv1.Session{Id: "direct-session", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "daily"}}}
+	scheduled := &apiv1.Session{
+		Id:           "scheduled-session",
+		Agent:        &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "daily"}},
+		ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Name: "nightly"}},
+	}
+	other := &apiv1.Session{
+		Id:           "other-session",
+		Agent:        &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "other"}},
+		ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Name: "daily"}},
+	}
+	model := workspaceModel{all: []*apiv1.Session{direct, scheduled, other}, agent: "daily"}
+	assert.Equal(t, []*apiv1.Session{direct, scheduled}, model.visibleSessions())
+	model.agent = "other"
+	assert.Equal(t, []*apiv1.Session{other}, model.visibleSessions())
+	model.agent = "nightly"
+	assert.Empty(t, model.visibleSessions(), "schedule names are not Agent filters")
 }

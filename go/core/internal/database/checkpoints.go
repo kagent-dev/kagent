@@ -24,12 +24,13 @@ var (
 )
 
 // ForkSession atomically creates a session and independent history from an owned
-// READY checkpoint, replaying only events through its saved boundary. The fork retains the
+// READY checkpoint belonging to checkpointOwner into userID's ownership, replaying
+// only events through its saved boundary. The fork retains the
 // source revision and snapshot, with fresh context and task IDs. A repeated owner/requestID returns
 // the existing fork for the same checkpoint, or ErrIdempotencyConflict otherwise. The
 // boolean reports creation; callers provision the runtime separately. A deleted
 // fork returns ErrFailedPrecondition and retains its request identity.
-func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestID, sessionID string) (*apiv1.Session, bool, error) {
+func (c *Client) ForkSession(ctx context.Context, checkpointID, checkpointOwner, userID, requestID, sessionID string) (*apiv1.Session, bool, error) {
 	checkpointUUID, err := uuid.Parse(checkpointID)
 	if err != nil {
 		return nil, false, fmt.Errorf("invalid checkpoint ID: %w", err)
@@ -52,7 +53,7 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 
 	var row sessionRow
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		checkpoint, err := lockCheckpoint(ctx, tx, checkpointID, false, userID, new("READY"))
+		checkpoint, err := lockCheckpoint(ctx, tx, checkpointID, false, checkpointOwner, new("READY"))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -82,12 +83,12 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 		session := &apiv1.Session{
 			Id: sessionID, Creator: userID, ContextId: sessionID,
 			Name:             source.GetName(),
-			Agent:            &apiv1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName},
 			PreparedRevision: *checkpoint.PreparedRevision,
 			State:            apiv1.RuntimeState_RUNTIME_STATE_CREATING,
 			Operation:        apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
 			CreatedAt:        now, UpdatedAt: now,
 		}
+		session.Agent = &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName}, Uid: revision.AgentUID}
 		row, err = insertSessionRecords(ctx, tx, session, requestID, historyID, &checkpoint.ID)
 		if err != nil {
 			return err
@@ -693,4 +694,76 @@ func readCheckpointRequest(ctx context.Context, db dbExecutor, userID, requestID
 		FROM session_checkpoint
 		WHERE user_id = $1 AND request_id = $2
 	`, pgx.RowToStructByName[sessionCheckpointRow], userID, requestID)
+}
+
+// GetCheckpointSourceSession reads a checkpoint's immutable source identity and
+// schedule provenance independently of a live source Session. Callers authorize
+// the checkpoint first, then its returned source before accessing contents.
+// Missing checkpoints return ErrNotFound; malformed provenance returns an error.
+func (c *Client) GetCheckpointSourceSession(ctx context.Context, checkpointID string) (*apiv1.Session, error) {
+	row, err := queryOne(ctx, c.db, `
+        SELECT source_session_id, user_id FROM session_checkpoint WHERE id = $1
+    `, pgx.RowToStructByName[checkpointSourceRow], checkpointID)
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint source Session: %w", notFoundOr(err))
+	}
+	return c.checkpointSourceSession(ctx, row)
+}
+
+type checkpointSourceRow struct {
+	SourceSessionID uuid.UUID
+	UserID          string
+}
+
+// checkpointSourceSession resolves schedule provenance from retained execution
+// history. It survives idle expiration, which removes the source Session entirely.
+// Ordinary retained checkpoints remain private to their recorded owner.
+func (c *Client) checkpointSourceSession(ctx context.Context, source checkpointSourceRow) (*apiv1.Session, error) {
+	session := &apiv1.Session{Id: source.SourceSessionID.String(), Creator: source.UserID}
+	row, err := queryOne(ctx, c.db, `
+        SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, session_id,
+            task_id, completed_at, state FROM scheduled_run_execution WHERE session_id = $1
+    `, pgx.RowToStructByName[scheduledRunExecutionRow], source.SourceSessionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return session, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint schedule provenance: %w", err)
+	}
+	execution, err := toScheduledRunExecution(row)
+	if err != nil {
+		return nil, err
+	}
+	if execution.Creator != source.UserID {
+		return nil, fmt.Errorf("checkpoint owner differs from source execution creator")
+	}
+	session.ScheduledRun = &apiv1.ScheduledRunProvenance{Ref: execution.ScheduledRun, Uid: execution.ScheduledRunId, ExecutionId: execution.Id}
+	return session, nil
+}
+
+// GetSessionCheckpointSource reads a source Session for checkpoint authorization,
+// including deletion tombstones. If idle expiration removed it, retained
+// checkpoints still supply its immutable owner and schedule provenance. Missing
+// sources without retained checkpoints return ErrNotFound. Callers must authorize
+// the returned identity before accessing artifacts; this never permits runtime work.
+func (c *Client) GetSessionCheckpointSource(ctx context.Context, id string) (*apiv1.Session, error) {
+	row, err := queryOne(ctx, c.db, `
+        SELECT id, user_id, prepared_revision, state, data, operation, context_id,
+            source_checkpoint_id, history_id, operation_id, executor_id
+        FROM session_record WHERE id = $1
+    `, pgx.RowToStructByName[sessionRow], id)
+	if err == nil {
+		return toSession(row)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("get checkpoint source Session: %w", err)
+	}
+	source, err := queryOne(ctx, c.db, `
+        SELECT source_session_id, user_id FROM session_checkpoint
+        WHERE source_session_id = $1 ORDER BY id LIMIT 1
+    `, pgx.RowToStructByName[checkpointSourceRow], id)
+	if err != nil {
+		return nil, fmt.Errorf("get retained checkpoint source: %w", notFoundOr(err))
+	}
+	return c.checkpointSourceSession(ctx, source)
 }

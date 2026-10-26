@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -17,6 +18,7 @@ import (
 
 type pollingStore struct {
 	controllerStore
+	schedulerStore
 	reservations, leases atomic.Int32
 	err                  error
 }
@@ -24,9 +26,13 @@ type pollingStore struct {
 var _ schedulerStore = (*pollingStore)(nil)
 var _ controllerStore = (*pollingStore)(nil)
 
-func (s *pollingStore) ReserveDueScheduledRuns(context.Context, int) error {
+func (s *pollingStore) ListDueScheduledRuns(context.Context, []string, uuid.UUID, int) ([]database.ScheduledRunSource, error) {
 	s.reservations.Add(1)
-	return s.err
+	return nil, s.err
+}
+
+func (s *pollingStore) ReserveDueScheduledRuns(context.Context, []database.ScheduledRunSource) error {
+	return nil
 }
 
 func (s *pollingStore) LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error) {
@@ -37,8 +43,8 @@ func (s *pollingStore) LeaseScheduledRunExecutions(context.Context, int) ([]data
 func TestScheduledRunWorkersRejectInvalidIntervals(t *testing.T) {
 	for _, interval := range []time.Duration{0, -time.Second} {
 		t.Run(interval.String(), func(t *testing.T) {
-			require.ErrorContains(t, NewScheduler(nil, interval).Start(t.Context()), "interval must be positive")
-			require.ErrorContains(t, NewController(nil, nil, nil, interval).Start(t.Context()), "interval must be positive")
+			require.ErrorContains(t, NewScheduler(nil, nil, nil, interval).Start(t.Context()), "interval must be positive")
+			require.ErrorContains(t, NewController(nil, nil, nil, machineSession(), interval).Start(t.Context()), "interval must be positive")
 		})
 	}
 }
@@ -57,8 +63,8 @@ func TestConfiguredScheduledRunIntervals(t *testing.T) {
 				defer cancel()
 				store := &pollingStore{err: test.err}
 				done := make(chan error, 2)
-				go func() { done <- NewScheduler(store, 20*time.Minute).Start(ctx) }()
-				go func() { done <- NewController(store, nil, nil, 30*time.Minute).Start(ctx) }()
+				go func() { done <- NewScheduler(store, nil, nil, 20*time.Minute).Start(ctx) }()
+				go func() { done <- NewController(store, nil, nil, machineSession(), 30*time.Minute).Start(ctx) }()
 				synctest.Wait()
 				require.EqualValues(t, 1, store.reservations.Load())
 				require.EqualValues(t, 1, store.leases.Load())
@@ -85,13 +91,14 @@ func TestConfiguredScheduledRunIntervals(t *testing.T) {
 
 type blockedExecutionStore struct {
 	controllerStore
+	schedulerStore
 	started      chan struct{}
 	reservations chan struct{}
 }
 
 func (s *blockedExecutionStore) LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error) {
 	return []database.LeasedScheduledRunExecution{{Execution: &apiv1.ScheduledRunExecution{
-		Id: "execution", SessionId: "session", Deadline: timestamppb.New(time.Now().Add(time.Minute)),
+		Id: "execution", Creator: "owner", SessionId: "session", Deadline: timestamppb.New(time.Now().Add(time.Minute)),
 	}}}, nil
 }
 
@@ -104,20 +111,20 @@ func (s *blockedExecutionStore) GetSession(ctx context.Context, _, _ string) (*a
 	return nil, ctx.Err()
 }
 
-func (s *blockedExecutionStore) ReserveDueScheduledRuns(ctx context.Context, _ int) error {
+func (s *blockedExecutionStore) ListDueScheduledRuns(ctx context.Context, _ []string, _ uuid.UUID, _ int) ([]database.ScheduledRunSource, error) {
 	select {
 	case s.reservations <- struct{}{}:
 	case <-ctx.Done():
 	}
-	return errors.New("temporary reservation failure")
+	return nil, errors.New("temporary reservation failure")
 }
 
 func TestSchedulerTicksWhileExecutionIsBlocked(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	store := &blockedExecutionStore{started: make(chan struct{}), reservations: make(chan struct{})}
-	controller := NewController(store, nil, nil, time.Second)
-	scheduler := NewScheduler(store, time.Second)
+	controller := NewController(store, nil, nil, machineSession(), time.Second)
+	scheduler := NewScheduler(store, nil, nil, time.Second)
 	require.False(t, controller.NeedLeaderElection())
 	require.True(t, scheduler.NeedLeaderElection())
 	controllerDone := make(chan error, 1)

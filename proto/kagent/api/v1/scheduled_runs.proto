@@ -3,14 +3,13 @@ syntax = "proto3";
 package kagent.api.v1;
 
 import "buf/validate/validate.proto";
-import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "kagent/api/v1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
 
-// Creator-owned automation stored in PostgreSQL. Each occurrence creates a fresh
-// Session; Task state and history belong to upstream A2A.
+// Kubernetes-owned automation. Each occurrence creates a fresh Session using
+// the scheduler's principal; task state and history belong to upstream A2A.
 service ScheduledRunService {
   rpc CreateScheduledRun(CreateScheduledRunRequest) returns (CreateScheduledRunResponse);
   rpc GetScheduledRun(GetScheduledRunRequest) returns (GetScheduledRunResponse);
@@ -22,89 +21,55 @@ service ScheduledRunService {
   rpc ListScheduledRunExecutions(ListScheduledRunExecutionsRequest) returns (ListScheduledRunExecutionsResponse);
 }
 
-// Mutable configuration. Changes affect only subsequently reserved executions.
-message ScheduledRunConfig {
-  string name = 1 [(buf.validate.field).string.max_len = 200];
-  string schedule = 2 [(buf.validate.field).string = {
-    min_len: 1
-    max_len: 256
-  }];
-  // An omitted time zone defaults to UTC.
-  string time_zone = 3 [(buf.validate.field).string.max_len = 253];
-  string prompt = 4 [(buf.validate.field).string = {
-    min_len: 1
-    max_bytes: 32768
-    pattern: "\\S"
-  }];
-  bool paused = 5;
-  // Omitted means 15 minutes. Includes queueing and provisioning. Minimum one
-  // microsecond matches PostgreSQL timestamp precision.
-  google.protobuf.Duration execution_timeout = 6 [(buf.validate.field).duration = {
-    gte: {nanos: 1000}
-    lte: {
-      seconds: 9223372036
-      nanos: 0
-    }
-  }];
-}
-
+// Kubernetes ScheduledRun resource, including metadata, spec, and status.
 message ScheduledRun {
-  string id = 1;
-  // Human owner; this does not select credentials for execution or tool calls.
-  string creator = 2;
-  reserved 3, 4;
-  reserved "harness", "agent_template";
-  ResourceReference agent = 11;
-  ScheduledRunConfig config = 5;
-  string etag = 6;
-  google.protobuf.Timestamp next_execution_time = 7;
-  google.protobuf.Timestamp created_at = 8;
-  google.protobuf.Timestamp updated_at = 9;
-  // Deleted schedules retain identity and history but accept no new executions.
-  google.protobuf.Timestamp deleted_at = 10;
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
 }
 
 message CreateScheduledRunRequest {
-  reserved 1, 2;
-  reserved "harness", "agent_template";
-  ResourceReference agent = 5 [(buf.validate.field).required = true];
-  string request_id = 3 [(buf.validate.field).string = {
-    min_len: 1
-    max_len: 128
-  }];
-  ScheduledRunConfig config = 4 [(buf.validate.field).required = true];
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  StructuredObject resource = 2 [(buf.validate.field).required = true];
 }
 message CreateScheduledRunResponse {
   ScheduledRun scheduled_run = 1;
 }
 message GetScheduledRunRequest {
-  string scheduled_run_id = 1 [(buf.validate.field).string.uuid = true];
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
 }
 message GetScheduledRunResponse {
   ScheduledRun scheduled_run = 1;
 }
 message ListScheduledRunsRequest {
   PageRequest page = 1;
+  string namespace = 2 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
+  }];
 }
 message ListScheduledRunsResponse {
   repeated ScheduledRun scheduled_runs = 1;
   PageResponse page = 2;
 }
 message UpdateScheduledRunRequest {
-  string scheduled_run_id = 1 [(buf.validate.field).string.uuid = true];
-  string etag = 2 [(buf.validate.field).string.uuid = true];
-  ScheduledRunConfig config = 3 [(buf.validate.field).required = true];
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  // metadata.resourceVersion is required and is passed unchanged to Kubernetes.
+  StructuredObject resource = 2 [(buf.validate.field).required = true];
 }
 message UpdateScheduledRunResponse {
   ScheduledRun scheduled_run = 1;
 }
 message DeleteScheduledRunRequest {
-  string scheduled_run_id = 1 [(buf.validate.field).string.uuid = true];
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  string uid = 2 [(buf.validate.field).string.uuid = true];
+  string resource_version = 3 [(buf.validate.field).string.min_len = 1];
 }
-message DeleteScheduledRunResponse {
-  ScheduledRun scheduled_run = 1;
-}
+message DeleteScheduledRunResponse {}
 message TriggerScheduledRunRequest {
+  // Kubernetes UID; a reconciled projection is required before triggering.
   string scheduled_run_id = 1 [(buf.validate.field).string.uuid = true];
   string request_id = 2 [(buf.validate.field).string = {
     min_len: 1
@@ -129,7 +94,7 @@ enum ScheduledRunExecutionState {
 // One accepted firing. Its identity and immutable inputs survive session deletion.
 message ScheduledRunExecution {
   string id = 1;
-  // Human owner inherited from the schedule, independent of runtime identity.
+  // Scheduler principal, independent of runtime identity or manual initiator.
   string creator = 2;
   string scheduled_run_id = 3;
   oneof trigger {
@@ -139,7 +104,7 @@ message ScheduledRunExecution {
   string prompt = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp deadline = 8;
-  // Empty until a session is reserved. Retained after that session is deleted;
+  // Reserved atomically when the execution is accepted. Retained after deletion;
   // it is a historical reference and does not imply that the session still exists.
   string session_id = 9;
   ScheduledRunExecutionState state = 10;
@@ -148,6 +113,12 @@ message ScheduledRunExecution {
   google.protobuf.Timestamp completed_at = 12;
   // Stable explanation of failure. Runtime diagnostics remain in A2A/telemetry.
   string failure_reason = 13;
+  // Immutable accepted inputs and provenance. These survive resource deletion.
+  ResourceReference scheduled_run = 14;
+  int64 scheduled_run_generation = 15;
+  // Revision pinned when this occurrence was accepted.
+  string runtime_revision = 16;
+  string initiator = 18;
 }
 
 message GetScheduledRunExecutionRequest {

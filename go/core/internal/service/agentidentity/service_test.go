@@ -87,11 +87,12 @@ func TestResolveAgentIdentity(t *testing.T) {
 		{name: "deleted Session", change: func(_ jwt.MapClaims, s *identityStore, _ *v1alpha3.Agent) { s.session = nil }, want: serviceerrors.CodePermissionDenied},
 		{name: "inconsistent revision", change: func(_ jwt.MapClaims, s *identityStore, _ *v1alpha3.Agent) { s.revision.AgentName = "other" }, want: serviceerrors.CodeInternal},
 		{name: "missing Agent UID", change: func(_ jwt.MapClaims, s *identityStore, _ *v1alpha3.Agent) { s.revision.AgentUID = "" }, want: serviceerrors.CodeInternal},
+		{name: "inconsistent Session Agent UID", change: func(_ jwt.MapClaims, s *identityStore, _ *v1alpha3.Agent) { s.session.Agent.Uid = "other" }, want: serviceerrors.CodeInternal},
 		{name: "recreated Agent", change: func(_ jwt.MapClaims, _ *identityStore, a *v1alpha3.Agent) { a.UID = "replacement" }, want: serviceerrors.CodeNotFound},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			id := uuid.NewString()
-			store := &identityStore{session: &apiv1.Session{Id: id, PreparedRevision: "revision", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")},
+			store := &identityStore{session: &apiv1.Session{Id: id, PreparedRevision: "revision", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Uid: "agent-uid"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")},
 				revision: &database.RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "agent-uid"}}
 			agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "agent-uid",
 				Labels: map[string]string{"team": "payments"}, Annotations: map[string]string{"description": "on-call helper", "kubectl.kubernetes.io/last-applied-configuration": `{"spec":{"example":"operator-supplied"}}`}}}

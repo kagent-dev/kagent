@@ -1,23 +1,22 @@
 import { useState } from "react";
 import { Alert, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Typography } from "antd";
-import { fromJson } from "@bufbuild/protobuf";
-import { DurationSchema } from "@bufbuild/protobuf/wkt";
-import { newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
+import { useAgentsAcrossNamespaces, useNamespaces } from "@/api";
 import { invoke } from "@/api/operations";
-import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
-import type { ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
+import { type ScheduledRun, scheduleRef } from "@/api/domain/scheduledRuns";
 import { minuteIntervals, parseSchedule, scheduleCron, scheduleDescription, weekdays, type ScheduleTiming } from "./scheduleTiming";
+
 
 const timeZones = ["UTC", ...Intl.supportedValuesOf("timeZone")].map((value) => ({ value }));
 
 interface FormValues extends ScheduleTiming {
+  namespace: string;
   agent: string;
   name: string;
   timeZone: string;
   prompt: string;
   enabled: boolean;
-  timeoutSeconds: number;
+  executionTimeout: string;
 }
 
 /**
@@ -37,18 +36,14 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   const invalidateSchedules = useInvalidateScheduledRuns();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  // Retain the key after a failed response: retrying must not create another schedule.
-  const [requestId] = useState(() => randomId());
   const namespaces = useNamespaces();
-  const definitions = useAgentsAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
-  const agents = definitions.data?.agents ?? [];
-  const config = schedule?.config;
+  const config = schedule?.spec;
+  const namespace = Form.useWatch("namespace", form) ?? schedule?.metadata.namespace ?? "";
+  const agents = useAgentsAcrossNamespaces(namespace ? [namespace] : undefined);
   const initialTiming = parseSchedule(config?.schedule ?? "0 9 * * *");
   const watched = Form.useWatch([], form) as FormValues | undefined;
   const timing = { ...initialTiming, ...watched };
-  const initialTimeout = config?.executionTimeout
-    ? Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9 : 900;
-  const loadError = namespaces.error ?? definitions.error;
+  const loadError = namespaces.error ?? agents.error;
 
   async function save(values: FormValues) {
     setSaving(true);
@@ -57,27 +52,23 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
       const cron = scheduleCron({ ...initialTiming, ...values });
       const nextConfig = {
         ...config,
-        name: values.name?.trim() ?? "",
+        agentRef: { name: values.agent },
         // Preserve existing expressions when only unrelated fields were edited.
         schedule: config && cron === scheduleCron(initialTiming) ? config.schedule : cron,
         timeZone: values.timeZone?.trim() || "UTC",
         prompt: values.prompt,
         paused: !values.enabled,
-        executionTimeout: config?.executionTimeout && values.timeoutSeconds === initialTimeout
-          ? config.executionTimeout : fromJson(DurationSchema, `${values.timeoutSeconds}s`),
+        executionTimeout: values.executionTimeout,
       };
       let saved: ScheduledRun | undefined;
       if (schedule) {
         saved = (await invoke("scheduledRuns.update", {
-          scheduledRunId: schedule.id, etag: schedule.etag, config: nextConfig,
+          ref: scheduleRef(schedule), resource: { ...schedule, spec: { ...schedule.spec, ...nextConfig } },
         })).scheduledRun;
       } else {
-        const agent = agents.find((entry) => entry.ref === values.agent);
-        if (!agent) throw new Error("Choose an available agent.");
         saved = (await invoke("scheduledRuns.create", {
-          requestId,
-          agent: { namespace: agent.namespace, name: agent.name },
-          config: nextConfig,
+          ref: { namespace: values.namespace, name: values.name.trim() },
+          resource: { metadata: { namespace: values.namespace, name: values.name.trim() }, spec: nextConfig },
         })).scheduledRun;
       }
       if (!saved) throw new Error("The API returned no schedule.");
@@ -94,25 +85,23 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
 
   return <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 720 }}>
     <Form form={form} layout="vertical" onFinish={save} disabled={saving} initialValues={{
-      ...initialTiming, name: config?.name ?? "",
+      ...initialTiming, name: schedule?.metadata.name ?? "",
+      namespace: schedule?.metadata.namespace, agent: config?.agentRef.name,
       timeZone: config?.timeZone || "UTC", prompt: config?.prompt ?? "",
-      enabled: !(config?.paused ?? false), timeoutSeconds: initialTimeout,
+      enabled: !(config?.paused ?? false), executionTimeout: config?.executionTimeout ?? "15m",
     }}>
-      {!schedule && <>
-        {loadError && <Alert type="error" showIcon title="Could not load agents" description={loadError.message} />}
-        {definitions.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
-          title={`Could not read agents in ${entry.namespace}`} description={entry.reason} />)}
-        <Form.Item name="agent" label="Agent" rules={[{ required: true, message: "Choose an agent." }]}>
-          <Select data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || definitions.isLoading}
-            placeholder="Choose an agent" options={agents.map((agent) => {
-              const blocked = newConversationBlockedReason(agent);
-              return { value: agent.ref, disabled: !!blocked,
-                label: `${agent.namespace}/${agent.name}${blocked ? ` — ${blocked}` : ""}` };
-            })} />
-        </Form.Item>
-      </>}
-      <Form.Item name="name" label="Schedule Name" rules={[{ max: 200 }]}>
-        <Input data-testid="schedule-name" maxLength={200} />
+      {loadError && <Alert type="error" showIcon title="Could not load agent configuration" description={loadError.message} />}
+      <Form.Item name="namespace" label="Namespace" rules={[{ required: true, message: "Choose a namespace." }]}>
+        <Select data-testid="schedule-namespace" disabled={!!schedule} loading={namespaces.isLoading}
+          options={(namespaces.data ?? []).map((row) => ({ value: row.name, label: row.name }))}
+          onChange={() => form.setFieldValue("agent", undefined)} />
+      </Form.Item>
+      <Form.Item name="agent" label="Agent" rules={[{ required: true, message: "Choose an agent." }]}>
+        <Select data-testid="schedule-agent" loading={agents.isLoading} disabled={!namespace}
+          options={(agents.data?.agents ?? []).map((row) => ({ value: row.name, label: row.name }))} />
+      </Form.Item>
+      <Form.Item name="name" label="Schedule name" rules={[{ required: true, pattern: /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/, message: "Use a Kubernetes resource name." }, { max: 253 }]}>
+        <Input data-testid="schedule-name" maxLength={253} disabled={!!schedule} />
       </Form.Item>
       <Form.Item name="timeZone" label="Time zone" extra="The schedule uses this time zone, including daylight-saving changes.">
         <AutoComplete data-testid="schedule-timezone" options={timeZones} placeholder="UTC" maxLength={253}
@@ -164,9 +153,9 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
       }]}>
         <Input.TextArea data-testid="schedule-prompt" rows={5} />
       </Form.Item>
-      <Form.Item name="timeoutSeconds" label="Execution timeout (seconds)" extra="Includes queueing and agent startup."
-        rules={[{ required: true }, { type: "number", min: 0.000001, max: 9223372036 }]}>
-        <InputNumber data-testid="schedule-timeout" min={0.000001} max={9223372036} />
+      <Form.Item name="executionTimeout" label="Execution timeout" rules={[{ required: true }]}
+        extra="Includes queueing and provisioning. Use durations such as 30s, 15m, or 1h.">
+        <Input data-testid="schedule-timeout" />
       </Form.Item>
       <Form.Item name="enabled" label="Enable Schedule" valuePropName="checked"
         /* The one thing on screen that says whether creating or saving starts it

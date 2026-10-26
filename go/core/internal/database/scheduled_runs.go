@@ -1,85 +1,104 @@
 package database
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
-	"buf.build/go/protovalidate"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"k8s.io/apimachinery/pkg/types"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
-	"github.com/kagent-dev/kagent/go/api/scheduledrun"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-// FindScheduledRunRequest returns the schedule created by the creator/requestID pair,
-// including later edits or deletion. A different request hash returns
-// ErrIdempotencyConflict; an unknown request returns ErrNotFound.
-func (c *Client) FindScheduledRunRequest(ctx context.Context, creator, requestID string, hash []byte) (*apiv1.ScheduledRun, error) {
-	row, err := queryOne(ctx, c.db, `
-		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-		    FROM scheduled_run WHERE creator = $1 AND request_id = $2
-	`, pgx.RowToStructByName[scheduledRunRow], creator, requestID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find schedule request: %w", notFoundOr(err))
+// SyncScheduledRun reconciles a Kubernetes UID/generation into the durable
+// scheduling projection. Stale generations and deleted UIDs cannot be revived.
+// Only changes to cron, timezone, or pause state reset the next occurrence.
+func (c *Client) SyncScheduledRun(ctx context.Context, request *ScheduledRun) (*ScheduledRun, error) {
+	if request == nil {
+		return nil, fmt.Errorf("schedule projection is required")
 	}
-	if !bytes.Equal(row.RequestHash, hash) {
-		return nil, ErrIdempotencyConflict
+	id, err := uuid.Parse(request.ID)
+	if err != nil || request.Generation < 1 || request.Creator == "" || request.Ref.Namespace == "" || request.Ref.Name == "" || request.AgentUID == "" {
+		return nil, fmt.Errorf("invalid schedule projection")
 	}
-	return toScheduledRun(row)
-}
-
-// CreateScheduledRun atomically stores a schedule with a new ID, etag, and initial due
-// time. Reusing a creator/requestID returns the existing schedule if the request hash
-// matches, or ErrIdempotencyConflict otherwise. Paused schedules have no due time;
-// execution is left to the scheduler.
-func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1.ScheduledRun, requestID string, hash []byte) (*apiv1.ScheduledRun, error) {
-	schedule := proto.CloneOf(request)
-	id := uuid.New()
-	schedule.Id, schedule.Etag = id.String(), uuid.NewString()
-	schedule.CreatedAt, schedule.UpdatedAt = nil, nil
-	schedule.NextExecutionTime, schedule.DeletedAt = nil, nil
-	data, err := proto.Marshal(schedule)
+	spec := scheduling.Normalize(request.Spec)
+	if err := scheduling.Validate(spec); err != nil {
+		return nil, fmt.Errorf("invalid schedule spec: %w", err)
+	}
+	if request.ResourceVersion == "" {
+		return nil, fmt.Errorf("schedule resource version is required")
+	}
+	data, err := json.Marshal(scheduledRunSnapshot{Spec: spec, ResourceVersion: request.ResourceVersion, AgentUID: request.AgentUID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode schedule: %w", err)
 	}
-	var row scheduledRunRow
+	var result scheduledRunRow
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err = queryOne(ctx, tx, `
-			INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (creator, request_id) DO NOTHING RETURNING id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-		`, pgx.RowToStructByName[scheduledRunRow], id, schedule.Creator, requestID, hash, data)
+		inserted, err := tx.Exec(ctx, `
+   INSERT INTO scheduled_run (id, creator, namespace, name, generation, data)
+   VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING
+  `, id, request.Creator, request.Ref.Namespace, request.Ref.Name, request.Generation, data)
 		if err != nil {
 			return err
 		}
-		row.NextExecutionTime, err = nextExecutionTime(schedule.Config, row.CreatedAt)
-		if err != nil || row.NextExecutionTime == nil {
+		result, err = getScheduledRunForUpdate(ctx, tx, id, "")
+		if err != nil {
 			return err
 		}
-		// Keep the first cron time atomic with creation, using the insert's clock.
-		return advanceScheduledRun(ctx, tx, row.ID, row.NextExecutionTime)
+		if result.DeletedAt != nil || result.Generation > request.Generation {
+			return nil
+		}
+		if result.Namespace != request.Ref.Namespace || result.Name != request.Ref.Name {
+			return fmt.Errorf("schedule UID cannot change its resource reference: %w", ErrConflict)
+		}
+		var previous *ScheduledRun
+		if inserted.RowsAffected() == 0 {
+			previous, err = toScheduledRun(result)
+			if err != nil {
+				return err
+			}
+			if !result.Disabled && result.Generation == request.Generation && reflect.DeepEqual(previous.Spec, spec) && previous.Creator == request.Creator && previous.AgentUID == request.AgentUID && (result.NextExecutionTime != nil || *spec.Paused) {
+				return nil
+			}
+		}
+		next := result.NextExecutionTime
+		if previous == nil || (next == nil && !*spec.Paused) || previous.Spec.Schedule != spec.Schedule || *previous.Spec.TimeZone != *spec.TimeZone || *previous.Spec.Paused != *spec.Paused {
+			now, err := queryOne(ctx, tx, `SELECT statement_timestamp()::timestamptz`, pgx.RowTo[time.Time])
+			if err != nil {
+				return err
+			}
+			next, err = nextExecutionTime(spec, now)
+			if err != nil {
+				return err
+			}
+		}
+		result, err = queryOne(ctx, tx, `
+   UPDATE scheduled_run SET creator=$2, generation=$3, disabled=FALSE, data=$4, next_execution_time=$5, updated_at=CASE WHEN $6::boolean THEN created_at ELSE statement_timestamp() END
+   WHERE id=$1 RETURNING id, creator, namespace, name, generation, disabled, data, created_at, updated_at, next_execution_time, deleted_at
+  `, pgx.RowToStructByName[scheduledRunRow], id, request.Creator, request.Generation, data, next, inserted.RowsAffected() == 1)
+		return err
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return c.FindScheduledRunRequest(ctx, schedule.Creator, requestID, hash)
-	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to create schedule: %w", err)
+		return nil, fmt.Errorf("failed to synchronize schedule: %w", err)
 	}
-	return toScheduledRun(row)
+	return toScheduledRun(result)
 }
 
-// GetScheduledRun returns a creator's schedule, including a deletion tombstone. Missing
-// schedules and other owners return ErrNotFound.
-func (c *Client) GetScheduledRun(ctx context.Context, id uuid.UUID, creator string) (*apiv1.ScheduledRun, error) {
+// GetScheduledRun reads a projection, including its retained tombstone. Callers
+// authorize its trusted resource reference before returning protected content.
+func (c *Client) GetScheduledRun(ctx context.Context, id uuid.UUID, creator string) (*ScheduledRun, error) {
 	row, err := readScheduledRun(ctx, c.db, id, creator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schedule: %w", notFoundOr(err))
@@ -87,151 +106,66 @@ func (c *Client) GetScheduledRun(ctx context.Context, id uuid.UUID, creator stri
 	return toScheduledRun(row)
 }
 
-// ListScheduledRuns returns the creator's undeleted schedules in ascending ID order after
-// AfterID, up to Limit.
-func (c *Client) ListScheduledRuns(ctx context.Context, query ScheduledRunQuery) ([]*apiv1.ScheduledRun, error) {
-	rows, err := queryMany(ctx, c.db, `
-		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-		    FROM scheduled_run WHERE creator = $1 AND deleted_at IS NULL
-		  AND ($3::uuid IS NULL OR id > $3::uuid)
-		ORDER BY id LIMIT $2
-	`, pgx.RowToStructByName[scheduledRunRow], query.Creator, int32(query.Limit), query.AfterID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list schedules: %w", err)
-	}
-	result := make([]*apiv1.ScheduledRun, 0, len(rows))
-	for _, row := range rows {
-		schedule, err := toScheduledRun(row)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, schedule)
-	}
-	return result, nil
+// GetActiveScheduledRunID reads the active projection for a Kubernetes name,
+// returning ErrNotFound when absent. Reconciliation uses this identity before
+// checking the live resource, so a delayed deletion cannot retire a replacement.
+func (c *Client) GetActiveScheduledRunID(ctx context.Context, ref types.NamespacedName) (uuid.UUID, error) {
+	id, err := queryOne(ctx, c.db, `
+  SELECT id FROM scheduled_run WHERE namespace=$1 AND name=$2 AND deleted_at IS NULL
+ `, pgx.RowTo[uuid.UUID], ref.Namespace, ref.Name)
+	return id, notFoundOr(err)
 }
 
-// UpdateScheduledRun replaces an owned schedule's config and etag only if the supplied
-// etag matches; stale edits return ErrConflict and deleted schedules return
-// ErrFailedPrecondition. The next occurrence changes only when the schedule, time zone,
-// or pause setting changes, so unrelated edits cannot skip an already-due occurrence.
-func (c *Client) UpdateScheduledRun(ctx context.Context, id uuid.UUID, creator, etag string, config *apiv1.ScheduledRunConfig) (*apiv1.ScheduledRun, error) {
-	var result scheduledRunRow
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := getScheduledRunForUpdate(ctx, tx, id, creator)
-		if err != nil {
-			return err
-		}
-		schedule, err := toScheduledRun(row)
-		if err != nil {
-			return err
-		}
-		if row.DeletedAt != nil {
-			return fmt.Errorf("ScheduledRun %s was deleted: %w", id, ErrFailedPrecondition)
-		}
-		if schedule.Etag != etag {
-			return fmt.Errorf("ScheduledRun %s changed; reload before updating: %w", id, ErrConflict)
-		}
-		previous := schedule.Config
-		schedule.Config, schedule.Etag = proto.CloneOf(config), uuid.NewString()
-		data, err := proto.Marshal(schedule)
-		if err != nil {
-			return err
-		}
-		result, err = saveScheduledRun(ctx, tx, row.ID, data, row.NextExecutionTime, false)
-		if err != nil {
-			return err
-		}
-		// Prompt/name edits must not skip an occurrence already due for reservation.
-		if config.Schedule != previous.Schedule || config.TimeZone != previous.TimeZone || config.Paused != previous.Paused {
-			result.NextExecutionTime, err = nextExecutionTime(config, result.UpdatedAt)
-			if err != nil {
-				return err
-			}
-			return advanceScheduledRun(ctx, tx, result.ID, result.NextExecutionTime)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to update schedule: %w", err)
-	}
-	return toScheduledRun(result)
+// RetireScheduledRun stops new reservations for a deleted UID, retaining accepted
+// executions and history. Repeated retirement and unknown UIDs are harmless.
+func (c *Client) RetireScheduledRun(ctx context.Context, id uuid.UUID) error {
+	return execSQL(ctx, c.db, `
+  UPDATE scheduled_run SET deleted_at=COALESCE(deleted_at, statement_timestamp()),
+   next_execution_time=NULL, updated_at=CASE WHEN deleted_at IS NULL THEN statement_timestamp() ELSE updated_at END
+  WHERE id=$1
+ `, id)
 }
 
-// DeleteScheduledRun stops future scheduling and returns an owned deletion tombstone while
-// retaining execution history and request deduplication. Repeated deletion succeeds.
-// Malformed payloads are retained for repair and return only authoritative tombstone
-// metadata.
-func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator string) (*apiv1.ScheduledRun, error) {
-	var result scheduledRunRow
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := getScheduledRunForUpdate(ctx, tx, id, creator)
-		if err != nil {
-			return err
-		}
-		if row.DeletedAt != nil {
-			result = row
-			return nil
-		}
-		schedule, err := toScheduledRun(row)
-		if err != nil {
-			// Identity and ownership come from columns, not the damaged payload.
-			result, err = saveScheduledRun(ctx, tx, row.ID, row.Data, nil, true)
-			return err
-		}
-		schedule.Etag, schedule.NextExecutionTime = uuid.NewString(), nil
-		data, err := proto.Marshal(schedule)
-		if err != nil {
-			return err
-		}
-		result, err = saveScheduledRun(ctx, tx, row.ID, data, nil, true)
-		return err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete schedule: %w", err)
-	}
-	schedule, err := toScheduledRun(result)
-	if err != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "deleted malformed schedule", "scheduled_run_id", result.ID, "error", err)
-		// Return only authoritative tombstone metadata; preserve the bytes for repair.
-		return &apiv1.ScheduledRun{
-			Id: result.ID.String(), Creator: result.Creator,
-			CreatedAt: timestamppb.New(result.CreatedAt), UpdatedAt: timestamppb.New(result.UpdatedAt),
-			DeletedAt: optionalTimestamp(result.DeletedAt),
-		}, nil
-	}
-	return schedule, nil
+// DisableScheduledRun removes an invalid or unresolved generation from the due
+// queue and rejects new manual executions without deleting its history. The
+// observed generation fences stale reconciliations; only a valid sync re-enables it.
+func (c *Client) DisableScheduledRun(ctx context.Context, id uuid.UUID, generation int64) error {
+	return execSQL(ctx, c.db, `UPDATE scheduled_run SET next_execution_time=NULL, disabled=TRUE, generation=$2 WHERE id=$1 AND generation <= $2`, id, generation)
 }
 
 // TriggerScheduledRun reserves a manual execution for an owned schedule, including when
 // paused, without starting runtime work or changing the next scheduled occurrence. Reusing
 // requestID for that schedule returns the same execution, even after deletion; new
 // triggers on a deleted schedule return ErrFailedPrecondition.
-func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator, requestID string) (*apiv1.ScheduledRunExecution, error) {
+func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, initiator, requestID string, generation int64) (*apiv1.ScheduledRunExecution, error) {
 	var result scheduledRunExecutionRow
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := getScheduledRunForUpdate(ctx, tx, id, creator)
+		row, err := getScheduledRunForUpdate(ctx, tx, id, "")
 		if err != nil {
 			return err
 		}
 		result, err = queryOne(ctx, tx, `
 			SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, session_id,
 			    task_id, completed_at, state FROM scheduled_run_execution WHERE
-			    scheduled_run_id = $1 AND manual_request_id = $2
-		`, pgx.RowToStructByName[scheduledRunExecutionRow], row.ID, &requestID)
+			    scheduled_run_id = $1 AND manual_request_id = $2 AND initiator = $3
+		`, pgx.RowToStructByName[scheduledRunExecutionRow], row.ID, &requestID, initiator)
 		if err == nil {
 			return nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if row.DeletedAt != nil {
-			return fmt.Errorf("ScheduledRun %s was deleted: %w", id, ErrFailedPrecondition)
+		if row.DeletedAt != nil || row.Disabled || generation == 0 {
+			return fmt.Errorf("ScheduledRun %s is not reconciled for new executions: %w", id, ErrFailedPrecondition)
 		}
 		schedule, err := toScheduledRun(row)
 		if err != nil {
 			return err
 		}
-		result, err = reserveScheduledRunExecution(ctx, tx, schedule, nil, &requestID)
+		if schedule.Generation != generation {
+			return fmt.Errorf("schedule has not reconciled the requested generation: %w", ErrConflict)
+		}
+		result, err = reserveScheduledRunExecution(ctx, tx, schedule, nil, &requestID, initiator)
 		return err
 	})
 	if err != nil {
@@ -240,23 +174,51 @@ func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator,
 	return toScheduledRunExecution(result)
 }
 
-// ReserveDueScheduledRuns atomically reserves due occurrences and advances their
-// schedules, skipping rows held by other workers. Limit must be between 1 and 100.
+// ListDueScheduledRuns reads up to limit due source identities in the watched
+// namespaces in ID order, strictly after afterID (uuid.Nil starts the scan).
+// An empty namespace list watches all namespaces. It does not lock
+// rows or reserve work. Callers must validate these sources against Kubernetes
+// before passing them to ReserveDueScheduledRuns. Limit must be between 1 and 100.
+func (c *Client) ListDueScheduledRuns(ctx context.Context, namespaces []string, afterID uuid.UUID, limit int) ([]ScheduledRunSource, error) {
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("reservation limit must be between 1 and 100")
+	}
+	return queryMany(ctx, c.db, `
+  SELECT id, namespace, name, generation FROM scheduled_run
+  WHERE deleted_at IS NULL AND NOT disabled AND next_execution_time <= statement_timestamp()
+   AND (COALESCE(cardinality($1::text[]), 0) = 0 OR namespace = ANY($1))
+  AND id > $2
+  ORDER BY id LIMIT $3
+ `, pgx.RowToStructByName[ScheduledRunSource], namespaces, afterID, int32(limit))
+}
+
+// ReserveDueScheduledRuns atomically reserves due occurrences for up to 100
+// Kubernetes-validated sources, advancing only unchanged generations and skipping
+// rows held by other workers. It performs no external I/O within the transaction.
 // Occurrences over thirty seconds late are skipped; malformed schedules are removed from
 // the due queue with their payloads retained for repair. Execution workers claim the
 // stored reservations separately.
-func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) error {
-	if limit < 1 || limit > 100 {
-		return fmt.Errorf("reservation limit must be between 1 and 100")
+func (c *Client) ReserveDueScheduledRuns(ctx context.Context, sources []ScheduledRunSource) error {
+	if len(sources) == 0 {
+		return nil
+	}
+	if len(sources) > 100 {
+		return fmt.Errorf("reservation batch must contain at most 100 sources")
+	}
+	ids := make([]uuid.UUID, len(sources))
+	generations := make([]int64, len(sources))
+	for i, source := range sources {
+		ids[i], generations[i] = source.ID, source.Generation
 	}
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		rows, err := queryMany(ctx, tx, `
-			SELECT scheduled_run.id, scheduled_run.creator, scheduled_run.request_hash,
+			SELECT scheduled_run.id, scheduled_run.creator, scheduled_run.namespace, scheduled_run.name, scheduled_run.generation, scheduled_run.disabled,
 			    scheduled_run.data, scheduled_run.created_at, scheduled_run.updated_at, scheduled_run.next_execution_time,
 			    scheduled_run.deleted_at, statement_timestamp()::timestamptz AS db_time FROM scheduled_run
-			WHERE deleted_at IS NULL AND next_execution_time <= statement_timestamp()
-			ORDER BY next_execution_time, id LIMIT $1 FOR UPDATE SKIP LOCKED
-		`, pgx.RowToStructByName[dueScheduledRunRow], int32(limit))
+			WHERE deleted_at IS NULL AND NOT disabled AND next_execution_time <= statement_timestamp()
+			 AND (id, generation) IN (SELECT * FROM unnest($1::uuid[], $2::bigint[]))
+			ORDER BY next_execution_time, id FOR UPDATE SKIP LOCKED
+		`, pgx.RowToStructByName[dueScheduledRunRow], ids, generations)
 		if err != nil {
 			return err
 		}
@@ -265,7 +227,7 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) error {
 			schedule, err := toScheduledRun(row)
 			var next *time.Time
 			if err == nil {
-				next, err = nextExecutionTime(schedule.Config, now)
+				next, err = nextExecutionTime(schedule.Spec, now)
 			}
 			if err != nil {
 				// Remove malformed schedules from the due queue so even a full
@@ -277,10 +239,16 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) error {
 				continue
 			}
 			if now.Sub(*row.NextExecutionTime) <= 30*time.Second {
-				_, err := reserveScheduledRunExecution(ctx, tx, schedule, row.NextExecutionTime, nil)
+				_, err := reserveScheduledRunExecution(ctx, tx, schedule, row.NextExecutionTime, nil, "")
+				if errors.Is(err, ErrFailedPrecondition) {
+					// A concurrently retired or not-yet-prepared source remains retryable.
+					continue
+				}
 				if err != nil {
 					return err
 				}
+			} else {
+				logging.FromContext(ctx).WarnContext(ctx, "skipping late scheduled occurrence", "scheduled_run_id", row.ID, "scheduled_time", *row.NextExecutionTime, "lateness", now.Sub(*row.NextExecutionTime))
 			}
 			if err := advanceScheduledRun(ctx, tx, row.ID, next); err != nil {
 				return err
@@ -299,8 +267,8 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) error {
 // must supply a transaction to retain the lock.
 func getScheduledRunForUpdate(ctx context.Context, db dbExecutor, id uuid.UUID, creator string) (scheduledRunRow, error) {
 	row, err := queryOne(ctx, db, `
-		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-		    FROM scheduled_run WHERE creator = $1 AND id = $2 FOR UPDATE
+		SELECT id, creator, namespace, name, generation, disabled, data, created_at, updated_at, next_execution_time, deleted_at
+		    FROM scheduled_run WHERE ($1::text = '' OR creator = $1) AND id = $2 FOR UPDATE
 	`, pgx.RowToStructByName[scheduledRunRow], creator, id)
 	return row, notFoundOr(err)
 }
@@ -309,34 +277,54 @@ func getScheduledRunForUpdate(ctx context.Context, db dbExecutor, id uuid.UUID, 
 // timeout, using either a scheduled time or manual request ID. Callers hold the schedule
 // lock and handle deduplication in the same transaction; this function does not launch
 // runtime work.
-func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, schedule *apiv1.ScheduledRun, due *time.Time, manualRequestID *string) (scheduledRunExecutionRow, error) {
+func reserveScheduledRunExecution(ctx context.Context, db pgx.Tx, schedule *ScheduledRun, due *time.Time, manualRequestID *string, initiator string) (scheduledRunExecutionRow, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return scheduledRunExecutionRow{}, fmt.Errorf("failed to generate execution ID: %w", err)
 	}
 	execution := &apiv1.ScheduledRunExecution{
-		Id: id.String(), ScheduledRunId: schedule.Id, Creator: schedule.Creator,
-		Prompt: schedule.Config.Prompt,
-		State:  apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING,
+		Id: id.String(), ScheduledRunId: schedule.ID, Creator: schedule.Creator,
+		Prompt: schedule.Spec.Prompt, Initiator: initiator,
+		ScheduledRun: &apiv1.ResourceReference{Namespace: schedule.Ref.Namespace, Name: schedule.Ref.Name}, ScheduledRunGeneration: schedule.Generation,
+		State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING,
 	}
 	if due != nil {
 		execution.Trigger = &apiv1.ScheduledRunExecution_ScheduledTime{ScheduledTime: timestamppb.New(*due)}
 	} else if manualRequestID != nil {
 		execution.Trigger = &apiv1.ScheduledRunExecution_ManualRequestId{ManualRequestId: *manualRequestID}
 	}
+	sessionID, err := uuid.NewV7()
+	if err != nil {
+		return scheduledRunExecutionRow{}, err
+	}
+	session, err := insertSession(ctx, db, &apiv1.Session{
+		Id: sessionID.String(), Creator: schedule.Creator,
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: schedule.Ref.Namespace, Name: schedule.Spec.AgentRef.Name}, Uid: schedule.AgentUID},
+		ScheduledRun: &apiv1.ScheduledRunProvenance{
+			Ref: proto.CloneOf(execution.ScheduledRun), Uid: schedule.ID, ExecutionId: id.String(),
+		},
+	}, "scheduled-run/"+id.String())
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return scheduledRunExecutionRow{}, fmt.Errorf("schedule has no successful runtime revision: %w", ErrFailedPrecondition)
+		}
+		return scheduledRunExecutionRow{}, fmt.Errorf("reserve scheduled Session: %w", err)
+	}
+	execution.SessionId = session.ID.String()
+	execution.RuntimeRevision = *session.PreparedRevision
 	data, err := proto.Marshal(execution)
 	if err != nil {
 		return scheduledRunExecutionRow{}, err
 	}
 	// PostgreSQL timestamps have microsecond precision; don't shorten a timeout.
-	timeout := (schedule.Config.ExecutionTimeout.AsDuration() + time.Microsecond - 1) / time.Microsecond
+	timeout := (schedule.Spec.ExecutionTimeout.Duration + time.Microsecond - 1) / time.Microsecond
 	return queryOne(ctx, db, `
-		INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data, deadline)
+		INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data, deadline, session_id, initiator)
 		VALUES ($1, $2, $3, $4, $5,
-		    statement_timestamp() + $6::interval) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, session_id, task_id, completed_at, state
+		    statement_timestamp() + $6::interval, $7, $8) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, session_id, task_id, completed_at, state
 	`,
-		pgx.RowToStructByName[scheduledRunExecutionRow], id, schedule.Id, due, manualRequestID, data,
-		pgtype.Interval{Microseconds: int64(timeout), Valid: true},
+		pgx.RowToStructByName[scheduledRunExecutionRow], id, schedule.ID, due, manualRequestID, data,
+		pgtype.Interval{Microseconds: int64(timeout), Valid: true}, session.ID, initiator,
 	)
 }
 
@@ -347,7 +335,7 @@ func (c *Client) GetScheduledRunExecution(ctx context.Context, id uuid.UUID, cre
 		SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline,
 		    e.session_id, e.task_id, e.completed_at, e.state FROM
 		    scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
-		WHERE s.creator = $1 AND e.id = $2
+		WHERE ($1::text = '' OR s.creator = $1) AND e.id = $2
 	`, pgx.RowToStructByName[scheduledRunExecutionRow], creator, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get execution: %w", notFoundOr(err))
@@ -363,7 +351,7 @@ func (c *Client) ListScheduledRunExecutions(ctx context.Context, query Scheduled
 		SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline,
 		    e.session_id, e.task_id, e.completed_at, e.state FROM
 		    scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
-		WHERE s.creator = $1 AND e.scheduled_run_id = $2
+		WHERE ($1::text = '' OR s.creator = $1) AND e.scheduled_run_id = $2
 		  AND ($4::uuid IS NULL OR e.id < $4::uuid)
 		ORDER BY e.id DESC LIMIT $3
 	`,
@@ -382,88 +370,6 @@ func (c *Client) ListScheduledRunExecutions(ctx context.Context, query Scheduled
 		result = append(result, execution)
 	}
 	return result, nil
-}
-
-// ReserveScheduledRunExecutionSession atomically reserves an owned execution's session
-// and saves its historical link. Existing links and non-pending executions are returned
-// unchanged, even if the linked session was deleted. An elapsed deadline marks the
-// execution timed out; an unprepared target returns ErrFailedPrecondition for
-// retry. Callers provision the runtime separately.
-func (c *Client) ReserveScheduledRunExecutionSession(ctx context.Context, id uuid.UUID, creator string) (*apiv1.ScheduledRunExecution, error) {
-	var result scheduledRunExecutionRow
-	var err error
-	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		result, err = queryOne(ctx, tx, `
-			SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline,
-			    e.session_id, e.task_id, e.completed_at, e.state FROM
-			    scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
-			WHERE s.creator = $1 AND e.id = $2 FOR UPDATE OF e
-		`, pgx.RowToStructByName[scheduledRunExecutionRow], creator, id)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		if result.SessionID != nil || result.State != "SCHEDULED_RUN_EXECUTION_STATE_PENDING" {
-			return nil
-		}
-		execution, err := toScheduledRunExecution(result)
-		if err != nil {
-			return err
-		}
-		execution.FailureReason = "Execution deadline elapsed"
-		data, err := proto.Marshal(execution)
-		if err != nil {
-			return err
-		}
-		completedAt, err := queryOne(ctx, tx, `
-			UPDATE scheduled_run_execution SET state = 'SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT', completed_at = clock_timestamp(), data = $2
-			WHERE id = $1 AND deadline <= clock_timestamp() RETURNING completed_at
-		`, pgx.RowTo[time.Time], id, data)
-		if err == nil {
-			result.State = "SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT"
-			result.CompletedAt, result.Data = &completedAt, data
-			return nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		scheduleRow, err := readScheduledRun(ctx, tx, result.ScheduledRunID, creator)
-		if err != nil {
-			return err
-		}
-		schedule, err := toScheduledRun(scheduleRow)
-		if err != nil {
-			return err
-		}
-		sessionID, err := uuid.NewV7()
-		if err != nil {
-			return err
-		}
-		session, err := insertSession(ctx, tx, &apiv1.Session{
-			Id: sessionID.String(), Creator: creator,
-			Agent: proto.CloneOf(schedule.Agent),
-		}, "scheduled-run/"+id.String())
-		if errors.Is(err, ErrNotFound) {
-			return fmt.Errorf("ScheduledRun %s target has no ready prepared revision: %w", result.ScheduledRunID, ErrFailedPrecondition)
-		}
-		if err != nil {
-			return err
-		}
-		rows, err := tx.Exec(ctx, `
-			UPDATE scheduled_run_execution SET session_id = $2 WHERE id = $1
-		`, id, session.ID)
-		if err != nil {
-			return err
-		}
-		if rows.RowsAffected() != 1 {
-			return pgx.ErrNoRows
-		}
-		result.SessionID = &session.ID
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to reserve execution session: %w", err)
-	}
-	return toScheduledRunExecution(result)
 }
 
 // toScheduledRunExecution decodes an execution and validates its payload, state, and
@@ -615,36 +521,47 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 
 // nextExecutionTime computes the next occurrence after now, returning nil for a paused
 // schedule. Invalid configuration returns an error even when paused.
-func nextExecutionTime(config *apiv1.ScheduledRunConfig, now time.Time) (*time.Time, error) {
-	next, err := scheduledrun.Next(config, now)
+func nextExecutionTime(spec v1alpha3.ScheduledRunSpec, now time.Time) (*time.Time, error) {
+	next, err := scheduling.Next(spec, now)
 	if err != nil {
 		return nil, err
 	}
-	if config.Paused {
+	if *spec.Paused {
 		return nil, nil
 	}
 	return &next, nil
 }
 
-// toScheduledRun decodes and validates a schedule's payload and config, taking identity,
-// ownership, timestamps, next occurrence, and deletion status from indexed columns.
-func toScheduledRun(row scheduledRunRow) (*apiv1.ScheduledRun, error) {
-	schedule := &apiv1.ScheduledRun{}
-	if err := proto.Unmarshal(row.Data, schedule); err != nil {
+// scheduledRunSnapshot stores only reconciled inputs without duplicating indexed
+// identity, ownership, or timestamps. It is private persistence, not a wire API.
+type scheduledRunSnapshot struct {
+	Spec            v1alpha3.ScheduledRunSpec `json:"spec"`
+	ResourceVersion string                    `json:"resourceVersion"`
+	AgentUID        string                    `json:"agentUID"`
+}
+
+// toScheduledRun validates durable inputs and takes identity, ownership, and
+// scheduling times exclusively from indexed columns. Missing defaults are corrupt
+// data: they must have been resolved when the projection was written.
+func toScheduledRun(row scheduledRunRow) (*ScheduledRun, error) {
+	var snapshot scheduledRunSnapshot
+	if err := json.Unmarshal(row.Data, &snapshot); err != nil {
 		return nil, fmt.Errorf("failed to decode schedule %s: %w", row.ID, err)
 	}
-	schedule.CreatedAt, schedule.UpdatedAt = timestamppb.New(row.CreatedAt), timestamppb.New(row.UpdatedAt)
-	if schedule.GetConfig() == nil || schedule.Config.ExecutionTimeout == nil ||
-		schedule.CreatedAt.CheckValid() != nil || schedule.UpdatedAt.CheckValid() != nil ||
-		schedule.Etag == "" || schedule.GetAgent().GetNamespace() == "" || schedule.GetAgent().GetName() == "" {
-		return nil, fmt.Errorf("invalid schedule payload %s", row.ID)
+	if snapshot.Spec.ExecutionTimeout == nil || snapshot.Spec.TimeZone == nil || snapshot.Spec.Paused == nil || snapshot.ResourceVersion == "" || snapshot.AgentUID == "" {
+		return nil, fmt.Errorf("invalid stored schedule %s", row.ID)
 	}
-	if err := protovalidate.Validate(schedule.Config); err != nil {
-		return nil, fmt.Errorf("invalid schedule config %s: %w", row.ID, err)
+	if err := scheduling.Validate(snapshot.Spec); err != nil {
+		return nil, fmt.Errorf("invalid stored schedule %s: %w", row.ID, err)
 	}
-	schedule.Id, schedule.Creator = row.ID.String(), row.Creator
-	schedule.NextExecutionTime, schedule.DeletedAt = optionalTimestamp(row.NextExecutionTime), optionalTimestamp(row.DeletedAt)
-	return schedule, nil
+	return &ScheduledRun{
+		ID: row.ID.String(), Creator: row.Creator,
+		Ref:        types.NamespacedName{Namespace: row.Namespace, Name: row.Name},
+		Generation: row.Generation, Disabled: row.Disabled, ResourceVersion: snapshot.ResourceVersion,
+		Spec: snapshot.Spec, AgentUID: snapshot.AgentUID,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		NextExecutionTime: row.NextExecutionTime, DeletedAt: row.DeletedAt,
+	}, nil
 }
 
 // optionalTimestamp converts a present time to a protobuf timestamp and preserves nil.
@@ -663,7 +580,10 @@ type dueScheduledRunRow struct {
 type scheduledRunRow struct {
 	ID                uuid.UUID
 	Creator           string
-	RequestHash       []byte
+	Namespace         string
+	Name              string
+	Generation        int64
+	Disabled          bool
 	Data              []byte
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
@@ -686,7 +606,7 @@ type scheduledRunExecutionRow struct {
 }
 
 // advanceScheduledRun sets the next due time, or removes the schedule from the due queue
-// when next is nil. It does not change the etag or authorize access; callers coordinate
+// when next is nil. It does not change the resource version or authorize access; callers coordinate
 // the surrounding transaction.
 func advanceScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, next *time.Time) error {
 	return execSQL(ctx, db, `
@@ -694,23 +614,11 @@ func advanceScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, next 
 	`, id, next)
 }
 
-// saveScheduledRun replaces a schedule's payload, next occurrence, and deletion status and
-// refreshes its update time. Callers lock the row and enforce ownership and etag checks in
-// their transaction.
-func saveScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, data []byte, next *time.Time, deleted bool) (scheduledRunRow, error) {
-	return queryOne(ctx, db, `
-		UPDATE scheduled_run SET data = $2, next_execution_time = $3,
-		    updated_at = statement_timestamp(),
-		    deleted_at = CASE WHEN $4::boolean THEN statement_timestamp() END
-		WHERE id = $1 RETURNING id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-	`, pgx.RowToStructByName[scheduledRunRow], id, data, next, deleted)
-}
-
 // readScheduledRun reads an owned schedule, including a deletion tombstone, without
 // locking it. Missing schedules and other owners return pgx.ErrNoRows.
 func readScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, creator string) (scheduledRunRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-		    FROM scheduled_run WHERE creator = $1 AND id = $2
+		SELECT id, creator, namespace, name, generation, disabled, data, created_at, updated_at, next_execution_time, deleted_at
+		    FROM scheduled_run WHERE ($1::text = '' OR creator = $1) AND id = $2
 	`, pgx.RowToStructByName[scheduledRunRow], creator, id)
 }

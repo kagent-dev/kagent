@@ -1,0 +1,13 @@
+apiVersion: api.kagent.dev/v1alpha3
+kind: ScheduledRun
+metadata:
+  name: morning-summary
+  namespace: kagent
+spec:
+  agentRef:
+    name: k8s-agent
+  schedule: "0 9 * * 1-5"
+  timeZone: UTC
+  prompt: Summarize cluster health and any incidents that need attention.
+  executionTimeout: 15m
+  paused: false

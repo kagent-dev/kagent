@@ -272,30 +272,32 @@ CREATE UNIQUE INDEX session_task_event_message_idx
 CREATE TABLE scheduled_run (
     id UUID PRIMARY KEY,
     creator TEXT NOT NULL CHECK (creator <> ''),
-    request_id TEXT NOT NULL CHECK (char_length(request_id) BETWEEN 1 AND 128),
-    request_hash BYTEA NOT NULL CHECK (octet_length(request_hash) = 32),
+    namespace TEXT NOT NULL CHECK (namespace <> ''),
+    name TEXT NOT NULL CHECK (name <> ''),
+    generation BIGINT NOT NULL CHECK (generation > 0),
+    disabled BOOLEAN NOT NULL DEFAULT FALSE,
     data BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
     next_execution_time TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
-    UNIQUE (creator, request_id),
-    CHECK (deleted_at IS NULL OR next_execution_time IS NULL)
+    CHECK ((deleted_at IS NULL AND NOT disabled) OR next_execution_time IS NULL)
 );
-CREATE INDEX scheduled_run_owner_idx ON scheduled_run (creator, id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX scheduled_run_active_name_idx ON scheduled_run (namespace, name) WHERE deleted_at IS NULL;
 CREATE INDEX scheduled_run_due_idx ON scheduled_run (next_execution_time, id)
     WHERE deleted_at IS NULL AND next_execution_time IS NOT NULL;
 
--- The optional session ID is historical provenance, without a foreign key.
+-- Session ID is historical provenance, retained after Session deletion.
 CREATE TABLE scheduled_run_execution (
     id UUID PRIMARY KEY,
     scheduled_run_id UUID NOT NULL REFERENCES scheduled_run(id) ON DELETE RESTRICT,
     scheduled_time TIMESTAMPTZ,
+    initiator TEXT NOT NULL,
     manual_request_id TEXT CHECK (char_length(manual_request_id) BETWEEN 1 AND 128),
     data BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
     deadline TIMESTAMPTZ NOT NULL CHECK (deadline > created_at),
-    session_id UUID,
+    session_id UUID NOT NULL,
     task_id TEXT,
     completed_at TIMESTAMPTZ,
     next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -305,15 +307,13 @@ CREATE TABLE scheduled_run_execution (
         'SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED', 'SCHEDULED_RUN_EXECUTION_STATE_FAILED',
         'SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT')),
     CHECK ((scheduled_time IS NULL) <> (manual_request_id IS NULL)),
-    CHECK (state NOT IN ('SCHEDULED_RUN_EXECUTION_STATE_RUNNING', 'SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED')
-        OR session_id IS NOT NULL),
-    CHECK (task_id IS NULL OR session_id IS NOT NULL),
     CHECK ((completed_at IS NOT NULL) = (state IN ('SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED',
         'SCHEDULED_RUN_EXECUTION_STATE_FAILED', 'SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT'))),
     UNIQUE (scheduled_run_id, scheduled_time),
-    UNIQUE (scheduled_run_id, manual_request_id)
+    UNIQUE (scheduled_run_id, initiator, manual_request_id)
 );
 CREATE INDEX scheduled_run_execution_history_idx ON scheduled_run_execution (scheduled_run_id, id);
+CREATE UNIQUE INDEX scheduled_run_execution_session_idx ON scheduled_run_execution (session_id);
 CREATE INDEX scheduled_run_execution_pending_idx ON scheduled_run_execution (next_attempt_at, id)
     WHERE state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING');
 

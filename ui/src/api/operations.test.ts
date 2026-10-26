@@ -778,7 +778,7 @@ describe("agent instances", () => {
       id: INSTANCE_ID,
       contextId: INSTANCE_ID,
       creator: "alice@example.com",
-      agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+      agent: { ref: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, uid: "agent-uid" },
       preparedRevision: "rev-7f3a91c",
       a2aAuthority: "k8s-agent.kagent.svc:8080",
       state: RuntimeState.READY,
@@ -815,6 +815,7 @@ describe("agent instances", () => {
     expect(ready?.state).toBe("ready");
     expect(ready?.operation).toBe("unspecified");
     expect(ready?.agent).toBe("kagent/k8s-agent-7f3a91c");
+    expect(ready?.agentUid).toBe("agent-uid");
     expect(ready?.createdAt).toBe("2026-01-01T00:00:00.000Z");
 
     expect(suspended?.state).toBe("suspended");
@@ -858,7 +859,6 @@ describe("agent instances", () => {
         listSessions: () => ({
           sessions: [
             instanceMessage({
-              agent: undefined,
               preparedRevision: "",
               a2aAuthority: "",
               createdAt: undefined,
@@ -872,11 +872,23 @@ describe("agent instances", () => {
     });
 
     const [row] = await apiClient.agentInstances.list();
-    expect(row.agent).toBeUndefined();
     expect(row.preparedRevision).toBeUndefined();
     expect(row.a2aAuthority).toBeUndefined();
     expect(row.createdAt).toBe("");
     expect(row.failure).toBeUndefined();
+  });
+
+  it("preserves ScheduledRun provenance", async () => {
+    serve(({ service }) => {
+      service(SessionService, {
+        listSessions: () => ({ sessions: [instanceMessage({
+          scheduledRun: { ref: { namespace: "kagent", name: "daily" }, uid: "schedule-uid", executionId: "execution-id" },
+        })], page: {} }),
+      });
+    });
+    const [row] = await apiClient.agentInstances.list();
+    expect(row.agent).toBe("kagent/k8s-agent-7f3a91c");
+    expect(row.scheduledRun).toEqual({ namespace: "kagent", name: "daily", uid: "schedule-uid", executionId: "execution-id" });
   });
 
   it("keeps a failure the controller sent with nothing in it", async () => {

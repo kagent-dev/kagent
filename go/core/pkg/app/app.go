@@ -328,12 +328,20 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 
 	authenticator, authorizer := opts.resolve()
+	var schedulerCaller auth.Session
 	if machine := cfg.GetServer().GetAuth().GetServiceAccount(); machine != nil {
 		reviewer, err := typedauth.NewForConfig(kubeConfig)
 		if err != nil {
 			return fmt.Errorf("create service-account verifier: %w", err)
 		}
-		authenticator = authimpl.NewServiceAccountProvider(authenticator, reviewer.TokenReviews(), machine.GetAuthority())
+		machineProvider := authimpl.NewServiceAccountProvider(authenticator, reviewer.TokenReviews(), machine.GetAuthority())
+		authenticator = machineProvider
+		if outbound := cfg.GetScheduledRuns().GetOutboundCredential(); outbound != nil {
+			schedulerCaller, err = machineProvider.ProjectedSession(ctx, machine.GetTokenFile(), outbound.GetTokenFile(), outbound.GetAudience())
+			if err != nil {
+				return fmt.Errorf("configure scheduler identity and outbound credential: %w", err)
+			}
+		}
 	}
 	authenticator = runtimeauth.NewProvider(authenticator, actorVerifier, store, cfg.GetSubstrate().GetActorJwtIssuer())
 	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
@@ -368,6 +376,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
+	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer, watchNamespaces)
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp())
 	pushSender := sessionsvc.NewHTTPPushSender(cfg.GetPush().GetSendTimeout().AsDuration(),
 		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
@@ -384,14 +393,21 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
-	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
-	if err := manager.Add(scheduledruncontroller.NewScheduler(store, cfg.GetScheduledRuns().GetPollInterval().AsDuration())); err != nil {
-		return fmt.Errorf("add scheduled run scheduler: %w", err)
+	if err := manager.Add(controller.NewScheduledRunReconciler(runtime.Collections.ScheduledRunReconciliations, store, manager.GetClient(), manager.GetAPIReader(), schedulerCaller)); err != nil {
+		return err
 	}
+	if schedulerCaller != nil {
+		if err := manager.Add(scheduledruncontroller.NewScheduler(store, manager.GetAPIReader(), watchNamespaces, cfg.GetScheduledRuns().GetPollInterval().AsDuration())); err != nil {
+			return fmt.Errorf("add scheduled run scheduler: %w", err)
+		}
+	}
+	// Accepted executions still need outcome reconciliation and cleanup when
+	// scheduling credentials are disabled. A nil caller cannot dispatch work.
 	if err := manager.Add(scheduledruncontroller.NewController(store, sessionWorkflow,
-		gateway, cfg.GetScheduledRuns().GetExecutionInterval().AsDuration())); err != nil {
+		gateway, schedulerCaller, cfg.GetScheduledRuns().GetExecutionInterval().AsDuration())); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
+
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
 	guests, err := sandboxservice.NewGuestDialer(cfg.GetSubstrate().GetRouterUrl(), authenticator)
 	if err != nil {

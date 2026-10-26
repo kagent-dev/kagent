@@ -9,7 +9,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/google/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -19,7 +18,6 @@ import (
 )
 
 type controllerStore interface {
-	ReserveScheduledRunExecutionSession(context.Context, uuid.UUID, string) (*apiv1.ScheduledRunExecution, error)
 	ClaimScheduledRunDispatch(context.Context, database.ScheduledRunExecutionLease) error
 	LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error)
 	UpdateScheduledRunExecution(context.Context, database.ScheduledRunExecutionLease, database.ScheduledRunExecutionProgress) error
@@ -39,13 +37,14 @@ type Controller struct {
 	workflow     controllerWorkflow
 	gateway      a2asrv.RequestHandler
 	pollInterval time.Duration
+	caller       auth.Session
 }
 
 var _ manager.LeaderElectionRunnable = (*Controller)(nil)
 var _ manager.Runnable = (*Controller)(nil)
 
-func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler, pollInterval time.Duration) *Controller {
-	return &Controller{store: store, workflow: workflow, gateway: gateway, pollInterval: pollInterval}
+func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler, caller auth.Session, pollInterval time.Duration) *Controller {
+	return &Controller{store: store, workflow: workflow, gateway: gateway, caller: caller, pollInterval: pollInterval}
 }
 
 func (*Controller) NeedLeaderElection() bool { return false }
@@ -54,7 +53,6 @@ func (c *Controller) Start(ctx context.Context) error {
 	if c.pollInterval <= 0 {
 		return fmt.Errorf("scheduled run execution poll interval must be positive")
 	}
-	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
 	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()
 	for {
@@ -100,24 +98,16 @@ func (c *Controller) tick(ctx context.Context) error {
 
 func (c *Controller) reconcile(ctx context.Context, leased database.LeasedScheduledRunExecution) error {
 	execution := leased.Execution
-	expired := !time.Now().Before(execution.GetDeadline().AsTime())
-	if execution.GetSessionId() == "" {
-		if expired {
-			finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
-			return nil
-		}
-		linked, err := c.store.ReserveScheduledRunExecutionSession(ctx, leased.Lease.ExecutionID, execution.GetCreator())
-		if err != nil {
-			return err
-		}
-		execution.SessionId = linked.GetSessionId()
-		if linked.GetState() == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT {
-			// Reservation already persisted expiry under its row lock.
-			finishExecution(execution, linked.GetState(), linked.GetFailureReason())
-			execution.CompletedAt = linked.GetCompletedAt()
-			return nil
-		}
+	identityChanged := c.caller == nil || c.caller.Principal().ID != execution.GetCreator()
+	if identityChanged {
+		// Cleanup belongs to the control plane even after the original scheduler
+		// principal disappears. This authority must never reach a new dispatch.
+		ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
+	} else {
+		ctx = auth.AuthSessionTo(ctx, c.caller)
 	}
+	expired := !time.Now().Before(execution.GetDeadline().AsTime())
+
 	session, err := c.store.GetSession(ctx, execution.GetSessionId(), execution.GetCreator())
 	if errors.Is(err, database.ErrNotFound) {
 		finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Session was deleted")
@@ -126,7 +116,8 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	if err != nil {
 		return err
 	}
-	ctx = a2atype.AttachTenant(ctx, session.GetAgent().GetNamespace()+"/"+session.GetAgent().GetName())
+	agent := session.GetAgent().GetRef()
+	ctx = a2atype.AttachTenant(ctx, agent.GetNamespace()+"/"+agent.GetName())
 	// A lost response may precede persisting the returned task ID. Recover it
 	// from the original message, including at expiry when sending is forbidden.
 	task, err := c.executionTask(ctx, execution)
@@ -140,10 +131,14 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 			return nil
 		}
 	}
-	if expired {
+	if expired || identityChanged {
 		stopped, err := c.stop(ctx, execution, session, task)
 		if err != nil {
 			return err
+		}
+		if identityChanged {
+			finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Scheduler identity changed or is unavailable")
+			return nil
 		}
 		// Cancellation requested for this deadline is a timeout even if the
 		// runtime clock trails ours. Preserve other outcomes that won the race.

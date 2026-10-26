@@ -129,6 +129,15 @@ share one review; failed reviews are not cached, and an unavailable Kubernetes A
 never extends an expired entry. Revocation can therefore take up to 30 additional
 seconds to become visible. Token rotation uses a new cache key immediately.
 
+ScheduledRuns use separate projected credentials: `kagent-invocation` establishes
+scheduler identity, while `kagent-egress` (configurable) authorizes downstream
+calls. The outbound credential cannot authenticate to Kagent. Each outbound call
+reads the current projected file and checks its identity through the same bounded
+TokenReview cache, so rotation takes effect immediately. The chart owns both token
+paths and mounts; `tokenFile` values cannot change them. Set `config.scheduledRuns.outboundCredential` to `null` to
+disable scheduling and both projections. Service-account authentication can remain
+enabled for direct machine callers without projecting scheduler credentials.
+
 `GetCurrentUser.claims` returns provider-specific attributes, not a normalized
 profile: proxy claims for OIDC, `username` and `groups` for service accounts, or
 an opaque `sub` for sessions without claims. It is not the UI's userinfo source.
@@ -156,7 +165,7 @@ differs.
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
 | `config.server.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
 | `config.server.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
-| `config.server.auth.serviceAccount` | Unset | Opt in to local TokenReview authentication with a configured authority |
+| `config.server.auth.serviceAccount` | Authority `kubernetes` | Local TokenReview authentication, also used by ScheduledRuns |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
 
 For a release named `kagent`, register

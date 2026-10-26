@@ -139,14 +139,15 @@ func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 func TestGatewayMissingConversationAcrossTransports(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
 		for _, test := range []struct {
-			name     string
-			storeErr error
-			taskErr  error
-			authErr  error
-			want     error
+			name         string
+			storeErr     error
+			taskErr      error
+			authErr      error
+			want         error
+			wantUnscoped bool
 		}{
-			{name: "missing context", storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
-			{name: "expired task", taskErr: database.ErrNotFound, storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
+			{name: "missing context", storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound, wantUnscoped: true},
+			{name: "expired task", taskErr: database.ErrNotFound, storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound, wantUnscoped: true},
 			{name: "permission denied", authErr: errors.New("denied"), want: a2atype.ErrUnauthorized},
 			{name: "store failure", storeErr: errors.New("private database details"), want: a2atype.ErrInternalError},
 		} {
@@ -189,7 +190,7 @@ func TestGatewayMissingConversationAcrossTransports(t *testing.T) {
 				require.Equal(t, 1, events)
 				require.Nil(t, dialer.session, "unavailable conversations must not reach the runtime")
 				require.Zero(t, store.reserveCalls)
-				require.False(t, store.unscoped, "session lookup must retain ownership filtering")
+				require.Equal(t, test.wantUnscoped, store.unscoped, "only missing owned Sessions are checked for scheduled provenance")
 			})
 		}
 	}

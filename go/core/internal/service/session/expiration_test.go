@@ -108,7 +108,7 @@ func TestSessionExpirationRetainsCheckpointHistory(t *testing.T) {
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	_, checkpointID := lifecycleForkFixture(t, store, actors, source)
 	interactions := NewInteractionService(store, nil, NewService(store, serviceTestAuthorizer{}, nil), false)
-	agent := types.NamespacedName{Namespace: source.Agent.Namespace, Name: source.Agent.Name}
+	agent := types.NamespacedName{Namespace: source.GetAgent().Ref.Namespace, Name: source.GetAgent().Ref.Name}
 	// Real ownership filtering must hide an existing conversation in exactly
 	// the same way as a missing or expired conversation, without reading history.
 	_, err := interactions.ListTasks(serviceTestContext("visitor"), agent, &a2a.ListTasksRequest{ContextID: source.ContextId})
@@ -134,7 +134,7 @@ func TestSessionExpirationRetainsCheckpointHistory(t *testing.T) {
 		require.ErrorIs(t, err, a2a.ErrTaskNotFound)
 	}
 	// A new fork after expiration reconstructs the retained conversation.
-	fork, created, err := store.ForkSession(t.Context(), checkpointID, source.Creator, uuid.NewString(), uuid.NewString())
+	fork, created, err := store.ForkSession(t.Context(), checkpointID, source.Creator, source.Creator, uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)
 	require.True(t, created)
 	tasks, count, err := store.ListSessionTasks(t.Context(), fork.Id, "", "", nil, 100, nil)

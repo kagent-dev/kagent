@@ -211,3 +211,27 @@ func TestYAMLConfigReadsOnlyFirstDocument(t *testing.T) {
 	require.NoError(t, config.Decode([]byte("logging: {level: debug}\n---\n["), cfg))
 	require.Equal(t, "debug", cfg.GetLogging().GetLevel())
 }
+
+func TestSchedulerAuthenticationConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, input string
+		valid       bool
+	}{
+		{"outbound without identity", "scheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound}}", false},
+		{"identity without requested TTL", "server: {auth: {serviceAccount: {authority: cluster, tokenFile: /inbound}}}\nscheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound}}", true},
+		{"invalid requested TTL", "server: {auth: {serviceAccount: {authority: cluster, tokenFile: /inbound}}}\nscheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound, expirationSeconds: 1}}", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &configv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(tc.input), cfg))
+			config.DefaultController(cfg)
+			setLogins(cfg)
+			err := config.Validate(cfg)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}

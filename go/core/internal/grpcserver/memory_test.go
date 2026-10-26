@@ -176,7 +176,7 @@ func TestRuntimeMemoryUsesAcceptedActorBindingInsteadOfHumanClaims(t *testing.T)
 	store := &memoryRPCStore{rows: map[string][]database.Memory{
 		"team/assistant/victim": {{ID: "other-user"}},
 		"forged/agent/owner":    {{ID: "other-agent"}},
-	}, session: &apiv1.Session{Id: id, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}, A2AAuthority: substrate.ActorHost("team", substrate.ActorName(id), "")}}
+	}, session: &apiv1.Session{Id: id, Creator: "owner", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}, Uid: "agent-uid"}, A2AAuthority: substrate.ActorHost("team", substrate.ActorName(id), "")}}
 	policy := &memoryRPCPolicy{}
 	policy.denied.Store(true) // Accepted runtime authority survives later human grant removal.
 	issuer := jwttest.New(t)

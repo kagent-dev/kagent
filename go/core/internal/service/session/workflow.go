@@ -19,7 +19,7 @@ type workflowStore interface {
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
-	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
+	GetSessionOperationCheckpoint(context.Context, string, uuid.UUID) (*database.SessionTaskSnapshot, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
@@ -138,7 +138,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	var snapshot *database.SessionTaskSnapshot
 	var tagName string
 	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE && operation.SourceCheckpointID != nil {
-		snapshot, _, err = w.store.GetSessionCheckpointSnapshot(ctx, operation.SourceCheckpointID.String(), session.Creator)
+		snapshot, err = w.store.GetSessionOperationCheckpoint(ctx, sessionID, operation.ID)
 		if err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("load pinned checkpoint: %w", err))
 		}

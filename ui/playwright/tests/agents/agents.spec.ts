@@ -154,7 +154,7 @@ test("agents: conversations with no agent are one click away", async ({ page }) 
     await page.getByTestId("agents-orphaned-link").click();
     await page.waitForURL(/\/agents\/unmapped$/);
     await expect(page.getByTestId("unmapped-table")).toBeVisible();
-    await expect(page.getByTestId("unmapped-table").locator("tbody tr").first().locator("td").nth(1)).toHaveText("not reported");
+    await expect(page.getByTestId("unmapped-table").locator("tbody tr").first().locator("td").nth(1)).toHaveText("kagent/deleted-agent");
   });
 });
 

@@ -1,6 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import { tick } from "../../helpers/controls";
-import { LIFECYCLE_TIMEOUT, optionNamed, pressUntil } from "../../helpers/resource";
+import { LIFECYCLE_TIMEOUT, pressUntil, selectOption } from "../../helpers/resource";
 
 /**
  * Schedules — the whole life of one, in a single journey.
@@ -39,15 +39,14 @@ import { LIFECYCLE_TIMEOUT, optionNamed, pressUntil } from "../../helpers/resour
  * therefore clicks, and the created schedule survives to the delete at the end.
  */
 
-/** `Daily cluster report`, the seeded schedule the read half is asserted against. */
-const SEEDED = "c686bd1d-9124-4e96-8df7-000000000001";
+/** `daily-cluster-report`, the seeded schedule the read half is asserted against. */
+const SEEDED = encodeURIComponent("kagent:daily-cluster-report:c686bd1d-9124-4e96-8df7-000000000001");
 
 /** A schedule deleted before the fixtures were written, kept for its history. */
-const RETIRED = "c686bd1d-9124-4e96-8df7-000000000004";
+const RETIRED = encodeURIComponent("kagent:schedule-4:c686bd1d-9124-4e96-8df7-000000000004");
 
-/** The one this journey makes, reads, renames and removes. */
-const CREATED = "Probe alpha";
-const RENAMED = "Probe beta";
+/** The one this journey makes, reads, edits and removes. */
+const CREATED = "probe-alpha";
 
 /*
  * A lifecycle is longer than a journey, so it gets its own budget — see
@@ -65,7 +64,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   await test.step("1. the list carries the seeded schedule, and fits on one page", async () => {
     await page.goto("/schedules?mock=ok");
     await expect(
-      page.getByTestId("schedule-link-Daily cluster report"),
+      page.getByTestId("schedule-link-daily-cluster-report"),
     ).toBeVisible();
     // No pagination over a list this size: a control that pages nothing is a control
     // that implies there is more to see.
@@ -75,15 +74,15 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   await test.step("2. a row opens its schedule, and its buttons still do their own job", async () => {
     // The row is a mouse affordance over the link that was already there. Both paths
     // matter: losing the link would take keyboard users' only way in.
-    const row = rowNamed("Daily cluster report");
+    const row = rowNamed("daily-cluster-report");
     await expect(row).toHaveClass(/clickable-table-row/);
-    await row.getByRole("cell").filter({ hasText: "k8s-agent-7f3a91c" }).click();
+    await row.getByRole("cell").filter({ hasText: /^Every day at 09:00$/ }).click();
     await expect(page).toHaveURL(`/schedules/${SEEDED}`);
   });
 
   await test.step("3. the page reads the cadence, the clock and the failures", async () => {
     await expect(
-      page.getByRole("heading", { name: "Daily cluster report" }),
+      page.getByRole("heading", { name: "daily-cluster-report" }),
     ).toBeVisible();
     // The header carries the cadence and the clock as pills; the list below carries the
     // rest.
@@ -206,8 +205,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     // must not quietly rewrite the cadence into the nearest thing the picker can draw.
     await page.getByTestId("schedule-edit").click();
     await expect(page).toHaveURL(`/schedules/${SEEDED}/edit`);
-    await page.getByTestId("schedule-frequency").click();
-    await optionNamed(page, "Custom (advanced)").click();
+    await selectOption(page, "schedule-frequency", "Custom (advanced)");
     await expect(page.getByTestId("schedule-cron")).toHaveValue(
       "0 9 * * *",
     );
@@ -240,7 +238,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(rows.filter({ hasText: "Manual" })).toContainText("Pending");
   });
 
-  await test.step("10. the create form refuses a schedule with no agent to run", async () => {
+  await test.step("10. the create form requires a namespace and harness", async () => {
     await page.getByTestId("schedule-back").click();
     await page.getByTestId("schedules-new").click();
     await expect(page).toHaveURL("/schedules/new");
@@ -252,24 +250,20 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(page.getByTestId("schedule-history")).toHaveCount(0);
 
     await page.getByTestId("schedule-submit").click();
+    await expect(page.getByText("Choose a namespace.", { exact: true })).toBeVisible();
     await expect(page.getByText("Choose an agent.", { exact: true })).toBeVisible();
   });
 
   await test.step("11. a filled-in schedule is created and lands on its own page", async () => {
-    await page.getByTestId("schedule-agent").click();
-    await optionNamed(page, "kagent/k8s-agent-7f3a91c").click();
+    await selectOption(page, "schedule-namespace", "kagent");
+    await selectOption(page, "schedule-agent", "k8s-agent-7f3a91c");
     await page.getByTestId("schedule-name").fill(CREATED);
 
     // The picker, not the raw expression: a weekly cadence is stated back in words, so a
     // reader can tell the schedule they described from the one they got.
     await expect(page.getByTestId("schedule-cron")).toHaveCount(0);
-    await page.getByTestId("schedule-frequency").click();
-    // Pressed until the cadence actually changes: the weekday checkboxes only exist
-    // once the frequency is weekly, so a dropdown click swallowed by the animation
-    // leaves the next line waiting for a control that is never coming.
-    await pressUntil(optionNamed(page, "Weekly"), () =>
-      expect(page.getByTestId("schedule-days")).toBeVisible(),
-    );
+    await selectOption(page, "schedule-frequency", "Weekly");
+    await expect(page.getByTestId("schedule-days")).toBeVisible();
     await page.getByTestId("schedule-time").fill("08:00");
     await tick(page.getByLabel("Wednesday", { exact: true }));
     await expect(page.getByTestId("schedule-cadence")).toHaveText(
@@ -277,7 +271,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     );
 
     await page.getByTestId("schedule-prompt").fill("Check the probe.");
-    await page.getByTestId("schedule-timeout").fill("120");
+    await page.getByTestId("schedule-timeout").fill("120s");
 
     // Enabled by default, and the sentence underneath changes with it — which is the
     // only thing on screen that says whether creating this starts it running.
@@ -299,7 +293,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     );
     // The record below the header, not the pills beside the name: `schedule-meta`
     // carries the cadence and the clock, and the timeout is one of its fields.
-    await expect(page.getByTestId("schedule-detail")).toContainText("120 seconds");
+    await expect(page.getByTestId("schedule-detail")).toContainText("120s");
   });
 
   await test.step("12. the list is the proof, with one more row", async () => {
@@ -309,7 +303,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(rowNamed(CREATED)).toContainText("Weekly on Monday, Wednesday");
   });
 
-  await test.step("13. an edit from the list renames it, rather than duplicating it", async () => {
+  await test.step("13. an edit preserves its resource identity and changes its time zone", async () => {
     const before = await rows.count();
 
     await page.getByTestId(`edit-${CREATED}`).click();
@@ -321,6 +315,8 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     // one assertion.
     await expect(page.getByTestId("schedule-enabled")).not.toBeChecked();
     await expect(page.getByTestId("schedule-time")).toHaveValue("08:00");
+    await expect(page.getByTestId("schedule-namespace")).toContainText("kagent");
+    await expect(page.getByTestId("schedule-agent")).toContainText("k8s-agent-7f3a91c");
     await expect(page.getByLabel("Monday", { exact: true })).toBeChecked();
     await expect(page.getByLabel("Wednesday", { exact: true })).toBeChecked();
 
@@ -335,7 +331,8 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       "will run automatically after it is saved",
     );
 
-    await page.getByTestId("schedule-name").fill(RENAMED);
+    await expect(page.getByTestId("schedule-name")).toBeDisabled();
+    await expect(page.getByTestId("schedule-name")).toHaveValue(CREATED);
     // The time zone is an AutoComplete, so its id is on the wrapper and the caret goes
     // in the input inside it. Every other field here carries its id on the control.
     await page.getByTestId("schedule-timezone").locator("input").fill("Europe/Berlin");
@@ -343,27 +340,26 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await page.keyboard.press("Escape");
     await page.getByTestId("schedule-submit").click();
     await expect(
-      page.getByRole("heading", { name: RENAMED, exact: true }),
+      page.getByRole("heading", { name: CREATED, exact: true }),
     ).toBeVisible();
 
     await page.getByTestId("schedule-back").click();
-    await expect(rowNamed(RENAMED)).toHaveCount(1);
-    await expect(rowNamed(RENAMED)).toContainText("Europe/Berlin");
-    // Renamed, not duplicated.
-    await expect(rowNamed(CREATED)).toHaveCount(0);
+    await expect(rowNamed(CREATED)).toHaveCount(1);
+    await expect(rowNamed(CREATED)).toContainText("Europe/Berlin");
+    // Updated in place, with no additional resource.
     await expect(rows).toHaveCount(before);
   });
 
   await test.step("14. deleting asks first, navigates nowhere, and Keep leaves it", async () => {
     await page
-      .getByRole("button", { name: `Delete schedule ${RENAMED}`, exact: true })
+      .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true })
       .click();
     await expect(page.getByRole("button", { name: "Keep", exact: true })).toBeVisible();
     await expect(page).toHaveURL(/\/schedules(\?.*)?$/);
     await pressUntil(page.getByRole("button", { name: "Keep", exact: true }), () =>
       expect(page.getByRole("button", { name: "Keep", exact: true })).toBeHidden(),
     );
-    await expect(rowNamed(RENAMED)).toHaveCount(1);
+    await expect(rowNamed(CREATED)).toHaveCount(1);
   });
 
   await test.step("15. and the delete on its own page asks in a modal, which Keep dismisses", async () => {
@@ -374,17 +370,17 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
      * separate call sites and it is the page-level one that carries the sentence saying
      * what deleting costs.
      */
-    await page.getByTestId(`schedule-link-${RENAMED}`).click();
-    await expect(page).toHaveURL(/\/schedules\/[0-9a-f-]+$/);
+    await page.getByTestId(`schedule-link-${CREATED}`).click();
+    await expect(page).toHaveURL(/\/schedules\/kagent%3Aprobe-alpha%3A[0-9a-f-]+$/);
 
     await page
       .getByTestId("schedule-danger")
-      .getByRole("button", { name: `Delete schedule ${RENAMED}`, exact: true })
+      .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true })
       .click();
     // Titled with the schedule's name: "Delete this schedule?" is no help to somebody
     // who arrived here from a list of four of them.
     const confirmation = page.getByRole("dialog", {
-      name: `Delete schedule ${RENAMED}?`,
+      name: `Delete schedule ${CREATED}?`,
       exact: true,
     });
     await expect(confirmation).toContainText("Stops future executions.");
@@ -398,7 +394,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   await test.step("16. confirming removes it, leaves for the list, and the rest stays", async () => {
     await page
       .getByTestId("schedule-danger")
-      .getByRole("button", { name: `Delete schedule ${RENAMED}`, exact: true })
+      .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true })
       .click();
     /*
      * Pressed until it takes: a Delete click dropped on Firefox reports as "the page
@@ -410,14 +406,14 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
      */
     await pressUntil(
       page
-        .getByRole("dialog", { name: `Delete schedule ${RENAMED}?`, exact: true })
+        .getByRole("dialog", { name: `Delete schedule ${CREATED}?`, exact: true })
         .getByRole("button", { name: "Delete", exact: true }),
       () => expect(page).toHaveURL(/\/schedules(\?.*)?$/),
     );
-    await expect(rowNamed(RENAMED)).toHaveCount(0);
+    await expect(rowNamed(CREATED)).toHaveCount(0);
     // One row went, not the table.
     await expect(
-      page.getByTestId("schedule-link-Daily cluster report"),
+      page.getByTestId("schedule-link-daily-cluster-report"),
     ).toBeVisible();
   });
 
@@ -459,19 +455,21 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     // The executions are retained, so the address is not a 404 — and must not render as
     // a live schedule either, or a reader will try to act on one that is gone.
     await page.goto(`/schedules/${RETIRED}?mock=ok`);
-    await expect(page.getByRole("heading", { name: "Retired sweep" })).toBeVisible();
-    await expect(page.getByTestId("schedule-deleted-note")).toContainText(
-      "Its execution history is retained",
-    );
+    await expect(page.getByRole("heading", { name: "schedule-4" })).toBeVisible();
+    // The CRD is gone, but the held UID still addresses its execution history.
+    await expect(page.getByText("Could not load schedule", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("execution-conversation")).toHaveCount(1);
+    await expect(page.getByTestId("schedule-history-error")).toHaveCount(0);
     for (const name of ["Run", "Pause", "Edit"]) {
       await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
     }
-    await expect(page.getByTestId("schedule-meta")).toContainText("Deleted");
+    await expect(page.getByTestId("schedule-meta")).toHaveCount(0);
   });
 
   await test.step("20. and it is not offered in the list it was removed from", async () => {
     await page.goto("/schedules?mock=ok");
     await expect(
-      page.getByTestId("schedule-link-Retired sweep"),
+      page.getByTestId("schedule-link-schedule-4"),
     ).toHaveCount(0);
-  });});
+  });
+});

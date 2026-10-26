@@ -1,3 +1,4 @@
+import { scheduleRoute, scheduleRouteID } from "@/api/domain/scheduledRuns";
 import { Alert, Button, Skeleton, Space } from "antd";
 import { ArrowLeft } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -21,10 +22,13 @@ import { buildPath, paths } from "@/router/routes";
 export function ScheduledRunEditPage() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const route = scheduleRoute(id ?? "");
   const run = useApiResource(id ? ["scheduledRuns.get", id] : null, () =>
-    invoke("scheduledRuns.get", { scheduledRunId: id ?? "" }),
+    invoke("scheduledRuns.get", { ref: route.ref }),
   );
-  const schedule = run.data?.scheduledRun;
+  const current = run.data?.scheduledRun;
+  const recreated = current !== undefined && current.metadata.uid !== route.uid;
+  const schedule = recreated ? undefined : current;
   const detail = id ? buildPath(paths.scheduledRun, { id }) : paths.scheduledRuns;
 
   /*
@@ -43,7 +47,7 @@ export function ScheduledRunEditPage() {
 
   return (
     <PageFrame
-      title={schedule?.config?.name ? `Edit ${schedule.config.name}` : "Edit schedule"}
+      title={schedule?.metadata.name ? `Edit ${schedule.metadata.name}` : "Edit schedule"}
       description="Changes take effect from the next firing. Executions already accepted continue."
       actions={
         <Link to={detail}>
@@ -67,6 +71,12 @@ export function ScheduledRunEditPage() {
               </Button>
             }
           />
+        ) : null}
+
+        {recreated && current ? (
+          <Alert type="warning" showIcon title="This schedule was recreated"
+            description="This link refers to a deleted schedule. Open the current schedule to edit it."
+            action={<Link to={buildPath(paths.scheduledRunEdit, { id: scheduleRouteID(current) })}>Edit current schedule</Link>} />
         ) : null}
 
         {run.isLoading ? (

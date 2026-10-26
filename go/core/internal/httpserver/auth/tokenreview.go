@@ -108,5 +108,16 @@ func (p *ServiceAccountProvider) review(ctx context.Context, token, audience str
 	if !s.Authenticated || s.Error != "" || s.User.UID == "" || !strings.HasPrefix(s.User.Username, "system:serviceaccount:") || !slices.Contains(s.Audiences, audience) || !time.Now().Before(validUntil) {
 		return nil, ErrUnauthenticated
 	}
+	if audience != serviceAccountAudience {
+		// Omitting audiences asks Kubernetes whether this token authenticates to
+		// its own API. Never export that authority to a scheduled runtime.
+		apiReview, err := p.reviews.Create(ctx, &authenticationv1.TokenReview{Spec: authenticationv1.TokenReviewSpec{Token: token}}, metav1.CreateOptions{})
+		if err != nil || apiReview == nil {
+			return nil, errors.New("outbound credential isolation verification unavailable")
+		}
+		if apiReview.Status.Authenticated {
+			return nil, errors.New("outbound credential grants Kubernetes API access")
+		}
+	}
 	return &verifiedServiceAccount{user: s.User, validUntil: validUntil}, nil
 }

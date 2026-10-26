@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -71,10 +72,34 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.Equal(t, "team", base.Kubernetes.GetNamespace())
 	require.Equal(t, "http://demo-controller.team.svc.cluster.local:8083", base.RuntimeDefaults.GetControlPlaneUrl())
 	require.NotEmpty(t, checksum)
-	require.Nil(t, base.GetServer().GetAuth().GetServiceAccount())
-	machine, _, err := render("config:\n  server:\n    auth:\n      serviceAccount: {authority: cluster-a}\n")
+	require.Equal(t, "kubernetes", base.GetServer().GetAuth().GetServiceAccount().GetAuthority())
+	require.Equal(t, "/run/kagent-invocation/token", base.GetServer().GetAuth().GetServiceAccount().GetTokenFile())
+	require.Equal(t, "kagent-egress", base.GetScheduledRuns().GetOutboundCredential().GetAudience())
+	require.Equal(t, "/run/kagent-egress/token", base.GetScheduledRuns().GetOutboundCredential().GetTokenFile())
+	require.EqualValues(t, 3600, base.GetScheduledRuns().GetOutboundCredential().GetExpirationSeconds())
+	outbound, _, err := render("config:\n  scheduledRuns:\n    outboundCredential: {audience: mcp.example, expirationSeconds: 7200}\n")
 	require.NoError(t, err)
-	require.Equal(t, "cluster-a", machine.GetServer().GetAuth().GetServiceAccount().GetAuthority())
+	require.Equal(t, "mcp.example", outbound.GetScheduledRuns().GetOutboundCredential().GetAudience())
+	require.EqualValues(t, 7200, outbound.GetScheduledRuns().GetOutboundCredential().GetExpirationSeconds())
+	for _, path := range []string{"/etc/kagent/token", "/token"} {
+		t.Run("chart-owned token paths "+path, func(t *testing.T) {
+			cfg, _, err := render(fmt.Sprintf("config:\n  server:\n    auth:\n      serviceAccount: {authority: cluster-a, tokenFile: %s}\n  scheduledRuns:\n    outboundCredential: {tokenFile: %s}\n", path, path))
+			require.NoError(t, err)
+			require.Equal(t, "cluster-a", cfg.GetServer().GetAuth().GetServiceAccount().GetAuthority())
+			require.Equal(t, "/run/kagent-invocation/token", cfg.GetServer().GetAuth().GetServiceAccount().GetTokenFile())
+			require.Equal(t, "/run/kagent-egress/token", cfg.GetScheduledRuns().GetOutboundCredential().GetTokenFile())
+		})
+	}
+	_, _, err = render("config:\n  server:\n    auth:\n      serviceAccount: null\n")
+	require.ErrorContains(t, err, "scheduled_runs.outbound_credential requires")
+	machineDisabled, _, err := render("config:\n  server:\n    auth:\n      serviceAccount: null\n  scheduledRuns:\n    outboundCredential: null\n")
+	require.NoError(t, err)
+	require.Nil(t, machineDisabled.GetServer().GetAuth().GetServiceAccount())
+	schedulerDisabled, _, err := render("config:\n  scheduledRuns:\n    outboundCredential: null\n")
+	require.NoError(t, err)
+	require.Nil(t, schedulerDisabled.GetScheduledRuns().GetOutboundCredential())
+	_, _, err = render("config:\n  scheduledRuns:\n    outboundCredential: {expirationSeconds: 599}\n")
+	require.Error(t, err)
 	require.Equal(t, "kagent", base.Database.GetSchema())
 	require.Equal(t, "extensions", base.Database.GetVectorSchema())
 	require.False(t, base.GetDatabase().GetSkipMigrations())

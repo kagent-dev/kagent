@@ -5,9 +5,9 @@
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
-import type { Duration, Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_duration, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type { PageRequest, PageResponse, ResourceReference } from "./common_pb";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { PageRequest, PageResponse, ResourceReference, StructuredObject } from "./common_pb";
 import { file_kagent_api_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -15,109 +15,23 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1/scheduled_runs.proto.
  */
 export const file_kagent_api_v1_scheduled_runs: GenFile = /*@__PURE__*/
-  fileDesc("CiJrYWdlbnQvYXBpL3YxL3NjaGVkdWxlZF9ydW5zLnByb3RvEg1rYWdlbnQuYXBpLnYxIuMBChJTY2hlZHVsZWRSdW5Db25maWcSFgoEbmFtZRgBIAEoCUIIukgFcgMYyAESHAoIc2NoZWR1bGUYAiABKAlCCrpIB3IFEAEYgAISGwoJdGltZV96b25lGAMgASgJQgi6SAVyAxj9ARIfCgZwcm9tcHQYBCABKAlCD7pIDHIKEAEogIACMgJcUxIOCgZwYXVzZWQYBSABKAgSSQoRZXhlY3V0aW9uX3RpbWVvdXQYBiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CE7pIEKoBDSIGCIT6ha4iMgMQ6AciiwMKDFNjaGVkdWxlZFJ1bhIKCgJpZBgBIAEoCRIPCgdjcmVhdG9yGAIgASgJEi8KBWFnZW50GAsgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZRIxCgZjb25maWcYBSABKAsyIS5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1bkNvbmZpZxIMCgRldGFnGAYgASgJEjcKE25leHRfZXhlY3V0aW9uX3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmRlbGV0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSgQIAxAESgQIBBAFUgdoYXJuZXNzUg5hZ2VudF90ZW1wbGF0ZSLUAQoZQ3JlYXRlU2NoZWR1bGVkUnVuUmVxdWVzdBI3CgVhZ2VudBgFIAEoCzIgLmthZ2VudC5hcGkudjEuUmVzb3VyY2VSZWZlcmVuY2VCBrpIA8gBARIeCgpyZXF1ZXN0X2lkGAMgASgJQgq6SAdyBRABGIABEjkKBmNvbmZpZxgEIAEoCzIhLmthZ2VudC5hcGkudjEuU2NoZWR1bGVkUnVuQ29uZmlnQga6SAPIAQFKBAgBEAJKBAgCEANSB2hhcm5lc3NSDmFnZW50X3RlbXBsYXRlIlAKGkNyZWF0ZVNjaGVkdWxlZFJ1blJlc3BvbnNlEjIKDXNjaGVkdWxlZF9ydW4YASABKAsyGy5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1biI8ChZHZXRTY2hlZHVsZWRSdW5SZXF1ZXN0EiIKEHNjaGVkdWxlZF9ydW5faWQYASABKAlCCLpIBXIDsAEBIk0KF0dldFNjaGVkdWxlZFJ1blJlc3BvbnNlEjIKDXNjaGVkdWxlZF9ydW4YASABKAsyGy5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1biJEChhMaXN0U2NoZWR1bGVkUnVuc1JlcXVlc3QSKAoEcGFnZRgBIAEoCzIaLmthZ2VudC5hcGkudjEuUGFnZVJlcXVlc3QiewoZTGlzdFNjaGVkdWxlZFJ1bnNSZXNwb25zZRIzCg5zY2hlZHVsZWRfcnVucxgBIAMoCzIbLmthZ2VudC5hcGkudjEuU2NoZWR1bGVkUnVuEikKBHBhZ2UYAiABKAsyGy5rYWdlbnQuYXBpLnYxLlBhZ2VSZXNwb25zZSKSAQoZVXBkYXRlU2NoZWR1bGVkUnVuUmVxdWVzdBIiChBzY2hlZHVsZWRfcnVuX2lkGAEgASgJQgi6SAVyA7ABARIWCgRldGFnGAIgASgJQgi6SAVyA7ABARI5CgZjb25maWcYAyABKAsyIS5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1bkNvbmZpZ0IGukgDyAEBIlAKGlVwZGF0ZVNjaGVkdWxlZFJ1blJlc3BvbnNlEjIKDXNjaGVkdWxlZF9ydW4YASABKAsyGy5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1biI/ChlEZWxldGVTY2hlZHVsZWRSdW5SZXF1ZXN0EiIKEHNjaGVkdWxlZF9ydW5faWQYASABKAlCCLpIBXIDsAEBIlAKGkRlbGV0ZVNjaGVkdWxlZFJ1blJlc3BvbnNlEjIKDXNjaGVkdWxlZF9ydW4YASABKAsyGy5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1biJgChpUcmlnZ2VyU2NoZWR1bGVkUnVuUmVxdWVzdBIiChBzY2hlZHVsZWRfcnVuX2lkGAEgASgJQgi6SAVyA7ABARIeCgpyZXF1ZXN0X2lkGAIgASgJQgq6SAdyBRABGIABIlYKG1RyaWdnZXJTY2hlZHVsZWRSdW5SZXNwb25zZRI3CglleGVjdXRpb24YASABKAsyJC5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1bkV4ZWN1dGlvbiLDAwoVU2NoZWR1bGVkUnVuRXhlY3V0aW9uEgoKAmlkGAEgASgJEg8KB2NyZWF0b3IYAiABKAkSGAoQc2NoZWR1bGVkX3J1bl9pZBgDIAEoCRI0Cg5zY2hlZHVsZWRfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIABIbChFtYW51YWxfcmVxdWVzdF9pZBgFIAEoCUgAEg4KBnByb21wdBgGIAEoCRIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIsCghkZWFkbGluZRgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKc2Vzc2lvbl9pZBgJIAEoCRI4CgVzdGF0ZRgKIAEoDjIpLmthZ2VudC5hcGkudjEuU2NoZWR1bGVkUnVuRXhlY3V0aW9uU3RhdGUSDwoHdGFza19pZBgLIAEoCRIwCgxjb21wbGV0ZWRfYXQYDCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhYKDmZhaWx1cmVfcmVhc29uGA0gASgJQgkKB3RyaWdnZXIiQQofR2V0U2NoZWR1bGVkUnVuRXhlY3V0aW9uUmVxdWVzdBIeCgxleGVjdXRpb25faWQYASABKAlCCLpIBXIDsAEBIlsKIEdldFNjaGVkdWxlZFJ1bkV4ZWN1dGlvblJlc3BvbnNlEjcKCWV4ZWN1dGlvbhgBIAEoCzIkLmthZ2VudC5hcGkudjEuU2NoZWR1bGVkUnVuRXhlY3V0aW9uInEKIUxpc3RTY2hlZHVsZWRSdW5FeGVjdXRpb25zUmVxdWVzdBIiChBzY2hlZHVsZWRfcnVuX2lkGAEgASgJQgi6SAVyA7ABARIoCgRwYWdlGAIgASgLMhoua2FnZW50LmFwaS52MS5QYWdlUmVxdWVzdCKJAQoiTGlzdFNjaGVkdWxlZFJ1bkV4ZWN1dGlvbnNSZXNwb25zZRI4CgpleGVjdXRpb25zGAEgAygLMiQua2FnZW50LmFwaS52MS5TY2hlZHVsZWRSdW5FeGVjdXRpb24SKQoEcGFnZRgCIAEoCzIbLmthZ2VudC5hcGkudjEuUGFnZVJlc3BvbnNlKqUCChpTY2hlZHVsZWRSdW5FeGVjdXRpb25TdGF0ZRItCilTQ0hFRFVMRURfUlVOX0VYRUNVVElPTl9TVEFURV9VTlNQRUNJRklFRBAAEikKJVNDSEVEVUxFRF9SVU5fRVhFQ1VUSU9OX1NUQVRFX1BFTkRJTkcQARIpCiVTQ0hFRFVMRURfUlVOX0VYRUNVVElPTl9TVEFURV9SVU5OSU5HEAISKwonU0NIRURVTEVEX1JVTl9FWEVDVVRJT05fU1RBVEVfU1VDQ0VFREVEEAMSKAokU0NIRURVTEVEX1JVTl9FWEVDVVRJT05fU1RBVEVfRkFJTEVEEAQSKwonU0NIRURVTEVEX1JVTl9FWEVDVVRJT05fU1RBVEVfVElNRURfT1VUEAUyjwcKE1NjaGVkdWxlZFJ1blNlcnZpY2USaQoSQ3JlYXRlU2NoZWR1bGVkUnVuEigua2FnZW50LmFwaS52MS5DcmVhdGVTY2hlZHVsZWRSdW5SZXF1ZXN0Gikua2FnZW50LmFwaS52MS5DcmVhdGVTY2hlZHVsZWRSdW5SZXNwb25zZRJgCg9HZXRTY2hlZHVsZWRSdW4SJS5rYWdlbnQuYXBpLnYxLkdldFNjaGVkdWxlZFJ1blJlcXVlc3QaJi5rYWdlbnQuYXBpLnYxLkdldFNjaGVkdWxlZFJ1blJlc3BvbnNlEmYKEUxpc3RTY2hlZHVsZWRSdW5zEicua2FnZW50LmFwaS52MS5MaXN0U2NoZWR1bGVkUnVuc1JlcXVlc3QaKC5rYWdlbnQuYXBpLnYxLkxpc3RTY2hlZHVsZWRSdW5zUmVzcG9uc2USaQoSVXBkYXRlU2NoZWR1bGVkUnVuEigua2FnZW50LmFwaS52MS5VcGRhdGVTY2hlZHVsZWRSdW5SZXF1ZXN0Gikua2FnZW50LmFwaS52MS5VcGRhdGVTY2hlZHVsZWRSdW5SZXNwb25zZRJpChJEZWxldGVTY2hlZHVsZWRSdW4SKC5rYWdlbnQuYXBpLnYxLkRlbGV0ZVNjaGVkdWxlZFJ1blJlcXVlc3QaKS5rYWdlbnQuYXBpLnYxLkRlbGV0ZVNjaGVkdWxlZFJ1blJlc3BvbnNlEmwKE1RyaWdnZXJTY2hlZHVsZWRSdW4SKS5rYWdlbnQuYXBpLnYxLlRyaWdnZXJTY2hlZHVsZWRSdW5SZXF1ZXN0Gioua2FnZW50LmFwaS52MS5UcmlnZ2VyU2NoZWR1bGVkUnVuUmVzcG9uc2USewoYR2V0U2NoZWR1bGVkUnVuRXhlY3V0aW9uEi4ua2FnZW50LmFwaS52MS5HZXRTY2hlZHVsZWRSdW5FeGVjdXRpb25SZXF1ZXN0Gi8ua2FnZW50LmFwaS52MS5HZXRTY2hlZHVsZWRSdW5FeGVjdXRpb25SZXNwb25zZRKBAQoaTGlzdFNjaGVkdWxlZFJ1bkV4ZWN1dGlvbnMSMC5rYWdlbnQuYXBpLnYxLkxpc3RTY2hlZHVsZWRSdW5FeGVjdXRpb25zUmVxdWVzdBoxLmthZ2VudC5hcGkudjEuTGlzdFNjaGVkdWxlZFJ1bkV4ZWN1dGlvbnNSZXNwb25zZUI9WjtnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MTthcGl2MWIGcHJvdG8z", [file_buf_validate_validate, file_google_protobuf_duration, file_google_protobuf_timestamp, file_kagent_api_v1_common]);
+  fileDesc("CiJrYWdlbnQvYXBpL3YxL3NjaGVkdWxlZF9ydW5zLnByb3RvEg1rYWdlbnQuYXBpLnYxInAKDFNjaGVkdWxlZFJ1bhItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlEjEKCHJlc291cmNlGAIgASgLMh8ua2FnZW50LmFwaS52MS5TdHJ1Y3R1cmVkT2JqZWN0Io0BChlDcmVhdGVTY2hlZHVsZWRSdW5SZXF1ZXN0EjUKA3JlZhgBIAEoCzIgLmthZ2VudC5hcGkudjEuUmVzb3VyY2VSZWZlcmVuY2VCBrpIA8gBARI5CghyZXNvdXJjZRgCIAEoCzIfLmthZ2VudC5hcGkudjEuU3RydWN0dXJlZE9iamVjdEIGukgDyAEBIlAKGkNyZWF0ZVNjaGVkdWxlZFJ1blJlc3BvbnNlEjIKDXNjaGVkdWxlZF9ydW4YASABKAsyGy5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1biJPChZHZXRTY2hlZHVsZWRSdW5SZXF1ZXN0EjUKA3JlZhgBIAEoCzIgLmthZ2VudC5hcGkudjEuUmVzb3VyY2VSZWZlcmVuY2VCBrpIA8gBASJNChdHZXRTY2hlZHVsZWRSdW5SZXNwb25zZRIyCg1zY2hlZHVsZWRfcnVuGAEgASgLMhsua2FnZW50LmFwaS52MS5TY2hlZHVsZWRSdW4ihAEKGExpc3RTY2hlZHVsZWRSdW5zUmVxdWVzdBIoCgRwYWdlGAEgASgLMhoua2FnZW50LmFwaS52MS5QYWdlUmVxdWVzdBI+CgluYW1lc3BhY2UYAiABKAlCK7pIKNgBAXIjGD8yH15bYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyQiewoZTGlzdFNjaGVkdWxlZFJ1bnNSZXNwb25zZRIzCg5zY2hlZHVsZWRfcnVucxgBIAMoCzIbLmthZ2VudC5hcGkudjEuU2NoZWR1bGVkUnVuEikKBHBhZ2UYAiABKAsyGy5rYWdlbnQuYXBpLnYxLlBhZ2VSZXNwb25zZSKNAQoZVXBkYXRlU2NoZWR1bGVkUnVuUmVxdWVzdBI1CgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlQga6SAPIAQESOQoIcmVzb3VyY2UYAiABKAsyHy5rYWdlbnQuYXBpLnYxLlN0cnVjdHVyZWRPYmplY3RCBrpIA8gBASJQChpVcGRhdGVTY2hlZHVsZWRSdW5SZXNwb25zZRIyCg1zY2hlZHVsZWRfcnVuGAEgASgLMhsua2FnZW50LmFwaS52MS5TY2hlZHVsZWRSdW4ijAEKGURlbGV0ZVNjaGVkdWxlZFJ1blJlcXVlc3QSNQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZUIGukgDyAEBEhUKA3VpZBgCIAEoCUIIukgFcgOwAQESIQoQcmVzb3VyY2VfdmVyc2lvbhgDIAEoCUIHukgEcgIQASIcChpEZWxldGVTY2hlZHVsZWRSdW5SZXNwb25zZSJgChpUcmlnZ2VyU2NoZWR1bGVkUnVuUmVxdWVzdBIiChBzY2hlZHVsZWRfcnVuX2lkGAEgASgJQgi6SAVyA7ABARIeCgpyZXF1ZXN0X2lkGAIgASgJQgq6SAdyBRABGIABIlYKG1RyaWdnZXJTY2hlZHVsZWRSdW5SZXNwb25zZRI3CglleGVjdXRpb24YASABKAsyJC5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1bkV4ZWN1dGlvbiLLBAoVU2NoZWR1bGVkUnVuRXhlY3V0aW9uEgoKAmlkGAEgASgJEg8KB2NyZWF0b3IYAiABKAkSGAoQc2NoZWR1bGVkX3J1bl9pZBgDIAEoCRI0Cg5zY2hlZHVsZWRfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIABIbChFtYW51YWxfcmVxdWVzdF9pZBgFIAEoCUgAEg4KBnByb21wdBgGIAEoCRIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIsCghkZWFkbGluZRgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKc2Vzc2lvbl9pZBgJIAEoCRI4CgVzdGF0ZRgKIAEoDjIpLmthZ2VudC5hcGkudjEuU2NoZWR1bGVkUnVuRXhlY3V0aW9uU3RhdGUSDwoHdGFza19pZBgLIAEoCRIwCgxjb21wbGV0ZWRfYXQYDCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhYKDmZhaWx1cmVfcmVhc29uGA0gASgJEjcKDXNjaGVkdWxlZF9ydW4YDiABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlEiAKGHNjaGVkdWxlZF9ydW5fZ2VuZXJhdGlvbhgPIAEoAxIYChBydW50aW1lX3JldmlzaW9uGBAgASgJEhEKCWluaXRpYXRvchgSIAEoCUIJCgd0cmlnZ2VyIkEKH0dldFNjaGVkdWxlZFJ1bkV4ZWN1dGlvblJlcXVlc3QSHgoMZXhlY3V0aW9uX2lkGAEgASgJQgi6SAVyA7ABASJbCiBHZXRTY2hlZHVsZWRSdW5FeGVjdXRpb25SZXNwb25zZRI3CglleGVjdXRpb24YASABKAsyJC5rYWdlbnQuYXBpLnYxLlNjaGVkdWxlZFJ1bkV4ZWN1dGlvbiJxCiFMaXN0U2NoZWR1bGVkUnVuRXhlY3V0aW9uc1JlcXVlc3QSIgoQc2NoZWR1bGVkX3J1bl9pZBgBIAEoCUIIukgFcgOwAQESKAoEcGFnZRgCIAEoCzIaLmthZ2VudC5hcGkudjEuUGFnZVJlcXVlc3QiiQEKIkxpc3RTY2hlZHVsZWRSdW5FeGVjdXRpb25zUmVzcG9uc2USOAoKZXhlY3V0aW9ucxgBIAMoCzIkLmthZ2VudC5hcGkudjEuU2NoZWR1bGVkUnVuRXhlY3V0aW9uEikKBHBhZ2UYAiABKAsyGy5rYWdlbnQuYXBpLnYxLlBhZ2VSZXNwb25zZSqlAgoaU2NoZWR1bGVkUnVuRXhlY3V0aW9uU3RhdGUSLQopU0NIRURVTEVEX1JVTl9FWEVDVVRJT05fU1RBVEVfVU5TUEVDSUZJRUQQABIpCiVTQ0hFRFVMRURfUlVOX0VYRUNVVElPTl9TVEFURV9QRU5ESU5HEAESKQolU0NIRURVTEVEX1JVTl9FWEVDVVRJT05fU1RBVEVfUlVOTklORxACEisKJ1NDSEVEVUxFRF9SVU5fRVhFQ1VUSU9OX1NUQVRFX1NVQ0NFRURFRBADEigKJFNDSEVEVUxFRF9SVU5fRVhFQ1VUSU9OX1NUQVRFX0ZBSUxFRBAEEisKJ1NDSEVEVUxFRF9SVU5fRVhFQ1VUSU9OX1NUQVRFX1RJTUVEX09VVBAFMo8HChNTY2hlZHVsZWRSdW5TZXJ2aWNlEmkKEkNyZWF0ZVNjaGVkdWxlZFJ1bhIoLmthZ2VudC5hcGkudjEuQ3JlYXRlU2NoZWR1bGVkUnVuUmVxdWVzdBopLmthZ2VudC5hcGkudjEuQ3JlYXRlU2NoZWR1bGVkUnVuUmVzcG9uc2USYAoPR2V0U2NoZWR1bGVkUnVuEiUua2FnZW50LmFwaS52MS5HZXRTY2hlZHVsZWRSdW5SZXF1ZXN0GiYua2FnZW50LmFwaS52MS5HZXRTY2hlZHVsZWRSdW5SZXNwb25zZRJmChFMaXN0U2NoZWR1bGVkUnVucxInLmthZ2VudC5hcGkudjEuTGlzdFNjaGVkdWxlZFJ1bnNSZXF1ZXN0Gigua2FnZW50LmFwaS52MS5MaXN0U2NoZWR1bGVkUnVuc1Jlc3BvbnNlEmkKElVwZGF0ZVNjaGVkdWxlZFJ1bhIoLmthZ2VudC5hcGkudjEuVXBkYXRlU2NoZWR1bGVkUnVuUmVxdWVzdBopLmthZ2VudC5hcGkudjEuVXBkYXRlU2NoZWR1bGVkUnVuUmVzcG9uc2USaQoSRGVsZXRlU2NoZWR1bGVkUnVuEigua2FnZW50LmFwaS52MS5EZWxldGVTY2hlZHVsZWRSdW5SZXF1ZXN0Gikua2FnZW50LmFwaS52MS5EZWxldGVTY2hlZHVsZWRSdW5SZXNwb25zZRJsChNUcmlnZ2VyU2NoZWR1bGVkUnVuEikua2FnZW50LmFwaS52MS5UcmlnZ2VyU2NoZWR1bGVkUnVuUmVxdWVzdBoqLmthZ2VudC5hcGkudjEuVHJpZ2dlclNjaGVkdWxlZFJ1blJlc3BvbnNlEnsKGEdldFNjaGVkdWxlZFJ1bkV4ZWN1dGlvbhIuLmthZ2VudC5hcGkudjEuR2V0U2NoZWR1bGVkUnVuRXhlY3V0aW9uUmVxdWVzdBovLmthZ2VudC5hcGkudjEuR2V0U2NoZWR1bGVkUnVuRXhlY3V0aW9uUmVzcG9uc2USgQEKGkxpc3RTY2hlZHVsZWRSdW5FeGVjdXRpb25zEjAua2FnZW50LmFwaS52MS5MaXN0U2NoZWR1bGVkUnVuRXhlY3V0aW9uc1JlcXVlc3QaMS5rYWdlbnQuYXBpLnYxLkxpc3RTY2hlZHVsZWRSdW5FeGVjdXRpb25zUmVzcG9uc2VCPVo7Z2l0aHViLmNvbS9rYWdlbnQtZGV2L2thZ2VudC9nby9hcGkvZ2VuL2thZ2VudC9hcGkvdjE7YXBpdjFiBnByb3RvMw", [file_buf_validate_validate, file_google_protobuf_timestamp, file_kagent_api_v1_common]);
 
 /**
- * Mutable configuration. Changes affect only subsequently reserved executions.
+ * Kubernetes ScheduledRun resource, including metadata, spec, and status.
  *
- * @generated from message kagent.api.v1.ScheduledRunConfig
- */
-export type ScheduledRunConfig = Message<"kagent.api.v1.ScheduledRunConfig"> & {
-  /**
-   * @generated from field: string name = 1;
-   */
-  name: string;
-
-  /**
-   * @generated from field: string schedule = 2;
-   */
-  schedule: string;
-
-  /**
-   * An omitted time zone defaults to UTC.
-   *
-   * @generated from field: string time_zone = 3;
-   */
-  timeZone: string;
-
-  /**
-   * @generated from field: string prompt = 4;
-   */
-  prompt: string;
-
-  /**
-   * @generated from field: bool paused = 5;
-   */
-  paused: boolean;
-
-  /**
-   * Omitted means 15 minutes. Includes queueing and provisioning. Minimum one
-   * microsecond matches PostgreSQL timestamp precision.
-   *
-   * @generated from field: google.protobuf.Duration execution_timeout = 6;
-   */
-  executionTimeout?: Duration | undefined;
-};
-
-/**
- * Describes the message kagent.api.v1.ScheduledRunConfig.
- * Use `create(ScheduledRunConfigSchema)` to create a new message.
- */
-export const ScheduledRunConfigSchema: GenMessage<ScheduledRunConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 0);
-
-/**
  * @generated from message kagent.api.v1.ScheduledRun
  */
 export type ScheduledRun = Message<"kagent.api.v1.ScheduledRun"> & {
   /**
-   * @generated from field: string id = 1;
+   * @generated from field: kagent.api.v1.ResourceReference ref = 1;
    */
-  id: string;
+  ref?: ResourceReference | undefined;
 
   /**
-   * Human owner; this does not select credentials for execution or tool calls.
-   *
-   * @generated from field: string creator = 2;
+   * @generated from field: kagent.api.v1.StructuredObject resource = 2;
    */
-  creator: string;
-
-  /**
-   * @generated from field: kagent.api.v1.ResourceReference agent = 11;
-   */
-  agent?: ResourceReference | undefined;
-
-  /**
-   * @generated from field: kagent.api.v1.ScheduledRunConfig config = 5;
-   */
-  config?: ScheduledRunConfig | undefined;
-
-  /**
-   * @generated from field: string etag = 6;
-   */
-  etag: string;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp next_execution_time = 7;
-   */
-  nextExecutionTime?: Timestamp | undefined;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp created_at = 8;
-   */
-  createdAt?: Timestamp | undefined;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp updated_at = 9;
-   */
-  updatedAt?: Timestamp | undefined;
-
-  /**
-   * Deleted schedules retain identity and history but accept no new executions.
-   *
-   * @generated from field: google.protobuf.Timestamp deleted_at = 10;
-   */
-  deletedAt?: Timestamp | undefined;
+  resource?: StructuredObject | undefined;
 };
 
 /**
@@ -125,26 +39,21 @@ export type ScheduledRun = Message<"kagent.api.v1.ScheduledRun"> & {
  * Use `create(ScheduledRunSchema)` to create a new message.
  */
 export const ScheduledRunSchema: GenMessage<ScheduledRun> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 1);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 0);
 
 /**
  * @generated from message kagent.api.v1.CreateScheduledRunRequest
  */
 export type CreateScheduledRunRequest = Message<"kagent.api.v1.CreateScheduledRunRequest"> & {
   /**
-   * @generated from field: kagent.api.v1.ResourceReference agent = 5;
+   * @generated from field: kagent.api.v1.ResourceReference ref = 1;
    */
-  agent?: ResourceReference | undefined;
+  ref?: ResourceReference | undefined;
 
   /**
-   * @generated from field: string request_id = 3;
+   * @generated from field: kagent.api.v1.StructuredObject resource = 2;
    */
-  requestId: string;
-
-  /**
-   * @generated from field: kagent.api.v1.ScheduledRunConfig config = 4;
-   */
-  config?: ScheduledRunConfig | undefined;
+  resource?: StructuredObject | undefined;
 };
 
 /**
@@ -152,7 +61,7 @@ export type CreateScheduledRunRequest = Message<"kagent.api.v1.CreateScheduledRu
  * Use `create(CreateScheduledRunRequestSchema)` to create a new message.
  */
 export const CreateScheduledRunRequestSchema: GenMessage<CreateScheduledRunRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 2);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 1);
 
 /**
  * @generated from message kagent.api.v1.CreateScheduledRunResponse
@@ -169,16 +78,16 @@ export type CreateScheduledRunResponse = Message<"kagent.api.v1.CreateScheduledR
  * Use `create(CreateScheduledRunResponseSchema)` to create a new message.
  */
 export const CreateScheduledRunResponseSchema: GenMessage<CreateScheduledRunResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 3);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 2);
 
 /**
  * @generated from message kagent.api.v1.GetScheduledRunRequest
  */
 export type GetScheduledRunRequest = Message<"kagent.api.v1.GetScheduledRunRequest"> & {
   /**
-   * @generated from field: string scheduled_run_id = 1;
+   * @generated from field: kagent.api.v1.ResourceReference ref = 1;
    */
-  scheduledRunId: string;
+  ref?: ResourceReference | undefined;
 };
 
 /**
@@ -186,7 +95,7 @@ export type GetScheduledRunRequest = Message<"kagent.api.v1.GetScheduledRunReque
  * Use `create(GetScheduledRunRequestSchema)` to create a new message.
  */
 export const GetScheduledRunRequestSchema: GenMessage<GetScheduledRunRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 4);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 3);
 
 /**
  * @generated from message kagent.api.v1.GetScheduledRunResponse
@@ -203,7 +112,7 @@ export type GetScheduledRunResponse = Message<"kagent.api.v1.GetScheduledRunResp
  * Use `create(GetScheduledRunResponseSchema)` to create a new message.
  */
 export const GetScheduledRunResponseSchema: GenMessage<GetScheduledRunResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 5);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 4);
 
 /**
  * @generated from message kagent.api.v1.ListScheduledRunsRequest
@@ -213,6 +122,11 @@ export type ListScheduledRunsRequest = Message<"kagent.api.v1.ListScheduledRunsR
    * @generated from field: kagent.api.v1.PageRequest page = 1;
    */
   page?: PageRequest | undefined;
+
+  /**
+   * @generated from field: string namespace = 2;
+   */
+  namespace: string;
 };
 
 /**
@@ -220,7 +134,7 @@ export type ListScheduledRunsRequest = Message<"kagent.api.v1.ListScheduledRunsR
  * Use `create(ListScheduledRunsRequestSchema)` to create a new message.
  */
 export const ListScheduledRunsRequestSchema: GenMessage<ListScheduledRunsRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 6);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 5);
 
 /**
  * @generated from message kagent.api.v1.ListScheduledRunsResponse
@@ -242,26 +156,23 @@ export type ListScheduledRunsResponse = Message<"kagent.api.v1.ListScheduledRuns
  * Use `create(ListScheduledRunsResponseSchema)` to create a new message.
  */
 export const ListScheduledRunsResponseSchema: GenMessage<ListScheduledRunsResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 7);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 6);
 
 /**
  * @generated from message kagent.api.v1.UpdateScheduledRunRequest
  */
 export type UpdateScheduledRunRequest = Message<"kagent.api.v1.UpdateScheduledRunRequest"> & {
   /**
-   * @generated from field: string scheduled_run_id = 1;
+   * @generated from field: kagent.api.v1.ResourceReference ref = 1;
    */
-  scheduledRunId: string;
+  ref?: ResourceReference | undefined;
 
   /**
-   * @generated from field: string etag = 2;
+   * metadata.resourceVersion is required and is passed unchanged to Kubernetes.
+   *
+   * @generated from field: kagent.api.v1.StructuredObject resource = 2;
    */
-  etag: string;
-
-  /**
-   * @generated from field: kagent.api.v1.ScheduledRunConfig config = 3;
-   */
-  config?: ScheduledRunConfig | undefined;
+  resource?: StructuredObject | undefined;
 };
 
 /**
@@ -269,7 +180,7 @@ export type UpdateScheduledRunRequest = Message<"kagent.api.v1.UpdateScheduledRu
  * Use `create(UpdateScheduledRunRequestSchema)` to create a new message.
  */
 export const UpdateScheduledRunRequestSchema: GenMessage<UpdateScheduledRunRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 8);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 7);
 
 /**
  * @generated from message kagent.api.v1.UpdateScheduledRunResponse
@@ -286,16 +197,26 @@ export type UpdateScheduledRunResponse = Message<"kagent.api.v1.UpdateScheduledR
  * Use `create(UpdateScheduledRunResponseSchema)` to create a new message.
  */
 export const UpdateScheduledRunResponseSchema: GenMessage<UpdateScheduledRunResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 9);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 8);
 
 /**
  * @generated from message kagent.api.v1.DeleteScheduledRunRequest
  */
 export type DeleteScheduledRunRequest = Message<"kagent.api.v1.DeleteScheduledRunRequest"> & {
   /**
-   * @generated from field: string scheduled_run_id = 1;
+   * @generated from field: kagent.api.v1.ResourceReference ref = 1;
    */
-  scheduledRunId: string;
+  ref?: ResourceReference | undefined;
+
+  /**
+   * @generated from field: string uid = 2;
+   */
+  uid: string;
+
+  /**
+   * @generated from field: string resource_version = 3;
+   */
+  resourceVersion: string;
 };
 
 /**
@@ -303,16 +224,12 @@ export type DeleteScheduledRunRequest = Message<"kagent.api.v1.DeleteScheduledRu
  * Use `create(DeleteScheduledRunRequestSchema)` to create a new message.
  */
 export const DeleteScheduledRunRequestSchema: GenMessage<DeleteScheduledRunRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 10);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 9);
 
 /**
  * @generated from message kagent.api.v1.DeleteScheduledRunResponse
  */
 export type DeleteScheduledRunResponse = Message<"kagent.api.v1.DeleteScheduledRunResponse"> & {
-  /**
-   * @generated from field: kagent.api.v1.ScheduledRun scheduled_run = 1;
-   */
-  scheduledRun?: ScheduledRun | undefined;
 };
 
 /**
@@ -320,13 +237,15 @@ export type DeleteScheduledRunResponse = Message<"kagent.api.v1.DeleteScheduledR
  * Use `create(DeleteScheduledRunResponseSchema)` to create a new message.
  */
 export const DeleteScheduledRunResponseSchema: GenMessage<DeleteScheduledRunResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 11);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 10);
 
 /**
  * @generated from message kagent.api.v1.TriggerScheduledRunRequest
  */
 export type TriggerScheduledRunRequest = Message<"kagent.api.v1.TriggerScheduledRunRequest"> & {
   /**
+   * Kubernetes UID; a reconciled projection is required before triggering.
+   *
    * @generated from field: string scheduled_run_id = 1;
    */
   scheduledRunId: string;
@@ -342,7 +261,7 @@ export type TriggerScheduledRunRequest = Message<"kagent.api.v1.TriggerScheduled
  * Use `create(TriggerScheduledRunRequestSchema)` to create a new message.
  */
 export const TriggerScheduledRunRequestSchema: GenMessage<TriggerScheduledRunRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 12);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 11);
 
 /**
  * @generated from message kagent.api.v1.TriggerScheduledRunResponse
@@ -359,7 +278,7 @@ export type TriggerScheduledRunResponse = Message<"kagent.api.v1.TriggerSchedule
  * Use `create(TriggerScheduledRunResponseSchema)` to create a new message.
  */
 export const TriggerScheduledRunResponseSchema: GenMessage<TriggerScheduledRunResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 13);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 12);
 
 /**
  * One accepted firing. Its identity and immutable inputs survive session deletion.
@@ -373,7 +292,7 @@ export type ScheduledRunExecution = Message<"kagent.api.v1.ScheduledRunExecution
   id: string;
 
   /**
-   * Human owner inherited from the schedule, independent of runtime identity.
+   * Scheduler principal, independent of runtime identity or manual initiator.
    *
    * @generated from field: string creator = 2;
    */
@@ -417,7 +336,7 @@ export type ScheduledRunExecution = Message<"kagent.api.v1.ScheduledRunExecution
   deadline?: Timestamp | undefined;
 
   /**
-   * Empty until a session is reserved. Retained after that session is deleted;
+   * Reserved atomically when the execution is accepted. Retained after deletion;
    * it is a historical reference and does not imply that the session still exists.
    *
    * @generated from field: string session_id = 9;
@@ -447,6 +366,30 @@ export type ScheduledRunExecution = Message<"kagent.api.v1.ScheduledRunExecution
    * @generated from field: string failure_reason = 13;
    */
   failureReason: string;
+
+  /**
+   * Immutable accepted inputs and provenance. These survive resource deletion.
+   *
+   * @generated from field: kagent.api.v1.ResourceReference scheduled_run = 14;
+   */
+  scheduledRun?: ResourceReference | undefined;
+
+  /**
+   * @generated from field: int64 scheduled_run_generation = 15;
+   */
+  scheduledRunGeneration: bigint;
+
+  /**
+   * Revision pinned when this occurrence was accepted.
+   *
+   * @generated from field: string runtime_revision = 16;
+   */
+  runtimeRevision: string;
+
+  /**
+   * @generated from field: string initiator = 18;
+   */
+  initiator: string;
 };
 
 /**
@@ -454,7 +397,7 @@ export type ScheduledRunExecution = Message<"kagent.api.v1.ScheduledRunExecution
  * Use `create(ScheduledRunExecutionSchema)` to create a new message.
  */
 export const ScheduledRunExecutionSchema: GenMessage<ScheduledRunExecution> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 14);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 13);
 
 /**
  * @generated from message kagent.api.v1.GetScheduledRunExecutionRequest
@@ -471,7 +414,7 @@ export type GetScheduledRunExecutionRequest = Message<"kagent.api.v1.GetSchedule
  * Use `create(GetScheduledRunExecutionRequestSchema)` to create a new message.
  */
 export const GetScheduledRunExecutionRequestSchema: GenMessage<GetScheduledRunExecutionRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 15);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 14);
 
 /**
  * @generated from message kagent.api.v1.GetScheduledRunExecutionResponse
@@ -488,7 +431,7 @@ export type GetScheduledRunExecutionResponse = Message<"kagent.api.v1.GetSchedul
  * Use `create(GetScheduledRunExecutionResponseSchema)` to create a new message.
  */
 export const GetScheduledRunExecutionResponseSchema: GenMessage<GetScheduledRunExecutionResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 16);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 15);
 
 /**
  * @generated from message kagent.api.v1.ListScheduledRunExecutionsRequest
@@ -510,7 +453,7 @@ export type ListScheduledRunExecutionsRequest = Message<"kagent.api.v1.ListSched
  * Use `create(ListScheduledRunExecutionsRequestSchema)` to create a new message.
  */
 export const ListScheduledRunExecutionsRequestSchema: GenMessage<ListScheduledRunExecutionsRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 17);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 16);
 
 /**
  * @generated from message kagent.api.v1.ListScheduledRunExecutionsResponse
@@ -532,7 +475,7 @@ export type ListScheduledRunExecutionsResponse = Message<"kagent.api.v1.ListSche
  * Use `create(ListScheduledRunExecutionsResponseSchema)` to create a new message.
  */
 export const ListScheduledRunExecutionsResponseSchema: GenMessage<ListScheduledRunExecutionsResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_scheduled_runs, 18);
+  messageDesc(file_kagent_api_v1_scheduled_runs, 17);
 
 /**
  * Summary of the initial scheduled invocation, independent of session lifecycle.
@@ -579,8 +522,8 @@ export const ScheduledRunExecutionStateSchema: GenEnum<ScheduledRunExecutionStat
   enumDesc(file_kagent_api_v1_scheduled_runs, 0);
 
 /**
- * Creator-owned automation stored in PostgreSQL. Each occurrence creates a fresh
- * Session; Task state and history belong to upstream A2A.
+ * Kubernetes-owned automation. Each occurrence creates a fresh Session using
+ * the scheduler's principal; task state and history belong to upstream A2A.
  *
  * @generated from service kagent.api.v1.ScheduledRunService
  */

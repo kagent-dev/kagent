@@ -214,6 +214,23 @@ func (c *Client) GetSessionOperation(ctx context.Context, sessionID string, id u
 	return toSessionOperation(row)
 }
 
+// GetSessionOperationCheckpoint resolves the retained snapshot pinned by an
+// admitted fork creation. It is independent of the new Session's owner. Callers
+// must have authorized the Session operation; a missing or superseded creation,
+// or one without a ready pinned checkpoint, returns ErrNotFound.
+func (c *Client) GetSessionOperationCheckpoint(ctx context.Context, sessionID string, operationID uuid.UUID) (*SessionTaskSnapshot, error) {
+	snapshot, err := queryOne(ctx, c.db, `
+		SELECT c.snapshot_atespace AS atespace, c.snapshot_uri AS uri, c.snapshot_fidelity AS fidelity
+		FROM session_record s JOIN session_checkpoint c ON c.id = s.source_checkpoint_id
+		WHERE s.id = $1 AND s.operation_id = $2 AND s.operation = 'RUNTIME_OPERATION_CREATE'
+		    AND c.state = 'READY'
+	`, pgx.RowToStructByName[SessionTaskSnapshot], sessionID, operationID)
+	if err != nil {
+		return nil, fmt.Errorf("get pinned checkpoint snapshot: %w", notFoundOr(err))
+	}
+	return &snapshot, nil
+}
+
 // toSessionOperation decodes current session state and its private execution
 // identity. A completed generation observes current fields, including renames.
 func toSessionOperation(row sessionRow) (*SessionOperation, error) {

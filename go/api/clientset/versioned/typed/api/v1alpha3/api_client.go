@@ -19,6 +19,7 @@ type ApiV1alpha3Interface interface {
 	ModelConfigsGetter
 	RemoteMCPServersGetter
 	SandboxTemplatesGetter
+	ScheduledRunsGetter
 }
 
 // ApiV1alpha3Client is used to interact with features provided by the api group.
@@ -52,6 +53,10 @@ func (c *ApiV1alpha3Client) RemoteMCPServers(namespace string) RemoteMCPServerIn
 
 func (c *ApiV1alpha3Client) SandboxTemplates(namespace string) SandboxTemplateInterface {
 	return newSandboxTemplates(c, namespace)
+}
+
+func (c *ApiV1alpha3Client) ScheduledRuns(namespace string) ScheduledRunInterface {
+	return newScheduledRuns(c, namespace)
 }
 
 // NewForConfig creates a new ApiV1alpha3Client for the given config.

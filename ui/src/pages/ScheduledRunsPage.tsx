@@ -1,3 +1,4 @@
+import { type ScheduledRun, scheduleRef, scheduleRoute, scheduleRouteID, scheduleDelete } from "@/api/domain/scheduledRuns";
 import { useTheme } from "@emotion/react";
 import { useMemo, useState } from "react";
 import { Alert, Button, Descriptions, Space, Table, Tag, Typography } from "antd";
@@ -18,10 +19,10 @@ import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming"
 import { linkStyles } from "@/components/common/linkStyles";
 import { buildPath, paths } from "@/router/routes";
 import { useUrlStateWriter } from "@/router/useUrlState";
-import { ScheduledRunExecutionState, type ScheduledRun, type ScheduledRunExecution } from "@/generated/kagent/api/v1/scheduled_runs_pb";
+import { ScheduledRunExecutionState, type ScheduledRunExecution } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 
-function time(value: Timestamp | undefined) {
-  return value ? timestampDate(value).toLocaleString() : "—";
+function time(value: Timestamp | string | undefined) {
+ return value ? (typeof value === "string" ? new Date(value) : timestampDate(value)).toLocaleString() : "—";
 }
 
 export function ScheduledRunsPage() {
@@ -44,38 +45,37 @@ export function ScheduledRunsPage() {
       {/* The width floor is what the columns need, and an empty table has no columns to
           fit — so reserving it left the empty state with a horizontal scrollbar under it
           and nothing to scroll to. */}
-      <Table<ScheduledRun> rowKey="id" loading={runs.isLoading} pagination={false}
+      <Table<ScheduledRun> rowKey={(row) => row.metadata.uid ?? row.metadata.name} loading={runs.isLoading} pagination={false}
         scroll={scheduledRuns.length > 0 ? { x: 800 } : undefined}
         data-testid="schedules-table"
         dataSource={scheduledRuns} locale={{ emptyText: runs.error
           ? <span data-testid="schedules-unavailable">Schedules unavailable</span>
           : <span data-testid="schedules-empty">No schedules were found.</span> }} columns={[
-          { title: "Name", key: "name", render: (_, row) => <Link data-testid={`schedule-link-${row.config?.name || row.id}`}
-            to={buildPath(paths.scheduledRun, { id: row.id })}>{row.config?.name || row.id}</Link> },
-          { title: "Agent", key: "agent", render: (_, row) => `${row.agent?.name ?? "—"} on ${row.agent?.namespace ?? "—"}` },
-          { title: "Schedule", key: "schedule", render: (_, row) => row.config ? scheduleDescription(row.config.schedule) : "—" },
-          { title: "Time zone", key: "zone", render: (_, row) => row.config?.timeZone || "UTC" },
+          { title: "Name", key: "name", render: (_, row) => <Link data-testid={`schedule-link-${row.metadata.name}`}
+            to={buildPath(paths.scheduledRun, { id: scheduleRouteID(row) })}>{row.metadata.name}</Link> },
+          { title: "Agent", key: "agent", render: (_, row) => <Link to={`/agents/${encodeURIComponent(row.metadata.namespace ?? "")}/${encodeURIComponent(row.spec.agentRef.name)}`}>{row.spec.agentRef.name}</Link> },
+          { title: "Schedule", key: "schedule", render: (_, row) => row.spec ? scheduleDescription(row.spec.schedule) : "—" },
+          { title: "Time zone", key: "zone", render: (_, row) => row.spec?.timeZone || "UTC" },
           { title: "Status", key: "status", render: (_, row) => scheduleStatusTag(row) },
-          { title: "Next execution (local)", key: "next", render: (_, row) => time(row.nextExecutionTime) },
           // Last and untitled, as on every other list: a row's actions belong at the
           // end of it, past the data they act on.
           { title: "", key: "actions", width: 76, render: (_, row) => {
-            const name = row.config?.name || row.id;
+            const name = row.metadata.name;
             return <Space size={0}>
-              <Link to={buildPath(paths.scheduledRunEdit, { id: row.id })}>
+              <Link to={buildPath(paths.scheduledRunEdit, { id: scheduleRouteID(row) })}>
                 <Button type="text" size="small" icon={<Pencil size={14} />}
                   data-testid={`edit-${name}`} aria-label={`Edit schedule ${name}`} />
               </Link>
               <DeleteResourceButton kind="schedule" name={name}
                 description="Stops future executions. Accepted executions continue; history and conversations are retained."
-                onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: row.id }); }}
+                onDelete={async () => { await invoke("scheduledRuns.delete", scheduleDelete(row)); }}
                 onDeleted={invalidate} />
             </Space>;
           } },
         ]}
         // The Name cell stays a link, so the row is reachable by keyboard; the guard
         // sees that link — and the row's edit and delete — and leaves them alone.
-        onRow={(row) => clickableRow(() => void navigate(buildPath(paths.scheduledRun, { id: row.id })))} />
+        onRow={(row) => clickableRow(() => void navigate(buildPath(paths.scheduledRun, { id: scheduleRouteID(row) })))} />
       <PageControls testId="schedules-pages" page={page} hasNext={Boolean(runs.data?.page?.nextPageToken)}
         onNext={() => page.next(runs.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={runs.isLoading} />
     </Space>
@@ -105,12 +105,16 @@ function ScheduledRunDetails({ id }: { id: string }) {
   const write = useUrlStateWriter();
   const query = searchParams.get("q") ?? "";
   const setQuery = (next: string) => write({ q: next || null, pages: null });
-  const run = useApiResource(["scheduledRuns.get", id], () => invoke("scheduledRuns.get", { scheduledRunId: id }), { refreshInterval: 10000 });
-  const history = useApiResource(["scheduledRuns.executions", id, page.current],
-    () => invoke("scheduledRuns.executions", { scheduledRunId: id, page: { limit: 25, pageToken: page.current } }), { refreshInterval: 5000 });
-  const schedule = run.data?.scheduledRun;
-  const config = schedule?.config;
-  const disabled = !!busy || !!run.error || !!schedule?.deletedAt;
+  const route = scheduleRoute(id);
+  const run = useApiResource(["scheduledRuns.get", id], () => invoke("scheduledRuns.get", { ref: route.ref }), { refreshInterval: 10000 });
+  const current = run.data?.scheduledRun;
+  const schedule = current?.metadata.uid === route.uid ? current : undefined;
+  // The execution projection can lag CRD creation. Re-read history after
+  // reconciliation updates the resource, even if its first read returned NotFound.
+  const history = useApiResource(["scheduledRuns.executions", id, page.current, schedule?.metadata.resourceVersion],
+    () => invoke("scheduledRuns.executions", { scheduledRunId: route.uid, page: { limit: 25, pageToken: page.current } }), { refreshInterval: 5000 });
+  const config = schedule?.spec;
+  const disabled = !schedule || !!busy || !!run.error || !!schedule.metadata.deletionTimestamp;
 
   const executions = useMemo(() => history.data?.executions ?? [], [history.data]);
   const { rows, revealed } = useMemo(() => searchExecutions(executions, query), [executions, query]);
@@ -131,12 +135,12 @@ function ScheduledRunDetails({ id }: { id: string }) {
     setNotice(undefined);
     try {
       if (operation === "pause") {
-        await invoke("scheduledRuns.update", { scheduledRunId: id, etag: schedule.etag, config: { ...config, paused: !config.paused } });
+        await invoke("scheduledRuns.update", { ref: scheduleRef(schedule), resource: { ...schedule, spec: { ...config, paused: !config.paused } } });
       } else {
         // Retained across a failed retry so it cannot queue a second execution.
         const requestId = triggerRequestId ?? randomId();
         setTriggerRequestId(requestId);
-        await invoke("scheduledRuns.trigger", { scheduledRunId: id, requestId });
+        await invoke("scheduledRuns.trigger", { scheduledRunId: route.uid, requestId });
         setTriggerRequestId(undefined);
         page.reset();
         setNotice("Execution queued. A new conversation will appear when the agent starts.");
@@ -174,7 +178,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
     <div css={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start",
       justifyContent: "space-between", gap: theme.space(4), marginBottom: theme.space(6) }}>
       <div css={{ flex: "1 1 320px", minWidth: 0 }}>
-        <Typography.Title level={2} css={{ margin: 0 }} data-testid="page-title">{config?.name || "Schedule"}</Typography.Title>
+        <Typography.Title level={2} css={{ margin: 0 }} data-testid="page-title">{schedule?.metadata.name || route.ref.name || "Schedule"}</Typography.Title>
         {/* What the schedule is, in one line under its name: whether it is running,
             how often, and in whose clock. The rest is in the list below. */}
         {schedule && config && <Space size={8} wrap data-testid="schedule-meta" css={{ marginTop: theme.space(2) }}>
@@ -189,15 +193,12 @@ function ScheduledRunDetails({ id }: { id: string }) {
       {run.error && <Alert type="error" showIcon title="Could not load schedule" description={run.error.message} />}
       {actionError && <Alert type="error" showIcon title="Schedule action failed" description={actionError} />}
       {notice && <Alert type="success" showIcon title={notice} />}
-      {schedule?.deletedAt && <Alert data-testid="schedule-deleted-note" type="info" showIcon title="This schedule was deleted. Its execution history is retained." />}
+      {schedule?.metadata.deletionTimestamp && <Alert data-testid="schedule-deleted-note" type="info" showIcon title="This schedule was deleted. Its execution history is retained." />}
       {schedule && config && <Descriptions data-testid="schedule-detail" bordered column={{ xs: 1, sm: 2 }} items={[
-        { key: "agent", label: "Agent", children: schedule.agent
-          ? <Link to={buildPath(paths.agent, { namespace: schedule.agent.namespace, name: schedule.agent.name })}>
-            {schedule.agent.namespace}/{schedule.agent.name}</Link> : "—" },
-        { key: "next", label: "Next execution (local)", children: time(schedule.nextExecutionTime) },
-        { key: "created", label: "Created", children: time(schedule.createdAt) },
-        { key: "timeout", label: "Execution timeout", children: config.executionTimeout ? `${Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9} seconds` : "15 minutes" },
-        { key: "prompt", label: "Prompt", span: 2, children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
+        { key: "agent", label: "Agent", children: <Link to={`/agents/${encodeURIComponent(schedule.metadata.namespace ?? "")}/${encodeURIComponent(schedule.spec.agentRef.name)}`}>{schedule.spec.agentRef.name}</Link> },
+        { key: "created", label: "Created", children: time(schedule.metadata.creationTimestamp) },
+        { key: "timeout", label: "Execution timeout", span: "filled", children: config.executionTimeout ?? "15m" },
+        { key: "prompt", label: "Prompt", span: "filled", children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
       ]} />}
       <Typography.Title level={3}>Execution history</Typography.Title>
       <Typography.Text css={{ color: theme.color.textMuted }}>Times are shown in your local time zone.</Typography.Text>
@@ -252,9 +253,9 @@ function ScheduledRunDetails({ id }: { id: string }) {
         <Typography.Text css={{ color: theme.color.textMuted }}>
           Deleting this schedule stops future executions. Accepted executions continue; history and conversations are retained.
         </Typography.Text>
-        <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" confirmation="modal" outlined disabled={disabled}
+        <DeleteResourceButton kind="schedule" name={schedule?.metadata.name || route.ref.name} label="Delete schedule" confirmation="modal" outlined disabled={disabled}
           description="Stops future executions. Accepted executions continue; history and conversations are retained."
-          onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }}
+          onDelete={async () => { if (schedule) await invoke("scheduledRuns.delete", scheduleDelete(schedule)); }}
           onDeleted={async () => { await invalidate(); await navigate(paths.scheduledRuns); }} />
       </div>
     </Space>
@@ -262,8 +263,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
 }
 
 function scheduleStatusTag(schedule: ScheduledRun) {
-  if (schedule.deletedAt) return <Tag>Deleted</Tag>;
-  return schedule.config?.paused ? <Tag color="warning">Paused</Tag> : <Tag color="success">Active</Tag>;
+  if (schedule.metadata.deletionTimestamp) return <Tag>Deleted</Tag>;
+  return schedule.spec.paused ? <Tag color="warning">Paused</Tag> : <Tag color="success">Active</Tag>;
 }
 
 function triggerLabel(execution: ScheduledRunExecution) {

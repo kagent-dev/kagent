@@ -458,19 +458,6 @@ test("agents: conversations can be picked and deleted together from the table to
   });
 });
 
-/**
- * The schedules that run this agent.
- *
- * A `ScheduledRun` names a harness and an agent template, which is the pair this page
- * is — so the section belongs here rather than on a conversation or on the template.
- * Two things are worth pinning, and neither is visible in a screenshot:
- *
- * - **The narrowing is the browser's, and it narrows on both halves of the pair.**
- *   `ListScheduledRuns` takes only a page, so the filter is client-side; keyed on the
- *   template alone it would show one agent's schedules under its twin.
- * - **A failed read is not an empty list.** The section must not offer "nothing runs
- *   this agent yet" when the truth is that it could not find out.
- */
 test("agents: an agent lists the schedules that run it, and offers one when it has none", async ({
   page,
 }) => {
@@ -481,9 +468,9 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
 
     const list = page.getByTestId("agent-schedules-list");
     await expect(list.locator("li")).toHaveCount(3);
-    // Named and dated, not a bare UUID: a row saying only "Daily cluster report" does
+    // Named and dated, not a bare UUID: a row saying only "daily-cluster-report" does
     // not say when, and the id says nothing at all.
-    await expect(list).toContainText("Daily cluster report");
+    await expect(list).toContainText("daily-cluster-report");
     await expect(list).toContainText("Every day at 09:00");
   });
 
@@ -496,13 +483,13 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
       "agent-schedule-link-",
       "",
     );
-    await expect(first).toHaveAttribute("href", `/schedules/${id ?? ""}`);
+    await expect(first).toHaveAttribute("href", `/schedules/${encodeURIComponent(id ?? "")}`);
 
     await first.click();
-    await expect(page).toHaveURL(new RegExp(`/schedules/${id ?? ""}$`));
+    await expect(page).toHaveURL(`/schedules/${encodeURIComponent(id ?? "")}`);
     // The schedule's own page, so the link is navigation rather than a URL that
     // happens to parse.
-    await expect(pageTitle(page)).toHaveText("Daily cluster report");
+    await expect(pageTitle(page)).toHaveText("daily-cluster-report");
   });
 
   await test.step("2b. so does the rest of the row, without the link firing twice", async () => {
@@ -510,18 +497,16 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
     const row = page
       .getByTestId("agent-schedules-list")
       .locator('[data-testid^="agent-schedule-"]')
-      .filter({ hasText: "Daily cluster report" })
+      .filter({ hasText: "daily-cluster-report" })
       .first();
     // The cadence text, which is as far from the link as the row gets.
     await row.getByText("Every day at 09:00").click();
-    await expect(page).toHaveURL(/\/schedules\/[0-9a-f-]+$/);
-    await expect(pageTitle(page)).toHaveText("Daily cluster report");
+    await expect(page).toHaveURL(/\/schedules\/kagent%3Adaily-cluster-report%3A/);
+    await expect(pageTitle(page)).toHaveText("daily-cluster-report");
   });
 
   await test.step("3. an agent nothing schedules offers to create one", async () => {
-    // The same template's twin on another harness has none, which is also the
-    // assertion the client-side filter exists for: keyed on the template alone, the
-    // three above would appear here too.
+    // A different Agent must not inherit these schedules.
     await loadPage(page, agentPage(agents.sharedOnK8s));
     await expect(page.getByTestId("agent-schedules-empty")).toBeVisible();
     await expect(page.getByTestId("agent-schedules-list")).toHaveCount(0);

@@ -4,15 +4,8 @@ templates:
   - controller-configmap.yaml
   - rbac/invocation-auth.yaml
 tests:
-  - it: does not grant TokenReview by default
-    template: rbac/invocation-auth.yaml
-    asserts:
-      - hasDocuments:
-          count: 0
   - it: scopes cluster authentication RBAC to the first release namespace
     template: rbac/invocation-auth.yaml
-    set:
-      config.server.auth.serviceAccount.authority: kubernetes
     release:
       name: same-release
       namespace: team-a
@@ -30,8 +23,6 @@ tests:
         documentIndex: 1
   - it: scopes cluster authentication RBAC to the second release namespace
     template: rbac/invocation-auth.yaml
-    set:
-      config.server.auth.serviceAccount.authority: kubernetes
     release:
       name: same-release
       namespace: team-b
@@ -47,10 +38,114 @@ tests:
           path: subjects[0].namespace
           value: team-b
         documentIndex: 1
+  - it: projects a separate downstream credential with the requested TTL
+    template: controller-deployment.yaml
+    set:
+      config.scheduledRuns.outboundCredential.audience: mcp.example
+      config.scheduledRuns.outboundCredential.expirationSeconds: 7200
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: outbound-invocation-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    audience: mcp.example
+                    expirationSeconds: 7200
+                    path: token
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: outbound-invocation-token
+            mountPath: /run/kagent-egress
+            readOnly: true
+  - it: projects a short-lived token for the invocation audience
+    template: controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: invocation-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    audience: kagent-invocation
+                    expirationSeconds: 3600
+                    path: token
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: invocation-token
+            mountPath: /run/kagent-invocation
+            readOnly: true
+  - it: keeps tokenFile overrides from changing the scheduler mounts
+    template: controller-deployment.yaml
+    set:
+      config.server.auth.serviceAccount.tokenFile: /etc/kagent/token
+      config.scheduledRuns.outboundCredential.tokenFile: /token
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: invocation-token
+            mountPath: /run/kagent-invocation
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: outbound-invocation-token
+            mountPath: /run/kagent-egress
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: invocation-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    audience: kagent-invocation
+                    expirationSeconds: 3600
+                    path: token
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: outbound-invocation-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    audience: kagent-egress
+                    expirationSeconds: 3600
+                    path: token
+  - it: omits both projections when machine authentication is disabled
+    template: controller-deployment.yaml
+    set:
+      config.server.auth.serviceAccount: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "invocation-token")]
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "outbound-invocation-token")]
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.name == "invocation-token")]
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.name == "outbound-invocation-token")]
+  - it: omits both projections when scheduling is disabled
+    template: controller-deployment.yaml
+    set:
+      config.scheduledRuns.outboundCredential: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "invocation-token")]
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "outbound-invocation-token")]
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.name == "invocation-token")]
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.name == "outbound-invocation-token")]
   - it: grants TokenReview independently of secure metrics
     template: rbac/invocation-auth.yaml
     set:
-      config.server.auth.serviceAccount.authority: kubernetes
       controller.metrics.enabled: false
       controller.serviceAccount.name: scheduler
     asserts:

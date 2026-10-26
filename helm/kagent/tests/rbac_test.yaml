@@ -142,7 +142,7 @@ tests:
           value: [api.kagent.dev]
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, scheduledruns, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
         template: rbac/getter-role.yaml
       - equal:
           path: rules[0].verbs
@@ -150,7 +150,7 @@ tests:
         template: rbac/getter-role.yaml
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, scheduledruns, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
         template: rbac/writer-role.yaml
 
   - it: should grant namespaced agent access in the new group
@@ -165,7 +165,7 @@ tests:
           value: [api.kagent.dev]
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, scheduledruns, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
         template: rbac/getter-role.yaml
       - equal:
           path: rules[0].verbs
@@ -173,7 +173,7 @@ tests:
         template: rbac/getter-role.yaml
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, scheduledruns, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
         template: rbac/writer-role.yaml
 
   - it: should have correct labels on all resources

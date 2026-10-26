@@ -4,15 +4,20 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/api/authorization"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -94,5 +99,53 @@ func TestActorPolicyDoesNotInheritOwnerPermissions(t *testing.T) {
 	store.actorUID = "replacement"
 	require.Error(t, policy.Check(ctx, identity.Principal(), auth.VerbGet, auth.Resource{Type: "Session", Name: store.session.Id}))
 	_, err = policy.Scope(ctx, identity.Principal(), auth.VerbList, "Agent")
+	require.Error(t, err)
+}
+
+type actorSessionListStore struct {
+	*database.Client
+	*bindingStore
+	sessions  []*apiv1.Session
+	listCalls int
+}
+
+func (s *actorSessionListStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
+	s.listCalls++
+	var result []*apiv1.Session
+	for _, session := range s.sessions {
+		if session.Creator == query.UserID && session.Id > query.AfterID {
+			result = append(result, session)
+		}
+	}
+	return result[:min(len(result), query.Limit)], nil
+}
+
+func (s *actorSessionListStore) GetSession(_ context.Context, id, owner string) (*apiv1.Session, error) {
+	if id == s.session.Id && owner == s.session.Creator {
+		return s.session, nil
+	}
+	return nil, database.ErrNotFound
+}
+
+func TestActorCanListOnlyItsScheduledSession(t *testing.T) {
+	issuer := jwttest.New(t)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
+	require.NoError(t, err)
+	binding := newBinding()
+	binding.session.ScheduledRun = &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "daily"}, Uid: uuid.NewString(), ExecutionId: uuid.NewString()}
+	other := &apiv1.Session{Id: uuid.NewString(), Creator: binding.session.Creator, ScheduledRun: binding.session.GetScheduledRun()}
+	store := &actorSessionListStore{bindingStore: binding, sessions: []*apiv1.Session{binding.session, other}}
+	slices.SortFunc(store.sessions, func(a, b *apiv1.Session) int { return strings.Compare(a.Id, b.Id) })
+	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, binding, issuer.URL)
+	identity, err := provider.Authenticate(t.Context(), http.Header{"Authorization": {"Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(binding.session.Id), binding.actorUID))}}, nil)
+	require.NoError(t, err)
+	service := sessionsvc.NewService(store, runtimeauth.NewAuthorizer(denyUsers{}, binding), nil)
+	ctx := auth.AuthSessionTo(t.Context(), identity)
+	result, err := service.List(ctx, sessionsvc.ListRequest{PageSize: 1})
+	require.NoError(t, err)
+	require.Equal(t, []*apiv1.Session{binding.session}, result.Sessions)
+	require.Empty(t, result.NextPageToken)
+	require.Zero(t, store.listCalls, "an Actor must not scan scheduler history")
+	_, err = service.List(ctx, sessionsvc.ListRequest{AllCreators: true})
 	require.Error(t, err)
 }
