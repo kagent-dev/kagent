@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -149,8 +150,8 @@ func (f *Forwarder) authorizeAndLimit(next http.Handler) http.Handler {
 func (f *Forwarder) serve(response http.ResponseWriter, request *http.Request) {
 	// The suffix is joined onto the upstream URL, which resolves dot segments:
 	// a request must not climb out of its server's path with the credential.
-	if !forwardablePath(request.URL) {
-		http.Error(response, "path holds a dot segment or an encoded slash", http.StatusBadRequest)
+	if !forwardablePath(request) {
+		http.Error(response, "path holds a dot segment, an encoded slash or a character the forwarder refuses", http.StatusBadRequest)
 		return
 	}
 	rest, ok := strings.CutPrefix(request.URL.Path, mcpPathPrefix)
@@ -187,8 +188,10 @@ func (t *mcpTarget) rewrite(proxied *httputil.ProxyRequest) {
 	out := proxied.Out
 	info, _ := proxied.In.Context().Value(forwardInfoKey{}).(forwardInfo)
 	setUpstream(out, t.url, info.suffix, proxied.In.URL.RawQuery)
-	// The loopback token authenticates the native process to this one only.
-	out.Header.Del("Authorization")
+	// The loopback token authenticates the native process to this one only,
+	// and the native process chooses no other header the caller's credential
+	// travels with.
+	out.Header = transportHeaders(proxied.In.Header)
 	// The caller's credential first and the compiled headers last, so a
 	// static Authorization wins, as in the Go ADK. A passthrough server
 	// carries the caller's credential only; it compiles no static one.
@@ -205,20 +208,48 @@ func (t *mcpTarget) rewrite(proxied *httputil.ProxyRequest) {
 
 // forwardablePath reports whether a request path has no "." or ".." segment,
 // decoded or not, no encoded slash, no backslash and no encoded percent sign,
-// which an upstream decoding once more would turn into one of the others.
-func forwardablePath(requestURL *url.URL) bool {
-	escaped := strings.ToLower(requestURL.EscapedPath())
-	for _, refused := range []string{"%2f", "%5c", "%25", "\\"} {
-		if strings.Contains(escaped, refused) {
-			return false
+// which an upstream decoding once more would turn into one of the others. The
+// raw request target is checked as well as the parsed path: url.URL drops a
+// RawPath it cannot reproduce, and EscapedPath then re-encodes the decoded path,
+// in which an encoded slash is already a separator. A ";", which some servers
+// strip with what follows it in a segment, and control bytes are refused too.
+func forwardablePath(request *http.Request) bool {
+	rawPath, _, _ := strings.Cut(request.RequestURI, "?")
+	for _, escaped := range []string{rawPath, request.URL.EscapedPath()} {
+		escaped = strings.ToLower(escaped)
+		for _, refused := range []string{"%2f", "%5c", "%25", "\\"} {
+			if strings.Contains(escaped, refused) {
+				return false
+			}
 		}
 	}
-	for segment := range strings.SplitSeq(requestURL.Path, "/") {
+	if strings.ContainsFunc(request.URL.Path, func(r rune) bool { return r == ';' || r < 0x20 || r == 0x7f }) {
+		return false
+	}
+	for segment := range strings.SplitSeq(request.URL.Path, "/") {
 		if segment == "." || segment == ".." {
 			return false
 		}
 	}
 	return true
+}
+
+// mcpTransportHeaders are the headers of the native process's request that
+// reach an MCP server: what the streamable HTTP transport and trace
+// propagation need.
+var mcpTransportHeaders = []string{
+	"Accept", "Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-Id",
+	"User-Agent", "Traceparent", "Tracestate", "Baggage",
+}
+
+func transportHeaders(in http.Header) http.Header {
+	out := make(http.Header, len(mcpTransportHeaders))
+	for _, header := range mcpTransportHeaders {
+		if values := in.Values(header); len(values) != 0 {
+			out[header] = slices.Clone(values)
+		}
+	}
+	return out
 }
 
 // setUpstream points the outgoing request at the upstream URL joined with the

@@ -191,3 +191,40 @@ func TestResolveHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestForwarderSendsOnlyTransportHeadersToMCPServers(t *testing.T) {
+	var got http.Header
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		got = request.Header.Clone()
+	}))
+	t.Cleanup(upstream.Close)
+	forwarder := newForwarder(t, map[string]MCPServer{
+		"tools": {URL: upstream.URL + "/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}},
+	})
+	forwarder.Bind("Bearer person-token")
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, forwarder.MCPURL("tools"), strings.NewReader(`{"jsonrpc":"2.0"}`))
+	require.NoError(t, err)
+	for header, value := range map[string]string{
+		"Authorization": forwarder.Authorization(), "Content-Type": "application/json",
+		"Accept": "application/json, text/event-stream", "Mcp-Session-Id": "session-1", "Mcp-Protocol-Version": "2025-06-18",
+		"Traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		"X-Toolset":   "*", "Cookie": "session=other", "X-Custom": "value",
+	} {
+		request.Header.Set(header, value)
+	}
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	require.Equal(t, "Bearer person-token", got.Get("Authorization"))
+	require.Equal(t, "preset:read-only", got.Get("X-Toolset"), "the native process must not choose a compiled header")
+	require.Equal(t, "application/json", got.Get("Content-Type"))
+	require.Equal(t, "application/json, text/event-stream", got.Get("Accept"))
+	require.Equal(t, "session-1", got.Get("Mcp-Session-Id"))
+	require.Equal(t, "2025-06-18", got.Get("Mcp-Protocol-Version"))
+	require.NotEmpty(t, got.Get("Traceparent"))
+	require.Empty(t, got.Get("Cookie"))
+	require.Empty(t, got.Get("X-Custom"))
+}

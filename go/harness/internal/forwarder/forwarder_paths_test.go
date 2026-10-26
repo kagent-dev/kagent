@@ -44,6 +44,13 @@ func TestForwarderRefusesPathsThatLeaveTheServer(t *testing.T) {
 		"/mcp/tools/%252e%252e/%252e%252e/other",
 		"/mcp/tools/..%5c..%5cother",
 		"/mcp/tools/..\\..\\other",
+		`/mcp/tools/a%2Fb"`,
+		"/mcp/tools/..%2Fother{",
+		`/mcp/tools/a%5cb"`,
+		"/mcp/tools/..;/other",
+		"/mcp/tools;x/other",
+		"/mcp/tools/%00/other",
+		"/mcp/tools/%7f",
 	} {
 		require.Equal(t, http.StatusBadRequest, sendRawPath(t, forwarder, path), path)
 	}
