@@ -38,7 +38,9 @@
 - apiGroups:
   - ""
   resources:
-  - "*"
+  - secrets
+  - configmaps
+  - services
   verbs:
   - get
   - list
@@ -47,14 +49,6 @@
   - ate.dev
   resources:
   - workerpools
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - "rbac.authorization.k8s.io"
-  resources:
-  - "*"
   verbs:
   - get
   - list
@@ -85,4 +79,13 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 rules:
   {{- include "kagent.getter.rules" . | nindent 2 }}
+  # Cluster-wide namespace discovery uses the manager's cached client.
+  - apiGroups:
+    - ""
+    resources:
+    - namespaces
+    verbs:
+    - get
+    - list
+    - watch
 {{- end }}

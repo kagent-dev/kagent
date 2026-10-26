@@ -38,7 +38,7 @@ tests:
           of: ClusterRole
         template: rbac/writer-role.yaml
 
-  - it: should not grant obsolete workload permissions cluster-wide
+  - it: should not grant workload or RBAC resource permissions cluster-wide
     templates:
       - rbac/getter-role.yaml
       - rbac/writer-role.yaml
@@ -58,8 +58,17 @@ tests:
       - notContains:
           path: rules[*].apiGroups
           content: agents.x-k8s.io
+      - notContains:
+          path: rules[*].apiGroups
+          content: rbac.authorization.k8s.io
+      - notContains:
+          path: rules[*].resources
+          content: "*"
+      - notMatchRegex:
+          path: rules[*].resources[*]
+          pattern: '^(pods|nodes|serviceaccounts)(/|$)'
 
-  - it: should not grant obsolete workload permissions in install or tenant namespaces
+  - it: should not grant workload or RBAC resource permissions in install or tenant namespaces
     set:
       rbac.namespaces: [NAMESPACE, tenant]
     templates:
@@ -83,6 +92,15 @@ tests:
       - notContains:
           path: rules[*].apiGroups
           content: agents.x-k8s.io
+      - notContains:
+          path: rules[*].apiGroups
+          content: rbac.authorization.k8s.io
+      - notContains:
+          path: rules[*].resources
+          content: "*"
+      - notMatchRegex:
+          path: rules[*].resources[*]
+          pattern: '^(pods|nodes|serviceaccounts|namespaces)(/|$)'
 
   - it: should have correct clusterrole names
     asserts:
@@ -136,15 +154,33 @@ tests:
           value: RELEASE-NAME-writer-role
         template: rbac/writer-rolebinding.yaml
 
-  - it: getter role should have read permissions
+  - it: getter role should read core dependencies and namespaces cluster-wide
     template: rbac/getter-role.yaml
     asserts:
       - contains:
           path: rules
           content:
             apiGroups: [""]
-            resources: ["*"]
+            resources: [secrets, configmaps, services]
             verbs: ["get", "list", "watch"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get, list, watch]
+
+  - it: getter roles should read core dependencies in install and tenant namespaces
+    set:
+      rbac.namespaces: [NAMESPACE, tenant]
+    template: rbac/getter-role.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [secrets, configmaps, services]
+            verbs: [get, list, watch]
 
   - it: should authorize sandbox template catalog access
     asserts:
@@ -157,15 +193,42 @@ tests:
           content: sandboxtemplates
         template: rbac/writer-role.yaml
 
-  - it: writer role should have write permissions
+  - it: writer role should only write managed core resources cluster-wide
     template: rbac/writer-role.yaml
     asserts:
       - contains:
           path: rules
           content:
             apiGroups: [""]
-            resources: ["*"]
-            verbs: ["create", "update", "patch", "delete"]
+            resources: [secrets, configmaps]
+            verbs: [create, update, delete]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [services]
+            verbs: [delete]
+      - notContains:
+          path: rules[*].resources
+          content: namespaces
+
+  - it: writer roles should only write managed core resources in install and tenant namespaces
+    set:
+      rbac.namespaces: [NAMESPACE, tenant]
+    template: rbac/writer-role.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [secrets, configmaps]
+            verbs: [create, update, delete]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [services]
+            verbs: [delete]
 
   - it: should use custom namespace when overridden
     set:
