@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 )
 
 // ErrNotFound means the actor serves no live Session.
@@ -14,8 +14,7 @@ var ErrNotFound = errors.New("actor serves no session")
 // Session is the Session an actor serves.
 type Session struct {
 	ID string
-	// Active reports that the Session runs a turn: an A2A task is submitted or
-	// working, and no lifecycle operation or native cleanup is underway.
+	// Active reports that the Session is running a turn.
 	Active bool
 }
 

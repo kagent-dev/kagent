@@ -163,10 +163,8 @@ func (c *Client) GetSessionForRuntime(ctx context.Context, id, actorUID string) 
 	return toSession(row)
 }
 
-// GetSessionTurn returns a session without filtering by owner, and whether it
-// runs a turn: a task is submitted or working, no lifecycle operation is
-// underway, and no finished task awaits native cleanup. One statement reads
-// both. Missing or deleted sessions return ErrNotFound; callers authorize access.
+// GetSessionTurn returns a session and whether it has an active task with no lifecycle
+// operation or pending native cleanup. Missing sessions return ErrNotFound; callers authorize.
 func (c *Client) GetSessionTurn(ctx context.Context, id string) (*apiv1.Session, bool, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
