@@ -426,7 +426,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		if status.Code(err) == codes.InvalidArgument {
 			// Validation rejects the immutable request, so retries cannot repair
 			// it. Backend messages may quote configuration; keep status safe.
-			r.observePreparation(*state, nil, &ReconciliationFailure{
+			r.observePreparation(*state, nil, 0, &ReconciliationFailure{
 				Condition: kagentv1alpha3.AgentConditionReady,
 				Reason:    "ActorTemplateRejected",
 				Message:   "Substrate rejected the compiled ActorTemplate (InvalidArgument); verify the Agent configuration against Substrate's validation requirements",
@@ -441,7 +441,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return r.observePreparationError(*state, fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err))
 	}
 	if !substrate.ActorTemplateSpecEqual(observed, target.ActorTemplate) {
-		r.observePreparation(*state, observed, nil)
+		r.observePreparation(*state, observed, 0, nil)
 		return nil
 	}
 
@@ -463,7 +463,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		if retrying == nil {
 			return r.observePreparationError(*state, err)
 		}
-		r.observePreparation(*state, nil, retrying)
+		r.observePreparation(*state, nil, 0, retrying)
 		return err
 	}
 
@@ -476,10 +476,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after session creation can select the persisted revision.
-	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
-		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
-		RevisionID: target.RevisionID, Template: observed, GoldenRetries: retries,
-	})
+	r.observePreparation(*state, observed, retries, nil)
 	return nil
 }
 
@@ -491,7 +488,7 @@ func (r *Reconciler) observePreparationError(state AgentReconciliation, err erro
 	if state.PreparationFailure != nil && !state.PreparationFailure.Retryable {
 		return err
 	}
-	r.observePreparation(state, nil, runtimePreparationFailure(err))
+	r.observePreparation(state, nil, 0, runtimePreparationFailure(err))
 	return err
 }
 
@@ -509,12 +506,13 @@ func runtimePreparationFailure(err error) *ReconciliationFailure {
 
 // Observations belong to the Agent's current preparation, independently of how
 // long sessions or checkpoints keep its old runtime alive in the database.
-func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, failure *ReconciliationFailure) {
+func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, goldenRetries int, failure *ReconciliationFailure) {
 	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
-		RevisionID: state.Target.RevisionID,
-		Template:   template,
-		Failure:    failure,
+		RevisionID:    state.Target.RevisionID,
+		Template:      template,
+		GoldenRetries: goldenRetries,
+		Failure:       failure,
 	})
 }
 

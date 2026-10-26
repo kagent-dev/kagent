@@ -130,9 +130,7 @@ func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) (err error) 
 	// but database finalization fails, the durable deletion marker keeps this
 	// revision discoverable so the next sweep can safely retry the sequence.
 	if err == nil && (revision.ActorTemplateUID == "" || template.GetMetadata().GetUid() != revision.ActorTemplateUID) {
-		// A golden retry deleted the recorded crash, so the template under this
-		// revision's name is its rebuild that was never recorded.
-		if revision.ActorTemplateUID == "" || revision.GoldenCrashUID != revision.ActorTemplateUID {
+		if !revision.RecordedTemplateCrashed() {
 			return fmt.Errorf("unreferenced ActorTemplate %s/%s UID changed", revision.ActorTemplateAtespace, revision.ActorTemplateName)
 		}
 		err = r.templates.DeleteActorTemplateUID(collectionCtx, revision.ActorTemplateAtespace, revision.ActorTemplateName, template.GetMetadata().GetUid())

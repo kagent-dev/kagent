@@ -83,24 +83,24 @@ func TestRecordReadySandboxRevisionResetsGoldenRetry(t *testing.T) {
 		return attempts
 	}
 
-	first, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
+	first, err := client.EnsureGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
 	require.NoError(t, err)
-	require.Equal(t, 1, first.Attempts)
+	require.Equal(t, 1, first.Retries)
 	revision.ActorTemplateUID = "uid-2"
 	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{}))
 	require.Equal(t, 1, attempts(), "a rebuild that is not ready yet keeps its retry count")
-	second, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
+	second, err := client.EnsureGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
 	require.NoError(t, err)
-	require.Equal(t, GoldenRetry{Attempts: 2, RetryAt: now.Add(time.Minute)}, normalizeRetry(second))
+	require.Equal(t, GoldenRetry{Retries: 2, RetryAt: now.Add(time.Minute)}, normalizeRetry(second))
 
 	revision.ActorTemplateUID = "uid-3"
 	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
 	require.Zero(t, attempts(), "a ready sandbox revision resets its retry count")
 	revision.ActorTemplateUID = "uid-4"
 	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{}))
-	later, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
+	later, err := client.EnsureGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
 	require.NoError(t, err)
-	require.Equal(t, GoldenRetry{Attempts: 1, RetryAt: now.Add(15 * time.Second)}, normalizeRetry(later), "a successful build resets the backoff")
+	require.Equal(t, GoldenRetry{Retries: 1, RetryAt: now.Add(15 * time.Second)}, normalizeRetry(later), "a successful build resets the backoff")
 }
 
 func finishSandbox(t *testing.T, client *Client, id string, kind apiv1.RuntimeOperation) *apiv1.Sandbox {

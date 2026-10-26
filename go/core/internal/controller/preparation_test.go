@@ -361,10 +361,10 @@ func (p *preparationTestBackend) DeleteActorTemplateUID(ctx context.Context, ate
 	return p.templates.DeleteActorTemplateUID(ctx, atespace, name, uid)
 }
 
-func (p *preparationTestBackend) ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+func (p *preparationTestBackend) EnsureGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.ScheduleGoldenRetry(ctx, revision, crashedTemplateUID, now, delays)
+	return p.store.EnsureGoldenRetry(ctx, revision, crashedTemplateUID, now, delays)
 }
 
 func (p *preparationTestBackend) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {

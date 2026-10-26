@@ -160,8 +160,6 @@ func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name string)
 	return c.deleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{ActorTemplate: actorRef(atespace, name)})
 }
 
-// DeleteActorTemplateUID deletes the template only while it still has uid, so
-// a replacement created under the same name survives. A changed uid is Aborted.
 func (c *Client) DeleteActorTemplateUID(ctx context.Context, atespace, name, uid string) error {
 	return c.deleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{
 		ActorTemplate: actorRef(atespace, name),

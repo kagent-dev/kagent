@@ -29,7 +29,6 @@ import (
 
 const goldenCrashMessage = "GoldenActorCrashed: golden actor crashed before its snapshot was taken"
 
-// withGoldenStatus returns a copy because observations keep the template they read.
 func withGoldenStatus(template *ateapipb.ActorTemplate, golden *ateapipb.GoldenSnapshotStatus) *ateapipb.ActorTemplate {
 	updated := proto.CloneOf(template)
 	updated.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: golden}
@@ -40,13 +39,10 @@ func crashed(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate {
 	return withGoldenStatus(template, &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenCrashMessage})
 }
 
-// maxJitter is wait.Jitter with its random draw at 1.
 func maxJitter(duration time.Duration, maxFactor float64) time.Duration {
 	return duration + time.Duration(maxFactor*float64(duration))
 }
 
-// Substrate has no structured golden failure reason, so isGoldenCrash parses
-// error_message. Fail here when a Substrate bump changes how it is built.
 func TestGoldenCrashFormatMatchesSubstrate(t *testing.T) {
 	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "go.ate.dev/substrate").Output()
 	require.NoError(t, err)
@@ -182,8 +178,6 @@ func TestPreparationGoldenRetrySurvivesRestart(t *testing.T) {
 		stop()
 		synctest.Wait()
 
-		// Move the stored retry time so the old timer, firing at the old time,
-		// would show up as an early recreate.
 		storedRetryAt := retryAt.Add(10 * time.Second)
 		backend.inspect(func() { store.goldenRetryAt = storedRetryAt })
 		restarted, _ := newPreparationTestCollections(t, "microvm")
@@ -264,8 +258,6 @@ func (s *failingRecordStore) RecordRuntimeRevision(ctx context.Context, revision
 	return s.Client.RecordRuntimeRevision(ctx, revision, options)
 }
 
-// A rebuild created after the crash was deleted, but never recorded, must not
-// wedge GC on the recorded crash's UID.
 func TestRuntimeRevisionGCCollectsUnrecordedGoldenRebuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database test in short mode")
@@ -322,7 +314,7 @@ func TestRuntimeRevisionGCCollectsUnrecordedSandboxGoldenRebuild(t *testing.T) {
 			ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "uid-1"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte(`{}`),
 	}, database.RecordRevisionOptions{}))
-	_, err = store.ScheduleGoldenRetry(ctx, revision, "uid-1", time.Now(), []time.Duration{0})
+	_, err = store.EnsureGoldenRetry(ctx, revision, "uid-1", time.Now(), []time.Duration{0})
 	require.NoError(t, err)
 	templates := &fakeActorTemplates{template: &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: revision, Uid: "uid-2"}}}
 	require.NoError(t, store.RetireSandboxTemplateIdentities(ctx, "team-a", "scratch"))

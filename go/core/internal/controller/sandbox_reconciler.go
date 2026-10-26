@@ -91,7 +91,6 @@ func (s *SandboxReconciler) Start(ctx context.Context) error {
 
 // Kubernetes changes arrive through KRT. Poll only incomplete external work;
 // this also recovers transient failures after the queue's retry budget expires.
-// A golden crash retry is never polled; see awaitsGoldenRetry.
 func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statuses controllers.Queue) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -104,9 +103,15 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 				if state.Template.DeletionTimestamp.IsZero() && !apiequality.Semantic.DeepEqual(sandboxStatusWithTransitionTimes(state), state.Template.Status) {
 					statuses.Add(state.ResourceName())
 				}
-				if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) ||
-					(!state.Failure.awaitsGoldenRetry() && ((state.Failure != nil && state.Failure.Retryable) ||
-						(state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil))) {
+				if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
+					preparations.Add(state.ResourceName())
+					continue
+				}
+				if state.Failure.awaitsGoldenRetry() {
+					continue
+				}
+				if (state.Failure != nil && state.Failure.Retryable) ||
+					(state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil) {
 					preparations.Add(state.ResourceName())
 				}
 			}

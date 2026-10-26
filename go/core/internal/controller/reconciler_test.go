@@ -353,8 +353,6 @@ type fakeRuntimeRevisionStore struct {
 	fakeGoldenRetries
 }
 
-// fakeGoldenRetries schedules a crash only against the last recorded revision
-// and template UID, and resets on a ready record, like the real store.
 type fakeGoldenRetries struct {
 	recordedRevision string
 	recordedUID      string
@@ -370,17 +368,17 @@ func (f *fakeGoldenRetries) recordGolden(revision, uid string, ready bool) {
 	}
 }
 
-func (f *fakeGoldenRetries) ScheduleGoldenRetry(_ context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+func (f *fakeGoldenRetries) EnsureGoldenRetry(_ context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
 	if f.recordedRevision != revision || f.recordedUID != crashedTemplateUID {
 		return database.GoldenRetry{}, database.ErrNotFound
 	}
 	if f.goldenCrashUID == crashedTemplateUID {
-		return database.GoldenRetry{Attempts: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
+		return database.GoldenRetry{Retries: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
 	}
 	f.goldenRetryAt = now.Add(delays[min(f.goldenAttempts, len(delays)-1)])
 	f.goldenAttempts++
 	f.goldenCrashUID = crashedTemplateUID
-	return database.GoldenRetry{Attempts: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
+	return database.GoldenRetry{Retries: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
 }
 
 func (f *fakeGoldenRetries) GoldenRetryAttempts(context.Context, string) (int, error) {

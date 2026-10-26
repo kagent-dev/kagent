@@ -392,8 +392,6 @@ type runtimeRevisionRow struct {
 	DeletedAt               *time.Time
 }
 
-// resetGoldenRetry runs when a revision's golden build succeeds, so its next
-// crash starts again at the first delay.
 func resetGoldenRetry(ctx context.Context, tx pgx.Tx, revision string) error {
 	return execSQL(ctx, tx, `
 		UPDATE runtime_revision SET golden_attempts = 0, golden_crash_uid = '', golden_retry_at = NULL, updated_at = NOW()
@@ -401,15 +399,11 @@ func resetGoldenRetry(ctx context.Context, tx pgx.Tx, revision string) error {
 	`, revision)
 }
 
-// GoldenRetry is the golden-build retry schedule stored for a runtime revision.
-// Attempts counts retries started, not builds.
 type GoldenRetry struct {
-	Attempts int
-	RetryAt  time.Time
+	Retries int
+	RetryAt time.Time
 }
 
-// GoldenRetryAttempts returns the golden retries started since the revision's
-// last successful build, or ErrNotFound for a missing revision.
 func (c *Client) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {
 	attempts, err := queryOne(ctx, c.db, `
 		SELECT golden_attempts FROM runtime_revision WHERE revision = $1
@@ -420,12 +414,7 @@ func (c *Client) GoldenRetryAttempts(ctx context.Context, revision string) (int,
 	return attempts, nil
 }
 
-// ScheduleGoldenRetry schedules the next retry for crashedTemplateUID at now
-// plus delays[attempts], repeating the last delay once attempts pass it.
-// Repeating a UID returns its stored schedule without counting a retry.
-// A successful golden build recorded with Ready resets the count.
-// A missing, deleting or differently bound revision returns ErrNotFound.
-func (c *Client) ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (GoldenRetry, error) {
+func (c *Client) EnsureGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (GoldenRetry, error) {
 	type goldenRetryRow struct {
 		GoldenAttempts int
 		GoldenCrashUID string
@@ -445,7 +434,7 @@ func (c *Client) ScheduleGoldenRetry(ctx context.Context, revision, crashedTempl
 			return notFoundOr(err)
 		}
 		if row.GoldenCrashUID == crashedTemplateUID && row.GoldenRetryAt != nil {
-			result = GoldenRetry{Attempts: row.GoldenAttempts, RetryAt: *row.GoldenRetryAt}
+			result = GoldenRetry{Retries: row.GoldenAttempts, RetryAt: *row.GoldenRetryAt}
 			return nil
 		}
 		retryAt := now.Add(delays[min(row.GoldenAttempts, len(delays)-1)])
@@ -456,7 +445,7 @@ func (c *Client) ScheduleGoldenRetry(ctx context.Context, revision, crashedTempl
 		`, revision, crashedTemplateUID, retryAt); err != nil {
 			return err
 		}
-		result = GoldenRetry{Attempts: row.GoldenAttempts + 1, RetryAt: retryAt}
+		result = GoldenRetry{Retries: row.GoldenAttempts + 1, RetryAt: retryAt}
 		return nil
 	})
 	if err != nil {

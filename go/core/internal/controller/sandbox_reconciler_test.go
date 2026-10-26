@@ -69,10 +69,10 @@ func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value databa
 	}
 	return nil
 }
-func (s *sandboxTestStore) ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+func (s *sandboxTestStore) EnsureGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.golden.ScheduleGoldenRetry(ctx, revision, crashedTemplateUID, now, delays)
+	return s.golden.EnsureGoldenRetry(ctx, revision, crashedTemplateUID, now, delays)
 }
 func (s *sandboxTestStore) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {
 	s.mu.Lock()
@@ -105,7 +105,6 @@ type sandboxTestActors struct {
 	gets          int
 }
 
-// inspect reads or changes the fake backend while the reconciler runs.
 func (s *sandboxTestActors) inspect(read func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -320,8 +319,6 @@ func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *te
 
 var sandboxRetryAt = regexp.MustCompile(`^golden build crashed, retry (\d+) at (\S+): (.*)$`)
 
-// startSandboxGoldenCrash runs the reconciler against a backend whose created
-// templates crash, and returns the published Ready condition reader.
 func startSandboxGoldenCrash(t *testing.T, uids ...string) (*SandboxReconciler, *sandboxTestActors, func() *metav1.Condition, context.CancelFunc) {
 	t.Helper()
 	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
@@ -341,7 +338,6 @@ func startSandboxGoldenCrash(t *testing.T, uids ...string) (*SandboxReconciler, 
 	return s, actors, ready, cancel
 }
 
-// retryAt checks a waiting retry's published status and returns its time.
 func retryAt(t *testing.T, condition *metav1.Condition, retry int, earliest, latest time.Time) time.Time {
 	t.Helper()
 	require.Equal(t, metav1.ConditionFalse, condition.Status)

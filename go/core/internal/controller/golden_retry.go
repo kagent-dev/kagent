@@ -34,7 +34,6 @@ var defaultGoldenRetryPolicy = goldenRetryPolicy{
 	MaxJitterFraction: 0.2,
 }
 
-// The store picks the delay by its persisted attempt count, so draw them all.
 func (p goldenRetryPolicy) jitteredDelays(jitter func(time.Duration, float64) time.Duration) []time.Duration {
 	delays := make([]time.Duration, len(p.Delays))
 	for i, delay := range p.Delays {
@@ -47,16 +46,11 @@ func isGoldenCrash(template *ateapipb.ActorTemplate) bool {
 	return strings.HasPrefix(template.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(), goldenCrashPrefix)
 }
 
-// goldenRetryStore holds the persisted retry schedule. The database, not the
-// timers, is the source of truth for attempts and the next retry time.
 type goldenRetryStore interface {
-	ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error)
+	EnsureGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error)
 	GoldenRetryAttempts(ctx context.Context, revision string) (int, error)
 }
 
-// goldenRetries wakes one reconcile queue for its crashed golden builds. Each
-// reconciler owns one beside its queue: Agent and SandboxTemplate keys share
-// the namespace/name form, so one timer map for both would collide.
 type goldenRetries struct {
 	store     goldenRetryStore
 	templates actorTemplateClient
@@ -73,33 +67,26 @@ func newGoldenRetries(store goldenRetryStore, templates actorTemplateClient, que
 	return &goldenRetries{store: store, templates: templates, queue: queue, policy: defaultGoldenRetryPolicy, jitter: wait.Jitter, timers: map[string]*time.Timer{}}
 }
 
-// retry advances the stored retry for crashed, which the caller must already
-// have recorded as revision, and returns the Ready failure to publish for key.
-// A nil failure means scheduling failed and the caller reports err itself. A
-// failure with err means the delete failed; publish it and return err so the
-// queue backs off. A repeat pass over the same crash re-reads the stored
-// schedule and spends no attempt.
 func (g *goldenRetries) retry(ctx context.Context, revision, key string, crashed *ateapipb.ActorTemplate) (*ReconciliationFailure, error) {
 	ref := crashed.GetMetadata()
 	crash := crashed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage()
 	now := time.Now()
-	retry, err := g.store.ScheduleGoldenRetry(ctx, revision, ref.GetUid(), now, g.policy.jitteredDelays(g.jitter))
+	retry, err := g.store.EnsureGoldenRetry(ctx, revision, ref.GetUid(), now, g.policy.jitteredDelays(g.jitter))
 	if err != nil {
 		return nil, err
 	}
 	if delay := retry.RetryAt.Sub(now); delay > 0 {
 		g.arm(key, delay)
-		return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d at %s: %s", retry.Attempts, retry.RetryAt.UTC().Format(time.RFC3339), crash)), nil
+		return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d at %s: %s", retry.Retries, retry.RetryAt.UTC().Format(time.RFC3339), crash)), nil
 	}
 	if err := g.templates.DeleteActorTemplateUID(ctx, ref.GetAtespace(), ref.GetName(), ref.GetUid()); err != nil {
-		return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d waits to delete the crashed template (%s): %s", retry.Attempts, status.Code(err), crash)),
+		return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d waits to delete the crashed template (%s): %s", retry.Retries, status.Code(err), crash)),
 			fmt.Errorf("delete crashed ActorTemplate %s/%s: %w", ref.GetAtespace(), ref.GetName(), err)
 	}
 	g.queue.Add(key)
-	return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d started: %s", retry.Attempts, crash)), nil
+	return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d started: %s", retry.Retries, crash)), nil
 }
 
-// arm keeps one timer per key and none after stop.
 func (g *goldenRetries) arm(key string, wait time.Duration) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -132,13 +119,10 @@ func (g *goldenRetries) stop() {
 	}
 }
 
-// awaitsGoldenRetry reports a failure whose retry something other than a poll
-// wakes: the armed timer, queue backoff after a failed delete, or the re-add.
 func (f *ReconciliationFailure) awaitsGoldenRetry() bool {
 	return f != nil && f.Reason == goldenRetryingReason
 }
 
-// goldenRebuildMessage names the retry while a crashed golden build rebuilds.
 func goldenRebuildMessage(retries int, waiting string) string {
 	if retries == 0 {
 		return waiting
