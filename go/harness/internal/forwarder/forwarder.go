@@ -147,6 +147,12 @@ func (f *Forwarder) authorizeAndLimit(next http.Handler) http.Handler {
 }
 
 func (f *Forwarder) serve(response http.ResponseWriter, request *http.Request) {
+	// The suffix is joined onto the upstream URL, which resolves dot segments:
+	// a request must not climb out of its server's path with the credential.
+	if !forwardablePath(request.URL) {
+		http.Error(response, "path holds a dot segment or an encoded slash", http.StatusBadRequest)
+		return
+	}
 	rest, ok := strings.CutPrefix(request.URL.Path, mcpPathPrefix)
 	if !ok {
 		http.NotFound(response, request)
@@ -195,6 +201,24 @@ func (t *mcpTarget) rewrite(proxied *httputil.ProxyRequest) {
 	if t.passthrough {
 		out.Header.Set("Authorization", info.credential)
 	}
+}
+
+// forwardablePath reports whether a request path has no "." or ".." segment,
+// decoded or not, no encoded slash, no backslash and no encoded percent sign,
+// which an upstream decoding once more would turn into one of the others.
+func forwardablePath(requestURL *url.URL) bool {
+	escaped := strings.ToLower(requestURL.EscapedPath())
+	for _, refused := range []string{"%2f", "%5c", "%25", "\\"} {
+		if strings.Contains(escaped, refused) {
+			return false
+		}
+	}
+	for segment := range strings.SplitSeq(requestURL.Path, "/") {
+		if segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // setUpstream points the outgoing request at the upstream URL joined with the
