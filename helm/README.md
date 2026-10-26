@@ -37,7 +37,7 @@ trust bundle. Discovery and signing keys must be reachable at controller startup
 Upgrade controller and runtime images together and recreate snapshots of older
 runtime images that sent unsigned identity headers.
 
-Substrate v0.6.0 restricts API ingress to namespaces labeled
+Substrate v0.7.0-alpha1 restricts API ingress to namespaces labeled
 `ate.dev/api-access=true`. The CLI installer applies this label to the Kagent
 namespace. For direct Helm installations, label the controller namespace before
 starting Kagent:
@@ -46,13 +46,17 @@ starting Kagent:
 kubectl label namespace kagent ate.dev/api-access=true --overwrite
 ```
 
-Upgrade the Substrate CRDs, control plane, and workers together. This upgrade
-requires a fresh development database and recreated Actors, Tags, and WorkerPools;
-Substrate does not migrate the previous snapshot metadata. WorkerPools now use
+Upgrade Kagent and the Substrate CRDs, control plane, and workers together:
+v0.7.0-alpha1 uses `ate.dev/v1` Kubernetes resources and the
+`substrate.ateapi.v1` gRPC API.
+
+The v0.6.0 snapshot-format transition requires a fresh development database and
+recreated Actors, Tags, and WorkerPools; Substrate does not migrate the older
+snapshot metadata. WorkerPools use
 `spec.sandboxClasses[]`, with an existing `configRef` of the same runtime class.
 
 Kagent configures snapshot storage per Harness or SandboxTemplate. Substrate
-v0.6.0 requires `preview: [PerTemplateSnapshotLocation]` in its Helm values to
+v0.7.0-alpha1 requires `preview: [PerTemplateSnapshotLocation]` in its Helm values to
 honor those locations. `kagent install` enables this gate by default; retain it
 when supplying your own `preview` list or installing Substrate directly.
 
@@ -172,7 +176,7 @@ Each run sets each login's password to its variable. An empty value removes the 
 
 Set `config.database.owner.role`, `config.database.readWrite.role` and `config.database.schema` to the values you used, and put a connection string for each login in the Secrets that `database.postgres.ownerConnectionStringSecretRef` and `database.postgres.readWriteConnectionStringSecretRef` name. Leave role settings out of the connection strings: Kagent assumes each role after it connects. With `config.database.skipMigrations: true`, only the read/write Secret and role are needed.
 
-Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v0.6.0/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
+Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v0.7.0-alpha1/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
 
 When vectors are enabled, install pgvector into `config.database.vectorSchema` before Kagent starts, and grant both Kagent roles `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"

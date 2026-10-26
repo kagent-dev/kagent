@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 
