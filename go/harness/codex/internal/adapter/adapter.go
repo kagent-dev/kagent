@@ -15,12 +15,19 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
+	"github.com/kagent-dev/kagent/go/harness/internal/forwarder"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	sharedtelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-const codexHomeEnv = "CODEX_HOME"
+const (
+	codexHomeEnv = "CODEX_HOME"
+	// forwarderAuthorizationEnv carries the loopback token to the fronted MCP
+	// servers' env_http_headers, so it never enters the durable config.toml.
+	// The compiler reserves its prefix from Harness env.
+	forwarderAuthorizationEnv = "KAGENT_CODEX_MCP_CREDENTIAL_FORWARDER"
+)
 
 // Input contains compiler output and Actor-owned locations used to construct
 // the Codex driver.
@@ -83,11 +90,25 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	environment := nativeEnvironment(input.Environment, codexHome, nativeDefaults)
 	cfg.Telemetry = effectiveTelemetry(cfg.Telemetry, environment)
 	cfg.Telemetry.CaptureContent = nativeDefaults.WithEnvironment(input.Environment).CaptureContent
-	configTOML, err := renderConfig(cfg, codexHome, slices.Contains(input.Environment, env.TestCodexDisableRetries+"=true"))
+	credentialForwarder, err := frontMCPServers(&cfg, environment)
 	if err != nil {
 		return nil, err
 	}
+	if credentialForwarder != nil {
+		environment = setEnvironment(environment, forwarderAuthorizationEnv, credentialForwarder.Authorization())
+	}
+	closeForwarder := func() {
+		if credentialForwarder != nil {
+			_ = credentialForwarder.Close()
+		}
+	}
+	configTOML, err := renderConfig(cfg, codexHome, slices.Contains(input.Environment, env.TestCodexDisableRetries+"=true"))
+	if err != nil {
+		closeForwarder()
+		return nil, err
+	}
 	if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
+		closeForwarder()
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
 	approvalServers := make(map[string]struct{})
@@ -104,7 +125,47 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		ApprovalServers: approvalServers,
 		PendingDir:      filepath.Join(input.DurableDir, "adapter"),
 		Tools:           driver.NewMCPCaller(cfg.MCPServers, environment),
+		Forwarder:       credentialForwarder,
 	}), nil
+}
+
+// frontMCPServers starts the credential forwarder for the MCP servers that
+// receive the caller's credential (every server when token propagation is on,
+// and a token passthrough server always) and rewrites them to their loopback
+// endpoints. Codex and the deferred tool caller then reach them with the
+// loopback token only, so config.toml carries no upstream URL, no static
+// header and no credential for them. It returns nil when no server is fronted.
+func frontMCPServers(cfg *config.Config, environment []string) (*forwarder.Forwarder, error) {
+	upstream := make(map[string]forwarder.MCPServer)
+	for name, server := range cfg.MCPServers {
+		if !cfg.PropagateToken && !server.TokenPassthrough {
+			continue
+		}
+		headers, err := forwarder.ResolveHeaders(server.Headers, environment)
+		if err != nil {
+			return nil, fmt.Errorf("Codex MCP server %q: %w", name, err)
+		}
+		upstream[name] = forwarder.MCPServer{URL: server.URL, Headers: headers, TokenPassthrough: server.TokenPassthrough}
+	}
+	if len(upstream) == 0 {
+		return nil, nil
+	}
+	credentialForwarder, err := forwarder.New(upstream, cfg.MaxFrameBytes)
+	if err != nil {
+		return nil, fmt.Errorf("start Codex credential forwarder: %w", err)
+	}
+	fronted := make(map[string]config.MCPServer, len(cfg.MCPServers))
+	for name, server := range cfg.MCPServers {
+		if _, ok := upstream[name]; ok {
+			server = config.MCPServer{
+				URL: credentialForwarder.MCPURL(name), Headers: map[string]string{"Authorization": "${" + forwarderAuthorizationEnv + "}"},
+				EnabledTools: server.EnabledTools, RequireApproval: server.RequireApproval,
+			}
+		}
+		fronted[name] = server
+	}
+	cfg.MCPServers = fronted
+	return credentialForwarder, nil
 }
 
 type nativeConfig struct {

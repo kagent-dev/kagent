@@ -35,9 +35,6 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Codex MCP binding has no server")
 		}
-		if server.Spec.TokenPassthrough {
-			return mcpCompilation{}, translator.NewValidationError("Codex does not support RemoteMCPServer %q tokenPassthrough", server.Name)
-		}
 		name := strings.ReplaceAll(server.Name, ".", "_")
 		if previous, ok := identities[name]; ok {
 			return mcpCompilation{}, translator.NewValidationError("Codex MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
@@ -65,7 +62,7 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		selected = slices.Compact(selected)
 		result.servers[name] = codexconfig.MCPServer{
 			URL: server.Spec.URL, Headers: headers, EnabledTools: selected,
-			RequireApproval: tool.Binding.RequireApproval,
+			RequireApproval: tool.Binding.RequireApproval, TokenPassthrough: server.Spec.TokenPassthrough,
 		}
 		result.environment = append(result.environment, environment...)
 		result.egress = append(result.egress, host)
