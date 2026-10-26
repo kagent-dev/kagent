@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional
 
 import httpx
 import httpx2
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropicFoundry
 from openai import AsyncAzureOpenAI
 from openai.lib.azure import API_KEY_SENTINEL
-
-if TYPE_CHECKING:
-    from anthropic.lib.credentials import AccessToken, AccessTokenProvider
-    from azure.identity import DefaultAzureCredential
 
 COGNITIVE_SERVICES_SCOPE = "https://cognitiveservices.azure.com/.default"
 AI_FOUNDRY_SCOPE = "https://ai.azure.com/.default"
@@ -31,32 +27,6 @@ def azure_ad_token_provider(scope: str = COGNITIVE_SERVICES_SCOPE) -> AsyncToken
     from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
 
     return get_bearer_token_provider(DefaultAzureCredential(), scope)
-
-
-class _AzureAccessTokenProvider:
-    """Adapt Azure Identity to Anthropic's synchronous access-token provider."""
-
-    def __init__(self, scope: str) -> None:
-        from azure.identity import DefaultAzureCredential
-
-        self._credential: DefaultAzureCredential = DefaultAzureCredential()
-        self._scope = scope
-
-    def __call__(self, *, force_refresh: bool = False) -> "AccessToken":
-        del force_refresh
-
-        from anthropic.lib.credentials import AccessToken
-
-        token = self._credential.get_token(self._scope)
-        return AccessToken(token=token.token, expires_at=token.expires_on)
-
-    def close(self) -> None:
-        self._credential.close()
-
-
-def azure_access_token_provider(scope: str = AI_FOUNDRY_SCOPE) -> "AccessTokenProvider":
-    """Return an Azure provider compatible with Anthropic's token cache."""
-    return _AzureAccessTokenProvider(scope)
 
 
 def resolve_azure_api_key(
@@ -158,23 +128,17 @@ def build_foundry_anthropic_client(
     api_key_passthrough: Optional[bool],
     default_headers: Optional[dict[str, str]],
     http_client: Optional[httpx2.AsyncClient],
-) -> AsyncAnthropic:
+) -> AsyncAnthropicFoundry:
     """Build a Foundry Anthropic client using key, passthrough, or Workload Identity auth."""
     if api_key_passthrough and not api_key:
         raise ValueError(
             "No Azure credential resolved: provide the passthrough token before creating the Foundry Anthropic client"
         )
 
-    kwargs: dict[str, Any] = {"base_url": endpoint.rstrip("/") + "/anthropic"}
-    if api_key:
-        kwargs["api_key"] = api_key
-    else:
-        kwargs["credentials"] = azure_access_token_provider(AI_FOUNDRY_SCOPE)
-
-    safe_headers = sanitize_azure_auth_headers(default_headers)
-    if safe_headers:
-        kwargs["default_headers"] = safe_headers
-    if http_client is not None:
-        kwargs["http_client"] = http_client
-
-    return AsyncAnthropic(**kwargs)
+    return AsyncAnthropicFoundry(
+        api_key=api_key,
+        azure_ad_token_provider=azure_ad_token_provider(AI_FOUNDRY_SCOPE) if not api_key else None,
+        base_url=endpoint.rstrip("/") + "/anthropic",
+        default_headers=sanitize_azure_auth_headers(default_headers),
+        http_client=http_client,
+    )

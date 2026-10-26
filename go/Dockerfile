@@ -12,11 +12,6 @@ ARG BUILD_PACKAGE=core/cmd/controller/main.go
 WORKDIR /workspace
 # Copy the Go module manifests
 COPY go.mod go.sum .
-# cache deps before building and copying source so that we don't need to re-download as much
-# and so that source changes don't invalidate our downloaded layer
-RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
-    --mount=type=cache,target=/root/.cache/go-build,rw \
-     go mod download
 # Copy all source
 COPY api/ api/
 COPY core/ core/

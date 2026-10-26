@@ -402,6 +402,9 @@ substrateWorkerPool:
   # the corresponding SandboxConfig installed (gvisor-default or microvm);
   # microvm also requires runtime assets and KVM-capable nodes with atelet's device plugin.
   sandboxClass: gvisor
+  # Optional override for the SandboxConfig referenced by the selected class.
+  # Defaults to "microvm" for sandboxClass=microvm and "gvisor-default" otherwise.
+  sandboxConfigRef: ""
   # Extra labels merged onto the WorkerPool metadata. The placement labels
   # kagent.dev/worker-pool-name and kagent.dev/worker-pool-namespace always use this
   # pool's name and namespace, so ActorTemplates generated for other namespaces
