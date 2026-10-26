@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/harness/internal/forwarder"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -46,10 +47,9 @@ type ProcessConfig struct {
 	// AwaitTelemetry holds each prompt until Claude Code telemetry has
 	// initialized.
 	AwaitTelemetry bool
-	// CallerCredentials receives the caller's credential of each turn and is
-	// cleared before the turn's outcome is returned, so a parked or suspended
-	// Actor holds none.
-	CallerCredentials CallerCredentialBinder
+	// Forwarder fronts the MCP servers that receive the caller's credential.
+	// It is nil when none does.
+	Forwarder *forwarder.Forwarder
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -171,7 +171,6 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	if strings.TrimSpace(turn.Prompt) == "" && seed == nil {
 		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
 	}
-	defer d.bindCallerCredential(ctx)()
 	message, err := userMessage(turn.Prompt)
 	if err != nil {
 		return runtime.Outcome{}, err
@@ -250,16 +249,13 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	return outcome, err
 }
 
-// bindCallerCredential hands the turn's caller credential to the binder and
-// returns the function that clears it. The credential lives in this process
-// only while a turn runs; a parked turn resumes with the credential of the
-// call that resumes it.
-func (d *ProcessDriver) bindCallerCredential(ctx context.Context) func() {
-	if d.config.CallerCredentials == nil {
+// BindCallerCredential holds the A2A request's authorization in the forwarder
+// until the returned function drops it.
+func (d *ProcessDriver) BindCallerCredential(authorization string) (release func()) {
+	if d.config.Forwarder == nil {
 		return func() {}
 	}
-	d.config.CallerCredentials.Bind(CallerCredential(ctx))
-	return d.config.CallerCredentials.Clear
+	return d.config.Forwarder.Bind(authorization)
 }
 
 // sessionUsage reads the session totals Claude Code saved when its last process ended. A resumed
@@ -449,8 +445,8 @@ func (d *ProcessDriver) Close() error {
 	if d.config.ApprovalBroker != nil {
 		errs = append(errs, d.config.ApprovalBroker.Close())
 	}
-	if forwarder, ok := d.config.CallerCredentials.(*CredentialForwarder); ok && forwarder != nil {
-		errs = append(errs, forwarder.Close())
+	if d.config.Forwarder != nil {
+		errs = append(errs, d.config.Forwarder.Close())
 	}
 	return errors.Join(errs...)
 }

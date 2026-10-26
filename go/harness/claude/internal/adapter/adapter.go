@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
+	"github.com/kagent-dev/kagent/go/harness/internal/forwarder"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	otel "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -99,13 +100,13 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
 		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}
-	forwarder, err := frontMCPServers(&cfg)
+	credentialForwarder, err := frontMCPServers(&cfg, environment)
 	if err != nil {
 		return nil, err
 	}
 	closeForwarder := func() {
-		if forwarder != nil {
-			_ = forwarder.Close()
+		if credentialForwarder != nil {
+			_ = credentialForwarder.Close()
 		}
 	}
 	if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
@@ -149,7 +150,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 	}
 
-	processConfig := driver.ProcessConfig{
+	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
 		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath,
@@ -157,34 +158,33 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
-	}
-	if forwarder != nil {
-		processConfig.CallerCredentials = forwarder
-	}
-	return driver.NewProcessDriver(processConfig), nil
+		Forwarder: credentialForwarder,
+	}), nil
 }
 
 // frontMCPServers starts the credential forwarder for the MCP servers that
-// receive the caller's credential — every streamable HTTP server when token
-// propagation is on, and a token passthrough server always — and rewrites them
+// receive the caller's credential (every streamable HTTP server when token
+// propagation is on, and a token passthrough server always) and rewrites them
 // to their loopback endpoints, so the written configuration carries no
-// upstream URL, no static header and no credential for them. It returns nil
+// upstream URL, no static header and no credential for them. An SSE server is
+// not fronted: its upstream announces the message endpoint. It returns nil
 // when no server is fronted.
-func frontMCPServers(cfg *config.Config) (*driver.CredentialForwarder, error) {
-	upstream := make(map[string]driver.UpstreamMCPServer)
+func frontMCPServers(cfg *config.Config, environment []string) (*forwarder.Forwarder, error) {
+	upstream := make(map[string]forwarder.MCPServer)
 	for name, server := range cfg.MCPServers {
-		if !cfg.PropagateToken && !server.TokenPassthrough {
+		if server.Type != "http" || !cfg.PropagateToken && !server.TokenPassthrough {
 			continue
 		}
-		if server.Type != "http" {
-			return nil, fmt.Errorf("caller credential forwarding requires streamable HTTP MCP servers; %q uses %q", name, server.Type)
+		headers, err := forwarder.ResolveHeaders(server.Headers, environment)
+		if err != nil {
+			return nil, fmt.Errorf("Claude MCP server %q: %w", name, err)
 		}
-		upstream[name] = driver.UpstreamMCPServer{URL: server.URL, Headers: server.Headers, TokenPassthrough: server.TokenPassthrough}
+		upstream[name] = forwarder.MCPServer{URL: server.URL, Headers: headers, TokenPassthrough: server.TokenPassthrough}
 	}
 	if len(upstream) == 0 {
 		return nil, nil
 	}
-	forwarder, err := driver.NewCredentialForwarder(upstream, cfg.MaxEventBytes)
+	credentialForwarder, err := forwarder.New(upstream, cfg.MaxEventBytes)
 	if err != nil {
 		return nil, fmt.Errorf("start Claude credential forwarder: %w", err)
 	}
@@ -195,12 +195,13 @@ func frontMCPServers(cfg *config.Config) (*driver.CredentialForwarder, error) {
 			continue
 		}
 		fronted[name] = config.MCPServer{
-			Type: "http", URL: forwarder.URL(name), Headers: forwarder.Headers(),
+			Type: "http", URL: credentialForwarder.MCPURL(name),
+			Headers:         map[string]string{"Authorization": credentialForwarder.Authorization()},
 			RequireApproval: server.RequireApproval,
 		}
 	}
 	cfg.MCPServers = fronted
-	return forwarder, nil
+	return credentialForwarder, nil
 }
 
 func approvalServerNames(servers map[string]config.MCPServer) (protected []string) {

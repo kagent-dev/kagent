@@ -641,6 +641,12 @@ func TestCompileMCPTokenPassthrough(t *testing.T) {
 	if want := "tokenPassthrough for streamable HTTP servers only"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("expected %q, got %v", want, err)
 	}
+	server.Spec.TokenPassthrough = false
+	propagating := &Compiler{settings: &configv1.RuntimeDefaultsConfig{TokenPropagation: &configv1.TokenPropagationConfig{Enabled: true}}}
+	compiled, err = propagating.compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
+	if want := "uses SSE and does not receive the caller's token"; err != nil || len(compiled.warnings) != 1 || !strings.Contains(compiled.warnings[0], want) {
+		t.Fatalf("warnings = %v, %v; want %q", compiled.warnings, err, want)
+	}
 }
 
 func TestCompilePropagatesTheCallerTokenFromRuntimeDefaults(t *testing.T) {

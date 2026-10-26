@@ -2,16 +2,13 @@ package driver
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
@@ -222,71 +219,6 @@ func TestProcessDriverCancellation(t *testing.T) {
 	}
 	if time.Since(started) > time.Second {
 		t.Fatalf("cancellation took too long")
-	}
-}
-
-type recordingBinder struct {
-	mu     sync.Mutex
-	events []string
-}
-
-func (b *recordingBinder) Bind(credential string) {
-	b.mu.Lock()
-	b.events = append(b.events, "bind:"+credential)
-	b.mu.Unlock()
-}
-
-func (b *recordingBinder) Clear() {
-	b.mu.Lock()
-	b.events = append(b.events, "clear")
-	b.mu.Unlock()
-}
-
-func callerContext(t *testing.T, credential string) context.Context {
-	t.Helper()
-	ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{"authorization": {credential}}))
-	return ctx
-}
-
-func TestProcessDriverBindsTheCallerCredentialPerTurn(t *testing.T) {
-	dir, executable := writeFakeClaude(t, `#!/bin/sh
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
-`)
-	broker := newTestBroker(t)
-	binder := &recordingBinder{}
-	d := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: dir,
-		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
-		ApprovalBroker: broker, CallerCredentials: binder,
-	})
-
-	outcome, err := d.Run(callerContext(t, "Bearer first-sender"), runtime.Turn{Prompt: "write"}, &recordingSink{})
-	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
-		t.Fatalf("Run() = %#v, %v", outcome, err)
-	}
-	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear" {
-		t.Fatalf("a finished turn must hold no credential: binder events = %q", got)
-	}
-
-	// A parked turn holds no credential while it waits, and resumes with the
-	// credential of the call that resumes it. The fake process does not replay
-	// the deferred call through its hook, so the resume ends abandoned; the
-	// binder still saw the resuming call's credential for the process's life.
-	r := testRecord()
-	if err := saveDeferred(broker.directory, 1<<20, &r); err != nil {
-		t.Fatal(err)
-	}
-	_, _, pending, err := d.RestorePending()
-	if err != nil || pending == nil {
-		t.Fatalf("RestorePending() = %v, %v", pending, err)
-	}
-	_, err = pending.Resume(callerContext(t, "Bearer second-sender"), &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}, &recordingSink{})
-	if !errors.Is(err, runtime.ErrSessionAbandoned) {
-		t.Fatalf("Resume() error = %v, want the abandoned session of a fake replay", err)
-	}
-	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear,bind:Bearer second-sender,clear" {
-		t.Fatalf("the resuming call's credential must replace the first: binder events = %q", got)
 	}
 }
 
