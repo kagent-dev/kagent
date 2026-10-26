@@ -14,6 +14,8 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1"
+	"sigs.k8s.io/yaml"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -50,19 +52,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 		"5m",
 	}
 
-	// Add set values if any
-	for _, setValue := range setValues {
-		if setValue != "" {
-			args = append(args, "--set", setValue)
-		}
-	}
-
-	if inlineValues != "" {
-		args = append(args, "-f", "-")
-	}
-	for _, file := range valuesFiles {
-		args = append(args, "-f", file)
-	}
+	args = append(args, helmValueArgs(setValues, valuesFiles, inlineValues)...)
 	cmd := exec.CommandContext(ctx, "helm", args...)
 
 	// If a profile is provided, pass the embedded YAML to the stdin of the helm command.
@@ -127,7 +117,7 @@ type helmConfig struct {
 	inlineValues string
 }
 
-func podCertificateChartValues(values []string, namespace string, includeBundledPostgresClient bool) []string {
+func podCertificateChartValues(values []string, namespace, serviceAccount string, includeBundledPostgresClient bool) []string {
 	result := make([]string, 0, len(values)+2)
 	for _, value := range values {
 		key, _, _ := strings.Cut(value, "=")
@@ -138,8 +128,8 @@ func podCertificateChartValues(values []string, namespace string, includeBundled
 	if includeBundledPostgresClient {
 		// One entry per login: Helm's --set would split a comma-separated username list.
 		result = append(result,
-			fmt.Sprintf("postgresClients[0]=%s/kagent-controller=%s", namespace, kagentsetup.OwnerUser),
-			fmt.Sprintf("postgresClients[1]=%s/kagent-controller=%s", namespace, kagentsetup.ReadWriteUser),
+			fmt.Sprintf("postgresClients[0]=%s/%s=%s", namespace, serviceAccount, kagentsetup.OwnerUser),
+			fmt.Sprintf("postgresClients[1]=%s/%s=%s", namespace, serviceAccount, kagentsetup.ReadWriteUser),
 		)
 	}
 	return result
@@ -174,8 +164,16 @@ func chartConfig(chart *configv1.ChartConfig) helmConfig {
 
 // install installs the Substrate and Kagent releases.
 func install(ctx context.Context, cfg *connection.Options, helmConfig, substrateHelmConfig, podCertificateHelmConfig helmConfig, modelProvider v1alpha3.ModelProvider, skipDatabaseSetup bool, postgresImage string) error {
-	substrateHelmConfig.inlineValues = substrateInstallValues(cfg.Namespace)
 	helmConfig.inlineValues += fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote("ghcr.io/kagent-dev/substrate/ateworker-gvisor:v"+strings.TrimPrefix(substrateHelmConfig.version, "v")))
+
+	if !skipDatabaseSetup {
+		helmConfig.values = append(helmConfig.values, "database.postgres.clientCertificate.enabled=true")
+	}
+	serviceAccount, err := controllerServiceAccount(ctx, cfg.Namespace, helmConfig)
+	if err != nil {
+		return err
+	}
+	substrateHelmConfig.inlineValues = substrateInstallValues(cfg.Namespace, serviceAccount)
 
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
@@ -204,7 +202,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	}
 
 	s.Suffix = " Installing substrate-podcert from " + podCertificateHelmConfig.registry
-	if output, err := installChart(ctx, "substrate-podcert", podCertificateNamespace, podCertificateHelmConfig.registry, podCertificateHelmConfig.version, podCertificateChartValues(substrateHelmConfig.values, cfg.Namespace, !skipDatabaseSetup), podCertificateHelmConfig.valuesFiles, ""); err != nil {
+	if output, err := installChart(ctx, "substrate-podcert", podCertificateNamespace, podCertificateHelmConfig.registry, podCertificateHelmConfig.version, podCertificateChartValues(substrateHelmConfig.values, cfg.Namespace, serviceAccount, !skipDatabaseSetup), podCertificateHelmConfig.valuesFiles, ""); err != nil {
 		return fmt.Errorf("install substrate-podcert: %s", strings.TrimSpace(output))
 	}
 
@@ -235,9 +233,6 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 		}
 	}
 
-	if !skipDatabaseSetup {
-		helmConfig.values = append(helmConfig.values, "database.postgres.clientCertificate.enabled=true")
-	}
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmConfig.registry, helmConfig.version, redactedValues)
 	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, helmConfig.valuesFiles, helmConfig.inlineValues); err != nil {
 		return fmt.Errorf("install kagent: %s", strings.TrimSpace(output))
@@ -484,7 +479,7 @@ A database that kagent install did not deploy, such as one used with
 
 // substrateInstallValues configures per-template snapshot storage and grants the
 // controller access to Substrate. Explicit values files override defaults.
-func substrateInstallValues(namespace string) string {
+func substrateInstallValues(namespace, serviceAccount string) string {
 	return fmt.Sprintf(`preview:
   - PerTemplateSnapshotLocation
 ateApi:
@@ -495,5 +490,50 @@ credentialProvider:
   namespacePolicies:
     - atespace: %s
       allowedNamespaces: [%s]
-`, strconv.Quote("spiffe://cluster.local/ns/"+namespace+"/sa/kagent-controller"), strconv.Quote(namespace), strconv.Quote(namespace))
+`, strconv.Quote("spiffe://cluster.local/ns/"+namespace+"/sa/"+serviceAccount), strconv.Quote(namespace), strconv.Quote(namespace))
+}
+
+// controllerServiceAccount renders the same chart and overrides as the install so
+// bootstrap grants follow the chart's naming rules and operator-managed accounts.
+func controllerServiceAccount(ctx context.Context, namespace string, c helmConfig) (string, error) {
+	args := []string{"template", "kagent", c.registry + "kagent", "--version", c.version,
+		"--namespace", namespace, "--show-only", "templates/controller-deployment.yaml"}
+	args = append(args, helmValueArgs(c.values, c.valuesFiles, c.inlineValues)...)
+	cmd := exec.CommandContext(ctx, "helm", args...)
+	if c.inlineValues != "" {
+		cmd.Stdin = strings.NewReader(c.inlineValues)
+	}
+	manifest, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			return "", fmt.Errorf("render controller deployment: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return "", fmt.Errorf("render controller deployment: %w", err)
+	}
+	var deployment appsv1.Deployment
+	if err := yaml.Unmarshal(manifest, &deployment); err != nil {
+		return "", fmt.Errorf("decode controller deployment: %w", err)
+	}
+	if deployment.Kind != "Deployment" || deployment.Spec.Template.Spec.ServiceAccountName == "" {
+		return "", errors.New("rendered controller deployment has no service account")
+	}
+	return deployment.Spec.Template.Spec.ServiceAccountName, nil
+}
+
+// helmValueArgs keeps rendering and installation on the same values precedence.
+func helmValueArgs(values, valuesFiles []string, inlineValues string) []string {
+	var args []string
+	for _, value := range values {
+		if value != "" {
+			args = append(args, "--set", value)
+		}
+	}
+	if inlineValues != "" {
+		args = append(args, "-f", "-")
+	}
+	for _, file := range valuesFiles {
+		args = append(args, "-f", file)
+	}
+	return args
 }

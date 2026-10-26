@@ -232,7 +232,7 @@ func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
 	require.Equal(t, []string{"custom.yaml"}, config.valuesFiles)
 	require.Equal(t, "./charts/", config.registry)
 	require.Equal(t, "v1.2.3", config.version)
-	require.Equal(t, []string{"global.imageRegistry=mirror.example", "postgresClients[0]=demo/kagent-controller=kagent_owner_user", "postgresClients[1]=demo/kagent-controller=kagent_readwrite_user"}, podCertificateChartValues([]string{"rustfs.enabled=false", "global.imageRegistry=mirror.example"}, "demo", true))
+	require.Equal(t, []string{"global.imageRegistry=mirror.example", "postgresClients[0]=demo/kagent-controller=kagent_owner_user", "postgresClients[1]=demo/kagent-controller=kagent_readwrite_user"}, podCertificateChartValues([]string{"rustfs.enabled=false", "global.imageRegistry=mirror.example"}, "demo", "kagent-controller", true))
 }
 
 func TestInstallUsesSeparateSubstrateReleases(t *testing.T) {
@@ -242,7 +242,13 @@ func TestInstallUsesSeparateSubstrateReleases(t *testing.T) {
 
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "helm.log")
-	helm := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$KAGENT_TEST_HELM_LOG\"\n"
+	helm := `#!/bin/sh
+printf '%s\n' "$*" >> "$KAGENT_TEST_HELM_LOG"
+case "$*" in
+  template\ *) printf 'kind: Deployment\nspec: {template: {spec: {serviceAccountName: kagent-controller}}}\n' ;;
+esac
+cat >/dev/null
+`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "helm"), []byte(helm), 0o700))
 	kubectl := `#!/bin/sh
 case "$*" in
@@ -267,6 +273,7 @@ cat >/dev/null
 	commands, err := os.ReadFile(logPath)
 	require.NoError(t, err)
 	require.Equal(t, []string{
+		"template kagent ./kagent/kagent --version v1 --namespace kagent --show-only templates/controller-deployment.yaml --set database.postgres.clientCertificate.enabled=true -f -",
 		"upgrade --install kagent-crds ./kagent/kagent-crds --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
 		"upgrade --install substrate-crds ./substrate/substrate-crds --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
 		"upgrade --install substrate-podcert ./podcert/substrate-podcert --version v3 --namespace podcertificate-controller-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgresClients[0]=kagent/kagent-controller=kagent_owner_user --set postgresClients[1]=kagent/kagent-controller=kagent_readwrite_user",
@@ -310,12 +317,94 @@ func TestSubstrateInstallValues(t *testing.T) {
 					} `json:"namespacePolicies"`
 				} `json:"credentialProvider"`
 			}
-			require.NoError(t, yaml.Unmarshal([]byte(substrateInstallValues(namespace)), &values))
+			require.NoError(t, yaml.Unmarshal([]byte(substrateInstallValues(namespace, "kagent-controller")), &values))
 			require.Contains(t, values.Preview, "PerTemplateSnapshotLocation")
 			require.Equal(t, []string{"spiffe://cluster.local/ns/" + namespace + "/sa/kagent-controller"}, values.AteAPI.Authorization.BootstrapOwners)
 			require.Len(t, values.CredentialProvider.NamespacePolicies, 1)
 			require.Equal(t, namespace, values.CredentialProvider.NamespacePolicies[0].Atespace)
 			require.Equal(t, []string{namespace}, values.CredentialProvider.NamespacePolicies[0].AllowedNamespaces)
+		})
+	}
+}
+
+func TestControllerServiceAccount(t *testing.T) {
+	for _, tc := range []struct {
+		name, manifest, want, wantErr string
+	}{
+		{"default", "kind: Deployment\nspec: {template: {spec: {serviceAccountName: kagent-controller}}}", "kagent-controller", ""},
+		{"custom", "kind: Deployment\nspec: {template: {spec: {serviceAccountName: existing-controller}}}", "existing-controller", ""},
+		{"missing", "kind: Deployment", "", "no service account"},
+		{"malformed", "[", "", "decode controller deployment"},
+		{"render fails", "fail", "", "render controller deployment"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "helm"), []byte(`#!/bin/sh
+printf '%s\n' "$*" > "$KAGENT_TEST_ARGS"
+cat > "$KAGENT_TEST_VALUES"
+[ "$KAGENT_TEST_MANIFEST" = fail ] && exit 1
+printf '%s\n' "$KAGENT_TEST_MANIFEST"
+`), 0o700))
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("KAGENT_TEST_MANIFEST", tc.manifest)
+			t.Setenv("KAGENT_TEST_ARGS", filepath.Join(dir, "args"))
+			t.Setenv("KAGENT_TEST_VALUES", filepath.Join(dir, "values"))
+			c := helmConfig{registry: "./charts/", version: "v1", values: []string{"controller.replicas=1"}, valuesFiles: []string{"operator.yaml", "local.yaml"}, inlineValues: "controller:\n  serviceAccount: {create: false}\n"}
+			got, err := controllerServiceAccount(t.Context(), "team", c)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+			args, err := os.ReadFile(filepath.Join(dir, "args"))
+			require.NoError(t, err)
+			require.Equal(t, "template kagent ./charts/kagent --version v1 --namespace team --show-only templates/controller-deployment.yaml --set controller.replicas=1 -f - -f operator.yaml -f local.yaml\n", string(args))
+			values, err := os.ReadFile(filepath.Join(dir, "values"))
+			require.NoError(t, err)
+			require.Equal(t, c.inlineValues, string(values))
+		})
+	}
+}
+
+func TestInstallUsesCustomControllerServiceAccount(t *testing.T) {
+	originalPrepareSubstrate := prepareSubstrate
+	prepareSubstrate = func(context.Context, string) error { return nil }
+	t.Cleanup(func() { prepareSubstrate = originalPrepareSubstrate })
+	for _, skipDatabase := range []bool{false, true} {
+		t.Run(fmt.Sprintf("skip database=%t", skipDatabase), func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "helm"), []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$KAGENT_TEST_HELM_LOG"
+case "$*" in
+  template\ *) printf 'kind: Deployment\nspec: {template: {spec: {serviceAccountName: existing-controller}}}\n' ;;
+  "upgrade --install substrate "*) cat > "$KAGENT_TEST_SUBSTRATE_VALUES" ;;
+esac
+cat >/dev/null
+`), 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "kubectl"), []byte("#!/bin/sh\ncase \"$*\" in *port-forward*) exit 1 ;; esac\ncat >/dev/null\n"), 0o700))
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("KAGENT_TEST_HELM_LOG", filepath.Join(dir, "helm.log"))
+			t.Setenv("KAGENT_TEST_SUBSTRATE_VALUES", filepath.Join(dir, "substrate.yaml"))
+			valuesPath := filepath.Join(dir, "controller.yaml")
+			require.NoError(t, os.WriteFile(valuesPath, []byte("controller:\n  serviceAccount: {create: false, name: existing-controller}\n"), 0o600))
+			cfg := connection.DefaultOptions()
+			cfg.Namespace = "team"
+			err := install(t.Context(), &cfg, helmConfig{registry: "./charts/", version: "v1", valuesFiles: []string{valuesPath}}, helmConfig{registry: "./substrate/", version: "v2", valuesFiles: []string{"substrate-override.yaml"}}, helmConfig{registry: "./podcert/", version: "v3"}, "bedrock", skipDatabase, "postgres:18-alpine")
+			require.ErrorContains(t, err, "start port-forward")
+			values, err := os.ReadFile(filepath.Join(dir, "substrate.yaml"))
+			require.NoError(t, err)
+			require.Contains(t, string(values), "spiffe://cluster.local/ns/team/sa/existing-controller")
+			require.NotContains(t, string(values), "sa/kagent-controller")
+			commands, err := os.ReadFile(filepath.Join(dir, "helm.log"))
+			require.NoError(t, err)
+			if skipDatabase {
+				require.NotContains(t, string(commands), "postgresClients[")
+			} else {
+				require.Contains(t, string(commands), "postgresClients[0]=team/existing-controller=kagent_owner_user")
+				require.Contains(t, string(commands), "postgresClients[1]=team/existing-controller=kagent_readwrite_user")
+			}
+			require.Contains(t, string(commands), "-f - -f substrate-override.yaml")
 		})
 	}
 }
