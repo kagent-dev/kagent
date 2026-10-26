@@ -38,6 +38,14 @@ func TestCompileProviderCredentials(t *testing.T) {
 		wantErr     string
 	}{
 		{
+			name: "Actor JWT OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2", ActorJWT: &v1alpha3.ActorJWT{Audiences: []string{"model"}}, OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
+			provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
+		},
+		{
+			name: "Actor JWT Bedrock", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", ActorJWT: &v1alpha3.ActorJWT{Audiences: []string{"model"}}, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+			wantErr: "Bedrock requires AWS credentials and does not support actorJwt",
+		},
+		{
 			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
 			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
 		},
@@ -337,7 +345,7 @@ func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 
 func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+		URL: "https://mcp.example.com/mcp", TokenPassthrough: new(true),
 	}}
 	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
 	if want := "Codex does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {

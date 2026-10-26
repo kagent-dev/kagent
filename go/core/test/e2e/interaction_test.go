@@ -459,7 +459,7 @@ func TestMCPInteraction(t *testing.T) {
 		t.Parallel()
 		target := interactionTarget(t)
 		mcpURL, mcpServer := startMCPMock(t)
-		template, _ := createMCPInteractionTemplate(t, harness, mcpURL, false)
+		template, _ := createMCPInteractionTemplate(t, harness, mcpURL, false, nil)
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template)
 		_, _, task := fixture.send(t, "Add 3 and 5 using the configured MCP server.")
 		if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "result is 8") {
@@ -482,7 +482,7 @@ func TestMCPToolApproval(t *testing.T) {
 			t.Run(action, func(t *testing.T) {
 				target := interactionTarget(t)
 				mcpURL, mcpServer := startMCPMock(t)
-				template, toolName := createMCPInteractionTemplate(t, harness, mcpURL, true)
+				template, toolName := createMCPInteractionTemplate(t, harness, mcpURL, true, nil)
 				fixture := newInteractionFixtureForTemplate(t, harness, target, template)
 				const prompt = "Add 3 and 5 using the configured MCP server."
 				if action == "cancel" {
@@ -1158,7 +1158,7 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 	return template
 }
 
-func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL string, requireApproval bool) (string, string) {
+func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL string, requireApproval bool, actorJWT *v1alpha3.ActorJWT) (string, string) {
 	t.Helper()
 	kube := interactionKubeClient(t)
 	server := &v1alpha3.RemoteMCPServer{
@@ -1167,6 +1167,7 @@ func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL stri
 			Description: "MCP interaction E2E fixture",
 			Protocol:    v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 			URL:         mcpURL,
+			ActorJWT:    actorJWT,
 		},
 	}
 	if err := kube.Create(t.Context(), server); err != nil {
@@ -1423,6 +1424,7 @@ type modelRecorder struct {
 }
 
 type recordedModelRequest struct {
+	Method string
 	Header http.Header
 	Body   []byte
 }
@@ -1443,7 +1445,7 @@ func startModelRecorder(t *testing.T, upstream http.Handler, inspect func(body [
 		}
 		_ = r.Body.Close()
 		recorder.mu.Lock()
-		recorder.requests = append(recorder.requests, recordedModelRequest{Header: r.Header.Clone(), Body: body})
+		recorder.requests = append(recorder.requests, recordedModelRequest{Method: r.Method, Header: r.Header.Clone(), Body: body})
 		recorder.mu.Unlock()
 		if inspect != nil {
 			if err := inspect(body); err != nil {

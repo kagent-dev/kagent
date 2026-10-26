@@ -41,8 +41,8 @@ func TestEgressPolicyCredentialDelivery(t *testing.T) {
 		ref := corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}
 		var refs []corev1.LocalObjectReference
 		for _, authentication := range []*v1alpha3.EgressAuthentication{
-			{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: ref},
-			{Header: "X-API-Key", SecretKeyRef: ref},
+			{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: &ref},
+			{Header: "X-API-Key", SecretKeyRef: &ref},
 		} {
 			policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-header-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: destination, Authentication: authentication}}}}
 			require.NoError(t, kube.Create(t.Context(), policy))

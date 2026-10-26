@@ -13,6 +13,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
@@ -353,7 +354,7 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 			// ignoring the operator's host. That over-allowed egress: with a
 			// host set the request goes to that host, so api.ollama.com never
 			// needs to be reachable.
-			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.TokenPassthrough
+			hasCredential := modelConfig.Spec.APIKeySecret != "" || ptr.Deref(modelConfig.Spec.TokenPassthrough, false) || modelConfig.Spec.ActorJWT != nil
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
 				destinations = append(destinations, "https://api.ollama.com:443")
 			}

@@ -50,6 +50,38 @@ spec:
           spec:
             description: ModelConfigSpec defines the desired state of ModelConfig.
             properties:
+              actorJwt:
+                description: |-
+                  ActorJWT authenticates as the executing Actor through the provider's credential header.
+                  Substrate mints and injects the token at the egress gateway.
+                properties:
+                  audiences:
+                    description: |-
+                      Audiences names the services permitted to accept this token. The runtime
+                      control-plane audience is reserved and cannot be exported downstream.
+                    items:
+                      maxLength: 512
+                      minLength: 1
+                      type: string
+                    maxItems: 16
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                    x-kubernetes-validations:
+                    - message: the runtime control-plane audience is reserved
+                      rule: '!self.exists(a, a == ''kagent-runtime'')'
+                  expirationSeconds:
+                    default: 900
+                    description: |-
+                      ExpirationSeconds requests a token lifetime. Substrate refreshes tokens at
+                      the gateway independently of the invocation caller's token lifetime.
+                    format: int64
+                    maximum: 3600
+                    minimum: 300
+                    type: integer
+                required:
+                - audiences
+                type: object
               anthropic:
                 description: Anthropic-specific configuration
                 properties:
@@ -627,13 +659,20 @@ spec:
                 for Bedrock and SAPAICore providers)
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
                 != ''Bedrock'' && self.provider != ''SAPAICore'')'
-            - message: tokenPassthrough and apiKeySecret are mutually exclusive
-              rule: '!(has(self.tokenPassthrough) && self.tokenPassthrough && has(self.apiKeySecret)
-                && size(self.apiKeySecret) > 0)'
             - message: tokenPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI
               rule: '!(has(self.tokenPassthrough) && self.tokenPassthrough && (self.provider
                 == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
                 == ''AnthropicVertexAI''))'
+            - message: Bedrock requires AWS credentials and does not support actorJwt
+              rule: '!has(self.actorJwt) || self.provider != ''Bedrock'''
+            - message: actorJwt requires a provider with a configurable endpoint and
+                header credentials
+              rule: '!has(self.actorJwt) || !(self.provider in [''Gemini'', ''Ollama'',
+                ''GeminiVertexAI'', ''AnthropicVertexAI'', ''SAPAICore''])'
+            - message: at most one of the fields in [actorJwt apiKeySecret tokenPassthrough]
+                may be set
+              rule: (has(self.actorJwt)?1:0)+(has(self.apiKeySecret)?1:0)+(has(self.tokenPassthrough)?1:0)
+                <= 1
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

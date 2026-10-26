@@ -72,6 +72,8 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 
+	t.Run("Actor JWT credentials", func(t *testing.T) { testActorJWTValidation(t, cl, namespace) })
+
 	t.Run("MCP timeout bounds", func(t *testing.T) {
 		for _, field := range []string{"timeout", "sseReadTimeout"} {
 			for _, value := range []time.Duration{-time.Second, 0, 250 * time.Millisecond, 9223372036 * time.Second, 9223372036*time.Second + 1} {
@@ -107,7 +109,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				server := &RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-passthrough-", Namespace: namespace},
-					Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com", TokenPassthrough: test.passthrough}}
+					Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com", TokenPassthrough: new(test.passthrough)}}
 				if test.header != "" {
 					server.Spec.HeadersFrom = []ValueRef{{Name: test.header, Value: "value"}}
 				}

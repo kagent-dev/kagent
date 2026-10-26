@@ -148,3 +148,23 @@ func TestActorPolicyInjectsRuntimeJWTOnlyAtControlPlane(t *testing.T) {
 	}, controlPlane)
 	require.Error(t, err, "a credential binding must not override runtime identity")
 }
+
+func TestActorJWTHeaderUsesGatewayMinting(t *testing.T) {
+	for _, origin := range []string{"http://mcp.example.com:80", "https://mcp.example.com:443"} {
+		t.Run(origin, func(t *testing.T) {
+			credential := egress.Credential{Origin: origin, Header: "Authorization", Prefix: "Bearer ", ActorJWT: &egress.ActorJWT{Audiences: []string{"mcp"}, ExpirationSeconds: 900}}
+			policy, err := ActorEgressPolicy("team", []string{testControlPlaneURL, origin}, []egress.Credential{credential}, testControlPlaneURL)
+			require.NoError(t, err)
+			headers, err := policyHeaders(policy)
+			require.NoError(t, err)
+			outbound := headers[origin+"\x00authorization"]
+			require.NotNil(t, outbound)
+			require.Equal(t, []string{"mcp"}, outbound.ActorJwt.Audiences)
+			require.EqualValues(t, 900, outbound.ActorJwt.ExpirationSeconds)
+			require.Empty(t, outbound.CredentialUri)
+			require.Equal(t, "Bearer ", outbound.Prefix)
+			internal := headers[testControlPlaneURL+"\x00authorization"]
+			require.Equal(t, []string{runtimeJWTAudience}, internal.ActorJwt.Audiences)
+		})
+	}
+}

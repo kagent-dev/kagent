@@ -87,3 +87,9 @@ export function parseRef(ref: ResourceRef): { namespace: string; name: string } 
 export function toRef(namespace: string | undefined, name: string): ResourceRef {
   return namespace ? `${namespace}/${name}` : name;
 }
+
+/** Gateway-minted credential for the executing Actor. */
+export interface ActorJWT {
+  audiences: string[];
+  expirationSeconds?: number;
+}

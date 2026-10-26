@@ -17,7 +17,7 @@ import (
 func egressPolicy() (*v1alpha3.EgressPolicy, *corev1.Secret) {
 	return &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "tickets"}, Spec: v1alpha3.EgressPolicySpec{
 		Destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &v1alpha3.EgressAuthentication{
-			Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ticket-auth"}, Key: "token"},
+			Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ticket-auth"}, Key: "token"},
 		}}},
 	}}, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "ticket-auth"}, Data: map[string][]byte{"token": []byte("private-ticket-token")}}
 }
@@ -148,7 +148,7 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 				return
 			}
 			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "", ""
-			model.Spec.TokenPassthrough = true
+			model.Spec.TokenPassthrough = new(true)
 			_, err = compiler(t, model, harness, policy, secret).CompileAgent(t.Context(), agent)
 			require.NoError(t, err)
 		})

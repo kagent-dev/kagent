@@ -72,7 +72,7 @@ func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 }
 
 func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true})
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: new(true)})
 	_, bindings, _, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, bindings)
@@ -127,7 +127,7 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 			name: "cloud model with passthrough binds the cloud",
 			spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				TokenPassthrough: true, Ollama: &v1alpha3.OllamaConfig{},
+				TokenPassthrough: new(true), Ollama: &v1alpha3.OllamaConfig{},
 			},
 			wantName:     "OLLAMA_API_KEY",
 			wantEndpoint: "https://api.ollama.com",
@@ -176,7 +176,7 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 }
 
 func TestPassthroughCredentialUsesCanonicalOrigin(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: new(true), OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
 	environment, credentials, targets, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, environment)
@@ -186,7 +186,7 @@ func TestPassthroughCredentialUsesCanonicalOrigin(t *testing.T) {
 
 func TestCompileCredentialsMCPTokenPassthrough(t *testing.T) {
 	passthrough := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+		URL: "https://mcp.example.com/mcp", TokenPassthrough: new(true),
 	}}
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
 	input.Root.MCPTools = []ResolvedMCPTool{{Server: passthrough}}
@@ -209,12 +209,12 @@ func TestCompileCredentialsMCPTokenPassthrough(t *testing.T) {
 
 func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 	server := func(name, url string, passthrough bool) ResolvedMCPTool {
-		return ResolvedMCPTool{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: url, TokenPassthrough: passthrough}}}
+		return ResolvedMCPTool{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: url, TokenPassthrough: new(passthrough)}}}
 	}
 	model := func(spec v1alpha3.ModelConfigSpec) *ResolvedModelConfig {
 		return credentialInput(spec).Root.ResolvedModelConfig
 	}
-	passthroughOpenAI := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true}
+	passthroughOpenAI := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: new(true)}
 	for _, test := range []struct {
 		name        string
 		spec        v1alpha3.ModelConfigSpec
@@ -232,24 +232,24 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 			},
 		},
 		{
-			name: "auxiliary model", extra: []*ResolvedModelConfig{model(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderMistral, TokenPassthrough: true})},
+			name: "auxiliary model", extra: []*ResolvedModelConfig{model(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderMistral, TokenPassthrough: new(true)})},
 			want: []egresspolicy.GatewayTarget{{Origin: "https://api.mistral.ai:443", Header: "authorization", Prefix: "Bearer "}},
 		},
 		{
-			name: "Bedrock", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, TokenPassthrough: true, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+			name: "Bedrock", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, TokenPassthrough: new(true), Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
 			want: []egresspolicy.GatewayTarget{{Origin: "https://bedrock-runtime.us-east-1.amazonaws.com:443", Header: "authorization", Prefix: "Bearer "}},
 		},
 		{
 			name: "Secret header on the passthrough origin",
 			tools: []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
-				URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+				URL: "https://mcp.example.com/mcp", TokenPassthrough: new(true),
 				HeadersFrom: []v1alpha3.ValueRef{{Name: "X-Tenant-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "mcp", Key: "token"}}},
 			}}}},
 			environment: []corev1.EnvVar{credentialEnv("KAGENT_CREDENTIAL_TENANT", "mcp", "token")},
 			wantErr:     "cannot combine caller-token passthrough",
 		},
 		{name: "HTTP origin", tools: []ResolvedMCPTool{server("user", "http://mcp.example.com/mcp", true)}, want: []egresspolicy.GatewayTarget{{Origin: "http://mcp.example.com:80", Header: "authorization", Prefix: "Bearer "}}},
-		{name: "no gateway target", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderSAPAICore, TokenPassthrough: true, SAPAICore: &v1alpha3.SAPAICoreConfig{BaseURL: "https://sap.example.com"}}, wantErr: "has no credential target"},
+		{name: "no gateway target", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderSAPAICore, TokenPassthrough: new(true), SAPAICore: &v1alpha3.SAPAICoreConfig{BaseURL: "https://sap.example.com"}}, wantErr: "has no credential target"},
 		{
 			name: "MCP without passthrough", tools: []ResolvedMCPTool{server("user", "https://mcp.example.com/mcp", true), server("shared", "https://mcp.example.com/other", false)},
 			wantErr: "mixes tokenPassthrough",
@@ -280,13 +280,13 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 			want: []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}},
 		},
 		{
-			name: "explicit target header", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true, DefaultHeaders: map[string]string{"Authorization": "Bearer static"}},
+			name: "explicit target header", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: new(true), DefaultHeaders: map[string]string{"Authorization": "Bearer static"}},
 			wantErr: "explicit \"authorization\" header",
 		},
 		{
-			name: "explicit header on another client", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, TokenPassthrough: true, Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://same.example.com"}},
+			name: "explicit header on another client", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, TokenPassthrough: new(true), Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://same.example.com"}},
 			tools: []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
-				URL: "https://SAME.example.com.:0443/mcp", TokenPassthrough: true, HeadersFrom: []v1alpha3.ValueRef{{Name: "X-API-Key", Value: "static"}},
+				URL: "https://SAME.example.com.:0443/mcp", TokenPassthrough: new(true), HeadersFrom: []v1alpha3.ValueRef{{Name: "X-API-Key", Value: "static"}},
 			}}}},
 			wantErr: "explicit \"x-api-key\" header",
 		},

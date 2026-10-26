@@ -120,6 +120,62 @@ This covers Go ADK MCP servers and models, OpenAI, Azure and Foundry memory
 embeddings, and Python OpenAI and Anthropic models. Python MCP, Claude and
 Codex still do not support passthrough.
 
+## Actor JWT authentication
+
+`ModelConfig.spec.actorJwt` and `RemoteMCPServer.spec.actorJwt` select the
+executing Actor's identity independently of the invocation caller:
+
+```yaml
+actorJwt:
+  audiences: [my-service]
+  expirationSeconds: 900
+```
+
+Substrate mints, injects, and refreshes this token at the gateway. The runtime
+only receives an inert SDK placeholder. Models use their provider's existing
+credential header from the table above; MCP uses `Authorization: Bearer`.
+The destination must trust Substrate's issuer and validate its own audience.
+This option supports providers with configurable endpoints and header credentials.
+Bedrock and Gemini use fixed AWS and Google endpoints, and Ollama's credential
+path only targets its hosted service. These providers reject `actorJwt`; Kagent
+does not exchange Actor JWTs for their credentials. Vertex and SAP OAuth
+authentication are also unsupported.
+
+The option is mutually exclusive with `tokenPassthrough` and model API-key
+Secrets. Omit unused credential fields: `tokenPassthrough: false` still counts
+as a set field for this union. MCP `headersFrom` may still supply other headers,
+but cannot supply `Authorization`. Model `defaultHeaders` cannot override the
+credential header.
+Global MCP discovery is disabled automatically for Actor authentication;
+the executing runtime discovers tools using its own identity. Control-plane
+MCP calls cannot authenticate as an Actor.
+These servers publish no global tool catalog, so their tools do not appear in
+the UI tool picker; agents discover them at runtime.
+
+EgressPolicy uses the same token settings as an alternative to `secretKeyRef`:
+
+```yaml
+spec:
+  destinations:
+    - origin: https://my-service.example.com
+      authentication:
+        header: Authorization
+        prefix: "Bearer "
+        actorJwt:
+          audiences: [my-service]
+          expirationSeconds: 900
+```
+
+EgressPolicy retains its explicit header and prefix. A client must send that
+header for the gateway to replace it; arbitrary tools and BYO clients supply
+their own placeholder. Managed model and MCP compilers set it automatically.
+
+Audiences contain 1–16 unique, nonempty values. The `kagent-runtime` audience is
+reserved for internal control-plane calls and cannot be exported. Lifetimes
+range from 300 to 3600 seconds and default to 900 seconds. Actor JWT settings
+follow the same grant lifetimes as Secret credentials: model and MCP bindings
+are pinned in revisions, while EgressPolicy bindings update existing Actors.
+
 ## Deferred API fields
 
 The source retains commented declarations for Harness and SandboxTemplate
