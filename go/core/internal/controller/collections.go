@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"slices"
 
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
@@ -30,7 +30,7 @@ type Collections struct {
 	RemoteMCPServers         krt.Collection[*kagentv1alpha3.RemoteMCPServer]
 	ConfigMaps               krt.Collection[*corev1.ConfigMap]
 	Secrets                  krt.Collection[*corev1.Secret]
-	WorkerPools              krt.Collection[*atev1alpha1.WorkerPool]
+	WorkerPools              krt.Collection[*atev1.WorkerPool]
 	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
 	Reconciliations          krt.Collection[AgentReconciliation]
 	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
@@ -75,7 +75,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	remoteMCPServers := typedCollection[*kagentv1alpha3.RemoteMCPServer](client, watchNamespaces, "RemoteMCPServers", opts)
 	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
-	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
+	workerPools := typedCollection[*atev1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	agentRuntimeObservations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := translator.Collections{

@@ -17,6 +17,7 @@ def test_shared_go_runtime_contract():
     assert cfg.builtin_tools.bash_venv_path == "/opt/venv"
     assert cfg.builtin_tools.disable_file_search is False
     assert cfg.builtin_tools.disable_bash is True
+    assert cfg.builtin_tools.disable_ask_user is True
     assert cfg.telemetry.capture_content is False
     assert cfg.telemetry.traces.timeout.ToMilliseconds() == 1500
     assert KAgentConfig(runtime=cfg).api_url == "http://controller:8083"
@@ -27,6 +28,7 @@ def test_runtime_defaults():
     assert not cfg.HasField("max_content_length")
     assert not cfg.builtin_tools.disable_file_search
     assert not cfg.builtin_tools.disable_bash
+    assert not cfg.builtin_tools.disable_ask_user
     assert not cfg.HasField("telemetry")
 
 

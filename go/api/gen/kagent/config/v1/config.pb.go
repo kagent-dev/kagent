@@ -1884,14 +1884,16 @@ func (x *RuntimeDefaultsConfig) GetMemory() string {
 	return ""
 }
 
-// BuiltinToolsConfig configures the built-in filesystem and shell tools, independently of skills.
+// BuiltinToolsConfig configures built-in tools independently of skills.
 type BuiltinToolsConfig struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	DisableFileSearch bool                   `protobuf:"varint,1,opt,name=disable_file_search,json=disableFileSearch,proto3" json:"disable_file_search,omitempty"`
 	BashVenvPath      string                 `protobuf:"bytes,2,opt,name=bash_venv_path,json=bashVenvPath,proto3" json:"bash_venv_path,omitempty"`
 	DisableBash       bool                   `protobuf:"varint,3,opt,name=disable_bash,json=disableBash,proto3" json:"disable_bash,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Omitted or false keeps the built-in question tool enabled.
+	DisableAskUser bool `protobuf:"varint,4,opt,name=disable_ask_user,json=disableAskUser,proto3" json:"disable_ask_user,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *BuiltinToolsConfig) Reset() {
@@ -1941,6 +1943,13 @@ func (x *BuiltinToolsConfig) GetBashVenvPath() string {
 func (x *BuiltinToolsConfig) GetDisableBash() bool {
 	if x != nil {
 		return x.DisableBash
+	}
+	return false
+}
+
+func (x *BuiltinToolsConfig) GetDisableAskUser() bool {
+	if x != nil {
+		return x.DisableAskUser
 	}
 	return false
 }
@@ -2236,11 +2245,12 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\f_gateway_urlB\x15\n" +
 	"\x13_max_content_lengthB\x06\n" +
 	"\x04_cpuB\t\n" +
-	"\a_memory\"\x8d\x01\n" +
+	"\a_memory\"\xb7\x01\n" +
 	"\x12BuiltinToolsConfig\x12.\n" +
 	"\x13disable_file_search\x18\x01 \x01(\bR\x11disableFileSearch\x12$\n" +
 	"\x0ebash_venv_path\x18\x02 \x01(\tR\fbashVenvPath\x12!\n" +
-	"\fdisable_bash\x18\x03 \x01(\bR\vdisableBash\"\x8e\x02\n" +
+	"\fdisable_bash\x18\x03 \x01(\bR\vdisableBash\x12(\n" +
+	"\x10disable_ask_user\x18\x04 \x01(\bR\x0edisableAskUser\"\x8e\x02\n" +
 	"\x16TokenPropagationConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12M\n" +
 	"\x12sts_well_known_uri\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fstsWellKnownUri\x88\x01\x01\x129\n" +

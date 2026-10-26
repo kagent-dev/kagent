@@ -482,10 +482,12 @@ A database that kagent install did not deploy, such as one used with
 	}
 }
 
-// substrateInstallValues grants the default controller's pod-certificate identity
-// access to the Substrate control plane. Explicit values files override defaults.
+// substrateInstallValues configures per-template snapshot storage and grants the
+// controller access to Substrate. Explicit values files override defaults.
 func substrateInstallValues(namespace string) string {
-	return fmt.Sprintf(`ateApi:
+	return fmt.Sprintf(`preview:
+  - PerTemplateSnapshotLocation
+ateApi:
   authorization:
     bootstrapOwners:
       - %s

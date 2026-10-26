@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -33,16 +33,16 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("corev1.AddToScheme() error = %v", err)
 	}
-	if err := atev1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("atev1alpha1.AddToScheme() error = %v", err)
+	if err := atev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("atev1.AddToScheme() error = %v", err)
 	}
-	workerPool := &atev1alpha1.WorkerPool{
+	workerPool := &atev1.WorkerPool{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "alpha", Name: "pool", Labels: map[string]string{"team": "agents"}},
-		Spec: atev1alpha1.WorkerPoolSpec{
+		Spec: atev1.WorkerPoolSpec{
 			Replicas: 2, WorkerImage: "ateom:test",
-			Template: &atev1alpha1.WorkerPoolPodTemplate{NodeSelector: map[string]string{"disk": "ssd"}},
+			Template: &atev1.WorkerPoolPodTemplate{NodeSelector: map[string]string{"disk": "ssd"}},
 		},
-		Status: atev1alpha1.WorkerPoolStatus{Replicas: 2, ReadyReplicas: 1},
+		Status: atev1.WorkerPoolStatus{Replicas: 2, ReadyReplicas: 1},
 	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		workerPool,
@@ -115,8 +115,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	for _, pool := range summary.GetWorkerPools() {
 		assert.Equal(t, "alpha", pool.GetRef().GetNamespace())
 		assert.Equal(t, "pool", pool.GetRef().GetName())
-		assert.Equal(t, atev1alpha1.GroupVersion.String(), pool.GetResource().GetApiVersion())
-		var decoded atev1alpha1.WorkerPool
+		assert.Equal(t, atev1.GroupVersion.String(), pool.GetResource().GetApiVersion())
+		var decoded atev1.WorkerPool
 		require.NoError(t, structuredobject.ToGo(pool.GetResource(), "WorkerPool", &decoded, DefaultMaxMessageSize))
 		assert.Equal(t, workerPool.Labels, decoded.Labels)
 		assert.Equal(t, workerPool.Name, decoded.Name)

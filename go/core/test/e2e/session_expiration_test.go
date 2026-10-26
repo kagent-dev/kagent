@@ -91,6 +91,19 @@ func TestSessionIdleExpiration(t *testing.T) {
 
 func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) {
 	t.Helper()
+	idle, err := time.ParseDuration(ttl)
+	require.NoError(t, err)
+	poll, err := time.ParseDuration(pollInterval)
+	require.NoError(t, err)
+	updateControllerConfig(t, target, func(cfg *configv1.ControllerConfig) {
+		cfg.Sessions.IdleTtl = durationpb.New(idle)
+		cfg.Sessions.ExpirationInterval = durationpb.New(poll)
+	})
+}
+
+// Keep callers sequential and use a stable endpoint across controller rollouts.
+func updateControllerConfig(t *testing.T, target string, update func(*configv1.ControllerConfig)) {
+	t.Helper()
 	kube := interactionKubeClient(t)
 	deployments := &appsv1.DeploymentList{}
 	require.NoError(t, kube.List(t.Context(), deployments, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
@@ -110,12 +123,7 @@ func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) 
 	cfg := &configv1.ControllerConfig{}
 	require.NoError(t, configloader.Decode([]byte(original), cfg))
 	configloader.DefaultController(cfg)
-	idle, err := time.ParseDuration(ttl)
-	require.NoError(t, err)
-	poll, err := time.ParseDuration(pollInterval)
-	require.NoError(t, err)
-	cfg.Sessions.IdleTtl = durationpb.New(idle)
-	cfg.Sessions.ExpirationInterval = durationpb.New(poll)
+	update(cfg)
 	require.NoError(t, configloader.Validate(cfg))
 	updated, err := protojson.Marshal(cfg)
 	require.NoError(t, err)

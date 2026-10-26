@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -32,28 +34,30 @@ func (a serviceTestAuthorizer) Check(context.Context, auth.Principal, auth.Verb,
 }
 
 type serviceTestStore struct {
-	createInput  *apiv1.Session
-	requestID    string
-	createErr    error
-	sessions     []*apiv1.Session
-	listQuery    database.SessionQuery
-	listCalls    int
-	share        *apiv1.SessionShare
-	tokenHash    []byte
-	shares       []*apiv1.SessionShare
-	shareAfterID string
-	shareLimit   int
-	renamed      *apiv1.Session
-	renameName   string
-	renameUserID string
-	renameErr    error
-	getCreator   string
-	getID        string
-	unscoped     bool
-	getErr       error
-	getResult    *apiv1.Session
-	shareUserID  string
-	shareErr     error
+	createInput    *apiv1.Session
+	requestID      string
+	createErr      error
+	sessions       []*apiv1.Session
+	listQuery      database.SessionQuery
+	listCalls      int
+	share          *apiv1.SessionShare
+	tokenHash      []byte
+	shares         []*apiv1.SessionShare
+	shareAfterID   string
+	shareSessionID string
+	deletedShareID string
+	shareLimit     int
+	renamed        *apiv1.Session
+	renameName     string
+	renameUserID   string
+	renameErr      error
+	getCreator     string
+	getID          string
+	unscoped       bool
+	getErr         error
+	getResult      *apiv1.Session
+	shareUserID    string
+	shareErr       error
 }
 
 func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1.Session, requestID string) (*apiv1.Session, bool, error) {
@@ -109,12 +113,13 @@ func (s *serviceTestStore) CreateSessionShare(_ context.Context, share *apiv1.Se
 	return s.share, s.shareErr
 }
 
-func (s *serviceTestStore) ListSessionShares(_ context.Context, _, _, afterID string, limit int) ([]*apiv1.SessionShare, error) {
-	s.shareAfterID, s.shareLimit = afterID, limit
+func (s *serviceTestStore) ListSessionShares(_ context.Context, sessionID, _, afterID string, limit int) ([]*apiv1.SessionShare, error) {
+	s.shareSessionID, s.shareAfterID, s.shareLimit = sessionID, afterID, limit
 	return s.shares, nil
 }
 
-func (*serviceTestStore) DeleteSessionShare(context.Context, string, string) error {
+func (s *serviceTestStore) DeleteSessionShare(_ context.Context, id, _ string) error {
+	s.deletedShareID = id
 	return nil
 }
 
@@ -436,15 +441,20 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 }
 
 type recordingAuthorizer struct {
-	verb      auth.Verb
-	resource  auth.Resource
-	principal auth.Principal
-	denied    map[string]bool
+	verb        auth.Verb
+	resource    auth.Resource
+	principal   auth.Principal
+	denied      map[string]bool
+	deniedTypes map[string]bool
+	resources   []auth.Resource
+	verbs       []auth.Verb
 }
 
 func (a *recordingAuthorizer) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
 	a.verb, a.resource, a.principal = verb, resource, principal
-	if a.denied[resource.Name] {
+	a.resources = append(a.resources, resource)
+	a.verbs = append(a.verbs, verb)
+	if a.denied[resource.Name] || a.deniedTypes[resource.Type] {
 		return errors.New("denied")
 	}
 	return nil
@@ -490,9 +500,10 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 		{name: "denied owner", ctx: serviceTestContext("alice"), denied: true, code: serviceerrors.CodePermissionDenied},
 		{name: "unauthenticated", ctx: context.Background(), code: serviceerrors.CodeUnauthenticated},
 		{name: "empty caller ID stays scoped", ctx: serviceTestContext("")},
-		{name: "matching share", ctx: serviceTestContext("visitor"), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, denied: true, owner: "owner"},
+		{name: "matching share", ctx: serviceTestContext("visitor"), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, owner: "owner"},
+		{name: "matching share denied by policy", ctx: serviceTestContext("visitor"), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, denied: true, code: serviceerrors.CodePermissionDenied},
 		{name: "share without authentication", ctx: context.Background(), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, code: serviceerrors.CodeUnauthenticated},
-		{name: "unrelated share uses caller", ctx: serviceTestContext("alice"), share: &auth.ShareContext{SessionID: uuid.NewString(), UserID: "owner"}, owner: "alice"},
+		{name: "unrelated share denies permitted caller", ctx: serviceTestContext("alice"), share: &auth.ShareContext{SessionID: uuid.NewString(), UserID: "owner"}, code: serviceerrors.CodePermissionDenied},
 		{name: "unrelated share grants no access", ctx: serviceTestContext("visitor"), share: &auth.ShareContext{SessionID: uuid.NewString(), UserID: "owner"}, denied: true, code: serviceerrors.CodePermissionDenied},
 		{name: "controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), unscoped: true},
 		{name: "denied controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), denied: true, code: serviceerrors.CodePermissionDenied},
@@ -518,11 +529,9 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 			if err != nil || result != stored || store.getCreator != test.owner || store.unscoped != test.unscoped {
 				t.Fatalf("Get() = %v, owner = %q, unscoped = %v", err, store.getCreator, store.unscoped)
 			}
-			if test.share == nil || !test.share.IsForSession(id) {
-				caller, _ := auth.AuthSessionFrom(ctx)
-				if authorizer.verb != auth.VerbGet || authorizer.resource.Type != "Session" || authorizer.resource.Name != id || authorizer.principal.User.ID != caller.Principal().User.ID {
-					t.Fatalf("unexpected authorization: %+v", authorizer)
-				}
+			caller, _ := auth.AuthSessionFrom(ctx)
+			if authorizer.verb != auth.VerbGet || authorizer.resource.Type != "Session" || authorizer.resource.Name != id || authorizer.principal.User.ID != caller.Principal().User.ID {
+				t.Fatalf("unexpected authorization: %+v", authorizer)
 			}
 		})
 	}
@@ -567,6 +576,8 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		{name: "resume", call: func() error { _, err := service.Resume(ctx, id); return err }},
 		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},
 		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
+		{name: "share listing", call: func() error { _, err := service.ListShares(ctx, id, 0, ""); return err }},
+		{name: "share revocation", call: func() error { return service.RevokeShare(ctx, id) }},
 		{name: "share creation", call: func() error {
 			_, _, err := service.CreateShare(ctx, id, 0)
 			return err
@@ -625,7 +636,7 @@ func TestServiceSharedListCannotBroadenAccess(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			stored := &apiv1.Session{Id: id, Agent: agent}
 			store := &serviceTestStore{getResult: stored}
-			service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, nil)
+			service := NewService(store, serviceTestAuthorizer{}, nil)
 			result, err := service.List(ctx, test.request)
 			if err != nil || len(result.Sessions) != test.count || result.NextPageToken != "" {
 				t.Fatalf("List() = %+v, %v", result, err)
@@ -684,5 +695,148 @@ func TestServiceListAuthorizesBeforePagination(t *testing.T) {
 				t.Fatal("listing reread each Session instead of authorizing its stored record")
 			}
 		})
+	}
+}
+
+func TestServiceCreateRequiresTargetAgentBeforeReservation(t *testing.T) {
+	for _, deniedType := range []string{"Session", "Agent", ""} {
+		t.Run("denied="+deniedType, func(t *testing.T) {
+			store := &serviceTestStore{}
+			authorizer := &recordingAuthorizer{deniedTypes: map[string]bool{deniedType: true}}
+			service := NewService(store, authorizer, serviceTestWorkflow{})
+			agent := &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}
+			_, err := service.Create(serviceTestContext("alice"), agent, "request-1", "")
+			if deniedType != "" {
+				if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || store.createInput != nil {
+					t.Fatalf("Create() = %v, reserved = %v", err, store.createInput)
+				}
+			} else if err != nil || store.createInput == nil {
+				t.Fatalf("Create() = %v, reserved = %v", err, store.createInput)
+			}
+			if deniedType != "Session" {
+				want := auth.Resource{Type: "Agent", Namespace: agent.Namespace, Name: agent.Name}
+				if authorizer.resource != want || authorizer.verb != auth.VerbGet || authorizer.principal.User.ID != "alice" {
+					t.Fatalf("unexpected target authorization: %+v", authorizer)
+				}
+			}
+		})
+	}
+}
+
+func TestServiceListRequiresIndependentCategoryPermissions(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		allCreators bool
+		deniedType  string
+		wantDenied  bool
+	}{
+		{name: "owned list denied", deniedType: "Session", wantDenied: true},
+		{name: "owned list needs no broad grant", deniedType: "SessionAllCreators"},
+		{name: "broad list needs Session", allCreators: true, deniedType: "Session", wantDenied: true},
+		{name: "broad list needs separate grant", allCreators: true, deniedType: "SessionAllCreators", wantDenied: true},
+		{name: "broad list permitted", allCreators: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &serviceTestStore{}
+			authorizer := &recordingAuthorizer{deniedTypes: map[string]bool{test.deniedType: true}}
+			service := NewService(store, authorizer, nil)
+			_, err := service.List(serviceTestContext("alice"), ListRequest{AllCreators: test.allCreators})
+			if test.wantDenied {
+				if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || store.listCalls != 0 {
+					t.Fatalf("List() = %v, storage calls = %d", err, store.listCalls)
+				}
+			} else if err != nil || store.listCalls != 1 || store.listQuery.UserID != "alice" || store.listQuery.AllUsers != test.allCreators {
+				t.Fatalf("List() = %v, query = %+v", err, store.listQuery)
+			}
+			for i, resource := range authorizer.resources {
+				if resource.Name != "" || resource.Namespace != "" || authorizer.verbs[i] != auth.VerbList {
+					t.Fatalf("collection check = %s %+v", authorizer.verbs[i], resource)
+				}
+			}
+		})
+	}
+}
+
+type sessionCreateNamespacePolicy struct{ namespace string }
+
+func (s sessionCreateNamespacePolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if verb == auth.VerbCreate && resource.Type == "Session" && (resource.Namespace != s.namespace || resource.Name != "" || principal.User.ID != "alice") {
+		return errors.New("Session creation denied in target namespace")
+	}
+	return nil
+}
+
+func TestSessionCreateUsesTargetNamespace(t *testing.T) {
+	for _, namespace := range []string{"team-a", "team-b"} {
+		t.Run(namespace, func(t *testing.T) {
+			store := &serviceTestStore{}
+			svc := NewService(store, sessionCreateNamespacePolicy{namespace: "team-a"}, serviceTestWorkflow{})
+			created, err := svc.Create(serviceTestContext("alice"), &apiv1.ResourceReference{Namespace: namespace, Name: "assistant"}, "request", "")
+			if namespace == "team-a" {
+				if err != nil || created.GetAgent().GetNamespace() != namespace || created.GetCreator() != "alice" {
+					t.Fatalf("create = %+v, error = %v", created, err)
+				}
+			} else if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || store.createInput != nil {
+				t.Fatalf("denied create = %+v, error = %v, persisted = %+v", created, err, store.createInput)
+			}
+		})
+	}
+}
+
+func TestServiceCanonicalizesSessionAndShareIdentities(t *testing.T) {
+	const id = "018f47a2-4efb-7c21-a848-abcdefabcdef"
+	for _, operation := range []struct {
+		name         string
+		verb         auth.Verb
+		resourceName string
+		call         func(*Service, string) error
+		storedID     func(*serviceTestStore) string
+	}{
+		{"rename", auth.VerbUpdate, id, func(s *Service, input string) error {
+			_, err := s.Rename(serviceTestContext("alice"), input, "title")
+			return err
+		}, func(s *serviceTestStore) string { return s.renamed.GetId() }},
+		{"create share", auth.VerbCreate, id + "/shares", func(s *Service, input string) error {
+			_, _, err := s.CreateShare(serviceTestContext("alice"), input, 0)
+			return err
+		}, func(s *serviceTestStore) string { return s.share.GetSessionId() }},
+		{"list shares", auth.VerbList, id + "/shares", func(s *Service, input string) error {
+			_, err := s.ListShares(serviceTestContext("alice"), input, 0, "")
+			return err
+		}, func(s *serviceTestStore) string { return s.shareSessionID }},
+		{"revoke share", auth.VerbDelete, "shares/" + id, func(s *Service, input string) error { return s.RevokeShare(serviceTestContext("alice"), input) }, func(s *serviceTestStore) string { return s.deletedShareID }},
+	} {
+		for _, scenario := range []struct {
+			name   string
+			input  string
+			denied bool
+		}{
+			{"canonical", id, false},
+			{"uppercase", strings.ToUpper(id), false},
+			{"uppercase denied", strings.ToUpper(id), true},
+			{"invalid", "not-a-uuid", false},
+		} {
+			t.Run(operation.name+"/"+scenario.name, func(t *testing.T) {
+				store := &serviceTestStore{}
+				policy := &recordingAuthorizer{denied: map[string]bool{operation.resourceName: scenario.denied}}
+				err := operation.call(NewService(store, policy, nil), scenario.input)
+				if scenario.input == "not-a-uuid" {
+					require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument))
+					require.Empty(t, policy.resources)
+				} else {
+					require.Equal(t, []auth.Resource{{Type: "Session", Name: operation.resourceName}}, policy.resources)
+					require.Equal(t, []auth.Verb{operation.verb}, policy.verbs)
+					if scenario.denied {
+						require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+					} else {
+						require.NoError(t, err)
+						require.Equal(t, id, operation.storedID(store))
+					}
+				}
+				if err != nil {
+					require.Empty(t, operation.storedID(store), "rejected input must not reach storage")
+				}
+			})
+		}
 	}
 }

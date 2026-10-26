@@ -204,6 +204,8 @@ config:
       disableFileSearch: false
       bashVenvPath: ""
       disableBash: false
+      # Disable built-in questions across ADK agents, including Shared subagents.
+      disableAskUser: false
     logging:
       level: info
     telemetry: {}
@@ -477,7 +479,7 @@ ui:
   # -- Extra environment variables for the UI container, applied after ConfigMap
   # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
   # expansion. An installed app extension's settings go here, named
-  # `KAGENT_UI_EXTENSION_*`; the container's startup script copies
+  # `KAGENT_UI_EXTENSION_*`; the container's entrypoint copies
   # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on
@@ -569,7 +571,7 @@ ui:
     annotations: {}
 
   # -- Custom startup probe for the UI container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Override to adjust thresholds or change the health path. The image has no shell or curl, so use httpGet or tcpSocket.
   # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1
   startupProbe: {}
   # Example:
@@ -581,7 +583,7 @@ ui:
   #     periodSeconds: 5
   #     failureThreshold: 20
   # -- Custom readiness probe for the UI container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Override to adjust thresholds or change the health path. The image has no shell or curl, so use httpGet or tcpSocket.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}
   # Example:

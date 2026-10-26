@@ -1,7 +1,7 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
 import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent, AgentResource } from "../domain/agents";
-import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SnapshotStorageStatus } from "@/generated/ateapi_pb";
+import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SnapshotStorageStatus } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
@@ -1288,7 +1288,7 @@ function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    ip: orUndefined(worker.ips[0]),
+    ip: orUndefined(worker.status?.ips[0]),
     version: toNumber(worker.metadata?.version),
   };
 }

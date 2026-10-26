@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -148,6 +149,9 @@ func (c *Client) GetActorTemplate(ctx context.Context, atespace, name string) (*
 func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
+	// Substrate requires request opt-in as well as the server's
+	// PerTemplateSnapshotLocation gate to honor the configured snapshot location.
+	ctx = metadata.AppendToOutgoingContext(ctx, "ate-preview-allowed", "true")
 	return c.ControlClient.CreateActorTemplate(ctx, &ateapipb.CreateActorTemplateRequest{ActorTemplate: template})
 }
 

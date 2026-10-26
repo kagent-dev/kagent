@@ -550,8 +550,10 @@ type ADKOpenAI struct {
 	TopP                *float64                `protobuf:"fixed64,11,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
 	ApiFormat           string                  `protobuf:"bytes,12,opt,name=api_format,json=apiFormat,proto3" json:"api_format,omitempty"`
 	TokenExchange       *ADKTokenExchangeConfig `protobuf:"bytes,13,opt,name=token_exchange,json=tokenExchange,proto3" json:"token_exchange,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Sends strict with this value on structured output requests.
+	StrictOutputSchema bool `protobuf:"varint,14,opt,name=strict_output_schema,json=strictOutputSchema,proto3" json:"strict_output_schema,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ADKOpenAI) Reset() {
@@ -675,6 +677,13 @@ func (x *ADKOpenAI) GetTokenExchange() *ADKTokenExchangeConfig {
 	return nil
 }
 
+func (x *ADKOpenAI) GetStrictOutputSchema() bool {
+	if x != nil {
+		return x.StrictOutputSchema
+	}
+	return false
+}
+
 type ADKTokenExchangeConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Source:
@@ -794,16 +803,18 @@ func (x *ADKGDCHTokenExchangeConfig) GetAudience() string {
 }
 
 type ADKAzureOpenAI struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Endpoint      string                 `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	Deployment    string                 `protobuf:"bytes,2,opt,name=deployment,proto3" json:"deployment,omitempty"`
-	ApiVersion    string                 `protobuf:"bytes,3,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
-	MaxTokens     *int64                 `protobuf:"varint,4,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Temperature   *float64               `protobuf:"fixed64,5,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopP          *float64               `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
-	ApiFormat     string                 `protobuf:"bytes,7,opt,name=api_format,json=apiFormat,proto3" json:"api_format,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Endpoint    string                 `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	Deployment  string                 `protobuf:"bytes,2,opt,name=deployment,proto3" json:"deployment,omitempty"`
+	ApiVersion  string                 `protobuf:"bytes,3,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
+	MaxTokens   *int64                 `protobuf:"varint,4,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Temperature *float64               `protobuf:"fixed64,5,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP        *float64               `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	ApiFormat   string                 `protobuf:"bytes,7,opt,name=api_format,json=apiFormat,proto3" json:"api_format,omitempty"`
+	// Sends strict with this value on structured output requests.
+	StrictOutputSchema bool `protobuf:"varint,8,opt,name=strict_output_schema,json=strictOutputSchema,proto3" json:"strict_output_schema,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ADKAzureOpenAI) Reset() {
@@ -883,6 +894,13 @@ func (x *ADKAzureOpenAI) GetApiFormat() string {
 		return x.ApiFormat
 	}
 	return ""
+}
+
+func (x *ADKAzureOpenAI) GetStrictOutputSchema() bool {
+	if x != nil {
+		return x.StrictOutputSchema
+	}
+	return false
 }
 
 type ADKAnthropic struct {
@@ -1444,13 +1462,16 @@ func (x *ADKSAPAICore) GetAuthUrl() string {
 }
 
 type ADKFoundry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Endpoint      string                 `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	Deployment    string                 `protobuf:"bytes,2,opt,name=deployment,proto3" json:"deployment,omitempty"`
-	ApiVersion    string                 `protobuf:"bytes,3,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
-	ApiFormat     string                 `protobuf:"bytes,4,opt,name=api_format,json=apiFormat,proto3" json:"api_format,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Endpoint   string                 `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	Deployment string                 `protobuf:"bytes,2,opt,name=deployment,proto3" json:"deployment,omitempty"`
+	ApiVersion string                 `protobuf:"bytes,3,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
+	ApiFormat  string                 `protobuf:"bytes,4,opt,name=api_format,json=apiFormat,proto3" json:"api_format,omitempty"`
+	// Sends strict with this value on structured output requests in the openai
+	// format.
+	StrictOutputSchema bool `protobuf:"varint,5,opt,name=strict_output_schema,json=strictOutputSchema,proto3" json:"strict_output_schema,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ADKFoundry) Reset() {
@@ -1509,6 +1530,13 @@ func (x *ADKFoundry) GetApiFormat() string {
 		return x.ApiFormat
 	}
 	return ""
+}
+
+func (x *ADKFoundry) GetStrictOutputSchema() bool {
+	if x != nil {
+		return x.StrictOutputSchema
+	}
+	return false
 }
 
 type ADKHTTPConnectionParams struct {
@@ -2980,7 +3008,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\bprovider\x12\x05\xbaH\x02\b\x01B\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
-	"\x17_tls_disable_system_cas\"\x86\b\n" +
+	"\x17_tls_disable_system_cas\"\xb8\b\n" +
 	"\tADKOpenAI\x12\x19\n" +
 	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12I\n" +
 	"\x11frequency_penalty\x18\x02 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\xc0H\x00R\x10frequencyPenalty\x88\x01\x01\x12+\n" +
@@ -2998,7 +3026,8 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x05top_p\x18\v \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\xf0?)\x00\x00\x00\x00\x00\x00\x00\x00H\bR\x04topP\x88\x01\x01\x12B\n" +
 	"\n" +
 	"api_format\x18\f \x01(\tB#\xbaH r\x1eR\x00R\x0fchatCompletionsR\tresponsesR\tapiFormat\x12O\n" +
-	"\x0etoken_exchange\x18\r \x01(\v2(.kagent.config.v1.ADKTokenExchangeConfigR\rtokenExchange:\x94\x01\xbaH\x90\x01\x1a\x8d\x01\n" +
+	"\x0etoken_exchange\x18\r \x01(\v2(.kagent.config.v1.ADKTokenExchangeConfigR\rtokenExchange\x120\n" +
+	"\x14strict_output_schema\x18\x0e \x01(\bR\x12strictOutputSchema:\x94\x01\xbaH\x90\x01\x1a\x8d\x01\n" +
 	"\x13openai.token_limits\x12;max_tokens and max_completion_tokens are mutually exclusive\x1a9!has(this.max_tokens) || !has(this.max_completion_tokens)B\x14\n" +
 	"\x12_frequency_penaltyB\r\n" +
 	"\v_max_tokensB\x18\n" +
@@ -3014,7 +3043,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x06source\x12\x05\xbaH\x02\b\x01\"|\n" +
 	"\x1aADKGDCHTokenExchangeConfig\x129\n" +
 	"\x14service_account_path\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x12serviceAccountPath\x12#\n" +
-	"\baudience\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\baudience\"\xfa\x02\n" +
+	"\baudience\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\baudience\"\xac\x03\n" +
 	"\x0eADKAzureOpenAI\x12\x1a\n" +
 	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12\x1e\n" +
 	"\n" +
@@ -3027,7 +3056,8 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\vtemperature\x18\x05 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\x00H\x01R\vtemperature\x88\x01\x01\x121\n" +
 	"\x05top_p\x18\x06 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\xf0?)\x00\x00\x00\x00\x00\x00\x00\x00H\x02R\x04topP\x88\x01\x01\x12B\n" +
 	"\n" +
-	"api_format\x18\a \x01(\tB#\xbaH r\x1eR\x00R\x0fchatCompletionsR\tresponsesR\tapiFormatB\r\n" +
+	"api_format\x18\a \x01(\tB#\xbaH r\x1eR\x00R\x0fchatCompletionsR\tresponsesR\tapiFormat\x120\n" +
+	"\x14strict_output_schema\x18\b \x01(\bR\x12strictOutputSchemaB\r\n" +
 	"\v_max_tokensB\x0e\n" +
 	"\f_temperatureB\b\n" +
 	"\x06_top_p\"\xbb\x03\n" +
@@ -3094,7 +3124,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\fADKSAPAICore\x12\x19\n" +
 	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12%\n" +
 	"\x0eresource_group\x18\x02 \x01(\tR\rresourceGroup\x12\x19\n" +
-	"\bauth_url\x18\x03 \x01(\tR\aauthUrl\"\xa4\x01\n" +
+	"\bauth_url\x18\x03 \x01(\tR\aauthUrl\"\xd6\x01\n" +
 	"\n" +
 	"ADKFoundry\x12\x1a\n" +
 	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12\x1e\n" +
@@ -3104,7 +3134,8 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\vapi_version\x18\x03 \x01(\tR\n" +
 	"apiVersion\x129\n" +
 	"\n" +
-	"api_format\x18\x04 \x01(\tB\x1a\xbaH\x17r\x15R\x00R\x06openaiR\tanthropicR\tapiFormat\"\x94\x05\n" +
+	"api_format\x18\x04 \x01(\tB\x1a\xbaH\x17r\x15R\x00R\x06openaiR\tanthropicR\tapiFormat\x120\n" +
+	"\x14strict_output_schema\x18\x05 \x01(\bR\x12strictOutputSchema\"\x94\x05\n" +
 	"\x17ADKHTTPConnectionParams\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12P\n" +
 	"\aheaders\x18\x02 \x03(\v26.kagent.config.v1.ADKHTTPConnectionParams.HeadersEntryR\aheaders\x12E\n" +

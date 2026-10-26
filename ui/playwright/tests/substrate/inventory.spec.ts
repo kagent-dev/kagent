@@ -30,7 +30,8 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // and suspending, which is exactly the case a bare count would hide.
     await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/8");
     await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
-    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("all");
+    await expect(page.getByTestId("substrate-stat-scope")).toContainText("Requested filters");
+    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("none");
   });
 
   await test.step("2b. the bar is the shape of the cluster, not just its running tally", async () => {
@@ -204,7 +205,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await optionNamed(page, "kagent").click();
 
     await expect(page).toHaveURL(/namespace=kagent/);
-    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: kagent; ATE: all");
+    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: kagent; ATE: any");
 
     const pools = page.getByTestId("substrate-pools-table");
     await expect(pools).toContainText("kagent/kagent-default");
@@ -241,7 +242,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await expectSettled(page);
 
     await expect(page.getByTestId("substrate-namespace")).toContainText("platform");
-    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: platform; ATE: all");
+    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: platform; ATE: any");
     await expect(page.getByTestId("substrate-pools-table")).toContainText("platform/gpu-pool");
   });
 

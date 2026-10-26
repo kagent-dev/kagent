@@ -371,11 +371,13 @@ message RuntimeDefaultsConfig {
   optional string memory = 9 [(buf.validate.field).string.min_len = 1];
 }
 
-// BuiltinToolsConfig configures the built-in filesystem and shell tools, independently of skills.
+// BuiltinToolsConfig configures built-in tools independently of skills.
 message BuiltinToolsConfig {
   bool disable_file_search = 1;
   string bash_venv_path = 2;
   bool disable_bash = 3;
+  // Omitted or false keeps the built-in question tool enabled.
+  bool disable_ask_user = 4;
 }
 
 message TokenPropagationConfig {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 )
 
 // How many pages a drain will read before giving up: at ate-api's ceiling of 1,000
@@ -17,7 +17,7 @@ const maxDrainPages = 10_000
 // every loop over ate-api's pagination wants the check.
 func AdvancePageToken(previous, next string) (string, error) {
 	if next != "" && next == previous {
-		return "", fmt.Errorf("ate-api repeated page token %q instead of advancing", next)
+		return "", fmt.Errorf("ate-api repeated page token instead of advancing")
 	}
 	return next, nil
 }

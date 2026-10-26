@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -297,6 +298,23 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				Spec:       AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{}},
 			},
 			wantReject: "name must not be empty",
+		},
+		{
+			name:       "AgentTemplate rejects outputSchemaStrict true without a schema",
+			object:     unstructuredStrictTemplate(namespace, "strict-true-no-schema", true, nil, nil),
+			wantReject: "outputSchemaStrict requires outputSchema or outputSchemaFrom",
+		},
+		{
+			name:   "AgentTemplate accepts outputSchemaStrict false without a schema",
+			object: unstructuredStrictTemplate(namespace, "strict-false-no-schema", false, nil, nil),
+		},
+		{
+			name:   "AgentTemplate accepts outputSchemaStrict false with outputSchema",
+			object: unstructuredStrictTemplate(namespace, "strict-false-schema", false, &apiextensionsv1.JSON{Raw: []byte(`{"type":"object"}`)}, nil),
+		},
+		{
+			name:   "AgentTemplate accepts outputSchemaStrict true with outputSchemaFrom",
+			object: unstructuredStrictTemplate(namespace, "strict-true-schema-from", true, nil, &ConfigMapKeyReference{Name: "schemas", Key: "output.json"}),
 		},
 		{
 			name: "AgentTemplate rejects unsupported MCP server kind",
@@ -572,6 +590,23 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 			Tools:       tools,
 		},
 	}
+}
+
+func unstructuredStrictTemplate(namespace, name string, strict bool, schema *apiextensionsv1.JSON, schemaFrom *ConfigMapKeyReference) ctrlclient.Object {
+	template := validAgentTemplate(namespace, name, nil)
+	template.Spec.OutputSchema = schema
+	template.Spec.OutputSchemaFrom = schemaFrom
+	data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(template)
+	if err != nil {
+		panic(err)
+	}
+	object := &unstructured.Unstructured{Object: data}
+	object.SetAPIVersion(GroupVersion.String())
+	object.SetKind("AgentTemplate")
+	if err := unstructured.SetNestedField(data, strict, "spec", "outputSchemaStrict"); err != nil {
+		panic(err)
+	}
+	return object
 }
 
 func compactionHarness(namespace, name string, compaction KagentHarnessCompaction) *Harness {

@@ -35,9 +35,9 @@ func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb a
 			return nil
 		}
 	case "Session":
-		// Empty get authorizes listing; the service checks each session before
-		// pagination. Empty create never grants creation of another session.
-		if verb == auth.VerbGet && resource.Name == "" {
+		// Collection authorization grants no individual Session access; the service
+		// checks each row before pagination. Empty create never grants a new Session.
+		if (verb == auth.VerbGet || verb == auth.VerbList) && resource.Name == "" {
 			return nil
 		}
 		if resource.Name == session.Id && (verb == auth.VerbGet || verb == auth.VerbCreate || verb == auth.VerbUpdate) {

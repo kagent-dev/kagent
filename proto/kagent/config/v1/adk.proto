@@ -101,6 +101,8 @@ message ADKOpenAI {
     (buf.validate.field).string.in = "responses"
   ];
   ADKTokenExchangeConfig token_exchange = 13;
+  // Sends strict with this value on structured output requests.
+  bool strict_output_schema = 14;
 }
 message ADKTokenExchangeConfig {
   oneof source {
@@ -132,6 +134,8 @@ message ADKAzureOpenAI {
       "responses"
     ]
   }];
+  // Sends strict with this value on structured output requests.
+  bool strict_output_schema = 8;
 }
 message ADKAnthropic {
   string base_url = 1;
@@ -234,6 +238,9 @@ message ADKFoundry {
       "anthropic"
     ]
   }];
+  // Sends strict with this value on structured output requests in the openai
+  // format.
+  bool strict_output_schema = 5;
 }
 
 message ADKHTTPConnectionParams {

@@ -174,10 +174,12 @@ func generateContentChatCompletions(
 		yield(nil, err)
 		return
 	} else if schema != nil {
+		jsonSchema := shared.ResponseFormatJSONSchemaJSONSchemaParam{Name: structuredOutputName, Schema: schema}
+		if m.Config.StrictOutputSchema != nil {
+			jsonSchema.Strict = param.NewOpt(*m.Config.StrictOutputSchema)
+		}
 		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
-				Name: structuredOutputName, Schema: schema,
-			}},
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{JSONSchema: jsonSchema},
 		}
 	}
 

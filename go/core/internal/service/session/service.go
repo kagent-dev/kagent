@@ -94,13 +94,19 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 	if err := validateCreate(agent, requestID); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbCreate, "")
+	creator, err := s.authorizeResource(ctx, auth.VerbCreate, auth.Resource{Type: "Session", Namespace: agent.Namespace})
 	if err != nil {
 		return nil, err
 	}
 	// A share grants access to an existing conversation, never creation.
 	if _, shared := auth.ShareContextFrom(ctx); shared {
 		return nil, serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
+	}
+	authSession, _ := auth.AuthSessionFrom(ctx)
+	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{
+		Type: "Agent", Namespace: agent.Namespace, Name: agent.Name,
+	}); err != nil {
+		return nil, serviceerrors.NewPermissionDenied("Not authorized to access target Agent", err)
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -143,11 +149,10 @@ func (s *Service) Get(ctx context.Context, id string) (*apiv1.Session, error) {
 // independent of runtime readiness: viewing a suspended conversation must not
 // provision a worker. Lifecycle and A2A operations use this same access policy.
 func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) (*apiv1.Session, error) {
-	parsed, err := uuid.Parse(id)
+	id, err := validateIdentity(id)
 	if err != nil {
-		return nil, serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
+		return nil, err
 	}
-	id = parsed.String()
 	creator, err := s.authorize(ctx, verb, id)
 	if err != nil {
 		return nil, err
@@ -175,6 +180,10 @@ func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) 
 // service this is a write, and it authorizes as one: a reader who may list and
 // open a conversation must not be able to retitle it.
 func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1.Session, error) {
+	id, err := validateIdentity(id)
+	if err != nil {
+		return nil, err
+	}
 	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
 	if err != nil {
 		return nil, err
@@ -214,12 +223,12 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		}
 		return result, nil
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "")
+	userID, err := s.authorize(ctx, auth.VerbList, "")
 	if err != nil {
 		return ListResult{}, err
 	}
 	if request.AllCreators {
-		if _, err := s.authorizeType(ctx, auth.VerbGet, "SessionAllCreators", ""); err != nil {
+		if _, err := s.authorizeResource(ctx, auth.VerbList, auth.Resource{Type: "SessionAllCreators"}); err != nil {
 			return ListResult{}, err
 		}
 	}
@@ -314,7 +323,8 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1.Session, error)
 // token grants access and must not exceed the configured maximum; zero takes the maximum,
 // or leaves the share valid until it is revoked or the session deleted when none is set.
 func (s *Service) CreateShare(ctx context.Context, sessionID string, ttl time.Duration) (*apiv1.SessionShare, string, error) {
-	if err := validateIdentity(sessionID); err != nil {
+	sessionID, err := validateIdentity(sessionID)
+	if err != nil {
 		return nil, "", err
 	}
 	if ttl < 0 {
@@ -355,10 +365,11 @@ func (s *Service) CreateShare(ctx context.Context, sessionID string, ttl time.Du
 }
 
 func (s *Service) ListShares(ctx context.Context, sessionID string, pageSize int, pageToken string) (ShareListResult, error) {
-	if err := validateIdentity(sessionID); err != nil {
+	sessionID, err := validateIdentity(sessionID)
+	if err != nil {
 		return ShareListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, sessionID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbList, sessionID+"/shares")
 	if err != nil {
 		return ShareListResult{}, err
 	}
@@ -385,7 +396,8 @@ func (s *Service) ListShares(ctx context.Context, sessionID string, pageSize int
 }
 
 func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
-	if err := validateIdentity(shareID); err != nil {
+	shareID, err := validateIdentity(shareID)
+	if err != nil {
 		return err
 	}
 	userID, err := s.authorize(ctx, auth.VerbDelete, "shares/"+shareID)
@@ -413,23 +425,26 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 		if session.Principal().Actor != nil {
 			return "", serviceerrors.NewPermissionDenied("Actors cannot use share credentials", nil)
 		}
-		if verb != auth.VerbGet {
-			return "", serviceerrors.NewPermissionDenied("This share link is read-only", nil)
+		if verb != auth.VerbGet || !share.IsForSession(name) {
+			return "", serviceerrors.NewPermissionDenied("This share link only permits reading its Session", nil)
 		}
-		if share.IsForSession(name) {
-			return share.UserID, nil
+		// The recipient supplies policy identity; the share supplies only the
+		// storage owner. Checking the owner would lend their grants to visitors.
+		if _, err := s.authorizeResource(ctx, verb, auth.Resource{Type: "Session", Name: name}); err != nil {
+			return "", err
 		}
+		return share.UserID, nil
 	}
-	return s.authorizeType(ctx, verb, "Session", name)
+	return s.authorizeResource(ctx, verb, auth.Resource{Type: "Session", Name: name})
 }
 
-func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
+func (s *Service) authorizeResource(ctx context.Context, verb auth.Verb, resource auth.Resource) (string, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
 	principal := session.Principal()
-	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: resourceType, Name: name}); err != nil {
+	if err := s.authorizer.Check(ctx, principal, verb, resource); err != nil {
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	return principal.User.ID, nil
@@ -450,11 +465,12 @@ func validateCreate(agent *apiv1.ResourceReference, requestID string) error {
 	return nil
 }
 
-func validateIdentity(id string) error {
-	if _, err := uuid.Parse(id); err != nil {
-		return serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
+func validateIdentity(id string) (string, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return "", serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
 	}
-	return nil
+	return parsed.String(), nil
 }
 
 func encodePageToken(id string) string {
@@ -469,10 +485,7 @@ func decodePageToken(token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := uuid.Parse(string(value)); err != nil {
-		return "", err
-	}
-	return string(value), nil
+	return validateIdentity(string(value))
 }
 
 func generateShareToken() (string, []byte, error) {

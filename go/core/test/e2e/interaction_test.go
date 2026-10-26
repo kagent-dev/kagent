@@ -89,10 +89,12 @@ func TestSessionStructuredOutput(t *testing.T) {
 		target := interactionTarget(t)
 		kube := interactionKubeClient(t)
 		mcpURL, mcpServer := startMCPMock(t)
-		template := createStructuredOutputInteractionTemplate(t, harness, kube, startMockLLM(t, "mocks/invoke_structured_output.json"), mcpURL)
+		model := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_structured_output.json")), nil)
+		template := createStructuredOutputInteractionTemplate(t, harness, kube, reachableModelURL(t, model.URL), mcpURL)
 		fixture := newInteractionFixtureForHarnessTemplate(t, target, harness.name, template.Name)
 		_, _, task := fixture.send(t, "Add 3 and 5 and return the structured result.")
 		assertStructuredOutputTask(t, task, 8, "three plus five equals eight")
+		assertStrictStructuredOutputRequests(t, model.Requests("", ""))
 
 		for _, request := range mcpServer.Requests() {
 			if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {
@@ -112,6 +114,33 @@ func assertStructuredOutputTask(t *testing.T, task *a2atype.Task, answer float64
 		t.Fatal("structured task has no result artifact")
 	}
 	assertStructuredOutputArtifact(t, task.Artifacts[len(task.Artifacts)-1], answer, explanation)
+}
+
+func assertStrictStructuredOutputRequests(t *testing.T, requests []recordedModelRequest) {
+	t.Helper()
+	var sent int
+	for _, request := range requests {
+		var body struct {
+			ResponseFormat *struct {
+				JSONSchema struct {
+					Strict *bool `json:"strict"`
+				} `json:"json_schema"`
+			} `json:"response_format"`
+		}
+		if err := json.Unmarshal(request.Body, &body); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		if body.ResponseFormat == nil {
+			continue
+		}
+		sent++
+		if strict := body.ResponseFormat.JSONSchema.Strict; strict == nil || !*strict {
+			t.Fatalf("model request does not set response_format.json_schema.strict to true: %s", request.Body)
+		}
+	}
+	if sent == 0 {
+		t.Fatalf("none of the %d model requests carried the output schema", len(requests))
+	}
 }
 
 func assertStructuredOutputArtifact(t *testing.T, artifact *a2atype.Artifact, answer float64, explanation string) {
@@ -1115,9 +1144,10 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
-			SystemPrompt: "Use available tools when needed, then return the arithmetic answer and a short explanation.",
-			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
+			ModelConfig:        &corev1.LocalObjectReference{Name: model.Name},
+			SystemPrompt:       "Use available tools when needed, then return the arithmetic answer and a short explanation.",
+			OutputSchema:       &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
+			OutputSchemaStrict: true,
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
 				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 				Tools:  []string{"add_numbers"},

@@ -12,8 +12,8 @@
  * against a live controller, and none of them is implied by the protocol.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
-import { createRouterTransport } from "@connectrpc/connect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
 import { fromJson } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
@@ -1758,5 +1758,315 @@ describe("A2AGrpcChatClient files", () => {
         url: "https://files.example/out/report.pdf?sig=abc",
       },
     ]);
+  });
+});
+
+/**
+ * A stream cut by something between the browser and the controller.
+ *
+ * Measured behind a proxy that closes streams after 60 s without data: the model
+ * read a long prompt silently, the browser saw `network error`, and the turn was
+ * shown as failed while the task finished on the server.
+ */
+describe("A2AGrpcChatClient.send, when the stream breaks", () => {
+  const completed = {
+    payload: {
+      case: "task" as const,
+      value: {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.COMPLETED },
+        artifacts: [{ artifactId: "answer", parts: [text("checkout is out of memory")] }],
+      },
+    },
+  };
+
+  /** What `SubscribeToTask` opens with while the task is still running. */
+  const snapshot = {
+    payload: {
+      case: "task" as const,
+      value: {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.WORKING },
+      },
+    },
+  };
+
+  const broken = () => new ConnectError("network error", Code.Unavailable);
+
+  // Re-attaching waits between attempts and judges a stream by how long it lasted,
+  // so the clock is driven by the test rather than waited out.
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  async function run(
+    sent: () => AsyncGenerator<unknown>,
+    subscribe: (attempt: number) => AsyncGenerator<unknown> = async function* () {},
+  ) {
+    const subscribed: unknown[] = [];
+    serve(({ service }) => {
+      service(A2AService, {
+        sendStreamingMessage: sent as never,
+        subscribeToTask: async function* (request) {
+          subscribed.push({ tenant: request.tenant, id: request.id });
+          for await (const frame of subscribe(subscribed.length)) yield frame as never;
+        },
+      });
+    });
+    const events: ChatEvent[] = [];
+    let error: unknown;
+    let done = false;
+    const turn = (async () => {
+      try {
+        for await (const event of new A2AGrpcChatClient().send({
+          conversation: CONVERSATION,
+          text: "why is checkout crashlooping?",
+        })) {
+          events.push(event);
+        }
+      } catch (cause) {
+        error = cause;
+      } finally {
+        done = true;
+      }
+    })();
+    // Ten simulated minutes at most, so a loop that never ends fails the test
+    // instead of hanging it.
+    for (let second = 0; !done && second < 600; second += 1) {
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
+    expect(done).toBe(true);
+    await turn;
+    return { events, error, subscribed };
+  }
+
+  it("follows the task it already named instead of failing the turn", async () => {
+    const { events, error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw new ConnectError("network error", Code.Unknown);
+      },
+      async function* () {
+        yield completed;
+      },
+    );
+    expect(error).toBeUndefined();
+    expect(subscribed).toEqual([{ tenant: CONVERSATION.agent, id: "task-1" }]);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "completed", taskId: "task-1" });
+    expect(transcript(events).map(textOf)).toContain("checkout is out of memory");
+  });
+
+  it("does not re-attach before the stream has named a task", async () => {
+    const { error, subscribed } = await run(async function* () {
+      yield* [];
+      throw new ConnectError("network error", Code.Unknown);
+    });
+    expect(error).toBeDefined();
+    expect(subscribed).toEqual([]);
+  });
+
+  it("surfaces an error the controller decided", async () => {
+    const { error, subscribed } = await run(async function* () {
+      yield statusFrame({});
+      throw new ConnectError("dispatch busy", Code.FailedPrecondition);
+    });
+    expect(error).toMatchObject({ message: "dispatch busy" });
+    expect(subscribed).toEqual([]);
+  });
+
+  it("gives up after repeated breaks with nothing in between", async () => {
+    const { error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw new ConnectError("network error", Code.Unknown);
+      },
+      async function* () {
+        yield* [];
+        throw new ConnectError("network error", Code.Unavailable);
+      },
+    );
+    expect(error).toBeDefined();
+    expect(subscribed).toHaveLength(3);
+  });
+
+  // The server opens every re-attached stream with the task as it stands, so a
+  // path that breaks right after that frame must still run out of attempts. The
+  // completed task after twenty attempts only stops a loop that never gives up.
+  it("gives up when each re-attach breaks right after the task's snapshot", async () => {
+    const { error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt > 20) {
+          yield completed;
+          return;
+        }
+        yield snapshot;
+        throw broken();
+      },
+    );
+    expect(error).toBeDefined();
+    expect(subscribed).toHaveLength(3);
+  });
+
+  it("keeps following a task whose re-attached streams are cut for being quiet", async () => {
+    const { events, error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt > 4) {
+          yield completed;
+          return;
+        }
+        yield snapshot;
+        await new Promise((resolve) => setTimeout(resolve, 60_000));
+        throw broken();
+      },
+    );
+    expect(error).toBeUndefined();
+    expect(subscribed).toHaveLength(5);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "completed", taskId: "task-1" });
+  });
+
+  it("starts counting again after a re-attach that brought news", async () => {
+    const { events, error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt > 4) {
+          yield completed;
+          return;
+        }
+        yield snapshot;
+        yield statusFrame({});
+        throw broken();
+      },
+    );
+    expect(error).toBeUndefined();
+    expect(subscribed).toHaveLength(5);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "completed", taskId: "task-1" });
+  });
+
+  // A reply that started while the stream was down is first seen in the snapshot,
+  // as the chunks stored so far. The chunk after it is an increment to that text.
+  // The turn stops before the closing chunk, which would replace the text whole
+  // and hide the difference.
+  it("continues a reply the snapshot showed instead of replacing it", async () => {
+    const chunk = (value: string, flags: { append?: boolean } = {}) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "a-1", parts: [text(value)] },
+          ...flags,
+        },
+      },
+    });
+    const { events, error } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* () {
+        yield {
+          payload: {
+            case: "task" as const,
+            value: {
+              ...snapshot.payload.value,
+              artifacts: [{ artifactId: "a-1", parts: [text("alpha"), text(" beta")] }],
+            },
+          },
+        };
+        yield chunk(" gamma", { append: true });
+      },
+    );
+    expect(error).toBeUndefined();
+    const agent = transcript(events).filter((message) => message.role === "agent");
+    expect(agent.map(textOf), "not \" gamma\"").toEqual(["alpha beta gamma"]);
+  });
+
+  // " gamma" was sent while the second re-attach was waiting, so only the second
+  // snapshot has it.
+  it("shows what a later snapshot adds to a reply already on screen", async () => {
+    const chunk = (value: string, flags: { append?: boolean } = {}) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "a-1", parts: [text(value)] },
+          ...flags,
+        },
+      },
+    });
+    const withReply = (...chunks: string[]) => ({
+      payload: {
+        case: "task" as const,
+        value: {
+          ...snapshot.payload.value,
+          artifacts: [{ artifactId: "a-1", parts: chunks.map(text) }],
+        },
+      },
+    });
+    const { events, error } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt === 1) {
+          yield withReply("alpha");
+          yield chunk(" beta", { append: true });
+          throw broken();
+        }
+        yield withReply("alpha", " beta", " gamma");
+        yield chunk(" delta", { append: true });
+      },
+    );
+    expect(error).toBeUndefined();
+    const agent = transcript(events).filter((message) => message.role === "agent");
+    expect(agent.map(textOf), "not \"alpha beta delta\"").toEqual(["alpha beta gamma delta"]);
+  });
+
+  it("stops waiting to re-attach when the reader presses stop", async () => {
+    const subscribed: unknown[] = [];
+    serve(({ service }) => {
+      service(A2AService, {
+        sendStreamingMessage: async function* () {
+          yield statusFrame({}) as never;
+          throw broken();
+        },
+        subscribeToTask: async function* () {
+          subscribed.push(true);
+          yield completed as never;
+        },
+      });
+    });
+    const stop = new AbortController();
+    const events: ChatEvent[] = [];
+    const turn = (async () => {
+      for await (const event of new A2AGrpcChatClient().send({
+        conversation: CONVERSATION,
+        text: "why is checkout crashlooping?",
+        signal: stop.signal,
+      })) {
+        events.push(event);
+      }
+    })();
+    const outcome = expect(turn).rejects.toMatchObject({ name: "AbortError" });
+    // The stream has broken and the first re-attach is waiting its 500 ms.
+    await vi.advanceTimersByTimeAsync(100);
+    stop.abort();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await outcome;
+    expect(subscribed).toEqual([]);
   });
 });

@@ -68,7 +68,7 @@ Nothing above the data layer knows or cares.
 Settings an operator configures per deployment cannot travel in the bundle — the
 bundler inlines `import.meta.env` at build time, which would freeze the chart's
 values as of the image build. They arrive on `window.environmentVariables`
-instead, rendered from the pod's environment by `scripts/init.sh` on every start
+instead, rendered from the pod's environment by the `entrypoint/` program on every start
 and loaded by a script tag ahead of the app, so they are readable synchronously
 by the first module that runs. `src/env.ts` lists them; `.env.example` documents
 setting them locally.

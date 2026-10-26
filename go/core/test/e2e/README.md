@@ -153,7 +153,7 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=0.6.0-alpha3 bash scripts/kind/setup-microvm.sh`.
+`SUBSTRATE_VERSION=0.7.0-alpha1 bash scripts/kind/setup-microvm.sh`.
 It fetches the matching Substrate release to use its asset installer and caches
 the downloaded assets under `.cache/substrate/microvm-assets/`.
 
@@ -298,3 +298,12 @@ Pending-input coverage waits for a suspended Actor and a verified durable VOLUME
 snapshot before approval, denial, cancellation, and native ask-user responses.
 The approval matrix asserts one MCP execution on approval and none on denial or
 cancellation; native question continuations preserve the task and context IDs.
+
+`TestSubstrateInventoryPagination` verifies Kagent continuation tokens against the
+real ate-api by requesting one row per page. It creates and cleans up two Sessions
+and checks both global and scoped Actor listings, then traverses worker pages.
+The test requires at least two registered Substrate workers (CI provisions four);
+missing worker capacity fails the test rather than skipping continuation coverage.
+There are no retries around list calls, so a Substrate token-format change fails
+on continuation. Run with `KAGENT_E2E_API_URL` and the normal kagent harness fixture
+configured, using `go test ./core/test/e2e -run '^TestSubstrateInventoryPagination$'`.

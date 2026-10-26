@@ -264,3 +264,37 @@ func TestMemoryManagementHonorsConfiguredAuthorization(t *testing.T) {
 	require.Empty(t, store.deletedAgent)
 	require.Empty(t, store.deletedUser)
 }
+
+func TestMemorySharesNeverReachPartitionStorage(t *testing.T) {
+	user := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "owner"}}})
+	for _, ctx := range []context.Context{user, memoryContext(t)} {
+		store := &memoryStore{}
+		service := NewService(store, auth.NoopAuthorizer{})
+		shared := auth.ShareContextTo(ctx, &auth.ShareContext{SessionID: "shared-session", UserID: "owner"})
+		operations := []struct {
+			name string
+			call func() error
+		}{
+			{"add", func() error { _, err := service.Add(shared, Input{Vector: vector(VectorDimension, 1)}); return err }},
+			{"batch", func() error {
+				_, err := service.AddBatch(shared, []Input{{Vector: vector(VectorDimension, 1)}})
+				return err
+			}},
+			{"search", func() error {
+				_, err := service.Search(shared, SearchRequest{Vector: vector(VectorDimension, 1)})
+				return err
+			}},
+			{"list", func() error { _, err := service.List(shared, "team-a/agent"); return err }},
+			{"delete", func() error { return service.Delete(shared, "team-a/agent") }},
+		}
+		for _, op := range operations {
+			t.Run(op.name, func(t *testing.T) {
+				err := op.call()
+				require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || status.Code(err) == codes.PermissionDenied, "%v", err)
+			})
+		}
+		require.Empty(t, store.stored)
+		require.Empty(t, store.readAgent)
+		require.Empty(t, store.deletedAgent)
+	}
+}
