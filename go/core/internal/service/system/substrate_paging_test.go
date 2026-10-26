@@ -14,8 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -215,7 +215,7 @@ func TestListSubstrateWorkersHidesATEAPIErrorText(t *testing.T) {
 
 func TestGetSubstrateSummaryHidesATEAPIWorkerErrorText(t *testing.T) {
 	scheme := runtime.NewScheme()
-	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	require.NoError(t, atev1.AddToScheme(scheme))
 	ateClient := &failingWorkersATEClient{fakeATEClient: *pagingATEClient()}
 	ateClient.workerErr = status.Error(codes.Internal, "worker u2-tenant-b is down")
 	service := system.NewService(fake.NewClientBuilder().WithScheme(scheme).Build(), []string{"tenant-a"}, &pkgAuth.NoopAuthorizer{}, ateClient)
@@ -846,7 +846,7 @@ func TestSubstrateSummaryHidesBackendErrorDetails(t *testing.T) {
 	} {
 		t.Run(status.Code(backendErr).String(), func(t *testing.T) {
 			scheme := runtime.NewScheme()
-			require.NoError(t, atev1alpha1.AddToScheme(scheme))
+			require.NoError(t, atev1.AddToScheme(scheme))
 			kube := fake.NewClientBuilder().WithScheme(scheme).Build()
 			svc := system.NewService(kube, nil, &pkgAuth.NoopAuthorizer{}, &fakeATEClient{err: backendErr})
 			result, err := svc.GetSubstrateSummary(pagingContext(t), "", "")

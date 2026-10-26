@@ -1,5 +1,5 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
-import { ActorState, SnapshotStorageStatus } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageStatus } from "@/generated/api/ateapi/v1/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -378,7 +378,7 @@ describe("the cluster", () => {
             {
               ref: { namespace: "kagent", name: "pool" },
               resource: {
-                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                apiVersion: "ate.dev/v1", kind: "WorkerPool",
                 value: {
                   metadata: { namespace: "kagent", name: "pool" },
                   spec: { replicas: 2, workerImage: "ateom:1" },
@@ -569,7 +569,7 @@ describe("the cluster", () => {
             {
               ref: { namespace: "kagent", name: "pool" },
               resource: {
-                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                apiVersion: "ate.dev/v1", kind: "WorkerPool",
                 value: {
                   metadata: { namespace: "kagent", name: "pool" },
                   spec: { replicas: 2, workerImage: "ateom:1" },

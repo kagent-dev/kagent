@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -251,13 +251,13 @@ func substrateActor(name, atespace string, state ateapipb.ActorState, workerName
 func TestGetSubstrateSummary(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
-	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	require.NoError(t, atev1.AddToScheme(scheme))
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		&atev1alpha1.WorkerPool{
+		&atev1.WorkerPool{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "pool"},
-			Spec:       atev1alpha1.WorkerPoolSpec{Replicas: 2, WorkerImage: "ateom:test"},
+			Spec:       atev1.WorkerPoolSpec{Replicas: 2, WorkerImage: "ateom:test"},
 		},
 	).Build()
 
@@ -327,7 +327,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
-	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	require.NoError(t, atev1.AddToScheme(scheme))
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
@@ -442,7 +442,7 @@ func (client *failingTemplatesATEClient) ListActorTemplates(context.Context, str
 func TestBusyWorkerWithOutOfScopeActor(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
-	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	require.NoError(t, atev1.AddToScheme(scheme))
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 	ateClient := &fakeATEClient{
@@ -480,10 +480,10 @@ func actorsInAtespace(actors []*ateapipb.Actor, atespace string) []*ateapipb.Act
 
 func TestSubstrateScopesAreIndependent(t *testing.T) {
 	scheme := runtime.NewScheme()
-	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	require.NoError(t, atev1.AddToScheme(scheme))
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "workers", Name: "pool"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "workers", Name: "pool"}},
 	).Build()
 	actor := substrateActor("same-name", "team-a", ateapipb.ActorState_ACTOR_STATE_RUNNING, "workers", "pod")
 	actor.ActorTemplate.Atespace = "shared"
@@ -596,11 +596,11 @@ func TestSummaryRequiresCapabilityAndScopesPools(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
-			require.NoError(t, atev1alpha1.AddToScheme(scheme))
+			require.NoError(t, atev1.AddToScheme(scheme))
 			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}},
-				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "hidden"}},
-				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "allowed"}},
+				&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}},
+				&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "hidden"}},
+				&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "allowed"}},
 			).Build()
 			// Summary access is independent from the dedicated Substrate endpoints.
 			authorizer := &summaryAuthorizer{pools: test.pools, denyType: "Substrate", failScope: test.failScope}
@@ -656,7 +656,7 @@ func TestSummaryDeniedPoolsDoNotRequireKubernetes(t *testing.T) {
 
 func TestSubstrateTenantIsolation(t *testing.T) {
 	scheme := runtime.NewScheme()
-	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	require.NoError(t, atev1.AddToScheme(scheme))
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 	ateClient := &fakeATEClient{
 		pageSize: 1,
@@ -679,9 +679,9 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 		},
 	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-a", Name: "pool-a"}},
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-b", Name: "pool-b"}},
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-c", Name: "pool-c"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-a", Name: "pool-a"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-b", Name: "pool-b"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-c", Name: "pool-c"}},
 	).Build()
 	newService := func(observedNamespaces []string) *system.Service {
 		return system.NewService(kubeClient, observedNamespaces, &pkgAuth.NoopAuthorizer{}, ateClient)
@@ -848,8 +848,8 @@ func inventoryScope(location, value, name string) apiauthorization.Authorization
 
 func TestInventoryFamiliesHaveIndependentTrustedScopes(t *testing.T) {
 	scheme := runtime.NewScheme()
-	require.NoError(t, atev1alpha1.AddToScheme(scheme))
-	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "workers", Name: "pool"}}).Build()
+	require.NoError(t, atev1.AddToScheme(scheme))
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "workers", Name: "pool"}}).Build()
 	for _, tc := range []struct {
 		name, resource                    string
 		scope                             apiauthorization.AuthorizationScope

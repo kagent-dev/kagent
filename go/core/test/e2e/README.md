@@ -153,7 +153,7 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=0.6.0 bash scripts/kind/setup-microvm.sh`.
+`SUBSTRATE_VERSION=0.7.0-alpha1 bash scripts/kind/setup-microvm.sh`.
 It fetches the matching Substrate release to use its asset installer and caches
 the downloaded assets under `.cache/substrate/microvm-assets/`.
 

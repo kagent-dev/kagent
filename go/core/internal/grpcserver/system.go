@@ -3,7 +3,7 @@ package grpcserver
 import (
 	"context"
 
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -119,8 +119,8 @@ func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1.
 	return response, nil
 }
 
-func (s *systemServer) workerPool(workerPool *atev1alpha1.WorkerPool) (*apiv1.SubstrateWorkerPool, error) {
-	resource, err := structuredobject.FromGo(workerPool, atev1alpha1.GroupVersion.String(), "WorkerPool", s.maxMessageBytes)
+func (s *systemServer) workerPool(workerPool *atev1.WorkerPool) (*apiv1.SubstrateWorkerPool, error) {
+	resource, err := structuredobject.FromGo(workerPool, atev1.GroupVersion.String(), "WorkerPool", s.maxMessageBytes)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to encode WorkerPool resource", err)
 	}
