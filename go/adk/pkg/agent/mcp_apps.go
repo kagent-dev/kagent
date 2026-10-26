@@ -49,8 +49,13 @@ func MakeMCPAppModelResultCallback(appToolNames map[string]bool) llmagent.Before
 // [mcpsdk.CallToolResult]. We decode it into that typed result so the logic
 // works against real fields (IsError, Content, Meta, StructuredContent) rather
 // than poking at string keys. If the payload isn't a recognizable MCP result we
-// leave it untouched.
+// leave it untouched. The ADK's response for a failed tool call carries an
+// "error" key, which no MCP result has, and also passes through untouched so
+// the model keeps its error text.
 func compactMCPAppModelResponse(response map[string]any) map[string]any {
+	if _, ok := response["error"]; ok {
+		return response
+	}
 	result, err := decodeCallToolResult(response)
 	if err != nil {
 		return response

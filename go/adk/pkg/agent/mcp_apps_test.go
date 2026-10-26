@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"reflect"
 	"testing"
 
 	adkmodel "google.golang.org/adk/v2/model"
@@ -107,6 +108,34 @@ func TestMakeMCPAppModelResultCallbackPreservesIsError(t *testing.T) {
 	// Should still strip structuredContent
 	if _, ok := got["structuredContent"]; ok {
 		t.Fatalf("structuredContent should be stripped")
+	}
+}
+
+func TestMakeMCPAppModelResultCallbackKeepsToolErrorText(t *testing.T) {
+	t.Parallel()
+
+	// The ADK's response for a failed tool call is not an MCP result; its error
+	// text must reach the model unchanged.
+	req := &adkmodel.LLMRequest{
+		Contents: []*genai.Content{{
+			Parts: []*genai.Part{{
+				FunctionResponse: &genai.FunctionResponse{
+					Name:     "jenkins_monitor_build",
+					Response: map[string]any{"error": "connection timeout", "isError": true},
+				},
+			}},
+		}},
+	}
+
+	callback := MakeMCPAppModelResultCallback(map[string]bool{"jenkins_monitor_build": true})
+	if _, err := callback(nil, req); err != nil {
+		t.Fatalf("callback returned error: %v", err)
+	}
+
+	got := req.Contents[0].Parts[0].FunctionResponse.Response
+	want := map[string]any{"error": "connection timeout", "isError": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool error response = %#v, want %#v", got, want)
 	}
 }
 
