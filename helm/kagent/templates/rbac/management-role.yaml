@@ -1,4 +1,5 @@
-{{- define "kagent.writer.rules" -}}
+{{- define "kagent.management.rules" -}}
+# Management API writes; dependency reads are granted by the reconciliation Role.
 - apiGroups:
   - api.kagent.dev
   resources:
@@ -14,24 +15,6 @@
   - update
   - patch
   - delete
-- apiGroups:
-  - api.kagent.dev
-  resources:
-  - sandboxtemplates/status
-  verbs:
-  - update
-  - patch
-- apiGroups:
-  - api.kagent.dev
-  resources:
-  - harnesses/finalizers
-  - agents/finalizers
-  - sandboxtemplates/finalizers
-  - modelconfigs/finalizers
-  - modelproviderconfigs/finalizers
-  - remotemcpservers/finalizers
-  verbs:
-  - update
 - apiGroups:
   - ""
   resources:
@@ -57,20 +40,20 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "kagent.fullname" $ }}-writer-role
+  name: {{ include "kagent.fullname" $ }}-management-role
   namespace: {{ $namespace }}
   labels:
     {{- include "kagent.labels" $ | nindent 4 }}
 rules:
-  {{- include "kagent.writer.rules" $ | nindent 2 }}
+  {{- include "kagent.management.rules" $ | nindent 2 }}
 {{- end }}
 {{- else }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kagent.fullname" . }}-writer-role
+  name: {{ include "kagent.fullname" . }}-management-role
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 rules:
-  {{- include "kagent.writer.rules" . | nindent 2 }}
+  {{- include "kagent.management.rules" . | nindent 2 }}
 {{- end }}
