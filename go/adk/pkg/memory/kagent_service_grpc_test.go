@@ -126,8 +126,6 @@ func TestKagentMemoryServiceAddSessionUsesGRPC(t *testing.T) {
 			controllerClient := newMemoryControllerClient(t, &memoryTestServer{add: func(ctx context.Context, request *runtimev1.MemoryServiceAddSessionRequest) (*runtimev1.MemoryServiceAddSessionResponse, error) {
 				requestCount++
 				input := request.GetMemory()
-				assert.Equal(t, "test-agent", input.GetAgentName())
-				assert.Equal(t, "user", input.GetUserId())
 				assert.NotEmpty(t, input.GetContent())
 				assert.Len(t, input.GetVector(), 768)
 				assert.Equal(t, int32(15), input.GetTtlDays())
@@ -141,7 +139,6 @@ func TestKagentMemoryServiceAddSessionUsesGRPC(t *testing.T) {
 			embeddingClient, embeddingServer := newMockEmbeddingClient(t)
 			defer embeddingServer.Close()
 			service := &KagentMemoryService{
-				agentName:        "test-agent",
 				controllerClient: controllerClient,
 				ttlDays:          15,
 				embeddingClient:  embeddingClient,
@@ -183,8 +180,6 @@ func TestKagentMemoryServiceSearchUsesGRPC(t *testing.T) {
 			requestCount := 0
 			controllerClient := newMemoryControllerClient(t, &memoryTestServer{search: func(ctx context.Context, request *runtimev1.MemoryServiceSearchRequest) (*runtimev1.MemoryServiceSearchResponse, error) {
 				requestCount++
-				assert.Equal(t, "test-agent", request.GetAgentName())
-				assert.Equal(t, "user", request.GetUserId())
 				assert.Len(t, request.GetVector(), 768)
 				assert.Equal(t, int32(5), request.GetLimit())
 				assert.InDelta(t, 0.3, request.GetMinScore(), 0.0001)
@@ -195,7 +190,6 @@ func TestKagentMemoryServiceSearchUsesGRPC(t *testing.T) {
 			embeddingClient, embeddingServer := newMockEmbeddingClient(t)
 			defer embeddingServer.Close()
 			service := &KagentMemoryService{
-				agentName:        "test-agent",
 				controllerClient: controllerClient,
 				embeddingClient:  embeddingClient,
 			}
@@ -239,7 +233,6 @@ func TestStoreMemoryPreservesTTLAndReturnsRPCError(t *testing.T) {
 				return &runtimev1.MemoryServiceAddSessionResponse{Id: "memory-1"}, test.rpcErr
 			}})
 			service := &KagentMemoryService{
-				agentName:        "test-agent",
 				controllerClient: controllerClient,
 				ttlDays:          test.ttlDays,
 			}
@@ -276,7 +269,7 @@ func TestKagentMemoryServiceExtractSessionContent(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			service := &KagentMemoryService{agentName: "test-agent"}
+			service := &KagentMemoryService{}
 			content := service.extractSessionContent(newMockSession("session", "user", test.events))
 			if test.wantContent == "" {
 				assert.Empty(t, content)
@@ -298,14 +291,12 @@ func TestNew(t *testing.T) {
 		{
 			name: "valid config",
 			config: Config{
-				AgentName:        "test-agent",
 				ControllerClient: controllerClient,
 				EmbeddingConfig:  validEmbedding,
 			},
 		},
-		{name: "missing agent name", config: Config{ControllerClient: controllerClient, EmbeddingConfig: validEmbedding}, wantErr: "agent name is required"},
-		{name: "missing controller client", config: Config{AgentName: "test-agent", EmbeddingConfig: validEmbedding}, wantErr: "controller client is required"},
-		{name: "missing embedding config", config: Config{AgentName: "test-agent", ControllerClient: controllerClient}, wantErr: "embedding config is required"},
+		{name: "missing controller client", config: Config{EmbeddingConfig: validEmbedding}, wantErr: "controller client is required"},
+		{name: "missing embedding config", config: Config{ControllerClient: controllerClient}, wantErr: "embedding config is required"},
 	}
 
 	for _, test := range tests {
@@ -317,7 +308,7 @@ func TestNew(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, test.config.AgentName, service.agentName)
+			require.NotNil(t, service)
 		})
 	}
 }
@@ -385,14 +376,12 @@ func newMockEventWithFunctionCall(author, functionName string) *adksession.Event
 
 func TestMemoryUsesCallerInsteadOfPrivateSessionUser(t *testing.T) {
 	controller := newMemoryControllerClient(t, &memoryTestServer{
-		add: func(ctx context.Context, req *runtimev1.MemoryServiceAddSessionRequest) (*runtimev1.MemoryServiceAddSessionResponse, error) {
-			assert.Equal(t, "alice", req.Memory.UserId)
+		add: func(ctx context.Context, _ *runtimev1.MemoryServiceAddSessionRequest) (*runtimev1.MemoryServiceAddSessionResponse, error) {
 			values, _ := metadata.FromIncomingContext(ctx)
 			assert.Equal(t, []string{"alice"}, values.Get("x-user-id"))
 			return &runtimev1.MemoryServiceAddSessionResponse{}, nil
 		},
-		search: func(ctx context.Context, req *runtimev1.MemoryServiceSearchRequest) (*runtimev1.MemoryServiceSearchResponse, error) {
-			assert.Equal(t, "alice", req.UserId)
+		search: func(ctx context.Context, _ *runtimev1.MemoryServiceSearchRequest) (*runtimev1.MemoryServiceSearchResponse, error) {
 			values, _ := metadata.FromIncomingContext(ctx)
 			assert.Equal(t, []string{"alice"}, values.Get("x-user-id"))
 			return &runtimev1.MemoryServiceSearchResponse{}, nil
@@ -400,7 +389,7 @@ func TestMemoryUsesCallerInsteadOfPrivateSessionUser(t *testing.T) {
 	})
 	embeddings, server := newMockEmbeddingClient(t)
 	defer server.Close()
-	svc := &KagentMemoryService{agentName: "agent", controllerClient: controller, embeddingClient: embeddings}
+	svc := &KagentMemoryService{controllerClient: controller, embeddingClient: embeddings}
 	ctx := auth.WithUserID(t.Context(), "alice")
 	session := newMockSession("conversation", "conversation", []*adksession.Event{newMockEvent("user", "remember")})
 	require.NoError(t, svc.AddSessionToMemory(ctx, session))

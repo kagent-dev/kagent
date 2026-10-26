@@ -52,11 +52,9 @@ func (s *memoryServer) AddSessionBatch(ctx context.Context, request *runtimev1.M
 
 func (s *memoryServer) Search(ctx context.Context, request *runtimev1.MemoryServiceSearchRequest) (*runtimev1.MemoryServiceSearchResponse, error) {
 	results, err := s.service.Search(ctx, memoryservice.SearchRequest{
-		AgentName: request.GetAgentName(),
-		UserID:    request.GetUserId(),
-		Vector:    request.GetVector(),
-		Limit:     int(request.GetLimit()),
-		MinScore:  request.GetMinScore(),
+		Vector:   request.GetVector(),
+		Limit:    int(request.GetLimit()),
+		MinScore: request.GetMinScore(),
 	})
 	if err != nil {
 		return nil, err
@@ -83,7 +81,7 @@ func (s *memoryServer) Search(ctx context.Context, request *runtimev1.MemoryServ
 }
 
 func (s *memoryServer) List(ctx context.Context, request *runtimev1.MemoryServiceListRequest) (*runtimev1.MemoryServiceListResponse, error) {
-	results, err := s.service.List(ctx, request.GetAgentName(), request.GetUserId())
+	results, err := s.service.List(ctx, request.GetAgentName())
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +94,7 @@ func (s *memoryServer) List(ctx context.Context, request *runtimev1.MemoryServic
 }
 
 func (s *memoryServer) Delete(ctx context.Context, request *runtimev1.MemoryServiceDeleteRequest) (*runtimev1.MemoryServiceDeleteResponse, error) {
-	if err := s.service.Delete(ctx, request.GetAgentName(), request.GetUserId()); err != nil {
+	if err := s.service.Delete(ctx, request.GetAgentName()); err != nil {
 		return nil, err
 	}
 	return &runtimev1.MemoryServiceDeleteResponse{Status: "deleted"}, nil
@@ -115,12 +113,10 @@ func memoryInputFromProto(input *runtimev1.SessionMemoryInput) (memoryservice.In
 		metadata = encoded
 	}
 	return memoryservice.Input{
-		AgentName: input.GetAgentName(),
-		UserID:    input.GetUserId(),
-		Content:   input.GetContent(),
-		Vector:    input.GetVector(),
-		Metadata:  metadata,
-		TTLDays:   int(input.GetTtlDays()),
+		Content:  input.GetContent(),
+		Vector:   input.GetVector(),
+		Metadata: metadata,
+		TTLDays:  int(input.GetTtlDays()),
 	}, nil
 }
 

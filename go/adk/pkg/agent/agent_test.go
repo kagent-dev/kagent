@@ -2,14 +2,24 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/genai"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
@@ -567,6 +577,122 @@ func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
 	}
 	if len(root.SubAgents()) != 1 || root.SubAgents()[0].Name() != "researcher" || root.SubAgents()[0].Description() != "research" {
 		t.Fatalf("sub-agents = %#v", root.SubAgents())
+	}
+}
+
+func TestCreateGoogleADKAgentSendsStrictOutputSchema(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("AZURE_OPENAI_API_KEY", "test-key")
+	t.Setenv("FOUNDRY_API_KEY", "test-key")
+	t.Setenv("MISTRAL_API_KEY", "test-key")
+	providers := []struct {
+		name        string
+		model       func(url string, strict bool) *configv1.ADKModelConfig
+		omitsStrict bool
+	}{
+		{name: "openai", model: func(url string, strict bool) *configv1.ADKModelConfig {
+			return &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{
+				BaseUrl: url, StrictOutputSchema: strict}}}
+		}},
+		{name: "azure openai", model: func(url string, strict bool) *configv1.ADKModelConfig {
+			return &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{
+				Endpoint: url, Deployment: "gpt-4o", ApiVersion: "2024-10-21", StrictOutputSchema: strict}}}
+		}},
+		{name: "foundry", model: func(url string, strict bool) *configv1.ADKModelConfig {
+			return &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{
+				Endpoint: url, Deployment: "gpt-4o", ApiVersion: "2024-10-21", StrictOutputSchema: strict}}}
+		}},
+		{name: "mistral", omitsStrict: true, model: func(url string, _ bool) *configv1.ADKModelConfig {
+			return &configv1.ADKModelConfig{Model: "mistral-small-latest", Provider: &configv1.ADKModelConfig_Mistral{Mistral: &configv1.ADKMistral{BaseUrl: url}}}
+		}},
+	}
+	for _, provider := range providers {
+		for _, want := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%t", provider.name, want), func(t *testing.T) {
+				bodies := make(chan map[string]any, 8)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					encoded, _ := io.ReadAll(r.Body)
+					var body map[string]any
+					_ = json.Unmarshal(encoded, &body)
+					bodies <- body
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"{\"ticket\":\"OPS-1\"}"},"finish_reason":"stop"}]}`)
+				}))
+				defer server.Close()
+
+				config := &configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{
+					Model: provider.model(server.URL, want), Instruction: "reply", SkillsDirectory: t.TempDir(),
+					Output: &configv1.ADKOutputConfig{
+						JsonSchema: []byte(`{"type":"object","additionalProperties":false,"required":["ticket"],"properties":{"ticket":{"type":"string"}}}`),
+						Sha256:     "test",
+					},
+				}}
+				root, err := CreateGoogleADKAgent(t.Context(), config, "root", nil)
+				require.NoError(t, err)
+				run, err := runner.NewInMemory("app", root)
+				require.NoError(t, err)
+				for _, err := range run.Run(t.Context(), "user", "session", genai.NewContentFromText("ping", genai.RoleUser), agent.RunConfig{}) {
+					require.NoError(t, err)
+				}
+
+				require.NotEmpty(t, bodies, "the model endpoint received no request")
+				format := (<-bodies)["response_format"].(map[string]any)["json_schema"].(map[string]any)
+				if provider.omitsStrict {
+					require.NotContains(t, format, "strict")
+					return
+				}
+				require.Equal(t, want, format["strict"])
+			})
+		}
+	}
+}
+
+func TestCreateGoogleADKAgentOffersSetModelResponseWhenOutputSchemaSaysSo(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	for _, name := range []string{"gemini-2.5-flash", "models/Gemini-3.5-pro", "gpt-4o"} {
+		t.Run(name, func(t *testing.T) {
+			tools := make(chan []string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Tools []struct {
+						Function struct {
+							Name string `json:"name"`
+						} `json:"function"`
+					} `json:"tools"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				var names []string
+				for _, tool := range body.Tools {
+					names = append(names, tool.Function.Name)
+				}
+				select {
+				case tools <- names:
+				default:
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"{\"ticket\":\"OPS-1\"}"},"finish_reason":"stop"}]}`)
+			}))
+			defer server.Close()
+
+			model := &configv1.ADKModelConfig{Model: name, Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{BaseUrl: server.URL}}}
+			config := &configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{
+				Model: model, Instruction: "reply", SkillsDirectory: t.TempDir(),
+				Output: &configv1.ADKOutputConfig{JsonSchema: []byte(`{"type":"object","properties":{"ticket":{"type":"string"}}}`), Sha256: "test"},
+			}}
+			root, err := CreateGoogleADKAgent(t.Context(), config, "root", nil)
+			require.NoError(t, err)
+			run, err := runner.NewInMemory("app", root)
+			require.NoError(t, err)
+			for range run.Run(t.Context(), "user", "session", genai.NewContentFromText("ping", genai.RoleUser), agent.RunConfig{}) {
+			}
+
+			select {
+			case names := <-tools:
+				require.Equal(t, adkoutputschema.UsesSetModelResponse(model), slices.Contains(names, "set_model_response"))
+			default:
+				t.Fatal("the model endpoint received no request")
+			}
+		})
 	}
 }
 

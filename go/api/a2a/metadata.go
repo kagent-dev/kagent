@@ -12,7 +12,18 @@ const (
 	TaskCreatedAtMetadataKey    = MetadataPrefix + "task-created-at"
 	PartTypeMetadataKey         = MetadataPrefix + "part-type"
 	UsageMetadataKey            = MetadataPrefix + "usage"
+	// ThoughtMetadataKey marks a text part that summarizes the model's reasoning, not its answer.
+	ThoughtMetadataKey = MetadataPrefix + "thought"
 )
+
+// IsThought reports whether a part summarizes the model's reasoning rather than answering.
+func IsThought(part *a2atype.Part) bool {
+	if part == nil {
+		return false
+	}
+	thought, _ := part.Metadata[ThoughtMetadataKey].(bool)
+	return thought
+}
 
 // SetTimelinePosition records the temporary task-timeline ordering key.
 func SetTimelinePosition(carrier a2atype.MetadataCarrier, position time.Time) {

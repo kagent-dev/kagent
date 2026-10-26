@@ -2,6 +2,7 @@ package egress
 
 import (
 	"context"
+	"fmt"
 	"slices"
 )
 
@@ -13,15 +14,18 @@ type PolicyStore interface {
 
 // EffectiveAccess retains the base and all grants compatible with this revision.
 // Stored grants can conflict with an older actor's pinned base.
-func EffectiveAccess(base, grants Access, tokenPassthroughOrigins []string) (Access, error) {
-	filtered, _ := FilterConflicts(base, grants, tokenPassthroughOrigins)
-	return MergeAccess(base, filtered, tokenPassthroughOrigins)
+func EffectiveAccess(base, grants Access) (Access, error) {
+	filtered, _ := FilterConflicts(base, grants)
+	return MergeAccess(base, filtered)
 }
 
 // MergeAccess validates live grants against the pinned runtime's credentials and
-// caller-token origins. Inputs are never modified.
-func MergeAccess(base, grants Access, tokenPassthroughOrigins []string) (Access, error) {
-	return CanonicalAccess(append(slices.Clone(base.Destinations), grants.Destinations...), append(slices.Clone(base.Credentials), grants.Credentials...), tokenPassthroughOrigins)
+// tokenPassthrough targets. Inputs are never modified.
+func MergeAccess(base, grants Access) (Access, error) {
+	if len(grants.TokenPassthroughTargets) != 0 {
+		return Access{}, fmt.Errorf("egress grants cannot carry tokenPassthrough targets")
+	}
+	return CanonicalAccess(append(slices.Clone(base.Destinations), grants.Destinations...), append(slices.Clone(base.Credentials), grants.Credentials...), base.TokenPassthroughTargets)
 }
 
 // IntersectAccess retains only destinations and complete credential bindings
@@ -47,15 +51,15 @@ func IntersectAccess(a, b Access) Access {
 // sorted grant order determines which rules fit when the combined limits are
 // exceeded. A conflicting credential does not remove its network destination.
 // Neither input is modified; dropped origins are sorted and deduplicated.
-func FilterConflicts(base, grants Access, tokenOrigins []string) (Access, []string) {
-	if _, err := MergeAccess(base, grants, tokenOrigins); err == nil {
+func FilterConflicts(base, grants Access) (Access, []string) {
+	if _, err := MergeAccess(base, grants); err == nil {
 		return grants, nil
 	}
 	var result Access
 	var dropped []string
 	for _, origin := range grants.Destinations {
 		candidate := Access{Destinations: append(slices.Clone(result.Destinations), origin)}
-		if _, err := MergeAccess(base, candidate, tokenOrigins); err != nil {
+		if _, err := MergeAccess(base, candidate); err != nil {
 			dropped = append(dropped, origin)
 		} else {
 			result = candidate
@@ -69,7 +73,7 @@ func FilterConflicts(base, grants Access, tokenOrigins []string) (Access, []stri
 			Destinations: result.Destinations,
 			Credentials:  append(slices.Clone(result.Credentials), credential),
 		}
-		if _, err := MergeAccess(base, candidate, tokenOrigins); err != nil {
+		if _, err := MergeAccess(base, candidate); err != nil {
 			dropped = append(dropped, credential.Origin)
 		} else {
 			result = candidate

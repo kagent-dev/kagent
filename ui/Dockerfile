@@ -1,6 +1,8 @@
 ### STAGE 1: Dependencies
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG WOLFI_BASE_DIGEST=sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
+ARG NGINX_DIGEST=sha256:8a42fb9468e353a6c2501d2657866333b7a2a075912f4a7e4fa73298aafd46d6
+ARG GO_IMAGE=golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c
 ARG TOOLS_NODE_VERSION=24
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@${WOLFI_BASE_DIGEST} AS deps
@@ -56,49 +58,25 @@ COPY . .
 RUN yarn build \
     && rm -f dist/mockServiceWorker.js
 
-### STAGE 3: Runtime
-# nginx only — the UI is a static bundle now, so there is no node process and no
-# node runtime in the final image.
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@${WOLFI_BASE_DIGEST} AS final
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-# This is used to print the build platform in the logs
-ARG BUILDPLATFORM
+### STAGE 3: Entrypoint
+# A static binary, so the runtime image needs no shell to render settings at start.
+FROM --platform=$BUILDPLATFORM $GO_IMAGE AS entrypoint
+ARG TARGETARCH
+WORKDIR /src
+COPY entrypoint/ .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /entrypoint . \
+    # nginx opens its compiled-in error log before reading the config; on a read-only root that logs an alert.
+    && mkdir -p /logs && ln -s /dev/stderr /logs/error.log
 
-# Shipped packages are pinned to a major version only, so security fixes land on rebuild.
-# No openssl CLI: nothing here runs it. curl stays for exec-based probes on IPv6 clusters.
-RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache \
-        "bash~5" \
-        ca-certificates \
-        "curl~8" \
-        "nginx-mainline~1" \
-    && update-ca-certificates
+### STAGE 4: Runtime
+# Distroless nginx: no shell or package manager. The entrypoint renders
+# env-config.js from env on every start into /tmp, the writable emptyDir under a
+# read-only root filesystem, then execs nginx.
+FROM $BASE_IMAGE_REGISTRY/chainguard/nginx:latest@${NGINX_DIGEST} AS final
 
-# `kagent` owns both the static root and the writable runtime dirs. /tmp/kagent
-# holds env-config.js, which init.sh renders from env on every start — it lives
-# under /tmp because the container is expected to run with a read-only root
-# filesystem, where /tmp is the mounted emptyDir.
-RUN addgroup -g 1001 kagent                          \
-    && adduser -u 1001 -G kagent -s /bin/bash -D kagent \
-    && mkdir -p /usr/share/nginx/html                \
-                /tmp/kagent                          \
-                /tmp/nginx/client_temp               \
-                /tmp/nginx/proxy_temp                \
-                /tmp/nginx/fastcgi_temp              \
-                /tmp/nginx/uwsgi_temp                \
-                /tmp/nginx/scgi_temp                 \
-    && chown -R kagent:kagent /usr/share/nginx/html /tmp/kagent /tmp/nginx \
-    # nginx opens its compiled-in default error log before it parses the config
-    # that redirects logging to stderr. On a read-only root filesystem that open
-    # fails and every start logs an alert, so point the default at stderr too.
-    && mkdir -p /var/lib/nginx/logs \
-    && ln -sf /dev/stderr /var/lib/nginx/logs/error.log
-
-COPY scripts/init.sh /usr/local/bin/init.sh
-COPY --from=builder --chown=kagent:kagent /app/ui/dist /usr/share/nginx/html
-
-RUN chmod +x /usr/local/bin/init.sh
+COPY --from=entrypoint /entrypoint /usr/local/bin/entrypoint
+COPY --from=entrypoint /logs/ /var/lib/nginx/logs/
+COPY --from=builder /app/ui/dist /usr/share/nginx/html
 
 EXPOSE 8080
 ARG VERSION
@@ -110,4 +88,5 @@ LABEL org.opencontainers.image.version="$VERSION"
 
 USER 1001
 
-CMD ["/usr/local/bin/init.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint"]
+CMD []

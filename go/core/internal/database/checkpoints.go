@@ -392,6 +392,41 @@ func (c *Client) GetSessionCheckpoint(ctx context.Context, id, userID string) (*
 	return toSessionCheckpoint(row)
 }
 
+// SessionCheckpointForkSource contains an owned checkpoint's retained fork inputs.
+type SessionCheckpointForkSource struct {
+	Checkpoint *apiv1.Checkpoint
+	Agent      *apiv1.ResourceReference
+	Snapshot   *SessionTaskSnapshot
+	TagUID     string
+}
+
+// GetSessionCheckpointForkSource reads an owned READY checkpoint once and resolves
+// its target Agent from the retained revision, independently of the source Session.
+// Missing checkpoints, other owners, and other lifecycle states return ErrNotFound.
+// The caller must authorize access before reading; this does not lock the records.
+func (c *Client) GetSessionCheckpointForkSource(ctx context.Context, id, userID string) (*SessionCheckpointForkSource, error) {
+	row, err := readCheckpoint(ctx, c.db, id, userID, new("READY"))
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint fork source: %w", notFoundOr(err))
+	}
+	checkpoint, err := toSessionCheckpoint(row)
+	if err != nil {
+		return nil, err
+	}
+	if row.PreparedRevision == nil {
+		return nil, fmt.Errorf("checkpoint %s has no fork source", id)
+	}
+	revision, err := c.GetRuntimeRevision(ctx, *row.PreparedRevision)
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint Agent revision: %w", err)
+	}
+	return &SessionCheckpointForkSource{
+		Checkpoint: checkpoint,
+		Agent:      &apiv1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName},
+		Snapshot:   checkpointSnapshot(row), TagUID: row.TagUID,
+	}, nil
+}
+
 // GetSessionCheckpointSnapshot returns an owned checkpoint's snapshot reference and
 // tag UID in any lifecycle state. Before finalization the URI refers to the source
 // snapshot; afterward it refers to the retained copy. Missing checkpoints and other owners

@@ -48,7 +48,7 @@ jobs:
         sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.6.0-alpha3
+      SUBSTRATE_VERSION: 0.7.0-alpha1
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
@@ -172,8 +172,6 @@ jobs:
             replicas: 0
           kagent-tools:
             enabled: false
-          grafana-mcp:
-            enabled: false
           substrateWorkerPool:
             create: true
             replicas: 4
@@ -290,9 +288,10 @@ jobs:
           echo "::error::Kubectl get Harnesses and AgentTemplates -n kagent"
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
-          kubectl logs -n kagent deployment/kagent-controller
+          kubectl logs -n kagent deployment/kagent-controller || true
           kubectl get pods,workerpools -A
           echo "::error::Substrate logs"
+          kubectl describe pods -n ate-system || true
           kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true
           kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
@@ -447,6 +446,10 @@ jobs:
           TESTCONTAINERS_RYUK_DISABLED: "true"
         run: make test
 
+      - name: Run UI entrypoint tests
+        working-directory: ui/entrypoint
+        run: go test ./...
+
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
@@ -475,7 +478,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-          helm unittest helm/tools/grafana-mcp
 
   ui-tests:
     runs-on: blacksmith-4vcpu-ubuntu-2404

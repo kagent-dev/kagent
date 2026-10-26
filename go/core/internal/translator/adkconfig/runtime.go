@@ -89,16 +89,33 @@ func isAgentModel(template *translator.TemplateConfiguration, name string) bool 
 	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
 }
 
-// applyOutputSchema verifies the portable schema by performing the same
-// genai.Schema conversion used by the Go runtime, then records the canonical
-// schema for both Go and Python ADK runtimes. This keeps compatibility
-// failures at Harness compilation instead of actor startup.
 func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.ResolvedOutputSchema) error {
 	if output == nil {
 		return nil
 	}
-	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
+	projected, err := adkoutputschema.ToGenAISchema(output.Schema)
+	if err != nil {
 		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
+	}
+	if adkoutputschema.UsesSetModelResponse(config.Model) {
+		if err := adkoutputschema.CheckSetModelResponse(projected); err != nil {
+			return translator.NewValidationError("%v", err)
+		}
+	}
+	if output.Strict {
+		if err := adkoutputschema.CheckStrict(output.Schema); err != nil {
+			return translator.NewValidationError("outputSchemaStrict: %v", err)
+		}
+	}
+	switch p := config.Model.GetProvider().(type) {
+	case *configv1.ADKModelConfig_Openai:
+		p.Openai.StrictOutputSchema = output.Strict
+	case *configv1.ADKModelConfig_AzureOpenai:
+		p.AzureOpenai.StrictOutputSchema = output.Strict
+	case *configv1.ADKModelConfig_Foundry:
+		if p.Foundry.GetApiFormat() != runtimeconfig.FoundryAPIFormatAnthropic {
+			p.Foundry.StrictOutputSchema = output.Strict
+		}
 	}
 	config.Output = &configv1.ADKOutputConfig{
 		JsonSchema: append(json.RawMessage(nil), output.Schema...),

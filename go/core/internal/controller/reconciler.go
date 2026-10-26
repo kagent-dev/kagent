@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -118,8 +118,8 @@ func newAgentReconciliations(
 			_, err = egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil)
 		} else {
 			revision := &state.Target.Revision
-			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}
-			_, err = egress.MergeAccess(base, state.EgressGrant, revision.TokenPassthroughOrigins)
+			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets}
+			_, err = egress.MergeAccess(base, state.EgressGrant)
 		}
 		if err != nil {
 			state.EgressConflict = err.Error()
@@ -384,8 +384,8 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		grants = egress.IntersectAccess(previous, grants)
 		if state.Target != nil {
 			revision := &state.Target.Revision
-			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}
-			grants, _ = egress.FilterConflicts(base, grants, revision.TokenPassthroughOrigins)
+			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets}
+			grants, _ = egress.FilterConflicts(base, grants)
 		}
 	}
 	definition := database.AgentDefinition{
@@ -445,7 +445,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
 		EgressDestinations:      target.Revision.EgressDestinations,
 		Credentials:             target.Revision.Credentials,
-		TokenPassthroughOrigins: target.Revision.TokenPassthroughOrigins,
+		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil

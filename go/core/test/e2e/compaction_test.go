@@ -52,7 +52,7 @@ func TestSessionContextCompaction(t *testing.T) {
 	modelURL := reachableModelURL(t, recorder.URL)
 	agentModel := createInteractionModel(t, kube, modelURL, map[string]string{"X-Kagent-E2E-Model": "agent"})
 	summarizerModel := createInteractionModel(t, kube, modelURL, map[string]string{"X-Kagent-E2E-Model": "summarizer"})
-	harness := createCompactionHarness(t, kube, summarizerModel.Name)
+	harness := createCompactionHarness(t, kube, summarizerModel.Name, &v1alpha3.KagentHarnessCompaction{CompactionInterval: new(2)})
 	fixture := newInteractionFixtureForHarnessTemplate(t, target, harness.Name, createCompactionInteractionTemplate(t, kube, harness.Name, agentModel.Name))
 
 	turns := []struct{ prompt, reply string }{
@@ -86,11 +86,96 @@ func TestSessionContextCompaction(t *testing.T) {
 	}
 }
 
-// createCompactionHarness clones the suite's kagent Harness into one whose
-// sliding window fires after two invocations and whose summaries are written
-// by the given ModelConfig, so the test can tell the summarizer's requests from
-// the agent's. It admits the templates labeled for it only.
-func createCompactionHarness(t *testing.T, kube ctrlclient.Client, summarizerModel string) *v1alpha3.Harness {
+// With no interval configured, these cases require the threshold and tail
+// settings to reach the runtime. Recorded model requests establish which
+// events the summarizer replaces and which events remain in the raw tail.
+func TestSessionTokenThresholdCompaction(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	turns := []struct{ prompt, reply string }{
+		{"Turn one: the codeword is ALPHA.", "Noted: the codeword is ALPHA."},
+		{"Turn two: the port is 8443.", "Noted: the port is 8443."},
+		{"Turn three: repeat the codeword and the port.", "The codeword is ALPHA and the port is 8443."},
+	}
+	for _, tc := range []struct {
+		name                string
+		tokenThreshold      int
+		retentionSize       int
+		turnCount           int
+		firstCompactionTurn int
+	}{
+		{"short tail", 10, 1, 2, 2},
+		{"larger tail", 10, 3, 3, 3},
+		{"below threshold", 1_000_000, 1, 3, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, compactionMocks, "mocks/invoke_golang_compaction.json")), nil)
+			kube := interactionKubeClient(t)
+			modelURL := reachableModelURL(t, recorder.URL)
+			agentModel := createInteractionModel(t, kube, modelURL, map[string]string{"X-Kagent-E2E-Model": "agent"})
+			summarizerModel := createInteractionModel(t, kube, modelURL, map[string]string{"X-Kagent-E2E-Model": "summarizer"})
+			// Nonstreaming responses carry the fixture's token usage. This
+			// keeps the threshold independent of prompt-size estimation.
+			before := agentModel.DeepCopy()
+			agentModel.Spec.Stream = new(false)
+			require.NoError(t, kube.Patch(t.Context(), agentModel, ctrlclient.MergeFrom(before)))
+			harness := createCompactionHarness(t, kube, summarizerModel.Name, &v1alpha3.KagentHarnessCompaction{
+				TokenThreshold: new(tc.tokenThreshold), EventRetentionSize: new(tc.retentionSize),
+			})
+			fixture := newInteractionFixtureForHarnessTemplate(t, target, harness.Name, createCompactionInteractionTemplate(t, kube, harness.Name, agentModel.Name))
+
+			for i, turn := range turns[:tc.turnCount] {
+				_, _, task := fixture.send(t, turn.prompt)
+				require.Equalf(t, a2atype.TaskStateCompleted, task.Status.State, "turn %q ended in %s: %s", turn.prompt, task.Status.State, taskText(task))
+				require.Contains(t, taskText(task), turn.reply)
+				requests := recorder.Requests("X-Kagent-E2E-Model", "agent")
+				require.Len(t, requests, i+1, "one agent model call per completed turn")
+				require.Contains(t, string(requests[i].Body), turn.prompt, "the current question remains raw")
+				if tc.firstCompactionTurn == 0 || i+1 < tc.firstCompactionTurn {
+					require.Empty(t, recorder.Requests("X-Kagent-E2E-Model", "summarizer"), "no compaction before the threshold leaves a compactable prefix")
+				}
+			}
+
+			requests := recorder.Requests("X-Kagent-E2E-Model", "agent")
+			if tc.firstCompactionTurn == 0 {
+				for _, request := range requests[1:] {
+					require.Contains(t, string(request.Body), turns[0].prompt)
+					require.Contains(t, string(request.Body), turns[0].reply)
+					require.NotContains(t, string(request.Body), compactionSummary)
+				}
+				require.Contains(t, string(requests[2].Body), turns[1].prompt)
+				require.Contains(t, string(requests[2].Body), turns[1].reply)
+				return
+			}
+
+			summaries := recorder.Requests("X-Kagent-E2E-Model", "summarizer")
+			require.Len(t, summaries, 1, "one summary replaces the old prefix")
+			summary := string(summaries[0].Body)
+			require.Contains(t, summary, compactionSummaryPrompt)
+			require.Contains(t, summary, turns[0].prompt)
+			require.NotContains(t, summary, turns[0].reply, "the retained answer stays outside the summary")
+			require.NotContains(t, summary, turns[1].prompt, "the retained tail stays outside the summary")
+			compacted := string(requests[1].Body)
+			if tc.retentionSize == 3 {
+				require.Contains(t, compacted, turns[0].prompt, "a larger tail delays compaction")
+				require.Contains(t, compacted, turns[0].reply)
+				compacted = string(requests[2].Body)
+				require.Contains(t, compacted, turns[1].prompt)
+				require.Contains(t, compacted, turns[1].reply)
+				require.NotContains(t, summary, turns[1].reply)
+				require.NotContains(t, summary, turns[2].prompt)
+			}
+			require.Contains(t, compacted, compactionSummary)
+			require.NotContains(t, compacted, turns[0].prompt, "the summary replaces the old question")
+			require.Contains(t, compacted, turns[0].reply, "the retained prior answer remains raw")
+		})
+	}
+}
+
+// createCompactionHarness clones the suite's kagent Harness with the requested
+// policy and a dedicated summarizer model. Model headers distinguish summary
+// requests from agent requests. It admits the templates labeled for it only.
+func createCompactionHarness(t *testing.T, kube ctrlclient.Client, summarizerModel string, policy *v1alpha3.KagentHarnessCompaction) *v1alpha3.Harness {
 	t.Helper()
 	base := &v1alpha3.Harness{}
 	if err := kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: "kagent", Name: "kagent"}, base); err != nil {
@@ -100,12 +185,10 @@ func createCompactionHarness(t *testing.T, kube ctrlclient.Client, summarizerMod
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "compaction-", Namespace: "kagent"},
 		Spec:       *base.Spec.DeepCopy(),
 	}
-	harness.Spec.Kagent.Compaction = &v1alpha3.KagentHarnessCompaction{
-		CompactionInterval: new(2),
-		Summarizer: &v1alpha3.KagentHarnessSummarizer{
-			ModelConfigRef: &corev1.LocalObjectReference{Name: summarizerModel},
-			PromptTemplate: compactionSummaryPrompt + "\n\n{conversation_history}",
-		},
+	harness.Spec.Kagent.Compaction = policy
+	harness.Spec.Kagent.Compaction.Summarizer = &v1alpha3.KagentHarnessSummarizer{
+		ModelConfigRef: &corev1.LocalObjectReference{Name: summarizerModel},
+		PromptTemplate: compactionSummaryPrompt + "\n\n{conversation_history}",
 	}
 	if err := kube.Create(t.Context(), harness); err != nil {
 		t.Fatalf("create compaction Harness: %v", err)

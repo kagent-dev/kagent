@@ -8,23 +8,64 @@ import (
 	"testing"
 	"time"
 
+	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
+
+type denyingGuestAuthorizer struct {
+	verb     auth.Verb
+	resource auth.Resource
+}
+
+var _ auth.Authorizer = (*denyingGuestAuthorizer)(nil)
+
+func (a *denyingGuestAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.verb, a.resource = verb, resource
+	return errors.New("denied")
+}
+
+func TestSandboxReadFileAuthorization(t *testing.T) {
+	const id = "00000000-0000-4000-8000-000000000001"
+	for _, test := range []struct {
+		name string
+		mode uint32
+		verb auth.Verb
+	}{
+		{"read existing file", 0, auth.VerbGet},
+		{"create missing file", 0o600, auth.VerbUpdate},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			authorizer := &denyingGuestAuthorizer{}
+			service, err := NewService(Config{Authorizer: authorizer, DefaultTTL: time.Hour, MaxTTL: time.Hour})
+			require.NoError(t, err)
+			ctx := auth.AuthSessionTo(t.Context(), testSession("alice"))
+			err = service.ReadFile(ctx, id, &guestpb.ReadFileRequest{Path: "file", Mode: test.mode}, func(*guestpb.ReadFileResponse) error {
+				t.Fatal("unauthorized read returned data")
+				return nil
+			})
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+			require.Equal(t, test.verb, authorizer.verb)
+			require.Equal(t, auth.Resource{Type: "Sandbox", Name: id}, authorizer.resource)
+		})
+	}
+}
 
 func TestSandboxExpirationRejectsInvalidInterval(t *testing.T) {
 	for _, interval := range []time.Duration{0, -time.Second} {
@@ -73,6 +114,7 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
+func (a *testActors) CheckActorEgressPolicy(context.Context, string, string) error { return nil }
 func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -305,4 +347,168 @@ func TestSandboxResolvesCurrentGrantsBeforeResume(t *testing.T) {
 	calls := actors.observedCalls()
 	require.Less(t, slices.Index(calls, "policy"), slices.Index(calls, "resume"))
 	require.Contains(t, calls, "policy")
+}
+
+type templateDenyingAuthorizer struct {
+	templates []auth.Resource
+	verbs     []auth.Verb
+}
+
+var _ auth.Authorizer = (*templateDenyingAuthorizer)(nil)
+
+func (a *templateDenyingAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if resource.Type == v1alpha3.SandboxTemplateKind {
+		a.templates = append(a.templates, resource)
+		a.verbs = append(a.verbs, verb)
+		return errors.New("template denied")
+	}
+	return nil
+}
+
+func TestSandboxCreateRejectsDeniedTemplateBeforePersistence(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		objects []client.Object
+	}{
+		{name: "existing template", objects: []client.Object{&v1alpha3.SandboxTemplate{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "scratch"},
+		}}},
+		{name: "missing template on retry"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha3.AddToScheme(scheme))
+			authorizer := &templateDenyingAuthorizer{}
+			// Missing store and actor dependencies make any persistence or runtime
+			// work fail the test. Denial must precede both, even when a repeated
+			// request names a template that no longer exists in Kubernetes.
+			service := &Service{config: Config{
+				Kube:       fake.NewClientBuilder().WithScheme(scheme).WithObjects(test.objects...).Build(),
+				Authorizer: authorizer,
+			}}
+			ctx := auth.AuthSessionTo(t.Context(), testSession("alice"))
+			request := createRequest()
+			for range 2 {
+				instance, err := service.Create(ctx, request)
+				require.Nil(t, instance)
+				require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+				require.Equal(t, "SandboxTemplate access denied", serviceerrors.MessageOf(err))
+			}
+			require.Equal(t, []auth.Resource{
+				{Type: v1alpha3.SandboxTemplateKind, Namespace: "team-a", Name: "scratch"},
+				{Type: v1alpha3.SandboxTemplateKind, Namespace: "team-a", Name: "scratch"},
+			}, authorizer.templates)
+			require.Equal(t, []auth.Verb{auth.VerbGet, auth.VerbGet}, authorizer.verbs)
+		})
+	}
+}
+
+type sandboxOperationPolicy struct {
+	readOnly bool
+	deny     bool
+	verb     auth.Verb
+	resource auth.Resource
+}
+
+func (p *sandboxOperationPolicy) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	p.verb, p.resource = verb, resource
+	if p.deny || (p.readOnly && verb != auth.VerbGet && verb != auth.VerbList) {
+		return errors.New("denied")
+	}
+	return nil
+}
+func sandboxOperations(id string) []struct {
+	name string
+	verb auth.Verb
+	call func(context.Context, *Service) error
+} {
+	return []struct {
+		name string
+		verb auth.Verb
+		call func(context.Context, *Service) error
+	}{
+		{"get", auth.VerbGet, func(ctx context.Context, s *Service) error { _, err := s.Get(ctx, id); return err }},
+		{"list", auth.VerbList, func(ctx context.Context, s *Service) error {
+			_, err := s.List(ctx, &apiv1.ListSandboxesRequest{})
+			return err
+		}},
+		{"create", auth.VerbCreate, func(ctx context.Context, s *Service) error { _, err := s.Create(ctx, createRequest()); return err }},
+		{"suspend", auth.VerbUpdate, func(ctx context.Context, s *Service) error { _, err := s.Suspend(ctx, id); return err }},
+		{"resume", auth.VerbUpdate, func(ctx context.Context, s *Service) error { _, err := s.Resume(ctx, id); return err }},
+		{"delete", auth.VerbDelete, func(ctx context.Context, s *Service) error { _, err := s.Delete(ctx, id); return err }},
+		{"start process", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
+			_, err := s.StartProcess(ctx, id, &guestpb.StartProcessRequest{})
+			return err
+		}},
+		{"get process", auth.VerbGet, func(ctx context.Context, s *Service) error {
+			_, err := s.GetProcess(ctx, id, &guestpb.GetProcessRequest{})
+			return err
+		}},
+		{"signal process", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
+			_, err := s.SignalProcess(ctx, id, &guestpb.SignalProcessRequest{})
+			return err
+		}},
+		{"stream outputs", auth.VerbGet, func(ctx context.Context, s *Service) error {
+			return s.StreamProcessOutput(ctx, id, &guestpb.StreamProcessOutputRequest{}, func(*guestpb.ProcessOutput) error { panic("denied output") })
+		}},
+		{"read file", auth.VerbGet, func(ctx context.Context, s *Service) error {
+			return s.ReadFile(ctx, id, &guestpb.ReadFileRequest{}, func(*guestpb.ReadFileResponse) error { panic("denied file") })
+		}},
+		{"write file", auth.VerbUpdate, func(ctx context.Context, s *Service) error {
+			_, err := s.WriteFile(ctx, id, func() (*guestpb.WriteFileRequest, error) { panic("denied input") })
+			return err
+		}},
+	}
+}
+func TestSandboxChecksEveryOperationBeforeStorageOrGuest(t *testing.T) {
+	id := "11111111-1111-4111-8111-111111111111"
+	for _, op := range sandboxOperations(id) {
+		t.Run(op.name, func(t *testing.T) {
+			policy := &sandboxOperationPolicy{deny: true}
+			svc := &Service{config: Config{Authorizer: policy}}
+			ctx := auth.AuthSessionTo(t.Context(), testSession("alice"))
+			require.True(t, serviceerrors.IsCode(op.call(ctx, svc), serviceerrors.CodePermissionDenied))
+			require.Equal(t, op.verb, policy.verb)
+			require.Equal(t, "Sandbox", policy.resource.Type)
+			shared := auth.ShareContextTo(ctx, &auth.ShareContext{SessionID: id, UserID: "alice"})
+			policy.deny = false
+			require.True(t, serviceerrors.IsCode(op.call(shared, svc), serviceerrors.CodePermissionDenied))
+		})
+	}
+}
+func TestSandboxOwnerIsolationAcrossLifecycleAndGuestOperations(t *testing.T) {
+	svc, ctx, actors := serviceFixture(t)
+	instance, err := svc.Create(ctx, createRequest())
+	require.NoError(t, err)
+	before := actors.observedCalls()
+	other := auth.AuthSessionTo(t.Context(), testSession("bob"))
+	for _, op := range sandboxOperations(instance.Id) {
+		if op.name == "create" || op.name == "list" {
+			continue
+		}
+		t.Run(op.name, func(t *testing.T) {
+			require.True(t, serviceerrors.IsCode(op.call(other, svc), serviceerrors.CodeNotFound))
+		})
+	}
+	require.Equal(t, before, actors.observedCalls())
+	listed, err := svc.List(other, &apiv1.ListSandboxesRequest{})
+	require.NoError(t, err)
+	require.Empty(t, listed.Sandboxes)
+}
+
+func TestSandboxViewPermissionCannotMutateLifecycleOrGuest(t *testing.T) {
+	svc, ctx, actors := serviceFixture(t)
+	instance, err := svc.Create(ctx, createRequest())
+	require.NoError(t, err)
+	svc.config.Authorizer = &sandboxOperationPolicy{readOnly: true}
+	before := actors.observedCalls()
+	for _, op := range sandboxOperations(instance.Id) {
+		if op.verb == auth.VerbGet || op.verb == auth.VerbList {
+			continue
+		}
+		t.Run(op.name, func(t *testing.T) {
+			require.True(t, serviceerrors.IsCode(op.call(ctx, svc), serviceerrors.CodePermissionDenied))
+		})
+	}
+	require.Equal(t, before, actors.observedCalls())
 }

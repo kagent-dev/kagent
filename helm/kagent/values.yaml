@@ -23,7 +23,7 @@ global:
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
-  # grafana-mcp, substrateWorkerPool.workerImage, and built-in Harness images
+  # substrateWorkerPool.workerImage, and built-in Harness images
   # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
   # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
@@ -188,6 +188,8 @@ config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
     routerUrl: http://atenet-router.ate-system.svc:80
+    # Must match Substrate's ateApi.actorJWTIssuer; discovery uses substrate.caFile.
+    actorJwtIssuer: https://idp.ate-system.svc
   logging:
     level: info
   metrics:
@@ -198,10 +200,12 @@ config:
     # Limits for each agent runtime; Substrate requires both.
     cpu: "1"
     memory: 1Gi
-    skillTools:
-      fileSearchTools: false
+    builtinTools:
+      disableFileSearch: false
       bashVenvPath: ""
       disableBash: false
+      # Disable built-in questions across ADK agents, including Shared subagents.
+      disableAskUser: false
     logging:
       level: info
     telemetry: {}
@@ -475,7 +479,7 @@ ui:
   # -- Extra environment variables for the UI container, applied after ConfigMap
   # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
   # expansion. An installed app extension's settings go here, named
-  # `KAGENT_UI_EXTENSION_*`; the container's startup script copies
+  # `KAGENT_UI_EXTENSION_*`; the container's entrypoint copies
   # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on
@@ -567,7 +571,7 @@ ui:
     annotations: {}
 
   # -- Custom startup probe for the UI container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Override to adjust thresholds or change the health path. The image has no shell or curl, so use httpGet or tcpSocket.
   # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1
   startupProbe: {}
   # Example:
@@ -579,7 +583,7 @@ ui:
   #     periodSeconds: 5
   #     failureThreshold: 20
   # -- Custom readiness probe for the UI container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Override to adjust thresholds or change the health path. The image has no shell or curl, so use httpGet or tcpSocket.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}
   # Example:
@@ -770,25 +774,6 @@ proxy:
   # Proxy URL for internally-built k8s URLs
   # Example: "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
-
-# ==============================================================================
-# MCP TOOLS
-# ==============================================================================
-
-grafana-mcp:
-  enabled: true
-  grafana:
-    url: "grafana.kagent:3000/api"
-    serviceAccountToken: ""
-    # apiKey: "" # Deprecated - use serviceAccountToken instead.
-    # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
 
 # ==============================================================================
 # OAUTH2-PROXY CONFIGURATION (Optional)

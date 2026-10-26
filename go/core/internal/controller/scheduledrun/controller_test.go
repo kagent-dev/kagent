@@ -3,16 +3,21 @@ package scheduledrun
 import (
 	"context"
 	"errors"
+	"iter"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"k8s.io/apimachinery/pkg/types"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type controllerTestStore struct {
@@ -253,4 +258,102 @@ func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
 	require.Equal(t, 1, reads)
 	require.Empty(t, execution.TaskId)
 	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, execution.State)
+}
+
+// This policy grants only the Session operations exercised by durable dispatch.
+// It recognizes the in-process session type, never a human claim or stored owner.
+type controllerSessionPolicy struct{ calls []auth.Verb }
+
+func (p *controllerSessionPolicy) Check(ctx context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	identity, _ := auth.AuthSessionFrom(ctx)
+	if _, ok := identity.(auth.ControlPlaneSession); !ok {
+		return errors.New("internal identity required")
+	}
+	if principal.User.ID != "" || len(principal.Claims) != 0 || resource.Type != "Session" || (verb != auth.VerbGet && verb != auth.VerbCreate && verb != auth.VerbUpdate) {
+		return errors.New("operation denied")
+	}
+	p.calls = append(p.calls, verb)
+	return nil
+}
+
+type scopedControllerStore struct {
+	*database.Client
+	session  *apiv1.Session
+	leased   bool
+	reserved bool
+}
+
+func (s *scopedControllerStore) LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error) {
+	if s.leased {
+		return nil, nil
+	}
+	s.leased = true
+	return []database.LeasedScheduledRunExecution{{Execution: &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner", SessionId: s.session.Id, Deadline: timestamppb.New(time.Now().Add(time.Minute))}}}, nil
+}
+func (s *scopedControllerStore) GetSession(_ context.Context, id, owner string) (*apiv1.Session, error) {
+	if id != s.session.Id || owner != "owner" {
+		return nil, database.ErrNotFound
+	}
+	return s.session, nil
+}
+func (s *scopedControllerStore) GetSessionByID(_ context.Context, id string) (*apiv1.Session, error) {
+	if id != s.session.Id {
+		return nil, database.ErrNotFound
+	}
+	return s.session, nil
+}
+func (s *scopedControllerStore) ListAgentTasks(context.Context, []string, string, a2atype.TaskState, *time.Time, int, *int) ([]*a2atype.Task, int, error) {
+	return nil, 0, nil
+}
+func (s *scopedControllerStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
+	s.reserved = true
+	return nil
+}
+func (*scopedControllerStore) ClaimScheduledRunDispatch(context.Context, database.ScheduledRunExecutionLease) error {
+	return nil
+}
+func (*scopedControllerStore) UpdateScheduledRunExecution(context.Context, database.ScheduledRunExecutionLease, database.ScheduledRunExecutionProgress) error {
+	return nil
+}
+
+type scopedControllerGateway struct {
+	a2asrv.RequestHandler
+	interactions *sessionsvc.InteractionService
+	cancel       context.CancelFunc
+	agent        types.NamespacedName
+}
+
+func (g scopedControllerGateway) ListTasks(ctx context.Context, request *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+	return g.interactions.ListTasks(ctx, g.agent, request)
+}
+func (g scopedControllerGateway) SendStreamingMessage(ctx context.Context, request *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		_, err := g.interactions.PrepareSend(ctx, g.agent, request)
+		g.cancel()
+		yield(&a2atype.Task{ID: "task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, err)
+	}
+}
+func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
+	id := "11111111-1111-4111-8111-111111111111"
+	store := &scopedControllerStore{session: &apiv1.Session{Id: id, ContextId: id, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}}
+	policy := &controllerSessionPolicy{}
+	sessions := sessionsvc.NewService(store, policy, nil)
+	interactions := sessionsvc.NewInteractionService(store, nil, sessions, false)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	gateway := scopedControllerGateway{interactions: interactions, cancel: cancel, agent: types.NamespacedName{Namespace: "team", Name: "assistant"}}
+	controller := NewController(store, nil, gateway, time.Millisecond)
+	require.NoError(t, controller.Start(ctx))
+	require.True(t, store.reserved)
+	require.Equal(t, []auth.Verb{auth.VerbGet, auth.VerbCreate}, policy.calls)
+	// Human principals cannot acquire internal authority by copying the creator ID.
+	forged := auth.AuthSessionTo(t.Context(), controllerHumanSession{})
+	_, err := sessions.Get(forged, id)
+	require.Error(t, err)
+}
+
+type controllerHumanSession struct{}
+
+func (controllerHumanSession) Principal() auth.Principal {
+	return auth.Principal{User: auth.User{ID: "owner"}, Claims: map[string]any{"control_plane": true}}
 }

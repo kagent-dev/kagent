@@ -12,12 +12,13 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -71,8 +72,11 @@ func (a *gatedQuiescenceActors) GetActor(ctx context.Context, atespace, name str
 func settlementContext(t *testing.T, session *apiv1.Session) context.Context {
 	t.Helper()
 	headers := http.Header{}
-	headers.Set(apia2a.InsecureRuntimeIdentityHeader, "team-a/"+substrate.ActorName(session.Id)+"/actor-uid")
-	identity, err := (&taskstore.Authenticator{}).Authenticate(t.Context(), headers, nil)
+	i := jwttest.New(t)
+	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	require.NoError(t, err)
+	headers.Set("authorization", "Bearer "+i.Token(t, i.Claims("team-a", substrate.ActorName(session.Id), "actor-uid")))
+	identity, err := runtimeauth.NewAuthenticator(v).Authenticate(t.Context(), headers, nil)
 	require.NoError(t, err)
 	return auth.AuthSessionTo(t.Context(), identity)
 }

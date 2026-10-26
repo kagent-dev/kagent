@@ -141,7 +141,7 @@ func (f *sandboxFixture) read(t *testing.T, id, path string) []byte {
 			return data
 		}
 		require.NoError(t, err)
-		data = append(data, chunk.Data...)
+		data = append(data, chunk.GetChunk()...)
 	}
 }
 
@@ -174,7 +174,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	}
 	process, err := f.processes.StartProcess(f.guestContext(id), start)
 	require.NoError(t, err)
-	outputs, err := f.processes.StreamProcessOutputs(f.guestContext(id), &guestpb.StreamProcessOutputsRequest{ProcessId: process.ProcessId, Follow: true})
+	outputs, err := f.processes.StreamProcessOutput(f.guestContext(id), &guestpb.StreamProcessOutputRequest{ProcessId: process.ProcessId, Follow: true})
 	require.NoError(t, err)
 	var stdout, stderr []byte
 	for {
@@ -183,30 +183,27 @@ func TestSandboxLifecycle(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		if chunk.Source == guestpb.OutputSource_OUTPUT_SOURCE_STDOUT {
-			stdout = append(stdout, chunk.Data...)
-		} else {
-			stderr = append(stderr, chunk.Data...)
-		}
+		stdout = append(stdout, chunk.GetStdout()...)
+		stderr = append(stderr, chunk.GetStderr()...)
 	}
 	require.Equal(t, "hello", string(stdout))
 	require.Equal(t, "warning", string(stderr))
 	finished, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
 	require.NoError(t, err)
-	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, finished.Status)
+	require.True(t, exitedCleanly(finished))
 	require.Equal(t, "once", string(f.read(t, id, "count")))
 	again, err := f.processes.StartProcess(f.guestContext(id), start)
 	require.NoError(t, err)
 	require.NotEqual(t, process.ProcessId, again.ProcessId)
 	require.Eventually(t, func() bool {
 		current, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: again.ProcessId})
-		return err == nil && current.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+		return err == nil && exitedCleanly(current)
 	}, 10*time.Second, 100*time.Millisecond)
 	require.Equal(t, "onceonce", string(f.read(t, id, "count")))
 
 	long, err := f.processes.StartProcess(f.guestContext(id), &guestpb.StartProcessRequest{Command: []string{"sleep", "300"}})
 	require.NoError(t, err)
-	_, err = f.processes.KillProcess(f.guestContext(id), &guestpb.KillProcessRequest{ProcessId: long.ProcessId})
+	_, err = f.processes.SignalProcess(f.guestContext(id), &guestpb.SignalProcessRequest{ProcessId: long.ProcessId, Signal: guestpb.Signal_SIGNAL_KILL})
 	require.NoError(t, err)
 	active, err := f.processes.StartProcess(f.guestContext(id), &guestpb.StartProcessRequest{Command: []string{"sleep", "300"}})
 	require.NoError(t, err)
@@ -227,7 +224,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		current, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: resumed.ProcessId})
-		return err == nil && current.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+		return err == nil && exitedCleanly(current)
 	}, 10*time.Second, 100*time.Millisecond)
 	require.Equal(t, "onceonceonce", string(f.read(t, id, "count")))
 	_, err = f.client.DeleteSandbox(f.ctx, &apiv1.DeleteSandboxRequest{SandboxId: id})
@@ -281,6 +278,29 @@ func TestSandboxMCP(t *testing.T) {
 	}
 	call("start_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "command": []string{"cat", "mcp.txt"}}, &process)
 	require.NotEmpty(t, process.ID)
+	var state struct {
+		State    string `json:"state"`
+		ExitCode *int32 `json:"exit_code"`
+	}
+	require.Eventually(t, func() bool {
+		call("get_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "process_id": process.ID}, &state)
+		return state.State == "PROCESS_STATE_EXITED"
+	}, 10*time.Second, 100*time.Millisecond)
+	require.NotNil(t, state.ExitCode)
+	require.Zero(t, *state.ExitCode)
+
+	call("start_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "command": []string{"sleep", "60"}}, &process)
+	state.ExitCode = nil
+	call("get_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "process_id": process.ID}, &state)
+	require.Equal(t, "PROCESS_STATE_RUNNING", state.State)
+	require.Nil(t, state.ExitCode)
+	call("kill_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "process_id": process.ID}, &state)
+	require.Eventually(t, func() bool {
+		call("get_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "process_id": process.ID}, &state)
+		return state.State == "PROCESS_STATE_EXITED"
+	}, 10*time.Second, 100*time.Millisecond)
+	require.NotNil(t, state.ExitCode)
+	require.EqualValues(t, 137, *state.ExitCode)
 	var deleted struct {
 		State string `json:"state"`
 	}
@@ -336,7 +356,7 @@ func TestSandboxTemplateRevisionRetention(t *testing.T) {
 		require.Eventually(t, func() bool {
 			process, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: started.ProcessId})
 			require.NoError(t, err)
-			return process.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+			return exitedCleanly(process)
 		}, time.Second*10, time.Millisecond*100)
 		want := ""
 		if instance.Id == second.Id {
@@ -397,7 +417,11 @@ func TestSandboxControllerRestart(t *testing.T) {
 	// finishes. Observe completion instead of using rollout time as a delay.
 	require.Eventually(t, func() bool {
 		finished, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-		return err == nil && finished.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+		return err == nil && exitedCleanly(finished)
 	}, 10*time.Second, 100*time.Millisecond, "process did not complete after controller replacement")
 	require.Equal(t, "once", string(f.read(t, instance.Id, "restart-count")))
+}
+
+func exitedCleanly(process *guestpb.Process) bool {
+	return process.GetState() == guestpb.ProcessState_PROCESS_STATE_EXITED && process.GetExitCode() == 0
 }

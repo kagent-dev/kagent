@@ -53,27 +53,48 @@ const panelChromeHeight = 3 // both borders plus the title line
 func panelInnerWidth(total int) int  { return max(total-4, 8) }
 func panelInnerHeight(total int) int { return max(total-panelChromeHeight, 1) }
 
+// borderColor is a panel border's colour, which the chat's input bar shares.
+func borderColor(focused bool) lipgloss.AdaptiveColor {
+	if focused {
+		return theme.ColorPrimary
+	}
+	return theme.ColorBorder
+}
+
+// panelKeyStyle styles a panel's "[n]" focus key, highlighted when focused.
+func panelKeyStyle(focused bool) lipgloss.Style {
+	if focused {
+		return lipgloss.NewStyle().Foreground(theme.ColorPrimary).Bold(true)
+	}
+	return theme.DimStyle()
+}
+
 // panelBox draws a bordered panel titled with its number, highlighted when focused.
 func panelBox(id panelID, content string, width, height int, focused bool) string {
-	border := theme.ColorBorder
-	titleStyle := theme.DimStyle()
-	if focused {
-		border = theme.ColorPrimary
-		titleStyle = lipgloss.NewStyle().Foreground(theme.ColorPrimary).Bold(true)
-	}
-
-	body := lipgloss.JoinVertical(lipgloss.Left,
-		titleStyle.Render(fmt.Sprintf("[%d] %s", id, id.title())),
+	return panelFrame(lipgloss.JoinVertical(lipgloss.Left,
+		panelKeyStyle(focused).Render(fmt.Sprintf("[%d] %s", id, id.title())),
 		lipgloss.NewStyle().
 			Width(panelInnerWidth(width)).
 			Height(panelInnerHeight(height)).
 			Render(trimBlankLines(content)),
-	)
+	), width, focused)
+}
+
+// untitledBox draws a bordered panel whose content carries its own title row, such as an open chat.
+func untitledBox(content string, width, height int, focused bool) string {
+	return panelFrame(lipgloss.NewStyle().
+		Width(panelInnerWidth(width)).
+		Height(max(height-2, 1)).
+		Render(trimBlankLines(content)), width, focused)
+}
+
+// panelFrame puts the rounded border and padding around a panel's body.
+func panelFrame(body string, width int, focused bool) string {
 	return lipgloss.NewStyle().
 		Width(width-2). // lipgloss adds the border outside the styled width
 		Padding(0, 1).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(border).
+		BorderForeground(borderColor(focused)).
 		Render(body)
 }
 

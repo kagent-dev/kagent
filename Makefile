@@ -469,14 +469,9 @@ helm-test: helm-version
 	helm plugin ls | grep unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git
 	helm unittest helm/kagent
 
-.PHONY: helm-tools
-helm-tools: ## Package all tool Helm charts into the dist folder
-	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/tools/grafana-mcp/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/tools/grafana-mcp/Chart.yaml"
-	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/tools/grafana-mcp"
-
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
-helm-version: helm-cleanup helm-tools
+helm-version: helm-cleanup
 	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent-crds/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent-crds/Chart.yaml"
 	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent/Chart.yaml"
 	helm dependency update "$(HELM_SOURCE_DIR)/kagent"

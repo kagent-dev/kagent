@@ -18,7 +18,7 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v0.6.0-alpha3 requires protocol-specific egress policies and permits
+Substrate v0.7.0-alpha1 requires protocol-specific egress policies and permits
 DNS queries only for hostnames matched by those policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
@@ -109,10 +109,16 @@ are rejected. There is no per-agent override or maximum TTL.
 Idle time is measured from the later of session creation and the latest stored
 A2A event's database timestamp. Forks retain original event timestamps, so their
 own creation time gives them a full idle lifetime. Reads, renames, lifecycle calls,
-and retried writes or settlement do not extend it. Running tasks and
-INPUT_REQUIRED/AUTH_REQUIRED turns never expire, even after that duration. Pending
-lifecycle operations, dispatch reservations, native cleanup, claimed suspend
-work, and checkpoint creation also block expiration.
+and retried writes or settlement do not extend it. INPUT_REQUIRED/AUTH_REQUIRED
+turns use the same idle TTL, so an unanswered input or sign-in request does not
+keep a Session alive indefinitely. Submitted and running tasks never expire, even
+after that duration. Pending lifecycle operations, dispatch reservations, native
+cleanup, claimed suspend work, and checkpoint creation also block expiration.
+
+The TTL applies to Sessions already waiting when the controller is upgraded. The
+next sweep may expire a wait older than the configured duration. Expiration ends
+the Session through ordinary deletion; it does not resume the agent or publish a
+synthetic task timeout.
 
 A leader-only worker scans once per minute in bounded pages. Under the same
 PostgreSQL row lock used by task admission, it rechecks the idle clock and active
@@ -238,7 +244,24 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
-Substrate v0.6.0-alpha3 uses snapshot fidelity. Agent and standalone sandbox
+The ADK's built-in file and shell tools use `/data/workspace`, shared by the root
+agent and subagents in one Actor. Workspace files survive VOLUMES snapshots, resume,
+and checkpoint forks. Skills are discovered independently; the workspace has no
+session-specific directories or mutable skills symlinks. The workspace is created
+on first use, with no predefined upload or output directories. File tools accept
+normal relative and absolute paths inside the sandbox; Substrate owns isolation.
+
+Each bash invocation starts a fresh shell with the Actor environment. The working
+directory and configured skills directory are added to `PYTHONPATH`. Commands use
+a 60-second default timeout; `timeout_seconds` can select up to 600 seconds.
+Stdout and stderr are combined, captured up to 64 KiB, and returned with an
+explicit truncation marker. Large results should be redirected to workspace files.
+Commands and their process groups are stopped when a call finishes, times out,
+or is canceled. Background processes are not durable work and have no process
+handle API in the bash tool. Suspending an Actor preserves files, not running
+commands. Command payloads and output are not logged by the shell helpers.
+
+Substrate v0.7.0-alpha1 uses snapshot fidelity. Agent and standalone sandbox
 templates use VOLUMES. Resume starts fresh containers
 from the OCI image with the saved durable directories. Harnesses recover pending
 approvals and user input from their durable state; sandbox guests start with a
@@ -289,3 +312,31 @@ reconstructs pending from PostgreSQL and resets process-local histogram totals.
   errors require checking the bounded error type and logs (`revision`,
   `actor_template_atespace`, `actor_template_name`, `error`) to identify the
   failing dependency and repeated same-object failures.
+
+## Inventory pagination
+
+Actor and worker lists filter by current authorization, watched namespaces, and
+request scope before filling a public page. They look ahead for one more authorized
+row, and issue a continuation only when it exists. Public cursors contain the last
+returned identity and request scope, never an upstream cursor that could name a
+filtered-out row.
+
+The Substrate adapter translates that identity into the pinned v0.7.0-alpha1 keyset
+token format: actors use atespace/name globally or name within an atespace; workers
+use globally unique names. The encoder is version-dependent and its contract tests
+must be checked when upgrading Substrate. Continuations resume directly after the
+boundary without requiring it to still exist. Authorization is evaluated anew;
+cursors grant no access. Watched atespaces are traversed in sorted order.
+
+Only the authorized page and an upstream batch are retained. Lookahead can be read
+again on the next request, and sparse authorization can require many backend reads,
+but previous public pages are not rescanned. Each public list request has a
+10,000-row and 100-backend-page budget shared across atespaces
+and a 10-second deadline (or the caller's earlier deadline). The first batch
+requests `limit + 1` rows; later batches request up to 1,000 rows, capped by the
+remaining row budget. This applies once per request, across atespaces. All fetched
+rows count, including denied rows, lookahead, and unused rows within a batch. Exhaustion returns an explicit `ResourceExhausted` or
+`DeadlineExceeded` inventory error. Summary scans retain their separate
+10,000-page walk bound. Non-advancing token checks also bound failed scans.
+Failed scans return no partial page
+or continuation, and backend error details remain in server logs.

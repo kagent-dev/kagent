@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,7 +34,7 @@ type ATEClient interface {
 type Service struct {
 	kubeClient         client.Client
 	observedNamespaces []string
-	authorizer         auth.Authorizer
+	authorizer         auth.CollectionAuthorizer
 	ateClient          ATEClient
 }
 
@@ -46,12 +46,12 @@ type Namespace struct {
 func NewService(
 	kubeClient client.Client,
 	observedNamespaces []string,
-	authorizer auth.Authorizer,
+	authorizer auth.CollectionAuthorizer,
 	ateClient ATEClient,
 ) *Service {
 	return &Service{
 		kubeClient:         kubeClient,
-		observedNamespaces: slices.Clone(observedNamespaces),
+		observedNamespaces: slices.Compact(slices.Sorted(slices.Values(observedNamespaces))),
 		authorizer:         authorizer,
 		ateClient:          ateClient,
 	}
@@ -78,6 +78,9 @@ func (s *Service) GetCurrentUser(ctx context.Context) (map[string]any, error) {
 }
 
 func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "SystemNamespaces"}); err != nil {
+		return nil, err
+	}
 	if len(s.observedNamespaces) == 0 {
 		namespaceList := &corev1.NamespaceList{}
 		if err := s.kubeClient.List(ctx, namespaceList); err != nil {
@@ -148,23 +151,13 @@ func namespacesFromNames(names []string) []Namespace {
 	return result
 }
 
-func (s *Service) substrateNamespaces(requested string) []string {
-	if requested != "" {
-		return []string{requested}
-	}
-	if len(s.observedNamespaces) > 0 {
-		return slices.Clone(s.observedNamespaces)
-	}
-	return []string{""}
-}
-
-func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev1alpha1.WorkerPool, error) {
+func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev1.WorkerPool, error) {
 	var options []client.ListOption
 	if namespace != "" {
 		options = append(options, client.InNamespace(namespace))
 	}
 
-	workerPoolList := &atev1alpha1.WorkerPoolList{}
+	workerPoolList := &atev1.WorkerPoolList{}
 	if err := s.kubeClient.List(ctx, workerPoolList, options...); err != nil {
 		return nil, err
 	}
@@ -173,22 +166,24 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev
 }
 
 // substrateActorTemplates drains upstream pagination for the configuration-sized list.
-func (s *Service) substrateActorTemplates(ctx context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
-	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, atespace)
-	if err != nil {
-		return nil, err
-	}
-	templates := make([]*ateapipb.ActorTemplate, 0, len(templatesFromAPI))
-	for _, template := range templatesFromAPI {
-		if template == nil {
-			continue
+func (s *Service) substrateActorTemplates(ctx context.Context, scope substrateScope) ([]*ateapipb.ActorTemplate, error) {
+	templates := []*ateapipb.ActorTemplate{}
+	for _, atespace := range scope.listNamespaces() {
+		templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, atespace)
+		if err != nil {
+			return nil, err
 		}
-		// Only expose inventory fields: containers can contain resolved credentials.
-		templates = append(templates, &ateapipb.ActorTemplate{
-			Metadata:       template.GetMetadata(),
-			Status:         template.GetStatus(),
-			WorkerSelector: template.GetWorkerSelector(),
-		})
+		for _, template := range templatesFromAPI {
+			if template == nil {
+				continue
+			}
+			// Only expose inventory fields: containers can contain resolved credentials.
+			templates = append(templates, &ateapipb.ActorTemplate{
+				Metadata:       template.GetMetadata(),
+				Status:         template.GetStatus(),
+				WorkerSelector: template.GetWorkerSelector(),
+			})
+		}
 	}
 
 	slices.SortStableFunc(templates, func(left, right *ateapipb.ActorTemplate) int {

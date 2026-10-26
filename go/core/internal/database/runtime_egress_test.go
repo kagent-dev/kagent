@@ -12,12 +12,13 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
-	revision := RuntimeRevision{Revision: "agent", Namespace: "team-a", AgentName: "scratch", AgentUID: "old-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", TokenPassthroughOrigins: []string{"https://model.example.com:443"}, EgressDestinations: []string{"https://model.example.com:443"}}
+	revision := RuntimeRevision{Revision: "agent", Namespace: "team-a", AgentName: "scratch", AgentUID: "old-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://model.example.com:443", Header: "authorization"}}, EgressDestinations: []string{"https://model.example.com:443"}}
 	upsertErr := client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "scratch", AgentUID: "old-uid", DesiredRevision: "agent"})
 	require.NoError(t, upsertErr)
 	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}))
@@ -127,10 +128,14 @@ func TestRuntimeEgressTokenOriginsAreNotGrants(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := NewClient(setupTestDB(t), "public")
 			ctx := t.Context()
+			var targets []egresspolicy.GatewayTarget
+			for _, origin := range test.origins {
+				targets = append(targets, egresspolicy.GatewayTarget{Origin: origin, Header: "authorization"})
+			}
 			require.NoError(t, client.RecordRuntimeRevision(ctx, RuntimeRevision{
 				Revision: "revision", Namespace: "team", AgentName: "source", AgentUID: "uid",
 				SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime",
-				TokenPassthroughOrigins: test.origins,
+				TokenPassthroughTargets: targets,
 			}, RecordRevisionOptions{}))
 			policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 			require.NoError(t, err)
@@ -150,7 +155,7 @@ func TestRuntimeEgressCanonicalTokenOriginWithholdsCredentials(t *testing.T) {
 	require.NoError(t, client.RecordRuntimeRevision(ctx, RuntimeRevision{
 		Revision: "revision", Namespace: "team", AgentName: "source", AgentUID: "uid",
 		SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime",
-		TokenPassthroughOrigins: []string{"https://MODEL.example.com."},
+		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://MODEL.example.com.", Header: "Authorization"}},
 	}, RecordRevisionOptions{}))
 	policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 	require.NoError(t, err)
@@ -191,7 +196,7 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 				t.Helper()
 				policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 				require.NoError(t, err)
-				expected, err := egress.MergeAccess(base, grants, nil)
+				expected, err := egress.MergeAccess(base, grants)
 				require.NoError(t, err)
 				require.True(t, slices.Equal(expected.Destinations, policy.Destinations))
 				require.True(t, slices.Equal(expected.Credentials, policy.Credentials))
@@ -206,7 +211,7 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 				require.NoError(t, err)
 				policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 				require.NoError(t, err)
-				expected, err := egress.MergeAccess(base, canonical, nil)
+				expected, err := egress.MergeAccess(base, canonical)
 				require.NoError(t, err)
 				require.Equal(t, expected, policy, "older revisions retain nonconflicting grants")
 			}
@@ -255,7 +260,7 @@ func TestRuntimeEgressMalformedInputsFailClosed(t *testing.T) {
 		{"grant credentials", `UPDATE agent_definition SET grant_credentials = '[{"hostname":"legacy.example.com"}]'`},
 		{"grant origin", `UPDATE agent_definition SET grant_destinations = ARRAY['invalid']`},
 		{"pinned credentials", `UPDATE runtime_revision SET credentials = '[{"hostname":"legacy.example.com"}]'`},
-		{"token origin", `UPDATE runtime_revision SET token_passthrough_origins = ARRAY['invalid']`},
+		{"token target", `UPDATE runtime_revision SET token_passthrough_targets = '[{"origin":"invalid","header":"authorization"}]'`},
 		{"missing typed revision", `DELETE FROM agent_revision`},
 	} {
 		t.Run(test.name, func(t *testing.T) {

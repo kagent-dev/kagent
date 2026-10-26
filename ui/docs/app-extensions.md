@@ -598,13 +598,13 @@ KAGENT_UI_EXTENSION_EXAMPLE_API_URL=https://api.example.test
 ```
 
 That is the whole mechanism, and nothing needs registering. The container's
-`scripts/init.sh` copies every `KAGENT_UI_EXTENSION_*` variable out of the pod's environment
+`entrypoint/` program copies every `KAGENT_UI_EXTENSION_*` variable out of the pod's environment
 **by prefix**, and the dev server does the same from `.env` and your shell. Neither
 enumerates the keys, so this application never learns what your settings mean and
 needs no change when your extension grows one.
 
 The values land on `window.environmentVariables`, which is what `readEnv` reads.
-You should not have to think about that object — the init script writes it — but
+You should not have to think about that object — the Go entrypoint writes it — but
 two consequences of it are worth knowing:
 
 - **A setting is a deployment's choice, not a build's.** One image serves every
@@ -618,7 +618,7 @@ two consequences of it are worth knowing:
 **Do not add a `VITE_` prefix.** That prefix is Vite's `envPrefix` filter, which
 decides what `import.meta.env` exposes to bundled code; it applies to build-time
 variables and to nothing else. A prefixed name would no longer match the
-`KAGENT_UI_EXTENSION_` prefix the init script and the dev server select on, so the value
+`KAGENT_UI_EXTENSION_` prefix the entrypoint and the dev server select on, so the value
 would never arrive and `readEnv` would quietly return the fallback.
 
 ---
