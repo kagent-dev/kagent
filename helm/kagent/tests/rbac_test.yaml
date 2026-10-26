@@ -38,6 +38,52 @@ tests:
           of: ClusterRole
         template: rbac/writer-role.yaml
 
+  - it: should not grant obsolete workload permissions cluster-wide
+    templates:
+      - rbac/getter-role.yaml
+      - rbac/writer-role.yaml
+    asserts:
+      - notContains:
+          path: rules[*].apiGroups
+          content: "*"
+      - notContains:
+          path: rules[*].apiGroups
+          content: apps
+      - notContains:
+          path: rules[*].apiGroups
+          content: batch
+      - notContains:
+          path: rules[*].apiGroups
+          content: gateway.networking.k8s.io
+      - notContains:
+          path: rules[*].apiGroups
+          content: agents.x-k8s.io
+
+  - it: should not grant obsolete workload permissions in install or tenant namespaces
+    set:
+      rbac.namespaces: [NAMESPACE, tenant]
+    templates:
+      - rbac/getter-role.yaml
+      - rbac/writer-role.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - notContains:
+          path: rules[*].apiGroups
+          content: "*"
+      - notContains:
+          path: rules[*].apiGroups
+          content: apps
+      - notContains:
+          path: rules[*].apiGroups
+          content: batch
+      - notContains:
+          path: rules[*].apiGroups
+          content: gateway.networking.k8s.io
+      - notContains:
+          path: rules[*].apiGroups
+          content: agents.x-k8s.io
+
   - it: should have correct clusterrole names
     asserts:
       - equal:
