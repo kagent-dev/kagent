@@ -123,16 +123,18 @@ metrics record. Paused, resumed and canceled executions follow the rules above.
   output of subagent calls. A turn that Claude Code ends at one of its own limits
   (an `error_max_*` result) fails, and its status carries those tokens too. When
   the saved totals cannot be read, the turn counts only the calls it reported.
-- **Models:** that remainder names no response model but the model it was
-  requested as, the undated name the session totals use, such as
-  `claude-sonnet-4-5`. Its family is that name and the name followed by a date,
-  such as `claude-sonnet-4-5-20250929`; `claude-sonnet-4` is another family. The
-  remainder counts in the family's one entry, or in a new entry under the
-  undated name when the family has none. A family with several entries is
-  folded into one entry under the undated name first, so the reasoning the
-  remainder identifies is split out of the output that holds it instead of
-  being counted beside it, and the model entries never add up to more than the
-  task.
+- **Models:** a call that names no response model counts under the model the
+  harness requested. A Codex call never names one, so a Codex task's entries
+  carry the configured model name, such as `gpt-5-codex`. Claude's calls name
+  the dated model, such as `claude-sonnet-4-5-20250929`, and its session
+  remainder names the undated name the session totals use, such as
+  `claude-sonnet-4-5`. A model's family is the undated name and the name
+  followed by a date; `claude-sonnet-4` is another family. The remainder counts
+  in the family's one entry, or in a new entry under the undated name when the
+  family has none. A family with several entries is folded into one entry under
+  the undated name first, so the reasoning the remainder identifies is split
+  out of the output that holds it instead of being counted beside it, and the
+  model entries never add up to more than the task.
 - **Cost:** v1 has no cost field. Claude Code's `total_cost_usd` is not reported.
 
 ## Out of scope for v1

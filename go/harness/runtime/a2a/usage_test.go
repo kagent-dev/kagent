@@ -248,6 +248,25 @@ func TestTaskUsageSplitsReasoningOutOfOutputOnce(t *testing.T) {
 	}
 }
 
+// A Codex call names no response model, only its token counts. The executor
+// gives it the model the harness requested, so a Codex task's breakdown carries
+// the configured model instead of nothing.
+func TestExecuteCountsACodexCallUnderTheRequestedModel(t *testing.T) {
+	codexCall := runtime.ModelCall{InputTokens: 10, OutputTokens: 20, ReasoningOutputTokens: 5}
+	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+		sink.ModelCall(codexCall)
+		sink.ModelCall(codexCall)
+		return runtime.Outcome{}, nil
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{Provider: "openai", Model: "gpt-5-codex"})
+	require.NoError(t, err)
+	events, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+	require.Empty(t, errs)
+	_, usage, found := statusUsage(t, events[len(events)-1])
+	require.True(t, found)
+	want := apia2a.TokenCounts{InputTokens: 20, OutputTokens: 30, ReasoningTokens: 10, TotalTokens: 60}
+	require.Equal(t, apia2a.Usage{TokenCounts: want, Models: []apia2a.ModelUsage{{Model: "gpt-5-codex", TokenCounts: want}}}, usage)
+}
+
 // Claude Code's session remainder names the model it was requested as, the
 // undated name the session totals use, while the calls name the dated model.
 // The remainder counts in its family's one entry, and a family with several
