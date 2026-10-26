@@ -38,13 +38,14 @@ by the compiler. Harness environment entries accept only literal values.
 The caller's credential reaches MCP servers and the model through the shared
 [credential forwarder](../README.md#caller-credentials):
 
-- With `runtimeDefaults.tokenPropagation.enabled`, every streamable HTTP MCP server is
-  fronted, and its calls carry the caller's `authorization` of the turn, as in the Go
-  ADK. A static `Authorization` header on the server wins.
+- With `runtimeDefaults.tokenPropagation.enabled`, every MCP server is fronted, and its
+  calls carry the caller's `authorization` of the turn, as in the Go ADK. A static
+  `Authorization` header on the server wins.
 - A RemoteMCPServer with `tokenPassthrough` is fronted whether or not propagation is on.
   Its calls carry the caller's credential only, and a turn without one is refused.
-- An SSE server is not fronted, because the upstream host announces its message
-  endpoint. The compiler rejects `tokenPassthrough` on it and warns under propagation.
+- An SSE server cannot carry the caller's credential, because the upstream host
+  announces its message endpoint. With token propagation on, or with `tokenPassthrough`
+  on the server, compilation fails and the harness refuses to start.
 - A ModelConfig with `tokenPassthrough` (Anthropic provider only) sets
   `ANTHROPIC_BASE_URL` to the forwarder's model route and `ANTHROPIC_API_KEY` to the
   loopback token. The route sends the caller's bearer token as `x-api-key`.

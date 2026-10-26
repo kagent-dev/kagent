@@ -188,8 +188,11 @@ func (c Config) Validate() error {
 		if server.Type != "http" && server.Type != "sse" {
 			return fmt.Errorf("claude MCP server %q has unsupported transport %q", name, server.Type)
 		}
-		if server.TokenPassthrough && server.Type != "http" {
-			return fmt.Errorf("claude MCP server %q token passthrough requires the http transport", name)
+		// The harness forwards the caller's credential through a loopback
+		// endpoint, and an SSE server announces its message endpoint from the
+		// upstream host, which that endpoint does not rewrite.
+		if server.Type == "sse" && (c.PropagateToken || server.TokenPassthrough) {
+			return fmt.Errorf("claude MCP server %q uses SSE, which cannot carry the caller's credential; use streamable HTTP, or turn off token propagation and tokenPassthrough", name)
 		}
 		if strings.TrimSpace(server.URL) == "" {
 			return fmt.Errorf("claude MCP server %q URL is required", name)

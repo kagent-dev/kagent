@@ -60,15 +60,6 @@ func (c *Compiler) compileMCP(
 		if compatibilityWarning != "" {
 			result.warnings = append(result.warnings, compatibilityWarning)
 		}
-		// The harness fronts a passthrough server on loopback to add the
-		// caller's credential; an SSE server announces its message endpoint
-		// from the upstream host, which that forwarder does not rewrite.
-		if server.Spec.TokenPassthrough && transport != "http" {
-			return mcpCompilation{}, translator.NewValidationError("Claude supports RemoteMCPServer %q tokenPassthrough for streamable HTTP servers only", server.Name)
-		}
-		if transport != "http" && c.settings.GetTokenPropagation().GetEnabled() {
-			result.warnings = append(result.warnings, fmt.Sprintf("Claude RemoteMCPServer %q uses SSE and does not receive the caller's token under token propagation", server.Name))
-		}
 		hostname, err := mcpOrigin(server.Spec.URL)
 		if err != nil {
 			return mcpCompilation{}, err

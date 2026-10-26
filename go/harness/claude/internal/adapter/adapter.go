@@ -168,16 +168,15 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 
 // routeThroughForwarder starts the credential forwarder for the upstreams that
 // receive the caller's credential and points Claude at their loopback routes:
-// every streamable HTTP MCP server when token propagation is on, a token
-// passthrough MCP server always, and the model with tokenPassthrough. The
-// written configuration and Claude's environment then carry no upstream URL,
-// no static header and no credential for them. An SSE server is not fronted:
-// its upstream announces the message endpoint. It returns a nil forwarder when
-// nothing is routed.
+// every MCP server when token propagation is on, a token passthrough MCP
+// server always, and the model with tokenPassthrough. The written
+// configuration and Claude's environment then carry no upstream URL, no static
+// header and no credential for them. Config validation has already refused an
+// SSE server among them. It returns a nil forwarder when nothing is routed.
 func routeThroughForwarder(cfg *config.Config, environment []string) (*forwarder.Forwarder, []string, error) {
 	routes := forwarder.Routes{MCPServers: make(map[string]forwarder.MCPServer)}
 	for name, server := range cfg.MCPServers {
-		if server.Type != "http" || !cfg.PropagateToken && !server.TokenPassthrough {
+		if !cfg.PropagateToken && !server.TokenPassthrough {
 			continue
 		}
 		headers, err := forwarder.ResolveHeaders(server.Headers, environment)

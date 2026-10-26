@@ -369,16 +369,12 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 	cfg.MCPServers = map[string]config.MCPServer{
 		"tools":     {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}, RequireApproval: true},
 		"knowledge": {Type: "http", URL: upstream.URL + "/read", Headers: map[string]string{"X-Toolset": "${KAGENT_CLAUDE_MCP_CREDENTIAL_ABC}"}},
-		"legacy":    {Type: "sse", URL: "https://legacy.example.com/sse"},
 	}
 	runner, written, contents := newWithMCPServers(t, cfg, "KAGENT_CLAUDE_MCP_CREDENTIAL_ABC=from-secret")
 	assertFronted(t, written, contents, "tools", "knowledge", "kagent_hitl")
 	for _, leaked := range []string{"tools.example.com", upstream.URL, "X-Toolset", "KAGENT_CLAUDE_MCP_CREDENTIAL_ABC"} {
 		require.NotContains(t, string(contents), leaked, "mcp.json carries an upstream detail")
 	}
-	// An SSE server announces its message endpoint from the upstream host, so
-	// it stays as compiled and receives no caller credential.
-	require.Equal(t, "https://legacy.example.com/sse", written.Servers["legacy"].URL)
 	args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n")
 	require.Contains(t, args, "--permission-prompt-tool\nmcp__kagent_hitl__approve\n", "the approval bridge is lost behind the forwarder")
 
@@ -395,6 +391,21 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	require.Equal(t, "Bearer person-token", gotAuthorization)
 	require.Equal(t, "from-secret", gotToolset)
+}
+
+func TestNewRefusesSSEServersUnderTokenPropagation(t *testing.T) {
+	durableDir := filepath.Join(t.TempDir(), "data")
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.PropagateToken = true
+	cfg.MCPServers = map[string]config.MCPServer{"legacy": {Type: "sse", URL: "https://legacy.example.com/sse"}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	_, err = New(context.Background(), Input{
+		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+		EphemeralDir: filepath.Join(t.TempDir(), "generated"),
+	})
+	require.ErrorContains(t, err, `claude MCP server "legacy" uses SSE, which cannot carry the caller's credential`)
 }
 
 func TestNewFrontsOnlyPassthroughServersWithoutPropagation(t *testing.T) {

@@ -636,16 +636,32 @@ func TestCompileMCPTokenPassthrough(t *testing.T) {
 	if got := compiled.servers["user"]; !got.TokenPassthrough || got.Type != "http" || got.URL != server.Spec.URL {
 		t.Fatalf("compiled passthrough server = %+v", got)
 	}
-	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse
-	_, err = (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
-	if want := "tokenPassthrough for streamable HTTP servers only"; err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("expected %q, got %v", want, err)
-	}
-	server.Spec.TokenPassthrough = false
-	propagating := &Compiler{settings: &configv1.RuntimeDefaultsConfig{TokenPropagation: &configv1.TokenPropagationConfig{Enabled: true}}}
-	compiled, err = propagating.compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
-	if want := "uses SSE and does not receive the caller's token"; err != nil || len(compiled.warnings) != 1 || !strings.Contains(compiled.warnings[0], want) {
-		t.Fatalf("warnings = %v, %v; want %q", compiled.warnings, err, want)
+}
+
+func TestCompileRejectsSSEServersThatReceiveTheCallerCredential(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key"}
+	for _, test := range []struct {
+		name                   string
+		propagate, passthrough bool
+	}{
+		{name: "token propagation", propagate: true},
+		{name: "token passthrough", passthrough: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+			server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: "test"}, Spec: v1alpha3.RemoteMCPServerSpec{
+				URL: "https://mcp.example.com/sse", Protocol: v1alpha3.RemoteMCPServerProtocolSse, TokenPassthrough: test.passthrough,
+			}}
+			binding := v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}
+			input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: binding, Server: server}}
+			settings := testRuntimeDefaults()
+			settings.TokenPropagation = &configv1.TokenPropagationConfig{Enabled: test.propagate}
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+			var validation *translator.ValidationError
+			if !errors.As(err, &validation) || !strings.Contains(err.Error(), `uses SSE, which cannot carry the caller's credential`) {
+				t.Fatalf("Compile() error = %v, want the SSE validation error", err)
+			}
+		})
 	}
 }
 

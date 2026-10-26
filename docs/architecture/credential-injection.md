@@ -107,8 +107,9 @@ The Claude and Codex harnesses front these servers, and every MCP server under
 harness process; see the [harness README](../../go/harness/README.md#caller-credentials).
 The A2A executor binds the caller's `authorization` to the forwarder for each
 turn and drops it before the turn's outcome is handled. They start the native
-process per turn, so tool discovery runs with the token. Claude supports
-passthrough for streamable HTTP servers only. A ModelConfig with
+process per turn, so tool discovery runs with the token. Claude rejects an SSE
+server under token propagation or passthrough, because the upstream host
+announces its message endpoint; compilation fails and the harness does not start. A ModelConfig with
 `tokenPassthrough` is supported for the Anthropic provider on Claude and the
 OpenAI provider on Codex: the native client calls the forwarder's model route,
 which sends the caller's bearer token in the provider's API key header.
