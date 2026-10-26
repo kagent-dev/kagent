@@ -3,12 +3,16 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
@@ -42,6 +46,7 @@ type sandboxTestStore struct {
 	retireErr      error
 	recordErr      error
 	recordCalls    int
+	golden         fakeGoldenRetries
 }
 
 func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, value database.SandboxTemplateDefinition) error {
@@ -58,10 +63,21 @@ func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value databa
 		return s.recordErr
 	}
 	s.revision = value
+	s.golden.recordGolden(value.Revision, value.ActorTemplateUID, options.Ready)
 	if options.Ready {
 		s.ready = true
 	}
 	return nil
+}
+func (s *sandboxTestStore) ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.golden.ScheduleGoldenRetry(ctx, revision, crashedTemplateUID, now, delays)
+}
+func (s *sandboxTestStore) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.golden.GoldenRetryAttempts(ctx, revision)
 }
 func (s *sandboxTestStore) RetireSandboxTemplateIdentities(context.Context, string, string) error {
 	s.mu.Lock()
@@ -78,10 +94,22 @@ var _ sandboxRevisionStore = (*sandboxTestStore)(nil)
 
 type sandboxTestActors struct {
 	actorEgressStub
-	mu        sync.Mutex
-	store     *sandboxTestStore
-	templates map[string]*ateapipb.ActorTemplate
-	autoReady bool
+	mu            sync.Mutex
+	store         *sandboxTestStore
+	templates     map[string]*ateapipb.ActorTemplate
+	autoReady     bool
+	crashOnCreate bool
+	queuedUIDs    []string
+	deletedUIDs   []string
+	deleteErr     error
+	gets          int
+}
+
+// inspect reads or changes the fake backend while the reconciler runs.
+func (s *sandboxTestActors) inspect(read func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	read()
 }
 
 var _ actorTemplateClient = (*sandboxTestActors)(nil)
@@ -90,13 +118,23 @@ func (*sandboxTestActors) EnsureAtespace(context.Context, string) error { return
 func (s *sandboxTestActors) GetActorTemplate(_ context.Context, atespace, name string) (*ateapipb.ActorTemplate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.gets++
 	if template := s.templates[atespace+"/"+name]; template != nil {
 		return proto.CloneOf(template), nil
 	}
 	return nil, status.Error(codes.NotFound, "missing")
 }
-func (*sandboxTestActors) DeleteActorTemplateUID(context.Context, string, string, string) error {
-	return errors.New("sandbox preparation does not retry golden crashes")
+func (s *sandboxTestActors) DeleteActorTemplateUID(_ context.Context, atespace, name, uid string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deletedUIDs = append(s.deletedUIDs, uid)
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	if template := s.templates[atespace+"/"+name]; template != nil && template.Metadata.Uid == uid {
+		delete(s.templates, atespace+"/"+name)
+	}
+	return nil
 }
 func (s *sandboxTestActors) CreateActorTemplate(_ context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
 	s.mu.Lock()
@@ -109,8 +147,14 @@ func (s *sandboxTestActors) CreateActorTemplate(_ context.Context, template *ate
 	}
 	template = proto.CloneOf(template)
 	template.Metadata.Uid = "backend-uid"
-	if s.autoReady {
+	if len(s.queuedUIDs) > 0 {
+		template.Metadata.Uid, s.queuedUIDs = s.queuedUIDs[0], s.queuedUIDs[1:]
+	}
+	switch {
+	case s.autoReady:
 		template.Status = sandboxGoldenStatus()
+	case s.crashOnCreate:
+		template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenCrashMessage}}
 	}
 	s.templates[template.Metadata.Atespace+"/"+template.Metadata.Name] = template
 	return proto.CloneOf(template), nil
@@ -263,6 +307,7 @@ func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *te
 	require.ErrorContains(t, s.reconcile(t.Context(), key), "golden snapshot failed")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	require.True(t, s.collections.states.GetKey(key).canPrepare())
+	require.Empty(t, s.actors.(*sandboxTestActors).deletedUIDs, "only GoldenActorCrashed recreates the template")
 	observed.Status = sandboxGoldenStatus()
 	require.NoError(t, s.reconcile(t.Context(), key))
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure == nil })
@@ -271,6 +316,157 @@ func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *te
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	require.False(t, s.collections.states.GetKey(key).canPrepare())
 	require.Nil(t, s.collections.states.GetKey(key).ObservedActorTemplate)
+}
+
+var sandboxRetryAt = regexp.MustCompile(`^golden build crashed, retry (\d+) at (\S+): (.*)$`)
+
+// startSandboxGoldenCrash runs the reconciler against a backend whose created
+// templates crash, and returns the published Ready condition reader.
+func startSandboxGoldenCrash(t *testing.T, uids ...string) (*SandboxReconciler, *sandboxTestActors, func() *metav1.Condition, context.CancelFunc) {
+	t.Helper()
+	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
+	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
+	syncSandboxTemplate(t, s, templates)
+	actors := s.actors.(*sandboxTestActors)
+	actors.inspect(func() { actors.queuedUIDs, actors.crashOnCreate = uids, true })
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() { assert.NoError(t, s.Start(ctx)) }()
+	ready := func() *metav1.Condition {
+		t.Helper()
+		published, err := s.client.SandboxTemplates("team-a").Get(t.Context(), "scratch", metav1.GetOptions{})
+		require.NoError(t, err)
+		return apimeta.FindStatusCondition(published.Status.Conditions, "Ready")
+	}
+	synctest.Wait()
+	return s, actors, ready, cancel
+}
+
+// retryAt checks a waiting retry's published status and returns its time.
+func retryAt(t *testing.T, condition *metav1.Condition, retry int, earliest, latest time.Time) time.Time {
+	t.Helper()
+	require.Equal(t, metav1.ConditionFalse, condition.Status)
+	require.Equal(t, "ActorTemplateRetrying", condition.Reason)
+	match := sandboxRetryAt.FindStringSubmatch(condition.Message)
+	require.NotNil(t, match, condition.Message)
+	require.Equal(t, fmt.Sprint(retry), match[1])
+	require.Equal(t, goldenCrashMessage, match[3])
+	at, err := time.Parse(time.RFC3339, match[2])
+	require.NoError(t, err)
+	require.WithinRange(t, at, earliest.Truncate(time.Second), latest, "the backoff must follow the retry policy with at most 20% jitter")
+	return at
+}
+
+func TestSandboxPreparationRetriesGoldenCrash(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		begin := time.Now()
+		s, actors, ready, cancel := startSandboxGoldenCrash(t, "uid-1", "uid-2", "uid-3")
+		defer cancel()
+		store := s.store.(*sandboxTestStore)
+		first := retryAt(t, ready(), 1, begin.Add(15*time.Second), begin.Add(18*time.Second))
+
+		var gets, records int
+		actors.inspect(func() { gets, actors.crashOnCreate = actors.gets, false })
+		store.mu.Lock()
+		records = store.recordCalls
+		store.mu.Unlock()
+		time.Sleep(5 * time.Second)
+		synctest.Wait()
+		actors.inspect(func() {
+			require.Equal(t, gets, actors.gets, "an armed retry is not polled")
+			require.Empty(t, actors.deletedUIDs)
+		})
+		store.mu.Lock()
+		require.Equal(t, records, store.recordCalls, "an armed retry writes nothing")
+		store.mu.Unlock()
+
+		time.Sleep(time.Until(first) - time.Second)
+		synctest.Wait()
+		actors.inspect(func() { require.Empty(t, actors.deletedUIDs, "the crashed template stays until its backoff ends") })
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		actors.inspect(func() {
+			require.Equal(t, []string{"uid-1"}, actors.deletedUIDs, "the delete must name the crashed template's UID")
+			require.Len(t, actors.templates, 1)
+			for _, template := range actors.templates {
+				require.Equal(t, "uid-2", template.Metadata.Uid, "the next pass recreates the template under the same name")
+			}
+			gets = actors.gets
+		})
+		condition := ready()
+		require.Equal(t, "Preparing", condition.Reason)
+		require.Equal(t, "rebuilding after golden crash, retry 1; Waiting for the prepared sandbox snapshot", condition.Message)
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		actors.inspect(func() { require.Greater(t, actors.gets, gets, "a pending rebuild is polled") })
+
+		actors.inspect(func() {
+			for _, template := range actors.templates {
+				template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenCrashMessage}}
+			}
+		})
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		now := time.Now()
+		second := retryAt(t, ready(), 2, now.Add(time.Minute-2*time.Second), now.Add(72*time.Second))
+		time.Sleep(time.Until(second) + 2*time.Second)
+		synctest.Wait()
+		actors.inspect(func() {
+			require.Equal(t, []string{"uid-1", "uid-2"}, actors.deletedUIDs)
+			for _, template := range actors.templates {
+				require.Equal(t, "uid-3", template.Metadata.Uid)
+				template.Status = sandboxGoldenStatus()
+			}
+		})
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		condition = ready()
+		require.Equal(t, metav1.ConditionTrue, condition.Status)
+		require.Equal(t, "Prepared", condition.Reason)
+		store.mu.Lock()
+		require.True(t, store.ready)
+		require.Zero(t, store.golden.goldenAttempts, "a ready revision resets its retries")
+		store.mu.Unlock()
+		cancel()
+		synctest.Wait()
+	})
+}
+
+func TestSandboxGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		begin := time.Now()
+		_, actors, ready, cancel := startSandboxGoldenCrash(t, "uid-1", "uid-2")
+		defer cancel()
+		actors.inspect(func() { actors.deleteErr = status.Error(codes.Unavailable, "delete failed") })
+		at := retryAt(t, ready(), 1, begin.Add(15*time.Second), begin.Add(18*time.Second))
+		time.Sleep(time.Until(at) + 2*time.Second)
+		synctest.Wait()
+		condition := ready()
+		require.Equal(t, "ActorTemplateRetrying", condition.Reason, "a failed delete must not hide the crash")
+		require.Equal(t, "golden build crashed, retry 1 waits to delete the crashed template (Unavailable): "+goldenCrashMessage, condition.Message)
+
+		var deletes int
+		actors.inspect(func() { deletes = len(actors.deletedUIDs) })
+		time.Sleep(30 * time.Second)
+		synctest.Wait()
+		actors.inspect(func() {
+			retried := len(actors.deletedUIDs) - deletes
+			require.Positive(t, retried, "the delete must be requeued")
+			require.Less(t, retried, 10, "a failed delete backs off instead of retrying every poll")
+			actors.deleteErr, actors.crashOnCreate = nil, false
+		})
+		time.Sleep(31 * time.Second)
+		synctest.Wait()
+		actors.inspect(func() {
+			for _, template := range actors.templates {
+				require.Equal(t, "uid-2", template.Metadata.Uid)
+			}
+		})
+		condition = ready()
+		require.Equal(t, "Preparing", condition.Reason)
+		require.Equal(t, "rebuilding after golden crash, retry 1; Waiting for the prepared sandbox snapshot", condition.Message)
+		cancel()
+		synctest.Wait()
+	})
 }
 
 // A ready runtime may outlive an exhausted status queue. Recovery must not need

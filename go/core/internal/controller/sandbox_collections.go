@@ -32,6 +32,7 @@ type sandboxReconciliation struct {
 	DesiredActorTemplate  *ateapipb.ActorTemplate
 	ObservedActorTemplate *ateapipb.ActorTemplate
 	CompilationError      string
+	GoldenRetries         int
 	Failure               *ReconciliationFailure
 }
 
@@ -64,10 +65,11 @@ func (s sandboxReconciliation) canPrepare() bool {
 }
 
 type sandboxRuntimeObservation struct {
-	Key        string
-	RevisionID string
-	Template   *ateapipb.ActorTemplate
-	Failure    *ReconciliationFailure
+	Key           string
+	RevisionID    string
+	Template      *ateapipb.ActorTemplate
+	GoldenRetries int
+	Failure       *ReconciliationFailure
 }
 
 func (s sandboxRuntimeObservation) ResourceName() string { return s.Key }
@@ -113,7 +115,7 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		if observation.Failure != nil {
 			state.Failure = observation.Failure
 		} else if state.Failure == nil {
-			state.ObservedActorTemplate = observation.Template
+			state.ObservedActorTemplate, state.GoldenRetries = observation.Template, observation.GoldenRetries
 		}
 		return state
 	}, opts.WithName("SandboxReconciliations")...)

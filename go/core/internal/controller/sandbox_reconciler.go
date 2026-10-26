@@ -33,6 +33,7 @@ const (
 
 type sandboxRevisionStore interface {
 	actorEgressStore
+	goldenRetryStore
 	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
 	GetSandboxEgressGrant(context.Context, string, string) (egress.Access, error)
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
@@ -46,6 +47,7 @@ type SandboxReconciler struct {
 	store       sandboxRevisionStore
 	actors      actorTemplateClient
 	client      kagentclient.ApiV1alpha3Interface
+	golden      *goldenRetries
 }
 
 var _ manager.LeaderElectionRunnable = (*SandboxReconciler)(nil)
@@ -64,6 +66,8 @@ func (s *SandboxReconciler) Start(ctx context.Context) error {
 	preparations := newReconciliationQueue("sandbox-preparation", func(item any) error {
 		return s.reconcile(ctx, item.(string))
 	})
+	s.golden = newGoldenRetries(s.store, s.actors, preparations)
+	context.AfterFunc(ctx, s.golden.stop)
 	statuses := newReconciliationQueue("sandbox-status", func(item any) error {
 		return s.reconcileStatus(ctx, item.(string))
 	})
@@ -87,6 +91,7 @@ func (s *SandboxReconciler) Start(ctx context.Context) error {
 
 // Kubernetes changes arrive through KRT. Poll only incomplete external work;
 // this also recovers transient failures after the queue's retry budget expires.
+// A golden crash retry is never polled; see awaitsGoldenRetry.
 func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statuses controllers.Queue) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -100,7 +105,8 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 					statuses.Add(state.ResourceName())
 				}
 				if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) ||
-					(state.Failure != nil && state.Failure.Retryable) || (state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil) {
+					(!state.Failure.awaitsGoldenRetry() && ((state.Failure != nil && state.Failure.Retryable) ||
+						(state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil))) {
 					preparations.Add(state.ResourceName())
 				}
 			}
@@ -184,9 +190,6 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 	if !substrate.ActorTemplateSpecEqual(observed, state.DesiredActorTemplate) {
 		return s.observeError(*state, fmt.Errorf("sandbox ActorTemplate immutable inputs disagree"), false)
 	}
-	if message := observed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-		return s.observeError(*state, fmt.Errorf("sandbox golden snapshot failed: %s", message), true)
-	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
 	revision := database.SandboxRevision{
 		RuntimeArtifact: database.RuntimeArtifact{Revision: state.RevisionID, Kind: "sandbox", Namespace: state.Template.Namespace,
@@ -197,19 +200,37 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 	if err := s.store.RecordSandboxRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
 	}
+	if isGoldenCrash(observed) {
+		retrying, err := s.golden.retry(ctx, state.RevisionID, key, observed)
+		if retrying == nil {
+			return s.observeError(*state, fmt.Errorf("schedule sandbox golden retry %s: %w", state.RevisionID, err), true)
+		}
+		s.observeFailure(*state, retrying)
+		return err
+	}
+	if message := observed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
+		return s.observeError(*state, fmt.Errorf("sandbox golden snapshot failed: %s", message), true)
+	}
+	var retries int
+	if !ready {
+		if retries, err = s.store.GoldenRetryAttempts(ctx, state.RevisionID); err != nil {
+			return s.observeError(*state, fmt.Errorf("read sandbox golden retries %s: %w", state.RevisionID, err), true)
+		}
+	}
 
 	// Kubernetes readiness can only follow a revision that callers can select
 	// from the store. Failed persistence must never publish a ready observation.
-	s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: state.RevisionID, Template: observed})
+	s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: state.RevisionID, Template: observed, GoldenRetries: retries})
 	return nil
 }
 
 func (s *SandboxReconciler) observeError(state sandboxReconciliation, err error, retryable bool) error {
-	s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{
-		Key: state.ResourceName(), RevisionID: state.desiredRevision(),
-		Failure: &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage, Retryable: retryable},
-	})
+	s.observeFailure(state, &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage, Retryable: retryable})
 	return err
+}
+
+func (s *SandboxReconciler) observeFailure(state sandboxReconciliation, failure *ReconciliationFailure) {
+	s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: state.ResourceName(), RevisionID: state.desiredRevision(), Failure: failure})
 }
 
 func (s *SandboxReconciler) reconcileStatus(ctx context.Context, key string) error {
@@ -233,7 +254,7 @@ func (s *SandboxReconciler) reconcileStatus(ctx context.Context, key string) err
 // detectable after the status queue exhausts its transient-error retries.
 func sandboxStatusWithTransitionTimes(state sandboxReconciliation) kagentv1alpha3.SandboxTemplateStatus {
 	desired := *state.Template.Status.DeepCopy()
-	condition := metav1.Condition{Type: "Ready", Status: metav1.ConditionFalse, Reason: "Preparing", Message: "Waiting for the prepared sandbox snapshot", ObservedGeneration: state.Template.Generation}
+	condition := metav1.Condition{Type: "Ready", Status: metav1.ConditionFalse, Reason: "Preparing", Message: goldenRebuildMessage(state.GoldenRetries, "Waiting for the prepared sandbox snapshot"), ObservedGeneration: state.Template.Generation}
 	if state.Failure != nil {
 		condition.Reason, condition.Message = state.Failure.Reason, state.Failure.Message
 	} else if state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil {

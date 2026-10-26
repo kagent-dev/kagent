@@ -350,27 +350,41 @@ type fakeRuntimeRevisionStore struct {
 	pairCalls         int
 	definitionSources []database.RuntimeEgressSource
 	sourcesErr        error
-	goldenAttempts    int
-	goldenCrashUID    string
-	goldenRetryAt     time.Time
+	fakeGoldenRetries
 }
 
-// ScheduleGoldenRetry binds the crash to the recorded revision like the real store.
-func (s *fakeRuntimeRevisionStore) ScheduleGoldenRetry(_ context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
-	if s.revision == nil || s.revision.Revision != revision || s.revision.ActorTemplateUID != crashedTemplateUID {
+// fakeGoldenRetries schedules a crash only against the last recorded revision
+// and template UID, and resets on a ready record, like the real store.
+type fakeGoldenRetries struct {
+	recordedRevision string
+	recordedUID      string
+	goldenAttempts   int
+	goldenCrashUID   string
+	goldenRetryAt    time.Time
+}
+
+func (f *fakeGoldenRetries) recordGolden(revision, uid string, ready bool) {
+	f.recordedRevision, f.recordedUID = revision, uid
+	if ready {
+		f.goldenAttempts, f.goldenCrashUID, f.goldenRetryAt = 0, "", time.Time{}
+	}
+}
+
+func (f *fakeGoldenRetries) ScheduleGoldenRetry(_ context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+	if f.recordedRevision != revision || f.recordedUID != crashedTemplateUID {
 		return database.GoldenRetry{}, database.ErrNotFound
 	}
-	if s.goldenCrashUID == crashedTemplateUID {
-		return database.GoldenRetry{Attempts: s.goldenAttempts, RetryAt: s.goldenRetryAt}, nil
+	if f.goldenCrashUID == crashedTemplateUID {
+		return database.GoldenRetry{Attempts: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
 	}
-	s.goldenRetryAt = now.Add(delays[min(s.goldenAttempts, len(delays)-1)])
-	s.goldenAttempts++
-	s.goldenCrashUID = crashedTemplateUID
-	return database.GoldenRetry{Attempts: s.goldenAttempts, RetryAt: s.goldenRetryAt}, nil
+	f.goldenRetryAt = now.Add(delays[min(f.goldenAttempts, len(delays)-1)])
+	f.goldenAttempts++
+	f.goldenCrashUID = crashedTemplateUID
+	return database.GoldenRetry{Attempts: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
 }
 
-func (s *fakeRuntimeRevisionStore) GoldenRetryAttempts(context.Context, string) (int, error) {
-	return s.goldenAttempts, nil
+func (f *fakeGoldenRetries) GoldenRetryAttempts(context.Context, string) (int, error) {
+	return f.goldenAttempts, nil
 }
 
 func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error) {
@@ -389,9 +403,9 @@ func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revi
 		return s.revisionErr
 	}
 	s.revision = &revision
+	s.recordGolden(revision.Revision, revision.ActorTemplateUID, options.Ready)
 	if options.Ready {
 		s.markedSuccessful = true
-		s.goldenAttempts, s.goldenCrashUID, s.goldenRetryAt = 0, "", time.Time{}
 	}
 	return nil
 }

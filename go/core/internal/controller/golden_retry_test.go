@@ -301,3 +301,36 @@ func TestRuntimeRevisionGCCollectsUnrecordedGoldenRebuild(t *testing.T) {
 	_, err = store.GetRuntimeRevision(ctx, revision)
 	require.ErrorIs(t, err, database.ErrNotFound)
 }
+
+func TestRuntimeRevisionGCCollectsUnrecordedSandboxGoldenRebuild(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database test in short mode")
+	}
+	ctx := t.Context()
+	dsn := dbtest.StartT(ctx, t)
+	dbtest.MigrateT(t, dsn, false)
+	pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	store := database.NewClient(pool, "public")
+	const revision = "sandbox-rev"
+	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
+		Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision,
+	}))
+	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
+		RuntimeArtifact: database.RuntimeArtifact{Revision: revision, Kind: "sandbox", Namespace: "team-a",
+			ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "uid-1"},
+		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte(`{}`),
+	}, database.RecordRevisionOptions{}))
+	_, err = store.ScheduleGoldenRetry(ctx, revision, "uid-1", time.Now(), []time.Duration{0})
+	require.NoError(t, err)
+	templates := &fakeActorTemplates{template: &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: revision, Uid: "uid-2"}}}
+	require.NoError(t, store.RetireSandboxTemplateIdentities(ctx, "team-a", "scratch"))
+
+	collector, _ := newTestRuntimeRevisionGC(t, store, templates)
+	require.NoError(t, collector.collect(ctx, revision))
+	require.Equal(t, []string{"uid-2"}, templates.deletedUIDs, "GC must delete the sandbox rebuild by its own UID")
+	require.Nil(t, templates.template)
+	_, err = store.GetSandboxRevision(ctx, revision)
+	require.ErrorIs(t, err, database.ErrNotFound)
+}

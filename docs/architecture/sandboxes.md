@@ -85,7 +85,8 @@ flowchart LR
 Database, Substrate, finalizer, and status writes run outside KRT transforms in
 queued workers. The configured guest digest is an immutable compilation input;
 changing it produces a new prepared revision. Only pending preparation and
-cleanup work is polled, including recovery from transient failures.
+cleanup work is polled, including recovery from transient failures, except a
+golden crash retry that is waiting (see below).
 
 The controller persists a deletion finalizer before allocating inputs, then
 persists the desired revision before backend creation. It publishes a ready
@@ -103,6 +104,18 @@ revision. Existing Sandboxes and
 creation retries retain their revision when a template changes.
 Template deletion retires preparation; retained instances continue to
 pin the runtime artifacts they need.
+
+A golden build that crashes (`GoldenActorCrashed`) is rebuilt without a template
+edit. The controller deletes the crashed ActorTemplate by UID and creates it
+again after 15 seconds, 1 minute, 4 minutes, then every 10 minutes, each with up
+to 20% jitter and no retry cap. The attempt count and next retry time live in
+the database, so a controller restart keeps the schedule. While a retry waits,
+`Ready` is `False` with reason `ActorTemplateRetrying`, and the message names
+the retry number, its time and the crash. While the rebuild is pending, the
+`Preparing` message names the retry number. A successful build resets the
+count. A waiting retry is not polled; its timer, or queue backoff after a failed
+delete, wakes it. Other golden failures still report a retryable
+`PreparationFailed`.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
 replica; expiration workers coordinate through PostgreSQL.

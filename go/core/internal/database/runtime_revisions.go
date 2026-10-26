@@ -141,10 +141,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		if !options.Ready {
 			return nil
 		}
-		if err := execSQL(ctx, tx, `
-			UPDATE runtime_revision SET golden_attempts = 0, golden_crash_uid = '', golden_retry_at = NULL, updated_at = NOW()
-			WHERE revision = $1 AND golden_attempts > 0
-		`, revision.Revision); err != nil {
+		if err := resetGoldenRetry(ctx, tx, revision.Revision); err != nil {
 			return err
 		}
 		return execSQL(ctx, tx, `
@@ -393,6 +390,15 @@ type runtimeRevisionRow struct {
 	ActorTemplateUID        string
 	AgentCard               []byte
 	DeletedAt               *time.Time
+}
+
+// resetGoldenRetry runs when a revision's golden build succeeds, so its next
+// crash starts again at the first delay.
+func resetGoldenRetry(ctx context.Context, tx pgx.Tx, revision string) error {
+	return execSQL(ctx, tx, `
+		UPDATE runtime_revision SET golden_attempts = 0, golden_crash_uid = '', golden_retry_at = NULL, updated_at = NOW()
+		WHERE revision = $1 AND golden_attempts > 0
+	`, revision)
 }
 
 // GoldenRetry is the golden-build retry schedule stored for a runtime revision.

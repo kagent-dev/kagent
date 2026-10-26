@@ -124,6 +124,9 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 		if !options.Ready {
 			return nil
 		}
+		if err := resetGoldenRetry(ctx, tx, revision.Revision); err != nil {
+			return err
+		}
 		return execSQL(ctx, tx, `
 			UPDATE sandbox_template_definition p SET latest_successful_revision = r.revision, updated_at = NOW()
 			FROM runtime_revision r JOIN sandbox_revision s USING (revision)

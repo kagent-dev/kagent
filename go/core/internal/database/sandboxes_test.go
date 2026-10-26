@@ -68,6 +68,41 @@ func TestRecordReadySandboxRevisionOnlyCurrentActiveTemplate(t *testing.T) {
 	require.ErrorIs(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{Ready: true}), ErrObjectDeleting)
 }
 
+func TestRecordReadySandboxRevisionResetsGoldenRetry(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sandboxFixture(t, client, "rev")
+	revision, err := client.GetSandboxRevision(ctx, "rev")
+	require.NoError(t, err)
+	delays := []time.Duration{15 * time.Second, time.Minute}
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	attempts := func() int {
+		t.Helper()
+		attempts, err := client.GoldenRetryAttempts(ctx, "rev")
+		require.NoError(t, err)
+		return attempts
+	}
+
+	first, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
+	require.NoError(t, err)
+	require.Equal(t, 1, first.Attempts)
+	revision.ActorTemplateUID = "uid-2"
+	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{}))
+	require.Equal(t, 1, attempts(), "a rebuild that is not ready yet keeps its retry count")
+	second, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
+	require.NoError(t, err)
+	require.Equal(t, GoldenRetry{Attempts: 2, RetryAt: now.Add(time.Minute)}, normalizeRetry(second))
+
+	revision.ActorTemplateUID = "uid-3"
+	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
+	require.Zero(t, attempts(), "a ready sandbox revision resets its retry count")
+	revision.ActorTemplateUID = "uid-4"
+	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{}))
+	later, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
+	require.NoError(t, err)
+	require.Equal(t, GoldenRetry{Attempts: 1, RetryAt: now.Add(15 * time.Second)}, normalizeRetry(later), "a successful build resets the backoff")
+}
+
 func finishSandbox(t *testing.T, client *Client, id string, kind apiv1.RuntimeOperation) *apiv1.Sandbox {
 	t.Helper()
 	op, err := client.BeginSandboxOperation(t.Context(), id, kind)

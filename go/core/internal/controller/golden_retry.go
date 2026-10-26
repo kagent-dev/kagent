@@ -132,6 +132,12 @@ func (g *goldenRetries) stop() {
 	}
 }
 
+// awaitsGoldenRetry reports a failure whose retry something other than a poll
+// wakes: the armed timer, queue backoff after a failed delete, or the re-add.
+func (f *ReconciliationFailure) awaitsGoldenRetry() bool {
+	return f != nil && f.Reason == goldenRetryingReason
+}
+
 // goldenRebuildMessage names the retry while a crashed golden build rebuilds.
 func goldenRebuildMessage(retries int, waiting string) string {
 	if retries == 0 {
