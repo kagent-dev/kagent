@@ -469,6 +469,36 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 	require.Equal(t, 1, count)
 }
 
+func TestPushDeliveryReleasePreservesRetryBudget(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
+	// Real failures still consume the budget. Leave only the last attempt available.
+	for range pushMaxDeliveryAttempts - 1 {
+		delivery, err := client.ClaimDuePushDelivery(ctx, time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, delivery)
+		require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
+		require.NoError(t, execSQL(ctx, client.db, `
+            UPDATE session_push_registration SET next_attempt_at = clock_timestamp() - interval '1 second'
+            WHERE id = $1
+        `, delivery.ID))
+	}
+	for range pushMaxDeliveryAttempts + 1 {
+		delivery, err := client.ClaimDuePushDelivery(ctx, time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, delivery, "interrupted final attempts remain immediately retryable")
+		require.NoError(t, client.ReleasePushDelivery(ctx, *delivery))
+		require.NoError(t, client.ReleasePushDelivery(ctx, *delivery), "repeated release must not refund twice")
+	}
+	delivery, err := client.ClaimDuePushDelivery(ctx, time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, delivery)
+	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
+	assertPushDeliveryRetired(t, client, delivery.ID)
+}
+
 func TestPushDeliveryExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
@@ -576,6 +606,7 @@ func TestPushDeliveryExpiredLeaseFencesOldWorker(t *testing.T) {
 	require.Equal(t, first.ID, second.ID)
 	require.NotEqual(t, first.ClaimToken, second.ClaimToken)
 	require.NoError(t, client.FinishPushDelivery(ctx, *first, true))
+	require.NoError(t, client.ReleasePushDelivery(ctx, *first))
 	current, err := client.IsPushDeliveryCurrent(ctx, *second)
 	require.NoError(t, err)
 	require.True(t, current)
@@ -643,6 +674,7 @@ func TestPushDeliverySupersededOutcomeCannotChangeNewGeneration(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, current)
 			require.NoError(t, client.FinishPushDelivery(ctx, *old, delivered))
+			require.NoError(t, client.ReleasePushDelivery(ctx, *old))
 			next, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			require.NotNil(t, next, "old outcomes cannot clear or delay unclaimed new work")
@@ -650,6 +682,7 @@ func TestPushDeliverySupersededOutcomeCannotChangeNewGeneration(t *testing.T) {
 			require.NotEqual(t, old.Sequence, next.Sequence)
 			require.NotEqual(t, old.ClaimToken, next.ClaimToken)
 			require.NoError(t, client.FinishPushDelivery(ctx, *old, delivered))
+			require.NoError(t, client.ReleasePushDelivery(ctx, *old))
 			current, err = client.IsPushDeliveryCurrent(ctx, *next)
 			require.NoError(t, err)
 			require.True(t, current, "old outcomes cannot alter a newer claim")

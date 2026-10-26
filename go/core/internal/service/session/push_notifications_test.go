@@ -98,28 +98,33 @@ func TestPushPageTokenIsTaskScoped(t *testing.T) {
 }
 
 type pushTestStore struct {
-	deliveries []database.PushDelivery
-	finished   []bool
-	finishMu   sync.Mutex
-	claimErr   error
-	finishErr  error
-	stale      bool
-	currentErr error
-	expired    int
+	deliveries    []database.PushDelivery
+	finished      []bool
+	finishMu      sync.Mutex
+	claimErr      error
+	finishErr     error
+	stale         bool
+	currentErr    error
+	expired       atomic.Int32
+	claimCalls    atomic.Int32
+	pendingChecks atomic.Int32
+	released      atomic.Int32
 }
 
 var _ pushStore = (*pushTestStore)(nil)
 
 func (p *pushTestStore) HasPendingPushDelivery(context.Context) (bool, error) {
+	p.pendingChecks.Add(1)
 	return len(p.deliveries) != 0, nil
 }
 
 func (p *pushTestStore) ExpireUnboundPushRegistrations(context.Context) error {
-	p.expired++
+	p.expired.Add(1)
 	return nil
 }
 
 func (p *pushTestStore) ClaimDuePushDelivery(context.Context, time.Duration) (*database.PushDelivery, error) {
+	p.claimCalls.Add(1)
 	if p.claimErr != nil {
 		return nil, p.claimErr
 	}
@@ -134,10 +139,21 @@ func (p *pushTestStore) IsPushDeliveryCurrent(context.Context, database.PushDeli
 	return !p.stale, p.currentErr
 }
 
-func (p *pushTestStore) FinishPushDelivery(_ context.Context, _ database.PushDelivery, delivered bool) error {
+func (p *pushTestStore) FinishPushDelivery(ctx context.Context, _ database.PushDelivery, delivered bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	p.finishMu.Lock()
 	defer p.finishMu.Unlock()
 	p.finished = append(p.finished, delivered)
+	return p.finishErr
+}
+
+func (p *pushTestStore) ReleasePushDelivery(ctx context.Context, _ database.PushDelivery) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	p.released.Add(1)
 	return p.finishErr
 }
 
@@ -148,14 +164,14 @@ func (p *pushTestStore) outcomes() []bool {
 }
 
 type pushTestSender struct {
-	calls int
+	calls atomic.Int32
 	err   error
 }
 
 var _ pushSender = (*pushTestSender)(nil)
 
 func (p *pushTestSender) SendPush(context.Context, *a2a.PushConfig, a2a.Event) error {
-	p.calls++
+	p.calls.Add(1)
 	return p.err
 }
 
@@ -197,7 +213,7 @@ func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
 	full, err := pollPushWorker(t, worker)
 	require.NoError(t, err)
 	require.True(t, full)
-	require.Equal(t, 100, sender.calls)
+	require.EqualValues(t, 100, sender.calls.Load())
 
 	full, err = pollPushWorker(t, worker)
 	require.NoError(t, err)
@@ -223,11 +239,12 @@ func TestPushWorkerChecksClaimBeforeSending(t *testing.T) {
 			err := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(time.Minute)).send(t.Context(), database.PushDelivery{Payload: payload})
 			if test.err != nil {
 				require.ErrorIs(t, err, test.err)
+				require.Equal(t, []bool{false}, store.outcomes(), "failed preparation enters the normal retry schedule")
 			} else {
 				require.NoError(t, err)
+				require.Empty(t, store.outcomes(), "skipping a stale claim must not acknowledge newer work")
 			}
-			require.Zero(t, sender.calls)
-			require.Empty(t, store.outcomes(), "skipping a stale claim must not acknowledge newer work")
+			require.Zero(t, sender.calls.Load())
 		})
 	}
 }
@@ -561,7 +578,7 @@ func TestPushWorkerConcurrentDelivery(t *testing.T) {
 		synctest.Wait()
 		require.Len(t, store.outcomes(), 205, "a blocked receiver must not hold up subsequent batches")
 		require.Empty(t, store.deliveries)
-		require.NotZero(t, store.expired, "continue registration maintenance under load")
+		require.EqualValues(t, 1, store.expired.Load(), "delivery completions must not repeat registration maintenance")
 
 		// A new settlement must also use spare capacity while another send is busy.
 		store.deliveries = append(store.deliveries, pushTestDelivery(t, "new"))
@@ -571,7 +588,8 @@ func TestPushWorkerConcurrentDelivery(t *testing.T) {
 		cancel()
 		synctest.Wait()
 		require.NoError(t, <-done)
-		require.Len(t, store.outcomes(), 207, "shutdown waits for the canceled attempt to finish")
+		require.Len(t, store.outcomes(), 206)
+		require.EqualValues(t, 1, store.released.Load(), "shutdown waits for the interrupted attempt to be released")
 	})
 }
 
@@ -598,6 +616,190 @@ func TestPushWorkerSendTimeout(t *testing.T) {
 		synctest.Wait()
 		require.Equal(t, []bool{false, true}, store.outcomes(), "timeout records failure and releases capacity immediately")
 	})
+}
+
+type pushPendingGateStore struct {
+	pushTestStore
+	gate <-chan struct{}
+}
+
+var _ pushStore = (*pushPendingGateStore)(nil)
+
+func (p *pushPendingGateStore) HasPendingPushDelivery(ctx context.Context) (bool, error) {
+	pending, err := p.pushTestStore.HasPendingPushDelivery(ctx)
+	select {
+	case <-p.gate:
+		return pending, err
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
+func TestPushWorkerRefillsAfterQueuedCompletions(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		pendingGate := make(chan struct{})
+		initialGate := make(chan struct{})
+		store := &pushPendingGateStore{gate: pendingGate}
+		for range 2 {
+			store.deliveries = append(store.deliveries, pushTestDelivery(t, "initial"))
+		}
+		var started atomic.Int32
+		sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, event a2a.Event) error {
+			started.Add(1)
+			if event.TaskInfo().TaskID == "initial" {
+				<-initialGate
+				return nil
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		config := testPushWorkerConfig(time.Hour)
+		config.MaxConcurrency = 4
+		startPushWorker(t, NewPushWorker(store, sender, nil, nil, config))
+		synctest.Wait()
+		require.EqualValues(t, 1, store.pendingChecks.Load())
+		// Both completions queue while the worker is blocked in the pending query.
+		close(initialGate)
+		synctest.Wait()
+		for range 4 {
+			store.deliveries = append(store.deliveries, pushTestDelivery(t, "next"))
+		}
+		close(pendingGate)
+		synctest.Wait()
+		require.EqualValues(t, 6, started.Load(), "queued completions must free every slot")
+		require.EqualValues(t, 1, store.pendingChecks.Load(), "refilling capacity needs no pending-work query")
+		require.EqualValues(t, 1, store.expired.Load(), "completion bursts must not cause maintenance bursts")
+	})
+}
+
+func TestPushWorkerSaturationKeepsOnlyPeriodicCleanup(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &pushTestStore{deliveries: []database.PushDelivery{pushTestDelivery(t, "slow")}}
+		sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, _ a2a.Event) error {
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		wake := make(chan struct{}, 1)
+		startPushWorker(t, NewPushWorker(store, sender, nil, wake, PushWorkerConfig{
+			RecoveryInterval: time.Minute, MaxConcurrency: 1, SendTimeout: time.Hour,
+		}))
+		synctest.Wait()
+		wake <- struct{}{}
+		synctest.Wait()
+		require.Zero(t, store.pendingChecks.Load())
+		require.EqualValues(t, 1, store.expired.Load())
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		require.EqualValues(t, 2, store.expired.Load(), "cleanup must continue while all slots are occupied")
+		require.Zero(t, store.pendingChecks.Load())
+		require.EqualValues(t, 1, store.claimCalls.Load(), "saturation must not poll for more deliveries")
+	})
+}
+
+type pushCheckTimeoutStore struct{ pushTestStore }
+
+var _ pushStore = (*pushCheckTimeoutStore)(nil)
+
+func (p *pushCheckTimeoutStore) IsPushDeliveryCurrent(ctx context.Context, _ database.PushDelivery) (bool, error) {
+	<-ctx.Done()
+	return false, ctx.Err()
+}
+
+func TestPushWorkerCheckTimeoutRecordsFailure(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &pushCheckTimeoutStore{}
+		sender := &pushTestSender{}
+		config := testPushWorkerConfig(time.Minute)
+		config.SendTimeout = 2 * time.Second
+		worker := NewPushWorker(store, sender, nil, nil, config)
+		started := time.Now()
+		err := worker.send(t.Context(), pushTestDelivery(t, "task"))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Equal(t, 2*time.Second, time.Since(started))
+		require.Zero(t, sender.calls.Load())
+		require.Equal(t, []bool{false}, store.outcomes())
+		require.Zero(t, store.released.Load(), "a send timeout still consumes an attempt")
+	})
+}
+
+type pushFinishTimeoutStore struct{ pushTestStore }
+
+var _ pushStore = (*pushFinishTimeoutStore)(nil)
+
+func (p *pushFinishTimeoutStore) FinishPushDelivery(ctx context.Context, _ database.PushDelivery, _ bool) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestPushWorkerFinalizationIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		sender := pushSenderFunc(func(context.Context, *a2a.PushConfig, a2a.Event) error {
+			cancel() // Shutdown races with a successful response.
+			return nil
+		})
+		worker := NewPushWorker(&pushFinishTimeoutStore{}, sender, nil, nil, testPushWorkerConfig(time.Minute))
+		started := time.Now()
+		err := worker.send(ctx, pushTestDelivery(t, "task"))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Equal(t, 5*time.Second, time.Since(started), "finalization survives cancellation but cannot hang shutdown")
+	})
+}
+
+func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
+	for _, delivered := range []bool{false, true} {
+		name := "interrupted"
+		if delivered {
+			name = "acknowledged"
+		}
+		t.Run(name, func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+			require.NoError(t, err)
+			request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
+			require.NoError(t, store.SaveTaskPushConfig(t.Context(), session.Id, request.TaskId, &a2a.PushConfig{ID: "callback", URL: "http://receiver"}))
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+			started := make(chan struct{}, 1)
+			sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, _ a2a.Event) error {
+				started <- struct{}{}
+				<-ctx.Done()
+				if delivered {
+					return nil // The HTTP response succeeded as shutdown began.
+				}
+				return ctx.Err()
+			})
+			restarts := 12 // Exceed the durable ten-attempt limit.
+			if delivered {
+				restarts = 1
+			}
+			for range restarts {
+				ctx, cancel := context.WithCancel(t.Context())
+				done := make(chan error, 1)
+				worker := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(time.Minute))
+				go func() { done <- worker.Start(ctx) }()
+				select {
+				case <-started:
+				case <-time.After(5 * time.Second):
+					cancel()
+					require.NoError(t, <-done)
+					t.Fatal("shutdown lost a pending notification or left its claim leased")
+				}
+				cancel()
+				require.NoError(t, <-done)
+			}
+			next, err := store.ClaimDuePushDelivery(t.Context(), time.Second)
+			require.NoError(t, err)
+			if delivered {
+				require.Nil(t, next, "successful delivery must remain acknowledged after shutdown")
+				pending, err := store.HasPendingPushDelivery(t.Context())
+				require.NoError(t, err)
+				require.False(t, pending)
+			} else {
+				require.NotNil(t, next, "repeated shutdowns must not exhaust the delivery budget")
+			}
+		})
+	}
 }
 
 func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {

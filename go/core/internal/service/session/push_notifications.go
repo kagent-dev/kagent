@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -67,6 +68,7 @@ type pushStore interface {
 	ExpireUnboundPushRegistrations(context.Context) error
 	ClaimDuePushDelivery(context.Context, time.Duration) (*database.PushDelivery, error)
 	FinishPushDelivery(context.Context, database.PushDelivery, bool) error
+	ReleasePushDelivery(context.Context, database.PushDelivery) error
 	IsPushDeliveryCurrent(context.Context, database.PushDelivery) (bool, error)
 	HasPendingPushDelivery(context.Context) (bool, error)
 }
@@ -108,6 +110,17 @@ func (p *PushWorker) NeedLeaderElection() bool { return false }
 func (p *PushWorker) Start(ctx context.Context) error {
 	timer := time.NewTimer(p.config.RecoveryInterval)
 	defer timer.Stop()
+	cleanupTimer := time.NewTimer(p.config.RecoveryInterval)
+	defer cleanupTimer.Stop()
+	cleanup := func() {
+		delay := p.config.RecoveryInterval
+		if err := p.store.ExpireUnboundPushRegistrations(ctx); err != nil && ctx.Err() == nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to expire push registrations", "error", err)
+			delay = min(time.Second, delay)
+		}
+		cleanupTimer.Reset(delay)
+	}
+	cleanup()
 	completed := make(chan struct{}, p.config.MaxConcurrency)
 	active := 0
 	var sends sync.WaitGroup
@@ -125,6 +138,18 @@ func (p *PushWorker) Start(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil
 		}
+		// Keep maintenance periodic even when a large backlog drains without waiting.
+		select {
+		case <-cleanupTimer.C:
+			cleanup()
+		default:
+		}
+		// Only this goroutine receives completions. Drain the buffered snapshot
+		// before calculating capacity, including when a wake or timer won the select.
+		for range len(completed) {
+			<-completed
+			active--
+		}
 		// Claim only for available slots: queued claims would consume their leases
 		// while waiting for a slow receiver. Completion immediately frees a slot.
 		fullBatch, err := p.poll(ctx, p.config.MaxConcurrency-active, dispatch)
@@ -132,7 +157,7 @@ func (p *PushWorker) Start(ctx context.Context) error {
 			continue
 		}
 		delay := p.config.RecoveryInterval
-		if err == nil {
+		if err == nil && active < p.config.MaxConcurrency {
 			var pending bool
 			pending, err = p.store.HasPendingPushDelivery(ctx)
 			// If there are pending deliveries, we want to poll more frequently to avoid delays in processing.
@@ -144,14 +169,26 @@ func (p *PushWorker) Start(ctx context.Context) error {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to process push notifications", "error", err)
 			delay = min(time.Second, p.config.RecoveryInterval)
 		}
-		timer.Reset(delay)
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-timer.C:
-		case <-p.wake:
-		case <-completed:
-			active--
+		// Saturated workers need no pending-work queries or recovery scans until
+		// capacity is freed. Registration cleanup has its own timer.
+		var scan <-chan time.Time
+		if active < p.config.MaxConcurrency || err != nil {
+			timer.Reset(delay)
+			scan = timer.C
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-cleanupTimer.C:
+				cleanup()
+				continue
+			case <-scan:
+			case <-p.wake:
+			case <-completed:
+				active--
+			}
+			break
 		}
 	}
 }
@@ -159,7 +196,7 @@ func (p *PushWorker) Start(ctx context.Context) error {
 // poll reports whether it filled the batch, so a backlog can drain without
 // waiting for the idle polling interval.
 func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(database.PushDelivery)) (bool, error) {
-	// Bound each pass so an always-due backlog cannot starve input maintenance.
+	// Bound each pass so an always-due backlog cannot starve registration cleanup.
 	claimed := 0
 	for range min(100, available) {
 		if err := ctx.Err(); err != nil {
@@ -175,40 +212,58 @@ func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(data
 		claimed++
 		dispatch(*delivery)
 	}
-	return claimed == 100, p.store.ExpireUnboundPushRegistrations(ctx)
+	return claimed == 100, nil
 }
 
 func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) error {
 	sendCtx, cancel := context.WithTimeout(ctx, p.config.SendTimeout)
-	defer cancel()
+	delivered, sendErr := p.attempt(sendCtx, delivery)
+	cancel()
+	if !delivered && sendErr == nil {
+		return nil // A superseded claim must not alter newer work.
+	}
+	// Preserve known outcomes during shutdown, and bound finalization even if
+	// the database is unavailable. A canceled send releases its retry budget.
+	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer finishCancel()
+	var finishErr error
+	if ctx.Err() != nil && errors.Is(sendErr, ctx.Err()) {
+		finishErr = p.store.ReleasePushDelivery(finishCtx, delivery)
+	} else {
+		finishErr = p.store.FinishPushDelivery(finishCtx, delivery, delivered)
+	}
+	if finishErr != nil {
+		return errors.Join(sendErr, fmt.Errorf("failed to persist push delivery outcome: %w", finishErr))
+	}
+	return sendErr
+}
+
+// attempt returns false without an error only when the claim is no longer current.
+func (p *PushWorker) attempt(ctx context.Context, delivery database.PushDelivery) (bool, error) {
 	// Use the published status and destination captured by this claim.
 	wire := &a2apb.StreamResponse{}
 	if err := proto.Unmarshal(delivery.Payload, wire); err != nil {
-		return fmt.Errorf("decode durable notification: %w", err)
+		return false, fmt.Errorf("decode durable notification: %w", err)
 	}
 	event, err := pbconv.FromProtoStreamResponse(wire)
 	if err != nil {
-		return fmt.Errorf("convert durable notification: %w", err)
+		return false, fmt.Errorf("convert durable notification: %w", err)
 	}
 	config := &a2a.PushConfig{URL: delivery.URL}
 	if p.signer != nil {
 		credential, err := p.signer.Sign(delivery.TaskID, delivery.URL)
 		if err != nil {
-			return fmt.Errorf("sign push notification: %w", err)
+			return false, fmt.Errorf("sign push notification: %w", err)
 		}
 		config.Auth = &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: credential}
 	}
-	current, err := p.store.IsPushDeliveryCurrent(sendCtx, delivery)
+	current, err := p.store.IsPushDeliveryCurrent(ctx, delivery)
 	if err != nil {
-		return fmt.Errorf("failed to check push registration %s: %w", delivery.ID, err)
+		return false, fmt.Errorf("failed to check push registration %s: %w", delivery.ID, err)
 	}
 	if !current {
-		return nil
+		return false, nil
 	}
-	sendErr := p.sender.SendPush(sendCtx, config, event)
-	// A failed HTTP attempt remains durable for the store's retry schedule.
-	if err := p.store.FinishPushDelivery(ctx, delivery, sendErr == nil); err != nil {
-		return fmt.Errorf("persist push delivery outcome: %w", err)
-	}
-	return sendErr
+	err = p.sender.SendPush(ctx, config, event)
+	return err == nil, err
 }

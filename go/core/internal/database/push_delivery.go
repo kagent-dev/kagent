@@ -205,6 +205,17 @@ func (c *Client) FinishPushDelivery(ctx context.Context, delivery PushDelivery, 
 	return retryPushDelivery(ctx, c.db, delivery)
 }
 
+// ReleasePushDelivery makes a shutdown-interrupted attempt immediately retryable
+// without charging its attempt against the retry budget. The generation and claim
+// predicates make release idempotent and prevent it from changing newer work.
+func (c *Client) ReleasePushDelivery(ctx context.Context, delivery PushDelivery) error {
+	return execSQL(ctx, c.db, `
+        UPDATE session_push_registration SET attempt_count = attempt_count - 1,
+            next_attempt_at = clock_timestamp(), claim_token = NULL, lease_until = NULL
+        WHERE id = $1 AND pending_event_sequence = $2 AND claim_token = $3
+    `, delivery.ID, delivery.Sequence, delivery.ClaimToken)
+}
+
 // retryPushDelivery records a matching failed attempt through the pool or the
 // claim transaction, retiring exhausted work while retaining its registration.
 // Superseded claims do not change newer work or its backoff.
