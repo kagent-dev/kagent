@@ -2,10 +2,10 @@ suite: test rbac
 templates:
   - controller-serviceaccount.yaml
   - ui-serviceaccount.yaml
-  - rbac/getter-role.yaml
-  - rbac/writer-role.yaml
-  - rbac/getter-rolebinding.yaml
-  - rbac/writer-rolebinding.yaml
+  - rbac/reconciliation-role.yaml
+  - rbac/management-role.yaml
+  - rbac/reconciliation-rolebinding.yaml
+  - rbac/management-rolebinding.yaml
 tests:
   - it: should render controller serviceaccount
     template: controller-serviceaccount.yaml
@@ -33,15 +33,78 @@ tests:
     asserts:
       - isKind:
           of: ClusterRole
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - isKind:
           of: ClusterRole
-        template: rbac/writer-role.yaml
+        template: rbac/management-role.yaml
+
+  - it: reconciliation permissions should own status and finalizer updates
+    template: rbac/reconciliation-role.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [api.kagent.dev]
+            resources: [harnesses/status, agents/status, modelconfigs/status, modelproviderconfigs/status, remotemcpservers/status]
+            verbs: [get, patch, update]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [api.kagent.dev]
+            resources: [sandboxtemplates/status]
+            verbs: [update, patch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [api.kagent.dev]
+            resources: [harnesses/finalizers, agents/finalizers, sandboxtemplates/finalizers, modelconfigs/finalizers, modelproviderconfigs/finalizers, remotemcpservers/finalizers]
+            verbs: [update]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [api.kagent.dev]
+            resources: [sandboxtemplates]
+            verbs: [update]
+      - notContains:
+          path: rules[*].verbs
+          content: create
+      - notContains:
+          path: rules[*].verbs
+          content: delete
+      - matchRegex:
+          path: rules[?(@.apiGroups[0] == "")].verbs[*]
+          pattern: '^(get|list|watch)$'
+
+  - it: management permissions should only grant API writes
+    template: rbac/management-role.yaml
+    asserts:
+      - notMatchRegex:
+          path: rules[*].resources[*]
+          pattern: '/(status|finalizers)$'
+      - matchRegex:
+          path: rules[*].verbs[*]
+          pattern: '^(create|update|patch|delete)$'
+
+  - it: should always bind both roles to the controller in install and tenant namespaces
+    set:
+      rbac.namespaces: [NAMESPACE, tenant]
+    templates:
+      - rbac/reconciliation-rolebinding.yaml
+      - rbac/management-rolebinding.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: RELEASE-NAME-controller
+              namespace: NAMESPACE
 
   - it: should not grant workload or RBAC resource permissions cluster-wide
     templates:
-      - rbac/getter-role.yaml
-      - rbac/writer-role.yaml
+      - rbac/reconciliation-role.yaml
+      - rbac/management-role.yaml
     asserts:
       - notContains:
           path: rules[*].apiGroups
@@ -72,8 +135,8 @@ tests:
     set:
       rbac.namespaces: [NAMESPACE, tenant]
     templates:
-      - rbac/getter-role.yaml
-      - rbac/writer-role.yaml
+      - rbac/reconciliation-role.yaml
+      - rbac/management-role.yaml
     asserts:
       - hasDocuments:
           count: 2
@@ -106,24 +169,24 @@ tests:
     asserts:
       - equal:
           path: metadata.name
-          value: RELEASE-NAME-getter-role
-        template: rbac/getter-role.yaml
+          value: RELEASE-NAME-reconciliation-role
+        template: rbac/reconciliation-role.yaml
       - equal:
           path: metadata.name
-          value: RELEASE-NAME-writer-role
-        template: rbac/writer-role.yaml
+          value: RELEASE-NAME-management-role
+        template: rbac/management-role.yaml
 
   - it: should render clusterrolebindings by default
     asserts:
       - isKind:
           of: ClusterRoleBinding
-        template: rbac/getter-rolebinding.yaml
+        template: rbac/reconciliation-rolebinding.yaml
       - isKind:
           of: ClusterRoleBinding
-        template: rbac/writer-rolebinding.yaml
+        template: rbac/management-rolebinding.yaml
 
   - it: clusterrolebinding should reference correct serviceaccount
-    template: rbac/getter-rolebinding.yaml
+    template: rbac/reconciliation-rolebinding.yaml
     asserts:
       - equal:
           path: subjects[0].kind
@@ -140,22 +203,22 @@ tests:
       - equal:
           path: roleRef.kind
           value: ClusterRole
-        template: rbac/getter-rolebinding.yaml
+        template: rbac/reconciliation-rolebinding.yaml
       - equal:
           path: roleRef.name
-          value: RELEASE-NAME-getter-role
-        template: rbac/getter-rolebinding.yaml
+          value: RELEASE-NAME-reconciliation-role
+        template: rbac/reconciliation-rolebinding.yaml
       - equal:
           path: roleRef.kind
           value: ClusterRole
-        template: rbac/writer-rolebinding.yaml
+        template: rbac/management-rolebinding.yaml
       - equal:
           path: roleRef.name
-          value: RELEASE-NAME-writer-role
-        template: rbac/writer-rolebinding.yaml
+          value: RELEASE-NAME-management-role
+        template: rbac/management-rolebinding.yaml
 
-  - it: getter role should read core dependencies and namespaces cluster-wide
-    template: rbac/getter-role.yaml
+  - it: reconciliation role should read core dependencies and namespaces cluster-wide
+    template: rbac/reconciliation-role.yaml
     asserts:
       - contains:
           path: rules
@@ -170,10 +233,10 @@ tests:
             resources: [namespaces]
             verbs: [get, list, watch]
 
-  - it: getter roles should read core dependencies in install and tenant namespaces
+  - it: reconciliation roles should read core dependencies in install and tenant namespaces
     set:
       rbac.namespaces: [NAMESPACE, tenant]
-    template: rbac/getter-role.yaml
+    template: rbac/reconciliation-role.yaml
     asserts:
       - contains:
           path: rules
@@ -187,14 +250,14 @@ tests:
       - contains:
           path: rules[0].resources
           content: sandboxtemplates
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - contains:
           path: rules[0].resources
           content: sandboxtemplates
-        template: rbac/writer-role.yaml
+        template: rbac/management-role.yaml
 
-  - it: writer role should only write managed core resources cluster-wide
-    template: rbac/writer-role.yaml
+  - it: management role should only write managed core resources cluster-wide
+    template: rbac/management-role.yaml
     asserts:
       - contains:
           path: rules
@@ -212,10 +275,10 @@ tests:
           path: rules[*].resources
           content: namespaces
 
-  - it: writer roles should only write managed core resources in install and tenant namespaces
+  - it: management roles should only write managed core resources in install and tenant namespaces
     set:
       rbac.namespaces: [NAMESPACE, tenant]
-    template: rbac/writer-role.yaml
+    template: rbac/management-role.yaml
     asserts:
       - contains:
           path: rules
@@ -243,8 +306,8 @@ tests:
 
   - it: should grant agent access in the new group
     templates:
-      - rbac/getter-role.yaml
-      - rbac/writer-role.yaml
+      - rbac/reconciliation-role.yaml
+      - rbac/management-role.yaml
     asserts:
       - equal:
           path: rules[0].apiGroups
@@ -252,22 +315,22 @@ tests:
       - equal:
           path: rules[0].resources
           value: [harnesses, agents, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - equal:
           path: rules[0].verbs
           value: [get, list, watch]
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - equal:
           path: rules[0].resources
           value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
-        template: rbac/writer-role.yaml
+        template: rbac/management-role.yaml
 
   - it: should grant namespaced agent access in the new group
     set:
       rbac.namespaces: [NAMESPACE]
     templates:
-      - rbac/getter-role.yaml
-      - rbac/writer-role.yaml
+      - rbac/reconciliation-role.yaml
+      - rbac/management-role.yaml
     asserts:
       - equal:
           path: rules[0].apiGroups
@@ -275,24 +338,24 @@ tests:
       - equal:
           path: rules[0].resources
           value: [harnesses, agents, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - equal:
           path: rules[0].verbs
           value: [get, list, watch]
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - equal:
           path: rules[0].resources
           value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
-        template: rbac/writer-role.yaml
+        template: rbac/management-role.yaml
 
   - it: should have correct labels on all resources
     templates:
       - controller-serviceaccount.yaml
       - ui-serviceaccount.yaml
-      - rbac/getter-role.yaml
-      - rbac/writer-role.yaml
-      - rbac/getter-rolebinding.yaml
-      - rbac/writer-rolebinding.yaml
+      - rbac/reconciliation-role.yaml
+      - rbac/management-role.yaml
+      - rbac/reconciliation-rolebinding.yaml
+      - rbac/management-rolebinding.yaml
     asserts:
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
@@ -311,10 +374,10 @@ tests:
     asserts:
       - isKind:
           of: Role
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - isKind:
           of: Role
-        template: rbac/writer-role.yaml
+        template: rbac/management-role.yaml
 
   - it: should render RoleBindings when rbac.namespaces is set
     set:
@@ -323,10 +386,10 @@ tests:
     asserts:
       - isKind:
           of: RoleBinding
-        template: rbac/getter-rolebinding.yaml
+        template: rbac/reconciliation-rolebinding.yaml
       - isKind:
           of: RoleBinding
-        template: rbac/writer-rolebinding.yaml
+        template: rbac/management-rolebinding.yaml
 
   - it: should render a single role/binding in the listed namespace only (no release-ns fallback)
     set:
@@ -335,18 +398,18 @@ tests:
     asserts:
       - hasDocuments:
           count: 1
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - equal:
           path: metadata.namespace
           value: NAMESPACE
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - hasDocuments:
           count: 1
-        template: rbac/writer-rolebinding.yaml
+        template: rbac/management-rolebinding.yaml
       - equal:
           path: metadata.namespace
           value: NAMESPACE
-        template: rbac/writer-rolebinding.yaml
+        template: rbac/management-rolebinding.yaml
 
   - it: should render multiple roles and bindings when namespaces are specified
     set:
@@ -356,35 +419,35 @@ tests:
     asserts:
       - hasDocuments:
           count: 2
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
       - equal:
           path: metadata.namespace
           value: NAMESPACE
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
         documentIndex: 0
       - equal:
           path: metadata.namespace
           value: ns2
-        template: rbac/getter-role.yaml
+        template: rbac/reconciliation-role.yaml
         documentIndex: 1
       - hasDocuments:
           count: 2
-        template: rbac/getter-rolebinding.yaml
+        template: rbac/reconciliation-rolebinding.yaml
       - equal:
           path: metadata.namespace
           value: NAMESPACE
-        template: rbac/getter-rolebinding.yaml
+        template: rbac/reconciliation-rolebinding.yaml
         documentIndex: 0
       - equal:
           path: metadata.namespace
           value: ns2
-        template: rbac/getter-rolebinding.yaml
+        template: rbac/reconciliation-rolebinding.yaml
         documentIndex: 1
 
   - it: should fail rendering if the removed rbac.clusterScoped field is set
     set:
       rbac.clusterScoped: false
-    template: rbac/writer-rolebinding.yaml
+    template: rbac/reconciliation-rolebinding.yaml
     asserts:
       - failedTemplate:
           errorMessage: "rbac.clusterScoped has been removed. Leave rbac.namespaces empty for cluster-scoped RBAC, or set rbac.namespaces=[<ns>, ...] for namespaced RBAC."
@@ -393,7 +456,7 @@ tests:
     set:
       rbac.namespaces:
         - some-other-ns
-    template: rbac/writer-rolebinding.yaml
+    template: rbac/reconciliation-rolebinding.yaml
     asserts:
       - failedTemplate:
           errorMessage: "rbac.namespaces is set but does not include the install namespace \"NAMESPACE\""
@@ -404,7 +467,7 @@ tests:
       rbac.namespaces:
         - my-ns
         - other-ns
-    template: rbac/getter-role.yaml
+    template: rbac/reconciliation-role.yaml
     asserts:
       - hasDocuments:
           count: 2

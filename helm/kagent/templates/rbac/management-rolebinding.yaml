@@ -6,14 +6,14 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "kagent.fullname" $ }}-writer-rolebinding
+  name: {{ include "kagent.fullname" $ }}-management-rolebinding
   namespace: {{ $namespace }}
   labels:
     {{- include "kagent.labels" $ | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "kagent.fullname" $ }}-writer-role
+  name: {{ include "kagent.fullname" $ }}-management-role
 subjects:
 - kind: ServiceAccount
   name: {{ include "kagent.controller.serviceAccountName" $ | quote }}
@@ -23,13 +23,13 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "kagent.fullname" . }}-writer-rolebinding
+  name: {{ include "kagent.fullname" . }}-management-rolebinding
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "kagent.fullname" . }}-writer-role
+  name: {{ include "kagent.fullname" . }}-management-role
 subjects:
 - kind: ServiceAccount
   name: {{ include "kagent.controller.serviceAccountName" . | quote }}

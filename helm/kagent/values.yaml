@@ -126,11 +126,13 @@ database:
 # ==============================================================================
 
 rbac:
+  # Reconciliation and management API permissions have separate Roles and bindings.
+  # Both are always bound to the controller ServiceAccount.
   # -- Namespaces in which to create Role and RoleBinding resources.
   # Left unset (the default), the scope falls back to global.watchNamespaces.
   # If that is also unset, the chart creates cluster-scoped ClusterRole and
   # ClusterRoleBinding resources, and the controller watches all namespaces.
-  # If set, the chart creates a Role and a RoleBinding per listed namespace.
+  # If set, the chart creates both Roles and their bindings per listed namespace.
   # The controller watches the same list, unless config.kubernetes.watchNamespaces
   # overrides it.
   # An explicit empty list forces cluster-scoped RBAC, even under a parent that

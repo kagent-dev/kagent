@@ -1,4 +1,5 @@
-{{- define "kagent.getter.rules" -}}
+{{- define "kagent.reconciliation.rules" -}}
+# Shared reads for reconciliation and management API requests.
 - apiGroups:
   - api.kagent.dev
   resources:
@@ -19,6 +20,7 @@
   resources:
   - harnesses/finalizers
   - agents/finalizers
+  - sandboxtemplates/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers
@@ -35,6 +37,20 @@
   verbs:
   - get
   - patch
+  - update
+- apiGroups:
+  - api.kagent.dev
+  resources:
+  - sandboxtemplates/status
+  verbs:
+  - update
+  - patch
+# SandboxTemplate finalizers are persisted through the main resource endpoint.
+- apiGroups:
+  - api.kagent.dev
+  resources:
+  - sandboxtemplates
+  verbs:
   - update
 - apiGroups:
   - ""
@@ -64,22 +80,22 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "kagent.fullname" $ }}-getter-role
+  name: {{ include "kagent.fullname" $ }}-reconciliation-role
   namespace: {{ $namespace }}
   labels:
     {{- include "kagent.labels" $ | nindent 4 }}
 rules:
-  {{- include "kagent.getter.rules" $ | nindent 2 }}
+  {{- include "kagent.reconciliation.rules" $ | nindent 2 }}
 {{- end }}
 {{- else }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kagent.fullname" . }}-getter-role
+  name: {{ include "kagent.fullname" . }}-reconciliation-role
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 rules:
-  {{- include "kagent.getter.rules" . | nindent 2 }}
+  {{- include "kagent.reconciliation.rules" . | nindent 2 }}
   # Cluster-wide namespace discovery uses the manager's cached client.
   - apiGroups:
     - ""
