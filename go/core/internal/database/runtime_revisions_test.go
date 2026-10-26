@@ -673,36 +673,50 @@ func TestScheduleGoldenRetry(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "rev", "assistant", "kagent")
 	revision, err := client.GetRuntimeRevision(ctx, "rev")
 	require.NoError(t, err)
-	delays := []time.Duration{15 * time.Second, time.Minute}
+	delays := []time.Duration{15 * time.Second, time.Minute, 4 * time.Minute}
 	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
 
 	_, err = client.ScheduleGoldenRetry(ctx, "rev", "other-uid", now, delays)
 	require.ErrorIs(t, err, ErrNotFound, "a crash must belong to the revision's recorded template")
+	_, err = client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, nil)
+	require.ErrorContains(t, err, "no retry delays")
 
+	attempts, err := client.GoldenRetryAttempts(ctx, "rev")
+	require.NoError(t, err)
+	require.Zero(t, attempts)
+	_, err = client.GoldenRetryAttempts(ctx, "missing")
+	require.ErrorIs(t, err, ErrNotFound)
 	first, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
 	require.NoError(t, err)
+	attempts, err = client.GoldenRetryAttempts(ctx, "rev")
+	require.NoError(t, err)
+	require.Equal(t, 1, attempts)
 	require.Equal(t, GoldenRetry{Attempts: 1, RetryAt: now.Add(15 * time.Second)}, normalizeRetry(first))
 	restarted := NewClient(pool, "public")
-	again, err := restarted.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now.Add(time.Hour), []time.Duration{time.Hour, time.Hour})
+	again, err := restarted.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now.Add(time.Hour), []time.Duration{time.Hour})
 	require.NoError(t, err)
 	require.Equal(t, normalizeRetry(first), normalizeRetry(again), "the same crash must keep its schedule across restarts")
 
-	for i, uid := range []string{"uid-2", "uid-3"} {
-		revision.ActorTemplateUID = uid
+	for i, want := range []time.Duration{time.Minute, 4 * time.Minute, 4 * time.Minute, 4 * time.Minute} {
+		revision.ActorTemplateUID = fmt.Sprintf("uid-%d", i+2)
 		require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{}))
-		retry, err := client.ScheduleGoldenRetry(ctx, "rev", uid, now, delays)
+		retry, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
 		require.NoError(t, err)
-		if i == 0 {
-			require.Equal(t, GoldenRetry{Attempts: 2, RetryAt: now.Add(time.Minute)}, normalizeRetry(retry))
-			continue
-		}
-		require.Equal(t, GoldenRetry{Attempts: 2, Exhausted: true}, retry, "a crash after every delay is used must be terminal")
+		require.Equal(t, GoldenRetry{Attempts: i + 2, RetryAt: now.Add(want)}, normalizeRetry(retry), "attempts past the last delay must repeat it, never stop")
 	}
+
+	revision.ActorTemplateUID = "uid-built"
+	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
+	revision.ActorTemplateUID = "uid-crashed-later"
+	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{}))
+	later, err := client.ScheduleGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
+	require.NoError(t, err)
+	require.Equal(t, GoldenRetry{Attempts: 1, RetryAt: now.Add(15 * time.Second)}, normalizeRetry(later), "a successful build resets the backoff")
 
 	sessionFixture(t, client, ctx, "team-a", "rev-2", "assistant", "kagent")
 	next, err := client.ScheduleGoldenRetry(ctx, "rev-2", "rev-2-actor-uid", now, delays)
 	require.NoError(t, err)
-	require.Equal(t, 1, next.Attempts, "a new revision starts with the full budget")
+	require.Equal(t, 1, next.Attempts, "a new revision starts counting from zero")
 }
 
 func normalizeRetry(retry GoldenRetry) GoldenRetry {

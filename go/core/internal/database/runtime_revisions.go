@@ -141,6 +141,12 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		if !options.Ready {
 			return nil
 		}
+		if err := execSQL(ctx, tx, `
+			UPDATE runtime_revision SET golden_attempts = 0, golden_crash_uid = '', golden_retry_at = NULL, updated_at = NOW()
+			WHERE revision = $1 AND golden_attempts > 0
+		`, revision.Revision); err != nil {
+			return err
+		}
 		return execSQL(ctx, tx, `
 			UPDATE agent_definition p
 			SET latest_successful_revision = r.revision, updated_at = NOW()
@@ -219,14 +225,14 @@ func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, 
 // instances, or checkpoints, including deletions still awaiting compute cleanup.
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeArtifact, error) {
 	return queryMany(ctx, c.db, `
-		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, deleted_at
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, golden_crash_uid, deleted_at
 		FROM runtime_revision WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
 	`, pgx.RowToStructByName[RuntimeArtifact])
 }
 
 func getRuntimeArtifactForUpdate(ctx context.Context, tx pgx.Tx, revision string) (RuntimeArtifact, error) {
 	return queryOne(ctx, tx, `
-		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, deleted_at
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, golden_crash_uid, deleted_at
 		FROM runtime_revision WHERE revision = $1 FOR UPDATE
 	`, pgx.RowToStructByName[RuntimeArtifact], revision)
 }
@@ -389,24 +395,38 @@ type runtimeRevisionRow struct {
 	DeletedAt               *time.Time
 }
 
-// GoldenRetry is a revision's golden-build retry schedule after
-// GoldenActorCrashed. Attempts counts retries started, so builds = Attempts+1.
+// GoldenRetry is the golden-build retry schedule stored for a runtime revision.
+// Attempts counts retries started, not builds.
 type GoldenRetry struct {
-	Attempts  int
-	RetryAt   time.Time
-	Exhausted bool
+	Attempts int
+	RetryAt  time.Time
 }
 
-// ScheduleGoldenRetry records a crashed ActorTemplate UID once and schedules
-// the next retry at now plus delays[attempts]. Repeating the same UID returns
-// the stored schedule, so controller passes and restarts do not spend budget.
-// A new UID with every delay used is exhausted and leaves the row unchanged.
+// GoldenRetryAttempts returns the golden retries started since the revision's
+// last successful build, or ErrNotFound for a missing revision.
+func (c *Client) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {
+	attempts, err := queryOne(ctx, c.db, `
+		SELECT golden_attempts FROM runtime_revision WHERE revision = $1
+	`, pgx.RowTo[int], revision)
+	if err != nil {
+		return 0, fmt.Errorf("get golden retry attempts for runtime revision %s: %w", revision, notFoundOr(err))
+	}
+	return attempts, nil
+}
+
+// ScheduleGoldenRetry schedules the next retry for crashedTemplateUID at now
+// plus delays[attempts], repeating the last delay once attempts pass it.
+// Repeating a UID returns its stored schedule without counting a retry.
+// A successful golden build recorded with Ready resets the count.
 // A missing, deleting or differently bound revision returns ErrNotFound.
 func (c *Client) ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (GoldenRetry, error) {
 	type goldenRetryRow struct {
 		GoldenAttempts int
 		GoldenCrashUID string
 		GoldenRetryAt  *time.Time
+	}
+	if len(delays) == 0 {
+		return GoldenRetry{}, fmt.Errorf("schedule golden retry for runtime revision %s: no retry delays", revision)
 	}
 	var result GoldenRetry
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -422,11 +442,7 @@ func (c *Client) ScheduleGoldenRetry(ctx context.Context, revision, crashedTempl
 			result = GoldenRetry{Attempts: row.GoldenAttempts, RetryAt: *row.GoldenRetryAt}
 			return nil
 		}
-		if row.GoldenAttempts >= len(delays) {
-			result = GoldenRetry{Attempts: row.GoldenAttempts, Exhausted: true}
-			return nil
-		}
-		retryAt := now.Add(delays[row.GoldenAttempts])
+		retryAt := now.Add(delays[min(row.GoldenAttempts, len(delays)-1)])
 		if err := execSQL(ctx, tx, `
 			UPDATE runtime_revision
 			SET golden_attempts = golden_attempts + 1, golden_crash_uid = $2, golden_retry_at = $3, updated_at = NOW()

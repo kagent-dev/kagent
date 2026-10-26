@@ -24,6 +24,7 @@ type runtimeRevisionGCStore interface {
 type runtimeRevisionGCClient interface {
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
 	DeleteActorTemplate(context.Context, string, string) error
+	DeleteActorTemplateUID(ctx context.Context, atespace, name, uid string) error
 }
 
 // RuntimeRevisionGC retries durable runtime deletions independently of preparation.
@@ -125,13 +126,20 @@ func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) (err error) 
 	if err != nil && status.Code(err) != codes.NotFound {
 		return fmt.Errorf("get unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 	}
-	if err == nil && (revision.ActorTemplateUID == "" || template.GetMetadata().GetUid() != revision.ActorTemplateUID) {
-		return fmt.Errorf("unreferenced ActorTemplate %s/%s UID changed", revision.ActorTemplateAtespace, revision.ActorTemplateName)
-	}
 	// Both deletes tolerate already-missing objects. If runtime cleanup succeeds
 	// but database finalization fails, the durable deletion marker keeps this
 	// revision discoverable so the next sweep can safely retry the sequence.
-	if err := r.templates.DeleteActorTemplate(collectionCtx, revision.ActorTemplateAtespace, revision.ActorTemplateName); err != nil {
+	if err == nil && (revision.ActorTemplateUID == "" || template.GetMetadata().GetUid() != revision.ActorTemplateUID) {
+		// A golden retry deleted the recorded crash, so the template under this
+		// revision's name is its rebuild that was never recorded.
+		if revision.ActorTemplateUID == "" || revision.GoldenCrashUID != revision.ActorTemplateUID {
+			return fmt.Errorf("unreferenced ActorTemplate %s/%s UID changed", revision.ActorTemplateAtespace, revision.ActorTemplateName)
+		}
+		err = r.templates.DeleteActorTemplateUID(collectionCtx, revision.ActorTemplateAtespace, revision.ActorTemplateName, template.GetMetadata().GetUid())
+	} else {
+		err = r.templates.DeleteActorTemplate(collectionCtx, revision.ActorTemplateAtespace, revision.ActorTemplateName)
+	}
+	if err != nil {
 		return fmt.Errorf("delete unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 	}
 	if err := r.store.DeleteRuntimeRevision(collectionCtx, revision.Revision, revision.ActorTemplateUID); err != nil {

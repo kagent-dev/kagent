@@ -38,8 +38,8 @@ CREATE TABLE runtime_revision (
     actor_template_atespace  TEXT        CONSTRAINT runtime_revision_actor_template_namespace_not_null NOT NULL,
     actor_template_name      TEXT        NOT NULL,
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
-    -- Golden-build retries started after GoldenActorCrashed, the crashed
-    -- ActorTemplate UID the latest retry answers, and when it recreates.
+    -- A repeat crash of golden_crash_uid reuses golden_retry_at instead of
+    -- spending another retry.
     golden_attempts          INT         NOT NULL DEFAULT 0 CHECK (golden_attempts >= 0),
     golden_crash_uid         TEXT        NOT NULL DEFAULT '',
     golden_retry_at          TIMESTAMPTZ,

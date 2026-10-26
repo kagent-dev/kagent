@@ -45,7 +45,9 @@ type AgentRuntimeObservation struct {
 	AgentName  string
 	RevisionID translator.RevisionID
 	Template   *ateapipb.ActorTemplate
-	Failure    *ReconciliationFailure
+	// GoldenRetries counts golden crash retries since the last successful build.
+	GoldenRetries int
+	Failure       *ReconciliationFailure
 }
 
 func (p AgentRuntimeObservation) ResourceName() string {

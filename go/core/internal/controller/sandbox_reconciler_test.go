@@ -95,10 +95,9 @@ func (s *sandboxTestActors) GetActorTemplate(_ context.Context, atespace, name s
 	}
 	return nil, status.Error(codes.NotFound, "missing")
 }
-func (s *sandboxTestActors) DeleteActorTemplateUID(context.Context, string, string, string) error {
+func (*sandboxTestActors) DeleteActorTemplateUID(context.Context, string, string, string) error {
 	return errors.New("sandbox preparation does not retry golden crashes")
 }
-
 func (s *sandboxTestActors) CreateActorTemplate(_ context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

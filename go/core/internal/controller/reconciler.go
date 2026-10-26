@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand/v2"
 	"reflect"
 	"slices"
 	"strings"
@@ -48,6 +47,7 @@ type AgentReconciliation struct {
 	Warnings              []string
 	CompilationFailure    *ReconciliationFailure
 	ObservedActorTemplate *ateapipb.ActorTemplate
+	GoldenRetries         int
 	PreparationFailure    *ReconciliationFailure
 }
 
@@ -137,7 +137,7 @@ func newAgentReconciliations(
 			state.PreparationFailure = observed.Failure
 			return state
 		}
-		state.ObservedActorTemplate = (*observed).Template
+		state.ObservedActorTemplate, state.GoldenRetries = observed.Template, observed.GoldenRetries
 		if !substrate.ActorTemplateSpecEqual(state.ObservedActorTemplate, state.Target.ActorTemplate) {
 			state.PreparationFailure = &ReconciliationFailure{
 				Condition: kagentv1alpha3.AgentConditionReady,
@@ -195,12 +195,12 @@ func compilationFailure(err error) *ReconciliationFailure {
 // or a Session or checkpoint references them.
 type runtimeRevisionStore interface {
 	actorEgressStore
+	goldenRetryStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
-	ScheduleGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error)
 }
 
 type actorTemplateClient interface {
@@ -218,8 +218,7 @@ type Reconciler struct {
 	templates   actorTemplateClient
 	store       runtimeRevisionStore
 	status      kagentclient.ApiV1alpha3Interface
-	goldenRetry goldenRetryPolicy
-	random      func() float64
+	golden      *goldenRetries
 
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
@@ -250,12 +249,11 @@ func newReconciler(
 		templates:   templates,
 		store:       store,
 		status:      status,
-		goldenRetry: defaultGoldenRetryPolicy,
-		random:      rand.Float64,
 	}
 	r.agents = newReconciliationQueue("agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
 	})
+	r.golden = newGoldenRetries(store, templates, r.agents)
 	r.agentStatuses = newReconciliationQueue("agent-status", func(item any) error {
 		return r.reconcileAgentStatus(context.Background(), item.(string))
 	})
@@ -318,6 +316,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		r.modelConfigStatuses.ShutDownEarly()
 		return err
 	}
+	context.AfterFunc(ctx, r.golden.stop)
 	go r.pollPendingTemplates(stop)
 	go r.agentStatuses.Run(stop)
 	go r.modelConfigStatuses.Run(stop)
@@ -460,12 +459,27 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}
 	if isGoldenCrash(observed) {
-		return r.retryGoldenCrash(ctx, *state, observed)
+		retrying, err := r.golden.retry(ctx, revision.Revision, state.ResourceName(), observed)
+		if retrying == nil {
+			return r.observePreparationError(*state, err)
+		}
+		r.observePreparation(*state, nil, retrying)
+		return err
+	}
+
+	var retries int
+	if !ready {
+		if retries, err = r.store.GoldenRetryAttempts(ctx, revision.Revision); err != nil {
+			return r.observePreparationError(*state, err)
+		}
 	}
 
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after session creation can select the persisted revision.
-	r.observePreparation(*state, observed, nil)
+	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
+		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
+		RevisionID: target.RevisionID, Template: observed, GoldenRetries: retries,
+	})
 	return nil
 }
 

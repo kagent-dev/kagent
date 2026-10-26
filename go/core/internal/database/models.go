@@ -101,5 +101,7 @@ type RuntimeArtifact struct {
 	ActorTemplateAtespace string
 	ActorTemplateName     string
 	ActorTemplateUID      string
-	DeletedAt             *time.Time
+	// GoldenCrashUID is the template UID of the last scheduled golden retry.
+	GoldenCrashUID string
+	DeletedAt      *time.Time
 }
