@@ -54,19 +54,40 @@ is retained. Creating or changing a callback does not replay an earlier state.
 Each callback registration holds at most one pending notification. Kagent
 replaces that pending state in the same database transaction that publishes the
 task state, and clears waiting notifications atomically with active task saves.
-Each API replica runs a sender, woken through its own buffered,
-nonblocking channel after settlement commits. Push and quiescence have separate
+Each API replica runs a sender with up to ten concurrent deliveries by default,
+woken through its own buffered, nonblocking channel after settlement commits.
+Push and quiescence have separate
 channels so neither consumes the other's hint. PostgreSQL row claims, leases,
 and claim tokens coordinate delivery across replicas; HTTP runs outside the claim
 transaction.
+
+Configure `push.maxConcurrency` (positive integer, default `10`) and
+`push.sendTimeout` (positive duration, default `5s`) in the controller config.
+With Helm, set these under `config.push`:
+
+```yaml
+config:
+  push:
+    maxConcurrency: 10
+    sendTimeout: 5s
+```
+
+The concurrency limit applies per replica, across its callback destinations.
+Setting it to `1` selects serial delivery. Each freed slot immediately accepts
+another delivery, even while other requests remain slow. Registrations are only
+claimed when capacity is available. Leases cover the configured send timeout plus
+30 seconds for preparation and persistence. A timeout records a failed attempt
+for retry. Shutdown cancels and waits for active sends;
+claims whose outcomes could not be saved recover after lease expiry.
 
 Workers claim pending registrations at startup and after wake-ups. When idle,
 recovery scans run once a minute by default (`push.recoveryInterval`, which must be
 positive), also cleaning up unbound registrations. Lost hints, including a crash
 between commit and signaling, can delay delivery until another replica's next
 scan. Outstanding retries and leased deliveries use a five-second polling interval,
-and database errors use one-second retries. Each pass handles at most 100
-deliveries before registration cleanup; a full batch continues immediately.
+and database errors use one-second retries. Each pass claims at most 100
+deliveries, bounded by available capacity, before registration cleanup; a full
+batch continues immediately. Send completion and local hints also wake the sender.
 
 Each pending generation permits up to ten attempts, including after controller
 restarts. Exhausting the retry budget or expiring the final lease clears pending
