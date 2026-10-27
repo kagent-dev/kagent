@@ -26,6 +26,8 @@ import (
 	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 )
 
+const kagentChartName = "kagent"
+
 type InstallCfg struct {
 	Profile           string
 	SkipDatabaseSetup bool
@@ -234,7 +236,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	}
 
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmConfig.registry, helmConfig.version, redactedValues)
-	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, helmConfig.valuesFiles, helmConfig.inlineValues); err != nil {
+	if output, err := installChart(ctx, kagentChartName, cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, helmConfig.valuesFiles, helmConfig.inlineValues); err != nil {
 		return fmt.Errorf("install kagent: %s", strings.TrimSpace(output))
 	}
 
@@ -351,7 +353,7 @@ func runUninstall(ctx context.Context, namespace, postgresImage string) error {
 	}
 	// kagent goes before Substrate. Its release holds the Substrate WorkerPool,
 	// and Helm can delete that only while substrate-crds still serves the kind.
-	if err := release("kagent", namespace); err != nil {
+	if err := release(kagentChartName, namespace); err != nil {
 		return err
 	}
 	// atecontroller releases a SandboxConfig once no WorkerPool uses it. With the
@@ -496,7 +498,7 @@ credentialProvider:
 // controllerServiceAccount renders the same chart and overrides as the install so
 // bootstrap grants follow the chart's naming rules and operator-managed accounts.
 func controllerServiceAccount(ctx context.Context, namespace string, c helmConfig) (string, error) {
-	args := []string{"template", "kagent", c.registry + "kagent", "--version", c.version,
+	args := []string{"template", kagentChartName, c.registry + kagentChartName, "--version", c.version,
 		"--namespace", namespace, "--show-only", "templates/controller-deployment.yaml"}
 	args = append(args, helmValueArgs(c.values, c.valuesFiles, c.inlineValues)...)
 	cmd := exec.CommandContext(ctx, "helm", args...)
