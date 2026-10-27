@@ -103,10 +103,10 @@ type RuntimeArtifact struct {
 	ActorTemplateName       string
 	ActorTemplateUID        string
 	ActorTemplateSpecDigest string
-	GoldenCrashUID          string
+	GoldenFailureUID        string
 	DeletedAt               *time.Time
 }
 
-func (a RuntimeArtifact) RecordedTemplateCrashed() bool {
-	return a.ActorTemplateUID != "" && a.GoldenCrashUID == a.ActorTemplateUID
+func (a RuntimeArtifact) RecordedTemplateFailed() bool {
+	return a.ActorTemplateUID != "" && a.GoldenFailureUID == a.ActorTemplateUID
 }

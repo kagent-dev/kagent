@@ -3,7 +3,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/status"
@@ -11,47 +13,34 @@ import (
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const goldenRetryingReason = "ActorTemplateRetrying"
 
-type goldenRetryPolicy struct {
-	Delays            []time.Duration
-	MaxJitterFraction float64
-}
-
-var defaultGoldenRetryPolicy = goldenRetryPolicy{
-	Delays:            []time.Duration{15 * time.Second, time.Minute, 4 * time.Minute, 10 * time.Minute},
-	MaxJitterFraction: 0.2,
-}
-
-func (p goldenRetryPolicy) jitteredDelays(jitter func(time.Duration, float64) time.Duration) []time.Duration {
-	delays := make([]time.Duration, len(p.Delays))
-	for i, delay := range p.Delays {
-		delays[i] = jitter(delay, p.MaxJitterFraction)
-	}
-	return delays
-}
-
 type goldenRetryStore interface {
-	EnsureGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error)
+	EnsureGoldenRetry(ctx context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error)
 	GoldenRetryAttempts(ctx context.Context, revision string) (int, error)
 }
 
 type goldenRetries struct {
-	policy goldenRetryPolicy
-	jitter func(time.Duration, float64) time.Duration
+	delays            []time.Duration
+	maxJitterFraction float64
+	jitter            func(time.Duration, float64) time.Duration
 }
 
-func (g goldenRetries) delays() []time.Duration {
-	policy, jitter := g.policy, g.jitter
-	if len(policy.Delays) == 0 {
-		policy = defaultGoldenRetryPolicy
+var defaultGoldenRetries = goldenRetries{
+	delays:            []time.Duration{15 * time.Second, time.Minute, 4 * time.Minute, 10 * time.Minute},
+	maxJitterFraction: 0.2,
+	jitter:            wait.Jitter,
+}
+
+func (g goldenRetries) jitteredDelays() []time.Duration {
+	delays := make([]time.Duration, len(g.delays))
+	for i, delay := range g.delays {
+		delays[i] = g.jitter(delay, g.maxJitterFraction)
 	}
-	if jitter == nil {
-		jitter = wait.Jitter
-	}
-	return policy.jitteredDelays(jitter)
+	return delays
 }
 
 type goldenPhase uint8
@@ -89,27 +78,41 @@ func (g goldenRetries) observe(ctx context.Context, store goldenRetryStore, temp
 	return goldenProgress{phase: goldenBuilding, retries: retries}, nil
 }
 
-func (g goldenRetries) retry(ctx context.Context, store goldenRetryStore, templates actorTemplateClient, revision string, crashed *ateapipb.ActorTemplate) (goldenProgress, error) {
-	ref := crashed.GetMetadata()
-	crash := crashed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage()
+func (g goldenRetries) retry(ctx context.Context, store goldenRetryStore, templates actorTemplateClient, revision string, failed *ateapipb.ActorTemplate) (goldenProgress, error) {
+	ref := failed.GetMetadata()
+	failure := failed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage()
+	// Substrate's message can quote configuration, so status names only its reason.
+	reason := goldenFailureReason(failure)
+	logging.FromContext(ctx).WarnContext(ctx, "golden build failed", "revision", revision,
+		"atespace", ref.GetAtespace(), "actor_template", ref.GetName(), "uid", ref.GetUid(), "error", failure)
 	now := time.Now()
-	retry, err := store.EnsureGoldenRetry(ctx, revision, ref.GetUid(), now, g.delays())
+	retry, err := store.EnsureGoldenRetry(ctx, revision, ref.GetUid(), now, g.jitteredDelays())
 	if err != nil {
 		return goldenProgress{}, err
 	}
 	progress := goldenProgress{phase: goldenRetrying, retries: retry.Retries}
 	if retry.RetryAt.After(now) {
-		progress.message = fmt.Sprintf("golden build failed, retry %d at %s: %s", retry.Retries, retry.RetryAt.UTC().Format(time.RFC3339), crash)
+		progress.message = fmt.Sprintf("golden build failed (%s), retry %d at %s", reason, retry.Retries, retry.RetryAt.UTC().Format(time.RFC3339))
 		progress.nextCheck = retry.RetryAt
 		return progress, nil
 	}
 	if err := templates.DeleteActorTemplate(ctx, ref.GetAtespace(), ref.GetName(), ref.GetUid()); err != nil {
-		progress.message = fmt.Sprintf("golden build failed, retry %d waits to delete the crashed template (%s): %s", retry.Retries, status.Code(err), crash)
-		return progress, fmt.Errorf("delete crashed ActorTemplate %s/%s: %w", ref.GetAtespace(), ref.GetName(), err)
+		progress.message = fmt.Sprintf("golden build failed (%s), retry %d waits to delete the failed template (%s)", reason, retry.Retries, status.Code(err))
+		return progress, fmt.Errorf("delete failed ActorTemplate %s/%s: %w", ref.GetAtespace(), ref.GetName(), err)
 	}
-	progress.message = fmt.Sprintf("golden build failed, retry %d started: %s", retry.Retries, crash)
+	progress.message = fmt.Sprintf("golden build failed (%s), retry %d started", reason, retry.Retries)
 	progress.nextCheck = now
 	return progress, nil
+}
+
+// goldenFailureReason returns the reason that prefixes Substrate's
+// "<Reason>: <message>" format, or "unknown" when the message has none.
+func goldenFailureReason(message string) string {
+	reason, _, found := strings.Cut(message, ":")
+	if !found || reason == "" || strings.ContainsFunc(reason, unicode.IsSpace) {
+		return "unknown"
+	}
+	return reason
 }
 
 func (p goldenProgress) failure() *ReconciliationFailure {

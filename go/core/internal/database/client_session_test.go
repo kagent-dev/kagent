@@ -567,7 +567,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
-		ActorTemplateUID: "actor-template-uid",
+		ActorTemplateUID: "actor-template-uid", ActorTemplateSpecDigest: "spec-digest",
 	}
 	pair := AgentDefinition{
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
@@ -586,6 +586,9 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	}
 	if storedRevision.AgentCard.GetName() != "assistant" {
 		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
+	}
+	if storedRevision.ActorTemplateSpecDigest != "spec-digest" {
+		t.Fatalf("GetRuntimeRevision() ActorTemplateSpecDigest = %q", storedRevision.ActorTemplateSpecDigest)
 	}
 
 	request := &apiv1.Session{

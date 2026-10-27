@@ -90,8 +90,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	require.ErrorIs(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()), writeErr)
 	pending := reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName())
 	require.NotNil(t, pending)
-	require.Nil(t, pending.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag(),
-		"Ready must not be published before the database write succeeds")
+	require.False(t, pending.Golden.ready(), "Ready must not be published before the database write succeeds")
 	store.revisionErr = nil
 	if err := reconciler.reconcileAgent(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
@@ -101,7 +100,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 	require.Empty(t, store.retired, "active pairs must be replaced atomically by the store")
 	observed := reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName())
-	require.NotNil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag())
+	require.True(t, observed.Golden.ready())
 
 	if err := reconciler.reconcileAgentStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
@@ -349,27 +348,27 @@ type fakeGoldenRetries struct {
 	recordedRevision string
 	recordedUID      string
 	goldenAttempts   int
-	goldenCrashUID   string
+	goldenFailureUID string
 	goldenRetryAt    time.Time
 }
 
 func (f *fakeGoldenRetries) recordGolden(revision, uid string, ready bool) {
 	f.recordedRevision, f.recordedUID = revision, uid
 	if ready {
-		f.goldenAttempts, f.goldenCrashUID, f.goldenRetryAt = 0, "", time.Time{}
+		f.goldenAttempts, f.goldenFailureUID, f.goldenRetryAt = 0, "", time.Time{}
 	}
 }
 
-func (f *fakeGoldenRetries) EnsureGoldenRetry(_ context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
-	if f.recordedRevision != revision || f.recordedUID != crashedTemplateUID {
+func (f *fakeGoldenRetries) EnsureGoldenRetry(_ context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+	if f.recordedRevision != revision || f.recordedUID != failedTemplateUID {
 		return database.GoldenRetry{}, database.ErrNotFound
 	}
-	if f.goldenCrashUID == crashedTemplateUID {
+	if f.goldenFailureUID == failedTemplateUID {
 		return database.GoldenRetry{Retries: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
 	}
 	f.goldenRetryAt = now.Add(delays[min(f.goldenAttempts, len(delays)-1)])
 	f.goldenAttempts++
-	f.goldenCrashUID = crashedTemplateUID
+	f.goldenFailureUID = failedTemplateUID
 	return database.GoldenRetry{Retries: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
 }
 

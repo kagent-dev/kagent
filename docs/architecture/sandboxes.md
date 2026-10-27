@@ -112,14 +112,12 @@ again after 15 seconds, 1 minute, 4 minutes, then every 10 minutes, each with up
 to 20% jitter and no retry cap. The attempt count and next retry time live in
 the database, so a controller restart keeps the schedule. While a retry waits,
 `Ready` is `False` with reason `ActorTemplateRetrying`, and the message names
-the retry number, its time and Substrate's error, which starts with its reason
-(for example `GoldenActorCrashed` or `GoldenActorInvalid`). While the rebuild is pending, the
+the retry number, its time and the failure reason. Substrate's full error is
+logged by the controller, not copied into status, because it can quote
+configuration. While the rebuild is pending, the
 `Preparing` message names the retry number. A successful build resets the
 count. The 1-second poll wakes a waiting retry once its retry time passes;
-after a failed delete, queue backoff wakes it instead. Agents behave the same.
-If the revision loses its last reference before the
-rebuild's UID is recorded, GC deletes the rebuild only when its immutable inputs
-match the recorded digest; any other template under the name is left alone.
+after a failed delete, queue backoff wakes it instead.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
 replica; expiration workers coordinate through PostgreSQL.

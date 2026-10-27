@@ -25,7 +25,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-const goldenCrashMessage = "GoldenActorCrashed: golden actor crashed before its snapshot was taken"
+// The private text stands in for configuration that Substrate may quote.
+const goldenFailureMessage = "GoldenActorInvalid: private-config-value"
 
 func withGoldenStatus(template *ateapipb.ActorTemplate, golden *ateapipb.GoldenSnapshotStatus) *ateapipb.ActorTemplate {
 	updated := proto.CloneOf(template)
@@ -33,15 +34,15 @@ func withGoldenStatus(template *ateapipb.ActorTemplate, golden *ateapipb.GoldenS
 	return updated
 }
 
-func crashed(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate {
-	return withGoldenStatus(template, &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenCrashMessage})
+func goldenFailed(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate {
+	return withGoldenStatus(template, &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenFailureMessage})
 }
 
 func maxJitter(duration time.Duration, maxFactor float64) time.Duration {
 	return duration + time.Duration(maxFactor*float64(duration))
 }
 
-func TestPreparationRetriesGoldenCrash(t *testing.T) {
+func TestPreparationRetriesGoldenFailure(t *testing.T) {
 	for _, recovers := range []bool{true, false} {
 		name := "keeps retrying past the fast backoffs"
 		if recovers {
@@ -52,7 +53,7 @@ func TestPreparationRetriesGoldenCrash(t *testing.T) {
 				collections, _ := newPreparationTestCollections(t, "microvm")
 				initial := collections.Reconciliations.List()[0]
 				templates := &fakeActorTemplates{queuedUIDs: []string{"uid-2", "uid-3", "uid-4", "uid-5", "uid-6"}}
-				templates.template = crashed(initial.Target.ActorTemplate)
+				templates.template = goldenFailed(initial.Target.ActorTemplate)
 				templates.template.Metadata.Uid = "uid-1"
 				store := &fakeRuntimeRevisionStore{}
 				backend := &preparationTestBackend{templates: templates, store: store}
@@ -71,21 +72,20 @@ func TestPreparationRetriesGoldenCrash(t *testing.T) {
 
 				condition := ready()
 				require.Equal(t, "ActorTemplateRetrying", condition.Reason)
-				require.Contains(t, condition.Message, "retry 1 at")
-				require.Contains(t, condition.Message, goldenCrashMessage)
+				require.Contains(t, condition.Message, "golden build failed (GoldenActorInvalid), retry 1 at")
+				require.NotContains(t, condition.Message, "private-")
 				for range 2 {
 					r.agents.Add(initial.ResourceName())
 					synctest.Wait()
 				}
-				require.Equal(t, condition.Message, ready().Message, "repeated passes over one crash must keep its retry and schedule")
-				backend.inspect(func() { require.Empty(t, templates.deletedUIDs, "the crashed template stays until its backoff ends") })
+				require.Equal(t, condition.Message, ready().Message, "repeated passes over one failure must keep its retry and schedule")
+				backend.inspect(func() { require.Empty(t, templates.deletedUIDs, "the failed template stays until its backoff ends") })
 
 				delays := []time.Duration{18 * time.Second, 72 * time.Second, 288 * time.Second, 12 * time.Minute, 12 * time.Minute}
 				for retry, delay := range delays {
 					condition := ready()
 					require.Equal(t, "ActorTemplateRetrying", condition.Reason)
-					require.Contains(t, condition.Message, fmt.Sprintf("retry %d at", retry+1))
-					require.Contains(t, condition.Message, goldenCrashMessage)
+					require.Contains(t, condition.Message, fmt.Sprintf("golden build failed (GoldenActorInvalid), retry %d at", retry+1))
 					time.Sleep(delay - 2*time.Second)
 					synctest.Wait()
 					backend.inspect(func() { require.Len(t, templates.deletedUIDs, retry, "no recreate before the backoff ends") })
@@ -93,7 +93,7 @@ func TestPreparationRetriesGoldenCrash(t *testing.T) {
 					synctest.Wait()
 					backend.inspect(func() {
 						require.Len(t, templates.deletedUIDs, retry+1)
-						require.Equal(t, fmt.Sprintf("uid-%d", retry+1), templates.deletedUIDs[retry], "the delete must name the crashed template's UID")
+						require.Equal(t, fmt.Sprintf("uid-%d", retry+1), templates.deletedUIDs[retry], "the delete must name the failed template's UID")
 						require.NotNil(t, templates.template, "the next pass recreates the template under the same name")
 						require.Equal(t, initial.Target.ActorTemplate.GetMetadata().GetName(), templates.template.GetMetadata().GetName())
 					})
@@ -114,7 +114,7 @@ func TestPreparationRetriesGoldenCrash(t *testing.T) {
 						synctest.Wait()
 						return
 					}
-					backend.inspect(func() { templates.template = crashed(templates.template) })
+					backend.inspect(func() { templates.template = goldenFailed(templates.template) })
 					time.Sleep(time.Second)
 					synctest.Wait()
 				}
@@ -128,7 +128,7 @@ func TestPreparationGoldenRetrySurvivesRestart(t *testing.T) {
 		collections, _ := newPreparationTestCollections(t, "microvm")
 		initial := collections.Reconciliations.List()[0]
 		templates := &fakeActorTemplates{queuedUIDs: []string{"uid-2"}}
-		templates.template = crashed(initial.Target.ActorTemplate)
+		templates.template = goldenFailed(initial.Target.ActorTemplate)
 		templates.template.Metadata.Uid = "uid-1"
 		store := &fakeRuntimeRevisionStore{}
 		statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
@@ -138,7 +138,7 @@ func TestPreparationGoldenRetrySurvivesRestart(t *testing.T) {
 			return apimeta.FindStatusCondition(published.Status.Conditions, kagentv1alpha3.AgentConditionReady).Message
 		}
 		retryMessage := func(at time.Time) string {
-			return fmt.Sprintf("golden build failed, retry 1 at %s: %s", at.UTC().Format(time.RFC3339), goldenCrashMessage)
+			return fmt.Sprintf("golden build failed (GoldenActorInvalid), retry 1 at %s", at.UTC().Format(time.RFC3339))
 		}
 		start := func(collections Collections) (*preparationTestBackend, context.CancelFunc) {
 			backend := &preparationTestBackend{templates: templates, store: store}
@@ -187,7 +187,7 @@ func TestPreparationGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 				collections, _ := newPreparationTestCollections(t, "microvm")
 				initial := collections.Reconciliations.List()[0]
 				templates := &fakeActorTemplates{queuedUIDs: []string{"uid-2"}, deleteErr: status.Error(code, "delete failed")}
-				templates.template = crashed(initial.Target.ActorTemplate)
+				templates.template = goldenFailed(initial.Target.ActorTemplate)
 				templates.template.Metadata.Uid = "uid-1"
 				backend := &preparationTestBackend{templates: templates, store: &fakeRuntimeRevisionStore{}}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
@@ -206,8 +206,8 @@ func TestPreparationGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 				time.Sleep(18*time.Second + 5*time.Second)
 				synctest.Wait()
 				condition := ready()
-				require.Equal(t, "ActorTemplateRetrying", condition.Reason, "a failed delete must not hide the crash")
-				require.Equal(t, fmt.Sprintf("golden build failed, retry 1 waits to delete the crashed template (%s): %s", code, goldenCrashMessage), condition.Message)
+				require.Equal(t, "ActorTemplateRetrying", condition.Reason, "a failed delete must not hide the golden failure")
+				require.Equal(t, fmt.Sprintf("golden build failed (GoldenActorInvalid), retry 1 waits to delete the failed template (%s)", code), condition.Message)
 				backend.inspect(func() {
 					require.Greater(t, len(templates.deletedUIDs), 1, "the delete must be requeued")
 					templates.deleteErr = nil
@@ -226,22 +226,34 @@ func TestPreparationGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 }
 
 func TestPreparationPublishesStartedGoldenRetry(t *testing.T) {
-	collections, _ := newPreparationTestCollections(t, "microvm")
-	initial := collections.Reconciliations.List()[0]
-	templates := &fakeActorTemplates{template: crashed(initial.Target.ActorTemplate)}
-	templates.template.Metadata.Uid = "uid-1"
-	r := &Reconciler{collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
-	r.golden.policy = goldenRetryPolicy{Delays: []time.Duration{0}}
+	for _, test := range []struct {
+		name, errorMessage, reason string
+	}{
+		{name: "crash", errorMessage: "GoldenActorCrashed: private-crash-detail", reason: "GoldenActorCrashed"},
+		{name: "invalid golden actor", errorMessage: goldenFailureMessage, reason: "GoldenActorInvalid"},
+		{name: "no reason prefix", errorMessage: "private-config-value", reason: "unknown"},
+		{name: "prose before a colon", errorMessage: "dial private-host: refused", reason: "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			collections, _ := newPreparationTestCollections(t, "microvm")
+			initial := collections.Reconciliations.List()[0]
+			templates := &fakeActorTemplates{template: withGoldenStatus(initial.Target.ActorTemplate, &ateapipb.GoldenSnapshotStatus{ErrorMessage: test.errorMessage})}
+			templates.template.Metadata.Uid = "uid-1"
+			r := &Reconciler{collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
+			r.golden = goldenRetries{delays: []time.Duration{0}, jitter: maxJitter}
 
-	require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
-	require.Equal(t, []string{"uid-1"}, templates.deletedUIDs)
-	var ready *metav1.Condition
-	waitFor(t, func() bool {
-		ready = apimeta.FindStatusCondition(collections.AgentStatuses.List()[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
-		return ready != nil && ready.Reason == "ActorTemplateRetrying"
-	})
-	require.Equal(t, metav1.ConditionFalse, ready.Status)
-	require.Equal(t, "golden build failed, retry 1 started: "+goldenCrashMessage, ready.Message)
+			require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+			require.Equal(t, []string{"uid-1"}, templates.deletedUIDs, "every golden error retries by deleting the failed template")
+			var ready *metav1.Condition
+			waitFor(t, func() bool {
+				ready = apimeta.FindStatusCondition(collections.AgentStatuses.List()[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
+				return ready != nil && ready.Reason == "ActorTemplateRetrying"
+			})
+			require.Equal(t, metav1.ConditionFalse, ready.Status)
+			require.Equal(t, fmt.Sprintf("golden build failed (%s), retry 1 started", test.reason), ready.Message)
+			require.NotContains(t, ready.Message, "private-", "status must not copy Substrate's golden error text")
+		})
+	}
 }
 
 type failingRecordStore struct {
@@ -282,11 +294,11 @@ func TestRuntimeRevisionGCCollectsOnlyMatchingUnrecordedGoldenRebuild(t *testing
 			initial := collections.Reconciliations.List()[0]
 			revision := initial.Target.RevisionID.String()
 			templates := &fakeActorTemplates{queuedUIDs: []string{"uid-2"}}
-			templates.template = crashed(initial.Target.ActorTemplate)
+			templates.template = goldenFailed(initial.Target.ActorTemplate)
 			templates.template.Metadata.Uid = "uid-1"
 			recording := &failingRecordStore{Client: store}
 			r := newReconciler(collections, templates, recording, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
-			r.golden.policy = goldenRetryPolicy{Delays: []time.Duration{0}}
+			r.golden = goldenRetries{delays: []time.Duration{0}, jitter: maxJitter}
 
 			require.NoError(t, r.reconcileAgent(ctx, initial.ResourceName()))
 			require.Equal(t, []string{"uid-1"}, templates.deletedUIDs)

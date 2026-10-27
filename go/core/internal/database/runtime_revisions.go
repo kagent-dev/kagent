@@ -165,7 +165,7 @@ func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*Runt
 	row, err := queryOne(ctx, c.db, `
 		SELECT revision, namespace, agent_name, agent_uid,
 		    source_snapshot, egress_destinations, token_passthrough_targets, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
-		    agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
+		    actor_template_spec_digest, agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 	if err != nil {
 		return nil, fmt.Errorf("get runtime revision %s: %w", revision, notFoundOr(err))
@@ -196,7 +196,7 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 		TokenPassthroughTargets: targets,
 		Credentials:             credentials,
 		ActorTemplateAtespace:   row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
-		ActorTemplateUID: row.ActorTemplateUID,
+		ActorTemplateUID: row.ActorTemplateUID, ActorTemplateSpecDigest: row.ActorTemplateSpecDigest,
 	}, nil
 }
 
@@ -223,14 +223,14 @@ func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, 
 // instances, or checkpoints, including deletions still awaiting compute cleanup.
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeArtifact, error) {
 	return queryMany(ctx, c.db, `
-		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_crash_uid, deleted_at
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_failure_uid, deleted_at
 		FROM runtime_revision WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
 	`, pgx.RowToStructByName[RuntimeArtifact])
 }
 
 func getRuntimeArtifactForUpdate(ctx context.Context, tx pgx.Tx, revision string) (RuntimeArtifact, error) {
 	return queryOne(ctx, tx, `
-		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_crash_uid, deleted_at
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_failure_uid, deleted_at
 		FROM runtime_revision WHERE revision = $1 FOR UPDATE
 	`, pgx.RowToStructByName[RuntimeArtifact], revision)
 }
@@ -243,7 +243,7 @@ func getAvailableRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revisi
 	return queryOne(ctx, tx, `
   SELECT revision, namespace, agent_name, agent_uid,
    source_snapshot, egress_destinations, token_passthrough_targets, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
-   agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
+   actor_template_spec_digest, agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
  `, pgx.RowToStructByName[runtimeRevisionRow], revision)
 }
 
@@ -390,13 +390,14 @@ type runtimeRevisionRow struct {
 	ActorTemplateAtespace   string
 	ActorTemplateName       string
 	ActorTemplateUID        string
+	ActorTemplateSpecDigest string
 	AgentCard               []byte
 	DeletedAt               *time.Time
 }
 
 func resetGoldenRetry(ctx context.Context, tx pgx.Tx, revision string) error {
 	return execSQL(ctx, tx, `
-		UPDATE runtime_revision SET golden_attempts = 0, golden_crash_uid = '', golden_retry_at = NULL, updated_at = NOW()
+		UPDATE runtime_revision SET golden_attempts = 0, golden_failure_uid = '', golden_retry_at = NULL, updated_at = NOW()
 		WHERE revision = $1 AND golden_attempts > 0
 	`, revision)
 }
@@ -416,11 +417,11 @@ func (c *Client) GoldenRetryAttempts(ctx context.Context, revision string) (int,
 	return attempts, nil
 }
 
-func (c *Client) EnsureGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (GoldenRetry, error) {
+func (c *Client) EnsureGoldenRetry(ctx context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (GoldenRetry, error) {
 	type goldenRetryRow struct {
-		GoldenAttempts int
-		GoldenCrashUID string
-		GoldenRetryAt  *time.Time
+		GoldenAttempts   int
+		GoldenFailureUID string
+		GoldenRetryAt    *time.Time
 	}
 	if len(delays) == 0 {
 		return GoldenRetry{}, fmt.Errorf("schedule golden retry for runtime revision %s: no retry delays", revision)
@@ -428,23 +429,23 @@ func (c *Client) EnsureGoldenRetry(ctx context.Context, revision, crashedTemplat
 	var result GoldenRetry
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := queryOne(ctx, tx, `
-			SELECT golden_attempts, golden_crash_uid, golden_retry_at FROM runtime_revision
+			SELECT golden_attempts, golden_failure_uid, golden_retry_at FROM runtime_revision
 			WHERE revision = $1 AND actor_template_uid = $2 AND deleted_at IS NULL
 			FOR UPDATE
-		`, pgx.RowToStructByName[goldenRetryRow], revision, crashedTemplateUID)
+		`, pgx.RowToStructByName[goldenRetryRow], revision, failedTemplateUID)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if row.GoldenCrashUID == crashedTemplateUID && row.GoldenRetryAt != nil {
+		if row.GoldenFailureUID == failedTemplateUID && row.GoldenRetryAt != nil {
 			result = GoldenRetry{Retries: row.GoldenAttempts, RetryAt: *row.GoldenRetryAt}
 			return nil
 		}
 		retryAt := now.Add(delays[min(row.GoldenAttempts, len(delays)-1)])
 		if err := execSQL(ctx, tx, `
 			UPDATE runtime_revision
-			SET golden_attempts = golden_attempts + 1, golden_crash_uid = $2, golden_retry_at = $3, updated_at = NOW()
+			SET golden_attempts = golden_attempts + 1, golden_failure_uid = $2, golden_retry_at = $3, updated_at = NOW()
 			WHERE revision = $1
-		`, revision, crashedTemplateUID, retryAt); err != nil {
+		`, revision, failedTemplateUID, retryAt); err != nil {
 			return err
 		}
 		result = GoldenRetry{Retries: row.GoldenAttempts + 1, RetryAt: retryAt}

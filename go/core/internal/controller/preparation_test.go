@@ -56,7 +56,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
-			reconciler := &Reconciler{collections: collections, templates: templates, store: store}
+			reconciler := &Reconciler{collections: collections, templates: templates, store: store, golden: defaultGoldenRetries}
 			require.NoError(t, reconciler.reconcileAgent(ctx, initial.ResourceName()))
 
 			updatedHarness := harnesses.List()[0].DeepCopy()
@@ -181,7 +181,6 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 			require.NotContains(t, ready.Message, "private-")
 
 			observation := collections.AgentRuntimeObservations.GetKey(initial.ResourceName())
-			require.Nil(t, observation.Template)
 			require.Equal(t, initial.Target.RevisionID, observation.RevisionID)
 			require.Error(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()), "publishing a failure must not prevent the next retry")
 
@@ -190,7 +189,7 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 			require.NoError(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()))
 			waitFor(t, func() bool {
 				state := collections.Reconciliations.GetKey(initial.ResourceName())
-				return state.PreparationFailure == nil && state.ObservedActorTemplate != nil
+				return state.PreparationFailure == nil && state.Golden.phase == goldenBuilding
 			})
 			require.Nil(t, collections.AgentRuntimeObservations.GetKey(initial.ResourceName()).Failure)
 			test.templates.template = proto.CloneOf(test.templates.template)
@@ -361,10 +360,10 @@ func (p *preparationTestBackend) DeleteActorTemplate(ctx context.Context, atespa
 	return p.templates.DeleteActorTemplate(ctx, atespace, name, uid)
 }
 
-func (p *preparationTestBackend) EnsureGoldenRetry(ctx context.Context, revision, crashedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
+func (p *preparationTestBackend) EnsureGoldenRetry(ctx context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.EnsureGoldenRetry(ctx, revision, crashedTemplateUID, now, delays)
+	return p.store.EnsureGoldenRetry(ctx, revision, failedTemplateUID, now, delays)
 }
 
 func (p *preparationTestBackend) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {

@@ -225,9 +225,9 @@ func TestDeleteActorTemplateRetriesNotFound(t *testing.T) {
 func TestDeleteActorTemplateSendsUIDPrecondition(t *testing.T) {
 	fake := &deleteActorTemplateFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", "crashed-uid"))
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", "failed-uid"))
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
-	require.Equal(t, "crashed-uid", fake.options.GetUid(), "a replacement template under the same name must survive")
+	require.Equal(t, "failed-uid", fake.options.GetUid(), "a replacement template under the same name must survive")
 }
 
 func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {

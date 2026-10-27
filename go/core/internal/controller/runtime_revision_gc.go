@@ -108,7 +108,7 @@ func (r *RuntimeRevisionGC) discover(ctx context.Context) ([]database.RuntimeArt
 
 func isUnrecordedRebuild(revision database.RuntimeArtifact, template *ateapipb.ActorTemplate) bool {
 	digest, err := substrate.ActorTemplateSpecDigest(template)
-	return err == nil && revision.RecordedTemplateCrashed() && digest == revision.ActorTemplateSpecDigest
+	return err == nil && revision.RecordedTemplateFailed() && digest == revision.ActorTemplateSpecDigest
 }
 
 // collect retains the database row until compute deletion succeeds. Each candidate

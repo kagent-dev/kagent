@@ -40,7 +40,7 @@ CREATE TABLE runtime_revision (
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
     actor_template_spec_digest TEXT      NOT NULL DEFAULT '',
     golden_attempts          INT         NOT NULL DEFAULT 0 CHECK (golden_attempts >= 0),
-    golden_crash_uid         TEXT        NOT NULL DEFAULT '',
+    golden_failure_uid       TEXT        NOT NULL DEFAULT '',
     golden_retry_at          TIMESTAMPTZ,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -677,7 +677,7 @@ func TestEnsureGoldenRetry(t *testing.T) {
 	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
 
 	_, err = client.EnsureGoldenRetry(ctx, "rev", "other-uid", now, delays)
-	require.ErrorIs(t, err, ErrNotFound, "a crash must belong to the revision's recorded template")
+	require.ErrorIs(t, err, ErrNotFound, "a golden failure must belong to the revision's recorded template")
 	_, err = client.EnsureGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, nil)
 	require.ErrorContains(t, err, "no retry delays")
 
@@ -695,7 +695,7 @@ func TestEnsureGoldenRetry(t *testing.T) {
 	restarted := NewClient(pool, "public")
 	again, err := restarted.EnsureGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now.Add(time.Hour), []time.Duration{time.Hour})
 	require.NoError(t, err)
-	require.Equal(t, normalizeRetry(first), normalizeRetry(again), "the same crash must keep its schedule across restarts")
+	require.Equal(t, normalizeRetry(first), normalizeRetry(again), "the same golden failure must keep its schedule across restarts")
 
 	for i, want := range []time.Duration{time.Minute, 4 * time.Minute, 4 * time.Minute, 4 * time.Minute} {
 		revision.ActorTemplateUID = fmt.Sprintf("uid-%d", i+2)
@@ -707,7 +707,7 @@ func TestEnsureGoldenRetry(t *testing.T) {
 
 	revision.ActorTemplateUID = "uid-built"
 	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
-	revision.ActorTemplateUID = "uid-crashed-later"
+	revision.ActorTemplateUID = "uid-failed-later"
 	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{}))
 	later, err := client.EnsureGoldenRetry(ctx, "rev", revision.ActorTemplateUID, now, delays)
 	require.NoError(t, err)

@@ -57,7 +57,7 @@ func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRe
 	if err != nil {
 		return nil, fmt.Errorf("create SandboxTemplate client: %w", err)
 	}
-	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client}, nil
+	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client, golden: defaultGoldenRetries}, nil
 }
 
 func (s *SandboxReconciler) NeedLeaderElection() bool { return true }
