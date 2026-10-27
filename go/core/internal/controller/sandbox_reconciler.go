@@ -102,20 +102,23 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 				if state.Template.DeletionTimestamp.IsZero() && !apiequality.Semantic.DeepEqual(sandboxStatusWithTransitionTimes(state), state.Template.Status) {
 					statuses.Add(state.ResourceName())
 				}
-				if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
-					preparations.Add(state.ResourceName())
-					continue
-				}
-				if state.Failure.awaitsGoldenRetry(now) {
-					continue
-				}
-				if (state.Failure != nil && state.Failure.Retryable) ||
-					(state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil) {
+				if needsPreparationPoll(state, now) {
 					preparations.Add(state.ResourceName())
 				}
 			}
 		}
 	}
+}
+
+func needsPreparationPoll(state sandboxReconciliation, now time.Time) bool {
+	if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
+		return true
+	}
+	if state.Failure.awaitsGoldenRetry(now) {
+		return false
+	}
+	return (state.Failure != nil && state.Failure.Retryable) ||
+		(state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil)
 }
 
 func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {

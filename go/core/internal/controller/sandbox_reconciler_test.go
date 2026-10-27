@@ -499,6 +499,31 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
+func TestSandboxPreparationPollSkipsOnlyWaitingGoldenRetries(t *testing.T) {
+	now := time.Now()
+	waiting := goldenRetrying("waiting")
+	waiting.RetryAt = now.Add(time.Minute)
+	due := goldenRetrying("due")
+	due.RetryAt = now.Add(-time.Second)
+	deleted := metav1.NewTime(now)
+	for _, test := range []struct {
+		name     string
+		template metav1.ObjectMeta
+		failure  *ReconciliationFailure
+		want     bool
+	}{
+		{name: "waiting retry", template: metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}, failure: waiting},
+		{name: "due retry", template: metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}, failure: due, want: true},
+		{name: "missing finalizer", template: metav1.ObjectMeta{}, failure: waiting, want: true},
+		{name: "deleting during a waiting retry", template: metav1.ObjectMeta{DeletionTimestamp: &deleted, Finalizers: []string{sandboxPreparationFinalizer}}, failure: waiting, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := sandboxReconciliation{Template: &kagentv1alpha3.SandboxTemplate{ObjectMeta: test.template}, Failure: test.failure}
+			assert.Equal(t, test.want, needsPreparationPoll(state, now))
+		})
+	}
+}
+
 func (s *sandboxTestStore) GetSandboxEgressGrant(_ context.Context, namespace, uid string) (egress.Access, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
