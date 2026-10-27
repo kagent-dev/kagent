@@ -60,16 +60,21 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	skills, err := translator.CompileSkillResources(input.Root.Template)
+	localAgents, childMCP, err := c.compileLocalAgents(ctx, input.Root)
 	if err != nil {
 		return nil, err
 	}
-	mcp, err := c.compileMCP(ctx, input.Root.Template.Namespace, input.Root.MCPTools)
+	skills, err := translator.CompileSharedSkillResources(input.Root)
+	if err != nil {
+		return nil, err
+	}
+	mcp, err := c.compileMCP(ctx, input.Root.Template.Namespace, input.Root.MCPTools, false)
 	if err != nil {
 		return nil, err
 	}
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
+	environment = append(environment, childMCP.environment...)
 	for _, variable := range input.Harness.Spec.Env {
 		if claudeconfig.OwnsEnvironment(variable.Name) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
@@ -81,10 +86,6 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 
 	environment = append(environment, corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"})
 
-	localAgents, err := c.compileLocalAgents(input.Root)
-	if err != nil {
-		return nil, err
-	}
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
@@ -117,6 +118,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 
 	egress = append(egress, skills.Egress...)
 	egress = append(egress, mcp.egress...)
+	egress = append(egress, childMCP.egress...)
 	egress = append(egress, telemetryConfig.Destinations(environment)...)
 	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
@@ -131,43 +133,73 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 			SnapshotLocation:        harness.Spec.Substrate.SnapshotPolicy.Location,
 			TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
-		Warnings: mcp.warnings,
+		Warnings: append(mcp.warnings, childMCP.warnings...),
 	}, nil
 }
 
-func (c *Compiler) compileLocalAgents(root *translator.AgentInput) (map[string]claudeconfig.Agent, error) {
+func (c *Compiler) compileLocalAgents(ctx context.Context, root *translator.AgentInput) (map[string]claudeconfig.Agent, mcpCompilation, error) {
+	var combined mcpCompilation
 	if len(root.Shared) == 0 {
-		return nil, nil
+		return nil, combined, nil
 	}
 	agents := make(map[string]claudeconfig.Agent, len(root.Shared))
 	for _, binding := range root.Shared {
 		child := binding.Agent
 		if child == nil || child.Template == nil || child.ResolvedModelConfig == nil || child.ResolvedModelConfig.Config == nil {
-			return nil, fmt.Errorf("claude local agent %q is not fully resolved", binding.Name)
+			return nil, combined, fmt.Errorf("claude local agent %q is not fully resolved", binding.Name)
 		}
 		childModel := child.ResolvedModelConfig.Config
-		if len(child.MCPTools) != 0 || len(child.Shared) != 0 || len(child.Template.Spec.Tools) != 0 {
-			return nil, translator.NewValidationError("Claude local agent %q cannot contain MCP or nested agent tools yet", binding.Name)
+		if len(child.Shared) != 0 {
+			return nil, combined, translator.NewValidationError("Claude local agent %q cannot contain nested agent tools yet", binding.Name)
 		}
-		if len(child.Template.Spec.Skills) != 0 || len(child.Template.Spec.Plugins) != 0 {
-			return nil, translator.NewValidationError("Claude local agent %q cannot contain skills or plugins yet", binding.Name)
+		for _, tool := range child.Template.Spec.Tools {
+			if tool.SubAgent != nil {
+				return nil, combined, translator.NewValidationError("Claude local agent %q cannot contain nested agent tools yet", binding.Name)
+			}
+		}
+		if len(child.Template.Spec.Plugins) != 0 {
+			return nil, combined, translator.NewValidationError("Claude local agent %q cannot contain plugins yet", binding.Name)
 		}
 		if strings.TrimSpace(childModel.Spec.Model) == "" {
-			return nil, translator.NewValidationError("Claude local agent %q ModelConfig model is required", binding.Name)
+			return nil, combined, translator.NewValidationError("Claude local agent %q ModelConfig model is required", binding.Name)
 		}
 		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, childModel.Spec) {
-			return nil, translator.NewValidationError("Claude local agent %q must use the root agent's provider and authentication configuration", binding.Name)
+			return nil, combined, translator.NewValidationError("Claude local agent %q must use the root agent's provider and authentication configuration", binding.Name)
 		}
 		if _, exists := agents[binding.Name]; exists {
-			return nil, translator.NewValidationError("duplicate Claude local agent name %q", binding.Name)
+			return nil, combined, translator.NewValidationError("duplicate Claude local agent name %q", binding.Name)
 		}
+		mcp, err := c.compileMCP(ctx, child.Template.Namespace, child.MCPTools, true)
+		if err != nil {
+			return nil, combined, fmt.Errorf("compile Claude local agent %q MCP: %w", binding.Name, err)
+		}
+		combined.environment = append(combined.environment, mcp.environment...)
+		combined.egress = append(combined.egress, mcp.egress...)
+		combined.warnings = append(combined.warnings, mcp.warnings...)
+		tools, disallowedTools, err := localAgentTools(child.MCPTools)
+		if err != nil {
+			return nil, combined, fmt.Errorf("compile Claude local agent %q tools: %w", binding.Name, err)
+		}
+		var skills []string
+		for _, skill := range child.Template.Spec.Skills {
+			skills = append(skills, skill.Name)
+		}
+		if len(skills) != 0 && len(tools) != 0 {
+			tools = append(tools, "Read", "Bash", "Glob", "Grep", "Skill")
+		}
+		slices.Sort(tools)
+		tools = slices.Compact(tools)
 		agents[binding.Name] = claudeconfig.Agent{
-			Description: binding.Description,
-			Prompt:      child.Instruction,
-			Model:       childModel.Spec.Model,
+			Description:     binding.Description,
+			Prompt:          child.Instruction,
+			Model:           childModel.Spec.Model,
+			MCPServers:      mcp.servers,
+			Tools:           tools,
+			DisallowedTools: disallowedTools,
+			Skills:          skills,
 		}
 	}
-	return agents, nil
+	return agents, combined, nil
 }
 
 func sameProviderConfiguration(root, child v1alpha3.ModelConfigSpec) bool {
@@ -386,6 +418,11 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 			server := tool.Server
 			if server != nil {
 				addObject("RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec)
+				for _, header := range server.Spec.HeadersFrom {
+					if header.ValueFrom != nil && header.ValueFrom.Type == v1alpha3.ConfigMapValueSource {
+						configMaps[header.ValueFrom.Name] = struct{}{}
+					}
+				}
 			}
 		}
 	}

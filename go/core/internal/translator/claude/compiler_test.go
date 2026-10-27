@@ -468,11 +468,11 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 			binding.Agent.ResolvedModelConfig.Config.Spec.APIKeySecret = "different-auth"
 		}, want: "root agent's provider"},
 		{name: "nested tools", mutate: func(binding *translator.AgentInputBinding) {
-			binding.Agent.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{}}}
-		}, want: "cannot contain MCP or nested agent tools"},
-		{name: "skills", mutate: func(binding *translator.AgentInputBinding) {
-			binding.Agent.Template.Spec.Skills = []v1alpha3.AgentTemplateSkill{{Name: "review"}}
-		}, want: "cannot contain skills or plugins"},
+			binding.Agent.Template.Spec.Tools = []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{}}}
+		}, want: "cannot contain nested agent tools"},
+		{name: "plugins", mutate: func(binding *translator.AgentInputBinding) {
+			binding.Agent.Template.Spec.Plugins = []v1alpha3.PluginBundle{{}}
+		}, want: "cannot contain plugins"},
 		{name: "invalid binding name", mutate: func(binding *translator.AgentInputBinding) {
 			binding.Name = "not valid"
 		}, want: "invalid compiled Claude configuration"},
@@ -629,7 +629,7 @@ func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
 		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
 	}}
-	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
+	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}}, false)
 	if want := "Claude does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("expected %q, got %v", want, err)
 	}

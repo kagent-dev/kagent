@@ -169,7 +169,10 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	childModel := model
 	childModel.Model = "gpt-child"
 	input.Root.Shared = []translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &translator.AgentInput{
-		Template: &translator.TemplateConfiguration{Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}}},
+		Template: &translator.TemplateConfiguration{Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &corev1.LocalObjectReference{Name: "child-model"},
+			Skills:      []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{OCI: "example.com/review@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path: "review"}}},
+		}},
 		ResolvedModelConfig: &translator.ResolvedModelConfig{
 			Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childModel},
 		},
@@ -188,6 +191,13 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	}
 	if cfg.Agents["reviewer"].Model != "gpt-child" || !cfg.MCPServers["tools"].RequireApproval || !reflect.DeepEqual(cfg.MCPServers["tools"].EnabledTools, []string{"read"}) {
 		t.Fatalf("config = %#v", cfg)
+	}
+	if !reflect.DeepEqual(cfg.Agents["reviewer"].Skills, []string{"review"}) || cfg.SkillResources == nil || len(cfg.SkillResources.Skills) != 1 || len(revision.SkillImages) != 1 {
+		t.Fatalf("child skills not installed: config = %#v, images = %v", cfg, revision.SkillImages)
+	}
+	input.Root.Shared[0].Agent.MCPTools = input.Root.MCPTools
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(t.Context(), input); err == nil || !strings.Contains(err.Error(), "cannot contain MCP tools") {
+		t.Fatalf("Codex accepted child MCP: %v", err)
 	}
 	if !strings.HasPrefix(cfg.MCPServers["tools"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
 		t.Fatalf("MCP headers = %#v", cfg.MCPServers["tools"].Headers)

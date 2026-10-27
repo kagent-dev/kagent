@@ -10,6 +10,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/mockllm"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,7 +47,7 @@ func TestE2EClaudeMockLocalSubagentRouting(t *testing.T) {
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_local_subagent.json"), "")
 	kube := interactionKubeClient(t)
 	model := createClaudeMockModel(t, kube, modelURL)
-	rootTemplate, childTemplate := createClaudeLocalAgentTemplates(t, kube, model, "CLAUDE_LOCAL_SPECIALIST_INSTRUCTION")
+	rootTemplate, childTemplate := createClaudeLocalAgentTemplates(t, kube, model, v1alpha3.AgentTemplateSpec{SystemPrompt: "CLAUDE_LOCAL_SPECIALIST_INSTRUCTION"})
 	fixture := newInteractionFixtureForHarnessTemplate(t, target, claudeE2EHarness, rootTemplate)
 
 	streamed := sendStreaming(t, fixture, "Delegate this request to the specialist.")
@@ -118,18 +119,16 @@ func createClaudeTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, des
 	return template.Name
 }
 
-func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model *v1alpha3.ModelConfig, childPrompt string) (string, string) {
+func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model *v1alpha3.ModelConfig, childSpec v1alpha3.AgentTemplateSpec) (string, string) {
 	t.Helper()
+	childSpec.ModelConfig = &corev1.LocalObjectReference{Name: model.Name}
+	childSpec.Description = "Claude local specialist"
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "claude-local-child-", Namespace: "kagent",
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
-		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
-			Description:  "Claude local specialist",
-			SystemPrompt: childPrompt,
-		},
+		Spec: childSpec,
 	}
 	createSharedTemplate(t, kube, child)
 	root := &v1alpha3.AgentTemplate{
@@ -149,6 +148,58 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, root, claudeE2EHarness)
 	return root.Name, child.Name
+}
+
+func TestE2EClaudeSharedSkillsAndMCP(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	image := publishSkillImage(t)
+	upstream := startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_local_subagent.json")
+	recorder := startModelRecorder(t, mockLLMProxy(t, upstream), nil)
+	kube := interactionKubeClient(t)
+	model := createClaudeMockModel(t, kube, reachableServerURL(t, recorder.URL, ""))
+	mcpURL, _ := startMCPMock(t)
+	server := createCodexMCPServer(t, kube, mcpURL)
+	root, child := createClaudeLocalAgentTemplates(t, kube, model, v1alpha3.AgentTemplateSpec{
+		SystemPrompt: "CLAUDE_LOCAL_SPECIALIST_INSTRUCTION",
+		Skills:       []v1alpha3.AgentTemplateSkill{{Name: "standalone", Source: v1alpha3.ArtifactSource{OCI: image, Path: "standalone"}}},
+		Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+			Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"add_numbers"},
+		}}},
+	})
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, claudeE2EHarness, root)
+	streamed := sendStreaming(t, fixture, "Delegate this request to the specialist.")
+	require.Equal(t, a2atype.TaskStateCompleted, streamed.state, streamed.failureText)
+	require.Contains(t, streamed.text, "CLAUDE_SUBAGENT_FINAL")
+	var sawChild bool
+	prefix := "mcp__" + server.Name + "__"
+	for _, recorded := range recorder.Requests("", "") {
+		var request struct {
+			System json.RawMessage `json:"system"`
+			Tools  []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		}
+		require.NoError(t, json.Unmarshal(recorded.Body, &request))
+		isChild := bytes.Contains(request.System, []byte("CLAUDE_LOCAL_SPECIALIST_INSTRUCTION"))
+		if isChild {
+			sawChild = true
+			require.Contains(t, string(recorded.Body), "SKILL_BODY_STANDALONE")
+		}
+		var childTools []string
+		for _, tool := range request.Tools {
+			if strings.HasPrefix(tool.Name, prefix) {
+				childTools = append(childTools, tool.Name)
+			}
+		}
+		if isChild {
+			require.Equal(t, []string{prefix + "add_numbers"}, childTools)
+		} else {
+			require.Empty(t, childTools)
+		}
+	}
+	require.True(t, sawChild)
+	assertNoClaudeChildSession(t, fixture, child)
 }
 
 func assertNoClaudeChildSession(t *testing.T, fixture *interactionFixture, childTemplate string) {
