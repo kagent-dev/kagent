@@ -2,8 +2,11 @@
 
 import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 
+const DEFAULT_NAMESPACE = "kagent";
+
 export interface UiRuntimeConfig {
   streamTimeoutMs: number;
+  defaultNamespace: string;
 }
 
 /**
@@ -15,5 +18,8 @@ export async function getUiRuntimeConfig(): Promise<UiRuntimeConfig> {
   const raw = process.env.KAGENT_STREAM_TIMEOUT_MS;
   const parsed = raw ? Number(raw) : NaN;
   const streamTimeoutMs = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_STREAM_TIMEOUT_MS;
-  return { streamTimeoutMs };
+  return {
+    streamTimeoutMs,
+    defaultNamespace: process.env.KAGENT_NAMESPACE?.trim() || DEFAULT_NAMESPACE,
+  };
 }
