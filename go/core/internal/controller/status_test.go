@@ -45,7 +45,7 @@ func TestStatusPendingNamesGoldenRebuild(t *testing.T) {
 	state := AgentReconciliation{Agent: &kagentv1alpha3.Agent{}, Target: &compiledTarget{}}
 	ready := meta.FindStatusCondition(statusForAgent(state, 1, "").Conditions, kagentv1alpha3.AgentConditionReady)
 	require.Equal(t, "waiting for the ActorTemplate golden snapshot", ready.Message, "a first build is not a rebuild")
-	state.GoldenRetries = 3
+	state.Golden = goldenProgress{retries: 3}
 	ready = meta.FindStatusCondition(statusForAgent(state, 1, "").Conditions, kagentv1alpha3.AgentConditionReady)
 	require.Equal(t, "ActorTemplatePending", ready.Reason)
 	require.Equal(t, "rebuilding after golden crash, retry 3; waiting for the ActorTemplate golden snapshot", ready.Message)

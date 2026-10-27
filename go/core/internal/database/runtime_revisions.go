@@ -105,8 +105,9 @@ type RecordRevisionOptions struct {
 
 // RecordRuntimeRevision atomically stores immutable inputs and, when Ready,
 // promotes the revision for its active source if still desired. Existing inputs
-// are preserved; actor UID and update time refresh. Stale reports cannot replace
-// the last successful revision. Deleting revisions return ErrObjectDeleting.
+// are preserved; actor UID, spec digest and update time refresh. Stale reports
+// cannot replace the last successful revision. Deleting revisions return
+// ErrObjectDeleting.
 func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, options RecordRevisionOptions) error {
 	if revision.AgentCard == nil {
 		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
@@ -127,7 +128,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		}
 		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
 			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
-				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID},
+				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID, ActorTemplateSpecDigest: revision.ActorTemplateSpecDigest},
 			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets,
 		}); err != nil {
 			return err
@@ -222,14 +223,14 @@ func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, 
 // instances, or checkpoints, including deletions still awaiting compute cleanup.
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeArtifact, error) {
 	return queryMany(ctx, c.db, `
-		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, golden_crash_uid, deleted_at
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_crash_uid, deleted_at
 		FROM runtime_revision WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
 	`, pgx.RowToStructByName[RuntimeArtifact])
 }
 
 func getRuntimeArtifactForUpdate(ctx context.Context, tx pgx.Tx, revision string) (RuntimeArtifact, error) {
 	return queryOne(ctx, tx, `
-		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, golden_crash_uid, deleted_at
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_crash_uid, deleted_at
 		FROM runtime_revision WHERE revision = $1 FOR UPDATE
 	`, pgx.RowToStructByName[RuntimeArtifact], revision)
 }
@@ -284,12 +285,13 @@ func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevis
 	}
 	result, err := tx.Exec(ctx, `
   INSERT INTO runtime_revision (revision, kind, namespace, source_snapshot, egress_destinations,
-   actor_template_atespace, actor_template_name, actor_template_uid, credentials, token_passthrough_targets)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-  ON CONFLICT (revision) DO UPDATE SET actor_template_uid = EXCLUDED.actor_template_uid, updated_at = NOW()
+   actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, credentials, token_passthrough_targets)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+  ON CONFLICT (revision) DO UPDATE SET actor_template_uid = EXCLUDED.actor_template_uid,
+   actor_template_spec_digest = EXCLUDED.actor_template_spec_digest, updated_at = NOW()
   WHERE runtime_revision.deleted_at IS NULL AND runtime_revision.kind = EXCLUDED.kind
  `, revision.Revision, revision.Kind, revision.Namespace, revision.SourceSnapshot, revision.EgressDestinations,
-		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.Credentials, revision.TokenPassthroughTargets)
+		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.ActorTemplateSpecDigest, revision.Credentials, revision.TokenPassthroughTargets)
 	if err != nil {
 		return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
 	}

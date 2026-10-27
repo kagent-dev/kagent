@@ -47,7 +47,7 @@ type AgentReconciliation struct {
 	Warnings              []string
 	CompilationFailure    *ReconciliationFailure
 	ObservedActorTemplate *ateapipb.ActorTemplate
-	GoldenRetries         int
+	Golden                goldenProgress
 	PreparationFailure    *ReconciliationFailure
 }
 
@@ -95,7 +95,6 @@ type ReconciliationFailure struct {
 	Reason    string
 	Message   string
 	Retryable bool
-	RetryAt   time.Time
 }
 
 func newAgentReconciliations(
@@ -134,19 +133,18 @@ func newAgentReconciliations(
 		if observed == nil || observed.RevisionID != state.Target.RevisionID {
 			return state
 		}
+		state.Golden = observed.Golden
 		if observed.Failure != nil {
 			state.PreparationFailure = observed.Failure
 			return state
 		}
-		state.ObservedActorTemplate, state.GoldenRetries = observed.Template, observed.GoldenRetries
+		state.ObservedActorTemplate = observed.Template
 		if !substrate.ActorTemplateSpecEqual(state.ObservedActorTemplate, state.Target.ActorTemplate) {
 			state.PreparationFailure = &ReconciliationFailure{
 				Condition: kagentv1alpha3.AgentConditionReady,
 				Reason:    "ActorTemplateConflict",
 				Message:   "existing immutable ActorTemplate differs from the compiled revision",
 			}
-		} else if message := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateFailed", Message: message}
 		}
 		return state
 	}, opts.WithName("AgentReconciliations")...)
@@ -219,7 +217,7 @@ type Reconciler struct {
 	templates   actorTemplateClient
 	store       runtimeRevisionStore
 	status      kagentclient.ApiV1alpha3Interface
-	golden      *goldenRetries
+	golden      goldenRetries
 
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
@@ -254,7 +252,6 @@ func newReconciler(
 	r.agents = newReconciliationQueue("agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
 	})
-	r.golden = newGoldenRetries(store, templates)
 	r.agentStatuses = newReconciliationQueue("agent-status", func(item any) error {
 		return r.reconcileAgentStatus(context.Background(), item.(string))
 	})
@@ -350,10 +347,7 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 			return
 		case now := <-ticker.C:
 			for _, state := range r.collections.Reconciliations.List() {
-				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
-				pending := state.PreparationFailure == nil && state.ObservedActorTemplate != nil && golden.GetGoldenTag() == nil
-				retryDue := state.PreparationFailure.isGoldenRetry() && !state.PreparationFailure.awaitsGoldenRetry(now)
-				if state.Target != nil && (pending || retryDue) {
+				if state.Golden.due(now) {
 					r.agents.Add(state.ResourceName())
 				}
 			}
@@ -428,7 +422,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		if status.Code(err) == codes.InvalidArgument {
 			// Validation rejects the immutable request, so retries cannot repair
 			// it. Backend messages may quote configuration; keep status safe.
-			r.observePreparation(*state, nil, 0, &ReconciliationFailure{
+			r.observePreparation(*state, nil, goldenProgress{}, &ReconciliationFailure{
 				Condition: kagentv1alpha3.AgentConditionReady,
 				Reason:    "ActorTemplateRejected",
 				Message:   "Substrate rejected the compiled ActorTemplate (InvalidArgument); verify the Agent configuration against Substrate's validation requirements",
@@ -443,10 +437,14 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return r.observePreparationError(*state, fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err))
 	}
 	if !substrate.ActorTemplateSpecEqual(observed, target.ActorTemplate) {
-		r.observePreparation(*state, observed, 0, nil)
+		r.observePreparation(*state, observed, goldenProgress{}, nil)
 		return nil
 	}
 
+	digest, err := substrate.ActorTemplateSpecDigest(observed)
+	if err != nil {
+		return r.observePreparationError(*state, err)
+	}
 	revision := database.RuntimeRevision{
 		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
 		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
@@ -455,30 +453,25 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		Credentials:             target.Revision.Credentials,
 		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
+		ActorTemplateSpecDigest: digest,
 	}
-	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
-	if err := r.store.RecordRuntimeRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
-		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
-	}
-	if isGoldenCrash(observed) {
-		retrying, err := r.golden.retry(ctx, revision.Revision, observed)
-		if retrying == nil {
-			return r.observePreparationError(*state, err)
+	golden, err := r.golden.observe(ctx, r.store, r.templates, revision.Revision, observed, func(options database.RecordRevisionOptions) error {
+		if err := r.store.RecordRuntimeRevision(ctx, revision, options); err != nil {
+			return fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err)
 		}
-		r.observePreparation(*state, nil, 0, retrying)
+		return nil
+	})
+	if failure := golden.failure(); failure != nil {
+		r.observePreparation(*state, nil, golden, failure)
 		return err
 	}
-
-	var retries int
-	if !ready {
-		if retries, err = r.store.GoldenRetryAttempts(ctx, revision.Revision); err != nil {
-			return r.observePreparationError(*state, err)
-		}
+	if err != nil {
+		return r.observePreparationError(*state, err)
 	}
 
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after session creation can select the persisted revision.
-	r.observePreparation(*state, observed, retries, nil)
+	r.observePreparation(*state, observed, golden, nil)
 	return nil
 }
 
@@ -490,7 +483,7 @@ func (r *Reconciler) observePreparationError(state AgentReconciliation, err erro
 	if state.PreparationFailure != nil && !state.PreparationFailure.Retryable {
 		return err
 	}
-	r.observePreparation(state, nil, 0, runtimePreparationFailure(err))
+	r.observePreparation(state, nil, goldenProgress{}, runtimePreparationFailure(err))
 	return err
 }
 
@@ -508,13 +501,13 @@ func runtimePreparationFailure(err error) *ReconciliationFailure {
 
 // Observations belong to the Agent's current preparation, independently of how
 // long sessions or checkpoints keep its old runtime alive in the database.
-func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, goldenRetries int, failure *ReconciliationFailure) {
+func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, golden goldenProgress, failure *ReconciliationFailure) {
 	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
-		RevisionID:    state.Target.RevisionID,
-		Template:      template,
-		GoldenRetries: goldenRetries,
-		Failure:       failure,
+		RevisionID: state.Target.RevisionID,
+		Template:   template,
+		Golden:     golden,
+		Failure:    failure,
 	})
 }
 

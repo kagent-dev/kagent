@@ -38,6 +38,7 @@ CREATE TABLE runtime_revision (
     actor_template_atespace  TEXT        CONSTRAINT runtime_revision_actor_template_namespace_not_null NOT NULL,
     actor_template_name      TEXT        NOT NULL,
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
+    actor_template_spec_digest TEXT      NOT NULL DEFAULT '',
     golden_attempts          INT         NOT NULL DEFAULT 0 CHECK (golden_attempts >= 0),
     golden_crash_uid         TEXT        NOT NULL DEFAULT '',
     golden_retry_at          TIMESTAMPTZ,

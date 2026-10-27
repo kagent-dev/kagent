@@ -114,8 +114,11 @@ the database, so a controller restart keeps the schedule. While a retry waits,
 the retry number, its time and the crash. While the rebuild is pending, the
 `Preparing` message names the retry number. A successful build resets the
 count. The 1-second poll wakes a waiting retry once its retry time passes;
-after a failed delete, queue backoff wakes it instead. Other golden failures still report a retryable
-`PreparationFailed`.
+after a failed delete, queue backoff wakes it instead. As for Agents, other
+golden failures report a terminal `ActorTemplateFailed` with Substrate's
+message. If the revision loses its last reference before the
+rebuild's UID is recorded, GC deletes the rebuild only when its immutable inputs
+match the recorded digest; any other template under the name is left alone.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
 replica; expiration workers coordinate through PostgreSQL.

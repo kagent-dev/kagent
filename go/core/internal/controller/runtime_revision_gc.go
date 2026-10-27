@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -105,6 +106,11 @@ func (r *RuntimeRevisionGC) discover(ctx context.Context) ([]database.RuntimeArt
 	return revisions, nil
 }
 
+func isUnrecordedRebuild(revision database.RuntimeArtifact, template *ateapipb.ActorTemplate) bool {
+	digest, err := substrate.ActorTemplateSpecDigest(template)
+	return err == nil && revision.RecordedTemplateCrashed() && digest == revision.ActorTemplateSpecDigest
+}
+
 // collect retains the database row until compute deletion succeeds. Each candidate
 // has its own deadline so a stuck backend or database lock cannot stall the sweep.
 func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) (err error) {
@@ -128,7 +134,7 @@ func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) (err error) 
 	// The delete tolerates already-missing objects. If runtime cleanup succeeds
 	// but database finalization fails, the durable deletion marker keeps this
 	// revision discoverable so the next sweep can safely retry the sequence.
-	if err == nil && (revision.ActorTemplateUID == "" || template.GetMetadata().GetUid() != revision.ActorTemplateUID) && !revision.RecordedTemplateCrashed() {
+	if err == nil && (revision.ActorTemplateUID == "" || template.GetMetadata().GetUid() != revision.ActorTemplateUID) && !isUnrecordedRebuild(*revision, template) {
 		return fmt.Errorf("unreferenced ActorTemplate %s/%s UID changed", revision.ActorTemplateAtespace, revision.ActorTemplateName)
 	}
 	if err := r.templates.DeleteActorTemplate(collectionCtx, revision.ActorTemplateAtespace, revision.ActorTemplateName, template.GetMetadata().GetUid()); err != nil {

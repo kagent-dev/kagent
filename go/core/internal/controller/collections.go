@@ -41,12 +41,12 @@ type Collections struct {
 // AgentRuntimeObservation records a Agent's preparation. The revision prevents a
 // cached observation from making changed inputs ready before reconciliation.
 type AgentRuntimeObservation struct {
-	Namespace     string
-	AgentName     string
-	RevisionID    translator.RevisionID
-	Template      *ateapipb.ActorTemplate
-	GoldenRetries int
-	Failure       *ReconciliationFailure
+	Namespace  string
+	AgentName  string
+	RevisionID translator.RevisionID
+	Template   *ateapipb.ActorTemplate
+	Golden     goldenProgress
+	Failure    *ReconciliationFailure
 }
 
 func (p AgentRuntimeObservation) ResourceName() string {

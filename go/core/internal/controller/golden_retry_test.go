@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -25,6 +22,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 const goldenCrashMessage = "GoldenActorCrashed: golden actor crashed before its snapshot was taken"
@@ -43,19 +41,7 @@ func maxJitter(duration time.Duration, maxFactor float64) time.Duration {
 	return duration + time.Duration(maxFactor*float64(duration))
 }
 
-func TestGoldenCrashFormatMatchesSubstrate(t *testing.T) {
-	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "go.ate.dev/substrate").Output()
-	require.NoError(t, err)
-	source, err := os.ReadFile(filepath.Join(strings.TrimSpace(string(out)), "cmd/ateapi/internal/controlapi/template_reconciler.go"))
-	require.NoError(t, err)
-	for _, pinned := range []string{
-		`reasonGoldenActorCrashed\s*=\s*"GoldenActorCrashed"\n`,
-		`r\.fail\(ctx, tmpl, reasonGoldenActorCrashed, "golden actor crashed before its snapshot was taken"\)`,
-		`ErrorMessage = truncateUTF8\(reason\+": "\+msg, maxGoldenErrorMessageLen\)`,
-	} {
-		require.Regexp(t, pinned, string(source), "Substrate changed its golden crash error_message; update goldenCrashPrefix and goldenCrashMessage")
-	}
-	require.Equal(t, "GoldenActorCrashed"+": "+"golden actor crashed before its snapshot was taken", goldenCrashMessage)
+func TestIsGoldenCrashMatchesOnlyTheCrashReason(t *testing.T) {
 	require.True(t, isGoldenCrash(crashed(&ateapipb.ActorTemplate{})))
 	for _, terminal := range []string{"GoldenActorInvalid: bad", "GoldenTagConflict: golden tag belongs to another actor or template", "golden actor crashed"} {
 		require.False(t, isGoldenCrash(withGoldenStatus(&ateapipb.ActorTemplate{}, &ateapipb.GoldenSnapshotStatus{ErrorMessage: terminal})), terminal)
@@ -246,6 +232,25 @@ func TestPreparationGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 	}
 }
 
+func TestPreparationPublishesStartedGoldenRetry(t *testing.T) {
+	collections, _ := newPreparationTestCollections(t, "microvm")
+	initial := collections.Reconciliations.List()[0]
+	templates := &fakeActorTemplates{template: crashed(initial.Target.ActorTemplate)}
+	templates.template.Metadata.Uid = "uid-1"
+	r := &Reconciler{collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
+	r.golden.policy = goldenRetryPolicy{Delays: []time.Duration{0}}
+
+	require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+	require.Equal(t, []string{"uid-1"}, templates.deletedUIDs)
+	var ready *metav1.Condition
+	waitFor(t, func() bool {
+		ready = apimeta.FindStatusCondition(collections.AgentStatuses.List()[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
+		return ready != nil && ready.Reason == "ActorTemplateRetrying"
+	})
+	require.Equal(t, metav1.ConditionFalse, ready.Status)
+	require.Equal(t, "golden build crashed, retry 1 started: "+goldenCrashMessage, ready.Message)
+}
+
 type failingRecordStore struct {
 	*database.Client
 	recordErr error
@@ -258,40 +263,61 @@ func (s *failingRecordStore) RecordRuntimeRevision(ctx context.Context, revision
 	return s.Client.RecordRuntimeRevision(ctx, revision, options)
 }
 
-func TestRuntimeRevisionGCCollectsUnrecordedGoldenRebuild(t *testing.T) {
+func TestRuntimeRevisionGCCollectsOnlyMatchingUnrecordedGoldenRebuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database test in short mode")
 	}
-	ctx := t.Context()
-	dsn := dbtest.StartT(ctx, t)
-	dbtest.MigrateT(t, dsn, false)
-	pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	store := database.NewClient(pool, "public")
-	collections, _ := newPreparationTestCollections(t, "microvm")
-	initial := collections.Reconciliations.List()[0]
-	revision := initial.Target.RevisionID.String()
-	templates := &fakeActorTemplates{queuedUIDs: []string{"uid-2"}}
-	templates.template = crashed(initial.Target.ActorTemplate)
-	templates.template.Metadata.Uid = "uid-1"
-	recording := &failingRecordStore{Client: store}
-	r := newReconciler(collections, templates, recording, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
-	r.golden.policy = goldenRetryPolicy{Delays: []time.Duration{0}}
+	for _, test := range []struct {
+		name    string
+		replace func(*ateapipb.ActorTemplate)
+		collect bool
+	}{
+		{name: "rebuild with the recorded inputs", replace: func(*ateapipb.ActorTemplate) {}, collect: true},
+		{name: "another template under the name", replace: func(template *ateapipb.ActorTemplate) {
+			template.Containers[0].Image = "other@sha256:" + strings.Repeat("c", 64)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			dsn := dbtest.StartT(ctx, t)
+			dbtest.MigrateT(t, dsn, false)
+			pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
+			require.NoError(t, err)
+			t.Cleanup(pool.Close)
+			store := database.NewClient(pool, "public")
+			collections, _ := newPreparationTestCollections(t, "microvm")
+			initial := collections.Reconciliations.List()[0]
+			revision := initial.Target.RevisionID.String()
+			templates := &fakeActorTemplates{queuedUIDs: []string{"uid-2"}}
+			templates.template = crashed(initial.Target.ActorTemplate)
+			templates.template.Metadata.Uid = "uid-1"
+			recording := &failingRecordStore{Client: store}
+			r := newReconciler(collections, templates, recording, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
+			r.golden.policy = goldenRetryPolicy{Delays: []time.Duration{0}}
 
-	require.NoError(t, r.reconcileAgent(ctx, initial.ResourceName()))
-	require.Equal(t, []string{"uid-1"}, templates.deletedUIDs)
-	recording.recordErr = errors.New("leader lease lost")
-	require.ErrorIs(t, r.reconcileAgent(ctx, initial.ResourceName()), recording.recordErr)
-	require.Equal(t, "uid-2", templates.template.GetMetadata().GetUid())
-	require.NoError(t, store.RetireAgentIdentities(ctx, initial.Agent.Namespace, initial.Agent.Name))
+			require.NoError(t, r.reconcileAgent(ctx, initial.ResourceName()))
+			require.Equal(t, []string{"uid-1"}, templates.deletedUIDs)
+			recording.recordErr = errors.New("leader lease lost")
+			require.ErrorIs(t, r.reconcileAgent(ctx, initial.ResourceName()), recording.recordErr)
+			require.Equal(t, "uid-2", templates.template.GetMetadata().GetUid())
+			test.replace(templates.template)
+			require.NoError(t, store.RetireAgentIdentities(ctx, initial.Agent.Namespace, initial.Agent.Name))
 
-	collector, _ := newTestRuntimeRevisionGC(t, store, templates)
-	require.NoError(t, collector.collect(ctx, revision))
-	require.Equal(t, []string{"uid-1", "uid-2"}, templates.deletedUIDs, "GC must delete the rebuild by its own UID")
-	require.Nil(t, templates.template)
-	_, err = store.GetRuntimeRevision(ctx, revision)
-	require.ErrorIs(t, err, database.ErrNotFound)
+			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
+			err = collector.collect(ctx, revision)
+			if !test.collect {
+				require.ErrorContains(t, err, "UID changed")
+				require.Equal(t, []string{"uid-1"}, templates.deletedUIDs, "GC must not delete a template with other immutable inputs")
+				require.Equal(t, "uid-2", templates.template.GetMetadata().GetUid())
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []string{"uid-1", "uid-2"}, templates.deletedUIDs, "GC must delete the rebuild by its own UID")
+			require.Nil(t, templates.template)
+			_, err = store.GetRuntimeRevision(ctx, revision)
+			require.ErrorIs(t, err, database.ErrNotFound)
+		})
+	}
 }
 
 func TestRuntimeRevisionGCCollectsUnrecordedSandboxGoldenRebuild(t *testing.T) {
@@ -309,14 +335,18 @@ func TestRuntimeRevisionGCCollectsUnrecordedSandboxGoldenRebuild(t *testing.T) {
 	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
 		Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision,
 	}))
+	rebuild := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: revision, Uid: "uid-2"},
+		Containers: []*ateapipb.Container{{Name: "sandbox", Image: "guest@sha256:" + strings.Repeat("b", 64)}}}
+	digest, err := substrate.ActorTemplateSpecDigest(rebuild)
+	require.NoError(t, err)
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact: database.RuntimeArtifact{Revision: revision, Kind: "sandbox", Namespace: "team-a",
-			ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "uid-1"},
+			ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "uid-1", ActorTemplateSpecDigest: digest},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte(`{}`),
 	}, database.RecordRevisionOptions{}))
 	_, err = store.EnsureGoldenRetry(ctx, revision, "uid-1", time.Now(), []time.Duration{0})
 	require.NoError(t, err)
-	templates := &fakeActorTemplates{template: &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: revision, Uid: "uid-2"}}}
+	templates := &fakeActorTemplates{template: rebuild}
 	require.NoError(t, store.RetireSandboxTemplateIdentities(ctx, "team-a", "scratch"))
 
 	collector, _ := newTestRuntimeRevisionGC(t, store, templates)

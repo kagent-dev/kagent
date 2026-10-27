@@ -218,6 +218,12 @@ func TestSandboxPreparationPublishesAfterPersistence(t *testing.T) {
 	require.Contains(t, string(store.revision.SourceSnapshot), observed.Volumes[1].Image.Reference)
 	require.Equal(t, store.desired.DesiredRevision, store.revision.Revision)
 	require.False(t, store.ready)
+	require.NoError(t, s.reconcileStatus(t.Context(), key))
+	template = syncSandboxTemplate(t, s, templates)
+	preparing := apimeta.FindStatusCondition(template.Status.Conditions, "Ready")
+	require.Equal(t, metav1.ConditionFalse, preparing.Status)
+	require.Equal(t, "Preparing", preparing.Reason)
+	require.Equal(t, "Waiting for the prepared sandbox snapshot", preparing.Message)
 
 	actors.templates[ref.Atespace+"/"+ref.Name].Status = sandboxGoldenStatus()
 	store.recordErr = errors.New("database unavailable with private details")
@@ -230,14 +236,14 @@ func TestSandboxPreparationPublishesAfterPersistence(t *testing.T) {
 	require.NotContains(t, ready.Message, "private details")
 	store.recordErr = nil
 	require.NoError(t, s.reconcile(t.Context(), key))
-	waitFor(t, func() bool {
-		return s.collections.states.GetKey(key).ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
-	})
+	waitFor(t, func() bool { return sandboxPrepared(s.collections.states.GetKey(key)) })
 	require.True(t, store.ready)
 	require.NoError(t, s.reconcileStatus(t.Context(), key))
 	template = syncSandboxTemplate(t, s, templates)
 	ready = apimeta.FindStatusCondition(template.Status.Conditions, "Ready")
 	require.Equal(t, metav1.ConditionTrue, ready.Status)
+	require.Equal(t, "Prepared", ready.Reason)
+	require.Equal(t, "Sandbox runtime is prepared", ready.Message)
 	before := ready.LastTransitionTime
 	require.NoError(t, s.reconcileStatus(t.Context(), key))
 	template = syncSandboxTemplate(t, s, templates)
@@ -252,10 +258,10 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	require.NoError(t, s.reconcile(t.Context(), key))
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).RevisionID != "" })
 	original := s.collections.states.GetKey(key)
-	observed := proto.CloneOf(original.DesiredActorTemplate)
-	observed.Status = sandboxGoldenStatus()
-	s.collections.observations.UpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: original.RevisionID, Template: observed})
-	waitFor(t, func() bool { return s.collections.states.GetKey(key).ObservedActorTemplate != nil })
+	ref := original.DesiredActorTemplate.Metadata
+	s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name].Status = sandboxGoldenStatus()
+	require.NoError(t, s.reconcile(t.Context(), key))
+	waitFor(t, func() bool { return sandboxPrepared(s.collections.states.GetKey(key)) })
 
 	pool := (*pools.GetKey("team-a/default")).DeepCopy()
 	pool.Spec.SandboxClasses = []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}
@@ -263,13 +269,13 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).RevisionID != original.RevisionID })
 	changed := s.collections.states.GetKey(key)
 	require.NotEmpty(t, changed.RevisionID)
-	require.Nil(t, changed.ObservedActorTemplate)
+	require.False(t, sandboxPrepared(changed))
 	pools.DeleteObject("team-a/default")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	missing := s.collections.states.GetKey(key)
 	require.Equal(t, "WorkerPoolNotFound", missing.Failure.Reason)
 	require.Empty(t, missing.RevisionID)
-	require.Nil(t, missing.ObservedActorTemplate)
+	require.False(t, sandboxPrepared(missing))
 	require.NoError(t, s.reconcile(t.Context(), key))
 	require.True(t, strings.HasPrefix(s.store.(*sandboxTestStore).desired.DesiredRevision, "pending:"))
 	pools.UpdateObject(pool)
@@ -283,7 +289,7 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	templates.UpdateObject(edited)
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Template.Generation == edited.Generation })
 	require.NotEqual(t, changed.RevisionID, s.collections.states.GetKey(key).RevisionID)
-	require.Nil(t, s.collections.states.GetKey(key).ObservedActorTemplate)
+	require.False(t, sandboxPrepared(s.collections.states.GetKey(key)))
 
 	// A recreated template cannot inherit the previous UID's readiness.
 	template := (*templates.GetKey(key)).DeepCopy()
@@ -291,10 +297,10 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	templates.UpdateObject(template)
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Template.UID == template.UID })
 	require.NotEqual(t, changed.RevisionID, s.collections.states.GetKey(key).RevisionID)
-	require.Nil(t, s.collections.states.GetKey(key).ObservedActorTemplate)
+	require.False(t, sandboxPrepared(s.collections.states.GetKey(key)))
 }
 
-func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *testing.T) {
+func TestSandboxPreparationStopsOnGoldenFailure(t *testing.T) {
 	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
 	const key = "team-a/scratch"
 	require.NoError(t, s.reconcile(t.Context(), key))
@@ -303,10 +309,23 @@ func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *te
 	ref := s.collections.states.GetKey(key).DesiredActorTemplate.Metadata
 	observed := s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name]
 	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "snapshot backend unavailable"}}
-	require.ErrorContains(t, s.reconcile(t.Context(), key), "golden snapshot failed")
+	require.NoError(t, s.reconcile(t.Context(), key))
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
-	require.True(t, s.collections.states.GetKey(key).canPrepare())
+	failure := s.collections.states.GetKey(key).Failure
+	require.Equal(t, "ActorTemplateFailed", failure.Reason)
+	require.Equal(t, "snapshot backend unavailable", failure.Message)
+	require.False(t, s.collections.states.GetKey(key).canPrepare())
 	require.Empty(t, s.actors.(*sandboxTestActors).deletedUIDs, "only GoldenActorCrashed recreates the template")
+}
+
+func TestSandboxPreparationRejectsImmutableConflict(t *testing.T) {
+	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
+	const key = "team-a/scratch"
+	require.NoError(t, s.reconcile(t.Context(), key))
+	syncSandboxTemplate(t, s, templates)
+	require.NoError(t, s.reconcile(t.Context(), key))
+	ref := s.collections.states.GetKey(key).DesiredActorTemplate.Metadata
+	observed := s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name]
 	observed.Status = sandboxGoldenStatus()
 	require.NoError(t, s.reconcile(t.Context(), key))
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure == nil })
@@ -314,7 +333,7 @@ func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *te
 	require.ErrorContains(t, s.reconcile(t.Context(), key), "immutable inputs disagree")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	require.False(t, s.collections.states.GetKey(key).canPrepare())
-	require.Nil(t, s.collections.states.GetKey(key).ObservedActorTemplate)
+	require.False(t, sandboxPrepared(s.collections.states.GetKey(key)))
 }
 
 var sandboxRetryAt = regexp.MustCompile(`^golden build crashed, retry (\d+) at (\S+): (.*)$`)
@@ -474,7 +493,7 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 	syncSandboxTemplate(t, s, templates)
 	s.actors.(*sandboxTestActors).autoReady = true
 	require.NoError(t, s.reconcile(t.Context(), key))
-	waitFor(t, func() bool { return s.collections.states.GetKey(key).ObservedActorTemplate != nil })
+	waitFor(t, func() bool { return sandboxPrepared(s.collections.states.GetKey(key)) })
 	client := kagentfake.NewSimpleClientset(s.collections.states.GetKey(key).Template.DeepCopy())
 	failed := false
 	client.PrependReactor("update", "sandboxtemplates", func(action ktesting.Action) (bool, runtime.Object, error) {
@@ -499,26 +518,53 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
+func TestSandboxPreparationPollFollowsGoldenState(t *testing.T) {
+	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
+	const key = "team-a/scratch"
+	require.NoError(t, s.reconcile(t.Context(), key))
+	syncSandboxTemplate(t, s, templates)
+	polls := func() bool { return needsPreparationPoll(*s.collections.states.GetKey(key), time.Now()) }
+	require.True(t, polls(), "a preparable template is polled before its first observation")
+
+	require.NoError(t, s.reconcile(t.Context(), key))
+	ref := s.collections.states.GetKey(key).DesiredActorTemplate.Metadata
+	observed := s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name]
+	observed.Status = sandboxGoldenStatus()
+	require.NoError(t, s.reconcile(t.Context(), key))
+	waitFor(t, func() bool { return !polls() })
+
+	observed.Status = nil
+	require.NoError(t, s.reconcile(t.Context(), key))
+	waitFor(t, polls)
+
+	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "snapshot backend unavailable"}}
+	require.NoError(t, s.reconcile(t.Context(), key))
+	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
+	require.False(t, polls(), "a terminal golden failure is not polled")
+}
+
+func sandboxPrepared(state *sandboxReconciliation) bool {
+	return apimeta.IsStatusConditionTrue(sandboxStatusWithTransitionTimes(*state).Conditions, "Ready")
+}
+
 func TestSandboxPreparationPollSkipsOnlyWaitingGoldenRetries(t *testing.T) {
 	now := time.Now()
-	waiting := goldenRetrying("waiting")
-	waiting.RetryAt = now.Add(time.Minute)
-	due := goldenRetrying("due")
-	due.RetryAt = now.Add(-time.Second)
+	waiting := goldenProgress{phase: goldenRetrying, message: "waiting", nextCheck: now.Add(time.Minute)}
+	due := goldenProgress{phase: goldenRetrying, message: "due", nextCheck: now.Add(-time.Second)}
 	deleted := metav1.NewTime(now)
 	for _, test := range []struct {
 		name     string
 		template metav1.ObjectMeta
-		failure  *ReconciliationFailure
+		golden   goldenProgress
 		want     bool
 	}{
-		{name: "waiting retry", template: metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}, failure: waiting},
-		{name: "due retry", template: metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}, failure: due, want: true},
-		{name: "missing finalizer", template: metav1.ObjectMeta{}, failure: waiting, want: true},
-		{name: "deleting during a waiting retry", template: metav1.ObjectMeta{DeletionTimestamp: &deleted, Finalizers: []string{sandboxPreparationFinalizer}}, failure: waiting, want: true},
+		{name: "waiting retry", template: metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}, golden: waiting},
+		{name: "due retry", template: metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}, golden: due, want: true},
+		{name: "missing finalizer", template: metav1.ObjectMeta{}, golden: waiting, want: true},
+		{name: "deleting during a waiting retry", template: metav1.ObjectMeta{DeletionTimestamp: &deleted, Finalizers: []string{sandboxPreparationFinalizer}}, golden: waiting, want: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			state := sandboxReconciliation{Template: &kagentv1alpha3.SandboxTemplate{ObjectMeta: test.template}, Failure: test.failure}
+			state := sandboxReconciliation{Template: &kagentv1alpha3.SandboxTemplate{ObjectMeta: test.template}, Failure: test.golden.failure(), Golden: test.golden}
 			assert.Equal(t, test.want, needsPreparationPoll(state, now))
 		})
 	}

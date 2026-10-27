@@ -479,6 +479,10 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				ready := apimeta.FindStatusCondition(published.Status.Conditions, kagentv1alpha3.AgentConditionReady)
 				require.Equal(t, reason, ready.Reason)
 				require.NotContains(t, ready.Message, "private-config-value")
+				if test.goldenError != "" {
+					require.Equal(t, metav1.ConditionFalse, ready.Status)
+					require.Equal(t, test.goldenError, ready.Message)
+				}
 				time.Sleep(5 * time.Minute)
 				synctest.Wait()
 				require.Equal(t, 1, store.pairCalls, "neither the queue nor the poller may retry terminal failures")
