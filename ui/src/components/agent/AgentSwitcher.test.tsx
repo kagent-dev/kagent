@@ -108,7 +108,11 @@ describe("AgentSwitcher", () => {
 
     renderSwitcher();
 
-    expect(screen.getAllByTestId("agent-switcher-loading").length).toBeGreaterThan(0);
+    const placeholders = screen.getAllByTestId("agent-switcher-loading");
+    expect(placeholders.length).toBeGreaterThan(0);
+    // Visible, not just height: the placeholder used to be painted in the panel's own
+    // colour, so it held the shape and still read as an empty panel.
+    expect(placeholders[0].querySelector(".ant-skeleton-active")).not.toBeNull();
     expect(screen.queryByTestId("agent-switcher-empty")).toBeNull();
   });
 
