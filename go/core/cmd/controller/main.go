@@ -74,7 +74,7 @@ func run(path string, check bool, level string) error {
 	if check {
 		return nil
 	}
-	if err := app.SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
+	if err := app.SetupLoggerWithTelemetry(cfg.GetLogging().GetLevel(), cfg.GetTelemetry().GetLogs() != nil); err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
