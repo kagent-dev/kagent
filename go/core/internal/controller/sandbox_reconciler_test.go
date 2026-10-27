@@ -300,7 +300,7 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	require.False(t, sandboxPrepared(s.collections.states.GetKey(key)))
 }
 
-func TestSandboxPreparationStopsOnGoldenFailure(t *testing.T) {
+func TestSandboxPreparationRetriesGoldenFailure(t *testing.T) {
 	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
 	const key = "team-a/scratch"
 	require.NoError(t, s.reconcile(t.Context(), key))
@@ -312,10 +312,9 @@ func TestSandboxPreparationStopsOnGoldenFailure(t *testing.T) {
 	require.NoError(t, s.reconcile(t.Context(), key))
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	failure := s.collections.states.GetKey(key).Failure
-	require.Equal(t, "ActorTemplateFailed", failure.Reason)
-	require.Equal(t, "snapshot backend unavailable", failure.Message)
-	require.False(t, s.collections.states.GetKey(key).canPrepare())
-	require.Empty(t, s.actors.(*sandboxTestActors).deletedUIDs, "only GoldenActorCrashed recreates the template")
+	require.Equal(t, "ActorTemplateRetrying", failure.Reason)
+	require.Contains(t, failure.Message, "retry 1 at")
+	require.Contains(t, failure.Message, "snapshot backend unavailable")
 }
 
 func TestSandboxPreparationRejectsImmutableConflict(t *testing.T) {
@@ -336,7 +335,7 @@ func TestSandboxPreparationRejectsImmutableConflict(t *testing.T) {
 	require.False(t, sandboxPrepared(s.collections.states.GetKey(key)))
 }
 
-var sandboxRetryAt = regexp.MustCompile(`^golden build crashed, retry (\d+) at (\S+): (.*)$`)
+var sandboxRetryAt = regexp.MustCompile(`^golden build failed, retry (\d+) at (\S+): (.*)$`)
 
 func startSandboxGoldenCrash(t *testing.T, uids ...string) (*SandboxReconciler, *sandboxTestActors, func() *metav1.Condition, context.CancelFunc) {
 	t.Helper()
@@ -409,7 +408,7 @@ func TestSandboxPreparationRetriesGoldenCrash(t *testing.T) {
 		})
 		condition := ready()
 		require.Equal(t, "Preparing", condition.Reason)
-		require.Equal(t, "rebuilding after golden crash, retry 1; Waiting for the prepared sandbox snapshot", condition.Message)
+		require.Equal(t, "rebuilding after golden failure, retry 1; Waiting for the prepared sandbox snapshot", condition.Message)
 		time.Sleep(2 * time.Second)
 		synctest.Wait()
 		actors.inspect(func() { require.Greater(t, actors.gets, gets, "a pending rebuild is polled") })
@@ -457,7 +456,7 @@ func TestSandboxGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 		synctest.Wait()
 		condition := ready()
 		require.Equal(t, "ActorTemplateRetrying", condition.Reason, "a failed delete must not hide the crash")
-		require.Equal(t, "golden build crashed, retry 1 waits to delete the crashed template (Unavailable): "+goldenCrashMessage, condition.Message)
+		require.Equal(t, "golden build failed, retry 1 waits to delete the crashed template (Unavailable): "+goldenCrashMessage, condition.Message)
 
 		var deletes int
 		actors.inspect(func() { deletes = len(actors.deletedUIDs) })
@@ -478,7 +477,7 @@ func TestSandboxGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 		})
 		condition = ready()
 		require.Equal(t, "Preparing", condition.Reason)
-		require.Equal(t, "rebuilding after golden crash, retry 1; Waiting for the prepared sandbox snapshot", condition.Message)
+		require.Equal(t, "rebuilding after golden failure, retry 1; Waiting for the prepared sandbox snapshot", condition.Message)
 		cancel()
 		synctest.Wait()
 	})

@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -14,15 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 )
 
-// goldenCrashPrefix starts Substrate's "<Reason>: <detail>" error_message when
-// the golden actor crashed before its snapshot. Substrate exposes no structured
-// reason.
-const goldenCrashPrefix = "GoldenActorCrashed:"
-
-const (
-	goldenRetryingReason = "ActorTemplateRetrying"
-	goldenFailedReason   = "ActorTemplateFailed"
-)
+const goldenRetryingReason = "ActorTemplateRetrying"
 
 type goldenRetryPolicy struct {
 	Delays            []time.Duration
@@ -40,10 +31,6 @@ func (p goldenRetryPolicy) jitteredDelays(jitter func(time.Duration, float64) ti
 		delays[i] = jitter(delay, p.MaxJitterFraction)
 	}
 	return delays
-}
-
-func isGoldenCrash(template *ateapipb.ActorTemplate) bool {
-	return strings.HasPrefix(template.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(), goldenCrashPrefix)
 }
 
 type goldenRetryStore interface {
@@ -74,7 +61,6 @@ const (
 	goldenBuilding
 	goldenReady
 	goldenRetrying
-	goldenFailed
 )
 
 type goldenProgress struct {
@@ -91,10 +77,8 @@ func (g goldenRetries) observe(ctx context.Context, store goldenRetryStore, temp
 		return goldenProgress{}, err
 	}
 	switch {
-	case isGoldenCrash(template):
-		return g.retry(ctx, store, templates, revision, template)
 	case golden.GetErrorMessage() != "":
-		return goldenProgress{phase: goldenFailed, message: golden.GetErrorMessage()}, nil
+		return g.retry(ctx, store, templates, revision, template)
 	case golden.GetGoldenTag() != nil:
 		return goldenProgress{phase: goldenReady}, nil
 	}
@@ -115,27 +99,24 @@ func (g goldenRetries) retry(ctx context.Context, store goldenRetryStore, templa
 	}
 	progress := goldenProgress{phase: goldenRetrying, retries: retry.Retries}
 	if retry.RetryAt.After(now) {
-		progress.message = fmt.Sprintf("golden build crashed, retry %d at %s: %s", retry.Retries, retry.RetryAt.UTC().Format(time.RFC3339), crash)
+		progress.message = fmt.Sprintf("golden build failed, retry %d at %s: %s", retry.Retries, retry.RetryAt.UTC().Format(time.RFC3339), crash)
 		progress.nextCheck = retry.RetryAt
 		return progress, nil
 	}
 	if err := templates.DeleteActorTemplate(ctx, ref.GetAtespace(), ref.GetName(), ref.GetUid()); err != nil {
-		progress.message = fmt.Sprintf("golden build crashed, retry %d waits to delete the crashed template (%s): %s", retry.Retries, status.Code(err), crash)
+		progress.message = fmt.Sprintf("golden build failed, retry %d waits to delete the crashed template (%s): %s", retry.Retries, status.Code(err), crash)
 		return progress, fmt.Errorf("delete crashed ActorTemplate %s/%s: %w", ref.GetAtespace(), ref.GetName(), err)
 	}
-	progress.message = fmt.Sprintf("golden build crashed, retry %d started: %s", retry.Retries, crash)
+	progress.message = fmt.Sprintf("golden build failed, retry %d started: %s", retry.Retries, crash)
 	progress.nextCheck = now
 	return progress, nil
 }
 
 func (p goldenProgress) failure() *ReconciliationFailure {
-	switch p.phase {
-	case goldenRetrying:
-		return &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: goldenRetryingReason, Message: p.message, Retryable: true}
-	case goldenFailed:
-		return &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: goldenFailedReason, Message: p.message}
+	if p.phase != goldenRetrying {
+		return nil
 	}
-	return nil
+	return &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: goldenRetryingReason, Message: p.message, Retryable: true}
 }
 
 func (p goldenProgress) ready() bool {
@@ -154,5 +135,5 @@ func (p goldenProgress) pendingMessage(waiting string) string {
 	if p.retries == 0 {
 		return waiting
 	}
-	return fmt.Sprintf("rebuilding after golden crash, retry %d; %s", p.retries, waiting)
+	return fmt.Sprintf("rebuilding after golden failure, retry %d; %s", p.retries, waiting)
 }

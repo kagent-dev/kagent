@@ -86,7 +86,7 @@ Database, Substrate, finalizer, and status writes run outside KRT transforms in
 queued workers. The configured guest digest is an immutable compilation input;
 changing it produces a new prepared revision. Only pending preparation and
 cleanup work is polled, including recovery from transient failures, except a
-golden crash retry before its retry time (see below).
+golden retry before its retry time (see below).
 
 The controller persists a deletion finalizer before allocating inputs, then
 persists the desired revision before backend creation. It publishes a ready
@@ -105,18 +105,19 @@ creation retries retain their revision when a template changes.
 Template deletion retires preparation; retained instances continue to
 pin the runtime artifacts they need.
 
-A golden build that crashes (`GoldenActorCrashed`) is rebuilt without a template
-edit. The controller deletes the crashed ActorTemplate by UID and creates it
+A golden build that fails for any reason is rebuilt without a template edit,
+because Substrate never works on a template again once it records a golden
+error. The controller deletes the failed ActorTemplate by UID and creates it
 again after 15 seconds, 1 minute, 4 minutes, then every 10 minutes, each with up
 to 20% jitter and no retry cap. The attempt count and next retry time live in
 the database, so a controller restart keeps the schedule. While a retry waits,
 `Ready` is `False` with reason `ActorTemplateRetrying`, and the message names
-the retry number, its time and the crash. While the rebuild is pending, the
+the retry number, its time and Substrate's error, which starts with its reason
+(for example `GoldenActorCrashed` or `GoldenActorInvalid`). While the rebuild is pending, the
 `Preparing` message names the retry number. A successful build resets the
 count. The 1-second poll wakes a waiting retry once its retry time passes;
-after a failed delete, queue backoff wakes it instead. As for Agents, other
-golden failures report a terminal `ActorTemplateFailed` with Substrate's
-message. If the revision loses its last reference before the
+after a failed delete, queue backoff wakes it instead. Agents behave the same.
+If the revision loses its last reference before the
 rebuild's UID is recorded, GC deletes the rebuild only when its immutable inputs
 match the recorded digest; any other template under the name is left alone.
 

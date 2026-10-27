@@ -439,15 +439,8 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 }
 
 func TestPreparationTerminalFailures(t *testing.T) {
-	for _, test := range []struct{ name, reason, goldenError string }{
-		{name: "ActorTemplateRejected", reason: "ActorTemplateRejected"},
-		{name: "ActorTemplateConflict", reason: "ActorTemplateConflict"},
-		{name: "ActorTemplateFailed", reason: "ActorTemplateFailed", goldenError: "snapshot failed"},
-		{name: "GoldenActorInvalid", reason: "ActorTemplateFailed", goldenError: "GoldenActorInvalid: golden actor spec is invalid"},
-		{name: "GoldenTagConflict", reason: "ActorTemplateFailed", goldenError: "GoldenTagConflict: golden tag belongs to another actor or template"},
-	} {
-		reason := test.reason
-		t.Run(test.name, func(t *testing.T) {
+	for _, reason := range []string{"ActorTemplateRejected", "ActorTemplateConflict"} {
+		t.Run(reason, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				collections, harnesses := newPreparationTestCollections(t, "microvm")
 				initial := collections.Reconciliations.List()[0]
@@ -458,9 +451,6 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				case "ActorTemplateConflict":
 					templates.template = proto.CloneOf(initial.Target.ActorTemplate)
 					templates.template.Containers[0].Args = []string{"unexpected"}
-				case "ActorTemplateFailed":
-					templates.template = proto.CloneOf(initial.Target.ActorTemplate)
-					templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: test.goldenError}}
 				}
 				store := &fakeRuntimeRevisionStore{}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
@@ -479,14 +469,9 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				ready := apimeta.FindStatusCondition(published.Status.Conditions, kagentv1alpha3.AgentConditionReady)
 				require.Equal(t, reason, ready.Reason)
 				require.NotContains(t, ready.Message, "private-config-value")
-				if test.goldenError != "" {
-					require.Equal(t, metav1.ConditionFalse, ready.Status)
-					require.Equal(t, test.goldenError, ready.Message)
-				}
 				time.Sleep(5 * time.Minute)
 				synctest.Wait()
 				require.Equal(t, 1, store.pairCalls, "neither the queue nor the poller may retry terminal failures")
-				require.Empty(t, templates.deletedUIDs, "only GoldenActorCrashed recreates the template")
 
 				store.pairErr = errors.New("database unavailable")
 				require.ErrorIs(t, r.reconcileAgent(t.Context(), initial.ResourceName()), store.pairErr)

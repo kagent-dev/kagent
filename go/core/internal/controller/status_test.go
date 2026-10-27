@@ -48,7 +48,7 @@ func TestStatusPendingNamesGoldenRebuild(t *testing.T) {
 	state.Golden = goldenProgress{retries: 3}
 	ready = meta.FindStatusCondition(statusForAgent(state, 1, "").Conditions, kagentv1alpha3.AgentConditionReady)
 	require.Equal(t, "ActorTemplatePending", ready.Reason)
-	require.Equal(t, "rebuilding after golden crash, retry 3; waiting for the ActorTemplate golden snapshot", ready.Message)
+	require.Equal(t, "rebuilding after golden failure, retry 3; waiting for the ActorTemplate golden snapshot", ready.Message)
 }
 
 func TestEgressConditionSurvivesRuntimeFailureAndBoundsMessages(t *testing.T) {

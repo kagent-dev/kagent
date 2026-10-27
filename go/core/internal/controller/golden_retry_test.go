@@ -41,13 +41,6 @@ func maxJitter(duration time.Duration, maxFactor float64) time.Duration {
 	return duration + time.Duration(maxFactor*float64(duration))
 }
 
-func TestIsGoldenCrashMatchesOnlyTheCrashReason(t *testing.T) {
-	require.True(t, isGoldenCrash(crashed(&ateapipb.ActorTemplate{})))
-	for _, terminal := range []string{"GoldenActorInvalid: bad", "GoldenTagConflict: golden tag belongs to another actor or template", "golden actor crashed"} {
-		require.False(t, isGoldenCrash(withGoldenStatus(&ateapipb.ActorTemplate{}, &ateapipb.GoldenSnapshotStatus{ErrorMessage: terminal})), terminal)
-	}
-}
-
 func TestPreparationRetriesGoldenCrash(t *testing.T) {
 	for _, recovers := range []bool{true, false} {
 		name := "keeps retrying past the fast backoffs"
@@ -90,7 +83,7 @@ func TestPreparationRetriesGoldenCrash(t *testing.T) {
 				delays := []time.Duration{18 * time.Second, 72 * time.Second, 288 * time.Second, 12 * time.Minute, 12 * time.Minute}
 				for retry, delay := range delays {
 					condition := ready()
-					require.Equal(t, "ActorTemplateRetrying", condition.Reason, "ActorTemplateFailed is reserved for terminal golden errors")
+					require.Equal(t, "ActorTemplateRetrying", condition.Reason)
 					require.Contains(t, condition.Message, fmt.Sprintf("retry %d at", retry+1))
 					require.Contains(t, condition.Message, goldenCrashMessage)
 					time.Sleep(delay - 2*time.Second)
@@ -106,7 +99,7 @@ func TestPreparationRetriesGoldenCrash(t *testing.T) {
 					})
 					condition = ready()
 					require.Equal(t, "ActorTemplatePending", condition.Reason)
-					require.Equal(t, fmt.Sprintf("rebuilding after golden crash, retry %d; waiting for the ActorTemplate golden snapshot", retry+1), condition.Message)
+					require.Equal(t, fmt.Sprintf("rebuilding after golden failure, retry %d; waiting for the ActorTemplate golden snapshot", retry+1), condition.Message)
 					if recovers || retry == len(delays)-1 {
 						backend.inspect(func() {
 							templates.template = withGoldenStatus(templates.template, &ateapipb.GoldenSnapshotStatus{
@@ -145,7 +138,7 @@ func TestPreparationGoldenRetrySurvivesRestart(t *testing.T) {
 			return apimeta.FindStatusCondition(published.Status.Conditions, kagentv1alpha3.AgentConditionReady).Message
 		}
 		retryMessage := func(at time.Time) string {
-			return fmt.Sprintf("golden build crashed, retry 1 at %s: %s", at.UTC().Format(time.RFC3339), goldenCrashMessage)
+			return fmt.Sprintf("golden build failed, retry 1 at %s: %s", at.UTC().Format(time.RFC3339), goldenCrashMessage)
 		}
 		start := func(collections Collections) (*preparationTestBackend, context.CancelFunc) {
 			backend := &preparationTestBackend{templates: templates, store: store}
@@ -214,7 +207,7 @@ func TestPreparationGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 				synctest.Wait()
 				condition := ready()
 				require.Equal(t, "ActorTemplateRetrying", condition.Reason, "a failed delete must not hide the crash")
-				require.Equal(t, fmt.Sprintf("golden build crashed, retry 1 waits to delete the crashed template (%s): %s", code, goldenCrashMessage), condition.Message)
+				require.Equal(t, fmt.Sprintf("golden build failed, retry 1 waits to delete the crashed template (%s): %s", code, goldenCrashMessage), condition.Message)
 				backend.inspect(func() {
 					require.Greater(t, len(templates.deletedUIDs), 1, "the delete must be requeued")
 					templates.deleteErr = nil
@@ -224,7 +217,7 @@ func TestPreparationGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 				backend.inspect(func() { require.Equal(t, "uid-2", templates.template.GetMetadata().GetUid()) })
 				condition = ready()
 				require.Equal(t, "ActorTemplatePending", condition.Reason)
-				require.Contains(t, condition.Message, "rebuilding after golden crash, retry 1;")
+				require.Contains(t, condition.Message, "rebuilding after golden failure, retry 1;")
 				cancel()
 				synctest.Wait()
 			})
@@ -248,7 +241,7 @@ func TestPreparationPublishesStartedGoldenRetry(t *testing.T) {
 		return ready != nil && ready.Reason == "ActorTemplateRetrying"
 	})
 	require.Equal(t, metav1.ConditionFalse, ready.Status)
-	require.Equal(t, "golden build crashed, retry 1 started: "+goldenCrashMessage, ready.Message)
+	require.Equal(t, "golden build failed, retry 1 started: "+goldenCrashMessage, ready.Message)
 }
 
 type failingRecordStore struct {
