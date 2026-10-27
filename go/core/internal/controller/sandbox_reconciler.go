@@ -87,7 +87,7 @@ func (s *SandboxReconciler) Start(ctx context.Context) error {
 }
 
 // Kubernetes changes arrive through KRT. Poll only incomplete external work;
-// this also recovers transient failures after the queue's retry budget expires.
+// the queue retries failed preparations on its own backoff.
 func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statuses controllers.Queue) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -109,12 +109,13 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 }
 
 // needsPreparationPoll reports whether the poll loop should requeue a sandbox
-// template: it is deleting, lacks its finalizer, or its golden build is due.
+// template: it is deleting, lacks its finalizer, its golden build is due, or it
+// has not been prepared yet. A failed preparation stays on the queue's backoff.
 func needsPreparationPoll(state sandboxReconciliation, now time.Time) bool {
 	if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
 		return true
 	}
-	return state.Golden.due(now) || (state.Golden.phase == goldenUnobserved && state.canPrepare())
+	return state.Golden.due(now) || (state.Golden.phase == goldenUnobserved && state.Failure == nil && state.canPrepare())
 }
 
 func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {

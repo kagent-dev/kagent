@@ -419,15 +419,15 @@ func recordGoldenRetry(ctx context.Context, tx pgx.Tx, revision, templateUID str
 	switch {
 	case options.Ready:
 		if err := execSQL(ctx, tx, `
-			UPDATE runtime_revision SET golden_attempts = 0, golden_failure_uid = '', golden_failed_at = NULL, updated_at = NOW()
-			WHERE revision = $1 AND golden_attempts > 0
+			UPDATE runtime_revision SET golden_retries = 0, golden_failure_uid = '', golden_failed_at = NULL, updated_at = NOW()
+			WHERE revision = $1 AND golden_retries > 0
 		`, revision); err != nil {
 			return GoldenRetry{}, err
 		}
 	case !options.GoldenFailedAt.IsZero():
 		result, err := tx.Exec(ctx, `
 			UPDATE runtime_revision
-			SET golden_attempts = golden_attempts + 1, golden_failure_uid = $2, golden_failed_at = $3, updated_at = NOW()
+			SET golden_retries = golden_retries + 1, golden_failure_uid = $2, golden_failed_at = $3, updated_at = NOW()
 			WHERE revision = $1 AND golden_failure_uid <> $2
 		`, revision, templateUID, options.GoldenFailedAt)
 		if err != nil {
@@ -436,17 +436,17 @@ func recordGoldenRetry(ctx context.Context, tx pgx.Tx, revision, templateUID str
 		retry.New = result.RowsAffected() > 0
 	}
 	type goldenRetryRow struct {
-		GoldenAttempts int
+		GoldenRetries  int
 		GoldenFailedAt *time.Time
 	}
 	row, err := queryOne(ctx, tx, `
-		SELECT golden_attempts, CASE WHEN golden_failure_uid = actor_template_uid THEN golden_failed_at END AS golden_failed_at
+		SELECT golden_retries, CASE WHEN golden_failure_uid = actor_template_uid THEN golden_failed_at END AS golden_failed_at
 		FROM runtime_revision WHERE revision = $1
 	`, pgx.RowToStructByName[goldenRetryRow], revision)
 	if err != nil {
 		return GoldenRetry{}, fmt.Errorf("get golden retry for runtime revision %s: %w", revision, notFoundOr(err))
 	}
-	retry.Retries = row.GoldenAttempts
+	retry.Retries = row.GoldenRetries
 	if row.GoldenFailedAt != nil {
 		retry.FailedAt = *row.GoldenFailedAt
 	}

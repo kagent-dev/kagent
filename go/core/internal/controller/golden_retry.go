@@ -140,15 +140,10 @@ func (p goldenProgress) ready() bool {
 	return p.phase == goldenReady
 }
 
-// waiting reports whether a retry is still inside its backoff.
-func (p goldenProgress) waiting(now time.Time) bool {
-	return p.phase == goldenRetrying && (p.nextCheck.IsZero() || now.Before(p.nextCheck))
-}
-
 // due reports whether the poll loop should requeue the revision: a build is in
 // progress, or a retry's backoff has elapsed.
 func (p goldenProgress) due(now time.Time) bool {
-	return p.phase == goldenBuilding || (p.phase == goldenRetrying && !p.waiting(now))
+	return p.phase == goldenBuilding || (p.phase == goldenRetrying && !p.nextCheck.IsZero() && !now.Before(p.nextCheck))
 }
 
 func (p goldenProgress) pendingMessage(waiting string) string {

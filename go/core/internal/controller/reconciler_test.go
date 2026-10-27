@@ -263,6 +263,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.ErrorIs(t, err, database.ErrNotFound)
 			restarted.sweep(ctx)
+			require.NotContains(t, templates.deletedUIDs, "", "an empty UID waives Substrate's delete precondition")
 		})
 	}
 }

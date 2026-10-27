@@ -540,20 +540,32 @@ func TestSandboxPreparationPollSkipsOnlyWaitingGoldenRetries(t *testing.T) {
 	now := time.Now()
 	waiting := goldenProgress{phase: goldenRetrying, message: "waiting", nextCheck: now.Add(time.Minute)}
 	due := goldenProgress{phase: goldenRetrying, message: "due", nextCheck: now.Add(-time.Second)}
+	prepareFailed := &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage, Retryable: true}
 	deleted := metav1.NewTime(now)
+	finalized := metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}
 	for _, test := range []struct {
 		name     string
 		template metav1.ObjectMeta
 		golden   goldenProgress
+		failure  *ReconciliationFailure
 		want     bool
 	}{
-		{name: "waiting retry", template: metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}, golden: waiting},
-		{name: "due retry", template: metav1.ObjectMeta{Finalizers: []string{sandboxPreparationFinalizer}}, golden: due, want: true},
+		{name: "waiting retry", template: finalized, golden: waiting},
+		{name: "due retry", template: finalized, golden: due, want: true},
 		{name: "missing finalizer", template: metav1.ObjectMeta{}, golden: waiting, want: true},
 		{name: "deleting during a waiting retry", template: metav1.ObjectMeta{DeletionTimestamp: &deleted, Finalizers: []string{sandboxPreparationFinalizer}}, golden: waiting, want: true},
+		{name: "not prepared yet", template: finalized, want: true},
+		{name: "failed preparation stays on the queue backoff", template: finalized, failure: prepareFailed},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			state := sandboxReconciliation{Template: &kagentv1alpha3.SandboxTemplate{ObjectMeta: test.template}, Failure: test.golden.failure(), Golden: test.golden}
+			failure := test.failure
+			if failure == nil {
+				failure = test.golden.failure()
+			}
+			state := sandboxReconciliation{
+				Template: &kagentv1alpha3.SandboxTemplate{ObjectMeta: test.template}, DesiredActorTemplate: &ateapipb.ActorTemplate{},
+				Failure: failure, Golden: test.golden,
+			}
 			assert.Equal(t, test.want, needsPreparationPoll(state, now))
 		})
 	}
