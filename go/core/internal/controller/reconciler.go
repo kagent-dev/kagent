@@ -179,10 +179,9 @@ func compilationFailure(err error) *ReconciliationFailure {
 // or a Session or checkpoint references them.
 type runtimeRevisionStore interface {
 	actorEgressStore
-	goldenRetryStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
-	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
+	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) (database.GoldenRetry, error)
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
@@ -445,18 +444,15 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 		ActorTemplateSpecDigest: digest,
 	}
-	golden, err := r.golden.observe(ctx, r.store, r.templates, revision.Revision, observed, func(options database.RecordRevisionOptions) error {
-		if err := r.store.RecordRuntimeRevision(ctx, revision, options); err != nil {
-			return fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err)
-		}
-		return nil
-	})
+	now := time.Now()
+	retry, err := r.store.RecordRuntimeRevision(ctx, revision, goldenRecordOptions(observed, now))
+	if err != nil {
+		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
+	}
+	golden, err := r.golden.advance(ctx, r.templates, revision.Revision, observed, retry, now)
 	if failure := golden.failure(); failure != nil {
 		r.observePreparation(*state, golden, failure)
 		return err
-	}
-	if err != nil {
-		return r.observePreparationError(*state, err)
 	}
 
 	// This observation drives Kubernetes Ready status on a separate queue.

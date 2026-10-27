@@ -400,7 +400,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
+	if err := recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -576,7 +576,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
+	if err := recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -681,7 +681,7 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
+	if err := recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})); err != nil {
 		t.Fatal(err)
 	}
 }

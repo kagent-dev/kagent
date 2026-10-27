@@ -38,10 +38,6 @@ func goldenFailed(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate {
 	return withGoldenStatus(template, &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenFailureMessage})
 }
 
-func maxJitter(duration time.Duration, maxFactor float64) time.Duration {
-	return duration + time.Duration(maxFactor*float64(duration))
-}
-
 func TestPreparationRetriesGoldenFailure(t *testing.T) {
 	for _, recovers := range []bool{true, false} {
 		name := "keeps retrying past the fast backoffs"
@@ -59,7 +55,7 @@ func TestPreparationRetriesGoldenFailure(t *testing.T) {
 				backend := &preparationTestBackend{templates: templates, store: store}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
 				r := newReconciler(collections, backend, backend, statusClient)
-				r.golden.jitter = maxJitter
+				r.golden.maxJitterFraction = 0
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go func() { assert.NoError(t, r.Start(ctx)) }()
@@ -81,7 +77,7 @@ func TestPreparationRetriesGoldenFailure(t *testing.T) {
 				require.Equal(t, condition.Message, ready().Message, "repeated passes over one failure must keep its retry and schedule")
 				backend.inspect(func() { require.Empty(t, templates.deletedUIDs, "the failed template stays until its backoff ends") })
 
-				delays := []time.Duration{18 * time.Second, 72 * time.Second, 288 * time.Second, 12 * time.Minute, 12 * time.Minute}
+				delays := []time.Duration{15 * time.Second, time.Minute, 4 * time.Minute, 10 * time.Minute, 10 * time.Minute}
 				for retry, delay := range delays {
 					condition := ready()
 					require.Equal(t, "ActorTemplateRetrying", condition.Reason)
@@ -143,7 +139,7 @@ func TestPreparationGoldenRetrySurvivesRestart(t *testing.T) {
 		start := func(collections Collections) (*preparationTestBackend, context.CancelFunc) {
 			backend := &preparationTestBackend{templates: templates, store: store}
 			r := newReconciler(collections, backend, backend, statusClient)
-			r.golden.jitter = maxJitter
+			r.golden.maxJitterFraction = 0
 			ctx, cancel := context.WithCancel(t.Context())
 			go func() { assert.NoError(t, r.Start(ctx)) }()
 			synctest.Wait()
@@ -151,14 +147,14 @@ func TestPreparationGoldenRetrySurvivesRestart(t *testing.T) {
 		}
 
 		backend, stop := start(collections)
-		retryAt := time.Now().Add(18 * time.Second)
+		retryAt := time.Now().Add(15 * time.Second)
 		require.Equal(t, retryMessage(retryAt), message())
 		time.Sleep(time.Until(retryAt) / 2)
 		stop()
 		synctest.Wait()
 
 		storedRetryAt := retryAt.Add(10 * time.Second)
-		backend.inspect(func() { store.goldenRetryAt = storedRetryAt })
+		backend.inspect(func() { store.goldenFailedAt = store.goldenFailedAt.Add(10 * time.Second) })
 		restarted, _ := newPreparationTestCollections(t, "microvm")
 		backend, stop = start(restarted)
 		defer stop()
@@ -192,7 +188,7 @@ func TestPreparationGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 				backend := &preparationTestBackend{templates: templates, store: &fakeRuntimeRevisionStore{}}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
 				r := newReconciler(collections, backend, backend, statusClient)
-				r.golden.jitter = maxJitter
+				r.golden.maxJitterFraction = 0
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go func() { assert.NoError(t, r.Start(ctx)) }()
@@ -203,7 +199,7 @@ func TestPreparationGoldenRetryKeepsRetryingOnDeleteError(t *testing.T) {
 				}
 				synctest.Wait()
 
-				time.Sleep(18*time.Second + 5*time.Second)
+				time.Sleep(15*time.Second + 5*time.Second)
 				synctest.Wait()
 				condition := ready()
 				require.Equal(t, "ActorTemplateRetrying", condition.Reason, "a failed delete must not hide the golden failure")
@@ -240,7 +236,7 @@ func TestPreparationPublishesStartedGoldenRetry(t *testing.T) {
 			templates := &fakeActorTemplates{template: withGoldenStatus(initial.Target.ActorTemplate, &ateapipb.GoldenSnapshotStatus{ErrorMessage: test.errorMessage})}
 			templates.template.Metadata.Uid = "uid-1"
 			r := &Reconciler{collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
-			r.golden = goldenRetries{delays: []time.Duration{0}, jitter: maxJitter}
+			r.golden = goldenRetries{delays: []time.Duration{0}}
 
 			require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
 			require.Equal(t, []string{"uid-1"}, templates.deletedUIDs, "every golden error retries by deleting the failed template")
@@ -261,9 +257,9 @@ type failingRecordStore struct {
 	recordErr error
 }
 
-func (s *failingRecordStore) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
+func (s *failingRecordStore) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
 	if s.recordErr != nil {
-		return s.recordErr
+		return database.GoldenRetry{}, s.recordErr
 	}
 	return s.Client.RecordRuntimeRevision(ctx, revision, options)
 }
@@ -298,7 +294,7 @@ func TestRuntimeRevisionGCCollectsOnlyMatchingUnrecordedGoldenRebuild(t *testing
 			templates.template.Metadata.Uid = "uid-1"
 			recording := &failingRecordStore{Client: store}
 			r := newReconciler(collections, templates, recording, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
-			r.golden = goldenRetries{delays: []time.Duration{0}, jitter: maxJitter}
+			r.golden = goldenRetries{delays: []time.Duration{0}}
 
 			require.NoError(t, r.reconcileAgent(ctx, initial.ResourceName()))
 			require.Equal(t, []string{"uid-1"}, templates.deletedUIDs)
@@ -344,12 +340,11 @@ func TestRuntimeRevisionGCCollectsUnrecordedSandboxGoldenRebuild(t *testing.T) {
 		Containers: []*ateapipb.Container{{Name: "sandbox", Image: "guest@sha256:" + strings.Repeat("b", 64)}}}
 	digest, err := substrate.ActorTemplateSpecDigest(rebuild)
 	require.NoError(t, err)
-	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
+	_, err = store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact: database.RuntimeArtifact{Revision: revision, Kind: "sandbox", Namespace: "team-a",
 			ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "uid-1", ActorTemplateSpecDigest: digest},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte(`{}`),
-	}, database.RecordRevisionOptions{}))
-	_, err = store.EnsureGoldenRetry(ctx, revision, "uid-1", time.Now(), []time.Duration{0})
+	}, database.RecordRevisionOptions{GoldenFailedAt: time.Now()})
 	require.NoError(t, err)
 	templates := &fakeActorTemplates{template: rebuild}
 	require.NoError(t, store.RetireSandboxTemplateIdentities(ctx, "team-a", "scratch"))
@@ -360,4 +355,23 @@ func TestRuntimeRevisionGCCollectsUnrecordedSandboxGoldenRebuild(t *testing.T) {
 	require.Nil(t, templates.template)
 	_, err = store.GetSandboxRevision(ctx, revision)
 	require.ErrorIs(t, err, database.ErrNotFound)
+}
+
+func TestGoldenRetryAt(t *testing.T) {
+	failedAt := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	exact := goldenRetries{delays: []time.Duration{15 * time.Second, time.Minute}}
+	for retries, want := range map[int]time.Duration{1: 15 * time.Second, 2: time.Minute, 5: time.Minute} {
+		require.Equal(t, failedAt.Add(want), exact.retryAt(database.GoldenRetry{Retries: retries, FailedAt: failedAt}, "uid"), "retry %d", retries)
+	}
+
+	retry := database.GoldenRetry{Retries: 1, FailedAt: failedAt}
+	first := defaultGoldenRetries.retryAt(retry, "uid-1")
+	require.Equal(t, first, defaultGoldenRetries.retryAt(retry, "uid-1"), "every reconcile and restart must compute the same retry time")
+	spread := map[time.Time]bool{}
+	for i := range 20 {
+		at := defaultGoldenRetries.retryAt(retry, fmt.Sprintf("uid-%d", i))
+		require.WithinRange(t, at, failedAt.Add(15*time.Second), failedAt.Add(18*time.Second))
+		spread[at] = true
+	}
+	require.Greater(t, len(spread), 10, "different templates must retry at different times")
 }

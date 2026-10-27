@@ -33,11 +33,10 @@ const (
 
 type sandboxRevisionStore interface {
 	actorEgressStore
-	goldenRetryStore
 	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
 	GetSandboxEgressGrant(context.Context, string, string) (egress.Access, error)
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
-	RecordSandboxRevision(context.Context, database.SandboxRevision, database.RecordRevisionOptions) error
+	RecordSandboxRevision(context.Context, database.SandboxRevision, database.RecordRevisionOptions) (database.GoldenRetry, error)
 }
 
 // SandboxReconciler owns the queued side effects of SandboxTemplate preparation.
@@ -205,18 +204,15 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
 		SourceSnapshot: state.SourceSnapshot,
 	}
-	golden, err := s.golden.observe(ctx, s.store, s.actors, state.RevisionID, observed, func(options database.RecordRevisionOptions) error {
-		if err := s.store.RecordSandboxRevision(ctx, revision, options); err != nil {
-			return fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err)
-		}
-		return nil
-	})
+	now := time.Now()
+	retry, err := s.store.RecordSandboxRevision(ctx, revision, goldenRecordOptions(observed, now))
+	if err != nil {
+		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
+	}
+	golden, err := s.golden.advance(ctx, s.actors, state.RevisionID, observed, retry, now)
 	if failure := golden.failure(); failure != nil {
 		s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: state.RevisionID, Golden: golden, Failure: failure})
 		return err
-	}
-	if err != nil {
-		return s.observeError(*state, err, true)
 	}
 
 	// Kubernetes readiness can only follow a revision that callers can select

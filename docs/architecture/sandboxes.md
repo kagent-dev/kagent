@@ -109,8 +109,10 @@ A golden build that fails for any reason is rebuilt without a template edit,
 because Substrate never works on a template again once it records a golden
 error. The controller deletes the failed ActorTemplate by UID and creates it
 again after 15 seconds, 1 minute, 4 minutes, then every 10 minutes, each with up
-to 20% jitter and no retry cap. The attempt count and next retry time live in
-the database, so a controller restart keeps the schedule. While a retry waits,
+to 20% jitter and no retry cap. The database records the attempt count and when
+the build failed, in the same transaction as the revision. The controller
+computes the retry time from them, and the jitter comes from the failed
+template's UID, so a controller restart keeps the schedule. While a retry waits,
 `Ready` is `False` with reason `ActorTemplateRetrying`, and the message names
 the retry number, its time and the failure reason. Substrate's full error is
 logged by the controller, not copied into status, because it can quote

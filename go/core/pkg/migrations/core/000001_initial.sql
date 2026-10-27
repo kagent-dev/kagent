@@ -41,7 +41,7 @@ CREATE TABLE runtime_revision (
     actor_template_spec_digest TEXT      NOT NULL DEFAULT '',
     golden_attempts          INT         NOT NULL DEFAULT 0 CHECK (golden_attempts >= 0),
     golden_failure_uid       TEXT        NOT NULL DEFAULT '',
-    golden_retry_at          TIMESTAMPTZ,
+    golden_failed_at         TIMESTAMPTZ,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- Logical deletion; retain the row until ActorTemplate cleanup completes.

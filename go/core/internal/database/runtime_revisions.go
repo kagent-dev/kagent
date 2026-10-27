@@ -97,26 +97,31 @@ func (c *Client) ListAgentEgressSources(ctx context.Context) ([]RuntimeEgressSou
  `, pgx.RowToStructByName[RuntimeEgressSource])
 }
 
-// RecordRevisionOptions controls whether a prepared revision becomes available.
+// RecordRevisionOptions reports the state of the recorded ActorTemplate's golden build.
 type RecordRevisionOptions struct {
-	// Ready promotes the revision only while its source is active and still desires it.
+	// Ready promotes the revision only while its source is active and still
+	// desires it, and clears its golden retry state.
 	Ready bool
+	// GoldenFailedAt, when set, marks the recorded ActorTemplate's golden build
+	// as failed at that time. Repeat reports for the same template keep the first.
+	GoldenFailedAt time.Time
 }
 
-// RecordRuntimeRevision atomically stores immutable inputs and, when Ready,
-// promotes the revision for its active source if still desired. Existing inputs
-// are preserved; actor UID, spec digest and update time refresh. Stale reports
-// cannot replace the last successful revision. Deleting revisions return
-// ErrObjectDeleting.
-func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, options RecordRevisionOptions) error {
+// RecordRuntimeRevision atomically stores immutable inputs and the golden
+// build's retry state and, when Ready, promotes the revision for its active
+// source if still desired. Existing inputs are preserved; actor UID, spec digest
+// and update time refresh. Stale reports cannot replace the last successful
+// revision. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, options RecordRevisionOptions) (GoldenRetry, error) {
 	if revision.AgentCard == nil {
-		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
+		return GoldenRetry{}, fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
 	}
 	card, err := proto.Marshal(revision.AgentCard)
 	if err != nil {
-		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
+		return GoldenRetry{}, fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
-	return c.withTx(ctx, func(tx pgx.Tx) error {
+	var retry GoldenRetry
+	err = c.withTx(ctx, func(tx pgx.Tx) error {
 		if options.Ready {
 			// Match definition preparation and GC: source before revision.
 			if _, err := queryMany(ctx, tx, `
@@ -139,10 +144,8 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		`, revision.Revision, revision.AgentName, revision.AgentUID, card); err != nil {
 			return err
 		}
-		if !options.Ready {
-			return nil
-		}
-		if err := resetGoldenRetry(ctx, tx, revision.Revision); err != nil {
+		var err error
+		if retry, err = recordGoldenRetry(ctx, tx, revision.Revision, revision.ActorTemplateUID, options); err != nil || !options.Ready {
 			return err
 		}
 		return execSQL(ctx, tx, `
@@ -157,6 +160,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 			  AND p.latest_successful_revision IS DISTINCT FROM r.revision
 		`, revision.Revision, revision.Namespace, revision.AgentUID)
 	})
+	return retry, err
 }
 
 // GetRuntimeRevision returns a prepared revision and its decoded agent card, or
@@ -395,73 +399,56 @@ type runtimeRevisionRow struct {
 	DeletedAt               *time.Time
 }
 
-// resetGoldenRetry clears the retry schedule once a revision's golden build
-// succeeds, so a later failure starts again from the first backoff delay.
-func resetGoldenRetry(ctx context.Context, tx pgx.Tx, revision string) error {
-	return execSQL(ctx, tx, `
-		UPDATE runtime_revision SET golden_attempts = 0, golden_failure_uid = '', golden_retry_at = NULL, updated_at = NOW()
-		WHERE revision = $1 AND golden_attempts > 0
-	`, revision)
-}
-
-// GoldenRetry is the persisted retry schedule for one failed golden build.
+// GoldenRetry is a revision's golden build retry state since its last success.
 type GoldenRetry struct {
+	// Retries counts the golden builds that failed since the last success.
 	Retries int
-	RetryAt time.Time
+	// FailedAt is when the recorded ActorTemplate's golden build failed, or zero
+	// when the recorded template has not failed.
+	FailedAt time.Time
+	// New reports that this record call saw the failure first.
+	New bool
 }
 
-// GoldenRetryAttempts returns how many failed golden builds the revision has
-// retried since its last success, so status can report a rebuild in progress.
-func (c *Client) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {
-	attempts, err := queryOne(ctx, c.db, `
-		SELECT golden_attempts FROM runtime_revision WHERE revision = $1
-	`, pgx.RowTo[int], revision)
-	if err != nil {
-		return 0, fmt.Errorf("get golden retry attempts for runtime revision %s: %w", revision, notFoundOr(err))
-	}
-	return attempts, nil
-}
-
-// EnsureGoldenRetry returns the retry schedule for a failed ActorTemplate,
-// creating it on first sight. Reconciles see the same failure on every pass
-// until the backoff ends, so the first call counts the attempt and picks the
-// next backoff delay, and later calls for that template return it unchanged.
-func (c *Client) EnsureGoldenRetry(ctx context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (GoldenRetry, error) {
-	type goldenRetryRow struct {
-		GoldenAttempts   int
-		GoldenFailureUID string
-		GoldenRetryAt    *time.Time
-	}
-	if len(delays) == 0 {
-		return GoldenRetry{}, fmt.Errorf("schedule golden retry for runtime revision %s: no retry delays", revision)
-	}
-	var result GoldenRetry
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := queryOne(ctx, tx, `
-			SELECT golden_attempts, golden_failure_uid, golden_retry_at FROM runtime_revision
-			WHERE revision = $1 AND actor_template_uid = $2 AND deleted_at IS NULL
-			FOR UPDATE
-		`, pgx.RowToStructByName[goldenRetryRow], revision, failedTemplateUID)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		if row.GoldenFailureUID == failedTemplateUID && row.GoldenRetryAt != nil {
-			result = GoldenRetry{Retries: row.GoldenAttempts, RetryAt: *row.GoldenRetryAt}
-			return nil
-		}
-		retryAt := now.Add(delays[min(row.GoldenAttempts, len(delays)-1)])
+// recordGoldenRetry updates the retry state from one report of the recorded
+// ActorTemplate and returns it. Ready clears it, so a later failure starts again
+// from the first backoff delay. A failure counts once per template UID, because
+// reconciles see the same failed template on every pass until it is replaced.
+func recordGoldenRetry(ctx context.Context, tx pgx.Tx, revision, templateUID string, options RecordRevisionOptions) (GoldenRetry, error) {
+	var retry GoldenRetry
+	switch {
+	case options.Ready:
 		if err := execSQL(ctx, tx, `
-			UPDATE runtime_revision
-			SET golden_attempts = golden_attempts + 1, golden_failure_uid = $2, golden_retry_at = $3, updated_at = NOW()
-			WHERE revision = $1
-		`, revision, failedTemplateUID, retryAt); err != nil {
-			return err
+			UPDATE runtime_revision SET golden_attempts = 0, golden_failure_uid = '', golden_failed_at = NULL, updated_at = NOW()
+			WHERE revision = $1 AND golden_attempts > 0
+		`, revision); err != nil {
+			return GoldenRetry{}, err
 		}
-		result = GoldenRetry{Retries: row.GoldenAttempts + 1, RetryAt: retryAt}
-		return nil
-	})
-	if err != nil {
-		return GoldenRetry{}, fmt.Errorf("schedule golden retry for runtime revision %s: %w", revision, err)
+	case !options.GoldenFailedAt.IsZero():
+		result, err := tx.Exec(ctx, `
+			UPDATE runtime_revision
+			SET golden_attempts = golden_attempts + 1, golden_failure_uid = $2, golden_failed_at = $3, updated_at = NOW()
+			WHERE revision = $1 AND golden_failure_uid <> $2
+		`, revision, templateUID, options.GoldenFailedAt)
+		if err != nil {
+			return GoldenRetry{}, fmt.Errorf("record golden failure for runtime revision %s: %w", revision, err)
+		}
+		retry.New = result.RowsAffected() > 0
 	}
-	return result, nil
+	type goldenRetryRow struct {
+		GoldenAttempts int
+		GoldenFailedAt *time.Time
+	}
+	row, err := queryOne(ctx, tx, `
+		SELECT golden_attempts, CASE WHEN golden_failure_uid = actor_template_uid THEN golden_failed_at END AS golden_failed_at
+		FROM runtime_revision WHERE revision = $1
+	`, pgx.RowToStructByName[goldenRetryRow], revision)
+	if err != nil {
+		return GoldenRetry{}, fmt.Errorf("get golden retry for runtime revision %s: %w", revision, notFoundOr(err))
+	}
+	retry.Retries = row.GoldenAttempts
+	if row.GoldenFailedAt != nil {
+		retry.FailedAt = *row.GoldenFailedAt
+	}
+	return retry, nil
 }

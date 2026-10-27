@@ -96,13 +96,14 @@ func retireSandboxTemplateIdentities(ctx context.Context, db dbExecutor, namespa
 	`, namespace, name, retainedUID)
 }
 
-// RecordSandboxRevision atomically stores immutable inputs and, when Ready,
-// promotes the revision for its active source if still desired. Existing inputs
-// are preserved; actor UID, spec digest and update time refresh. Stale reports
-// cannot replace the last successful revision. Deleting revisions return
-// ErrObjectDeleting.
-func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision, options RecordRevisionOptions) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
+// RecordSandboxRevision atomically stores immutable inputs and the golden
+// build's retry state and, when Ready, promotes the revision for its active
+// source if still desired. Existing inputs are preserved; actor UID, spec digest
+// and update time refresh. Stale reports cannot replace the last successful
+// revision. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision, options RecordRevisionOptions) (GoldenRetry, error) {
+	var retry GoldenRetry
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		if options.Ready {
 			// Match definition preparation and GC: source before revision.
 			if _, err := queryMany(ctx, tx, `
@@ -122,10 +123,8 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 		`, revision.Revision, revision.SandboxTemplateName, revision.SandboxTemplateUID); err != nil {
 			return err
 		}
-		if !options.Ready {
-			return nil
-		}
-		if err := resetGoldenRetry(ctx, tx, revision.Revision); err != nil {
+		var err error
+		if retry, err = recordGoldenRetry(ctx, tx, revision.Revision, revision.ActorTemplateUID, options); err != nil || !options.Ready {
 			return err
 		}
 		return execSQL(ctx, tx, `
@@ -137,6 +136,7 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 			    AND p.latest_successful_revision IS DISTINCT FROM r.revision
 		`, revision.Revision, revision.Namespace, revision.SandboxTemplateUID)
 	})
+	return retry, err
 }
 
 // GetSandboxRevision reads immutable sandbox inputs; missing revisions return ErrNotFound.

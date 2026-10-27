@@ -55,29 +55,18 @@ func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, va
 	s.desired = value
 	return s.upsertErr
 }
-func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision, options database.RecordRevisionOptions) error {
+func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.recordCalls++
 	if s.recordErr != nil {
-		return s.recordErr
+		return database.GoldenRetry{}, s.recordErr
 	}
 	s.revision = value
-	s.golden.recordGolden(value.Revision, value.ActorTemplateUID, options.Ready)
 	if options.Ready {
 		s.ready = true
 	}
-	return nil
-}
-func (s *sandboxTestStore) EnsureGoldenRetry(ctx context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.golden.EnsureGoldenRetry(ctx, revision, failedTemplateUID, now, delays)
-}
-func (s *sandboxTestStore) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.golden.GoldenRetryAttempts(ctx, revision)
+	return s.golden.recordGolden(value.ActorTemplateUID, options), nil
 }
 func (s *sandboxTestStore) RetireSandboxTemplateIdentities(context.Context, string, string) error {
 	s.mu.Lock()

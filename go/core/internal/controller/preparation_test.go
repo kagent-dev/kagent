@@ -99,7 +99,8 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			// A delayed success for the abandoned preparation must not replace A.
 			abandoned, err := store.GetRuntimeRevision(ctx, preparing.Target.RevisionID.String())
 			require.NoError(t, err)
-			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned, database.RecordRevisionOptions{Ready: true}))
+			_, err = store.RecordRuntimeRevision(ctx, *abandoned, database.RecordRevisionOptions{Ready: true})
+			require.NoError(t, err)
 			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
 			require.Len(t, unreferenced, 1)
@@ -360,18 +361,6 @@ func (p *preparationTestBackend) DeleteActorTemplate(ctx context.Context, atespa
 	return p.templates.DeleteActorTemplate(ctx, atespace, name, uid)
 }
 
-func (p *preparationTestBackend) EnsureGoldenRetry(ctx context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.store.EnsureGoldenRetry(ctx, revision, failedTemplateUID, now, delays)
-}
-
-func (p *preparationTestBackend) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.store.GoldenRetryAttempts(ctx, revision)
-}
-
 func (p *preparationTestBackend) ListAgentEgressSources(ctx context.Context) ([]database.RuntimeEgressSource, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -384,7 +373,7 @@ func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, defi
 	return p.store.UpsertAgentDefinition(ctx, definition)
 }
 
-func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
+func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.store.RecordRuntimeRevision(ctx, revision, options)

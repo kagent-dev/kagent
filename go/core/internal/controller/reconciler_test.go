@@ -344,36 +344,28 @@ type fakeRuntimeRevisionStore struct {
 	fakeGoldenRetries
 }
 
+// fakeGoldenRetries mirrors the store's golden retry state for one revision.
 type fakeGoldenRetries struct {
-	recordedRevision string
-	recordedUID      string
 	goldenAttempts   int
 	goldenFailureUID string
-	goldenRetryAt    time.Time
+	goldenFailedAt   time.Time
 }
 
-func (f *fakeGoldenRetries) recordGolden(revision, uid string, ready bool) {
-	f.recordedRevision, f.recordedUID = revision, uid
-	if ready {
-		f.goldenAttempts, f.goldenFailureUID, f.goldenRetryAt = 0, "", time.Time{}
+func (f *fakeGoldenRetries) recordGolden(uid string, options database.RecordRevisionOptions) database.GoldenRetry {
+	var retry database.GoldenRetry
+	switch {
+	case options.Ready:
+		f.goldenAttempts, f.goldenFailureUID, f.goldenFailedAt = 0, "", time.Time{}
+	case !options.GoldenFailedAt.IsZero() && f.goldenFailureUID != uid:
+		f.goldenAttempts++
+		f.goldenFailureUID, f.goldenFailedAt = uid, options.GoldenFailedAt
+		retry.New = true
 	}
-}
-
-func (f *fakeGoldenRetries) EnsureGoldenRetry(_ context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (database.GoldenRetry, error) {
-	if f.recordedRevision != revision || f.recordedUID != failedTemplateUID {
-		return database.GoldenRetry{}, database.ErrNotFound
+	retry.Retries = f.goldenAttempts
+	if f.goldenFailureUID == uid {
+		retry.FailedAt = f.goldenFailedAt
 	}
-	if f.goldenFailureUID == failedTemplateUID {
-		return database.GoldenRetry{Retries: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
-	}
-	f.goldenRetryAt = now.Add(delays[min(f.goldenAttempts, len(delays)-1)])
-	f.goldenAttempts++
-	f.goldenFailureUID = failedTemplateUID
-	return database.GoldenRetry{Retries: f.goldenAttempts, RetryAt: f.goldenRetryAt}, nil
-}
-
-func (f *fakeGoldenRetries) GoldenRetryAttempts(context.Context, string) (int, error) {
-	return f.goldenAttempts, nil
+	return retry
 }
 
 func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error) {
@@ -386,17 +378,16 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair
 	return s.pairErr
 }
 
-func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
 	s.recordCalls++
 	if s.revisionErr != nil {
-		return s.revisionErr
+		return database.GoldenRetry{}, s.revisionErr
 	}
 	s.revision = &revision
-	s.recordGolden(revision.Revision, revision.ActorTemplateUID, options.Ready)
 	if options.Ready {
 		s.markedSuccessful = true
 	}
-	return nil
+	return s.recordGolden(revision.ActorTemplateUID, options), nil
 }
 
 func (s *fakeRuntimeRevisionStore) RetireAgentIdentities(_ context.Context, namespace, template string) error {

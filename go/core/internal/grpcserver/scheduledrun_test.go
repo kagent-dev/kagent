@@ -182,11 +182,12 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1.ScheduledRunS
 	pair := database.AgentDefinition{Namespace: "team", AgentName: "report", AgentUID: "template-uid", DesiredRevision: "scheduled-revision"}
 	upsertErr := store.UpsertAgentDefinition(t.Context(), pair)
 	require.NoError(t, upsertErr)
-	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{
+	_, err = store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{
 		Revision: pair.DesiredRevision, Namespace: pair.Namespace, AgentName: pair.AgentName, AgentUID: pair.AgentUID,
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: "runtime-uid",
-	}, database.RecordRevisionOptions{Ready: true}))
+	}, database.RecordRevisionOptions{Ready: true})
+	require.NoError(t, err)
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "report"}, Spec: v1alpha3.AgentSpec{
