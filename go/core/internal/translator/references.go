@@ -22,30 +22,23 @@ type NamespaceObservation struct {
 
 func (n NamespaceObservation) ResourceName() string { return n.Name }
 
-// ReferencePolicyError prevents using a previously prepared revision after
-// permission is denied or can no longer be established.
-type ReferencePolicyError struct{ Err error }
-
-func (e *ReferencePolicyError) Error() string { return e.Err.Error() }
-func (e *ReferencePolicyError) Unwrap() error { return e.Err }
-
 func authorizeReference(ctx krt.HandlerContext, collections Collections, source string, target types.NamespacedName, policy *v1alpha3.AllowedNamespaces) error {
 	var namespace *corev1.Namespace
 	if policy != nil && policy.From == v1alpha3.NamespacesFromSelector && collections.Namespaces != nil {
 		observed := krt.FetchOne(ctx, collections.Namespaces, krt.FilterKey(source))
 		if observed != nil {
 			if observed.Error != "" {
-				return &ReferencePolicyError{Err: fmt.Errorf("observe source namespace %q for allowedNamespaces.from=Selector: %s", source, observed.Error)}
+				return fmt.Errorf("observe source namespace %q for allowedNamespaces.from=Selector: %s", source, observed.Error)
 			}
 			namespace = observed.Namespace
 		}
 	}
 	allowed, err := policy.AllowsNamespaceMetadata(source, target.Namespace, namespace)
 	if err != nil {
-		return &ReferencePolicyError{Err: err}
+		return err
 	}
 	if !allowed {
-		return &ReferencePolicyError{Err: fmt.Errorf("reference from namespace %q denied by allowedNamespaces", source)}
+		return fmt.Errorf("reference from namespace %q denied by allowedNamespaces", source)
 	}
 	return nil
 }
@@ -76,7 +69,7 @@ func SameModelCredentials(a, b *v1alpha3.ModelConfig) bool {
 }
 
 // MCPRuntimeName retains existing local names and gives shared servers bounded,
-// namespace-qualified native names. Callers still reject duplicate bindings.
+// namespace-qualified native names. Native adapters reject colliding bindings.
 func MCPRuntimeName(source string, server *v1alpha3.RemoteMCPServer) string {
 	name := strings.ReplaceAll(server.Name, ".", "_")
 	if server.Namespace == source {

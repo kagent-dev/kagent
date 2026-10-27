@@ -119,18 +119,11 @@ agents continue processing. Watches retry to recover after access is restored.
 
 Target updates, policy changes, deletion/recreation, namespace-label changes,
 and target-local configuration dependencies trigger tracked recompilation.
-Reference-policy denial or inability to establish policy revokes the last
-successful revision's eligibility for **new sessions**. A delayed preparation
-result cannot restore that revision. Successful reauthorization and preparation
-restore new-session creation. Existing sessions and idempotent creation retries
-retain their pinned revision; this feature does not terminate running sessions.
-Ordinary non-policy compilation failures retain the existing last-good behavior.
-
-The retained revision's model and MCP identities are restored from its persisted
-provenance and tracked independently of the current Agent spec. If an edit changes
-or removes a reference but fails to prepare, policy changes on the old reference
-still revoke fallback eligibility. This tracking survives controller restarts and
-ends when the revision is replaced or revoked; pinned sessions do not extend it.
+Policy denial or a namespace observation failure prevents a new configuration
+from compiling, just like other reference-resolution errors. The last successful
+revision remains available for new sessions until a replacement is prepared.
+Existing sessions retain their pinned revision. These policies constrain
+compilation; they do not continuously authorize or revoke prepared revisions.
 
 ## Runtime credential access and management authorization
 
@@ -163,14 +156,3 @@ Install the regenerated CRDs **before** upgrading the controller or applying
 namespace-qualified manifests. Older schemas can prune the namespace fields.
 Existing local manifests retain their JSON shape. Go callers must adopt
 `v1alpha3.ObjectReference` and `corev1.TypedObjectReference` for the changed fields.
-
-## Runtime test setup
-
-The runtime E2E suite includes cross-namespace model and MCP credential delivery
-with same-name local decoy Secrets, plus a credential-provider denial case.
-Its dedicated test installation grants atespace `kagent` access to `kagent`,
-`kagent-shared-models`, and `kagent-shared-tools`. Leave `kagent-untrusted` out of
-that grant. These are CI/test values only; production defaults are unchanged.
-Run `TestCrossNamespaceModelCredentialDelivery` and
-`TestCrossNamespaceMCPCredentialDelivery` against a deployment built from this
-checkout after applying the updated CRDs.

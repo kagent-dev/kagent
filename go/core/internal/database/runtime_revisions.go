@@ -17,8 +17,7 @@ import (
 
 // UpsertAgentDefinition records the desired runtime revision for a
 // Kubernetes Agent identity. Updating an existing definition revives it if retired and
-// preserves its latest successful revision unless reference authorization is revoked.
-// It atomically retires older identities
+// preserves its latest successful revision. It atomically retires older identities
 // at the same names and rejects revisions whose deletion has started. Grants
 // are canonicalized before writing; errors may include an uncertain commit outcome.
 func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefinition) error {
@@ -35,10 +34,9 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (namespace, agent_uid) DO UPDATE SET
 			    agent_name = EXCLUDED.agent_name, desired_revision = EXCLUDED.desired_revision,
-			    latest_successful_revision = CASE WHEN $7 THEN NULL ELSE agent_definition.latest_successful_revision END,
 			    grant_destinations = EXCLUDED.grant_destinations, grant_credentials = EXCLUDED.grant_credentials,
 			    retired_at = NULL, updated_at = NOW()
-		`, definition.Namespace, definition.AgentName, definition.AgentUID, definition.DesiredRevision, grants.Destinations, grants.Credentials, definition.RevokePreparedRevision); err != nil {
+		`, definition.Namespace, definition.AgentName, definition.AgentUID, definition.DesiredRevision, grants.Destinations, grants.Credentials); err != nil {
 			return err
 		}
 
@@ -69,20 +67,6 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 		}
 		return nil
 	})
-}
-
-// GetPreparedAgentRevision reads the last successful revision and its durable
-// inputs for an active Agent UID. It returns ErrNotFound when none is eligible.
-func (c *Client) GetPreparedAgentRevision(ctx context.Context, namespace, uid string) (*PreparedAgentRevision, error) {
-	result, err := queryOne(ctx, c.db, `
-		SELECT r.revision, r.source_snapshot
-		FROM agent_definition d JOIN runtime_revision r ON r.revision = d.latest_successful_revision
-		WHERE d.namespace = $1 AND d.agent_uid = $2 AND d.retired_at IS NULL
-	`, pgx.RowToStructByName[PreparedAgentRevision], namespace, uid)
-	if err != nil {
-		return nil, notFoundOr(err)
-	}
-	return &result, nil
 }
 
 // GetAgentEgressGrant returns the active identity's last admitted grants.

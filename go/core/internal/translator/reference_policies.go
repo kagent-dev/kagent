@@ -1,9 +1,6 @@
 package translator
 
 import (
-	"errors"
-	"fmt"
-
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -11,18 +8,12 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
-type referencePolicy struct {
-	kind   string
-	target types.NamespacedName
-	policy *v1alpha3.AllowedNamespaces
-}
-
 // agentReferencePolicies collects policies independently of configuration validity.
 // Missing inputs are left to normal resolution; they must not hide policies on
 // other inputs. Fetch every reachable reference to retain KRT dependencies even
 // while compilation fails. The visited set also bounds invalid template cycles.
-func agentReferencePolicies(ctx krt.HandlerContext, inputs Collections, agent *v1alpha3.Agent) []referencePolicy {
-	var policies []referencePolicy
+func agentReferencePolicies(ctx krt.HandlerContext, inputs Collections, agent *v1alpha3.Agent) []*v1alpha3.AllowedNamespaces {
+	var policies []*v1alpha3.AllowedNamespaces
 	addModel := func(ref *v1alpha3.ObjectReference) {
 		if ref == nil {
 			return
@@ -30,7 +21,7 @@ func agentReferencePolicies(ctx krt.HandlerContext, inputs Collections, agent *v
 		key := ref.NamespacedName(agent.Namespace)
 		model := krt.FetchOne(ctx, inputs.ResolvedModelConfigs, krt.FilterObjectName(key))
 		if model != nil {
-			policies = append(policies, referencePolicy{"ModelConfig", key, model.Config.Spec.AllowedNamespaces})
+			policies = append(policies, model.Config.Spec.AllowedNamespaces)
 		}
 	}
 	if harness := krt.FetchOne(ctx, inputs.Harnesses, krt.FilterObjectName(types.NamespacedName{Namespace: agent.Namespace, Name: agent.Spec.HarnessRef.Name})); harness != nil && (*harness).Spec.Kagent != nil {
@@ -61,7 +52,7 @@ func agentReferencePolicies(ctx krt.HandlerContext, inputs Collections, agent *v
 				key := (v1alpha3.ObjectReference{Name: tool.MCP.Server.Name, Namespace: ptr.Deref(tool.MCP.Server.Namespace, "")}).NamespacedName(agent.Namespace)
 				server := krt.FetchOne(ctx, inputs.RemoteMCPServers, krt.FilterObjectName(key))
 				if server != nil {
-					policies = append(policies, referencePolicy{"RemoteMCPServer", key, (*server).Spec.AllowedNamespaces})
+					policies = append(policies, (*server).Spec.AllowedNamespaces)
 				}
 			}
 			if tool.SubAgent != nil && tool.SubAgent.TemplateRef != nil {
@@ -82,29 +73,10 @@ func agentReferencePolicies(ctx krt.HandlerContext, inputs Collections, agent *v
 // source namespace labels, including auxiliary models and subagent references.
 func AgentNeedsNamespace(ctx krt.HandlerContext, inputs Collections, agent *v1alpha3.Agent) bool {
 	policies := agentReferencePolicies(ctx, inputs, agent)
-	if inputs.PreparedReferences != nil {
-		prepared := krt.FetchOne(ctx, inputs.PreparedReferences, krt.FilterKey(agent.Namespace+"/"+agent.Name))
-		if prepared != nil && prepared.AgentUID == string(agent.UID) {
-			policies = append(policies, preparedReferencePolicies(ctx, inputs, prepared)...)
-		}
-	}
-	for _, ref := range policies {
-		if ref.policy != nil && ref.policy.From == v1alpha3.NamespacesFromSelector {
+	for _, policy := range policies {
+		if policy != nil && policy.From == v1alpha3.NamespacesFromSelector {
 			return true
 		}
 	}
 	return false
-}
-
-// authorizeAgentReferences checks all policies before compilation can stop on
-// unrelated errors. Evaluate every policy so label changes remain dependencies
-// even when another reference is already denied.
-func (c *Compiler) authorizeAgentReferences(agent *v1alpha3.Agent) error {
-	var failures []error
-	for _, ref := range agentReferencePolicies(c.ctx, c.collections, agent) {
-		if err := authorizeReference(c.ctx, c.collections, agent.Namespace, ref.target, ref.policy); err != nil {
-			failures = append(failures, fmt.Errorf("resolve %s %q: %w", ref.kind, ref.target, err))
-		}
-	}
-	return errors.Join(failures...)
 }

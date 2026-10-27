@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -96,23 +95,6 @@ type AllowedNamespaces struct {
 	// Only used when From is set to "Selector".
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
-}
-
-// AllowsNamespace checks if a reference from the given namespace is allowed.
-// The targetNamespace is the namespace where the resource being referenced lives.
-// The sourceNamespace is the namespace where the referencing resource lives.
-func (a *AllowedNamespaces) AllowsNamespace(ctx context.Context, c client.Client, sourceNamespace, targetNamespace string) (bool, error) {
-	var namespace *corev1.Namespace
-	if a != nil && a.From == NamespacesFromSelector && a.Selector != nil {
-		namespace = &corev1.Namespace{}
-		if err := c.Get(ctx, types.NamespacedName{Name: sourceNamespace}, namespace); err != nil {
-			if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
-				return false, fmt.Errorf("allowedNamespaces.from=Selector requires namespace read access: %w", err)
-			}
-			return false, fmt.Errorf("failed to get namespace %s: %w", sourceNamespace, err)
-		}
-	}
-	return a.AllowsNamespaceMetadata(sourceNamespace, targetNamespace, namespace)
 }
 
 // AllowsNamespaceMetadata evaluates policy without I/O. Selector policies require

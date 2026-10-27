@@ -403,9 +403,8 @@ retires its definition; sessions and checkpoints retain their pinned revisions.
 Recreating the same name creates a new identity and cannot inherit the old
 Agent's last successful revision.
 
-Reference-policy failures are an exception: [shared model/MCP authorization](cross-namespace-references.md)
-revokes the previous revision for new sessions until authorization and preparation
-succeed again. Existing pinned sessions are unaffected.
+Namespace reference policies constrain compilation. Failed resolution preserves
+the last successful revision for new sessions; existing sessions remain pinned.
 
 This replaces implicit label selection and the old template/Harness inputs as a
 breaking API change. SandboxTemplate hosting configuration is not part of this

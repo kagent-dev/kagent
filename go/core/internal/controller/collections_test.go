@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -532,57 +531,4 @@ func testAgent(template *kagentv1alpha3.AgentTemplate, harness *kagentv1alpha3.H
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
-}
-
-func TestReferencePolicyFailureRevokesPreparedRevision(t *testing.T) {
-	failure := compilationFailure(&translator.ReferencePolicyError{Err: fmt.Errorf("source namespace denied")})
-	require.True(t, failure.RevokePreparedRevision)
-	require.Equal(t, kagentv1alpha3.AgentConditionResolvedRefs, failure.Condition)
-	require.Equal(t, "ReferenceResolutionFailed", failure.Reason)
-	ordinary := compilationFailure(fmt.Errorf("ModelConfig not found"))
-	require.False(t, ordinary.RevokePreparedRevision)
-}
-
-func TestReconciliationTracksPolicyWhileCompilationFails(t *testing.T) {
-	stop := make(chan struct{})
-	t.Cleanup(func() { close(stop) })
-	opts := krt.NewOptionsBuilder(stop, "policy-failure", nil)
-	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "team-a"}, Spec: kagentv1alpha3.ModelConfigSpec{
-		Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "example", APIKeySecret: "missing", APIKeySecretKey: "token",
-	}}
-	server := &kagentv1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "shared"}, Spec: kagentv1alpha3.RemoteMCPServerSpec{
-		URL: "https://tools.example.com/mcp", AllowedNamespaces: &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromAll},
-	}}
-	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "team-a"}, Spec: kagentv1alpha3.AgentTemplateSpec{
-		ModelConfig: &kagentv1alpha3.ObjectReference{Name: model.Name},
-		Tools: []kagentv1alpha3.ToolBinding{{MCP: &kagentv1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{
-			Kind: "RemoteMCPServer", Name: server.Name, Namespace: new(server.Namespace),
-		}}}},
-	}}
-	runner := harness("team-a", "kagent", nil)
-	runner.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
-	mock := krttest.NewMock(t, []any{model, template, runner})
-	servers := krt.NewStaticCollection(nil, []*kagentv1alpha3.RemoteMCPServer{server}, opts.WithName("Servers")...)
-	inputs := translator.Collections{
-		Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
-		RemoteMCPServers: servers, ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock), Secrets: krttest.GetMockCollection[*corev1.Secret](mock),
-	}
-	_, inputs.ResolvedModelConfigs = newModelConfigReconciliations(krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock), inputs.ConfigMaps, inputs.Secrets, opts)
-	agents := krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, runner)}, opts.WithName("Agents")...)
-	states := newAgentReconciliations(agents, inputs, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts, testRuntimeDefaults(), nil)
-	waitFor(t, func() bool {
-		items := states.List()
-		return len(items) == 1 && items[0].CompilationFailure != nil && strings.Contains(items[0].CompilationFailure.Message, "secret missing") && !items[0].revokesPreparedRevision()
-	})
-	denied := server.DeepCopy()
-	denied.Spec.AllowedNamespaces.From = kagentv1alpha3.NamespacesFromSame
-	servers.UpdateObject(denied)
-	waitFor(t, func() bool { return states.List()[0].revokesPreparedRevision() })
-	require.Contains(t, states.List()[0].CompilationFailure.Message, "denied by allowedNamespaces")
-	// Restoring policy retains the ordinary error, without marking it a denial.
-	servers.UpdateObject(server)
-	waitFor(t, func() bool {
-		state := states.List()[0]
-		return !state.revokesPreparedRevision() && strings.Contains(state.CompilationFailure.Message, "secret missing")
-	})
 }

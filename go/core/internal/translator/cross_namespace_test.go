@@ -5,10 +5,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -57,9 +59,6 @@ func TestCrossNamespaceModelsAndMCP(t *testing.T) {
 			require.NotContains(t, string(result.ConfigJSON), "shared-credential")
 			require.Contains(t, string(result.Provenance), "shared/tools")
 			require.Contains(t, string(result.Provenance), "shared/default-model")
-			preparedRefs, err := translator.PreparedReferencesFromProvenance(result.Provenance, "test")
-			require.NoError(t, err)
-			require.Len(t, preparedRefs, 2, "all harnesses must retain the model and MCP identities")
 			model.Spec.AllowedNamespaces = nil
 			_, err = compiler(t, model, harness, server, secret, headers).CompileAgent(t.Context(), inlineAgent(harness, template))
 			require.ErrorContains(t, err, "denied by allowedNamespaces")
@@ -129,11 +128,8 @@ func TestAuxiliaryModelReferencesUseHarnessNamespaceAndPolicy(t *testing.T) {
 			require.Contains(t, string(result.ConfigJSON), "shared-model", "same-name auxiliary model must not alias the root")
 			require.Contains(t, string(result.Provenance), "shared/default-model")
 			shared.Spec.AllowedNamespaces = nil
-			// A root model error must not hide auxiliary model revocation.
-			root.Spec.APIKeySecret, root.Spec.APIKeySecretKey = "missing", "token"
 			_, err = compiler(t, root, shared, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
-			var denied *translator.ReferencePolicyError
-			require.ErrorAs(t, err, &denied)
+			require.ErrorContains(t, err, "denied by allowedNamespaces")
 		})
 	}
 }
@@ -193,51 +189,56 @@ func TestReferencePolicyMatrix(t *testing.T) {
 				if test.allowed {
 					require.NoError(t, err)
 				} else {
-					var denied *translator.ReferencePolicyError
-					require.ErrorAs(t, err, &denied)
+					require.Error(t, err)
 				}
 			})
 		}
 	}
 }
 
-func TestReferenceRevocationWithOtherFailure(t *testing.T) {
-	model := modelConfig()
-	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runner", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
-		Kagent:    &v1alpha3.KagentHarness{},
-		Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:" + strings.Repeat("a", 64))},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
-	}}
-	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "shared"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://tools.example.com/mcp", AllowedNamespaces: &v1alpha3.AllowedNamespaces{From: v1alpha3.NamespacesFromAll}}}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
-		ModelConfig: &v1alpha3.ObjectReference{Name: model.Name},
-		Tools:       []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: "tools", Namespace: new("shared")}}}},
-	}}
-	_, err := compiler(t, model, harness, server).CompileAgent(t.Context(), inlineAgent(harness, template))
-	require.NoError(t, err)
-	// An unrelated model failure must not hide the now-denied MCP policy.
-	model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "missing", "token"
-	server.Spec.AllowedNamespaces = &v1alpha3.AllowedNamespaces{From: v1alpha3.NamespacesFromSame}
-	_, err = compiler(t, model, harness, server).CompileAgent(t.Context(), inlineAgent(harness, template))
-	var denied *translator.ReferencePolicyError
-	require.ErrorAs(t, err, &denied)
-}
-
-func TestReferencePolicyCheckedBeforeTemplateResolution(t *testing.T) {
-	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "shared"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://tools.example.com/mcp"}}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{Tools: []v1alpha3.ToolBinding{
-		{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: "tools", Namespace: new("shared")}}},
-		{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "cycle", TemplateRef: &corev1.LocalObjectReference{Name: "child"}}},
-	}}}
-	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"}, Spec: v1alpha3.AgentSpec{
-		HarnessRef: corev1.LocalObjectReference{Name: "missing"},
-		Template: v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{Tools: []v1alpha3.ToolBinding{
-			{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "missing", TemplateRef: &corev1.LocalObjectReference{Name: "missing"}}},
-			{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "child", TemplateRef: &corev1.LocalObjectReference{Name: "child"}}},
-		}}},
-	}}
-	_, err := compiler(t, server, template).CompileAgent(t.Context(), agent)
-	var denied *translator.ReferencePolicyError
-	require.ErrorAs(t, err, &denied)
-	require.ErrorContains(t, err, "shared/tools")
+func TestRepeatedMCPBindings(t *testing.T) {
+	for _, kind := range []string{"kagent", "byo", "codex", "claude"} {
+		t.Run(kind, func(t *testing.T) {
+			model := modelConfig()
+			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "auth", "token"
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth", Namespace: "test"}, Data: map[string][]byte{"token": []byte("test")}}
+			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: kind, Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+				Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:" + strings.Repeat("a", 64))},
+				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+			}}
+			switch kind {
+			case "kagent":
+				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
+			case "byo":
+				harness.Spec.BYO = &v1alpha3.BYOHarness{}
+			case "codex":
+				harness.Spec.Codex = &v1alpha3.CodexHarness{}
+				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
+			case "claude":
+				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
+				model.Spec.Provider = v1alpha3.ModelProviderAnthropic
+			}
+			server := remoteMCPServer("files", "https://tools.example.com/mcp")
+			server.Namespace = "shared"
+			server.Spec.AllowedNamespaces = &v1alpha3.AllowedNamespaces{From: v1alpha3.NamespacesFromAll}
+			ref := corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name, Namespace: new(server.Namespace)}
+			template := &v1alpha3.AgentTemplate{Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, Tools: []v1alpha3.ToolBinding{
+				{MCP: &v1alpha3.MCPToolBinding{Server: ref, Tools: []string{"read_file"}}},
+				{MCP: &v1alpha3.MCPToolBinding{Server: ref, Tools: []string{"write_file"}, RequireApproval: true}},
+			}}}
+			result, err := compiler(t, model, harness, server, secret).CompileAgent(t.Context(), inlineAgent(harness, template))
+			if kind == "codex" || kind == "claude" {
+				require.ErrorContains(t, err, "same native name")
+				return
+			}
+			require.NoError(t, err)
+			var config configv1.ADKConfig
+			require.NoError(t, protojson.Unmarshal(result.ConfigJSON, &config))
+			require.Len(t, config.Agent.HttpTools, 2)
+			require.Equal(t, []string{"read_file"}, config.Agent.HttpTools[0].Tools)
+			require.False(t, config.Agent.HttpTools[0].RequireApproval)
+			require.Equal(t, []string{"write_file"}, config.Agent.HttpTools[1].Tools)
+			require.True(t, config.Agent.HttpTools[1].RequireApproval)
+		})
+	}
 }

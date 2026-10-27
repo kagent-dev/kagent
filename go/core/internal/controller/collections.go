@@ -31,7 +31,6 @@ type Collections struct {
 	ConfigMaps               krt.Collection[*corev1.ConfigMap]
 	Secrets                  krt.Collection[*corev1.Secret]
 	WorkerPools              krt.Collection[*atev1.WorkerPool]
-	PreparedReferences       *krt.StaticCollection[translator.PreparedAgentReferences]
 	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
 	Reconciliations          krt.Collection[AgentReconciliation]
 	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
@@ -78,12 +77,10 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
 	workerPools := typedCollection[*atev1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	agentRuntimeObservations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
-	preparedReferences := krt.NewStaticCollection[translator.PreparedAgentReferences](nil, nil, opts.WithName("PreparedAgentReferences")...)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := translator.Collections{
-		PreparedReferences: preparedReferences,
-		EgressPolicies:     egressPolicies,
-		Harnesses:          harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
+		EgressPolicies: egressPolicies,
+		Harnesses:      harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
 	compilerCollections.Namespaces = newReferenceNamespaces(client, agents, compilerCollections, opts)
@@ -91,7 +88,6 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 
 	return Collections{
-		PreparedReferences:       &preparedReferences,
 		watchNamespaces:          slices.Clone(watchNamespaces),
 		EgressPolicies:           egressPolicies,
 		SandboxTemplates:         sandboxTemplates,

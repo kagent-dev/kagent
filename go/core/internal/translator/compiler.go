@@ -100,9 +100,6 @@ func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompile
 // CompileAgent resolves inline or referenced behavior with its referenced
 // platform-managed Harness.
 func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*CompileResult, error) {
-	if err := c.authorizeAgentReferences(agent); err != nil {
-		return nil, err
-	}
 	if (agent.Spec.Template.Inline == nil) == (agent.Spec.Template.Ref == nil) {
 		return nil, NewValidationError("Agent template requires exactly one of inline or ref")
 	}
@@ -271,7 +268,6 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 			input.ResolvedModelConfig = resolved
 		}
 		toolNames := make([]string, 0)
-		boundServers := map[types.NamespacedName]bool{}
 		for _, tool := range template.Spec.Tools {
 			if tool.MCP == nil {
 				if tool.SubAgent == nil {
@@ -283,10 +279,6 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 				return nil, NewValidationError("unsupported MCP server kind %q", tool.MCP.Server.Kind)
 			}
 			key := (v1alpha3.ObjectReference{Name: tool.MCP.Server.Name, Namespace: ptr.Deref(tool.MCP.Server.Namespace, "")}).NamespacedName(template.Namespace)
-			if boundServers[key] {
-				return nil, NewValidationError("RemoteMCPServer %q is bound more than once", key)
-			}
-			boundServers[key] = true
 			server := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(key))
 			if server == nil {
 				return nil, fmt.Errorf("resolve %s %q: not found", tool.MCP.Server.Kind, tool.MCP.Server.Name)
