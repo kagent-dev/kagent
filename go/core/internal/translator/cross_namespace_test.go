@@ -1,6 +1,7 @@
 package translator_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -227,11 +228,25 @@ func TestRepeatedMCPBindings(t *testing.T) {
 				{MCP: &v1alpha3.MCPToolBinding{Server: ref, Tools: []string{"write_file"}, RequireApproval: true}},
 			}}}
 			result, err := compiler(t, model, harness, server, secret).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.NoError(t, err)
 			if kind == "codex" || kind == "claude" {
-				require.ErrorContains(t, err, "same native name")
+				var native struct {
+					MCPServers map[string]struct {
+						Tools           []string `json:"tools"`
+						EnabledTools    []string `json:"enabled_tools"`
+						RequireApproval bool     `json:"require_approval"`
+					} `json:"mcp_servers"`
+				}
+				require.NoError(t, json.Unmarshal(result.ConfigJSON, &native))
+				require.Len(t, native.MCPServers, 2)
+				name := translator.MCPRuntimeName("test", server)
+				direct, approval := native.MCPServers[name], native.MCPServers[name+"-approval"]
+				require.Equal(t, []string{"read_file"}, append(direct.Tools, direct.EnabledTools...))
+				require.False(t, direct.RequireApproval)
+				require.Equal(t, []string{"write_file"}, append(approval.Tools, approval.EnabledTools...))
+				require.True(t, approval.RequireApproval)
 				return
 			}
-			require.NoError(t, err)
 			var config configv1.ADKConfig
 			require.NoError(t, protojson.Unmarshal(result.ConfigJSON, &config))
 			require.Len(t, config.Agent.HttpTools, 2)

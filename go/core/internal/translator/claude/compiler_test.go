@@ -323,7 +323,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}
 }
 
-func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
+func TestCompileMCPToolSelection(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -351,17 +351,26 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("partial selection Compile() error = %v", err)
 	}
-	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "exposing the whole server") {
+	if len(revision.Warnings) != 0 {
 		t.Fatalf("partial selection warnings = %v", revision.Warnings)
 	}
 
-	server.Status.ObservedGeneration = 0
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatalf("stale discovery Compile() error = %v", err)
+	var selection claudeconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &selection); err != nil {
+		t.Fatal(err)
 	}
-	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "no current discovered tool set") {
-		t.Fatalf("stale discovery warnings = %v", revision.Warnings)
+	if !reflect.DeepEqual(selection.MCPServers["tools"].Tools, []string{"one"}) || !reflect.DeepEqual(selection.DisallowedTools, []string{"mcp__tools__two"}) {
+		t.Fatalf("compiled selection = %#v, excluded = %v", selection.MCPServers["tools"].Tools, selection.DisallowedTools)
+	}
+	input.Root.MCPTools[0].Binding.Tools = []string{"missing"}
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input); err == nil {
+		t.Fatal("missing selected tool was admitted")
+	}
+	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
+	server.Status.ObservedGeneration = 0
+	_, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "requires a current discovered tool set") {
+		t.Fatalf("stale discovery Compile() error = %v", err)
 	}
 
 	server.Status.ObservedGeneration = server.Generation
@@ -402,10 +411,10 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	if err := json.Unmarshal(revision.ConfigJSON, &compiled); err != nil {
 		t.Fatal(err)
 	}
-	if !compiled.MCPServers["tools"].RequireApproval {
-		t.Fatalf("approval-required MCP server = %#v", compiled.MCPServers["tools"])
+	if !compiled.MCPServers["tools-approval"].RequireApproval {
+		t.Fatalf("approval-required MCP server = %#v", compiled.MCPServers["tools-approval"])
 	}
-	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "exposing the whole server") {
+	if len(revision.Warnings) != 0 {
 		t.Fatalf("approval-required partial selection warnings = %v", revision.Warnings)
 	}
 }
