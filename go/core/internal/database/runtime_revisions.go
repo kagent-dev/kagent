@@ -395,6 +395,8 @@ type runtimeRevisionRow struct {
 	DeletedAt               *time.Time
 }
 
+// resetGoldenRetry clears the retry schedule once a revision's golden build
+// succeeds, so a later failure starts again from the first backoff delay.
 func resetGoldenRetry(ctx context.Context, tx pgx.Tx, revision string) error {
 	return execSQL(ctx, tx, `
 		UPDATE runtime_revision SET golden_attempts = 0, golden_failure_uid = '', golden_retry_at = NULL, updated_at = NOW()
@@ -402,11 +404,14 @@ func resetGoldenRetry(ctx context.Context, tx pgx.Tx, revision string) error {
 	`, revision)
 }
 
+// GoldenRetry is the persisted retry schedule for one failed golden build.
 type GoldenRetry struct {
 	Retries int
 	RetryAt time.Time
 }
 
+// GoldenRetryAttempts returns how many failed golden builds the revision has
+// retried since its last success, so status can report a rebuild in progress.
 func (c *Client) GoldenRetryAttempts(ctx context.Context, revision string) (int, error) {
 	attempts, err := queryOne(ctx, c.db, `
 		SELECT golden_attempts FROM runtime_revision WHERE revision = $1
@@ -417,6 +422,10 @@ func (c *Client) GoldenRetryAttempts(ctx context.Context, revision string) (int,
 	return attempts, nil
 }
 
+// EnsureGoldenRetry returns the retry schedule for a failed ActorTemplate,
+// creating it on first sight. Reconciles see the same failure on every pass
+// until the backoff ends, so the first call counts the attempt and picks the
+// next backoff delay, and later calls for that template return it unchanged.
 func (c *Client) EnsureGoldenRetry(ctx context.Context, revision, failedTemplateUID string, now time.Time, delays []time.Duration) (GoldenRetry, error) {
 	type goldenRetryRow struct {
 		GoldenAttempts   int

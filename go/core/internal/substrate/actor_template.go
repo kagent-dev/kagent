@@ -153,6 +153,8 @@ func ActorTemplateSpecEqual(left, right *ateapipb.ActorTemplate) bool {
 	return proto.Equal(actorTemplateSpec(left), actorTemplateSpec(right))
 }
 
+// ActorTemplateSpecDigest hashes the same fields ActorTemplateSpecEqual compares,
+// so a stored digest can recognize a recreated template without its UID.
 func ActorTemplateSpecDigest(template *ateapipb.ActorTemplate) (string, error) {
 	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(actorTemplateSpec(template))
 	if err != nil {

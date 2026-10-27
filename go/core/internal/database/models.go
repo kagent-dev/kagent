@@ -107,6 +107,8 @@ type RuntimeArtifact struct {
 	DeletedAt               *time.Time
 }
 
+// RecordedTemplateFailed reports whether the recorded ActorTemplate is the one
+// whose golden build failed, meaning a retry may have replaced it in Substrate.
 func (a RuntimeArtifact) RecordedTemplateFailed() bool {
 	return a.ActorTemplateUID != "" && a.GoldenFailureUID == a.ActorTemplateUID
 }

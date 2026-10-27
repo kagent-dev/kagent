@@ -23,6 +23,9 @@ type goldenRetryStore interface {
 	GoldenRetryAttempts(ctx context.Context, revision string) (int, error)
 }
 
+// goldenRetries is the backoff policy for rebuilding a failed golden snapshot.
+// Substrate cannot rebuild a failed ActorTemplate in place, so each retry
+// deletes it and lets the next reconcile create it again.
 type goldenRetries struct {
 	delays            []time.Duration
 	maxJitterFraction float64
@@ -52,6 +55,8 @@ const (
 	goldenRetrying
 )
 
+// goldenProgress is what one reconcile learned about a revision's golden build.
+// The poll loops and status read it instead of the raw ActorTemplate.
 type goldenProgress struct {
 	phase     goldenPhase
 	retries   int
@@ -59,6 +64,8 @@ type goldenProgress struct {
 	nextCheck time.Time
 }
 
+// observe records the revision, marking it Ready once the golden tag exists,
+// then classifies the build. A failed build goes to retry.
 func (g goldenRetries) observe(ctx context.Context, store goldenRetryStore, templates actorTemplateClient, revision string,
 	template *ateapipb.ActorTemplate, record func(database.RecordRevisionOptions) error) (goldenProgress, error) {
 	golden := template.GetStatus().GetGoldenSnapshotStatus()
@@ -78,6 +85,8 @@ func (g goldenRetries) observe(ctx context.Context, store goldenRetryStore, temp
 	return goldenProgress{phase: goldenBuilding, retries: retries}, nil
 }
 
+// retry waits out the backoff for a failed template, then deletes it by UID so
+// the next reconcile creates a fresh one and Substrate builds a new golden.
 func (g goldenRetries) retry(ctx context.Context, store goldenRetryStore, templates actorTemplateClient, revision string, failed *ateapipb.ActorTemplate) (goldenProgress, error) {
 	ref := failed.GetMetadata()
 	failure := failed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage()
@@ -126,10 +135,13 @@ func (p goldenProgress) ready() bool {
 	return p.phase == goldenReady
 }
 
+// waiting reports whether a retry is still inside its backoff.
 func (p goldenProgress) waiting(now time.Time) bool {
 	return p.phase == goldenRetrying && (p.nextCheck.IsZero() || now.Before(p.nextCheck))
 }
 
+// due reports whether the poll loop should requeue the revision: a build is in
+// progress, or a retry's backoff has elapsed.
 func (p goldenProgress) due(now time.Time) bool {
 	return p.phase == goldenBuilding || (p.phase == goldenRetrying && !p.waiting(now))
 }

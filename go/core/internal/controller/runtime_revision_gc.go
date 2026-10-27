@@ -106,6 +106,8 @@ func (r *RuntimeRevisionGC) discover(ctx context.Context) ([]database.RuntimeArt
 	return revisions, nil
 }
 
+// isUnrecordedRebuild reports whether a live template with an unexpected UID is
+// the rebuild a retry created before the new UID was recorded. GC may delete it.
 func isUnrecordedRebuild(revision database.RuntimeArtifact, template *ateapipb.ActorTemplate) bool {
 	digest, err := substrate.ActorTemplateSpecDigest(template)
 	return err == nil && revision.RecordedTemplateFailed() && digest == revision.ActorTemplateSpecDigest

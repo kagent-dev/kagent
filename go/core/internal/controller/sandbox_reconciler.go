@@ -109,6 +109,8 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 	}
 }
 
+// needsPreparationPoll reports whether the poll loop should requeue a sandbox
+// template: it is deleting, lacks its finalizer, or its golden build is due.
 func needsPreparationPoll(state sandboxReconciliation, now time.Time) bool {
 	if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
 		return true
