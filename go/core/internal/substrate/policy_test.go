@@ -37,14 +37,14 @@ func TestActorPolicyKeepsCredentialsOnExactOrigin(t *testing.T) {
 	}, testControlPlaneURL)
 	require.NoError(t, err)
 	require.Len(t, policy.Rules, 4)
-	require.Empty(t, policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders())
+	require.Empty(t, withoutWorkloadIdentity(policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders()))
 	require.Equal(t, []string{"*.example.com"}, policy.Rules[1].GetHttps().GetHostnames())
-	require.Empty(t, policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders())
+	require.Empty(t, withoutWorkloadIdentity(policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders()))
 	for i, header := range []string{"authorization", "x-api-key"} {
 		rule := policy.Rules[i+2].GetHttps()
 		require.Equal(t, []string{"api.example.com"}, rule.GetHostnames())
-		require.Len(t, rule.GetEffects().GetReplaceHeaders(), 1)
-		require.Equal(t, header, rule.GetEffects().GetReplaceHeaders()[0].Header)
+		require.Len(t, withoutWorkloadIdentity(rule.GetEffects().GetReplaceHeaders()), 1)
+		require.Equal(t, header, withoutWorkloadIdentity(rule.GetEffects().GetReplaceHeaders())[0].Header)
 	}
 	require.Equal(t, []int32{443}, policy.Rules[2].GetHttps().GetPorts().GetNumbers())
 	require.Equal(t, []int32{8443}, policy.Rules[3].GetHttps().GetPorts().GetNumbers())
@@ -116,7 +116,7 @@ func TestCompileActorEgressPolicyExtensions(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, callerURI, policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders()[0].GetCredentialUri())
+			require.Equal(t, callerURI, withoutWorkloadIdentity(policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders())[0].GetCredentialUri())
 		})
 	}
 }
@@ -125,21 +125,21 @@ func TestCompileActorEgressPolicyWithoutExtensionsLeavesTargetsUnbound(t *testin
 	target := egresspolicy.GatewayTarget{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer "}
 	policy, err := compileActorEgressPolicy(t.Context(), "team", egress.Access{Destinations: []string{target.Origin}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{target}}, testControlPlaneURL, nil)
 	require.NoError(t, err, "runtimes forward the caller token without an extension")
-	require.Empty(t, policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders())
+	require.Empty(t, withoutWorkloadIdentity(policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders()))
 }
 
 func TestActorPolicyInjectsRuntimeJWTOnlyAtControlPlane(t *testing.T) {
 	const controlPlane = testControlPlaneURL
 	policy, err := ActorEgressPolicy("team", []string{controlPlane, "https://models.example"}, nil, "http://KAGENT-CONTROLLER.kagent.svc.:8083")
 	require.NoError(t, err)
-	headers := policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders()
+	headers := withoutWorkloadIdentity(policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders())
 	require.Len(t, headers, 1)
 	require.Equal(t, "authorization", headers[0].Header)
 	require.Equal(t, "Bearer ", headers[0].Prefix)
 	require.Empty(t, headers[0].CredentialUri)
 	require.Equal(t, []string{runtimeJWTAudience}, headers[0].ActorJwt.Audiences)
 	require.EqualValues(t, 300, headers[0].ActorJwt.ExpirationSeconds)
-	require.Empty(t, policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders())
+	require.Empty(t, withoutWorkloadIdentity(policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders()))
 	policy, err = ActorEgressPolicy("team", nil, nil, controlPlane)
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "runtime authentication must not grant sandbox network access")
@@ -167,4 +167,30 @@ func TestActorJWTHeaderUsesGatewayMinting(t *testing.T) {
 			require.Equal(t, []string{runtimeJWTAudience}, internal.ActorJwt.Audiences)
 		})
 	}
+}
+
+func withoutWorkloadIdentity(headers []*ateapipb.CredentialHeader) []*ateapipb.CredentialHeader {
+	var selected []*ateapipb.CredentialHeader
+	for _, header := range headers {
+		if header.Header != "x-substrate-actor-token" {
+			selected = append(selected, header)
+		}
+	}
+	return selected
+}
+
+func TestActorPolicyBindsWorkloadIdentityToDestination(t *testing.T) {
+	policy, err := ActorEgressPolicy("team", []string{"https://mcp.example", testControlPlaneURL}, nil, testControlPlaneURL)
+	require.NoError(t, err)
+	for _, rule := range policy.Rules {
+		if rule.GetHttps() == nil {
+			continue
+		}
+		headers := rule.GetHttps().GetEffects().GetReplaceHeaders()
+		require.Len(t, headers, 1)
+		require.Equal(t, "x-substrate-actor-token", headers[0].Header)
+		require.Equal(t, []string{"https://mcp.example:443"}, headers[0].ActorJwt.Audiences)
+	}
+	_, err = ActorEgressPolicy("team", []string{"https://mcp.example"}, []egress.Credential{{Origin: "https://mcp.example", Header: "X-Substrate-Actor-Token", URI: "ate-secret://k8s.io/default/team/auth/token"}}, testControlPlaneURL)
+	require.Error(t, err)
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
@@ -79,6 +80,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		pluginDirs = append([]string{skillRoot}, materialized.ClaudeFormatPluginRoots()...)
 	}
 	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
+	environment = setEnvironment(environment, config.AnthropicCustomHeadersEnvName, egresspolicy.ActorIdentityHeader+": required")
 	// The native runtime inherits the compiled identity through the standard
 	// resource variable, so no user-supplied marker is required.
 	environment, awaitTelemetry := nativeTelemetryEnvironment(tracing.ResourceEnvironment(otel.Environment(environment, cfg.RuntimeTelemetry.ExporterConfig()), cfg.RuntimeTelemetry.ChildResource()), cfg.RuntimeTelemetry)

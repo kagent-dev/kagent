@@ -12,8 +12,29 @@ import (
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
+
+func TestResolvedModelCarriesHostSignedIdentity(t *testing.T) {
+	for _, headers := range []map[string]string{nil, {"X-Tenant": "team"}} {
+		input := &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
+			Spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "model", DefaultHeaders: headers},
+		}}
+		for range 2 {
+			resolved, err := resolveModel(input)
+			require.NoError(t, err)
+			require.Equal(t, "required", resolved.Model.Headers[egresspolicy.ActorIdentityHeader])
+			require.Equal(t, headers["X-Tenant"], resolved.Model.Headers["X-Tenant"])
+			require.NotContains(t, headers, egresspolicy.ActorIdentityHeader)
+		}
+	}
+	input := &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
+		Spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "model", DefaultHeaders: map[string]string{"X-Substrate-Actor-Token": "forged"}},
+	}}
+	_, err := resolveModel(input)
+	require.ErrorContains(t, err, "actor identity header is reserved")
+}
 
 func TestBedrockProviderJSONRoundTrip(t *testing.T) {
 	for _, raw := range []string{"", "{}", `{"thinking":{"budget_tokens":1024},"large":9007199254740993,"values":[0,false,null,0.25]}`} {
