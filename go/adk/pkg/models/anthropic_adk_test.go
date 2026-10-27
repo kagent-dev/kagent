@@ -319,3 +319,24 @@ func TestAnthropicModelGenerateContentSendsStructuredOutputWithTools(t *testing.
 		t.Fatalf("tools = %#v, want one tool", body["tools"])
 	}
 }
+
+// ADK's own tools, transfer_to_agent among them, declare their arguments as a
+// genai.Schema in Parameters rather than as ParametersJsonSchema.
+func TestGenaiToolsToAnthropicToolsReadsParameters(t *testing.T) {
+	tools := genaiToolsToAnthropicTools([]*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{{
+		Name:        "transfer_to_agent",
+		Description: "Transfer the question to another agent.",
+		Parameters: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"agent_name": {Type: genai.TypeString, Enum: []string{"child"}},
+			},
+			Required: []string{"agent_name"},
+		},
+	}}}})
+
+	require.Len(t, tools, 1)
+	schema := tools[0].OfTool.InputSchema
+	require.Equal(t, []string{"agent_name"}, schema.Required)
+	require.Equal(t, map[string]any{"type": "string", "enum": []any{"child"}}, schema.Properties.(map[string]any)["agent_name"])
+}
