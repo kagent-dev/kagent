@@ -156,21 +156,13 @@ func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.Act
 }
 
 // DeleteActorTemplate delegates golden Actor and Tag cleanup to Substrate.
-func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name string) error {
-	return c.deleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{ActorTemplate: actorRef(atespace, name)})
-}
-
-func (c *Client) DeleteActorTemplateUID(ctx context.Context, atespace, name, uid string) error {
-	return c.deleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{
+func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	_, err := c.ControlClient.DeleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{
 		ActorTemplate: actorRef(atespace, name),
 		Options:       &ateapipb.DeleteOptions{Uid: uid},
 	})
-}
-
-func (c *Client) deleteActorTemplate(ctx context.Context, request *ateapipb.DeleteActorTemplateRequest) error {
-	ctx, cancel := c.callCtx(ctx)
-	defer cancel()
-	_, err := c.ControlClient.DeleteActorTemplate(ctx, request)
 	if status.Code(err) == codes.NotFound {
 		return nil
 	}

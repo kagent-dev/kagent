@@ -245,7 +245,7 @@ func (f *fakeGCTemplates) GetActorTemplate(ctx context.Context, atespace, name s
 	return f.fakeActorTemplates.GetActorTemplate(ctx, atespace, name)
 }
 
-func (f *fakeGCTemplates) DeleteActorTemplate(ctx context.Context, _, name string) error {
+func (f *fakeGCTemplates) DeleteActorTemplate(ctx context.Context, _, name, _ string) error {
 	time.Sleep(f.deleteDelay)
 	f.mu.Lock()
 	defer f.mu.Unlock()

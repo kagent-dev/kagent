@@ -529,7 +529,7 @@ type cancelingGCDeletion struct {
 
 var _ runtimeRevisionGCClient = (*cancelingGCDeletion)(nil)
 
-func (c *cancelingGCDeletion) DeleteActorTemplate(context.Context, string, string) error {
+func (c *cancelingGCDeletion) DeleteActorTemplate(context.Context, string, string, string) error {
 	c.cancel()
 	return c.err
 }

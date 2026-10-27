@@ -316,25 +316,17 @@ func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *at
 	return f.template, nil
 }
 
-func (f *fakeActorTemplates) DeleteActorTemplateUID(_ context.Context, _, _, uid string) error {
+func (f *fakeActorTemplates) DeleteActorTemplate(_ context.Context, _, _, uid string) error {
 	f.deletedUIDs = append(f.deletedUIDs, uid)
-	if f.deleteErr != nil {
-		return f.deleteErr
-	}
-	if f.template.GetMetadata().GetUid() == uid {
-		f.template = nil
-	}
-	return nil
-}
-
-func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string) error {
 	if f.deleteErr != nil {
 		if f.deletedBeforeError {
 			f.template = nil
 		}
 		return f.deleteErr
 	}
-	f.template = nil
+	if uid == "" || f.template.GetMetadata().GetUid() == uid {
+		f.template = nil
+	}
 	return nil
 }
 

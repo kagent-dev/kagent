@@ -66,8 +66,7 @@ func (s *SandboxReconciler) Start(ctx context.Context) error {
 	preparations := newReconciliationQueue("sandbox-preparation", func(item any) error {
 		return s.reconcile(ctx, item.(string))
 	})
-	s.golden = newGoldenRetries(s.store, s.actors, preparations)
-	context.AfterFunc(ctx, s.golden.stop)
+	s.golden = newGoldenRetries(s.store, s.actors)
 	statuses := newReconciliationQueue("sandbox-status", func(item any) error {
 		return s.reconcileStatus(ctx, item.(string))
 	})
@@ -98,7 +97,7 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case now := <-ticker.C:
 			for _, state := range s.collections.states.List() {
 				if state.Template.DeletionTimestamp.IsZero() && !apiequality.Semantic.DeepEqual(sandboxStatusWithTransitionTimes(state), state.Template.Status) {
 					statuses.Add(state.ResourceName())
@@ -107,7 +106,7 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 					preparations.Add(state.ResourceName())
 					continue
 				}
-				if state.Failure.awaitsGoldenRetry() {
+				if state.Failure.awaitsGoldenRetry(now) {
 					continue
 				}
 				if (state.Failure != nil && state.Failure.Retryable) ||
@@ -206,7 +205,7 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
 	}
 	if isGoldenCrash(observed) {
-		retrying, err := s.golden.retry(ctx, state.RevisionID, key, observed)
+		retrying, err := s.golden.retry(ctx, state.RevisionID, observed)
 		if retrying == nil {
 			return s.observeError(*state, fmt.Errorf("schedule sandbox golden retry %s: %w", state.RevisionID, err), true)
 		}

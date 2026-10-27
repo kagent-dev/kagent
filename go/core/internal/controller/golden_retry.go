@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/status"
-	"istio.io/istio/pkg/kube/controllers"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -54,20 +52,15 @@ type goldenRetryStore interface {
 type goldenRetries struct {
 	store     goldenRetryStore
 	templates actorTemplateClient
-	queue     controllers.Queue
 	policy    goldenRetryPolicy
 	jitter    func(time.Duration, float64) time.Duration
-
-	mu      sync.Mutex
-	timers  map[string]*time.Timer
-	stopped bool
 }
 
-func newGoldenRetries(store goldenRetryStore, templates actorTemplateClient, queue controllers.Queue) *goldenRetries {
-	return &goldenRetries{store: store, templates: templates, queue: queue, policy: defaultGoldenRetryPolicy, jitter: wait.Jitter, timers: map[string]*time.Timer{}}
+func newGoldenRetries(store goldenRetryStore, templates actorTemplateClient) *goldenRetries {
+	return &goldenRetries{store: store, templates: templates, policy: defaultGoldenRetryPolicy, jitter: wait.Jitter}
 }
 
-func (g *goldenRetries) retry(ctx context.Context, revision, key string, crashed *ateapipb.ActorTemplate) (*ReconciliationFailure, error) {
+func (g *goldenRetries) retry(ctx context.Context, revision string, crashed *ateapipb.ActorTemplate) (*ReconciliationFailure, error) {
 	ref := crashed.GetMetadata()
 	crash := crashed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage()
 	now := time.Now()
@@ -75,52 +68,27 @@ func (g *goldenRetries) retry(ctx context.Context, revision, key string, crashed
 	if err != nil {
 		return nil, err
 	}
-	if delay := retry.RetryAt.Sub(now); delay > 0 {
-		g.arm(key, delay)
-		return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d at %s: %s", retry.Retries, retry.RetryAt.UTC().Format(time.RFC3339), crash)), nil
+	if retry.RetryAt.After(now) {
+		waiting := goldenRetrying(fmt.Sprintf("golden build crashed, retry %d at %s: %s", retry.Retries, retry.RetryAt.UTC().Format(time.RFC3339), crash))
+		waiting.RetryAt = retry.RetryAt
+		return waiting, nil
 	}
-	if err := g.templates.DeleteActorTemplateUID(ctx, ref.GetAtespace(), ref.GetName(), ref.GetUid()); err != nil {
+	if err := g.templates.DeleteActorTemplate(ctx, ref.GetAtespace(), ref.GetName(), ref.GetUid()); err != nil {
 		return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d waits to delete the crashed template (%s): %s", retry.Retries, status.Code(err), crash)),
 			fmt.Errorf("delete crashed ActorTemplate %s/%s: %w", ref.GetAtespace(), ref.GetName(), err)
 	}
-	g.queue.Add(key)
-	return goldenRetrying(fmt.Sprintf("golden build crashed, retry %d started: %s", retry.Retries, crash)), nil
+	started := goldenRetrying(fmt.Sprintf("golden build crashed, retry %d started: %s", retry.Retries, crash))
+	started.RetryAt = now
+	return started, nil
 }
 
-func (g *goldenRetries) arm(key string, wait time.Duration) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.stopped {
-		return
-	}
-	if previous, ok := g.timers[key]; ok {
-		previous.Stop()
-	}
-	var timer *time.Timer
-	timer = time.AfterFunc(wait, func() {
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		if g.stopped || g.timers[key] != timer {
-			return
-		}
-		delete(g.timers, key)
-		g.queue.Add(key)
-	})
-	g.timers[key] = timer
-}
-
-func (g *goldenRetries) stop() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.stopped = true
-	for key, timer := range g.timers {
-		timer.Stop()
-		delete(g.timers, key)
-	}
-}
-
-func (f *ReconciliationFailure) awaitsGoldenRetry() bool {
+func (f *ReconciliationFailure) isGoldenRetry() bool {
 	return f != nil && f.Reason == goldenRetryingReason
+}
+
+// A zero RetryAt leaves the wake to the queue's error backoff.
+func (f *ReconciliationFailure) awaitsGoldenRetry(now time.Time) bool {
+	return f.isGoldenRetry() && (f.RetryAt.IsZero() || now.Before(f.RetryAt))
 }
 
 func goldenRebuildMessage(retries int, waiting string) string {

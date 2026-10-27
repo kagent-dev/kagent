@@ -95,6 +95,7 @@ type ReconciliationFailure struct {
 	Reason    string
 	Message   string
 	Retryable bool
+	RetryAt   time.Time
 }
 
 func newAgentReconciliations(
@@ -208,7 +209,7 @@ type actorTemplateClient interface {
 	EnsureAtespace(context.Context, string) error
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
 	CreateActorTemplate(context.Context, *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error)
-	DeleteActorTemplateUID(ctx context.Context, atespace, name, uid string) error
+	DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error
 }
 
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
@@ -253,7 +254,7 @@ func newReconciler(
 	r.agents = newReconciliationQueue("agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
 	})
-	r.golden = newGoldenRetries(store, templates, r.agents)
+	r.golden = newGoldenRetries(store, templates)
 	r.agentStatuses = newReconciliationQueue("agent-status", func(item any) error {
 		return r.reconcileAgentStatus(context.Background(), item.(string))
 	})
@@ -316,7 +317,6 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		r.modelConfigStatuses.ShutDownEarly()
 		return err
 	}
-	context.AfterFunc(ctx, r.golden.stop)
 	go r.pollPendingTemplates(stop)
 	go r.agentStatuses.Run(stop)
 	go r.modelConfigStatuses.Run(stop)
@@ -348,10 +348,12 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 		select {
 		case <-stop:
 			return
-		case <-ticker.C:
+		case now := <-ticker.C:
 			for _, state := range r.collections.Reconciliations.List() {
 				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
-				if state.Target != nil && state.PreparationFailure == nil && state.ObservedActorTemplate != nil && golden.GetGoldenTag() == nil {
+				pending := state.PreparationFailure == nil && state.ObservedActorTemplate != nil && golden.GetGoldenTag() == nil
+				retryDue := state.PreparationFailure.isGoldenRetry() && !state.PreparationFailure.awaitsGoldenRetry(now)
+				if state.Target != nil && (pending || retryDue) {
 					r.agents.Add(state.ResourceName())
 				}
 			}
@@ -459,7 +461,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}
 	if isGoldenCrash(observed) {
-		retrying, err := r.golden.retry(ctx, revision.Revision, state.ResourceName(), observed)
+		retrying, err := r.golden.retry(ctx, revision.Revision, observed)
 		if retrying == nil {
 			return r.observePreparationError(*state, err)
 		}

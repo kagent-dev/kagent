@@ -123,7 +123,7 @@ func (s *sandboxTestActors) GetActorTemplate(_ context.Context, atespace, name s
 	}
 	return nil, status.Error(codes.NotFound, "missing")
 }
-func (s *sandboxTestActors) DeleteActorTemplateUID(_ context.Context, atespace, name, uid string) error {
+func (s *sandboxTestActors) DeleteActorTemplate(_ context.Context, atespace, name, uid string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deletedUIDs = append(s.deletedUIDs, uid)
@@ -153,7 +153,7 @@ func (s *sandboxTestActors) CreateActorTemplate(_ context.Context, template *ate
 	case s.autoReady:
 		template.Status = sandboxGoldenStatus()
 	case s.crashOnCreate:
-		template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenCrashMessage}}
+		template.Status = crashed(template).Status
 	}
 	s.templates[template.Metadata.Atespace+"/"+template.Metadata.Name] = template
 	return proto.CloneOf(template), nil
@@ -378,7 +378,7 @@ func TestSandboxPreparationRetriesGoldenCrash(t *testing.T) {
 		time.Sleep(time.Until(first) - time.Second)
 		synctest.Wait()
 		actors.inspect(func() { require.Empty(t, actors.deletedUIDs, "the crashed template stays until its backoff ends") })
-		time.Sleep(2 * time.Second)
+		time.Sleep(3 * time.Second)
 		synctest.Wait()
 		actors.inspect(func() {
 			require.Equal(t, []string{"uid-1"}, actors.deletedUIDs, "the delete must name the crashed template's UID")
@@ -397,7 +397,7 @@ func TestSandboxPreparationRetriesGoldenCrash(t *testing.T) {
 
 		actors.inspect(func() {
 			for _, template := range actors.templates {
-				template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: goldenCrashMessage}}
+				template.Status = crashed(template).Status
 			}
 		})
 		time.Sleep(2 * time.Second)

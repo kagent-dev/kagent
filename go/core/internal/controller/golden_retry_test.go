@@ -190,7 +190,7 @@ func TestPreparationGoldenRetrySurvivesRestart(t *testing.T) {
 		synctest.Wait()
 		require.Equal(t, retryMessage(storedRetryAt), message(), "a restart must not spend another retry")
 		backend.inspect(func() { require.Empty(t, templates.deletedUIDs, "no recreate before the stored retry time") })
-		time.Sleep(time.Millisecond)
+		time.Sleep(2 * time.Second)
 		synctest.Wait()
 		backend.inspect(func() {
 			require.Equal(t, []string{"uid-1"}, templates.deletedUIDs, "the restarted controller recreates at the stored retry time")

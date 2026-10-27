@@ -216,16 +216,16 @@ func (f *deleteActorTemplateFake) DeleteActor(_ context.Context, in *ateapipb.De
 func TestDeleteActorTemplateRetriesNotFound(t *testing.T) {
 	fake := &deleteActorTemplateFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template"))
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", ""))
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
 	require.Nil(t, fake.actor, "Substrate owns golden Actor cleanup")
-	require.Nil(t, fake.options, "an unguarded delete sends no preconditions")
+	require.Empty(t, fake.options.GetUid(), "an unguarded delete pins no UID")
 }
 
-func TestDeleteActorTemplateUIDSendsPrecondition(t *testing.T) {
+func TestDeleteActorTemplateSendsUIDPrecondition(t *testing.T) {
 	fake := &deleteActorTemplateFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-	require.NoError(t, client.DeleteActorTemplateUID(t.Context(), "team-a", "template", "crashed-uid"))
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", "crashed-uid"))
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
 	require.Equal(t, "crashed-uid", fake.options.GetUid(), "a replacement template under the same name must survive")
 }
