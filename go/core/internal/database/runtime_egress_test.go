@@ -323,7 +323,7 @@ func TestActorJWTGrantPersistenceAndRevocation(t *testing.T) {
 	grant := egress.Access{Destinations: []string{"https://mcp.example.com:443"}, Credentials: []egress.Credential{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer ", ActorJWT: &egress.ActorJWT{Audiences: []string{"mcp"}, ExpirationSeconds: 900}}}}
 	definition := AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", EgressGrant: grant}
 	require.NoError(t, c.UpsertAgentDefinition(t.Context(), definition))
-	require.NoError(t, c.RecordRuntimeRevision(t.Context(), RuntimeRevision{Revision: "actor-token", Namespace: "team", AgentName: "source", AgentUID: "uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime"}, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(c.RecordRuntimeRevision(t.Context(), RuntimeRevision{Revision: "actor-token", Namespace: "team", AgentName: "source", AgentUID: "uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime"}, RecordRevisionOptions{})))
 	policy, err := c.GetRuntimeEgressPolicy(t.Context(), "actor-token")
 	require.NoError(t, err)
 	require.Equal(t, grant, policy)
