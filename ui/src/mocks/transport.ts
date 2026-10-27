@@ -777,55 +777,6 @@ function instanceFor(id: string, call: MockCall): AgentInstance {
   return found;
 }
 
-/**
- * A lifecycle operation, refused exactly where the controller refuses it.
- *
- * `ActorWorkflow.Suspend` claims the instance from `READY` and `Resume` from
- * `SUSPENDED`, and the claim itself fails when an operation is already in flight —
- * both come back as `ErrAgentInstanceConflict`, which the service maps to `Aborted`.
- * Reproducing that here is the difference between a disabled button that is right
- * and one that is merely decorative: the page can be tested against a fake that
- * says no for the same reasons a cluster does.
- *
- * Both complete synchronously on success, leaving `operation` cleared — so the
- * record handed back is final, not a promise to look again later.
- */
-function lifecycle(
-  id: string,
-  call: MockCall,
-  from: AgentInstanceState,
-  to: AgentInstanceState,
-  operation: AgentInstanceOperation,
-): AgentInstance {
-  const instance = instanceFor(
-    requireInstanceId(id),
-    call,
-  );
-
-  if (instance.operation !== "unspecified") {
-    throw new ConnectError(
-      `AgentInstance has a conflicting lifecycle operation: ${instance.operation} is already in progress.`,
-      Code.Aborted,
-    );
-  }
-  if (instance.state !== from) {
-    throw new ConnectError(
-      `AgentInstance has a conflicting lifecycle operation: only a ${from} instance can be ${operation}ed, and this one is ${instance.state}.`,
-      Code.Aborted,
-    );
-  }
-
-  return saveAgentInstance({
-    ...instance,
-    state: to,
-    operation: "unspecified",
-    // A successful operation cannot leave the previous failure standing: the record
-    // would then show a healthy instance beside the reason it broke.
-    failure: undefined,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
 on(SessionService.method.listSessions, (input, call) => {
   if (call.scenario === "empty") return { sessions: [], page: {} };
 
@@ -871,18 +822,6 @@ on(SessionService.method.getSession, (input, call) => ({
       requireInstanceId(input.sessionId),
       call,
     ),
-  ),
-}));
-
-on(SessionService.method.suspendSession, (input, call) => ({
-  session: agentInstanceMessage(
-    lifecycle(input.sessionId, call, "ready", "suspended", "suspend"),
-  ),
-}));
-
-on(SessionService.method.resumeSession, (input, call) => ({
-  session: agentInstanceMessage(
-    lifecycle(input.sessionId, call, "suspended", "ready", "resume"),
   ),
 }));
 

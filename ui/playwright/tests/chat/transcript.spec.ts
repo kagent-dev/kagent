@@ -290,16 +290,7 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
     ).toHaveCount(0);
   });
 
-  await test.step("16. a suspended agent still takes a message, and resuming is the page's job", async () => {
-    /*
-     * Suspended is not "cannot answer" — it is "not resumed yet".
-     *
-     * The gateway does refuse a message for a suspended instance, and the composer used
-     * to be disabled because of it. But the reader's intention is unambiguous: they
-     * typed something and pressed send. Making them find a Resume control first —
-     * having just been told the agent gave its worker back at the end of the last turn
-     * — is a step the page can take for them rather than a detour on every message.
-     */
+  await test.step("16. an idle conversation is ready for its next message", async () => {
     await expect(page.getByTestId("chat-input")).toBeEnabled();
     // And no alert claiming it cannot answer, because it can.
     await expect(page.getByTestId("chat-not-ready")).toHaveCount(0);

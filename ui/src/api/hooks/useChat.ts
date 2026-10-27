@@ -153,24 +153,7 @@ type Transcript =
 
 const NO_MESSAGES: ChatMessage[] = [];
 
-export function useChat(
-  conversation: ChatConversationRef | undefined,
-  /**
-   * Run before every turn, and awaited.
-   *
-   * The one thing a surface may need to do that this hook cannot know about: the
-   * conversation may be suspended, and the gateway refuses a message for an instance
-   * that is not ready. Resuming is the page's business — it holds the instance read —
-   * but *when* to do it is this hook's, because there are two ways a turn begins.
-   *
-   * A page that wrapped `send` alone would miss `retry`, which starts a turn from in
-   * here and never touches the page's wrapper. That is not hypothetical: with
-   * conversations giving their workers back after every turn, the state a failed turn
-   * leaves behind is suspended, so retry is precisely the button most likely to be
-   * pressed against one.
-   */
-  beforeSend?: () => Promise<void>,
-): ChatController {
+export function useChat(conversation: ChatConversationRef | undefined): ChatController {
   // The key, not the ref, is what everything below is stamped with and what every
   // dependency list watches — see `Transcript`.
   const key = conversation ? conversationKey(conversation) : undefined;
@@ -195,12 +178,6 @@ export function useChat(
   const pendingRef = useRef<{ key: string; request: PendingRequest } | null>(pending);
   useEffect(() => {
     pendingRef.current = pending;
-  });
-
-  // Kept current every render for the reason given where it is called.
-  const beforeSendRef = useRef(beforeSend);
-  useEffect(() => {
-    beforeSendRef.current = beforeSend;
   });
 
   // Refs, not state: cancelling and cleanup read these outside a render, and a
@@ -265,15 +242,6 @@ export function useChat(
       files?: readonly File[],
     ) => {
       if (!conversation || !key || (!text.trim() && !files?.length)) return;
-
-      // Before anything is dispatched: a failure here means the turn never began,
-      // and half-starting one would leave the transcript showing a message that was
-      // never sent.
-      //
-      // Through the ref, because `run` is memoised on `key` alone — a callback closed
-      // over here would be whichever one the first render supplied, and this one is
-      // supplied by a page reading a state that changes.
-      if (beforeSendRef.current) await beforeSendRef.current();
 
       const controller = new AbortController();
       abortRef.current = controller;

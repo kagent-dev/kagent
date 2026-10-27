@@ -38,8 +38,6 @@ func TestSessionServicePoliciesMatchTheirEffect(t *testing.T) {
 		{name: "get", method: apiv1.SessionService_GetSession_FullMethodName, want: pkgauth.AccessRead},
 		{name: "list", method: apiv1.SessionService_ListSessions_FullMethodName, want: pkgauth.AccessRead},
 		{name: "rename is a write", method: apiv1.SessionService_UpdateSessionName_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "suspend", method: apiv1.SessionService_SuspendSession_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "resume", method: apiv1.SessionService_ResumeSession_FullMethodName, want: pkgauth.AccessUpdate},
 		{name: "delete", method: apiv1.SessionService_DeleteSession_FullMethodName, want: pkgauth.AccessDelete},
 		{name: "create share", method: apiv1.SessionService_CreateSessionShare_FullMethodName, want: pkgauth.AccessCreate},
 		{name: "list shares", method: apiv1.SessionService_ListSessionShares_FullMethodName, want: pkgauth.AccessRead},

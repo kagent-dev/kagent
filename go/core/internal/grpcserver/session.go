@@ -51,22 +51,6 @@ func (s *sessionServer) UpdateSessionName(ctx context.Context, request *apiv1.Up
 	return &apiv1.UpdateSessionNameResponse{Session: session}, nil
 }
 
-func (s *sessionServer) SuspendSession(ctx context.Context, request *apiv1.SuspendSessionRequest) (*apiv1.SuspendSessionResponse, error) {
-	session, err := s.service.Suspend(ctx, request.GetSessionId())
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1.SuspendSessionResponse{Session: session}, nil
-}
-
-func (s *sessionServer) ResumeSession(ctx context.Context, request *apiv1.ResumeSessionRequest) (*apiv1.ResumeSessionResponse, error) {
-	session, err := s.service.Resume(ctx, request.GetSessionId())
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1.ResumeSessionResponse{Session: session}, nil
-}
-
 func (s *sessionServer) DeleteSession(ctx context.Context, request *apiv1.DeleteSessionRequest) (*apiv1.DeleteSessionResponse, error) {
 	session, err := s.service.Delete(ctx, request.GetSessionId())
 	if err != nil {

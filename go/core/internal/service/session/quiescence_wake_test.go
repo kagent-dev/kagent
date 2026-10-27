@@ -252,28 +252,6 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 	}
 }
 
-func TestQuiescenceResumesPendingWorkAfterExplicitSuspend(t *testing.T) {
-	store, session := lifecycleFixture(t)
-	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	writes := &observedQuiescenceStore{lifecycleTestStore: store}
-	workflow := NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Hour)
-	session, err := workflow.Create(t.Context(), session)
-	require.NoError(t, err)
-	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateInputRequired)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
-	session, err = workflow.Suspend(t.Context(), session)
-	require.NoError(t, err)
-	pending, err := store.HasPendingSessionQuiescence(t.Context())
-	require.NoError(t, err)
-	require.False(t, pending, "suspended actors must not keep fast retries active")
-	startQuiescenceWorker(t, workflow)
-	// Creation's buffered wake-up adds an extra empty scan.
-	require.Eventually(t, func() bool { return writes.idle.Load() >= 5 }, 5*time.Second, 10*time.Millisecond)
-	_, err = workflow.Resume(t.Context(), session)
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 3*time.Second, 10*time.Millisecond)
-}
-
 func TestQuiescenceCancellationRetainsClaim(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}

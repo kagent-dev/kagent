@@ -34,8 +34,8 @@ Helm chart uses `global.clusterDomain` (default `cluster.local`) for its generat
 controller and API tool URLs; custom model, MCP, and telemetry URLs must also
 use full names.
 
-Create (including forks), explicit Suspend, Resume, and Delete keep their current
-operation UUID and executor claim on the session row. Fork creation loads its
+Create (including forks), Delete, and controller-owned deadline suspension keep
+their current operation UUID and executor claim on the session row. Fork creation loads its
 pinned checkpoint from PostgreSQL. Namespace provisioning belongs to the Agent
 controller; session creation uses the pinned ActorTemplate's existing namespace.
 Read-only preparation may run concurrently, but an atomic execution claim permits
@@ -47,8 +47,7 @@ A joined caller observes the current session only while its admitted generation
 remains current. A superseded caller gets a conflict and issues no runtime work,
 even when the new operation has the same state and kind. There is no historical
 lifecycle result archive or pruning requirement. Creation retries return current
-session state; already-at-target Suspend/Resume requests are successful no-ops.
-Neither requires an old operation receipt. A2A task storage and checkpoint
+session state without requiring an old operation receipt. A2A task storage and checkpoint
 reconstruction have their own durable history requirements.
 
 An unclaimed operation can retry preparation; Delete may supersede it. Every
@@ -85,8 +84,13 @@ deletion and cannot recreate compute. Public Delete still returns NotFound for a
 fresh request after deletion; already-authorized joined Delete callers can observe
 the final tombstone. No public operation API is introduced.
 
-Explicit suspend and resume update the logical lifecycle state. Deletion closes task
-admission, stops and deletes the Actor, then tombstones the session. The workflow
+Session runtime suspension and resumption are platform-managed: idle settlement
+suspends the Actor while the Session stays READY, and Substrate ingress resumes
+it for the next interaction. There are no public Session suspend/resume controls;
+standalone Sandboxes retain their explicit controls. Scheduled-run deadline cleanup
+can still suspend a Session internally when no scheduled task can be identified.
+Deletion closes task admission,
+stops and deletes the Actor, then tombstones the session. The workflow
 entry points are in
 [`go/core/internal/service/session`](../../go/core/internal/service/session).
 TaskStore writes and automatic idle lifecycle work use durable task boundaries
@@ -189,8 +193,7 @@ Ordinary committed settlements do not wait for the recovery interval.
 An empty claim is followed by a check for unclaimed work on ready sessions. If
 dispatch, checkpoint creation, a lifecycle operation, or a row lock blocks that
 work, workers retry within one second until it becomes eligible or is superseded.
-Database errors also use this short retry. Explicit lifecycle completion wakes
-workers when it returns a session to READY. Suspended/deleted sessions and claimed
+Database errors also use this short retry. Sessions that are not READY and claimed
 work do not keep the short retry active. Idle workers make one claim attempt and
 one pending-work check per recovery interval, rather than querying every second.
 Other background workers and connection-pool idle settings still affect whether

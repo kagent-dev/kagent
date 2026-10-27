@@ -535,7 +535,7 @@ test("chat agent rail: the newest conversation is at the top", async ({ page }) 
    * comparator carries the note, and `conversationOrder.test.ts` carries the cases.
    *
    * The fixtures are arranged against this deliberately: unsorted, this rail renders
-   * the *older* suspended sibling first, so a rail that sorts has to move it and a
+   * the *older* idle sibling first, so a rail that sorts has to move it and a
    * rail that does not cannot accidentally pass. Asserted on ids rather than titles,
    * because a title is derived and a row's identity is not.
    */
@@ -550,7 +550,7 @@ test("chat agent rail: the newest conversation is at the top", async ({ page }) 
   );
   await expect(rows.nth(1)).toHaveAttribute(
     "data-testid",
-    `chat-session-${instances.suspended}`,
+    `chat-session-${instances.idle}`,
   );
 });
 
