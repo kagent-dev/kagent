@@ -35,6 +35,7 @@ type ProcessConfig struct {
 	AppendSystemPrompt   string
 	AgentsJSON           string
 	MCPConfigPath        string
+	DisallowedTools      []string
 	SettingsPath         string
 	PermissionPromptTool string
 	PluginDirs           []string
@@ -118,14 +119,21 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		"--dangerously-skip-permissions",
 	}
 	if d.config.ApprovalBroker != nil {
+		settingSources := ""
+		if len(d.config.PluginDirs) != 0 {
+			settingSources = "project"
+		}
 		args = append(args,
-			"--setting-sources", "",
+			"--setting-sources", settingSources,
 			"--settings", d.config.SettingsPath,
 			"--permission-prompt-tool", d.config.PermissionPromptTool,
 		)
 	}
 	if d.config.Model != "" {
 		args = append(args, "--model", d.config.Model)
+	}
+	if len(d.config.DisallowedTools) != 0 {
+		args = append(args, "--disallowedTools", strings.Join(d.config.DisallowedTools, ","))
 	}
 	if d.config.AppendSystemPrompt != "" {
 		args = append(args, "--append-system-prompt", d.config.AppendSystemPrompt)
