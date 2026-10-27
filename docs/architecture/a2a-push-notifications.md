@@ -54,22 +54,49 @@ is retained. Creating or changing a callback does not replay an earlier state.
 Each callback registration holds at most one pending notification. Kagent
 replaces that pending state in the same database transaction that publishes the
 task state, and clears waiting notifications atomically with active task saves.
-Each API replica runs a sender, woken through its own buffered,
-nonblocking channel after settlement commits. Push and quiescence have separate
-channels so neither consumes the other's hint. PostgreSQL row claims, leases,
-and claim tokens coordinate delivery across replicas; HTTP runs outside the claim
-transaction.
+Each API replica runs a sender with up to ten concurrent deliveries by default,
+woken through its own buffered, nonblocking channel after settlement commits.
+Push and quiescence have separate channels so neither consumes the other's hint.
+PostgreSQL row claims, leases, and claim tokens coordinate delivery across
+replicas; HTTP runs outside the claim transaction.
+
+Configure `push.maxConcurrency` (positive integer, default `10`) and
+`push.sendTimeout` (positive duration, default `5s`) in the controller config.
+With Helm, set these under `config.push`:
+
+```yaml
+config:
+  push:
+    maxConcurrency: 10
+    sendTimeout: 5s
+```
+
+The concurrency limit applies per replica, across its callback destinations.
+Setting it to `1` selects serial delivery. Each freed slot immediately accepts
+another delivery, even while other requests remain slow. Registrations are only
+claimed when capacity is available. Leases cover the configured send timeout plus
+30 seconds for preparation and persistence. Preparation errors and send timeouts
+record failed attempts for retry. Shutdown cancels active sends and allows up to
+five seconds to persist each outcome. Successful sends remain acknowledged;
+shutdown-interrupted attempts release their claims immediately without consuming
+the retry budget. Claims whose outcomes could not be saved recover after lease
+expiry.
 
 Workers claim pending registrations at startup and after wake-ups. When idle,
 recovery scans run once a minute by default (`push.recoveryInterval`, which must be
-positive), also cleaning up unbound registrations. Lost hints, including a crash
-between commit and signaling, can delay delivery until another replica's next
-scan. Outstanding retries and leased deliveries use a five-second polling interval,
-and database errors use one-second retries. Each pass handles at most 100
-deliveries before registration cleanup; a full batch continues immediately.
+positive). Unbound registrations are cleaned up at startup and on a separate timer
+at that interval, including when all delivery slots are occupied. Lost hints,
+including a crash between commit and signaling, can delay delivery until another
+replica's next scan. Outstanding retries and leased deliveries use a five-second polling interval,
+and database errors use one-second retries. Each pass claims at most 100
+deliveries, bounded by available capacity; a full batch continues immediately.
+Send completion and local hints also wake the sender. Queued completions are
+drained together before refilling capacity. Saturated senders wait for capacity
+without querying for pending deliveries.
 
-Each pending generation permits up to ten attempts, including after controller
-restarts. Exhausting the retry budget or expiring the final lease clears pending
+Each pending generation permits up to ten attempts across controller restarts;
+successfully released shutdown interruptions do not consume this budget.
+Exhausting the retry budget or expiring the final lease clears pending
 delivery state while retaining the callback registration for future publications.
 Failures preparing a notification use the same retry schedule as failed
 HTTP requests, so a malformed task cannot block unrelated callbacks. A newer

@@ -9,6 +9,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -26,24 +27,43 @@ func TestPushPendingDeliveryTracksRetriesAndLeases(t *testing.T) {
 	assertPending(false)
 	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
 	assertPending(true)
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
 	assertPending(true) // An active lease must still be checked for abandonment.
 	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
 	assertPending(true) // Future retries are outstanding even when not claimable.
-	blocked, err := client.ClaimDuePushDelivery(ctx)
+	blocked, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
 	require.NoError(t, execSQL(ctx, client.db, `
         UPDATE session_push_registration SET next_attempt_at = clock_timestamp() - interval '1 second'
         WHERE id = $1
     `, delivery.ID))
-	delivery, err = client.ClaimDuePushDelivery(ctx)
+	delivery, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
 	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
 	assertPending(false)
+}
+
+func TestPushDeliveryLeaseCoversSendTimeout(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
+	delivery, err := client.ClaimDuePushDelivery(ctx, time.Minute)
+	require.NoError(t, err)
+	require.NotNil(t, delivery)
+	covered, err := queryOne(ctx, client.db, `
+        SELECT lease_until > clock_timestamp() + interval '1 minute'
+        FROM session_push_registration WHERE id = $1
+    `, pgx.RowTo[bool], delivery.ID)
+	require.NoError(t, err)
+	require.True(t, covered, "a timeout longer than the old lease must remain protected")
+	blocked, err := client.ClaimDuePushDelivery(ctx, time.Second)
+	require.NoError(t, err)
+	require.Nil(t, blocked, "another replica's shorter timeout must not change an active lease")
 }
 
 func TestPushPendingDeliveryExcludesCanceledWork(t *testing.T) {
@@ -82,7 +102,7 @@ func TestPushDeliveryConcurrentClaimsAcrossReplicas(t *testing.T) {
 	for range 8 {
 		workers.Go(func() {
 			<-start
-			delivery, err := NewClient(sharedDB, "public").ClaimDuePushDelivery(ctx)
+			delivery, err := NewClient(sharedDB, "public").ClaimDuePushDelivery(ctx, 5*time.Second)
 			results <- delivery
 			errors <- err
 		})
@@ -197,7 +217,7 @@ func TestTaskPushConfigManagement(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "http://initial", got.URL)
 	require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, string(task.ID), &a2a.PushConfig{ID: "second", URL: "http://second"}))
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, delivery, "registration does not replay the published waiting state")
 	rows, err := client.ListTaskPushConfigs(ctx, session.Id, string(task.ID), "", 10)
@@ -245,7 +265,7 @@ func TestPushRegistrationFingerprintRejectsChangedSend(t *testing.T) {
 	task.History = append(task.History, &a2a.Message{ID: "input", Role: a2a.MessageRoleUser})
 	task.Status.State = a2a.TaskStateWorking
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, delivery, "known-task registration is future-only")
 	require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, taskID,
@@ -311,7 +331,7 @@ func TestContinuationPushBindsWithAcceptedTaskWrite(t *testing.T) {
 	got, err := client.GetTaskPushConfig(ctx, session.Id, string(task.ID), config.ID)
 	require.NoError(t, err)
 	require.Equal(t, config.URL, got.URL)
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, delivery, "working state is not a notification boundary")
 }
@@ -333,7 +353,7 @@ func TestUnacceptedContinuationDoesNotSubscribeToTask(t *testing.T) {
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("complete without accepting input"), task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, taskID, version))
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, delivery)
 }
@@ -344,18 +364,18 @@ func TestPushDeliveryRetriesAndRejectsTerminalRegistration(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	config := &a2a.PushConfig{ID: "callback", URL: "http://receiver"}
 	session, task := waitingTaskWithPushFixture(t, client, config)
-	first, err := client.ClaimDuePushDelivery(ctx)
+	first, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, first)
 	require.NoError(t, client.FinishPushDelivery(ctx, *first, false))
-	blocked, err := client.ClaimDuePushDelivery(ctx)
+	blocked, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked, "a failed delivery waits for its retry time")
 	require.NoError(t, execSQL(ctx, client.db, `
         UPDATE session_push_registration SET next_attempt_at = clock_timestamp() - interval '1 second'
         WHERE id = $1
     `, first.ID))
-	second, err := client.ClaimDuePushDelivery(ctx)
+	second, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	require.Equal(t, first.ID, second.ID)
@@ -364,7 +384,7 @@ func TestPushDeliveryRetriesAndRejectsTerminalRegistration(t *testing.T) {
 	require.NoError(t, client.FinishPushDelivery(ctx, *first, true))
 	require.NoError(t, client.FinishPushDelivery(ctx, *second, true))
 	require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, string(task.ID), config))
-	blocked, err = client.ClaimDuePushDelivery(ctx)
+	blocked, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked, "identical Create must not enqueue a duplicate")
 
@@ -374,7 +394,7 @@ func TestPushDeliveryRetriesAndRejectsTerminalRegistration(t *testing.T) {
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("complete for push"), task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
-	terminal, err := client.ClaimDuePushDelivery(ctx)
+	terminal, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, terminal)
 	require.Equal(t, first.ID, terminal.ID)
@@ -385,7 +405,7 @@ func TestPushDeliveryRetriesAndRejectsTerminalRegistration(t *testing.T) {
 	require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "late-input", string(task.ID), late), ErrFailedPrecondition)
 	require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "initial", "", late), ErrFailedPrecondition,
 		"an accepted initial send cannot add a callback after completion")
-	lateDelivery, err := client.ClaimDuePushDelivery(ctx)
+	lateDelivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, lateDelivery)
 }
@@ -398,7 +418,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 
 	var final *PushDelivery
 	for attempt := 1; attempt <= pushMaxDeliveryAttempts; attempt++ {
-		delivery, err := client.ClaimDuePushDelivery(ctx)
+		delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, delivery)
 		require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
@@ -418,7 +438,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 		require.Equal(t, attempt, count)
 		wantSeconds := float64(min(5<<(attempt-1), 300))
 		require.InDelta(t, wantSeconds, delaySeconds, 1)
-		blocked, err := client.ClaimDuePushDelivery(ctx)
+		blocked, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 		require.NoError(t, err)
 		require.Nil(t, blocked)
 		require.NoError(t, execSQL(ctx, client.db, `
@@ -426,7 +446,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
             WHERE id = $1
         `, delivery.ID))
 	}
-	blocked, err := client.ClaimDuePushDelivery(ctx)
+	blocked, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked, "exhausted delivery must not be claimed again")
 	pending, err := client.HasPendingPushDelivery(ctx)
@@ -434,7 +454,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 	require.False(t, pending, "exhausted work must not keep fast polling active")
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	next, err := client.ClaimDuePushDelivery(ctx)
+	next, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, next, "a new publication resets exhausted retries")
 	require.Equal(t, final.ID, next.ID, "exhaustion retains the callback registration")
@@ -449,12 +469,42 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 	require.Equal(t, 1, count)
 }
 
+func TestPushDeliveryReleasePreservesRetryBudget(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
+	// Real failures still consume the budget. Leave only the last attempt available.
+	for range pushMaxDeliveryAttempts - 1 {
+		delivery, err := client.ClaimDuePushDelivery(ctx, time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, delivery)
+		require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
+		require.NoError(t, execSQL(ctx, client.db, `
+            UPDATE session_push_registration SET next_attempt_at = clock_timestamp() - interval '1 second'
+            WHERE id = $1
+        `, delivery.ID))
+	}
+	for range pushMaxDeliveryAttempts + 1 {
+		delivery, err := client.ClaimDuePushDelivery(ctx, time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, delivery, "interrupted final attempts remain immediately retryable")
+		require.NoError(t, client.ReleasePushDelivery(ctx, *delivery))
+		require.NoError(t, client.ReleasePushDelivery(ctx, *delivery), "repeated release must not refund twice")
+	}
+	delivery, err := client.ClaimDuePushDelivery(ctx, time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, delivery)
+	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
+	assertPushDeliveryRetired(t, client, delivery.ID)
+}
+
 func TestPushDeliveryExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
 	require.NoError(t, execSQL(ctx, client.db, `
@@ -463,7 +513,7 @@ func TestPushDeliveryExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
         WHERE id = $1
     `, delivery.ID, pushMaxDeliveryAttempts))
 
-	blocked, err := client.ClaimDuePushDelivery(ctx)
+	blocked, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
 	pending, err := client.HasPendingPushDelivery(ctx)
@@ -475,13 +525,13 @@ func TestPushDeliveryExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
 	current, err := client.IsPushDeliveryCurrent(ctx, *delivery)
 	require.NoError(t, err)
 	require.False(t, current, "late acknowledgement cannot revive an exhausted delivery")
-	blocked, err = client.ClaimDuePushDelivery(ctx)
+	blocked, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task,
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	next, err := client.ClaimDuePushDelivery(ctx)
+	next, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, next, "expiring the final lease retains the registration for future publications")
 	require.Equal(t, delivery.ID, next.ID)
@@ -507,7 +557,7 @@ func TestPushDeliveryCoalescesPublishedBoundaries(t *testing.T) {
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
 
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
 	require.Equal(t, version, delivery.Sequence)
@@ -521,7 +571,7 @@ func TestPushDeliveryCoalescesPublishedBoundaries(t *testing.T) {
 	require.Equal(t, task.Artifacts, stored.Artifacts, "artifacts remain available through GetTask")
 	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
-	next, err := client.ClaimDuePushDelivery(ctx)
+	next, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, next, "settlement retries must not rearm acknowledged notifications")
 }
@@ -543,19 +593,20 @@ func TestPushDeliveryExpiredLeaseFencesOldWorker(t *testing.T) {
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
-	first, err := client.ClaimDuePushDelivery(ctx)
+	first, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, first)
 	require.NoError(t, execSQL(ctx, client.db, `
         UPDATE session_push_registration SET lease_until = clock_timestamp() - interval '1 second'
         WHERE id = $1
     `, first.ID))
-	second, err := client.ClaimDuePushDelivery(ctx)
+	second, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	require.Equal(t, first.ID, second.ID)
 	require.NotEqual(t, first.ClaimToken, second.ClaimToken)
 	require.NoError(t, client.FinishPushDelivery(ctx, *first, true))
+	require.NoError(t, client.ReleasePushDelivery(ctx, *first))
 	current, err := client.IsPushDeliveryCurrent(ctx, *second)
 	require.NoError(t, err)
 	require.True(t, current)
@@ -571,7 +622,7 @@ func TestPushDeliveryReplacementAndDeleteCancelOldWork(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskWithPushFixture(t, client,
 		&a2a.PushConfig{ID: "callback", URL: "http://old"})
-	old, err := client.ClaimDuePushDelivery(ctx)
+	old, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, old)
 	require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, string(task.ID),
@@ -580,7 +631,7 @@ func TestPushDeliveryReplacementAndDeleteCancelOldWork(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, current)
 	require.NoError(t, client.FinishPushDelivery(ctx, *old, true))
-	noReplay, err := client.ClaimDuePushDelivery(ctx)
+	noReplay, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, noReplay, "replacement waits for a new published boundary")
 	_, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(task.ID))
@@ -589,7 +640,7 @@ func TestPushDeliveryReplacementAndDeleteCancelOldWork(t *testing.T) {
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("replace push boundary"), task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
-	newDelivery, err := client.ClaimDuePushDelivery(ctx)
+	newDelivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, newDelivery)
 	require.Equal(t, "http://new", newDelivery.URL)
@@ -598,7 +649,7 @@ func TestPushDeliveryReplacementAndDeleteCancelOldWork(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, current)
 	require.NoError(t, client.FinishPushDelivery(ctx, *newDelivery, true))
-	remaining, err := client.ClaimDuePushDelivery(ctx)
+	remaining, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, remaining)
 }
@@ -614,7 +665,7 @@ func TestPushDeliverySupersededOutcomeCannotChangeNewGeneration(t *testing.T) {
 			ctx := t.Context()
 			sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 			session, task := waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
-			old, err := client.ClaimDuePushDelivery(ctx)
+			old, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			require.NotNil(t, old)
 			task.Status.State = a2a.TaskStateCompleted
@@ -623,13 +674,15 @@ func TestPushDeliverySupersededOutcomeCannotChangeNewGeneration(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, current)
 			require.NoError(t, client.FinishPushDelivery(ctx, *old, delivered))
-			next, err := client.ClaimDuePushDelivery(ctx)
+			require.NoError(t, client.ReleasePushDelivery(ctx, *old))
+			next, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			require.NotNil(t, next, "old outcomes cannot clear or delay unclaimed new work")
 			require.Equal(t, old.ID, next.ID)
 			require.NotEqual(t, old.Sequence, next.Sequence)
 			require.NotEqual(t, old.ClaimToken, next.ClaimToken)
 			require.NoError(t, client.FinishPushDelivery(ctx, *old, delivered))
+			require.NoError(t, client.ReleasePushDelivery(ctx, *old))
 			current, err = client.IsPushDeliveryCurrent(ctx, *next)
 			require.NoError(t, err)
 			require.True(t, current, "old outcomes cannot alter a newer claim")
@@ -667,7 +720,7 @@ func TestPushDeliveryResumeClearsWaitingWork(t *testing.T) {
 			var old *PushDelivery
 			if test.mode != "pending" {
 				var err error
-				old, err = client.ClaimDuePushDelivery(ctx)
+				old, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 				require.NoError(t, err)
 				require.NotNil(t, old)
 				if test.mode == "retry" {
@@ -708,7 +761,7 @@ func TestPushDeliveryResumeClearsWaitingWork(t *testing.T) {
 				require.NoError(t, err)
 				require.False(t, current)
 			}
-			next, err := client.ClaimDuePushDelivery(ctx)
+			next, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			require.Nil(t, next, "resumption does not create a progress notification")
 		})
@@ -734,7 +787,7 @@ func TestPushDeliveryOldMutationRetryCannotClearLaterBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, activeVersion, version)
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(waiting.ID), firstVersion))
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
 	require.Equal(t, boundaryVersion, delivery.Sequence)
@@ -752,7 +805,7 @@ func TestPushDeliveryCapturesLatestPublishedProjection(t *testing.T) {
 	task.Artifacts = []*a2a.Artifact{{ID: "draft", Parts: a2a.ContentParts{a2a.NewTextPart("published")}}}
 	_, err = client.UpdateSessionTask(ctx, session.Id, boundaryVersion, taskMutationHash("update while waiting"), task, task, "")
 	require.NoError(t, err)
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
 	require.Equal(t, boundaryVersion, delivery.Sequence, "same-state updates do not create a new trigger")
@@ -761,7 +814,7 @@ func TestPushDeliveryCapturesLatestPublishedProjection(t *testing.T) {
 	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
 	task.Status.Message = a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("another question"))
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
-	delivery, err = client.ClaimDuePushDelivery(ctx)
+	delivery, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, delivery, "ordinary same-state updates do not rearm delivered notifications")
 }
@@ -825,12 +878,12 @@ func TestPushDeliveryClaimSkipsUncommittedPublication(t *testing.T) {
 	public, err := client.GetSessionTask(ctx, session.Id, string(task.ID), nil)
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateInputRequired, public.Status.State, "publication is still uncommitted")
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, delivery, "claim must skip a registration being published")
 	require.NoError(t, tx.Commit(ctx))
 	require.NoError(t, <-settled)
-	delivery, err = client.ClaimDuePushDelivery(ctx)
+	delivery, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
 	require.Equal(t, version, delivery.Sequence)
@@ -849,10 +902,10 @@ func TestPushDeliveryRegistrationsHaveIndependentClaims(t *testing.T) {
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("complete"), task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
-	first, err := client.ClaimDuePushDelivery(ctx)
+	first, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, first)
-	second, err := client.ClaimDuePushDelivery(ctx)
+	second, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	require.NotEqual(t, first.ID, second.ID)
@@ -875,7 +928,7 @@ func TestPushDeliverySessionDeletionInvalidatesClaim(t *testing.T) {
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _ := waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
-	delivery, err := client.ClaimDuePushDelivery(ctx)
+	delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
 	require.NoError(t, deleteSession(ctx, client, session.Id))
@@ -928,7 +981,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			_, err = client.db.Exec(ctx, `UPDATE session_task SET data = $1 WHERE history_id = $2 AND id = $3`,
 				invalidData, session.HistoryID, badTask.ID)
 			require.NoError(t, err)
-			delivery, err := client.ClaimDuePushDelivery(ctx)
+			delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.ErrorContains(t, err, "failed to prepare push task")
 			require.Nil(t, delivery)
 			var attempts int
@@ -941,12 +994,12 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			require.Equal(t, 1, attempts, "preparation failure must commit its attempt")
 			require.True(t, scheduled, "a bad task must wait for backoff before being selected again")
 			require.True(t, unleased, "a known preparation failure does not leave an HTTP lease")
-			delivery, err = client.ClaimDuePushDelivery(ctx)
+			delivery, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			require.NotNil(t, delivery, "the worker can reach the next healthy callback")
 			require.Equal(t, string(goodTask.ID), delivery.TaskID)
 			require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
-			delivery, err = client.ClaimDuePushDelivery(ctx)
+			delivery, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			require.Nil(t, delivery, "the bad callback must not be immediately retried")
 			for attempt := 2; attempt <= pushMaxDeliveryAttempts; attempt++ {
@@ -955,11 +1008,11 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
                     WHERE config_id = 'bad'
                 `)
 				require.NoError(t, err)
-				delivery, err := client.ClaimDuePushDelivery(ctx)
+				delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 				require.Error(t, err)
 				require.Nil(t, delivery)
 			}
-			delivery, err = client.ClaimDuePushDelivery(ctx)
+			delivery, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			require.Nil(t, delivery, "invalid task attempts eventually exhaust the retry budget")
 			pending, err := client.HasPendingPushDelivery(ctx)
@@ -973,7 +1026,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			badTask.Status.State = a2a.TaskStateCompleted
 			require.NoError(t, saveRuntimeTask(t, client, badSession.Id, badTask, badTask,
 				&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-			delivery, err = client.ClaimDuePushDelivery(ctx)
+			delivery, err = client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			require.NotNil(t, delivery)
 			require.Equal(t, registrationID, delivery.ID)

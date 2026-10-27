@@ -360,14 +360,18 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp())
-	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
+	pushSender := sessionsvc.NewHTTPPushSender(cfg.GetPush().GetSendTimeout().AsDuration(),
 		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
 	pushIssuer := cfg.GetPush().GetIssuer()
 	pushSigner, err := sessionsvc.NewPushJWTSigner(pushPrivateKey, strings.TrimRight(pushIssuer, "/"))
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
-	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, cfg.GetPush().GetRecoveryInterval().AsDuration())); err != nil {
+	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, sessionsvc.PushWorkerConfig{
+		RecoveryInterval: cfg.GetPush().GetRecoveryInterval().AsDuration(),
+		MaxConcurrency:   int(cfg.GetPush().GetMaxConcurrency()),
+		SendTimeout:      cfg.GetPush().GetSendTimeout().AsDuration(),
+	})); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())

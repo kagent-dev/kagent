@@ -50,6 +50,13 @@ func TestControllerConfig(t *testing.T) {
 		{"push recovery interval", "push: {recoveryInterval: 15s}", false},
 		{"zero push recovery interval", "push: {recoveryInterval: 0s}", true},
 		{"negative push recovery interval", "push: {recoveryInterval: -60s}", true},
+		{"push delivery settings", "push: {maxConcurrency: 4, sendTimeout: 60s}", false},
+		{"serial push delivery", "push: {maxConcurrency: 1}", false},
+		{"zero push concurrency", "push: {maxConcurrency: 0}", true},
+		{"negative push concurrency", "push: {maxConcurrency: -1}", true},
+		{"zero push timeout", "push: {sendTimeout: 0s}", true},
+		{"negative push timeout", "push: {sendTimeout: -1s}", true},
+		{"overflowing push timeout", "push: {sendTimeout: 9223372037s}", true},
 		{"log level", "logging: {level: verbose}", true},
 		{"runtime service name", "runtimeDefaults: {telemetry: {resourceAttributes: {service.name: shared}}}", true},
 		{"runtime service namespace", "runtimeDefaults: {telemetry: {resourceAttributes: {service.namespace: shared}}}", true},
@@ -107,6 +114,8 @@ func TestDefaultingPreservesPresence(t *testing.T) {
 	require.Equal(t, "extensions", cfg.Database.GetVectorSchema())
 	require.Empty(t, cfg.Push.SigningPrivateKeyFile)
 	require.Equal(t, time.Minute, cfg.Push.RecoveryInterval.AsDuration())
+	require.EqualValues(t, 10, cfg.Push.GetMaxConcurrency())
+	require.Equal(t, 5*time.Second, cfg.Push.SendTimeout.AsDuration())
 }
 
 func TestExplicitEmptyStringFailsSchemaValidation(t *testing.T) {
