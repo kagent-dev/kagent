@@ -614,7 +614,7 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	template, err := substrate.ActorTemplateForRevision(&revision.Revision, revisionID)
+	template, err := substrate.ActorTemplateForRevision(&revision.Revision, revisionID, "http://kagent-controller.kagent.svc:8083")
 	if err != nil {
 		t.Fatalf("worst-case Claude actor does not fit Substrate: %v", err)
 	}

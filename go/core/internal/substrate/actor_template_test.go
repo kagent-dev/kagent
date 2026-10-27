@@ -30,7 +30,7 @@ func TestActorTemplateSkillVolumeLimit(t *testing.T) {
 			}
 			id, err := spec.Digest()
 			require.NoError(t, err)
-			actor, err := ActorTemplateForRevision(spec, id)
+			actor, err := ActorTemplateForRevision(spec, id, "http://kagent-controller.kagent.svc:8083")
 			if count > 29 {
 				require.ErrorContains(t, err, "33 volumes and 33 container mounts")
 				require.ErrorContains(t, err, "at most 32 volumes and 32 mounts per container")
@@ -69,7 +69,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	template, err := ActorTemplateForRevision(spec, revisionID)
+	template, err := ActorTemplateForRevision(spec, revisionID, "http://kagent-controller.kagent.svc:8083")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
 			}
 			revisionID, err := spec.Digest()
 			require.NoError(t, err)
-			template, err := ActorTemplateForRevision(spec, revisionID)
+			template, err := ActorTemplateForRevision(spec, revisionID, "http://kagent-controller.kagent.svc:8083")
 			require.NoError(t, err)
 			require.Equal(t, test.environment, spec.Environment, "stamping the revision must not change the compiled revision")
 			for _, variable := range template.GetContainers()[0].Env {
@@ -197,7 +197,7 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 			}
 			id, err := spec.Digest()
 			require.NoError(t, err)
-			template, err := ActorTemplateForRevision(spec, id)
+			template, err := ActorTemplateForRevision(spec, id, "http://kagent-controller.kagent.svc:8083")
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
 				require.Nil(t, template)
@@ -244,4 +244,34 @@ func TestActorResources(t *testing.T) {
 			require.Equal(t, test.bytes, resources.Limits.MemoryBytes)
 		})
 	}
+}
+
+func TestActorTemplateGoldenEgress(t *testing.T) {
+	spec := &translator.Revision{
+		CPU: "1", Memory: "1Gi", Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
+		AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+			DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+		EgressDestinations: []string{"http://skills.agents.svc.cluster.local:8080"},
+	}
+	id, err := spec.Digest()
+	require.NoError(t, err)
+	template, err := ActorTemplateForRevision(spec, id, "http://kagent-controller.kagent.svc:8083")
+	require.NoError(t, err)
+	require.Len(t, template.GoldenEgressPolicy.GetRules(), 1)
+	rule := template.GoldenEgressPolicy.Rules[0].GetHttp()
+	require.Equal(t, []string{"skills.agents.svc.cluster.local"}, rule.GetHostnames())
+	require.Equal(t, []int32{8080}, rule.GetPorts().GetNumbers())
+	require.Empty(t, rule.GetEffects().GetReplaceHeaders())
+	changed := proto.CloneOf(template)
+	changed.GoldenEgressPolicy = nil
+	require.False(t, ActorTemplateSpecEqual(template, changed))
+	spec.EgressDestinations = nil
+	id, err = spec.Digest()
+	require.NoError(t, err)
+	empty, err := ActorTemplateForRevision(spec, id, "http://kagent-controller.kagent.svc:8083")
+	require.NoError(t, err)
+	require.Nil(t, empty.GoldenEgressPolicy)
+	_, err = ActorTemplateForRevision(spec, id, "invalid")
+	require.ErrorContains(t, err, "compile golden actor egress")
 }

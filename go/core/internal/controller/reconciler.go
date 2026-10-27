@@ -166,7 +166,7 @@ func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collectio
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
 	}
-	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID)
+	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID, settings.GetControlPlaneUrl())
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 	}

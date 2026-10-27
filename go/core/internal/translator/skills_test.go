@@ -76,7 +76,7 @@ func TestCompileSkillImageVolumes(t *testing.T) {
 			require.Equal(t, []string{"deploy"}, resources.Plugins[0].Skills)
 			id, err := result.Digest()
 			require.NoError(t, err)
-			actor, err := substrate.ActorTemplateForRevision(&result.Revision, id)
+			actor, err := substrate.ActorTemplateForRevision(&result.Revision, id, "http://kagent-controller.kagent.svc:8083")
 			require.NoError(t, err)
 			require.Len(t, actor.Volumes, 4)
 			require.Equal(t, image, actor.Volumes[3].Image.Reference)
