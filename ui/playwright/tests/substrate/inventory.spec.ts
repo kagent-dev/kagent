@@ -251,7 +251,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     // sentence has to distinguish "ate-api has nothing here" from "there is no ate-api",
     // which are different facts and only one of them is something to go and fix.
     const workers = page.getByTestId("substrate-workers-table");
-    await expect(workers).toContainText("No worker assignments in this namespace scope on this page");
+    await expect(workers).toContainText("No workers visible in this scope");
     await expect(workers).not.toContainText("not configured");
   });
 });
@@ -272,24 +272,23 @@ test("substrate: an empty inventory is shown without errors", async ({
   await expect(page.getByTestId("substrate-actor-status-counts")).toBeVisible();
   await expect(page.getByTestId("substrate-actor-status-counts").locator("[data-tone]")).toHaveCount(0);
   await expect(page.getByTestId("substrate-actor-status-counts-empty")).toHaveText(
-    "No actors in this scope.",
+    "No actors visible in this scope.",
   );
 
   await expect(page.getByTestId("substrate-actors-table")).toContainText(
-    "No actors on this page.",
+    "No actors visible in this scope.",
   );
   await expect(page.getByTestId("substrate-actors-shared-note")).toHaveCount(0);
   await expect(page.getByTestId("substrate-workers-table")).toContainText(
-    "No worker assignments in this namespace scope on this page.",
+    "No workers visible in this scope.",
   );
   await expect(page.getByTestId("substrate-pools-table")).toContainText(
-    "Create one in the cluster",
+    "No worker pools visible in this scope.",
   );
-  // A template appears when a harness and an agent template are paired, which is
-  // what creates one — not the legacy resource this used to name, which the API does
-  // not serve.
+  // An empty collection can reflect missing permission. Do not suggest creating resources
+  // when the caller might lack access to resources that already exist.
   await expect(page.getByTestId("substrate-templates-table")).toContainText(
-    "harness and an agent template",
+    "No actor templates visible in this scope.",
   );
 });
 
