@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { TableSkeleton } from "@/components/table/TableSkeleton";
 import { StateTag } from "@/components/agent-instances/InstanceTags";
 import {
   conversationTitle,
@@ -28,12 +29,14 @@ export function UnmappedConversationsPage() {
   const namespaces = useNamespaces();
 
   const namespaceNames = useMemo(
-    () => (namespaces.data ?? []).map((entry) => entry.name),
-    [namespaces.data],
+    () => namespaces.error ? undefined : namespaces.data?.map((entry) => entry.name),
+    [namespaces.data, namespaces.error],
   );
 
   const agents = useAgentsAcrossNamespaces(namespaceNames);
   const conversations = useAgentInstances(true);
+  const loadFailure = namespaces.error ?? agents.error ?? conversations.error;
+  const isReading = !loadFailure && (namespaces.isLoading || agents.isLoading || conversations.isLoading);
 
   /*
    * Computed here rather than handed over, so the page is a real address.
@@ -42,16 +45,14 @@ export function UnmappedConversationsPage() {
    * from the list, and the two cannot disagree about which conversations are orphaned.
    */
   const orphans = useMemo(() => {
-    if (!agents.data || !conversations.data) return [];
+    if (loadFailure || isReading || !agents.data || !conversations.data) return [];
     const known = new Set(agents.data.agents.map((agent) => agent.ref));
     const unreadable = new Set(agents.data.refused.map((entry) => entry.namespace));
     return (conversations.data ?? []).filter((instance) => {
       if (unreadable.has(instance.agent?.split("/")[0] ?? "")) return false;
       return !instance.agent || !known.has(instance.agent);
     });
-  }, [agents.data, conversations.data]);
-
-  const loadFailure = namespaces.error ?? agents.error ?? conversations.error;
+  }, [agents.data, conversations.data, loadFailure, isReading]);
 
   /*
    * Every one of them, in parallel, because they are independent.
@@ -75,6 +76,8 @@ export function UnmappedConversationsPage() {
         <Link
           to={agentUrl.chat({ id: row.id })}
           data-testid={`unmapped-link-${row.id}`}
+          title={conversationTitle(row)}
+          css={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
         >
           {conversationTitle(row)}
         </Link>
@@ -85,7 +88,7 @@ export function UnmappedConversationsPage() {
       title: "Was built from",
       key: "agent",
       render: (_, row) => (
-        <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
+        <Text ellipsis={{ tooltip: row.agent }} css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
           {row.agent ?? "not reported"}
         </Text>
       ),
@@ -103,7 +106,7 @@ export function UnmappedConversationsPage() {
     {
       title: "",
       key: "actions",
-      width: 60,
+      width: 64,
       render: (_, row) => (
         <DeleteResourceButton
           kind="conversation"
@@ -181,21 +184,25 @@ export function UnmappedConversationsPage() {
           description="An instance runs from the revision it was built against, which the collector keeps for it — so it outlives the template it names. Each one holds a worker that nothing will reclaim, and deleting it gives that worker back."
         />
 
-        <Table<AgentInstance>
-          data-testid="unmapped-table"
-          rowKey={(row) => row.id}
-          columns={columns}
-          dataSource={loadFailure ? [] : orphans}
-          loading={agents.isLoading || conversations.isLoading}
-          pagination={false}
-          locale={{
-            emptyText: loadFailure
-              ? " "
-              : conversations.widerReadRefused !== undefined
-                ? "None of your conversations are unmapped."
-                : "No visible conversations are unmapped.",
-          }}
-        />
+        {isReading ? (
+          <TableSkeleton columns={columns} testId="unmapped-loading" label="Loading unmapped conversations" />
+        ) : (
+          <Table<AgentInstance>
+            data-testid="unmapped-table"
+            rowKey={(row) => row.id}
+            tableLayout="fixed"
+            columns={columns}
+            dataSource={loadFailure ? [] : orphans}
+            pagination={false}
+            locale={{
+              emptyText: loadFailure
+                ? " "
+                : conversations.widerReadRefused !== undefined
+                  ? "None of your conversations are unmapped."
+                  : "No visible conversations are unmapped.",
+            }}
+          />
+        )}
       </Space>
     </PageFrame>
   );

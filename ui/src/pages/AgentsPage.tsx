@@ -4,7 +4,8 @@ import { Alert, Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import { RefreshButton } from "@/components/table/RefreshButton";
+import { RefreshButton, useRefreshToast } from "@/components/table/RefreshButton";
+import { TableSkeleton } from "@/components/table/TableSkeleton";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { buildPath, paths } from "@/router/routes";
 import {
@@ -38,6 +39,8 @@ const { Text } = Typography;
 
 const FILTER_IDS: readonly string[] = ["ns"];
 const PAGE_SIZE = 25;
+// Match the fixed column widths in both the placeholders and the loaded table.
+const TABLE_SCROLL = { x: 1170 };
 
 export function AgentsTab() {
   const theme = useTheme();
@@ -47,13 +50,16 @@ export function AgentsTab() {
   const namespaces = useNamespaces();
 
   const namespaceNames = useMemo(
-    () => (namespaces.data ?? []).map((entry) => entry.name),
-    [namespaces.data],
+    () => namespaces.error ? undefined : namespaces.data?.map((entry) => entry.name),
+    [namespaces.data, namespaces.error],
   );
 
   // AgentService lists one namespace per call, so "all namespaces" is a fan-out.
+  // A URL filter still waits for discovery; undefined is not an empty namespace list.
   const readNamespaces = useMemo(
-    () => (selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames),
+    () => namespaceNames === undefined
+      ? undefined
+      : (selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames),
     [selectedNamespaces, namespaceNames],
   );
 
@@ -72,6 +78,8 @@ export function AgentsTab() {
     [definitions.data, templates.data],
   );
   const loadFailure = namespaces.error ?? definitions.error;
+  // Keep the placeholders until the referenced descriptions are known too.
+  const isReading = !loadFailure && (namespaces.isLoading || definitions.isLoading || templates.isLoading);
   const conversations = useAgentInstances(true);
 
   const conversationCounts = useMemo(() => {
@@ -85,20 +93,25 @@ export function AgentsTab() {
   const agents = useMemo(() => definitions.data?.agents ?? [], [definitions.data]);
 
   const refreshThisTab = async () => {
+    if (namespaceNames === undefined) {
+      await namespaces.refresh();
+      return;
+    }
     await Promise.all([definitions.refresh(), templates.refresh(), conversations.refresh()]);
   };
+  const { refresh: retry, refreshing: retrying } = useRefreshToast(refreshThisTab, "Agents");
 
   // A namespace we could not read says nothing about its conversations, so those are not counted.
   const orphanedConversations = useMemo(() => {
-    if (!definitions.data || !conversations.data) return 0;
+    if (loadFailure || isReading || !definitions.data || !conversations.data) return 0;
     const known = new Set(agents.map((agent) => agent.ref));
     const unreadable = new Set(definitions.data.refused.map((entry) => entry.namespace));
     return conversations.data.filter((instance) => {
       const namespace = instance.agent?.split("/")[0];
-      if (namespace && (!readNamespaces.includes(namespace) || unreadable.has(namespace))) return false;
+      if (namespace && (!readNamespaces?.includes(namespace) || unreadable.has(namespace))) return false;
       return !instance.agent || !known.has(instance.agent);
     }).length;
-  }, [agents, conversations.data, definitions.data, readNamespaces]);
+  }, [agents, conversations.data, definitions.data, readNamespaces, loadFailure, isReading]);
 
   const namespaceOptions = useMemo(
     () => (namespaces.data ?? []).map((entry) => ({ value: entry.name })),
@@ -124,23 +137,31 @@ export function AgentsTab() {
       {
         title: "Agent",
         key: "name",
+        width: 300,
         sorter: byText<Agent>((row) => row.name),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => (
-          <Space orientation="vertical" size={0}>
+          <div css={{ display: "grid", gridAutoRows: "22px", minHeight: 44 }}>
             <Link
               to={agentNewChatUrl(row) ?? paths.agents}
               data-testid={`agent-link-${row.namespace}-${row.name}`}
-              css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
+              title={row.name}
+              css={{
+                fontFamily: theme.font.mono,
+                color: theme.color.primaryText,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
             >
               {row.name}
             </Link>
             {descriptions.get(row.ref) ? (
-              <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+              <Text ellipsis={{ tooltip: descriptions.get(row.ref) }} css={{ color: theme.color.textMuted, fontSize: 12 }}>
                 {descriptions.get(row.ref)}
               </Text>
             ) : null}
-          </Space>
+          </div>
         ),
       },
       {
@@ -203,7 +224,7 @@ export function AgentsTab() {
       {
         title: "",
         key: "actions",
-        width: 96,
+        width: 100,
         render: (_, row) => (
           <Space size={4}>
             <Link to={buildPath(paths.agentEdit, { namespace: row.namespace, name: row.name })}>
@@ -241,10 +262,8 @@ export function AgentsTab() {
           action={
             <Button
               size="small"
-              onClick={() => {
-                void namespaces.refresh();
-                void definitions.refresh();
-              }}
+              onClick={retry}
+              loading={retrying}
             >
               Try again
             </Button>
@@ -313,43 +332,45 @@ export function AgentsTab() {
         ]}
         trailing={
           <Space size={8}>
-            {!loadFailure && !definitions.isLoading ? (
+            {!loadFailure && !isReading ? (
               <Text data-testid="agents-summary" css={{ color: theme.color.textMuted }}>
                 {filtered.length} of {agents.length} {agents.length === 1 ? "agent" : "agents"}
               </Text>
             ) : null}
-            <RefreshButton onRefresh={refreshThisTab} what="Agents" />
+            <RefreshButton onRefresh={refreshThisTab} what="Agents" disabled={isReading} />
           </Space>
         }
       />
 
-      <Table<Agent>
-        data-testid="agents-table"
-        rowKey={(row) => row.ref}
-        columns={columns}
-        dataSource={loadFailure ? [] : filtered}
-        // Held for the templates too: their descriptions grow rows, and a late
-        // shift moves a row out from under the pointer mid-click.
-        loading={definitions.isLoading || templates.isLoading}
-        onChange={listTableChange<Agent>(view)}
-        pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
-        scroll={{ x: 960 }}
-        locale={{
-          emptyText: loadFailure
-            ? " "
-            : view.isNarrowed
-              ? "No agents match those filters."
-              : definitions.data
-                ? "No agents yet. Create one to pair a template with a harness."
-                : " ",
-        }}
-        onRow={(row) =>
-          clickableRow(() => {
-            const destination = agentNewChatUrl(row);
-            if (destination) void navigate(destination);
-          })
-        }
-      />
+      {isReading ? (
+        <TableSkeleton columns={columns} testId="agents-loading" label="Loading agents" doubleLineColumn="name" scroll={TABLE_SCROLL} />
+      ) : (
+        <Table<Agent>
+          data-testid="agents-table"
+          rowKey={(row) => row.ref}
+          tableLayout="fixed"
+          columns={columns}
+          dataSource={loadFailure ? [] : filtered}
+          onChange={listTableChange<Agent>(view)}
+          pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
+          scroll={TABLE_SCROLL}
+          locale={{
+            emptyText: loadFailure
+              ? " "
+              : view.isNarrowed
+                ? "No agents match those filters."
+                : definitions.data
+                  ? "No agents yet. Create one to pair a template with a harness."
+                  : " ",
+          }}
+          onRow={(row) =>
+            clickableRow(() => {
+              const destination = agentNewChatUrl(row);
+              if (destination) void navigate(destination);
+            })
+          }
+        />
+      )}
     </Space>
   );
 }
