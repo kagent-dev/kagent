@@ -135,6 +135,15 @@ of the A2A task whose message carries `kagent.dev/a2a/notice: workspace-setup`
 in its metadata, so a client tells it from the agent's reply), naming the
 repository and the reason, and the turn runs.
 
+The Go ADK runtime (`kagent` Harness) sets the directory up the same way
+before the first turn, with an `AGENTS.md` as the notes, and reports a failed
+clone or fetch as the turn's first working status. Its `bash` tool runs in the
+turn's working directory and its file tools resolve relative paths there; a
+turn whose dispatch names no directory works in `/data/workspace`. A resumed
+turn (an answer or an approval)
+sets up nothing, and a session with earlier turns whose directory is set up
+again is told so.
+
 Claude Code is spawned in the turn's working directory. Its environment tells
 git to trust the mirrors directory (`safe.directory=<mirrors>/*` through
 `GIT_CONFIG_COUNT`, nothing written to a file), since the mirrors belong to the
