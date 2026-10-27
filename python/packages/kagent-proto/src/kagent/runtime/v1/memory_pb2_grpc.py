@@ -7,8 +7,8 @@ from kagent.runtime.v1 import memory_pb2 as kagent_dot_runtime_dot_v1_dot_memory
 
 class MemoryServiceStub:
     """Memory is scoped to an agent and a user. Actor calls derive both from the
-    persisted session bound to the verified Actor JWT. List and Delete also
-    accept user authentication and use the authenticated user's identity.
+    persisted session bound to the verified Actor JWT. User calls select an
+    agent and use the authenticated user's identity.
     """
 
     def __init__(self, channel):
@@ -42,30 +42,35 @@ class MemoryServiceStub:
                 request_serializer=kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteRequest.SerializeToString,
                 response_deserializer=kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteResponse.FromString,
                 _registered_method=True)
+        self.DeleteEntry = channel.unary_unary(
+                '/kagent.runtime.v1.MemoryService/DeleteEntry',
+                request_serializer=kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteEntryRequest.SerializeToString,
+                response_deserializer=kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteEntryResponse.FromString,
+                _registered_method=True)
 
 
 class MemoryServiceServicer:
     """Memory is scoped to an agent and a user. Actor calls derive both from the
-    persisted session bound to the verified Actor JWT. List and Delete also
-    accept user authentication and use the authenticated user's identity.
+    persisted session bound to the verified Actor JWT. User calls select an
+    agent and use the authenticated user's identity.
     """
 
     def AddSession(self, request, context):
-        """Requires an Actor JWT.
+        """Accepts an Actor JWT or user authentication.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def AddSessionBatch(self, request, context):
-        """Requires an Actor JWT.
+        """Accepts an Actor JWT or user authentication.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def Search(self, request, context):
-        """Requires an Actor JWT.
+        """Accepts an Actor JWT or user authentication.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -81,6 +86,12 @@ class MemoryServiceServicer:
     def Delete(self, request, context):
         """Accepts an Actor JWT or user authentication on the same RPC endpoint.
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteEntry(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -113,6 +124,11 @@ def add_MemoryServiceServicer_to_server(servicer, server):
                     request_deserializer=kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteRequest.FromString,
                     response_serializer=kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteResponse.SerializeToString,
             ),
+            'DeleteEntry': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteEntry,
+                    request_deserializer=kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteEntryRequest.FromString,
+                    response_serializer=kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteEntryResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'kagent.runtime.v1.MemoryService', rpc_method_handlers)
@@ -123,8 +139,8 @@ def add_MemoryServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class MemoryService:
     """Memory is scoped to an agent and a user. Actor calls derive both from the
-    persisted session bound to the verified Actor JWT. List and Delete also
-    accept user authentication and use the authenticated user's identity.
+    persisted session bound to the verified Actor JWT. User calls select an
+    agent and use the authenticated user's identity.
     """
 
     @staticmethod
@@ -252,6 +268,33 @@ class MemoryService:
             '/kagent.runtime.v1.MemoryService/Delete',
             kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteRequest.SerializeToString,
             kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteEntry(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/kagent.runtime.v1.MemoryService/DeleteEntry',
+            kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteEntryRequest.SerializeToString,
+            kagent_dot_runtime_dot_v1_dot_memory__pb2.MemoryServiceDeleteEntryResponse.FromString,
             options,
             channel_credentials,
             insecure,

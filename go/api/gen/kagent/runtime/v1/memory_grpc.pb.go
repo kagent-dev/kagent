@@ -24,6 +24,7 @@ const (
 	MemoryService_Search_FullMethodName          = "/kagent.runtime.v1.MemoryService/Search"
 	MemoryService_List_FullMethodName            = "/kagent.runtime.v1.MemoryService/List"
 	MemoryService_Delete_FullMethodName          = "/kagent.runtime.v1.MemoryService/Delete"
+	MemoryService_DeleteEntry_FullMethodName     = "/kagent.runtime.v1.MemoryService/DeleteEntry"
 )
 
 // MemoryServiceClient is the client API for MemoryService service.
@@ -31,19 +32,20 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // Memory is scoped to an agent and a user. Actor calls derive both from the
-// persisted session bound to the verified Actor JWT. List and Delete also
-// accept user authentication and use the authenticated user's identity.
+// persisted session bound to the verified Actor JWT. User calls select an
+// agent and use the authenticated user's identity.
 type MemoryServiceClient interface {
-	// Requires an Actor JWT.
+	// Accepts an Actor JWT or user authentication.
 	AddSession(ctx context.Context, in *MemoryServiceAddSessionRequest, opts ...grpc.CallOption) (*MemoryServiceAddSessionResponse, error)
-	// Requires an Actor JWT.
+	// Accepts an Actor JWT or user authentication.
 	AddSessionBatch(ctx context.Context, in *MemoryServiceAddSessionBatchRequest, opts ...grpc.CallOption) (*MemoryServiceAddSessionBatchResponse, error)
-	// Requires an Actor JWT.
+	// Accepts an Actor JWT or user authentication.
 	Search(ctx context.Context, in *MemoryServiceSearchRequest, opts ...grpc.CallOption) (*MemoryServiceSearchResponse, error)
 	// Accepts an Actor JWT or user authentication on the same RPC endpoint.
 	List(ctx context.Context, in *MemoryServiceListRequest, opts ...grpc.CallOption) (*MemoryServiceListResponse, error)
 	// Accepts an Actor JWT or user authentication on the same RPC endpoint.
 	Delete(ctx context.Context, in *MemoryServiceDeleteRequest, opts ...grpc.CallOption) (*MemoryServiceDeleteResponse, error)
+	DeleteEntry(ctx context.Context, in *MemoryServiceDeleteEntryRequest, opts ...grpc.CallOption) (*MemoryServiceDeleteEntryResponse, error)
 }
 
 type memoryServiceClient struct {
@@ -104,24 +106,35 @@ func (c *memoryServiceClient) Delete(ctx context.Context, in *MemoryServiceDelet
 	return out, nil
 }
 
+func (c *memoryServiceClient) DeleteEntry(ctx context.Context, in *MemoryServiceDeleteEntryRequest, opts ...grpc.CallOption) (*MemoryServiceDeleteEntryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MemoryServiceDeleteEntryResponse)
+	err := c.cc.Invoke(ctx, MemoryService_DeleteEntry_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MemoryServiceServer is the server API for MemoryService service.
 // All implementations must embed UnimplementedMemoryServiceServer
 // for forward compatibility.
 //
 // Memory is scoped to an agent and a user. Actor calls derive both from the
-// persisted session bound to the verified Actor JWT. List and Delete also
-// accept user authentication and use the authenticated user's identity.
+// persisted session bound to the verified Actor JWT. User calls select an
+// agent and use the authenticated user's identity.
 type MemoryServiceServer interface {
-	// Requires an Actor JWT.
+	// Accepts an Actor JWT or user authentication.
 	AddSession(context.Context, *MemoryServiceAddSessionRequest) (*MemoryServiceAddSessionResponse, error)
-	// Requires an Actor JWT.
+	// Accepts an Actor JWT or user authentication.
 	AddSessionBatch(context.Context, *MemoryServiceAddSessionBatchRequest) (*MemoryServiceAddSessionBatchResponse, error)
-	// Requires an Actor JWT.
+	// Accepts an Actor JWT or user authentication.
 	Search(context.Context, *MemoryServiceSearchRequest) (*MemoryServiceSearchResponse, error)
 	// Accepts an Actor JWT or user authentication on the same RPC endpoint.
 	List(context.Context, *MemoryServiceListRequest) (*MemoryServiceListResponse, error)
 	// Accepts an Actor JWT or user authentication on the same RPC endpoint.
 	Delete(context.Context, *MemoryServiceDeleteRequest) (*MemoryServiceDeleteResponse, error)
+	DeleteEntry(context.Context, *MemoryServiceDeleteEntryRequest) (*MemoryServiceDeleteEntryResponse, error)
 	mustEmbedUnimplementedMemoryServiceServer()
 }
 
@@ -146,6 +159,9 @@ func (UnimplementedMemoryServiceServer) List(context.Context, *MemoryServiceList
 }
 func (UnimplementedMemoryServiceServer) Delete(context.Context, *MemoryServiceDeleteRequest) (*MemoryServiceDeleteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedMemoryServiceServer) DeleteEntry(context.Context, *MemoryServiceDeleteEntryRequest) (*MemoryServiceDeleteEntryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteEntry not implemented")
 }
 func (UnimplementedMemoryServiceServer) mustEmbedUnimplementedMemoryServiceServer() {}
 func (UnimplementedMemoryServiceServer) testEmbeddedByValue()                       {}
@@ -258,6 +274,24 @@ func _MemoryService_Delete_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MemoryService_DeleteEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MemoryServiceDeleteEntryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MemoryServiceServer).DeleteEntry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MemoryService_DeleteEntry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MemoryServiceServer).DeleteEntry(ctx, req.(*MemoryServiceDeleteEntryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MemoryService_ServiceDesc is the grpc.ServiceDesc for MemoryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -284,6 +318,10 @@ var MemoryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _MemoryService_Delete_Handler,
+		},
+		{
+			MethodName: "DeleteEntry",
+			Handler:    _MemoryService_DeleteEntry_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

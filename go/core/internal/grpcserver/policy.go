@@ -117,6 +117,10 @@ func DefaultMethodPolicies() MethodPolicies {
 	maps.Copy(policies, runtimeMethodPolicies())
 	policies[runtimev1.MemoryService_List_FullMethodName] = auth.AccessRead
 	policies[runtimev1.MemoryService_Delete_FullMethodName] = auth.AccessDelete
+	policies[runtimev1.MemoryService_AddSession_FullMethodName] = auth.AccessCreate
+	policies[runtimev1.MemoryService_AddSessionBatch_FullMethodName] = auth.AccessCreate
+	policies[runtimev1.MemoryService_Search_FullMethodName] = auth.AccessRead
+	policies[runtimev1.MemoryService_DeleteEntry_FullMethodName] = auth.AccessDelete
 	return policies
 }
 

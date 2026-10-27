@@ -225,7 +225,7 @@ authorizer independently of the actor policy.
 User calls retain configured authentication. Insecure mode intentionally permits
 unauthenticated user access. Substrate replaces Authorization only when the actor
 sends the header; a request without it follows the configured user authentication
-policy. TaskStore and actor-only Memory methods always require an Actor JWT.
+policy. TaskStore methods always require an Actor JWT.
 Secure user access still requires the configured trusted authentication boundary.
 
 The controller trusts `substrate.actorJwtIssuer` (default
@@ -239,7 +239,7 @@ minute; publish new verification keys at least a minute before using them.
 The service checks the verified actor name against the requested session and
 matches its atespace and recorded Actor UID. Memory derives its agent namespace
 and user from that persisted session binding, ignoring caller-supplied identity
-fields. Users can also list and delete their own memories on the same endpoint.
+fields. Users can add, search, list, and delete their own memories on the same endpoint.
 Both actor and user memory operations check the `Memory` resource, whose name is
 the agent key (including legacy keys). User management calls use the requested
 agent key and the authenticated user ID,
