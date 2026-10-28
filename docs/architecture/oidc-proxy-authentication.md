@@ -141,6 +141,18 @@ also applies to HTTP MCP and A2A. Invalid actor credentials cannot fall back to
 user authentication. See the
 [A2A gateway](a2a-gateway.md) for the runtime boundary.
 
+The configured `CollectionAuthorizer` also evaluates Actor requests after the
+native session and resource checks. It receives the verified Actor principal;
+`RuntimeBinding.CreatorID` identifies the session's data owner without granting
+that user's permissions. Configured policy can narrow the native boundary, and
+Actor collection scopes are intersected with the bound agent.
+
+TaskStore checks use resource type `TaskStore`, the bound agent's namespace, and
+the session ID as the resource name. Create, get, and list use their corresponding
+verbs; update and settle use `update`. Each request evaluates current policy, so
+revocation takes effect without replacing the Actor credential. Embedding programs
+can implement execution grants in their existing authorizer.
+
 ## Deployment configuration
 
 oauth2-proxy is an optional dependency in
