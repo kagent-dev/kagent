@@ -19,17 +19,25 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 type Store struct {
-	client       *controllerclient.Client
-	identityPath string
+	client                          *controllerclient.Client
+	identityPath                    string
+	operationBudget, attemptTimeout time.Duration
 }
 
 var _ sdktaskstore.Store = (*Store)(nil)
 
+// New reads its retry limits from KAGENT_TASKSTORE_OPERATION_BUDGET and
+// KAGENT_TASKSTORE_ATTEMPT_TIMEOUT.
 func New(client *controllerclient.Client, identityPath string) *Store {
-	return &Store{client: client, identityPath: identityPath}
+	return &Store{
+		client: client, identityPath: identityPath,
+		operationBudget: positiveOrDefault(env.TaskStoreOperationBudget),
+		attemptTimeout:  positiveOrDefault(env.TaskStoreAttemptTimeout),
+	}
 }
 
 func (s *Store) sessionID() (string, error) {
@@ -79,7 +87,7 @@ func (s *Store) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVe
 		request.DispatchId = state.dispatchID
 	}
 	var response *runtimev1.TaskStoreServiceCreateTaskResponse
-	err = s.retry(ctx, func(ctx context.Context) error {
+	err = s.retry(ctx, operation{name: "CreateTask", sessionID: id, taskID: string(task.ID)}, func(ctx context.Context) error {
 		var err error
 		response, err = s.client.TaskStoreService().CreateTask(ctx, request)
 		return err
@@ -113,7 +121,7 @@ func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) 
 		request.DispatchId = state.dispatchID
 	}
 	var response *runtimev1.TaskStoreServiceUpdateTaskResponse
-	err = s.retry(ctx, func(ctx context.Context) error {
+	err = s.retry(ctx, operation{name: "UpdateTask", sessionID: id, taskID: string(update.Task.ID)}, func(ctx context.Context) error {
 		var err error
 		response, err = s.client.TaskStoreService().UpdateTask(ctx, request)
 		return err
@@ -132,7 +140,7 @@ func (s *Store) Get(ctx context.Context, taskID a2a.TaskID) (*sdktaskstore.Store
 		return nil, err
 	}
 	var response *runtimev1.TaskStoreServiceGetTaskResponse
-	err = s.retry(ctx, func(ctx context.Context) error {
+	err = s.retry(ctx, operation{name: "GetTask", sessionID: id, taskID: string(taskID)}, func(ctx context.Context) error {
 		var err error
 		response, err = s.client.TaskStoreService().GetTask(ctx, &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: id, TaskId: string(taskID)})
 		return err
@@ -157,7 +165,7 @@ func (s *Store) List(ctx context.Context, request *a2a.ListTasksRequest) (*a2a.L
 		return nil, err
 	}
 	var response *runtimev1.TaskStoreServiceListTasksResponse
-	err = s.retry(ctx, func(ctx context.Context) error {
+	err = s.retry(ctx, operation{name: "ListTasks", sessionID: id}, func(ctx context.Context) error {
 		var err error
 		response, err = s.client.TaskStoreService().ListTasks(ctx, &runtimev1.TaskStoreServiceListTasksRequest{SessionId: id, Request: wire})
 		return err
@@ -166,27 +174,6 @@ func (s *Store) List(ctx context.Context, request *a2a.ListTasksRequest) (*a2a.L
 		return nil, sdkError(err)
 	}
 	return pbconv.FromProtoListTasksResponse(response.Result)
-}
-
-// retry retains the same immutable mutation after a lost response. It never
-// retries conflicts, advances a version locally, or invokes the agent again.
-func (s *Store) retry(ctx context.Context, call func(context.Context) error) error {
-	for attempt := range 4 {
-		rpcCtx, cancel := s.callContext(ctx)
-		err := call(rpcCtx)
-		cancel()
-		if (status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded) || attempt == 3 {
-			return err
-		}
-		timer := time.NewTimer(time.Duration(1<<attempt) * 100 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-	panic("unreachable")
 }
 
 func fromStored(stored *runtimev1.StoredTask) (*sdktaskstore.StoredTask, error) {
