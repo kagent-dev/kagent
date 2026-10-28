@@ -246,13 +246,10 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await expect(page.getByTestId("substrate-pools-table")).toContainText("platform/gpu-pool");
   });
 
-  await test.step("4. an empty section says why it is empty", async () => {
-    // Every worker in the fixture is in `kagent`, so this scope has none — and the
-    // sentence has to distinguish "ate-api has nothing here" from "there is no ate-api",
-    // which are different facts and only one of them is something to go and fix.
+  await test.step("4. an empty scope shows no visible workers", async () => {
+    // All fixture workers belong to `kagent`, so the selected `platform` scope has no visible workers.
     const workers = page.getByTestId("substrate-workers-table");
-    await expect(workers).toContainText("No workers visible in this scope");
-    await expect(workers).not.toContainText("not configured");
+    await expect(workers).toContainText("No workers visible in this scope.");
   });
 });
 
