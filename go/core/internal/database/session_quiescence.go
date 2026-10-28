@@ -110,7 +110,7 @@ func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuies
 	if work == nil || work.ExecutorID == uuid.Nil {
 		return fmt.Errorf("claimed task boundary is required")
 	}
-	if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope == "" {
+	if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.Fidelity == "" {
 		return fmt.Errorf("task quiescence requires a runtime snapshot")
 	}
 	return c.withTx(ctx, func(tx pgx.Tx) error {
@@ -141,15 +141,15 @@ func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuies
 		if snapshot != nil {
 			if err := execSQL(ctx, tx, `
 				UPDATE session_task SET snapshot_atespace = $3, snapshot_uri = $4,
-				    snapshot_content_scope = $5, history_sequence = $6
+				    snapshot_fidelity = $5, history_sequence = $6
 				WHERE history_id = $1 AND id = $2
-			`, session.HistoryID, work.TaskID, snapshot.Atespace, snapshot.URI, snapshot.ContentScope, work.Version); err != nil {
+			`, session.HistoryID, work.TaskID, snapshot.Atespace, snapshot.URI, snapshot.Fidelity, work.Version); err != nil {
 				return err
 			}
 			if err := execSQL(ctx, tx, `
-				UPDATE session_task_event SET snapshot_atespace = $2, snapshot_uri = $3, snapshot_content_scope = $4
+				UPDATE session_task_event SET snapshot_atespace = $2, snapshot_uri = $3, snapshot_fidelity = $4
 				WHERE sequence = $1
-			`, work.Version, snapshot.Atespace, snapshot.URI, snapshot.ContentScope); err != nil {
+			`, work.Version, snapshot.Atespace, snapshot.URI, snapshot.Fidelity); err != nil {
 				return err
 			}
 		}

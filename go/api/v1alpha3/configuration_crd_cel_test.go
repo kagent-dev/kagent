@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -71,6 +72,8 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 
+	t.Run("Actor JWT credentials", func(t *testing.T) { testActorJWTValidation(t, cl, namespace) })
+
 	t.Run("MCP timeout bounds", func(t *testing.T) {
 		for _, field := range []string{"timeout", "sseReadTimeout"} {
 			for _, value := range []time.Duration{-time.Second, 0, 250 * time.Millisecond, 9223372036 * time.Second, 9223372036*time.Second + 1} {
@@ -89,6 +92,34 @@ func TestConfigurationCRDValidation(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}
+		}
+	})
+
+	t.Run("MCP token passthrough owns Authorization", func(t *testing.T) {
+		for _, test := range []struct {
+			name        string
+			passthrough bool
+			header      string
+			wantReject  bool
+		}{
+			{"passthrough without headers", true, "", false},
+			{"passthrough with other header", true, "X-Tenant", false},
+			{"passthrough with Authorization", true, "authorization", true},
+			{"static Authorization without passthrough", false, "Authorization", false},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				server := &RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-passthrough-", Namespace: namespace},
+					Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com", TokenPassthrough: new(test.passthrough)}}
+				if test.header != "" {
+					server.Spec.HeadersFrom = []ValueRef{{Name: test.header, Value: "value"}}
+				}
+				err := cl.Create(ctx, server)
+				if test.wantReject {
+					require.ErrorContains(t, err, "headersFrom cannot set Authorization when tokenPassthrough is enabled")
+				} else {
+					require.NoError(t, err)
+				}
+			})
 		}
 	})
 
@@ -269,6 +300,23 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				Spec:       AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{}},
 			},
 			wantReject: "name must not be empty",
+		},
+		{
+			name:       "AgentTemplate rejects outputSchemaStrict true without a schema",
+			object:     unstructuredStrictTemplate(namespace, "strict-true-no-schema", true, nil, nil),
+			wantReject: "outputSchemaStrict requires outputSchema or outputSchemaFrom",
+		},
+		{
+			name:   "AgentTemplate accepts outputSchemaStrict false without a schema",
+			object: unstructuredStrictTemplate(namespace, "strict-false-no-schema", false, nil, nil),
+		},
+		{
+			name:   "AgentTemplate accepts outputSchemaStrict false with outputSchema",
+			object: unstructuredStrictTemplate(namespace, "strict-false-schema", false, &apiextensionsv1.JSON{Raw: []byte(`{"type":"object"}`)}, nil),
+		},
+		{
+			name:   "AgentTemplate accepts outputSchemaStrict true with outputSchemaFrom",
+			object: unstructuredStrictTemplate(namespace, "strict-true-schema-from", true, nil, &ConfigMapKeyReference{Name: "schemas", Key: "output.json"}),
 		},
 		{
 			name: "AgentTemplate rejects unsupported MCP server kind",
@@ -544,6 +592,23 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 			Tools:       tools,
 		},
 	}
+}
+
+func unstructuredStrictTemplate(namespace, name string, strict bool, schema *apiextensionsv1.JSON, schemaFrom *ConfigMapKeyReference) ctrlclient.Object {
+	template := validAgentTemplate(namespace, name, nil)
+	template.Spec.OutputSchema = schema
+	template.Spec.OutputSchemaFrom = schemaFrom
+	data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(template)
+	if err != nil {
+		panic(err)
+	}
+	object := &unstructured.Unstructured{Object: data}
+	object.SetAPIVersion(GroupVersion.String())
+	object.SetKind("AgentTemplate")
+	if err := unstructured.SetNestedField(data, strict, "spec", "outputSchemaStrict"); err != nil {
+		panic(err)
+	}
+	return object
 }
 
 func compactionHarness(namespace, name string, compaction KagentHarnessCompaction) *Harness {

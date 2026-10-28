@@ -35,7 +35,8 @@ type EgressDestination struct {
 	Authentication *EgressAuthentication `json:"authentication,omitempty"`
 }
 
-// EgressAuthentication replaces a request header with a prefix and Secret value.
+// EgressAuthentication replaces a request header with a prefix and credential.
+// +kubebuilder:validation:ExactlyOneOf=secretKeyRef;actorJwt
 type EgressAuthentication struct {
 	// Header is the request header carrying the credential, for example
 	// Authorization or X-API-Key.
@@ -44,17 +45,20 @@ type EgressAuthentication struct {
 	// +kubebuilder:validation:Pattern=`^[!#$%&'*+.^_|~0-9A-Za-z-]+$`
 	// +kubebuilder:validation:XValidation:rule="!(self.lowerAscii() in ['host', 'connection', 'content-length', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'keep-alive', 'proxy-authorization', 'proxy-authenticate', 'cookie'])",message="this header cannot carry an egress credential"
 	Header string `json:"header"`
-	// Prefix is prepended verbatim to the Secret value, for example "Bearer ".
+	// Prefix is prepended verbatim to the credential value, for example "Bearer ".
 	// Include any separating space. Omitted or empty means no prefix.
 	// +optional
 	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:Pattern=`^[^\x00-\x08\x0a-\x1f\x7f]*$`
 	Prefix *string `json:"prefix,omitempty"`
 	// SecretKeyRef selects a required key in the EgressPolicy's namespace.
-	// +required
+	// +optional
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != '' && self.key != ''",message="secretKeyRef requires a name and key"
 	// +kubebuilder:validation:XValidation:rule="!has(self.optional) || !self.optional",message="egress credentials cannot be optional"
-	SecretKeyRef corev1.SecretKeySelector `json:"secretKeyRef"`
+	SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
+	// ActorJWT authenticates as the executing Actor. The gateway mints and injects the token.
+	// +optional
+	ActorJWT *ActorJWT `json:"actorJwt,omitempty"`
 }
 
 // +genclient

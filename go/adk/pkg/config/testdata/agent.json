@@ -17,7 +17,7 @@
         "tools"
       ]
     },
-    "skill_tools": {
+    "builtin_tools": {
       "bash_venv_path": "/opt/venv"
     },
     "telemetry": {

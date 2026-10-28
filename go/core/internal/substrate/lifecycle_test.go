@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -20,8 +20,9 @@ type transitionActors struct {
 	actor           *ateapipb.Actor
 	calls           []string
 	policyErr       error
+	checkErr        error
 	resumeUID       string
-	suspendSnapshot *ateapipb.ExternalSnapshot
+	suspendSnapshot *ateapipb.Snapshot
 }
 
 func (a *transitionActors) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -41,6 +42,10 @@ func (a *transitionActors) CreateActor(_ context.Context, space, name, templateS
 	return proto.CloneOf(a.actor), nil
 }
 
+func (a *transitionActors) CheckActorEgressPolicy(context.Context, string, string) error {
+	return a.checkErr
+}
+
 func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, string) error {
 	a.calls = append(a.calls, "policy")
 	return a.policyErr
@@ -58,9 +63,9 @@ func (a *transitionActors) ResumeActor(context.Context, string, string) (*ateapi
 func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	a.actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/data", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/data"}}}}
 	if a.suspendSnapshot != nil {
-		a.actor.Status.ExternalSnapshot = proto.CloneOf(a.suspendSnapshot)
+		a.actor.Status.Snapshots = []*ateapipb.Snapshot{proto.CloneOf(a.suspendSnapshot)}
 	}
 	return proto.CloneOf(a.actor), nil
 }
@@ -160,6 +165,29 @@ func TestActorTransitionAdmission(t *testing.T) {
 	}
 }
 
+func TestActorTransitionChecksEgressPolicyBeforeStartup(t *testing.T) {
+	binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+	actors := &transitionActors{checkErr: errors.New("target not bound")}
+	_, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, &ActorCreation{})
+	require.ErrorContains(t, err, "target not bound")
+	_, err = actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+	require.NoError(t, err)
+	_, err = PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, nil)
+	require.ErrorContains(t, err, "target not bound")
+	for _, operation := range []apiv1.RuntimeOperation{apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE} {
+		_, err = PrepareActorTransition(t.Context(), actors, binding, operation, nil)
+		require.NoError(t, err, "%s must not depend on the egress policy", operation)
+	}
+
+	// An issued resume may already be running; its retry must reach Ensure.
+	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+	actors.calls, actors.policyErr = nil, errors.New("denied actor egress after extension failure")
+	transition, err := PrepareActorRetry(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, nil)
+	require.NoError(t, err)
+	require.Error(t, ApplyActorTransition(t.Context(), actors, transition))
+	require.Equal(t, []string{"policy"}, actors.calls)
+}
+
 func TestActorDeleteStopsRunningCompute(t *testing.T) {
 	actors := &transitionActors{}
 	_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
@@ -179,13 +207,18 @@ func TestActorDeleteStopsRunningCompute(t *testing.T) {
 	require.Empty(t, actors.calls, "a missing Actor already satisfies deletion")
 }
 
-func TestActorSuspendRequiresDataSnapshot(t *testing.T) {
+func TestActorSuspendRequiresDurableVolumesSnapshot(t *testing.T) {
 	for _, test := range []struct {
 		name     string
-		snapshot *ateapipb.ExternalSnapshot
+		snapshot *ateapipb.Snapshot
 	}{
-		{name: "missing URI", snapshot: &ateapipb.ExternalSnapshot{ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}},
-		{name: "FULL rejected", snapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/full", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL}},
+		{name: "missing URI", snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES}},
+		{name: "MEMORY rejected", snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
+			DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/memory"}}}},
+		{name: "ROOTFS rejected", snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_ROOTFS,
+			DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/rootfs"}}}},
+		{name: "pending upload", snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
+			DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/pending"}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &transitionActors{suspendSnapshot: test.snapshot}
@@ -193,7 +226,7 @@ func TestActorSuspendRequiresDataSnapshot(t *testing.T) {
 			require.NoError(t, err)
 			transition, err := PrepareActorTransition(t.Context(), actors, ActorBinding{Revision: "revision", Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, nil)
 			require.NoError(t, err)
-			require.ErrorContains(t, ApplyActorTransition(t.Context(), actors, transition), "external DATA snapshot")
+			require.ErrorContains(t, ApplyActorTransition(t.Context(), actors, transition), "durable VOLUMES snapshot")
 		})
 	}
 }

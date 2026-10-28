@@ -42,12 +42,20 @@ Substrate Actor remains the security boundary. Its granular native approval
 policy enables MCP elicitation and rejects command, sandbox, rule, skill, and
 `request_permissions` prompts. MCP servers marked for approval prompt through
 App Server elicitation, while other MCP servers remain automatically approved.
-Account login, API-key passthrough, custom TLS, legacy SSE MCP, Dedicated agents,
+Account login, ModelConfig `tokenPassthrough`, custom TLS, legacy SSE MCP, Dedicated agents,
 checkpoint/fork guarantees, and configurable native policy are not advertised.
 
 Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
 `KAGENT_AGENT_CARD_JSON`. Private A2A is served on port 80 and readiness on
 `/readyz` at port 8081.
+
+The adapter disables Codex's default `unbounded_connection_retries` feature.
+Substrate DNS policy denials appear as connection failures, so retrying them
+indefinitely would leave a task working until canceled. Production runs retain
+the provider's native request and stream retry budgets. E2E fixtures opt into
+zero retry budgets through an internal test switch while upstream denial
+handling still triggers long backoffs. The built-in Bedrock provider rejects
+retry-budget overrides and retains its bounded native retries.
 
 ## Human-in-the-loop flow
 

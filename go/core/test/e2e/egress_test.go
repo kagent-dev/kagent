@@ -20,10 +20,10 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,12 +41,22 @@ const egressProbeScript = `#!/bin/sh
 control=$1
 target=$2
 run=$3
+control_log=$(mktemp)
+trap 'rm -f "$control_log"' EXIT
+control_get() {
+  if wget -T 5 -O- "$control/$1" 2>"$control_log"; then
+    return 0
+  fi
+  echo "EGRESS_CONTROL_FAILED_$1" >&2
+  cat "$control_log" >&2
+  return 1
+}
 echo "EGRESS_PROBE_STARTED_$run"
 for i in $(seq 1 900); do
-  phase=$(wget -T 5 -qO- "$control/phase") || exit 1
+  phase=$(control_get phase) || exit 1
   if [ "$phase" = stop ]; then
     echo "EGRESS_PROBE_FINISHED_$run"
-    wget -T 5 -qO- "$control/stopped" >/dev/null
+    control_get stopped >/dev/null
     exit
   fi
   if wget -T 3 -qO- --header 'Authorization: Bearer kagent-credential-injected' --header 'X-API-Key: kagent-credential-injected' "$target/?phase=$phase"; then
@@ -55,7 +65,7 @@ for i in $(seq 1 900); do
     result=DENIED
   fi
   echo "EGRESS_RESULT_${phase}_$result"
-  wget -T 5 -qO- "$control/result?phase=$phase&result=$result" >/dev/null || exit 1
+  control_get "result?phase=$phase&result=$result" >/dev/null || exit 1
   sleep 0.2
 done
 exit 1
@@ -224,6 +234,12 @@ type egressProbeRun struct {
 	consecutive           int
 	stopped               chan struct{}
 	stopOnce              sync.Once
+	completed             <-chan egressInvocationResult
+}
+
+type egressInvocationResult struct {
+	message *a2apb.SendMessageResponse
+	err     error
 }
 
 func (e *egressProbeRun) setPhase(phase string) {
@@ -233,11 +249,20 @@ func (e *egressProbeRun) setPhase(phase string) {
 }
 func (e *egressProbeRun) expect(t *testing.T, phase, result string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
+	err := wait.PollUntilContextTimeout(t.Context(), 100*time.Millisecond, 90*time.Second, true, func(context.Context) (bool, error) {
+		select {
+		case invocation := <-e.completed:
+			if invocation.err != nil {
+				return false, fmt.Errorf("egress invocation failed: %w", invocation.err)
+			}
+			return false, fmt.Errorf("egress invocation ended before the probe: %v", invocation.message.GetTask().GetStatus())
+		default:
+		}
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		return e.lastPhase == e.name+"_"+phase && e.lastResult == result && e.consecutive >= 3
-	}, 90*time.Second, 100*time.Millisecond, "%s %s did not become %s", e.name, phase, result)
+		return e.lastPhase == e.name+"_"+phase && e.lastResult == result && e.consecutive >= 3, nil
+	})
+	require.NoError(t, err, "%s %s did not become %s", e.name, phase, result)
 }
 func (e *egressProbeRun) finish(ctx context.Context) error {
 	e.mu.Lock()
@@ -257,11 +282,8 @@ func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecor
 	_, request := newMessageRequest(t, "Run egress skill "+run.name+".")
 	request.Message.ContextId = fixture.sessionID
 	request.Tenant = fixture.tenant
-	type response struct {
-		message *a2apb.SendMessageResponse
-		err     error
-	}
-	done := make(chan response, 1)
+	done := make(chan egressInvocationResult, 1)
+	run.completed = done
 	ctx, cancel := context.WithCancel(fixture.ctx)
 	t.Cleanup(func() {
 		cancel()
@@ -274,13 +296,16 @@ func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecor
 			}
 		}
 	})
-	go func() { r, err := sendMessageWithRetry(ctx, fixture.client, request); done <- response{r, err} }()
+	go func() {
+		r, err := sendMessageWithRetry(ctx, fixture.client, request)
+		done <- egressInvocationResult{r, err}
+	}()
 	return func() *a2atype.Task {
 		t.Helper()
 		stopCtx, stop := context.WithTimeout(ctx, 15*time.Second)
 		defer stop()
 		require.NoError(t, run.finish(stopCtx))
-		var result response
+		var result egressInvocationResult
 		select {
 		case result = <-done:
 		case <-ctx.Done():
@@ -361,7 +386,7 @@ func startEgressSkillMock(t *testing.T, root, destination string, runNames ...st
 	t.Helper()
 	require.NotEmpty(t, runNames)
 	var active atomic.Pointer[egressProbeRun]
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		run := active.Load()
 		if run == nil {
 			http.Error(w, "no active probe", http.StatusServiceUnavailable)
@@ -395,9 +420,8 @@ func startEgressSkillMock(t *testing.T, root, destination string, runNames ...st
 			return
 		}
 		run.proxy.ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-	recorder := startModelRecorder(t, server.URL, nil)
+	})
+	recorder := startModelRecorder(t, upstream, nil)
 	modelURL := reachableModelURL(t, recorder.URL)
 	origin := strings.TrimSuffix(modelURL, "/v1")
 	raw, err := interactionMocks.ReadFile("mocks/invoke_egress_skill.json")
@@ -454,7 +478,7 @@ func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 		command := fmt.Sprintf("if wget -T 3 -qO- '%s/?phase=%s'; then printf ALLOWED; else printf DENIED; fi", destination, phase)
 		process, err := f.processes.StartProcess(f.guestContext(instance.Id), &guestpb.StartProcessRequest{Command: []string{"sh", "-c", command}})
 		require.NoError(t, err)
-		outputs, err := f.processes.StreamProcessOutputs(f.guestContext(instance.Id), &guestpb.StreamProcessOutputsRequest{ProcessId: process.ProcessId, Follow: true})
+		outputs, err := f.processes.StreamProcessOutput(f.guestContext(instance.Id), &guestpb.StreamProcessOutputRequest{ProcessId: process.ProcessId, Follow: true})
 		require.NoError(t, err)
 		var result strings.Builder
 		for {
@@ -463,9 +487,7 @@ func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 				break
 			}
 			require.NoError(t, err)
-			if chunk.Source == guestpb.OutputSource_OUTPUT_SOURCE_STDOUT {
-				result.Write(chunk.Data)
-			}
+			result.Write(chunk.GetStdout())
 		}
 		return result.String()
 	}
@@ -509,4 +531,73 @@ func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 	actor, err = findSubstrateActor(f.ctx, f.system, f.template.Namespace, substrate.ActorName(instance.Id))
 	require.NoError(t, err)
 	require.Equal(t, actorUID, actor.GetMetadata().GetUid())
+}
+
+func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
+	t.Parallel()
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
+		target := interactionTarget(t)
+		var reachedDenied atomic.Bool
+		origin := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")), func([]byte) error {
+			reachedDenied.Store(true)
+			return nil
+		})
+		denied, err := url.Parse(reachableModelURL(t, origin.URL))
+		require.NoError(t, err)
+		// Give the destination a distinct hostname even when host mocks use
+		// host.docker.internal. The gateway allowlist is keyed by hostname.
+		kube := interactionKubeClient(t)
+		alias := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "denied-origin-", Namespace: "kagent"},
+			Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: denied.Hostname()},
+		}
+		require.NoError(t, kube.Create(t.Context(), alias))
+		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), alias)) })
+		denied.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local", denied.Port())
+
+		// First prove the destination is reachable and speaks this harness's
+		// model protocol when explicitly configured.
+		control := newInteractionFixture(t, harness, target, denied.String())
+		_, _, task := control.send(t, "What is 2+2?")
+		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
+		require.Contains(t, taskText(task), "The answer is 4.")
+		require.True(t, reachedDenied.Load())
+		reachedDenied.Store(false)
+
+		var modelRequests atomic.Int32
+		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Claude also sends a HEAD probe during startup.
+			if r.Method == http.MethodPost {
+				modelRequests.Add(1)
+			}
+			// The model host is allowed, but its redirect must not expand the
+			// Actor's policy to another reachable, unconfigured destination.
+			redirect := *denied
+			redirect.Path, redirect.RawQuery = r.URL.Path, r.URL.RawQuery
+			http.Redirect(w, r, redirect.String(), http.StatusTemporaryRedirect)
+		}))
+		_ = server.Listener.Close()
+		listener, err := net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		server.Listener = listener
+		server.Start()
+		t.Cleanup(server.Close)
+		fixture := newInteractionFixture(t, harness, target, reachableModelURL(t, server.URL))
+		// TODO: Revisit this deadline and the one-request assertion when native
+		// retries are restored after https://github.com/agent-substrate/substrate/issues/2663.
+		// A timeout or cancellation must not count as a successful denial.
+		ctx, cancel := context.WithTimeout(fixture.ctx, 30*time.Second)
+		t.Cleanup(cancel)
+		fixture.ctx = ctx
+		t.Cleanup(func() {
+			t.Logf("redirected model requests = %d, denied destination reached = %v", modelRequests.Load(), reachedDenied.Load())
+		})
+		_, _, task = fixture.send(t, "What is 2+2?")
+		require.Equal(t, int32(1), modelRequests.Load(), "expected one model request without retries")
+		require.Equal(t, a2atype.TaskStateFailed, task.Status.State, "redirect task text = %q", taskText(task))
+		require.False(t, reachedDenied.Load(), "redirect reached an unconfigured destination")
+	})
 }

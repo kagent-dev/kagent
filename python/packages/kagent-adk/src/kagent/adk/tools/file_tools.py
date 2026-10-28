@@ -17,13 +17,13 @@ from typing import Any, Dict
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
-from kagent.skills import (
+from kagent.tools import (
     edit_file_content,
     get_edit_file_description,
     get_grep_file_description,
     get_list_files_description,
     get_read_file_description,
-    get_session_path,
+    get_workspace_path,
     get_write_file_description,
     grep_content,
     list_dir_content,
@@ -89,7 +89,7 @@ async def _run_with_deadline(call: Callable[[], str], timeout_seconds: float) ->
     "spawn" rather than the Linux default "fork": this server is threaded, and
     forking a threaded process can deadlock a child that inherits a lock held
     by a thread that does not exist in it. Callers pass a callable defined in
-    kagent.skills, so the spawned child imports only that light module, never
+    kagent.tools, so the spawned child imports only that light module, never
     this one's google.adk dependency chain.
     """
     loop = asyncio.get_running_loop()
@@ -109,30 +109,20 @@ async def _run_with_deadline(call: Callable[[], str], timeout_seconds: float) ->
         executor.shutdown(wait=False, cancel_futures=True)
 
 
-def _resolve_working_path(tool_context: ToolContext, path_str: str) -> tuple[Path, Path]:
-    """Resolve path_str relative to the session's working directory.
-
-    Returns (resolved_path, working_dir); callers use working_dir to build
-    their allowed_root argument.
-    """
-    working_dir = get_session_path(session_id=tool_context.session.id)
+def _resolve_working_path(path_str: str) -> Path:
+    """Resolve ordinary sandbox paths relative to the durable workspace."""
     path = Path(path_str)
-    if not path.is_absolute():
-        path = working_dir / path
-    return path.resolve(), working_dir
+    return (get_workspace_path() / path).resolve() if not path.is_absolute() else path.resolve()
 
 
 class ReadFileTool(BaseTool):
     """Read files with line numbers for precise editing."""
 
-    def __init__(self, skills_directory: str | Path):
+    def __init__(self):
         super().__init__(
             name="read_file",
             description=get_read_file_description(),
         )
-        self.skills_directory = Path(skills_directory).resolve()
-        if not self.skills_directory.exists():
-            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -168,9 +158,9 @@ class ReadFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            path, working_dir = _resolve_working_path(tool_context, file_path_str)
+            path = _resolve_working_path(file_path_str)
 
-            return read_file_content(path, offset, limit, allowed_root=[working_dir, Path(self.skills_directory)])
+            return read_file_content(path, offset, limit)
         except (FileNotFoundError, IsADirectoryError, PermissionError, IOError) as e:
             return f"Error reading file {file_path_str}: {e}"
 
@@ -213,9 +203,9 @@ class WriteFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            path, working_dir = _resolve_working_path(tool_context, file_path_str)
+            path = _resolve_working_path(file_path_str)
 
-            return write_file_content(path, content, allowed_root=working_dir)
+            return write_file_content(path, content)
         except (PermissionError, IOError) as e:
             error_msg = f"Error writing file {file_path_str}: {e}"
             logger.error(error_msg)
@@ -225,14 +215,11 @@ class WriteFileTool(BaseTool):
 class ListFilesTool(BaseTool):
     """List files and directories at a given path."""
 
-    def __init__(self, skills_directory: str | Path):
+    def __init__(self):
         super().__init__(
             name="list_files",
             description=get_list_files_description(),
         )
-        self.skills_directory = Path(skills_directory).resolve()
-        if not self.skills_directory.exists():
-            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -254,9 +241,9 @@ class ListFilesTool(BaseTool):
         path_str = args.get("path", "").strip() or "."
 
         try:
-            path, working_dir = _resolve_working_path(tool_context, path_str)
+            path = _resolve_working_path(path_str)
 
-            return list_dir_content(path, allowed_root=[working_dir, Path(self.skills_directory)])
+            return list_dir_content(path)
         except (FileNotFoundError, NotADirectoryError, PermissionError, IOError) as e:
             return f"Error listing {path_str}: {e}"
 
@@ -271,14 +258,11 @@ class GrepFileTool(BaseTool):
     # _run_with_deadline for why that is required rather than merely tidy.
     _TIMEOUT_SECONDS = 30
 
-    def __init__(self, skills_directory: str | Path):
+    def __init__(self):
         super().__init__(
             name="grep_file",
             description=get_grep_file_description(),
         )
-        self.skills_directory = Path(skills_directory).resolve()
-        if not self.skills_directory.exists():
-            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -325,7 +309,7 @@ class GrepFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            path, working_dir = _resolve_working_path(tool_context, path_str)
+            path = _resolve_working_path(path_str)
 
             return await _run_with_deadline(
                 functools.partial(
@@ -334,7 +318,6 @@ class GrepFileTool(BaseTool):
                     pattern,
                     recursive=recursive,
                     ignore_case=ignore_case,
-                    allowed_root=[working_dir, Path(self.skills_directory)],
                 ),
                 self._TIMEOUT_SECONDS,
             )
@@ -394,9 +377,9 @@ class EditFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            path, working_dir = _resolve_working_path(tool_context, file_path_str)
+            path = _resolve_working_path(file_path_str)
 
-            return edit_file_content(path, old_string, new_string, replace_all, allowed_root=working_dir)
+            return edit_file_content(path, old_string, new_string, replace_all)
         except (FileNotFoundError, IsADirectoryError, ValueError, PermissionError, IOError) as e:
             error_msg = f"Error editing file {file_path_str}: {e}"
             logger.error(error_msg)

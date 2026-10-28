@@ -34,7 +34,7 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 	} {
 		t.Run(string(format), func(t *testing.T) {
 			t.Parallel()
-			recorder := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func(body []byte) error {
+			recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")), func(body []byte) error {
 				var request struct {
 					Stream bool `json:"stream"`
 				}
@@ -85,7 +85,7 @@ func TestSessionCompletesAfterDisconnect(t *testing.T) {
 		started, release := make(chan struct{}), make(chan struct{})
 		var startedOnce, releaseOnce sync.Once
 		upstream := startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")
-		recorder := startModelRecorder(t, upstream, func([]byte) error {
+		recorder := startModelRecorder(t, mockLLMProxy(t, upstream), func([]byte) error {
 			startedOnce.Do(func() { close(started) })
 			select {
 			case <-release:

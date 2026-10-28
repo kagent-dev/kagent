@@ -10,14 +10,15 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -71,8 +72,11 @@ func (a *gatedQuiescenceActors) GetActor(ctx context.Context, atespace, name str
 func settlementContext(t *testing.T, session *apiv1.Session) context.Context {
 	t.Helper()
 	headers := http.Header{}
-	headers.Set(apia2a.InsecureRuntimeIdentityHeader, "team-a/"+substrate.ActorName(session.Id)+"/actor-uid")
-	identity, err := (&taskstore.Authenticator{}).Authenticate(t.Context(), headers, nil)
+	i := jwttest.New(t)
+	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	require.NoError(t, err)
+	headers.Set("authorization", "Bearer "+i.Token(t, i.Claims("team-a", substrate.ActorName(session.Id), "actor-uid")))
+	identity, err := runtimeauth.NewAuthenticator(v).Authenticate(t.Context(), headers, nil)
 	require.NoError(t, err)
 	return auth.AuthSessionTo(t.Context(), identity)
 }
@@ -184,8 +188,8 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		actor, err := base.GetActor(t.Context(), "team-a", name)
 		require.NoError(t, err)
 		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.Status.State)
-		require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, actor.GetStatus().GetExternalSnapshot().GetContentScope())
-		require.NotEmpty(t, actor.GetStatus().GetExternalSnapshot().GetSnapshotUri())
+		require.Equal(t, ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, substrate.LatestActorSnapshot(actor).GetFidelity())
+		require.NotEmpty(t, substrate.SnapshotURI(substrate.LatestActorSnapshot(actor)))
 		if states[i%len(states)].Terminal() {
 			_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: requests[i].TaskId}, "alice", uuid.NewString())
 			require.NoError(t, err)
@@ -246,28 +250,6 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 			require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 3*time.Second, 10*time.Millisecond)
 		})
 	}
-}
-
-func TestQuiescenceResumesPendingWorkAfterExplicitSuspend(t *testing.T) {
-	store, session := lifecycleFixture(t)
-	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	writes := &observedQuiescenceStore{lifecycleTestStore: store}
-	workflow := NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Hour)
-	session, err := workflow.Create(t.Context(), session)
-	require.NoError(t, err)
-	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateInputRequired)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
-	session, err = workflow.Suspend(t.Context(), session)
-	require.NoError(t, err)
-	pending, err := store.HasPendingSessionQuiescence(t.Context())
-	require.NoError(t, err)
-	require.False(t, pending, "suspended actors must not keep fast retries active")
-	startQuiescenceWorker(t, workflow)
-	// Creation's buffered wake-up adds an extra empty scan.
-	require.Eventually(t, func() bool { return writes.idle.Load() >= 5 }, 5*time.Second, 10*time.Millisecond)
-	_, err = workflow.Resume(t.Context(), session)
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 3*time.Second, 10*time.Millisecond)
 }
 
 func TestQuiescenceCancellationRetainsClaim(t *testing.T) {

@@ -2,6 +2,7 @@ package database
 
 import (
 	"crypto/sha256"
+	"strings"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -173,7 +174,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	checkpointRequest := &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
 	addUnknown(checkpointRequest)
 	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
@@ -307,10 +308,15 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
 	require.NoError(t, err)
 	digest := sha256.Sum256([]byte("share-token"))
-	value := &apiv1.SessionShare{Id: uuid.NewString(), SessionId: session.Id}
+	canonicalShareID := uuid.NewString()
+	value := &apiv1.SessionShare{Id: strings.ToUpper(canonicalShareID), SessionId: strings.ToUpper(session.Id)}
 	addUnknown(value)
 	share, err := client.CreateSessionShare(ctx, value, digest[:], "alice")
 	require.NoError(t, err)
+	require.Equal(t, canonicalShareID, share.Id)
+	require.Equal(t, session.Id, share.SessionId)
+	require.Equal(t, strings.ToUpper(canonicalShareID), value.Id, "the caller's input must not be mutated")
+	require.Equal(t, strings.ToUpper(session.Id), value.SessionId)
 	require.Equal(t, value.ProtoReflect().GetUnknown(), share.ProtoReflect().GetUnknown())
 	resolved, ownerUserID, err := client.GetSessionShareByTokenHash(ctx, digest[:])
 	require.NoError(t, err)

@@ -15,6 +15,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -58,8 +59,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, translator.NewValidationError("Codex ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
-		return nil, translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough")
+	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || ptr.Deref(model.Spec.TokenPassthrough, false) {
+		return nil, translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough")
 	}
 	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
 	if err != nil {
@@ -72,7 +73,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
 		tracing.RuntimeCodex, input.AgentName, template.Namespace, model.Spec)
 
-	provider, providerEnvironment, egress, err := c.compileProvider(ctx, model)
+	provider, providerEnvironment, egress, err := c.compileProvider(ctx, input.Root.ResolvedModelConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +131,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Codex revision provenance: %w", err)
 	}
-	environment, credentials, tokenPassthroughOrigins, err := translator.CompileCredentials(input, nil, environment)
+	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -147,13 +148,22 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 			Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			TokenPassthroughOrigins: tokenPassthroughOrigins, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
+			TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
 }
 
-func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelConfig) (codexconfig.Provider, []corev1.EnvVar, []string, error) {
+func (c *Compiler) compileProvider(ctx context.Context, resolved *translator.ResolvedModelConfig) (codexconfig.Provider, []corev1.EnvVar, []string, error) {
+	model := resolved.Config
+	var credential corev1.EnvVar
+	if model.Spec.ActorJWT != nil {
+		var err error
+		credential, err = translator.ActorJWTEnvironment(resolved)
+		if err != nil {
+			return codexconfig.Provider{}, nil, nil, err
+		}
+	}
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
 		if model.Spec.OpenAI == nil || model.Spec.OpenAI.APIFormat == nil || *model.Spec.OpenAI.APIFormat != v1alpha3.OpenAIAPIFormatResponses {
@@ -165,8 +175,11 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 		if !reflect.DeepEqual(options, v1alpha3.OpenAIConfig{}) {
 			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support OpenAI provider options beyond baseUrl and apiFormat responses")
 		}
-		if err := c.requireSecretKey(ctx, model.Namespace, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey); err != nil {
-			return codexconfig.Provider{}, nil, nil, err
+		if model.Spec.ActorJWT == nil {
+			if err := c.requireSecretKey(ctx, model.Namespace, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey); err != nil {
+				return codexconfig.Provider{}, nil, nil, err
+			}
+			credential = secretEnvironment(openAIAPIKeyEnv, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)
 		}
 		provider := codexconfig.Provider{Name: "openai", BaseURL: baseURL}
 		egress := []string{"https://api.openai.com:443"}
@@ -177,7 +190,7 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 			}
 			egress = []string{host}
 		}
-		return provider, []corev1.EnvVar{secretEnvironment(openAIAPIKeyEnv, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}, egress, nil
+		return provider, []corev1.EnvVar{credential}, egress, nil
 	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil || strings.TrimSpace(model.Spec.Bedrock.Region) == "" {
 			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock requires bedrock.region")

@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -76,17 +75,17 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*d
 	if !validActorIdentity(actor, revision, name) || metadata.GetUid() != current.GetMetadata().GetUid() {
 		return nil, fmt.Errorf("suspend actor %s/%s returned invalid identity", atespace, name)
 	}
-	snapshot := actor.GetStatus().GetExternalSnapshot()
-	if snapshot.GetSnapshotUri() == "" {
+	snapshot := substrate.LatestActorSnapshot(actor)
+	if substrate.SnapshotURI(snapshot) == "" {
 		return nil, fmt.Errorf("suspend Actor %s/%s returned no snapshot", atespace, name)
 	}
-	scope := snapshot.GetContentScope()
-	if scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
-		return nil, fmt.Errorf("actor %s/%s returned invalid snapshot content scope %s", atespace, name, scope)
+	fidelity := snapshot.GetFidelity()
+	if fidelity != ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES {
+		return nil, fmt.Errorf("actor %s/%s returned invalid snapshot fidelity %s", atespace, name, fidelity)
 	}
 	return &database.SessionTaskSnapshot{
-		Atespace: atespace, URI: snapshot.GetSnapshotUri(),
-		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
+		Atespace: atespace, URI: substrate.SnapshotURI(snapshot),
+		Fidelity: fidelity.String(),
 	}, nil
 }
 
@@ -96,16 +95,12 @@ func (w *ActorWorkflow) Create(ctx context.Context, session *apiv1.Session) (*ap
 	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 }
 
-// Suspend returns after the Actor and session are suspended. A retry observes
-// the same operation rather than issuing a second mutation.
+// Suspend is used by controller-owned deadline cleanup when no scheduled task
+// can be identified.
+// It returns after the Actor and Session are suspended; retries observe the same
+// operation rather than issuing a second mutation. It has no public Session RPC.
 func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
-}
-
-// Resume returns after the Actor is running and the session is ready. Missing
-// Actors are errors; Resume never creates replacement compute.
-func (w *ActorWorkflow) Resume(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 }
 
 // Delete closes admission before stopping and deleting compute. It can supersede
@@ -121,12 +116,7 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 	if err != nil {
 		return nil, err
 	}
-	result, err := w.execute(ctx, operation)
-	if err == nil && result.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY {
-		// A resume can make old unclaimed idle work eligible again.
-		w.wakeQuiescence()
-	}
-	return result, err
+	return w.execute(ctx, operation)
 }
 
 // execute keeps lifecycle preparation separate from the durable issue boundary.
@@ -152,8 +142,8 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		if err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("load pinned checkpoint: %w", err))
 		}
-		if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope != "DATA" {
-			return w.failPreparation(ctx, operation, fmt.Errorf("fork requires a retained DATA checkpoint"))
+		if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.Fidelity != "SNAPSHOT_FIDELITY_VOLUMES" {
+			return w.failPreparation(ctx, operation, fmt.Errorf("fork requires a retained volume checkpoint"))
 		}
 		tagName = "checkpoint-" + operation.SourceCheckpointID.String()
 	}
@@ -164,7 +154,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		creation = &substrate.ActorCreation{}
 		if snapshot != nil {
-			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES}
 		}
 	}
 	prepare := substrate.PrepareActorTransition

@@ -7,6 +7,7 @@ import {
   modelDraftFrom,
   modelDraftIssues,
   newHeaderRow,
+  supportsActorJWT,
   type ModelDraft,
 } from "./modelDraft";
 
@@ -67,7 +68,7 @@ describe("buildModelPayload — authentication modes", () => {
     const req = buildModelPayload(draft({ authType: "apiKey", apiKey: "sk-123" }));
     expect(req.apiKey).toBe("sk-123");
     expect(req.spec.apiKeySecret).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 
   it("secret: references an existing Secret and sends no inline key", () => {
@@ -83,9 +84,9 @@ describe("buildModelPayload — authentication modes", () => {
     expect(req.spec.apiKeySecretKey).toBe("OPENAI_API_KEY");
   });
 
-  it("passthrough: sets apiKeyPassthrough and stores nothing", () => {
+  it("passthrough: sets tokenPassthrough and stores nothing", () => {
     const req = buildModelPayload(draft({ authType: "passthrough" }));
-    expect(req.spec.apiKeyPassthrough).toBe(true);
+    expect(req.spec.tokenPassthrough).toBe(true);
     expect(req.apiKey).toBeUndefined();
     expect(req.spec.apiKeySecret).toBeUndefined();
   });
@@ -94,7 +95,7 @@ describe("buildModelPayload — authentication modes", () => {
     const req = buildModelPayload(draft({ authType: "none", apiKey: "ignored" }));
     expect(req.apiKey).toBeUndefined();
     expect(req.spec.apiKeySecret).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 
   it("Ollama sends no inline key even when the mode says apiKey", () => {
@@ -105,7 +106,7 @@ describe("buildModelPayload — authentication modes", () => {
     );
     expect(req.apiKey).toBeUndefined();
     expect(req.spec.apiKeySecret).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 
   it("Ollama names a Secret, which is what authenticates an Ollama Cloud model", () => {
@@ -122,7 +123,7 @@ describe("buildModelPayload — authentication modes", () => {
     expect(req.spec.apiKeySecretKey).toBe("OLLAMA_API_KEY");
     // The key is mounted for the runtime, never serialized into the request.
     expect(req.apiKey).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 
   it("Ollama defaults the Secret key when only the Secret is named", () => {
@@ -157,7 +158,7 @@ describe("buildModelPayload — authentication modes", () => {
     );
     expect(req.apiKey).toBeUndefined();
     expect(req.spec.apiKeySecret).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 });
 
@@ -200,6 +201,16 @@ describe("buildModelPayload — headers, TLS, Ollama tag", () => {
 });
 
 describe("modelDraftFrom — round trip", () => {
+  it("preserves Actor JWT authentication when editing a model", () => {
+    const original = { ref: "kagent/actor-model", spec: { provider: "OpenAI", model: "test", actorJwt: { audiences: ["model", "kagent-agent-info"], expirationSeconds: 600 } } };
+    const draft = modelDraftFrom(original);
+    expect(draft.authType).toBe("actorJwt");
+    const request = buildModelPayload(draft);
+    expect(request.spec.actorJwt).toEqual(original.spec.actorJwt);
+    expect(request.spec.apiKeySecret).toBeUndefined();
+    expect(request.spec.tokenPassthrough).toBeUndefined();
+  });
+
   it("infers the auth mode and carries headers and TLS back", () => {
     const config: ModelConfig = {
       ref: "kagent/gpt",
@@ -225,7 +236,7 @@ describe("modelDraftFrom — round trip", () => {
     expect(
       modelDraftFrom({
         ref: "kagent/x",
-        spec: { provider: "OpenAI", model: "gpt-4.1", apiKeyPassthrough: true },
+        spec: { provider: "OpenAI", model: "gpt-4.1", tokenPassthrough: true },
       }).authType,
     ).toBe("passthrough");
 
@@ -288,6 +299,13 @@ describe("modelDraftIssues", () => {
 // Leaving the mode alone on a provider switch rendered a radio group with
 // nothing selected and no way back to no credential.
 describe("authTypeForProvider", () => {
+  it.each(["Bedrock", "Gemini", "Ollama"])("rejects Actor JWT authentication for %s", (provider) => {
+    expect(supportsActorJWT(provider)).toBe(false);
+    expect(authTypeForProvider(provider, "actorJwt")).toBe("none");
+    expect(issuesFor(draft({ provider, authType: "actorJwt", actorAudiences: ["model"] })))
+      .toContain("This provider does not support Actor JWT authentication.");
+  });
+
   it("moves off a mode Ollama does not offer", () => {
     expect(authTypeForProvider("Ollama", "apiKey")).toBe("none");
     expect(authTypeForProvider("Ollama", "passthrough")).toBe("none");

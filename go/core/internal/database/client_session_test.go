@@ -133,7 +133,7 @@ func TestSessionTasksAreDurableAndExclusive(t *testing.T) {
 	}
 	first.History = append(first.History, a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("done")))
 	first.Status.State = a2a.TaskStateCompleted
-	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}
+	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
 	if err := saveRuntimeTask(t, client, "11111111-1111-4111-8111-111111111111", first, first, snapshot); err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestSessionReplyArchivesStatusMessageAtomically(t *testing.T) {
 	boundary, err := client.ClaimSessionQuiescence(ctx)
 	require.NoError(t, err)
 	require.Error(t, client.FinishSessionQuiescence(ctx, boundary, nil))
-	require.NoError(t, client.FinishSessionQuiescence(ctx, boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/waiting", ContentScope: "DATA"}))
+	require.NoError(t, client.FinishSessionQuiescence(ctx, boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/waiting", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 
 	answer := &a2a.Message{ID: "answer-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: session.ContextId}
 	resumed := *parked
@@ -216,6 +216,29 @@ func TestSessionReplyArchivesStatusMessageAtomically(t *testing.T) {
 	}
 }
 
+func TestSessionCheckpointRetainsRootFSFidelity(t *testing.T) {
+	client, ctx := NewClient(setupTestDB(t), "public"), t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
+	require.NoError(t, err)
+	_, err = markSessionReady(ctx, client, session.Id, "source.example")
+	require.NoError(t, err)
+	task := newSessionTask("rootfs-task", "message")
+	task.ContextID = session.ContextId
+	task.Status.State = a2a.TaskStateCompleted
+	want := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/rootfs", Fidelity: "SNAPSHOT_FIDELITY_ROOTFS"}
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, want))
+	checkpoint, snapshot, err := client.ReserveSessionCheckpoint(ctx,
+		&apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
+	require.NoError(t, err)
+	require.Equal(t, want, snapshot)
+	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/rootfs", "")
+	require.NoError(t, err)
+	retained, _, err := client.GetSessionCheckpointSnapshot(ctx, checkpoint.Id, "alice")
+	require.NoError(t, err)
+	require.Equal(t, want.Fidelity, retained.Fidelity)
+}
+
 func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
@@ -236,7 +259,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	}
 	task.Status.State = a2a.TaskStateCompleted
 	if err := saveRuntimeTask(t, client, sessionID, task, task,
-		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
+		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -261,7 +284,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatalf("rename of a creating checkpoint = %v, want not found", err)
 	}
 	if checkpoint.HeadTaskId != "task-1" || snapshot == nil ||
-		*snapshot != (SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}) || checkpoint.HistorySequence == 0 {
+		*snapshot != (SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}) || checkpoint.HistorySequence == 0 {
 		t.Fatalf("checkpoint boundary = %+v", checkpoint)
 	}
 	if _, err := client.CreateRuntimeTask(ctx, sessionID, taskMutationHash("blocked-request"), newSessionTask("task-2", "message-2"), ""); !errors.Is(err, ErrConflict) {
@@ -295,7 +318,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "11111111-1111-4111-8111-111111111111-task-1", restored.GetName())
 	retained, tagUID, err := client.GetSessionCheckpointSnapshot(ctx, checkpoint.GetId(), "alice")
-	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.ContentScope != snapshot.ContentScope {
+	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.Fidelity != snapshot.Fidelity {
 		t.Fatalf("checkpoint tag = %q, error %v", tagUID, err)
 	}
 	if replayed, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", ""); err != nil || replayed.State != apiv1.CheckpointState_CHECKPOINT_STATE_READY {
@@ -403,7 +426,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	}
 	first.Status.State = a2a.TaskStateInputRequired
 	if err := saveRuntimeTask(t, client, source.GetId(), first, first,
-		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
+		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}); err != nil {
 		t.Fatal(err)
 	}
 	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "hitl-checkpoint-request")
@@ -411,13 +434,15 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 
 	first.Status.State = a2a.TaskStateCompleted
 	if err := saveRuntimeTask(t, client, source.GetId(), first, first,
-		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
+		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}); err != nil {
 		t.Fatal(err)
 	}
 	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "checkpoint-request-1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice")
+	require.ErrorIs(t, err, ErrNotFound, "creating checkpoints cannot supply fork provenance")
 	if _, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid-1", "s3://tags/checkpoint", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -437,12 +462,27 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	}
 	second.Status.State = a2a.TaskStateCompleted
 	if err := saveRuntimeTask(t, client, source.GetId(), second, second,
-		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-2", ContentScope: "DATA"}); err != nil {
+		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-2", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := deleteSession(ctx, client, source.GetId()); err != nil {
 		t.Fatal(err)
 	}
+
+	_, err = client.GetSession(ctx, source.GetId(), "alice")
+	require.ErrorIs(t, err, ErrNotFound, "ordinary Session reads still hide deleted sources")
+	forkSource, err := client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice")
+	require.NoError(t, err)
+	require.Equal(t, revision.Namespace, forkSource.Agent.Namespace)
+	require.Equal(t, revision.AgentName, forkSource.Agent.Name)
+	require.Equal(t, source.GetId(), forkSource.Checkpoint.GetSessionId())
+	require.Equal(t, "Before the detour", forkSource.Checkpoint.GetName())
+	require.Equal(t, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://tags/checkpoint", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}, forkSource.Snapshot)
+	require.Equal(t, "tag-uid-1", forkSource.TagUID)
+	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "bob")
+	require.ErrorIs(t, err, ErrNotFound, "retained provenance remains owner-scoped")
+	_, err = client.GetSessionCheckpointForkSource(ctx, uuid.NewString(), "alice")
+	require.ErrorIs(t, err, ErrNotFound)
 
 	fork, created, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "fork-request-1", forkID)
 	require.Equal(t, "Before the detour", fork.GetName())
@@ -781,7 +821,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 		require.NoError(t, err)
 		task.Status.State = a2a.TaskStateCompleted
 		require.NoError(t, saveRuntimeTask(t, client, source.GetId(), task, task,
-			&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, ContentScope: "DATA"}))
+			&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	}
 	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: source.GetId(), HeadTaskId: "a-second",

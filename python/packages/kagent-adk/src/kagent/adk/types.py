@@ -85,7 +85,7 @@ from kagent.config.v1.adk_pb2 import (
 from kagent.config.v1.adk_pb2 import (
     ADKTokenExchangeConfig as TokenExchangeConfig,
 )
-from kagent.core._runtime_config import optional_field
+from kagent.core._runtime_config import RuntimeConfig, optional_field
 from protovalidate import validate
 
 from kagent.adk._approval import make_approval_callback
@@ -291,6 +291,7 @@ def create_agent(
     name: str,
     sts_integration: Optional[ADKTokenPropagationPlugin] = None,
     propagate_token: bool = False,
+    runtime_config: Optional[RuntimeConfig] = None,
 ) -> Agent:
     validate(config)
     if not config.HasField("model"):
@@ -305,6 +306,11 @@ def create_agent(
     sts_header_provider = None
     if sts_integration:
         sts_header_provider = sts_integration.header_provider
+    # TODO: implement RemoteMCPServer tokenPassthrough. Fail rather than
+    # connecting without the caller's credential.
+    for mcp_tool in [*config.http_tools, *config.sse_tools]:
+        if mcp_tool.token_passthrough:
+            raise NotImplementedError("MCP token passthrough is not yet supported by the Python ADK")
     if config.http_tools:
         for http_tool in config.http_tools:  # add http tools
             # Install a TLS-aware httpx_client_factory on the params
@@ -428,8 +434,8 @@ def create_agent(
 
     model = _create_llm_from_model_config(config.model)
 
-    # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
-    tools.append(AskUserTool())
+    if runtime_config is None or not runtime_config.builtin_tools.disable_ask_user:
+        tools.append(AskUserTool())
 
     # Build before_tool_callback if any tools require approval
     before_tool_callback = make_approval_callback() if has_tools_requiring_approval else None

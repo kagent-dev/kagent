@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 // Origin retains the protocol and destination port needed by Substrate's
@@ -64,11 +66,13 @@ func ParseOrigin(raw string) (*url.URL, error) {
 type Access struct {
 	Destinations []string     `json:"destinations,omitempty"`
 	Credentials  []Credential `json:"credentials,omitempty"`
+	// TokenPassthroughTargets come from the revision; live grants never set them.
+	TokenPassthroughTargets []egresspolicy.GatewayTarget `json:"tokenPassthroughTargets,omitempty" db:"-"`
 }
 
-// CanonicalAccess merges equivalent origins and validates destinations and
-// credentials, including conflicts with canonical caller-token origins.
-func CanonicalAccess(destinations []string, credentials []Credential, tokenPassthroughOrigins []string) (Access, error) {
+// CanonicalAccess merges equivalent origins and validates destinations,
+// credentials and tokenPassthrough targets. Credentials cannot use a target's origin.
+func CanonicalAccess(destinations []string, credentials []Credential, targets []egresspolicy.GatewayTarget) (Access, error) {
 	result := Access{}
 	protocols := map[string]string{}
 	allowed := map[string]bool{}
@@ -95,11 +99,19 @@ func CanonicalAccess(destinations []string, credentials []Credential, tokenPasst
 	if err != nil {
 		return Access{}, err
 	}
+	result.TokenPassthroughTargets, err = CanonicalGatewayTargets(targets)
+	if err != nil {
+		return Access{}, err
+	}
+	reserved := map[string]bool{}
+	for _, target := range result.TokenPassthroughTargets {
+		reserved[target.Origin] = true
+	}
 	for _, binding := range result.Credentials {
 		if !allowed[binding.Origin] {
 			return Access{}, fmt.Errorf("credential destination %q is not explicitly allowed", binding.Origin)
 		}
-		if slices.Contains(tokenPassthroughOrigins, binding.Origin) {
+		if reserved[binding.Origin] {
 			return Access{}, fmt.Errorf("destination %q cannot combine caller-token passthrough with gateway credentials", binding.Origin)
 		}
 	}

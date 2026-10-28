@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
@@ -84,6 +85,12 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	// The image and compiler pin an exact Claude version. Prevent both automatic
 	// and manual update paths from changing that runtime after validation.
 	environment = setEnvironment(environment, config.DisableUpdatesEnvName, "1")
+	// TODO: REMOVE this test-only override and its reserved environment name once upstream
+	// denial handling permits bounded native retries: https://github.com/agent-substrate/substrate/issues/2663
+	// Alpha3 fixes musl DNS search fallback, but denied requests still retry for minutes.
+	if slices.Contains(input.Environment, env.TestClaudeDisableRetries+"=true") {
+		environment = setEnvironment(environment, config.MaxRetriesEnvName, "0")
+	}
 	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
 	if err != nil {
 		return nil, err

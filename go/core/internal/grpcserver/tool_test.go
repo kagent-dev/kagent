@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -93,6 +94,16 @@ func (a *toolGRPCAuthorizer) Check(_ context.Context, _ pkgAuth.Principal, verb 
 	return nil
 }
 
+func (a *toolGRPCAuthorizer) Scope(_ context.Context, _ pkgAuth.Principal, verb pkgAuth.Verb, _ string) (apiauthorization.AuthorizationScope, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.verb = verb
+	if a.deny {
+		return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, nil
+	}
+	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, nil
+}
+
 func (a *toolGRPCAuthorizer) lastVerb() pkgAuth.Verb {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -143,8 +154,8 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	if len(listedServers.GetToolServers()) != 1 || listedServers.GetToolServers()[0].GetDiscoveredTools()[0].GetName() != "move_task" {
 		t.Fatalf("ListToolServers() = %+v", listedServers.GetToolServers())
 	}
-	if authorizer.lastVerb() != pkgAuth.VerbGet {
-		t.Fatalf("ListToolServers() authorization verb = %q, want get", authorizer.lastVerb())
+	if authorizer.lastVerb() != pkgAuth.VerbList {
+		t.Fatalf("ListToolServers() authorization verb = %q, want list", authorizer.lastVerb())
 	}
 
 	serverTypes, err := toolClient.ListToolServerTypes(ctx, &apiv1.ListToolServerTypesRequest{})
@@ -254,7 +265,17 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	assertGRPCCode(t, err, codes.InvalidArgument)
 
 	authorizer.setDenied(true)
-	_, err = toolClient.ListToolServers(ctx, &apiv1.ListToolServersRequest{})
+	deniedServers, err := toolClient.ListToolServers(ctx, &apiv1.ListToolServersRequest{})
+	assertGRPCCode(t, err, codes.OK)
+	if len(deniedServers.GetToolServers()) != 0 {
+		t.Fatal("denied server list exposed resources")
+	}
+	deniedTools, err := toolClient.ListTools(ctx, &apiv1.ListToolsRequest{})
+	assertGRPCCode(t, err, codes.OK)
+	if len(deniedTools.GetTools()) != 0 {
+		t.Fatal("denied flat tool list exposed resources")
+	}
+	_, err = toolClient.CallMCPAppTool(ctx, &apiv1.CallMCPAppToolRequest{Server: mcpRef, ToolName: "move_task", Arguments: arguments})
 	assertGRPCCode(t, err, codes.PermissionDenied)
 	authorizer.setDenied(false)
 

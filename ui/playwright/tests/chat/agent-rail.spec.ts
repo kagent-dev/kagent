@@ -147,6 +147,57 @@ test("chat agent rail: the identity card switches agent", async ({ page }) => {
 });
 
 /**
+ * One loading state, and a visible one.
+ *
+ * The switcher read agents with an empty namespace list while namespaces were still on
+ * their way, so it claimed the cluster had no other agents, then went blank, then listed
+ * them. Holding the read fixed the false empty message, but the placeholder that held
+ * the panel's height was painted in the panel's own colour — so the panel still opened
+ * blank and filled a moment later.
+ *
+ * `slow` holds every read long enough to see the frame the bug lived in, which is what
+ * makes the middle state assertable rather than a matter of timing.
+ */
+test("chat agent rail: the switcher shows a visible loading skeleton, not an empty cluster", async ({
+  page,
+}) => {
+  await page.goto(withScenario(AGENT_CHAT, "slow"));
+  await expect(page.getByTestId("agent-rail-identity")).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("agent-rail-identity").click();
+
+  const switcher = page.getByTestId("agent-switcher");
+  await expect(switcher).toBeVisible();
+
+  await test.step("1. the wait is a skeleton, not a claim that the cluster is empty", async () => {
+    const placeholder = switcher.getByTestId("agent-switcher-loading").first();
+    await expect(placeholder).toBeVisible();
+    await expect(switcher.getByTestId("agent-switcher-empty")).toHaveCount(0);
+
+    /*
+     * Drawn, not merely present. A box in the panel's own colour has a size and no
+     * paint, which is exactly the state this replaced, so what is asserted is the
+     * fill and the shimmer rather than the element.
+     */
+    const paint = await placeholder.locator(".ant-skeleton").first().evaluate((el) => {
+      const box = el.firstElementChild ?? el;
+      const style = getComputedStyle(box);
+      return { fill: style.backgroundImage, animation: style.animationName };
+    });
+    expect(paint.fill, "a placeholder with no fill is a blank panel").not.toBe("none");
+    expect(paint.animation, "a still placeholder reads as content that failed").not.toBe(
+      "none",
+    );
+  });
+
+  await test.step("2. the list replaces it, and the skeleton goes", async () => {
+    await expect(
+      switcher.locator('[data-testid^="agent-switcher-option-"]').first(),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(switcher.getByTestId("agent-switcher-loading")).toHaveCount(0);
+  });
+});
+
+/**
  * The rail is sticky and so is the header, and the header draws on top.
  *
  * Stuck any higher than the header is tall, the rail slid underneath it — and the
@@ -484,7 +535,7 @@ test("chat agent rail: the newest conversation is at the top", async ({ page }) 
    * comparator carries the note, and `conversationOrder.test.ts` carries the cases.
    *
    * The fixtures are arranged against this deliberately: unsorted, this rail renders
-   * the *older* suspended sibling first, so a rail that sorts has to move it and a
+   * the *older* idle sibling first, so a rail that sorts has to move it and a
    * rail that does not cannot accidentally pass. Asserted on ids rather than titles,
    * because a title is derived and a row's identity is not.
    */
@@ -499,7 +550,7 @@ test("chat agent rail: the newest conversation is at the top", async ({ page }) 
   );
   await expect(rows.nth(1)).toHaveAttribute(
     "data-testid",
-    `chat-session-${instances.suspended}`,
+    `chat-session-${instances.idle}`,
   );
 });
 

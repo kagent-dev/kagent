@@ -173,6 +173,38 @@ describe("the agent template draft", () => {
     expect(text).not.toHaveProperty("outputSchemaFrom");
   });
 
+  it.each([
+    [undefined, false],
+    [false, false],
+    [true, true],
+  ] as const)("reads outputSchemaStrict %s as %s and writes only true", (strict, expected) => {
+    const template = templateWithExtras();
+    const spec = { ...template.resource.spec, outputSchemaStrict: strict };
+    const draft = draftFromTemplate({ ...template, resource: { ...template.resource, spec } });
+
+    expect(draft.outputStrict).toBe(expected);
+    const saved = specFromDraft(draft, spec);
+    if (expected) expect(saved.outputSchemaStrict).toBe(true);
+    else expect(saved).not.toHaveProperty("outputSchemaStrict");
+  });
+
+  it("keeps strict through an edit to another field and drops it with the schema", () => {
+    const template = templateWithExtras();
+    const spec = { ...template.resource.spec, outputSchemaStrict: true };
+    const draft = draftFromTemplate({ ...template, resource: { ...template.resource, spec } });
+
+    expect(specFromDraft({ ...draft, outputStrict: false }, spec)).not.toHaveProperty(
+      "outputSchemaStrict",
+    );
+    const edited = specFromDraft({ ...draft, description: "Edited." }, spec);
+    expect(edited.description).toBe("Edited.");
+    expect(edited.outputSchemaStrict).toBe(true);
+
+    const text = specFromDraft({ ...draft, outputSource: "text" }, spec);
+    expect(text).not.toHaveProperty("outputSchema");
+    expect(text).not.toHaveProperty("outputSchemaStrict");
+  });
+
   it("keeps an MCP binding with no selection because it exposes every server tool", () => {
     const draft = emptyDraft("kagent");
     draft.modelConfig = "gpt";

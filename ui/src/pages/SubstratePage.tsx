@@ -234,17 +234,18 @@ const atAGlance = (count: number) => compactNumber.format(count).replace("K", "k
  * today's sample: a reader learns that `Crashed` is a thing that happens by seeing it at
  * zero, not by waiting for one.
  *
+ * The summary groups paused actors under Suspended; only individual actor snapshots
+ * distinguish a node-local pause from a durable suspension.
+ *
  * States absent from this list are added to the legend when reported by Substrate.
  */
 const ACTOR_STATES = [
   "Crashed",
   "Deleting",
-  "Pausing",
   "Resuming",
+  "Reverting",
   "Running",
-  "Snapshotting",
   "Suspending",
-  "Paused",
   "Suspended",
   "Unknown",
 ];
@@ -887,7 +888,6 @@ export function SubstratePage() {
           template.name,
           template.goldenTag,
           template.phase,
-          template.sandboxClass,
           template.workerSelector,
         ]
           .filter(Boolean)
@@ -994,13 +994,6 @@ export function SubstratePage() {
         render: (_, template) => <StatusChip label={template.phase ?? ""} />,
       },
       {
-        title: "Sandbox class",
-        key: "sandboxClass",
-        width: 140,
-        sorter: { compare: byText((t) => t.sandboxClass ?? ""), multiple: 3 },
-        render: (_, template) => template.sandboxClass ?? "—",
-      },
-      {
         title: "Worker selector",
         key: "workerSelector",
         sorter: { compare: byText((t) => t.workerSelector ?? ""), multiple: 2 },
@@ -1096,7 +1089,7 @@ export function SubstratePage() {
   return (
     <PageFrame
       title="Substrate"
-      description="Kubernetes worker pools, plus actor templates, live actors, and worker assignments from Substrate."
+      description="Visible worker pools, actor templates, actors, and workers. Counts include only resources you can view."
       actions={
         <Space size={8}>
           <Tooltip
@@ -1213,7 +1206,7 @@ export function SubstratePage() {
             key={atespace}
             defaultValue={atespace}
             aria-label="ATE atespace"
-            placeholder="All atespaces"
+            placeholder="All watched atespaces"
             maxLength={63}
             allowClear
             css={{ width: 240 }}
@@ -1263,7 +1256,7 @@ export function SubstratePage() {
             type="warning"
             showIcon
             title="Runtime actor state is incomplete"
-            description={`Worker pools come from Kubernetes and are complete. Everything else on this page — the actor templates as well as the actors and workers below — comes from ate-api, which answered with an error, so those may be short: ${inventory.ateApiError}`}
+            description={`Visible worker pools come from Kubernetes. Substrate returned an error, so visible actor templates, actors, and workers may be incomplete: ${inventory.ateApiError}`}
             data-testid="substrate-partial"
           />
         ) : null}
@@ -1319,12 +1312,12 @@ export function SubstratePage() {
             hint={unread}
           />
           <StatTile
-            label="Scope"
+            label="Requested filters"
             testId="substrate-stat-scope"
             // Not read from the response — it is what this page asked for, which is
             // known even when the read failed, and is the thing that explains an empty
             // table.
-            value={!namespace && !atespace ? "all" : `K8s: ${namespace || "all"}; ATE: ${atespace || "all"}`}
+            value={!namespace && !atespace ? "none" : `K8s: ${namespace || "any"}; ATE: ${atespace || "any"}`}
           />
         </div>
 

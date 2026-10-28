@@ -45,8 +45,9 @@ resources retain their separate API versions. See the
 [protobuf API conventions](../protobuf-api.md) for compatibility and generation rules.
 
 The public and runtime APIs share a gRPC listener and retain method-level authentication policies.
-TaskStore requires workload authority; Memory currently uses ordinary controller
-authentication. The runtime namespace identifies its consumers, not an additional
+TaskStore and Memory writes/search require verified actor authority. Memory
+list/delete accept users and actors, with service authorization and data ownership
+checks. Shared APIs use the same authentication provider and resource authorizer. The runtime namespace identifies its consumers, not an additional
 access restriction. Configuration messages are process inputs, with no RPC services.
 Browser bindings exclude runtime and configuration contracts.
 

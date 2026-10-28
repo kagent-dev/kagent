@@ -36,6 +36,14 @@ func TestCompileProviderCredentials(t *testing.T) {
 		wantErr    string
 	}{
 		{
+			name: "Actor JWT Anthropic", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", ActorJWT: &v1alpha3.ActorJWT{Audiences: []string{"model"}}},
+			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: translator.CredentialPlaceholder}, wantEgress: []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443"},
+		},
+		{
+			name: "Actor JWT Bedrock", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", ActorJWT: &v1alpha3.ActorJWT{Audiences: []string{"model"}}, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+			wantErr: "Bedrock requires AWS credentials and does not support actorJwt",
+		},
+		{
 			name: "Anthropic",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
@@ -138,7 +146,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		model v1alpha3.ModelConfigSpec
 	}{
 		{name: "provider", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt"}},
-		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeyPassthrough: true}},
+		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: new(true)}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
 		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
@@ -608,6 +616,8 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Placement and limits normally come from the central runtime compiler.
+	revision.CPU, revision.Memory = "1", "1Gi"
 	revisionID, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -638,4 +648,14 @@ func TestCompilePreservesWorkloadOverrides(t *testing.T) {
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
+}
+
+func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
+	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
+		URL: "https://mcp.example.com/mcp", TokenPassthrough: new(true),
+	}}
+	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
+	if want := "Claude does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected %q, got %v", want, err)
+	}
 }

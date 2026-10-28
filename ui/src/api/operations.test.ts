@@ -1,5 +1,5 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
-import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageStatus } from "@/generated/api/ateapi/v1/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -38,7 +38,7 @@ import {
 import {
   SessionService,
 } from "@/generated/kagent/api/v1/sessions_pb";
-import { ApiError, isNotFound } from "./ApiError";
+import { isNotFound } from "./ApiError";
 import { apiClient } from "./client";
 import { clearApiExtensions } from "./extensionPoints";
 import { registerAuthTokenSource, setApiTransport } from "./transport";
@@ -378,7 +378,7 @@ describe("the cluster", () => {
             {
               ref: { namespace: "kagent", name: "pool" },
               resource: {
-                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                apiVersion: "ate.dev/v1", kind: "WorkerPool",
                 value: {
                   metadata: { namespace: "kagent", name: "pool" },
                   spec: { replicas: 2, workerImage: "ateom:1" },
@@ -395,7 +395,6 @@ describe("the cluster", () => {
                   goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
-              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
               workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],
@@ -412,8 +411,10 @@ describe("the cluster", () => {
                 workerPool: "pool",
                 workerPodIps: ["10.0.0.1", "fd00::1"],
               },
-              externalSnapshot: { snapshotUri: "s3://snapshot" },
-              inProgressLocalSnapshotName: "next-snapshot",
+              snapshots: [
+                { generation: 2, uuid: "next-snapshot", durableSnapshot: { status: SnapshotStorageStatus.PENDING } },
+                { generation: 1, durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: "s3://snapshot" } } },
+              ],
             },
           }],
         }),
@@ -427,7 +428,6 @@ describe("the cluster", () => {
       name: "tpl",
       phase: "Ready",
       goldenTag: "ate-golden/golden",
-      sandboxClass: "gvisor",
       workerSelector: "pool=agents,zone=east",
     });
     // The request succeeded; the runtime halves may be incomplete. That is a
@@ -486,8 +486,6 @@ describe("the cluster", () => {
     [ActorState.RUNNING, "Running"],
     [ActorState.SUSPENDING, "Suspending"],
     [ActorState.SUSPENDED, "Suspended"],
-    [ActorState.PAUSING, "Pausing"],
-    [ActorState.PAUSED, "Paused"],
     [ActorState.CRASHED, "ACTOR_STATE_CRASHED"],
     [ActorState.DELETING, "ACTOR_STATE_DELETING"],
     [ActorState.REVERTING, "Reverting"],
@@ -512,6 +510,28 @@ describe("the cluster", () => {
       service(SystemService, { getSubstrateSummary: inventory });
     });
     await expect(apiClient.substrate.summary()).rejects.toMatchObject({ kind: "parse" });
+  });
+
+  it.each([
+    [ActorState.SUSPENDED, "Paused"],
+    [ActorState.RUNNING, "Running"],
+  ])("derives pause from snapshot locality only while suspended (%s)", async (state, label) => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: () => ({
+          actors: [{ metadata: { name: "a1" }, status: {
+            state,
+            snapshots: [
+              { generation: 2, locality: "node-1" },
+              { generation: 1, durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: "s3://old" } } },
+            ],
+          } }],
+        }),
+      });
+    });
+    const page = await apiClient.substrate.actors({});
+    expect(page.actors[0].status).toBe(label);
+    expect(page.actors[0].inProgressSnapshot).toBeUndefined();
   });
 
   // Proto3 cannot tell an unset string from an empty one, and an empty warning
@@ -549,7 +569,7 @@ describe("the cluster", () => {
             {
               ref: { namespace: "kagent", name: "pool" },
               resource: {
-                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                apiVersion: "ate.dev/v1", kind: "WorkerPool",
                 value: {
                   metadata: { namespace: "kagent", name: "pool" },
                   spec: { replicas: 2, workerImage: "ateom:1" },
@@ -566,7 +586,6 @@ describe("the cluster", () => {
                   goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
-              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
               workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],
@@ -647,11 +666,12 @@ describe("the cluster", () => {
     { ips: ["10.0.0.1", "fd00::1"], primary: "10.0.0.1" },
     { ips: ["fd00::1", "10.0.0.1"], primary: "fd00::1" },
     { ips: [], primary: undefined },
+    { ips: undefined, primary: undefined },
   ])("reads the worker's primary IP from $ips", async ({ ips, primary }) => {
     serve(({ service }) => {
       service(SystemService, {
         listSubstrateWorkers: () => ({
-          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0", ips }],
+          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0", status: ips ? { ips } : undefined }],
         }),
       });
     });
@@ -974,69 +994,6 @@ describe("agent instances", () => {
     expect(isNotFound(missing)).toBe(true);
   });
 
-  /*
-   * Suspend and resume complete synchronously on the controller, so the record they
-   * answer with is the finished state. Returning it rather than discarding it is
-   * what lets a caller update what is on screen without a second read.
-   */
-  it("suspends and resumes through their own RPCs, answering with the new state", async () => {
-    const called: string[] = [];
-    serve(({ service }) => {
-      service(SessionService, {
-        suspendSession: (request) => {
-          called.push(`suspend ${request.sessionId}`);
-          return {
-            session: instanceMessage({ state: RuntimeState.SUSPENDED }),
-          };
-        },
-        resumeSession: (request) => {
-          called.push(`resume ${request.sessionId}`);
-          return { session: instanceMessage({ state: RuntimeState.READY }) };
-        },
-      });
-    });
-
-    const suspended = await apiClient.agentInstances.suspend(INSTANCE_ID);
-    expect(suspended.state).toBe("suspended");
-
-    const resumed = await apiClient.agentInstances.resume(INSTANCE_ID);
-    expect(resumed.state).toBe("ready");
-
-    expect(called).toEqual([
-      `suspend ${INSTANCE_ID}`,
-      `resume ${INSTANCE_ID}`,
-    ]);
-  });
-
-  /*
-   * The controller refuses a lifecycle operation from the wrong state with
-   * `Aborted` — "conflicting lifecycle operation". It must reach the caller as
-   * itself: a page that reported it as a generic failure would tell a reader to
-   * retry the one thing that cannot work.
-   */
-  it("passes a refused lifecycle operation through as the error it was", async () => {
-    serve(({ service }) => {
-      service(SessionService, {
-        suspendSession: () => {
-          throw new ConnectError(
-            "AgentInstance has a conflicting lifecycle operation",
-            Code.Aborted,
-          );
-        },
-      });
-    });
-
-    const failure = await apiClient.agentInstances
-      .suspend(INSTANCE_ID)
-      .catch((error: unknown) => error);
-
-    expect(failure).toBeInstanceOf(ApiError);
-    expect((failure as ApiError).code).toBe("Aborted");
-    expect((failure as ApiError).message).toMatch(/conflicting lifecycle operation/);
-    expect((failure as ApiError).url).toBe(
-      "SessionService/SuspendSession",
-    );
-  });
 });
 
 describe("session shares", () => {

@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -119,8 +118,8 @@ func newAgentReconciliations(
 			_, err = egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil)
 		} else {
 			revision := &state.Target.Revision
-			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}
-			_, err = egress.MergeAccess(base, state.EgressGrant, revision.TokenPassthroughOrigins)
+			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets}
+			_, err = egress.MergeAccess(base, state.EgressGrant)
 		}
 		if err != nil {
 			state.EgressConflict = err.Error()
@@ -157,7 +156,7 @@ func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collectio
 		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
 		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
 		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
-	}, images).CompileAgent(context.Background(), agent)
+	}, images, settings).CompileAgent(context.Background(), agent)
 	if err != nil {
 		return nil, nil, compilationFailure(err)
 	}
@@ -385,8 +384,8 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		grants = egress.IntersectAccess(previous, grants)
 		if state.Target != nil {
 			revision := &state.Target.Revision
-			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}
-			grants, _ = egress.FilterConflicts(base, grants, revision.TokenPassthroughOrigins)
+			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets}
+			grants, _ = egress.FilterConflicts(base, grants)
 		}
 	}
 	definition := database.AgentDefinition{
@@ -446,7 +445,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
 		EgressDestinations:      target.Revision.EgressDestinations,
 		Credentials:             target.Revision.Credentials,
-		TokenPassthroughOrigins: target.Revision.TokenPassthroughOrigins,
+		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
@@ -468,21 +467,14 @@ func (r *Reconciler) observePreparationError(state AgentReconciliation, err erro
 	if state.PreparationFailure != nil && !state.PreparationFailure.Retryable {
 		return err
 	}
-	r.observePreparation(state, nil, runtimePreparationFailure(err, state.Target.ActorTemplate.GetSandboxConfig().GetConfigName(), state.Target.Revision.SandboxClass))
+	r.observePreparation(state, nil, runtimePreparationFailure(err))
 	return err
 }
 
-func runtimePreparationFailure(err error, configName string, class atev1alpha1.SandboxClass) *ReconciliationFailure {
+func runtimePreparationFailure(err error) *ReconciliationFailure {
 	// Backend errors can contain credentials or infrastructure details. Publish
-	// only the code and expected configuration, never the raw error or details.
+	// only the code, never the raw error or details.
 	message := fmt.Sprintf("Runtime preparation failed (%s); check controller logs for details", status.Code(err))
-	if status.Code(err) == codes.FailedPrecondition {
-		if class == "" {
-			class = atev1alpha1.SandboxClassGvisor
-		}
-		message = fmt.Sprintf("Substrate rejected runtime preparation (FailedPrecondition); verify SandboxConfig %q exists with spec.sandboxClass=%q and the required runtime assets; check controller logs for details",
-			configName, class)
-	}
 	return &ReconciliationFailure{
 		Condition: kagentv1alpha3.AgentConditionReady,
 		Reason:    "RuntimePreparationFailed",

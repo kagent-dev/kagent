@@ -107,6 +107,8 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 		AgentName: "runnable-agent", Harness: harness, Root: &translator.AgentInput{Template: template},
 	})
 	require.NoError(t, err)
+	// Placement and limits normally come from the central runtime compiler.
+	revision.CPU, revision.Memory = "1", "1Gi"
 	id, err := revision.Digest()
 	require.NoError(t, err)
 	actor, err := substrate.ActorTemplateForRevision(&revision.Revision, id)

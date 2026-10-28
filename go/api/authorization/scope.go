@@ -2,6 +2,7 @@ package authorization
 
 const (
 	AttributeNamespace = "namespace"
+	AttributeAtespace  = "atespace"
 	AttributeName      = "name"
 )
 

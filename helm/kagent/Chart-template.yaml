@@ -10,10 +10,6 @@ dependencies:
     version: 0.3.0
     repository: oci://ghcr.io/kagent-dev/tools/helm
     condition: kagent-tools.enabled
-  - name: grafana-mcp
-    version: ${VERSION}
-    repository: file://../tools/grafana-mcp
-    condition: grafana-mcp.enabled
   - name: oauth2-proxy
     version: "~10.7.0"
     repository: "https://oauth2-proxy.github.io/manifests"

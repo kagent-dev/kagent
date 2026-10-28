@@ -86,7 +86,7 @@ func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1
 
 func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1.Session) (*database.SessionTaskSnapshot, error) {
 	w.quiesces.Add(1)
-	return &database.SessionTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", ContentScope: "FULL"}, nil
+	return &database.SessionTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}, nil
 }
 
 func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1.Session) error {
@@ -97,9 +97,9 @@ type scheduledControllerAuth struct {
 	authimpl.InsecureAuthenticator
 }
 
-func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, target auth.Principal) error {
-	if _, ok := session.(auth.ControlPlaneSession); !ok || session.Principal().User.ID != "" || target.Agent.ID == "" {
-		return errors.New("expected control-plane session and target agent")
+func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, destinationSessionID string) error {
+	if _, ok := session.(auth.ControlPlaneSession); !ok || session.Principal().ID != "" || destinationSessionID == "" {
+		return errors.New("expected control-plane session and destination session")
 	}
 	req.Header.Set("Authorization", "Bearer controller-test-credential")
 	return nil
@@ -112,7 +112,7 @@ func (scheduledControllerAuthorizer) Check(ctx context.Context, principal auth.P
 	if !ok {
 		return errors.New("missing controller session")
 	}
-	if _, ok := session.(auth.ControlPlaneSession); !ok || principal.User.ID != "" {
+	if _, ok := session.(auth.ControlPlaneSession); !ok || principal.ID != "" {
 		return errors.New("controller impersonated owner")
 	}
 	return nil

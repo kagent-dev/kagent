@@ -571,9 +571,16 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.mistral must be nil if the provider is not Mistral",rule="!(has(self.mistral) && self.provider != 'Mistral')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
-// +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
-// +kubebuilder:validation:XValidation:message="apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
+// +kubebuilder:validation:XValidation:message="tokenPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
+// +kubebuilder:validation:AtMostOneOf=actorJwt;apiKeySecret;tokenPassthrough
+// +kubebuilder:validation:XValidation:message="Bedrock requires AWS credentials and does not support actorJwt",rule="!has(self.actorJwt) || self.provider != 'Bedrock'"
+// +kubebuilder:validation:XValidation:message="actorJwt requires a provider with a configurable endpoint and header credentials",rule="!has(self.actorJwt) || !(self.provider in ['Gemini', 'Ollama', 'GeminiVertexAI', 'AnthropicVertexAI', 'SAPAICore'])"
 type ModelConfigSpec struct {
+	// ActorJWT authenticates as the executing Actor through the provider's credential header.
+	// Substrate mints and injects the token at the egress gateway.
+	// +optional
+	ActorJWT *ActorJWT `json:"actorJwt,omitempty"`
+
 	// +required
 	Model string `json:"model"`
 
@@ -594,12 +601,12 @@ type ModelConfigSpec struct {
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 
-	// APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
+	// TokenPassthrough enables forwarding the bearer token from incoming A2A requests
 	// directly to the LLM provider as the API key. This is useful for organizations
 	// with federated identity that want to avoid separate secret management.
 	// Mutually exclusive with apiKeySecret.
 	// +optional
-	APIKeyPassthrough bool `json:"apiKeyPassthrough,omitempty"`
+	TokenPassthrough *bool `json:"tokenPassthrough,omitempty"`
 
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`

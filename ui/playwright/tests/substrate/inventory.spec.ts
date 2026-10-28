@@ -30,7 +30,8 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // and suspending, which is exactly the case a bare count would hide.
     await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/8");
     await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
-    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("all");
+    await expect(page.getByTestId("substrate-stat-scope")).toContainText("Requested filters");
+    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("none");
   });
 
   await test.step("2b. the bar is the shape of the cluster, not just its running tally", async () => {
@@ -64,8 +65,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
       "Resuming Actors: 1",
       "Running Actors: 2",
       "Suspending Actors: 1",
-      "Paused Actors: 1",
-      "Suspended Actors: 1",
+      "Suspended Actors: 2",
     ]) {
       await expect(tip).toContainText(line);
     }
@@ -75,11 +75,15 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     const legend = page.getByTestId("substrate-actor-status-counts-legend");
     await expect(legend).toContainText("Crashed: 1");
     await expect(legend).toContainText("Running: 2");
-    await expect(legend).toContainText("Suspended: 1");
+    // The summary counts both paused and durably suspended actors as SUSPENDED.
+    await expect(legend).toContainText("Suspended: 2");
+    await expect(legend).not.toContainText("Paused:");
 
     // Every state the controller can report, so a reader learns the vocabulary from the
     // page rather than from waiting for something to go wrong.
-    await expect(legend).toContainText("Pausing: 0");
+    await expect(legend).toContainText("Reverting: 0");
+    await expect(legend).not.toContainText("Pausing:");
+    await expect(legend).not.toContainText("Snapshotting:");
     await expect(legend).toContainText("Unknown: 0");
     // `ACTOR_STATE_CRASHED` and a vocabulary entry of `Crashed` are the same status, and
     // keying the legend on the wire value listed it twice — once at zero.
@@ -89,7 +93,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // reader nor a keyboard has one. Colour is never carrying this alone.
     await expect(bar).toHaveAttribute(
       "aria-label",
-      "Actor status. Crashed Actors: 1, Deleting Actors: 1, Resuming Actors: 1, Running Actors: 2, Suspending Actors: 1, Paused Actors: 1, Suspended Actors: 1",
+      "Actor status. Crashed Actors: 1, Deleting Actors: 1, Resuming Actors: 1, Running Actors: 2, Suspending Actors: 1, Suspended Actors: 2",
     );
   });
 
@@ -111,8 +115,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // The golden Tag identifies the snapshot used to create actors from this template.
     await expect(templates).toContainText("golden: ate-golden/snap-2026-07-28");
 
-    // The rest of what decides where and how a template runs.
-    await expect(templates).toContainText("gvisor");
+    // The worker selector determines placement; the pool owns runtime selection.
     await expect(templates).toContainText("pool=kagent-default");
     await expect(templates.getByRole("columnheader", { name: "Harness", exact: true })).toHaveCount(0);
 
@@ -142,6 +145,9 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // `CRASHED` would leave the other one showing the controller's vocabulary.
     await expect(actors).not.toContainText("ACTOR_STATE_");
     await expect(actors).toContainText("Deleting");
+    // Individual snapshots still distinguish a node-local pause from durable suspension.
+    await expect(actors.getByRole("row").filter({ hasText: "actor-5d17" })).toContainText("Paused");
+    await expect(actors.getByRole("row").filter({ hasText: "actor-c3f5" })).toContainText("Suspended");
     await expect(
       actors.locator("[data-tone]").filter({ hasText: "Crashed" }),
     ).toHaveAttribute("data-tone", "danger");
@@ -199,7 +205,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await optionNamed(page, "kagent").click();
 
     await expect(page).toHaveURL(/namespace=kagent/);
-    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: kagent; ATE: all");
+    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: kagent; ATE: any");
 
     const pools = page.getByTestId("substrate-pools-table");
     await expect(pools).toContainText("kagent/kagent-default");
@@ -236,7 +242,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await expectSettled(page);
 
     await expect(page.getByTestId("substrate-namespace")).toContainText("platform");
-    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: platform; ATE: all");
+    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: platform; ATE: any");
     await expect(page.getByTestId("substrate-pools-table")).toContainText("platform/gpu-pool");
   });
 

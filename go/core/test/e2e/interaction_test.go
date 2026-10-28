@@ -89,10 +89,12 @@ func TestSessionStructuredOutput(t *testing.T) {
 		target := interactionTarget(t)
 		kube := interactionKubeClient(t)
 		mcpURL, mcpServer := startMCPMock(t)
-		template := createStructuredOutputInteractionTemplate(t, harness, kube, startMockLLM(t, "mocks/invoke_structured_output.json"), mcpURL)
+		model := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_structured_output.json")), nil)
+		template := createStructuredOutputInteractionTemplate(t, harness, kube, reachableModelURL(t, model.URL), mcpURL)
 		fixture := newInteractionFixtureForHarnessTemplate(t, target, harness.name, template.Name)
 		_, _, task := fixture.send(t, "Add 3 and 5 and return the structured result.")
 		assertStructuredOutputTask(t, task, 8, "three plus five equals eight")
+		assertStrictStructuredOutputRequests(t, model.Requests("", ""))
 
 		for _, request := range mcpServer.Requests() {
 			if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {
@@ -112,6 +114,33 @@ func assertStructuredOutputTask(t *testing.T, task *a2atype.Task, answer float64
 		t.Fatal("structured task has no result artifact")
 	}
 	assertStructuredOutputArtifact(t, task.Artifacts[len(task.Artifacts)-1], answer, explanation)
+}
+
+func assertStrictStructuredOutputRequests(t *testing.T, requests []recordedModelRequest) {
+	t.Helper()
+	var sent int
+	for _, request := range requests {
+		var body struct {
+			ResponseFormat *struct {
+				JSONSchema struct {
+					Strict *bool `json:"strict"`
+				} `json:"json_schema"`
+			} `json:"response_format"`
+		}
+		if err := json.Unmarshal(request.Body, &body); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		if body.ResponseFormat == nil {
+			continue
+		}
+		sent++
+		if strict := body.ResponseFormat.JSONSchema.Strict; strict == nil || !*strict {
+			t.Fatalf("model request does not set response_format.json_schema.strict to true: %s", request.Body)
+		}
+	}
+	if sent == 0 {
+		t.Fatalf("none of the %d model requests carried the output schema", len(requests))
+	}
 }
 
 func assertStructuredOutputArtifact(t *testing.T, artifact *a2atype.Artifact, answer float64, explanation string) {
@@ -430,7 +459,7 @@ func TestMCPInteraction(t *testing.T) {
 		t.Parallel()
 		target := interactionTarget(t)
 		mcpURL, mcpServer := startMCPMock(t)
-		template, _ := createMCPInteractionTemplate(t, harness, mcpURL, false)
+		template, _ := createMCPInteractionTemplate(t, harness, mcpURL, false, nil)
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template)
 		_, _, task := fixture.send(t, "Add 3 and 5 using the configured MCP server.")
 		if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "result is 8") {
@@ -453,7 +482,7 @@ func TestMCPToolApproval(t *testing.T) {
 			t.Run(action, func(t *testing.T) {
 				target := interactionTarget(t)
 				mcpURL, mcpServer := startMCPMock(t)
-				template, toolName := createMCPInteractionTemplate(t, harness, mcpURL, true)
+				template, toolName := createMCPInteractionTemplate(t, harness, mcpURL, true, nil)
 				fixture := newInteractionFixtureForTemplate(t, harness, target, template)
 				const prompt = "Add 3 and 5 using the configured MCP server."
 				if action == "cancel" {
@@ -1115,9 +1144,10 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
-			SystemPrompt: "Use available tools when needed, then return the arithmetic answer and a short explanation.",
-			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
+			ModelConfig:        &corev1.LocalObjectReference{Name: model.Name},
+			SystemPrompt:       "Use available tools when needed, then return the arithmetic answer and a short explanation.",
+			OutputSchema:       &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
+			OutputSchemaStrict: true,
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
 				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 				Tools:  []string{"add_numbers"},
@@ -1128,7 +1158,7 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 	return template
 }
 
-func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL string, requireApproval bool) (string, string) {
+func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL string, requireApproval bool, actorJWT *v1alpha3.ActorJWT) (string, string) {
 	t.Helper()
 	kube := interactionKubeClient(t)
 	server := &v1alpha3.RemoteMCPServer{
@@ -1137,6 +1167,7 @@ func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL stri
 			Description: "MCP interaction E2E fixture",
 			Protocol:    v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 			URL:         mcpURL,
+			ActorJWT:    actorJWT,
 		},
 	}
 	if err := kube.Create(t.Context(), server); err != nil {
@@ -1369,7 +1400,7 @@ func startForkMemoryMock(t *testing.T) string {
 	config.OpenAI = append(config.OpenAI, continuation.OpenAI...)
 	config.OpenAIResponse = append(config.OpenAIResponse, continuation.OpenAIResponse...)
 	config.Anthropic = append(config.Anthropic, continuation.Anthropic...)
-	recorder := startModelRecorder(t, startMockLLMConfig(t, config), func(body []byte) error {
+	recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMConfig(t, config)), func(body []byte) error {
 		if !bytes.Contains(body, []byte("What was the answer before the checkpoint?")) {
 			return nil
 		}
@@ -1393,22 +1424,19 @@ type modelRecorder struct {
 }
 
 type recordedModelRequest struct {
+	Method string
 	Header http.Header
 	Body   []byte
 }
 
-// startModelRecorder puts a recording proxy in front of the mock LLM at
-// upstreamURL. An inspect function may reject a request: its error is
-// answered with 400 instead of being forwarded, which fails the agent's turn
-// visibly rather than letting the mock answer a prompt it should not see.
-func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []byte) error) *modelRecorder {
+// startModelRecorder puts a recording server in front of upstream, which is
+// usually a proxy to the mock LLM. An inspect function may reject a request:
+// its error is answered with 400 instead of being forwarded, which fails the
+// agent's turn visibly rather than letting the mock answer a prompt it should
+// not see.
+func startModelRecorder(t *testing.T, upstream http.Handler, inspect func(body []byte) error) *modelRecorder {
 	t.Helper()
-	upstream, err := url.Parse(upstreamURL)
-	if err != nil {
-		t.Fatal(err)
-	}
 	recorder := &modelRecorder{}
-	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -1417,7 +1445,7 @@ func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []by
 		}
 		_ = r.Body.Close()
 		recorder.mu.Lock()
-		recorder.requests = append(recorder.requests, recordedModelRequest{Header: r.Header.Clone(), Body: body})
+		recorder.requests = append(recorder.requests, recordedModelRequest{Method: r.Method, Header: r.Header.Clone(), Body: body})
 		recorder.mu.Unlock()
 		if inspect != nil {
 			if err := inspect(body); err != nil {
@@ -1425,10 +1453,13 @@ func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []by
 				return
 			}
 		}
+		// Upstream proxies read the body after the response starts, so they
+		// need a reader that the server cannot close under them.
 		r.Body = io.NopCloser(bytes.NewReader(body))
-		proxy.ServeHTTP(w, r)
+		upstream.ServeHTTP(w, r)
 	}))
 	_ = server.Listener.Close()
+	var err error
 	server.Listener, err = net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
 		t.Fatal(err)
@@ -1437,6 +1468,16 @@ func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []by
 	t.Cleanup(server.Close)
 	recorder.URL = server.URL
 	return recorder
+}
+
+// mockLLMProxy returns a proxy to the mock LLM at rawURL for startModelRecorder.
+func mockLLMProxy(t *testing.T, rawURL string) *httputil.ReverseProxy {
+	t.Helper()
+	upstream, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httputil.NewSingleHostReverseProxy(upstream)
 }
 
 // Requests returns the recorded requests carrying the header value, in
@@ -1453,8 +1494,8 @@ func (r *modelRecorder) Requests(header, value string) []recordedModelRequest {
 	return matched
 }
 
-// Gateway credential rules match DNS names. Give host-based mocks a cluster
-// service name without depending on public DNS or changing the gateway config.
+// Gateway credential rules match DNS names. Give host-based mocks a full
+// cluster service name without depending on public DNS or changing the gateway.
 func mockOriginService(t *testing.T, address, port string) string {
 	t.Helper()
 	number, err := strconv.ParseInt(port, 10, 32)
