@@ -50,7 +50,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s 
 FROM $BASE_IMAGE_REGISTRY/chainguard/static:latest AS final
 
 COPY --from=entrypoint /entrypoint /usr/local/bin/entrypoint
-COPY --from=builder /app/ui/dist /usr/share/nginx/html
+COPY --from=builder /app/ui/dist /app/html
 
 EXPOSE 8080
 ARG VERSION

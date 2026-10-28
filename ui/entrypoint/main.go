@@ -27,14 +27,14 @@ func main() {
 	config, basePath := render(os.Environ())
 	must(os.WriteFile("/tmp/kagent/env-config.js", []byte(config), 0o644))
 
-	html, err := os.ReadFile("/usr/share/nginx/html/index.html")
+	html, err := os.ReadFile("/app/html/index.html")
 	must(err)
 	html = setBaseHref(html, basePath)
 	must(os.WriteFile("/tmp/kagent/index.html", html, 0o644))
 
 	cfg, err := loadConfig("/etc/kagent/ui.json")
 	must(err)
-	handler, err := newHandler(cfg, "/usr/share/nginx/html", "/tmp/kagent", basePath)
+	handler, err := newHandler(cfg, "/app/html", "/tmp/kagent", basePath)
 	must(err)
 	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: time.Minute, IdleTimeout: 75 * time.Second}
 	must(server.ListenAndServe())
