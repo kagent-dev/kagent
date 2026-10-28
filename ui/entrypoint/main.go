@@ -1,15 +1,15 @@
 // Command entrypoint is the UI image's entrypoint: it renders the browser settings
-// from the environment into env-config.js, sets <base href>, then execs nginx.
+// from the environment into env-config.js, sets <base href>, then serves the UI and proxies the API.
 package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
-	"syscall"
+	"time"
 )
 
 // Keep in sync with the ui.basePath check in helm/kagent/templates/ui-configmap.yaml.
@@ -21,10 +21,7 @@ var (
 )
 
 func main() {
-	// /tmp is an empty volume under a read-only root filesystem, so nginx's temp dirs are made on every start.
-	for _, dir := range []string{"client_temp", "proxy_temp", "fastcgi_temp", "uwsgi_temp", "scgi_temp"} {
-		must(os.MkdirAll("/tmp/nginx/"+dir, 0o755))
-	}
+	// /tmp is an empty volume under a read-only root filesystem.
 	must(os.MkdirAll("/tmp/kagent", 0o755))
 
 	config, basePath := render(os.Environ())
@@ -35,9 +32,12 @@ func main() {
 	html = setBaseHref(html, basePath)
 	must(os.WriteFile("/tmp/kagent/index.html", html, 0o644))
 
-	nginx, err := exec.LookPath("nginx")
+	cfg, err := loadConfig("/etc/kagent/ui.json")
 	must(err)
-	must(syscall.Exec(nginx, []string{"nginx", "-g", "daemon off;"}, os.Environ()))
+	handler, err := newHandler(cfg, "/usr/share/nginx/html", "/tmp/kagent", basePath)
+	must(err)
+	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: time.Minute}
+	must(server.ListenAndServe())
 }
 
 // render returns env-config.js for the given environment, and the validated base path.

@@ -16,7 +16,7 @@ can supply their own authentication and authorization through `app.Options`.
 
 ## Browser session flow
 
-The UI is a Vite-built React application served by nginx. Authentication state
+The UI is a Vite-built React application served by the UI image's Go server. Authentication state
 comes from `GET /oauth2/userinfo` with same-origin cookies. The browser does not
 decode a JWT from the request that served the page, and there are no server
 actions involved.
@@ -26,7 +26,7 @@ sequenceDiagram
     participant Browser
     participant Proxy as oauth2-proxy
     participant Provider as OIDC provider
-    participant UI as UI nginx
+    participant UI as UI server
     participant API as Controller
 
     Browser->>Proxy: Request protected route
@@ -189,7 +189,7 @@ oauth2-proxy:
 ```
 
 Route the public HTTPS hostname to `kagent-oauth2-proxy:4180`, including
-`/oauth2/`, `/api/`, `/a2a/`, and `/mcp`. The proxy forwards to UI nginx,
+`/oauth2/`, `/api/`, `/a2a/`, and `/mcp`. The proxy forwards to the UI server,
 which routes API, A2A, and MCP requests to the controller. Do not enable a
 second ingress, HTTPRoute, or OpenShift Route directly to the UI or controller.
 The chart's default `skip-jwt-bearer-tokens: true` allows API clients presenting
@@ -209,7 +209,7 @@ cookie. A backend using `ProxyAuthenticator` trusts that validation; decoding
 claims does not verify a token. Such a deployment must prevent callers from
 bypassing the proxy or supplying trusted internal identity headers directly.
 
-The [UI nginx configuration](../../helm/kagent/files/nginx.conf) preserves
+The [UI route table](../../helm/kagent/templates/ui-nginx-configmap.yaml) preserves
 `Authorization` while proxying API requests. It clears its listed
 `X-Auth-Request-*` and `X-Forwarded-*` identity headers unless explicitly allowed
 by `ui.additionalForwardedHeaders`. In `trusted-proxy` mode it always clears
@@ -217,8 +217,8 @@ by `ui.additionalForwardedHeaders`. In `trusted-proxy` mode it always clears
 as defense in depth; the authenticator does not accept them as Actor identity.
 
 The chart does not install a dedicated NetworkPolicy enforcing this boundary.
-Operators must restrict UI ingress to the proxy and controller ingress to UI
-nginx and explicitly trusted internal workloads, using NetworkPolicy enforced
+Operators must restrict UI ingress to the proxy and controller ingress to the UI
+server and explicitly trusted internal workloads, using NetworkPolicy enforced
 by the cluster's network plugin or equivalent isolation. ClusterIP alone does
 not prevent bypass from another pod. Keep native gRPC, runtime methods, and
 the controller's direct HTTP/MCP listener private. Trusted internal callers

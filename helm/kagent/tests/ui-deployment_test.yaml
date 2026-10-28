@@ -243,7 +243,7 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
 
-  - it: should mount the ui-config ConfigMap for nginx
+  - it: should mount the ui-config ConfigMap for the UI server
     template: ui-deployment.yaml
     asserts:
       - contains:
@@ -256,11 +256,11 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: ui-config
-            mountPath: /etc/nginx/nginx.conf
-            subPath: nginx.conf
+            mountPath: /etc/kagent/ui.json
+            subPath: ui.json
             readOnly: true
 
-  - it: should not mount a supervisord config now that nginx runs as PID 1
+  - it: should not mount a supervisord config now that the entrypoint runs as PID 1
     template: ui-deployment.yaml
     asserts:
       - notContains:

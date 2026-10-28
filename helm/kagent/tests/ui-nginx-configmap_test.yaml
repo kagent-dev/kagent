@@ -1,39 +1,44 @@
 suite: test ui config configmap
 templates:
   - ui-nginx-configmap.yaml
+  - ui-configmap.yaml
 tests:
   - it: preserves internal identity header forwarding in insecure mode
+    template: ui-nginx-configmap.yaml
     asserts:
       - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-agent-name "";'
+          path: data["ui.json"]
+          pattern: '"x-agent-name": ""'
       - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-user-id "";'
+          path: data["ui.json"]
+          pattern: '"x-user-id": ""'
 
   - it: routes MCP to the controller without buffering
+    template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'location = /mcp \{\s+proxy_pass http://kagent_backend/mcp;'
+          path: data["ui.json"]
+          pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/mcp"'
 
   - it: serves public JWKS through the controller
+    template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'location = /\.well-known/jwks\.json \{\s+proxy_pass http://kagent_backend/\.well-known/jwks\.json;'
+          path: data["ui.json"]
+          pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/\.well-known/jwks\.json"'
 
   - it: strips internal agent identity headers in trusted proxy mode even if opted in
     set:
       config.server.auth.mode: trusted-proxy
       ui.additionalForwardedHeaders: [X-Agent-Name, X-User-Id]
+    template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-agent-name "";'
+          path: data["ui.json"]
+          pattern: '"x-agent-name": ""'
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-user-id "";'
+          path: data["ui.json"]
+          pattern: '"x-user-id": ""'
 
   - it: should render the unified UI ConfigMap
     template: ui-nginx-configmap.yaml
@@ -46,6 +51,8 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-ui-config
       - exists:
+          path: data["ui.json"]
+      - notExists:
           path: data["nginx.conf"]
 
   - it: should no longer ship a supervisord config
@@ -58,11 +65,8 @@ tests:
     template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "listen 8080;"
-      - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: "listen \\[::\\]:8080;"
+          path: data["ui.json"]
+          pattern: '"listen": "0\.0\.0\.0:8080"'
 
   - it: should add IPv6 listen when ipv6 is enabled
     template: ui-nginx-configmap.yaml
@@ -71,84 +75,39 @@ tests:
         enabled: true
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "listen 8080;"
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "listen \\[::\\]:8080;"
+          path: data["ui.json"]
+          pattern: '"listen": ":8080"'
 
   - it: should proxy api upstream to controller Cluster DNS
     template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'server RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083;'
+          path: data["ui.json"]
+          pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/api/"'
 
   # ---------------------------------------------------------------------------
   # Static SPA serving
+  #
+  # The image serves the bundle, the SPA fallback, /health, env-config.js,
+  # index.html and the mock service worker refusal itself (ui/entrypoint/server_test.go).
+  # The route table only proxies, so none of those paths may reach the controller.
   # ---------------------------------------------------------------------------
-  - it: should serve the built bundle from disk with a SPA fallback
+  - it: should leave the bundle and the SPA fallback to the image
     template: ui-nginx-configmap.yaml
     asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'root /usr/share/nginx/html;'
-      # Deep links such as /agents are client-side routes, not files.
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'try_files \$uri \$uri/ /index\.html;'
+      - notMatchRegex:
+          path: data["ui.json"]
+          pattern: '"path": "/"'
+      - notMatchRegex:
+          path: data["ui.json"]
+          pattern: '"path": "/(assets/|index\.html|env-config\.js|mockServiceWorker\.js|health)"'
 
   - it: should drop the node upstream now that no server process runs
     template: ui-nginx-configmap.yaml
     asserts:
       - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: 'upstream kagent_ui'
-      - notMatchRegex:
-          path: data["nginx.conf"]
+          path: data["ui.json"]
           pattern: '127\.0\.0\.1:8001'
-
-  - it: should keep the health endpoint
-    template: ui-nginx-configmap.yaml
-    asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "location /health"
-
-  # The name matters as much as the caching: the document loads this by that exact
-  # path before the app, so a rename here is a blank page rather than a stale setting.
-  - it: should serve runtime env-config.js uncached
-    template: ui-nginx-configmap.yaml
-    asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'location = /env-config\.js'
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'alias /tmp/kagent/env-config\.js;'
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'add_header Cache-Control "no-store" always;'
-
-  - it: should refuse the mock service worker outright
-    template: ui-nginx-configmap.yaml
-    asserts:
-      # The SPA fallback would otherwise answer this with index.html and a 200.
-      # An exact-match location also beats the fallback if a future build ever
-      # ships the worker again.
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'location = /mockServiceWorker\.js'
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'return 404;'
-
-  - it: should never cache the bundle entrypoint
-    template: ui-nginx-configmap.yaml
-    asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'location = /index\.html'
 
   # ---------------------------------------------------------------------------
   # Streaming
@@ -157,13 +116,10 @@ tests:
     template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_pass http://kagent_backend/a2a/;'
-      - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_pass http://kagent_ui'
+          path: data["ui.json"]
+          pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/a2a/"'
 
-  - it: should keep streaming settings on a2a so SSE is not buffered
+  - it: should pass the stream timeouts to the UI proxy
     template: ui-nginx-configmap.yaml
     set:
       ui:
@@ -172,33 +128,30 @@ tests:
           proxySendTimeout: 800s
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_buffering off;'
+          path: data["ui.json"]
+          pattern: '"proxyReadTimeout": "900s"'
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_read_timeout 900s;'
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_send_timeout 800s;'
+          path: data["ui.json"]
+          pattern: '"proxySendTimeout": "800s"'
 
   # ---------------------------------------------------------------------------
   # Identity header hygiene
   #
-  # The Next proxy forwarded a strict allowlist. nginx forwards everything by
-  # default, so auth-proxy identity headers are cleared unless opted in.
+  # The UI proxy forwards every header, so auth-proxy identity headers are
+  # cleared unless opted in.
   # ---------------------------------------------------------------------------
   - it: should strip spoofable identity headers by default
     template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-auth-request-email "";'
+          path: data["ui.json"]
+          pattern: '"x-auth-request-email": ""'
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-forwarded-email "";'
+          path: data["ui.json"]
+          pattern: '"x-forwarded-email": ""'
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-forwarded-user "";'
+          path: data["ui.json"]
+          pattern: '"x-forwarded-user": ""'
 
   - it: should forward an identity header the operator opted into
     template: ui-nginx-configmap.yaml
@@ -209,49 +162,46 @@ tests:
     asserts:
       # Opted in, so no longer cleared...
       - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-forwarded-email "";'
+          path: data["ui.json"]
+          pattern: '"x-forwarded-email": ""'
       # ...while the rest of the set stays stripped.
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_set_header x-forwarded-user "";'
+          path: data["ui.json"]
+          pattern: '"x-forwarded-user": ""'
 
+  # The entrypoint strips KAGENT_UI_BASE_PATH from every request before routing.
   - it: should strip ui.basePath so an unstripped proxy still works
-    template: ui-nginx-configmap.yaml
+    template: ui-configmap.yaml
     set:
       ui:
         basePath: /my.ui/
     asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'rewrite \^/my\\\.ui\(/\.\*\)\$ \$1 last;'
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'rewrite \^/my\\\.ui\$ / last;'
+      - equal:
+          path: data.KAGENT_UI_BASE_PATH
+          value: /my.ui/
 
   - it: should not rewrite paths without ui.basePath
-    template: ui-nginx-configmap.yaml
+    template: ui-configmap.yaml
     asserts:
-      - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: 'rewrite '
+      - notExists:
+          path: data.KAGENT_UI_BASE_PATH
 
   - it: should not rewrite paths when ui.basePath is the root
-    template: ui-nginx-configmap.yaml
+    template: ui-configmap.yaml
     set:
       ui:
         basePath: /
     asserts:
-      - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: 'rewrite '
+      - equal:
+          path: data.KAGENT_UI_BASE_PATH
+          value: /
 
   - it: should set client_max_body_size by default
     template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "client_max_body_size 20m;"
+          path: data["ui.json"]
+          pattern: '"clientMaxBodySize": "20m"'
 
   - it: should allow overriding client_max_body_size
     template: ui-nginx-configmap.yaml
@@ -261,5 +211,5 @@ tests:
           clientMaxBodySize: 200m
     asserts:
       - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "client_max_body_size 200m;"
+          path: data["ui.json"]
+          pattern: '"clientMaxBodySize": "200m"'

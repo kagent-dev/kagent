@@ -81,8 +81,8 @@ spec:
             - name: tmp
               mountPath: /tmp
             - name: ui-config
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
+              mountPath: /etc/kagent/ui.json
+              subPath: ui.json
               readOnly: true
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
