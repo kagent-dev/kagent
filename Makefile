@@ -173,7 +173,7 @@ proto-breaking: ## Check protobuf compatibility against the target branch (defau
 	fi
 
 PROTO_BREAKING_BRANCH ?= main
-PROTO_GENERATED_PATHS := go/api/gen ui/src/generated python/packages/kagent-proto/src/kagent python/packages/kagent-proto/src/buf
+PROTO_GENERATED_PATHS := go/api/gen go/core/internal/mcp/schema ui/src/generated python/packages/kagent-proto/src/kagent python/packages/kagent-proto/src/buf
 
 .PHONY: proto-check
 proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail when committed output drifts

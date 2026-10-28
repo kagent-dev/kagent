@@ -541,7 +541,7 @@ func toolCallPart(event runtime.ToolCall) (*a2atype.Part, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
-	return apia2a.NewToolCallPart(event.ID, event.Name, args), nil
+	return apia2a.NewToolCallPart(event.ID, event.Name, args)
 }
 
 func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
@@ -562,7 +562,7 @@ func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
 	if event.IsError {
 		response["isError"] = true
 	}
-	return apia2a.NewToolResultPart(event.ID, event.Name, response), nil
+	return apia2a.NewToolResultPart(event.ID, event.Name, response)
 }
 
 func taskMessage(reqCtx *a2asrv.ExecutorContext, text string) *a2atype.Message {
@@ -577,10 +577,14 @@ func inputRequiredMessage(reqCtx *a2asrv.ExecutorContext, request runtime.InputR
 		if request.ID == "" || request.CallID == "" || request.Name == "" {
 			return nil, fmt.Errorf("runtime tool approval request is incomplete")
 		}
+		tool, err := apia2a.NewHITLTool(request.ID, request.CallID, request.Name, request.Args)
+		if err != nil {
+			return nil, err
+		}
 		message := taskMessage(reqCtx, request.Hint)
-		if err := apia2a.AttachHITL(message, apia2a.ToolApprovalRequest{
+		if err := apia2a.AttachHITL(message, &apia2a.ToolApprovalRequest{
 			Type:  apia2a.HITLTypeToolApprovalRequest,
-			Tools: []apia2a.HITLTool{{ID: request.ID, CallID: request.CallID, Name: request.Name, Args: request.Args}},
+			Tools: []*apia2a.HITLTool{tool},
 		}); err != nil {
 			return nil, err
 		}
@@ -589,20 +593,20 @@ func inputRequiredMessage(reqCtx *a2asrv.ExecutorContext, request runtime.InputR
 		if request.ID == "" || len(request.Questions) == 0 {
 			return nil, fmt.Errorf("runtime ask-user request is incomplete")
 		}
-		questions := make([]apia2a.HITLQuestion, 0, len(request.Questions))
+		questions := make([]*apia2a.HITLQuestion, 0, len(request.Questions))
 		for _, question := range request.Questions {
 			if question.Question == "" {
 				return nil, fmt.Errorf("runtime ask-user request contains an empty question")
 			}
-			questions = append(questions, apia2a.HITLQuestion{
+			questions = append(questions, &apia2a.HITLQuestion{
 				Question: question.Question,
 				Choices:  append([]string(nil), question.Choices...),
 				Multiple: question.Multiple,
 			})
 		}
 		message := taskMessage(reqCtx, request.Hint)
-		if err := apia2a.AttachHITL(message, apia2a.AskUserRequest{
-			Type: apia2a.HITLTypeAskUserRequest, ID: request.ID, Questions: questions,
+		if err := apia2a.AttachHITL(message, &apia2a.AskUserRequest{
+			Type: apia2a.HITLTypeAskUserRequest, Id: request.ID, Questions: questions,
 		}); err != nil {
 			return nil, err
 		}
@@ -836,7 +840,7 @@ func validateRequest(reqCtx *a2asrv.ExecutorContext) (runtime.Turn, error) {
 			}
 			decision := response.Approvals[0]
 			return runtime.Turn{InputResponse: &runtime.ApprovalDecision{
-				ID: decision.ID, Approved: decision.Approved, RejectionReason: decision.RejectionReason,
+				ID: decision.Id, Approved: decision.Approved, RejectionReason: decision.RejectionReason,
 			}}, nil
 		}
 		askRequest, err := apia2a.ParseAskUserRequest(reqCtx.StoredTask.Status.Message)
@@ -857,7 +861,7 @@ func validateRequest(reqCtx *a2asrv.ExecutorContext) (runtime.Turn, error) {
 		for index, answer := range response.Answers {
 			answers[index] = append([]string(nil), answer.Answer...)
 		}
-		return runtime.Turn{InputResponse: &runtime.AskUserResponse{ID: response.ID, Answers: answers}}, nil
+		return runtime.Turn{InputResponse: &runtime.AskUserResponse{ID: response.Id, Answers: answers}}, nil
 	}
 	if len(reqCtx.Message.Parts) != 1 || reqCtx.Message.Parts[0] == nil {
 		return runtime.Turn{}, fmt.Errorf("harness runtime accepts exactly one user text part")
