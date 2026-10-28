@@ -276,11 +276,11 @@ func helmMapPath(keys []string) string {
 
 func exportReadme(cfg Config, refs []SecretReference) string {
 	var readme strings.Builder
-	readme.WriteString("# Helm installation export\n\nThis directory contains Helm commands and the complete installer-supplied overrides for each chart. Chart defaults are not included.\n\nReview every values file before committing this directory. User-provided values are included as supplied; arbitrary secrets are not automatically detected or sanitized. Only the explicit environment references below replace credential values.\n\n## Before running\n\nPrepare the namespaces, Substrate identity pools and authentication configuration. Prepare the database, schemas and connection Secrets before installing the Substrate and kagent releases. See the [installation prerequisites](https://github.com/kagent-dev/kagent/blob/main/docs/installation.md#prerequisites). This export does not create them.\n\n")
+	readme.WriteString("# Helm installation export\n\nThis directory contains Helm commands and the complete installer-supplied overrides for each chart. Chart defaults are not included.\n\nReview every values file before committing this directory. User-provided values are included as supplied; arbitrary secrets are not automatically detected or sanitized. Only the explicit environment references below replace credential values.\n\n## Before running\n\nFollow the Helm installation documentation to complete the prerequisite steps. This export contains only Helm commands and values files; it does not perform prerequisite setup.\n\n")
 	if cfg.SkipDatabaseSetup {
 		readme.WriteString("Generated with `--skip-database-setup`: the values expect your configured database.\n\n")
 	} else {
-		readme.WriteString("The values include the bundled database's certificate authentication settings. Prepare an equivalent database and its connection Secrets, or regenerate with `--skip-database-setup` and your database values.\n\n")
+		readme.WriteString("The values include the bundled database's certificate authentication settings. This export does not provision the database.\n\n")
 	}
 	if len(refs) > 0 {
 		readme.WriteString("## Environment references\n\nSupply these variables before running `install.sh`. The script binds them with Helm `--set-file` using temporary private files; Helm does not expand placeholders in YAML.\n\n")
