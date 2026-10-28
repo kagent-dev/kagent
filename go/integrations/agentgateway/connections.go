@@ -75,7 +75,9 @@ func (c Config) attached(parent *agw.AgentgatewayModel) bool {
 		if c.Gateway.Namespace != nil {
 			targetNamespace = string(*c.Gateway.Namespace)
 		}
-		if sourceNamespace == targetNamespace && (ref.SectionName == nil || c.Gateway.SectionName == nil || *ref.SectionName == *c.Gateway.SectionName) {
+		if sourceNamespace == targetNamespace &&
+			(ref.SectionName == nil || c.Gateway.SectionName == nil || *ref.SectionName == *c.Gateway.SectionName) &&
+			(ref.Port == nil || c.Gateway.Port == nil || *ref.Port == *c.Gateway.Port) {
 			return true
 		}
 	}

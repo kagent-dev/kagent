@@ -78,6 +78,11 @@ func TestModelUsesGatewayAndNativeTemplate(t *testing.T) {
 	source.Spec.ParentRefs[0].Name = "another-gateway"
 	_, err = config.Model(source)
 	require.ErrorContains(t, err, "configured Gateway")
+	source.Spec.ParentRefs[0].Name = config.Gateway.Name
+	source.Spec.ParentRefs[0].Port = new(gatewayv1.PortNumber(8080))
+	config.Gateway.Port = new(gatewayv1.PortNumber(9090))
+	_, err = config.Model(source)
+	require.ErrorContains(t, err, "configured Gateway")
 }
 
 func TestMCPKeepsApplicationPolicyAndDiscoverySettings(t *testing.T) {

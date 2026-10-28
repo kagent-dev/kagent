@@ -1,6 +1,7 @@
 package agentgateway
 
 import (
+	"context"
 	"testing"
 
 	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
@@ -9,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -70,8 +72,8 @@ func TestControllersConvergeThroughKubernetesAPI(t *testing.T) {
 	require.NoError(t, api.Get(ctx, modelKey, model))
 	require.True(t, metav1.IsControlledBy(model, source))
 	rv := model.ResourceVersion
-	reconciler := &reconciler{client: api, scheme: scheme, config: config, model: true}
-	_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: modelKey})
+	modelReconciler := &reconciler{client: api, scheme: scheme, config: config, model: true}
+	_, err := modelReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: modelKey})
 	require.NoError(t, err)
 	require.NoError(t, api.Get(ctx, modelKey, model))
 	require.Equal(t, rv, model.ResourceVersion)
@@ -128,9 +130,40 @@ func TestControllersConvergeThroughKubernetesAPI(t *testing.T) {
 		Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "user-model"}}
 	require.NoError(t, api.Create(ctx, existing))
 	require.NoError(t, api.Create(ctx, conflict))
-	_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(conflict)})
+	_, err = modelReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(conflict)})
 	require.ErrorContains(t, err, "another owner")
 	require.NoError(t, api.Get(ctx, client.ObjectKeyFromObject(existing), existing))
 	require.Equal(t, "user-model", existing.Spec.Model)
 	require.Empty(t, existing.OwnerReferences)
+
+	takeover := testModel("takeover")
+	require.NoError(t, api.Create(ctx, takeover))
+	takeoverKey := client.ObjectKeyFromObject(takeover)
+	eventually(t, func() bool {
+		return api.Get(ctx, takeoverKey, model) == nil && metav1.IsControlledBy(model, takeover)
+	})
+	desired, err := config.Model(takeover)
+	require.NoError(t, err)
+	racingClient := &beforeApplyClient{Client: api, before: func() {
+		current := &kagentv1alpha3.ModelConfig{}
+		require.NoError(t, api.Get(ctx, takeoverKey, current))
+		current.OwnerReferences = nil
+		current.Spec.Model = "external-model"
+		require.NoError(t, api.Update(ctx, current))
+	}}
+	racingReconciler := &reconciler{client: racingClient, scheme: scheme, config: config, model: true}
+	require.True(t, apierrors.IsConflict(racingReconciler.apply(ctx, takeover, desired)), "concurrent ownership change must reject apply")
+	require.NoError(t, api.Get(ctx, takeoverKey, model))
+	require.Empty(t, model.OwnerReferences)
+	require.Equal(t, "external-model", model.Spec.Model)
+}
+
+type beforeApplyClient struct {
+	client.Client
+	before func()
+}
+
+func (c *beforeApplyClient) Apply(ctx context.Context, object runtime.ApplyConfiguration, options ...client.ApplyOption) error {
+	c.before()
+	return c.Client.Apply(ctx, object, options...)
 }
