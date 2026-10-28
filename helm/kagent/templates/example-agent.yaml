@@ -1,0 +1,150 @@
+{{- if .Values.exampleAgent.enabled }}
+{{- if not (index .Values "kagent-tools" "enabled") }}
+{{- fail "exampleAgent.enabled requires kagent-tools.enabled: the example skills call the kagent-tools MCP server" }}
+{{- end }}
+{{- if not .Values.exampleAgent.snapshotLocation }}
+{{- fail "exampleAgent.snapshotLocation is required: set the snapshot storage location for the example Harness" }}
+{{- end }}
+{{- $skillsImage := include "kagent.exampleAgentSkillsImage" . }}
+{{- $harnessImage := get (include "kagent.builtinHarnessImages" . | fromJson) "kagent" }}
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: {{ .Values.exampleAgent.name | quote }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  kagent: {}
+  {{- with $harnessImage }}
+  workload:
+    image: {{ . | quote }}
+  {{- end }}
+  substrate:
+    workerPoolRef:
+      name: {{ .Values.substrateWorkerPool.name | quote }}
+    snapshotPolicy:
+      location: {{ .Values.exampleAgent.snapshotLocation | quote }}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: {{ .Values.exampleAgent.name | quote }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  harnessRef:
+    name: {{ .Values.exampleAgent.name | quote }}
+  template:
+    inline:
+      description: Kubernetes operations assistant that uses the kagent-tools skills and MCP tools.
+      modelConfig:
+        name: {{ include "kagent.defaultModelConfigName" . }}
+      promptTemplate:
+        dataSources:
+          - name: kagent-builtin-prompts
+            alias: builtin
+      systemPrompt: |
+        Answer questions about the Kubernetes cluster where kagent runs. When a
+        question matches one of your skills, load that skill and follow it. Each
+        skill names the kagent-tools MCP tools it uses.
+
+        {{`{{include "builtin/skills-usage"}}`}}
+
+        {{`{{include "builtin/kubernetes-context"}}`}}
+
+        {{`{{include "builtin/tool-usage-best-practices"}}`}}
+
+        {{`{{include "builtin/safety-guardrails"}}`}}
+      # The 64 tools the skills name. The whole server has more than 128 tools
+      # with the built-ins, which OpenAI and Azure OpenAI reject. One binding
+      # lists at most 50 tools, so the list is split over two bindings.
+      tools:
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: {{ include "kagent.fullname" . }}-tool-server
+            tools:
+              - k8s_apply_manifest
+              - k8s_check_service_connectivity
+              - k8s_delete_resource
+              - k8s_describe_resource
+              - k8s_get_events
+              - k8s_get_pod_logs
+              - k8s_get_resource_yaml
+              - k8s_get_resources
+              - k8s_patch_resource
+              - k8s_rollout
+              - k8s_scale
+              - helm_get_release
+              - helm_list_releases
+              - helm_repo_add
+              - helm_repo_update
+              - helm_uninstall
+              - helm_upgrade
+              - istio_analyze_cluster_configuration
+              - istio_apply_waypoint
+              - istio_delete_waypoint
+              - istio_list_waypoints
+              - istio_proxy_config
+              - istio_proxy_status
+              - istio_version
+              - istio_waypoint_status
+              - istio_ztunnel_config
+              - argo_pause_rollout
+              - argo_promote_rollout
+              - argo_rollouts_list
+              - argo_set_rollout_image
+              - argo_verify_argo_rollouts_controller_install
+              - argo_verify_gateway_plugin
+              - argo_verify_kubectl_plugin_install
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: {{ include "kagent.fullname" . }}-tool-server
+            tools:
+              - cilium_display_policy_node_information
+              - cilium_display_selectors
+              - cilium_flush_ipsec_state
+              - cilium_get_daemon_status
+              - cilium_get_endpoint_details
+              - cilium_get_endpoints_list
+              - cilium_get_identity_details
+              - cilium_get_service_information
+              - cilium_list_bgp_peers
+              - cilium_list_bgp_routes
+              - cilium_list_cluster_nodes
+              - cilium_list_services
+              - cilium_show_cluster_mesh_status
+              - cilium_status_and_version
+              - cilium_uninstall_cilium
+              - cilium_validate_cilium_network_policies
+              - kubescape_check_health
+              - kubescape_get_application_profile
+              - kubescape_get_configuration_scan
+              - kubescape_get_network_neighborhood
+              - kubescape_get_vulnerability_details
+              - kubescape_list_application_profiles
+              - kubescape_list_configuration_scans
+              - kubescape_list_network_neighborhoods
+              - kubescape_list_vulnerabilities
+              - kubescape_list_vulnerability_manifests
+              - prometheus_label_names_tool
+              - prometheus_promql_tool
+              - prometheus_query_range_tool
+              - prometheus_query_tool
+              - prometheus_targets_tool
+      plugins:
+        - source:
+            oci: {{ $skillsImage | quote }}
+            path: opt/kagent-tools-skills
+          skills:
+            - k8s-troubleshooting
+            - helm-release-management
+            - istio-traffic-debugging
+            - argo-rollouts-progressive-delivery
+            - cilium-network-debugging
+            - kubescape-security-posture
+            - prometheus-observability
+{{- end }}

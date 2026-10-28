@@ -1,0 +1,191 @@
+suite: test example agent
+templates:
+  - example-agent.yaml
+release:
+  name: kagent
+  namespace: kagent
+set:
+  exampleAgent.enabled: true
+  exampleAgent.snapshotLocation: gs://bucket/kagent/
+  exampleAgent.skillsImage: ghcr.io/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  config.harnessImages.kagent: ghcr.io/kagent-dev/kagent/golang-adk@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+tests:
+  - it: should render nothing by default
+    set:
+      exampleAgent.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render a Go ADK Harness with the release image
+    documentSelector:
+      path: kind
+      value: Harness
+    asserts:
+      - equal:
+          path: apiVersion
+          value: api.kagent.dev/v1alpha3
+      - equal:
+          path: metadata.name
+          value: kagent-tools-example
+      - equal:
+          path: metadata.namespace
+          value: kagent
+      - equal:
+          path: spec.kagent
+          value: {}
+      - equal:
+          path: spec.workload.image
+          value: ghcr.io/kagent-dev/kagent/golang-adk@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: kagent-default
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: gs://bucket/kagent/
+
+  - it: should omit the workload when the release has no Go ADK image
+    set:
+      config.harnessImages.kagent: ""
+    documentSelector:
+      path: kind
+      value: Harness
+    asserts:
+      - notExists:
+          path: spec.workload
+
+  - it: should render one Agent with the skills, model, prompts, and tool server
+    documentSelector:
+      path: kind
+      value: Agent
+    asserts:
+      - equal:
+          path: apiVersion
+          value: api.kagent.dev/v1alpha3
+      - equal:
+          path: metadata.name
+          value: kagent-tools-example
+      - equal:
+          path: spec.harnessRef.name
+          value: kagent-tools-example
+      - equal:
+          path: spec.template.inline.modelConfig.name
+          value: default-model-config
+      - equal:
+          path: spec.template.inline.promptTemplate.dataSources
+          value:
+            - name: kagent-builtin-prompts
+              alias: builtin
+      - matchRegex:
+          path: spec.template.inline.systemPrompt
+          pattern: '\{\{include "builtin/safety-guardrails"\}\}'
+      - matchRegex:
+          path: spec.template.inline.systemPrompt
+          pattern: '\{\{include "builtin/skills-usage"\}\}'
+      - lengthEqual:
+          path: spec.template.inline.tools
+          count: 2
+      - equal:
+          path: spec.template.inline.tools[0].mcp.server
+          value:
+            kind: RemoteMCPServer
+            name: kagent-tool-server
+      - equal:
+          path: spec.template.inline.tools[1].mcp.server
+          value:
+            kind: RemoteMCPServer
+            name: kagent-tool-server
+      - lengthEqual:
+          path: spec.template.inline.tools[0].mcp.tools
+          count: 33
+      - lengthEqual:
+          path: spec.template.inline.tools[1].mcp.tools
+          count: 31
+      - contains:
+          path: spec.template.inline.tools[0].mcp.tools
+          content: helm_list_releases
+      - equal:
+          path: spec.template.inline.plugins
+          value:
+            - source:
+                oci: ghcr.io/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+                path: opt/kagent-tools-skills
+              skills:
+                - k8s-troubleshooting
+                - helm-release-management
+                - istio-traffic-debugging
+                - argo-rollouts-progressive-delivery
+                - cilium-network-debugging
+                - kubescape-security-posture
+                - prometheus-observability
+
+  - it: should follow the release name, namespace override, and Agent name
+    release:
+      name: custom
+    set:
+      namespaceOverride: agents
+      exampleAgent.name: tools-demo
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: agents
+      - equal:
+          path: metadata.name
+          value: tools-demo
+      - equal:
+          path: spec.harnessRef.name
+          value: tools-demo
+        documentSelector:
+          path: kind
+          value: Agent
+      - equal:
+          path: spec.template.inline.tools[0].mcp.server.name
+          value: custom-tool-server
+        documentSelector:
+          path: kind
+          value: Agent
+
+  - it: should mirror the skills and Harness images
+    set:
+      global.imageRegistry: mirror.example/
+    asserts:
+      - equal:
+          path: spec.template.inline.plugins[0].source.oci
+          value: mirror.example/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+        documentSelector:
+          path: kind
+          value: Agent
+      - equal:
+          path: spec.workload.image
+          value: mirror.example/kagent-dev/kagent/golang-adk@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        documentSelector:
+          path: kind
+          value: Harness
+
+  - it: should fail without a skills image digest
+    set:
+      exampleAgent.skillsImage: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "exampleAgent.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills; otherwise set exampleAgent.skillsImage to <repository>@sha256:<digest>."
+
+  - it: should fail when the skills image is not pinned by digest
+    set:
+      exampleAgent.skillsImage: ghcr.io/kagent-dev/kagent/tools:0.3.0
+    asserts:
+      - failedTemplate:
+          errorMessage: 'exampleAgent.skillsImage must be pinned by sha256 digest: "ghcr.io/kagent-dev/kagent/tools:0.3.0"'
+
+  - it: should fail without the kagent-tools server
+    set:
+      kagent-tools.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "exampleAgent.enabled requires kagent-tools.enabled: the example skills call the kagent-tools MCP server"
+
+  - it: should fail without a snapshot location
+    set:
+      exampleAgent.snapshotLocation: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "exampleAgent.snapshotLocation is required: set the snapshot storage location for the example Harness"

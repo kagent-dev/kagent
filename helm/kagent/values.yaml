@@ -23,8 +23,9 @@ global:
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
-  # substrateWorkerPool.workerImage, and built-in Harness images
-  # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
+  # substrateWorkerPool.workerImage, built-in Harness images
+  # (both packaged defaults and config.harnessImages overrides), and the example
+  # Agent skills image (packaged default and exampleAgent.skillsImage). The vendored subcharts
   # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
@@ -769,6 +770,27 @@ kagent-tools:
     loglevel: "debug"
     metrics:
       port: 8085 # Use a different port than the controller service port to avoid duplicate port definitions
+
+# ==============================================================================
+# EXAMPLE AGENT
+# ==============================================================================
+# One Agent with its own Go ADK Harness. It uses the default ModelConfig, the
+# kagent-tools MCP server, and the seven skills packaged in the kagent-tools
+# image under opt/kagent-tools-skills. Requires kagent-tools.enabled.
+exampleAgent:
+  # -- Install the example Agent and its Harness.
+  enabled: false
+  # -- Name of the example Agent and its Harness.
+  name: kagent-tools-example
+  # -- Digest-pinned kagent-tools image that holds the skills, for example
+  # ghcr.io/kagent-dev/kagent/tools@sha256:<digest>. Empty uses the digest that
+  # release packaging resolved for the kagent-tools version this chart pins.
+  # Source charts have no packaged digest, so set this value to use them.
+  # global.imageRegistry rewrites both the packaged default and this override.
+  skillsImage: ""
+  # -- Snapshot storage location for the example Harness, for example
+  # gs://<bucket>/kagent/. Required when enabled.
+  snapshotLocation: ""
 
 # ==============================================================================
 # PROXY CONFIGURATION

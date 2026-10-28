@@ -9,6 +9,9 @@ HELM_REPO ?= oci://ghcr.io/kagent-dev
 HELM_DIST_FOLDER ?= dist
 HELM_SOURCE_DIR ?= helm
 RUNTIME_IMAGE_REPOSITORY ?= ghcr.io/kagent-dev/kagent
+# The kagent-tools image whose skills the chart's example Agent mounts. Its tag
+# is the kagent-tools chart version that helm/kagent depends on.
+TOOLS_IMAGE_REPOSITORY ?= ghcr.io/kagent-dev/kagent/tools
 # Release packaging requires an explicit metadata directory; local builds have a default.
 RUNTIME_BUILD_METADATA_DIR = $(or $(RUNTIME_IMAGE_METADATA_DIR),$(CURDIR)/build/runtime-images)
 RUNTIME_IMAGE_METADATA_FILE = $(RUNTIME_BUILD_METADATA_DIR)/$(patsubst build-%,%,$@).json
@@ -619,9 +622,18 @@ helm-release: ## Package release charts from RUNTIME_IMAGE_METADATA_DIR without 
 	@test -n "$(RUNTIME_IMAGE_METADATA_DIR)" || { echo "RUNTIME_IMAGE_METADATA_DIR is required for release chart packaging" >&2; exit 1; }
 	bash scripts/package-release-charts.sh "$(VERSION)" "$(RUNTIME_IMAGE_METADATA_DIR)" "$(HELM_SOURCE_DIR)" "$(HELM_DIST_FOLDER)" "$(RUNTIME_IMAGE_REPOSITORY)"
 
+.PHONY: tools-image-metadata
+tools-image-metadata: ## Record the digest of the kagent-tools image the chart pins in RUNTIME_IMAGE_METADATA_DIR
+	@test -n "$(RUNTIME_IMAGE_METADATA_DIR)" || { echo "RUNTIME_IMAGE_METADATA_DIR is required for release chart packaging" >&2; exit 1; }
+	mkdir -p "$(RUNTIME_IMAGE_METADATA_DIR)"
+	rm -f "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json" "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp"
+	bash scripts/tools-image-metadata.sh "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" "$(TOOLS_IMAGE_REPOSITORY)" > "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp" || { rm -f "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp"; exit 1; }
+	if [ -s "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp" ]; then mv "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp" "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json"; else rm -f "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp"; fi
+
 .PHONY: helm-publish
 helm-publish: ## Package and push all Helm charts to the OCI registry
-helm-publish: helm-release
+helm-publish: tools-image-metadata
+	$(MAKE) --no-print-directory helm-release
 	helm push "$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz" $(HELM_REPO)/kagent/helm
 	helm push "$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz" $(HELM_REPO)/kagent/helm
 
