@@ -8,7 +8,6 @@ set:
   exampleAgents.enabled: true
   exampleAgents.snapshotLocation: gs://bucket/kagent/
   exampleAgents.skillsImage: ghcr.io/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-  config.harnessImages.kagent: ghcr.io/kagent-dev/kagent/golang-adk@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 tests:
   - it: should render nothing by default
     set:
@@ -22,7 +21,7 @@ tests:
       - hasDocuments:
           count: 4
 
-  - it: should render a Go ADK Harness with the release image
+  - it: should render a Go ADK Harness that uses the release default image
     documentSelector:
       path: kind
       value: Harness
@@ -39,25 +38,14 @@ tests:
       - equal:
           path: spec.kagent
           value: {}
-      - equal:
-          path: spec.workload.image
-          value: ghcr.io/kagent-dev/kagent/golang-adk@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - notExists:
+          path: spec.workload
       - equal:
           path: spec.substrate.workerPoolRef.name
           value: kagent-default
       - equal:
           path: spec.substrate.snapshotPolicy.location
           value: gs://bucket/kagent/
-
-  - it: should omit the workload when the release has no Go ADK image
-    set:
-      config.harnessImages.kagent: ""
-    documentSelector:
-      path: kind
-      value: Harness
-    asserts:
-      - notExists:
-          path: spec.workload
 
   - it: should give every Agent the Harness, model, prompts, skills image, and one tool server binding
     documentSelector:
@@ -130,7 +118,7 @@ tests:
             - cilium-network-debugging
       - lengthEqual:
           path: spec.template.inline.tools[0].mcp.tools
-          count: 27
+          count: 31
       - contains:
           path: spec.template.inline.tools[0].mcp.tools
           content: istio_proxy_status
@@ -180,7 +168,7 @@ tests:
           path: metadata.name
           value: tools-demo-networking
 
-  - it: should mirror the skills and Harness images
+  - it: should mirror the skills image
     set:
       global.imageRegistry: mirror.example/
     asserts:
@@ -191,12 +179,6 @@ tests:
           path: kind
           value: Agent
           matchMany: true
-      - equal:
-          path: spec.workload.image
-          value: mirror.example/kagent-dev/kagent/golang-adk@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-        documentSelector:
-          path: kind
-          value: Harness
 
   - it: should fail without a skills image digest
     set:

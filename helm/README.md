@@ -245,7 +245,7 @@ install three example Agents. They are off by default. The chart then creates:
   | Agent | Skills | Tools |
   |---|---|---|
   | `<namePrefix>-cluster-ops` | `k8s-troubleshooting`, `helm-release-management`, `argo-rollouts-progressive-delivery`, `prometheus-observability` | 29 |
-  | `<namePrefix>-networking` | `istio-traffic-debugging`, `cilium-network-debugging` | 27 |
+  | `<namePrefix>-networking` | `istio-traffic-debugging`, `cilium-network-debugging` | 31 |
   | `<namePrefix>-security` | `kubescape-security-posture` | 10 |
 
 Each Agent uses `default-model-config` and includes the `skills-usage`,
