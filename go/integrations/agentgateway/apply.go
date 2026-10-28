@@ -41,6 +41,7 @@ func (r *reconciler) apply(ctx context.Context, parent, desired client.Object) e
 		return nil
 	}
 	desired.SetUID(current.GetUID())
+	desired.SetResourceVersion(current.GetResourceVersion())
 	object, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desired)
 	if err != nil {
 		return fmt.Errorf("failed to encode connection consumer: %w", err)
