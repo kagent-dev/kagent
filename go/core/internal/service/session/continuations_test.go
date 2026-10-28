@@ -42,7 +42,7 @@ func TestContinuationUsesStableNativeAdmissionAndOriginalTaskReferences(t *testi
 	sessions := NewService(&serviceTestStore{getResult: parent}, serviceTestAuthorizer{}, nil)
 	service := NewContinuations(store, gateway, sessions)
 	childID := "original-child"
-	value := database.TaskContinuation{ID: uuid.New(), ParentSessionID: parent.Id, ParentTaskID: "parent-task", ChildTaskID: &childID}
+	value := database.TaskContinuation{ID: uuid.New(), ParentSessionID: parent.Id, ParentTaskID: "parent-task", ChildSessionID: uuid.NewString(), ChildTaskID: &childID}
 	ctx := auth.AuthSessionTo(t.Context(), auth.ControlPlaneSession{})
 	for range 2 {
 		id, err := service.resume(ctx, value)
@@ -63,4 +63,10 @@ func TestContinuationUsesStableNativeAdmissionAndOriginalTaskReferences(t *testi
 	_, err := service.resume(ctx, value)
 	require.Error(t, err)
 	require.Len(t, gateway.messages, 2, "authorization denial must not dispatch")
+	policy := &recordingAuthorizer{denied: map[string]bool{value.ChildSessionID: true}}
+	service.sessions = NewService(&serviceTestStore{getResult: parent}, policy, nil)
+	_, err = service.resume(ctx, value)
+	require.Error(t, err)
+	require.Equal(t, value.ChildSessionID, policy.resource.Name)
+	require.Len(t, gateway.messages, 2, "a revoked child must not dispatch its result")
 }

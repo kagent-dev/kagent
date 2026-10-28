@@ -98,6 +98,9 @@ func (c *Continuations) resume(ctx context.Context, value database.TaskContinuat
 	if err != nil {
 		return "", err
 	}
+	if _, err := c.sessions.Get(ctx, value.ChildSessionID); err != nil {
+		return "", err
+	}
 	child, err := c.store.LatestContinuationTask(ctx, value.ChildSessionID, *value.ChildTaskID)
 	if err != nil {
 		return "", err

@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"errors"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
@@ -210,19 +209,16 @@ func (c *Client) CompleteTaskContinuation(ctx context.Context, value TaskContinu
 
 // LatestContinuationTask follows only the delegated task's native resumes.
 func (c *Client) LatestContinuationTask(ctx context.Context, sessionID, taskID string) (*a2a.Task, error) {
-	row, err := queryOne(ctx, c.db, `
+	id, err := queryOne(ctx, c.db, `
    WITH RECURSIVE chain(id) AS (
      SELECT $2::text UNION
      SELECT d.resume_task_id FROM task_continuation d JOIN chain previous ON d.parent_task_id = previous.id
        WHERE d.parent_session_id = $1 AND d.delivered AND d.resume_task_id IS NOT NULL
-   ) SELECT t.data FROM session_task t JOIN session_record s ON s.history_id = t.history_id
+   ) SELECT t.id FROM session_task t JOIN session_record s ON s.history_id = t.history_id
    WHERE s.id = $1 AND t.id IN (SELECT id FROM chain) ORDER BY t.position DESC LIMIT 1
- `, pgx.RowTo[[]byte], sessionID, taskID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
+ `, pgx.RowTo[string], sessionID, taskID)
 	if err != nil {
-		return nil, err
+		return nil, notFoundOr(err)
 	}
-	return unmarshalSessionTask(row)
+	return c.GetSessionTask(ctx, sessionID, id, nil)
 }

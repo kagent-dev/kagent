@@ -136,6 +136,7 @@ func TestTaskContinuationWaitsForNestedParentResume(t *testing.T) {
 	pending, err := client.ClaimTaskContinuations(t.Context(), 4)
 	require.NoError(t, err)
 	require.Empty(t, pending)
+	resumed.History = append(resumed.History, a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Final delegated result")))
 	settleContinuation(t, client, resumed, a2a.TaskStateCompleted)
 	ready, err := client.ClaimTaskContinuations(t.Context(), 4)
 	require.NoError(t, err)
@@ -144,6 +145,8 @@ func TestTaskContinuationWaitsForNestedParentResume(t *testing.T) {
 	final, err := client.LatestContinuationTask(t.Context(), b.Id, string(tb.ID))
 	require.NoError(t, err)
 	require.Equal(t, resumed.ID, final.ID)
+	require.Len(t, final.History, 2)
+	require.Equal(t, "Final delegated result", final.History[1].Parts[0].Text())
 }
 
 func TestTaskContinuationSkipsSynchronousCompletionAndCancellation(t *testing.T) {
