@@ -1,0 +1,27 @@
+{
+  "$defs": {
+    "kagent.api.v1.SessionSummary.jsonschema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "default": "",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "state": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "title": "Session Summary",
+      "type": "object"
+    }
+  },
+  "$id": "kagent.api.v1.SessionSummary.jsonschema.bundle.json",
+  "$ref": "#/$defs/kagent.api.v1.SessionSummary.jsonschema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

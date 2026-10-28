@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -36,35 +37,15 @@ type Handler struct {
 	http        http.Handler
 }
 
-type ListSessionsInput struct {
-	PageSize  int    `json:"page_size,omitempty" jsonschema:"Maximum number of Sessions to return"`
-	PageToken string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
-}
+type ListSessionsInput = apiv1.ListSessionsInput
 
-type SessionSummary struct {
-	ID    string `json:"id"`
-	Agent string `json:"agent"`
-	State string `json:"state"`
-}
+type SessionSummary = apiv1.SessionSummary
 
-type ListSessionsOutput struct {
-	Sessions      []SessionSummary `json:"sessions"`
-	NextPageToken string           `json:"next_page_token,omitempty"`
-}
+type ListSessionsOutput = apiv1.ListSessionsOutput
 
-type InvokeSessionInput struct {
-	SessionID string `json:"session_id" jsonschema:"Session UUID"`
-	Message   string `json:"message" jsonschema:"Message to send to the agent"`
-	MessageID string `json:"message_id,omitempty" jsonschema:"Optional stable A2A message ID for idempotency"`
-}
+type InvokeSessionInput = apiv1.InvokeSessionInput
 
-type InvokeSessionOutput struct {
-	SessionID string `json:"session_id"`
-	TaskID    string `json:"task_id"`
-	ContextID string `json:"context_id"`
-	State     string `json:"state"`
-	Text      string `json:"text,omitempty"`
-}
+type InvokeSessionOutput = apiv1.InvokeSessionOutput
 
 func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway a2asrv.RequestHandler, sandboxes *sandbox.Service, templates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]) (*Handler, error) {
 	if sessions == nil || checkpoints == nil || gateway == nil {
@@ -81,14 +62,18 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 		&mcp.Implementation{Name: "kagent", Version: version.Version},
 		&mcp.ServerOptions{Capabilities: capabilities, Instructions: instructions},
 	)
-	mcp.AddTool(server, &mcp.Tool{
+	if err := addProtoTool(server, &mcp.Tool{
 		Name:        listToolName,
 		Description: "List ready Sessions visible to the caller",
-	}, h.listSessions)
-	mcp.AddTool(server, &mcp.Tool{
+	}, func() *ListSessionsInput { return &ListSessionsInput{} }, func() *ListSessionsOutput { return &ListSessionsOutput{} }, h.listSessions); err != nil {
+		return nil, err
+	}
+	if err := addProtoTool(server, &mcp.Tool{
 		Name:        invokeToolName,
 		Description: "Invoke a Session through the public A2A gateway",
-	}, h.invokeSession)
+	}, func() *InvokeSessionInput { return &InvokeSessionInput{} }, func() *InvokeSessionOutput { return &InvokeSessionOutput{} }, h.invokeSession); err != nil {
+		return nil, err
+	}
 	h.registerCheckpointTools(server)
 	registerSandboxTools(server, sandboxes, templates)
 	if sandboxes != nil {
@@ -106,14 +91,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.http.ServeHTTP(w, r)
 }
 
-func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, input ListSessionsInput) (*mcp.CallToolResult, ListSessionsOutput, error) {
+func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, input *ListSessionsInput) (*mcp.CallToolResult, *ListSessionsOutput, error) {
 	result, err := h.sessions.List(ctx, sessionsvc.ListRequest{
-		PageSize: input.PageSize, PageToken: input.PageToken,
+		PageSize: int(input.PageSize), PageToken: input.PageToken,
 	})
 	if err != nil {
-		return toolError(err), ListSessionsOutput{}, nil
+		return toolError(err), &ListSessionsOutput{}, nil
 	}
-	output := ListSessionsOutput{Sessions: []SessionSummary{}, NextPageToken: result.NextPageToken}
+	output := &ListSessionsOutput{Sessions: []*SessionSummary{}, NextPageToken: result.NextPageToken}
 	for _, session := range result.Sessions {
 		if session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY {
 			continue
@@ -125,7 +110,7 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		if i > 0 {
 			text.WriteByte('\n')
 		}
-		fmt.Fprintf(&text, "%s (%s)", session.ID, session.Agent)
+		fmt.Fprintf(&text, "%s (%s)", session.Id, session.Agent)
 	}
 	if text.Len() == 0 {
 		text.WriteString("No ready Sessions found.")
@@ -133,24 +118,24 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text.String()}}}, output, nil
 }
 
-func (h *Handler) invokeSession(ctx context.Context, _ *mcp.CallToolRequest, input InvokeSessionInput) (*mcp.CallToolResult, InvokeSessionOutput, error) {
+func (h *Handler) invokeSession(ctx context.Context, _ *mcp.CallToolRequest, input *InvokeSessionInput) (*mcp.CallToolResult, *InvokeSessionOutput, error) {
 	task, err := h.invoke(ctx, input, false)
 	if err != nil {
-		return toolError(err), InvokeSessionOutput{}, nil
+		return toolError(err), &InvokeSessionOutput{}, nil
 	}
 	result, output := invocationResult(input, task)
 	return result, output, nil
 }
 
-func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bool) (*a2atype.Task, error) {
-	if input.SessionID == "" || strings.TrimSpace(input.Message) == "" {
+func (h *Handler) invoke(ctx context.Context, input *InvokeSessionInput, async bool) (*a2atype.Task, error) {
+	if input.GetSessionId() == "" || strings.TrimSpace(input.GetMessage()) == "" {
 		return nil, fmt.Errorf("session_id and message are required")
 	}
-	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(input.Message))
-	if input.MessageID != "" {
-		message.ID = input.MessageID
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(input.GetMessage()))
+	if input.GetMessageId() != "" {
+		message.ID = input.GetMessageId()
 	}
-	session, err := h.sessions.Get(ctx, input.SessionID)
+	session, err := h.sessions.Get(ctx, input.GetSessionId())
 	if err != nil {
 		return nil, err
 	}
@@ -185,17 +170,17 @@ func interactionContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func invocationResult(input InvokeSessionInput, task *a2atype.Task) (*mcp.CallToolResult, InvokeSessionOutput) {
+func invocationResult(input *InvokeSessionInput, task *a2atype.Task) (*mcp.CallToolResult, *InvokeSessionOutput) {
 	text := taskText(task)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 		IsError: task.Status.State == a2atype.TaskStateFailed ||
 			task.Status.State == a2atype.TaskStateRejected ||
 			task.Status.State == a2atype.TaskStateAuthRequired,
-	}, InvokeSessionOutput{
-		SessionID: input.SessionID,
-		TaskID:    string(task.ID), ContextID: task.ContextID,
-		State: task.Status.State.String(), Text: text,
+	}, &InvokeSessionOutput{
+		SessionId: input.GetSessionId(),
+		TaskId:    string(task.ID), ContextId: task.ContextID,
+		State: a2apb.TaskState(a2apb.TaskState_value[string(task.Status.State)]), Text: text,
 	}
 }
 

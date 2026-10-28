@@ -16,6 +16,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -96,8 +97,15 @@ func TestDetailedTaskIncludesInvocationOutput(t *testing.T) {
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &now},
 	}
 	result := detailedTask("task-ref", taskReference{SessionID: testSessionID}, task)
-	output, ok := result.Result.StructuredContent.(InvokeSessionOutput)
-	if !ok || output.TaskID != testTaskID || output.ContextID != testSessionID {
+	var output InvokeSessionOutput
+	raw, err := json.Marshal(result.Result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := protojson.Unmarshal(raw, &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.TaskId != testTaskID || output.ContextId != testSessionID {
 		t.Fatalf("structured invocation output = %#v", result.Result.StructuredContent)
 	}
 }
@@ -198,8 +206,8 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	status := adka2a.AttachHitlExtension(
 		a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?")),
 		&apia2a.AskUserRequest{
-			Type: adka2a.HITLTypeAskUserRequest, ID: "question-1",
-			Questions: []apia2a.HITLQuestion{{Question: "Which database?", Choices: []string{"PostgreSQL", "MySQL"}}},
+			Type: adka2a.HITLTypeAskUserRequest, Id: "question-1",
+			Questions: []*apia2a.HITLQuestion{{Question: "Which database?", Choices: []string{"PostgreSQL", "MySQL"}}},
 		},
 	)
 	gateway := &fakeGateway{task: &a2atype.Task{
@@ -225,7 +233,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	response := adka2a.GetAskUserResponse(gateway.reply)
 	text := a2aText(gateway.reply)
 	gateway.mu.Unlock()
-	if response == nil || response.ID != "question-1" || len(response.Answers) != 1 || response.Answers[0].Answer[0] != "PostgreSQL" || text != "PostgreSQL" {
+	if response == nil || response.Id != "question-1" || len(response.Answers) != 1 || response.Answers[0].Answer[0] != "PostgreSQL" || text != "PostgreSQL" {
 		t.Fatalf("ask_user response = %#v", response)
 	}
 }
@@ -431,6 +439,7 @@ type fakeGateway struct {
 	reply           *a2atype.Message
 	replies         int
 	completeOnDrain bool
+	stateOnDrain    a2atype.TaskState
 }
 
 var _ a2asrv.RequestHandler = (*fakeGateway)(nil)
@@ -496,6 +505,9 @@ func (g *fakeGateway) SendStreamingMessage(_ context.Context, request *a2atype.S
 		defer g.mu.Unlock()
 		message := a2atype.NewMessageForTask(a2atype.MessageRoleAgent, g.task, a2atype.NewTextPart("done"))
 		g.task.Status = a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Message: message}
+		if g.stateOnDrain != "" {
+			g.task.Status.State = g.stateOnDrain
+		}
 		yield(g.task, nil)
 	}
 }

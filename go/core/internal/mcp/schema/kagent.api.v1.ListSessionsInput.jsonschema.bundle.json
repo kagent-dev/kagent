@@ -1,0 +1,34 @@
+{
+  "$defs": {
+    "kagent.api.v1.ListSessionsInput.jsonschema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "ListSessionsInput is the input of the list_sessions MCP tool.",
+      "properties": {
+        "page_size": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 2147483648,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^-?[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0
+        },
+        "page_token": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "title": "List Sessions Input",
+      "type": "object"
+    }
+  },
+  "$id": "kagent.api.v1.ListSessionsInput.jsonschema.bundle.json",
+  "$ref": "#/$defs/kagent.api.v1.ListSessionsInput.jsonschema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
