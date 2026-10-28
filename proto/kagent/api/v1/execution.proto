@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package kagent.api.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
+
+// ExecutionService exposes control-plane-derived A2A task relationships.
+service ExecutionService {
+  rpc GetTaskExecution(GetTaskExecutionRequest) returns (GetTaskExecutionResponse);
+  rpc ListTaskExecutions(ListTaskExecutionsRequest) returns (ListTaskExecutionsResponse);
+  rpc GetSessionAuthority(GetSessionAuthorityRequest) returns (GetSessionAuthorityResponse);
+  rpc RevokeSessionAuthority(RevokeSessionAuthorityRequest) returns (RevokeSessionAuthorityResponse);
+  // Derives the Session from a verified Actor JWT, including its live Actor UID.
+  rpc GetRuntimeAuthority(GetRuntimeAuthorityRequest) returns (GetRuntimeAuthorityResponse);
+  // Exchanges and verifies the refresh credential before binding it to the caller.
+  rpc RegisterDelegationCredential(RegisterDelegationCredentialRequest) returns (RegisterDelegationCredentialResponse);
+  rpc RevokeDelegationCredential(RevokeDelegationCredentialRequest) returns (RevokeDelegationCredentialResponse);
+  rpc GetDelegationCredentialStatus(GetDelegationCredentialStatusRequest) returns (GetDelegationCredentialStatusResponse);
+  // Issues a short-lived credential for this Session's A2A and read surface.
+  rpc IssueSessionCredential(IssueSessionCredentialRequest) returns (IssueSessionCredentialResponse);
+}
+
+// ScopeCeiling is an immutable upper bound. Absent means inherit; present and
+// empty means no scopes. Every use also applies the initiator's current scopes.
+message ScopeCeiling {
+  repeated string scopes = 1 [(buf.validate.field).repeated = {
+    max_items: 256
+    unique: true
+    items: {
+      string: {
+        min_len: 1
+        max_len: 256
+        pattern: "^\\S+$"
+      }
+    }
+  }];
+}
+
+// SessionAuthority separates the initiator from the Actor and storage owner.
+// Parent and root identities are derived by the controller, never caller input.
+message SessionAuthority {
+  string session_id = 1;
+  string initiator_id = 2;
+  string parent_session_id = 3;
+  string root_session_id = 4;
+  repeated string scopes = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message GetSessionAuthorityRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetSessionAuthorityResponse {
+  SessionAuthority authority = 1;
+  // Includes inherited revocation and expiry.
+  bool revoked = 2;
+}
+message RevokeSessionAuthorityRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message RevokeSessionAuthorityResponse {}
+message GetRuntimeAuthorityRequest {}
+message GetRuntimeAuthorityResponse {
+  SessionAuthority authority = 1;
+  repeated string effective_scopes = 2;
+}
+message RegisterDelegationCredentialRequest {
+  string refresh_token = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 16384
+  }];
+}
+message RegisterDelegationCredentialResponse {}
+message RevokeDelegationCredentialRequest {}
+message RevokeDelegationCredentialResponse {}
+message GetDelegationCredentialStatusRequest {}
+message GetDelegationCredentialStatusResponse {
+  bool renewable = 1;
+}
+message IssueSessionCredentialRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  google.protobuf.Duration ttl = 2 [(buf.validate.field) = {
+    required: true
+    duration: {
+      gt: {}
+      lte: {seconds: 3600}
+    }
+  }];
+}
+message IssueSessionCredentialResponse {
+  string credential = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message TaskReference {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  string task_id = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 256
+  }];
+}
+
+enum TaskRelation {
+  TASK_RELATION_UNSPECIFIED = 0;
+  TASK_RELATION_ROOT = 1;
+  TASK_RELATION_DELEGATION = 2;
+  TASK_RELATION_CONTINUATION = 3;
+}
+
+// TaskExecution is immutable. Message metadata and reference_task_ids never
+// establish ancestry. Cancellation follows these persisted relationships.
+message TaskExecution {
+  TaskReference task = 1;
+  TaskReference parent = 2;
+  TaskReference root = 3;
+  TaskRelation relation = 4;
+  bool background = 5;
+  // The native delegated task that caused this continuation.
+  TaskReference resumed_task = 6;
+}
+
+message GetTaskExecutionRequest {
+  string task_id = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 256
+  }];
+}
+message GetTaskExecutionResponse {
+  TaskExecution execution = 1;
+}
+message ListTaskExecutionsRequest {
+  string root_task_id = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 256
+  }];
+  PageRequest page = 2;
+}
+message ListTaskExecutionsResponse {
+  repeated TaskExecution executions = 1;
+  PageResponse page = 2;
+}

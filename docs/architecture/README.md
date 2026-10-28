@@ -27,6 +27,9 @@ semantics; kagent does not maintain a parallel session or task API.
 
 ## Public surfaces
 
+The [execution authority contract proposal](execution-authority.md) describes
+trusted task ancestry and delegated credentials for review.
+
 | Surface         | Role                                                                        |
 | --------------- | --------------------------------------------------------------------------- |
 | Kubernetes API  | Author Agents, Harnesses, AgentTemplates, SandboxTemplates, models, prompts, and remote MCP servers   |
