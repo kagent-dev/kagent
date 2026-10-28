@@ -9,10 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/go/protovalidate"
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -93,15 +95,18 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 			return next(ctx, method, request)
 		}
 		var input InvokeSessionInput
-		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
+		if err := protojson.Unmarshal(req.Params.Arguments, &input); err != nil {
 			return toolError(fmt.Errorf("invalid invocation input: %w", err)), nil
 		}
-		task, err := h.invoke(ctx, input, true)
+		if err := protovalidate.Validate(&input); err != nil {
+			return toolError(err), nil
+		}
+		task, err := h.invoke(ctx, &input, true)
 		if err != nil {
 			return toolError(err), nil
 		}
 		taskRef := taskReference{
-			SessionID: input.SessionID,
+			SessionID: input.GetSessionId(),
 			TaskID:    string(task.ID),
 		}
 		ref, err := encodeTaskReference(taskRef)
@@ -305,8 +310,13 @@ func detailedTask(id string, ref taskReference, task *a2atype.Task) *getTaskResu
 	case a2atype.TaskStateInputRequired:
 		result.InputRequests = inputRequests(task)
 	case a2atype.TaskStateCompleted, a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateAuthRequired:
-		callResult, output := invocationResult(InvokeSessionInput{SessionID: ref.SessionID}, task)
-		callResult.StructuredContent = output
+		callResult, output := invocationResult(&InvokeSessionInput{SessionId: new(ref.SessionID)}, task)
+		encoded, err := toolJSON.Marshal(output)
+		if err != nil {
+			result.Result = toolError(err)
+			return result
+		}
+		callResult.StructuredContent = json.RawMessage(encoded)
 		result.Result = callResult
 	}
 	return result
@@ -410,9 +420,10 @@ func elicitationMessage(task *a2atype.Task, response *mcp.ElicitResult) (*a2atyp
 	}
 	message := a2atype.NewMessageForTask(a2atype.MessageRoleUser, task, a2atype.NewTextPart("Tool approval response."))
 	if request := adka2a.GetAskUserRequest(task.Status.Message); request != nil {
-		answers := make([]apia2a.AskUserAnswer, len(request.Questions))
+		answers := make([]*apia2a.AskUserAnswer, len(request.Questions))
 		var text []string
 		for i := range request.Questions {
+			answers[i] = &apia2a.AskUserAnswer{}
 			if response.Action == "accept" {
 				values := stringSlice(response.Content[answerKey(i, len(request.Questions))])
 				if len(values) == 0 {
@@ -430,17 +441,17 @@ func elicitationMessage(task *a2atype.Task, response *mcp.ElicitResult) (*a2atyp
 		}
 		message.Parts = []*a2atype.Part{a2atype.NewTextPart(strings.Join(text, "\n"))}
 		return adka2a.AttachHitlExtension(message, &apia2a.AskUserResponse{
-			Type: adka2a.HITLTypeAskUserResponse, ID: request.ID, Answers: answers,
+			Type: adka2a.HITLTypeAskUserResponse, Id: request.Id, Answers: answers,
 		}), nil
 	}
 	if request := adka2a.GetToolApprovalRequest(task.Status.Message); request != nil {
-		approvals := make([]apia2a.ToolApproval, len(request.Tools))
+		approvals := make([]*apia2a.ToolApproval, len(request.Tools))
 		for i, tool := range request.Tools {
 			approved, ok := response.Content[fmt.Sprintf("approve_%d", i+1)].(bool)
 			if response.Action == "accept" && !ok {
 				return nil, fmt.Errorf("accepted elicitation must decide every approval")
 			}
-			approvals[i] = apia2a.ToolApproval{ID: tool.ID, Approved: response.Action == "accept" && approved}
+			approvals[i] = &apia2a.ToolApproval{Id: tool.Id, Approved: response.Action == "accept" && approved}
 		}
 		return adka2a.AttachHitlExtension(message, &apia2a.ToolApprovalResponse{
 			Type: adka2a.HITLTypeToolApprovalResponse, Approvals: approvals,

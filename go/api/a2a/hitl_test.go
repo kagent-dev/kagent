@@ -9,11 +9,11 @@ import (
 
 func TestParseToolApprovalResponseAcceptsEveryPendingDecision(t *testing.T) {
 	message := &a2atype.Message{}
-	err := AttachHITL(message, ToolApprovalResponse{
+	err := AttachHITL(message, &ToolApprovalResponse{
 		Type: HITLTypeToolApprovalResponse,
-		Approvals: []ToolApproval{
-			{ID: "one", Approved: true},
-			{ID: "two", Approved: false},
+		Approvals: []*ToolApproval{
+			{Id: "one", Approved: true},
+			{Id: "two", Approved: false},
 		},
 	})
 	if err != nil {
@@ -30,9 +30,9 @@ func TestParseToolApprovalResponseAcceptsEveryPendingDecision(t *testing.T) {
 }
 
 func TestValidateToolApprovalResponseRejectsReasonOnApproval(t *testing.T) {
-	request := &ToolApprovalRequest{Tools: []HITLTool{{ID: "one"}}}
-	response := &ToolApprovalResponse{Approvals: []ToolApproval{{
-		ID: "one", Approved: true, RejectionReason: "contradictory",
+	request := &ToolApprovalRequest{Tools: []*HITLTool{{Id: "one"}}}
+	response := &ToolApprovalResponse{Approvals: []*ToolApproval{{
+		Id: "one", Approved: true, RejectionReason: "contradictory",
 	}}}
 
 	if err := ValidateToolApprovalResponse(request, response); err == nil {
@@ -42,12 +42,12 @@ func TestValidateToolApprovalResponseRejectsReasonOnApproval(t *testing.T) {
 
 func TestValidateToolApprovalResponseUsesNestedToolIDs(t *testing.T) {
 	request := &ToolApprovalRequest{
-		Tools:  []HITLTool{{ID: "parent"}},
-		Nested: &NestedHITLRequest{Tools: []HITLTool{{ID: "child-one"}, {ID: "child-two"}}},
+		Tools:  []*HITLTool{{Id: "parent"}},
+		Nested: &NestedHITLRequest{Tools: []*HITLTool{{Id: "child-one"}, {Id: "child-two"}}},
 	}
-	response := &ToolApprovalResponse{Approvals: []ToolApproval{
-		{ID: "child-one", Approved: true},
-		{ID: "child-two", Approved: false},
+	response := &ToolApprovalResponse{Approvals: []*ToolApproval{
+		{Id: "child-one", Approved: true},
+		{Id: "child-two", Approved: false},
 	}}
 
 	if err := ValidateToolApprovalResponse(request, response); err != nil {
@@ -57,10 +57,10 @@ func TestValidateToolApprovalResponseUsesNestedToolIDs(t *testing.T) {
 
 func TestParseAndValidateAskUserResponse(t *testing.T) {
 	requestMessage := &a2atype.Message{}
-	if err := AttachHITL(requestMessage, AskUserRequest{
+	if err := AttachHITL(requestMessage, &AskUserRequest{
 		Type: HITLTypeAskUserRequest,
-		ID:   "question-1",
-		Questions: []HITLQuestion{
+		Id:   "question-1",
+		Questions: []*HITLQuestion{
 			{Question: "Which namespace?"},
 			{Question: "Which cluster?"},
 		},
@@ -73,10 +73,10 @@ func TestParseAndValidateAskUserResponse(t *testing.T) {
 	}
 
 	responseMessage := &a2atype.Message{}
-	if err := AttachHITL(responseMessage, AskUserResponse{
+	if err := AttachHITL(responseMessage, &AskUserResponse{
 		Type: HITLTypeAskUserResponse,
-		ID:   "question-1",
-		Answers: []AskUserAnswer{
+		Id:   "question-1",
+		Answers: []*AskUserAnswer{
 			{Answer: []string{"default"}},
 			{Answer: []string{"production"}},
 		},
@@ -93,8 +93,8 @@ func TestParseAndValidateAskUserResponse(t *testing.T) {
 }
 
 func TestValidateAskUserResponseRequiresEveryAnswer(t *testing.T) {
-	request := &AskUserRequest{ID: "question-1", Questions: []HITLQuestion{{Question: "One?"}, {Question: "Two?"}}}
-	response := &AskUserResponse{ID: "question-1", Answers: []AskUserAnswer{{Answer: []string{"one"}}}}
+	request := &AskUserRequest{Id: "question-1", Questions: []*HITLQuestion{{Question: "One?"}, {Question: "Two?"}}}
+	response := &AskUserResponse{Id: "question-1", Answers: []*AskUserAnswer{{Answer: []string{"one"}}}}
 	if err := ValidateAskUserResponse(request, response); err == nil {
 		t.Fatal("ValidateAskUserResponse() accepted an incomplete response")
 	}
@@ -114,8 +114,8 @@ func TestValidateAskUserResponseSelections(t *testing.T) {
 		{name: "multiple selections", multiple: true, answer: []string{"one", "two"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			request := &AskUserRequest{ID: "question", Questions: []HITLQuestion{{Question: "Choose", Multiple: test.multiple}}}
-			response := &AskUserResponse{ID: request.ID, Answers: []AskUserAnswer{{Answer: test.answer}}}
+			request := &AskUserRequest{Id: "question", Questions: []*HITLQuestion{{Question: "Choose", Multiple: test.multiple}}}
+			response := &AskUserResponse{Id: request.Id, Answers: []*AskUserAnswer{{Answer: test.answer}}}
 			err := ValidateAskUserResponse(request, response)
 			if test.wantErr {
 				require.Error(t, err)

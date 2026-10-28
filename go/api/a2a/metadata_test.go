@@ -8,7 +8,10 @@ import (
 )
 
 func TestSanitizeCallerRequest(t *testing.T) {
-	part := NewToolResultPart("call-1", "lookup", map[string]any{"result": "ok"})
+	part, err := NewToolResultPart("call-1", "lookup", map[string]any{"result": "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	part.SetMeta(outputSchemaSHA256MetadataKey, "caller-controlled")
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, part)
 	message.Metadata = map[string]any{

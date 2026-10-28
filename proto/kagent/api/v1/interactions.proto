@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package kagent.api.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
+
+// ToolActivity is the DataPart payload for function_call and function_response.
+// The part kind is carried by kagent.dev/a2a/part-type metadata.
+message ToolActivity {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Value args = 3;
+  google.protobuf.Value response = 4;
+}
+
+// HitlTool identifies a tool invocation awaiting a human decision.
+message HitlTool {
+  string id = 1 [(buf.validate.field).string.min_len = 1];
+  string call_id = 2 [json_name = "call_id"];
+  string name = 3;
+  google.protobuf.Struct args = 4;
+}
+
+message NestedHitlRequest {
+  string subagent_name = 1 [json_name = "subagent_name"];
+  string task_id = 2 [json_name = "task_id"];
+  string context_id = 3 [json_name = "context_id"];
+  repeated HitlTool tools = 4;
+}
+
+// ToolApprovalRequest is carried by the https://kagent.dev/extensions/hitl/v1
+// Message extension when a task enters input-required.
+message ToolApprovalRequest {
+  string type = 1 [(buf.validate.field).string.const = "tool_approval_request"];
+  string hint = 2;
+  repeated HitlTool tools = 3 [(buf.validate.field).repeated.min_items = 1];
+  NestedHitlRequest nested = 4;
+}
+
+message ToolApproval {
+  option (buf.validate.message).cel = {
+    id: "tool_approval.rejection_reason"
+    message: "an approved tool cannot have a rejection reason"
+    expression: "!this.approved || this.rejection_reason == ''"
+  };
+  string id = 1 [(buf.validate.field).string.min_len = 1];
+  bool approved = 2;
+  string rejection_reason = 3 [json_name = "rejection_reason"];
+}
+
+message ToolApprovalResponse {
+  string type = 1 [(buf.validate.field).string.const = "tool_approval_response"];
+  repeated ToolApproval approvals = 2 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message HitlQuestion {
+  string question = 1 [(buf.validate.field).string.min_len = 1];
+  repeated string choices = 2;
+  bool multiple = 3;
+}
+
+message AskUserRequest {
+  string type = 1 [(buf.validate.field).string.const = "ask_user_request"];
+  string id = 2 [(buf.validate.field).string.min_len = 1];
+  repeated HitlQuestion questions = 3 [(buf.validate.field).repeated.min_items = 1];
+  NestedHitlRequest nested = 4;
+}
+
+message AskUserAnswer {
+  repeated string answer = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message AskUserResponse {
+  string type = 1 [(buf.validate.field).string.const = "ask_user_response"];
+  string id = 2 [(buf.validate.field).string.min_len = 1];
+  repeated AskUserAnswer answers = 3 [(buf.validate.field).repeated.min_items = 1];
+}

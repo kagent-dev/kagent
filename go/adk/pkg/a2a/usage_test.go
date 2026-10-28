@@ -323,7 +323,7 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 	stored := &a2atype.Task{ID: taskID, ContextID: contextID, Status: pause.Status, Metadata: pause.Metadata}
 	decision := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type:      HITLTypeToolApprovalResponse,
-		Approvals: []apia2a.ToolApproval{{ID: "confirmation-call", Approved: true}},
+		Approvals: []*apia2a.ToolApproval{{Id: "confirmation-call", Approved: true}},
 	})
 	decision.TaskID, decision.ContextID = taskID, contextID
 

@@ -10,6 +10,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
@@ -83,7 +84,7 @@ func hitlDecisionMessage(payload any) *a2atype.Message {
 func TestHitlExtensionAttachAndParse(t *testing.T) {
 	message := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type:      HITLTypeToolApprovalResponse,
-		Approvals: []apia2a.ToolApproval{{ID: "confirm-1", Approved: true}},
+		Approvals: []*apia2a.ToolApproval{{Id: "confirm-1", Approved: true}},
 	})
 	payload := GetToolApprovalResponse(message)
 	if payload == nil || len(payload.Approvals) != 1 || !payload.Approvals[0].Approved {
@@ -135,11 +136,28 @@ func TestHITLActivationInterceptor(t *testing.T) {
 }
 
 func TestBuildHITLStatusMessage(t *testing.T) {
+	t.Run("typed tool arguments", func(t *testing.T) {
+		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
+			confirmationPart("confirm-1", "inspect", "call-1", map[string]any{"names": []string{"api", "db"}}, nil))
+		payload := GetToolApprovalRequest(buildHITLStatusMessage(t, internal, true))
+		if payload == nil || len(payload.Tools) != 1 || len(payload.Tools[0].Args.AsMap()["names"].([]any)) != 2 {
+			t.Fatalf("payload = %#v", payload)
+		}
+	})
+
+	t.Run("invalid tool arguments", func(t *testing.T) {
+		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
+			confirmationPart("confirm-1", "inspect", "call-1", map[string]any{"invalid": make(chan string)}, nil))
+		if _, err := BuildHITLStatusMessage(internal, true); err == nil {
+			t.Fatal("non-JSON arguments must fail before publishing a pause")
+		}
+	})
+
 	t.Run("tool approval", func(t *testing.T) {
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-1", "delete_file", "call-1", map[string]any{"path": "/tmp/x"}, nil))
-		payload := GetToolApprovalRequest(BuildHITLStatusMessage(internal, true))
-		if payload == nil || payload.Tools[0].ID != "confirm-1" {
+		payload := GetToolApprovalRequest(buildHITLStatusMessage(t, internal, true))
+		if payload == nil || payload.Tools[0].Id != "confirm-1" {
 			t.Fatalf("payload = %#v", payload)
 		}
 	})
@@ -150,7 +168,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-2", "ask_user", "call-2", map[string]any{"questions": questions}, nil))
-		payload := GetAskUserRequest(BuildHITLStatusMessage(internal, true))
+		payload := GetAskUserRequest(buildHITLStatusMessage(t, internal, true))
 		if payload == nil || len(payload.Questions) != 1 || payload.Questions[0].Question != "Which databases?" ||
 			!slices.Equal(payload.Questions[0].Choices, []string{"PostgreSQL", "MySQL"}) || !payload.Questions[0].Multiple {
 			t.Fatalf("payload = %#v", payload)
@@ -160,7 +178,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	t.Run("ask user without questions asks for approval", func(t *testing.T) {
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			hintlessConfirmationPart("confirm-2", "ask_user", "call-2"))
-		public := BuildHITLStatusMessage(internal, true)
+		public := buildHITLStatusMessage(t, internal, true)
 		if GetAskUserRequest(public) != nil {
 			t.Fatal("an ask_user call without questions must not become an ask_user request")
 		}
@@ -177,7 +195,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		questions := []any{map[string]any{"question": ""}, map[string]any{"question": "Which cluster?"}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-2", "ask_user", "call-2", map[string]any{"questions": questions}, nil))
-		public := BuildHITLStatusMessage(internal, true)
+		public := buildHITLStatusMessage(t, internal, true)
 		payload := GetAskUserRequest(public)
 		if payload == nil || len(payload.Questions) != 1 || payload.Questions[0].Question != "Which cluster?" {
 			t.Fatalf("payload = %#v", payload)
@@ -192,24 +210,24 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 			TaskID: "child-task", ContextID: "child-context", SubagentName: "k8s_agent",
 			ToolApprovalRequest: &apia2a.ToolApprovalRequest{
 				Type: HITLTypeToolApprovalRequest,
-				Tools: []apia2a.HITLTool{{
-					ID: "child-confirm", CallID: "child-call", Name: "delete_pod",
-					Args: map[string]any{"name": "api"},
+				Tools: []*apia2a.HITLTool{{
+					Id: "child-confirm", CallId: "child-call", Name: "delete_pod",
+					Args: testArgs(t, map[string]any{"name": "api"}),
 				}},
 			},
 		}
-		payload := GetToolApprovalRequest(BuildHITLStatusMessage(
+		payload := GetToolApprovalRequest(buildHITLStatusMessage(t,
 			a2atype.NewMessage(a2atype.MessageRoleAgent,
 				confirmationPart("parent-confirm", "k8s_agent", "parent-call", nil, remote.ToMap())),
 			true,
 		))
-		if payload == nil || payload.Nested == nil || payload.Nested.Tools[0].CallID != "child-call" {
+		if payload == nil || payload.Nested == nil || payload.Nested.Tools[0].CallId != "child-call" {
 			t.Fatalf("payload = %#v", payload)
 		}
 	})
 
 	t.Run("not activated", func(t *testing.T) {
-		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		public := buildHITLStatusMessage(t, a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-1", "delete_file", "call-1", nil, nil)), false)
 		if GetToolApprovalRequest(public) != nil {
 			t.Fatalf("unexpected payload on inactive client")
@@ -220,7 +238,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	})
 
 	t.Run("not activated without a tool hint names the tool", func(t *testing.T) {
-		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		public := buildHITLStatusMessage(t, a2atype.NewMessage(a2atype.MessageRoleAgent,
 			hintlessConfirmationPart("confirm-1", "delete_file", "call-1")), false)
 		if want := "Approval is required for tool(s): delete_file"; messageText(public) != want {
 			t.Errorf("text = %q, want %q", messageText(public), want)
@@ -232,7 +250,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 			confirmationPart("confirm-1", "delete_file", "call-1", nil, nil),
 			hintlessConfirmationPart("confirm-2", "restart_pod", "call-2"))
 		want := "Please confirm (delete_file, restart_pod)"
-		if text := messageText(BuildHITLStatusMessage(internal, false)); text != want {
+		if text := messageText(buildHITLStatusMessage(t, internal, false)); text != want {
 			t.Errorf("text = %q, want %q", text, want)
 		}
 	})
@@ -242,13 +260,13 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 			hintedConfirmationPart("confirm-1", "delete_file", "call-1", "First hint"),
 			hintedConfirmationPart("confirm-2", "restart_pod", "call-2", "Second hint"))
 		want := "First hint; Second hint (delete_file, restart_pod)"
-		if text := messageText(BuildHITLStatusMessage(internal, false)); text != want {
+		if text := messageText(buildHITLStatusMessage(t, internal, false)); text != want {
 			t.Errorf("text = %q, want %q", text, want)
 		}
 	})
 
 	t.Run("activated payload hint repeats the text", func(t *testing.T) {
-		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		public := buildHITLStatusMessage(t, a2atype.NewMessage(a2atype.MessageRoleAgent,
 			hintlessConfirmationPart("confirm-1", "delete_file", "call-1")), true)
 		payload := GetToolApprovalRequest(public)
 		if payload == nil {
@@ -263,7 +281,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		questions := []any{map[string]any{"question": "Which database?"}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			askUserConfirmationPart("confirm-2", "call-2", questions, "Which database?"))
-		public := BuildHITLStatusMessage(internal, false)
+		public := buildHITLStatusMessage(t, internal, false)
 		if GetAskUserRequest(public) != nil {
 			t.Fatal("unexpected payload on inactive client")
 		}
@@ -273,7 +291,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	})
 
 	t.Run("non-confirmation long-running call", func(t *testing.T) {
-		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		public := buildHITLStatusMessage(t, a2atype.NewMessage(a2atype.MessageRoleAgent,
 			dataPart(map[string]any{"name": "auth_required"}, map[string]any{
 				"adk_type": "function_call", "adk_is_long_running": true,
 			})), true)
@@ -285,13 +303,13 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 
 func TestBuildResumeHITLMessageAskUser(t *testing.T) {
 	incoming := hitlDecisionMessage(&apia2a.AskUserResponse{
-		Type: HITLTypeAskUserResponse, ID: "confirm-1",
-		Answers: []apia2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
+		Type: HITLTypeAskUserResponse, Id: "confirm-1",
+		Answers: []*apia2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 	})
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
 		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &apia2a.AskUserRequest{
-			Type: HITLTypeAskUserRequest, ID: "confirm-1",
+			Type: HITLTypeAskUserRequest, Id: "confirm-1",
 		}),
 	}}
 	resume, err := BuildResumeHITLMessage(stored, incoming)
@@ -305,17 +323,17 @@ func TestBuildResumeHITLMessageBatchFlattensApprovals(t *testing.T) {
 		State: a2atype.TaskStateInputRequired,
 		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &apia2a.ToolApprovalRequest{
 			Type: HITLTypeToolApprovalRequest,
-			Tools: []apia2a.HITLTool{
-				{ID: "confirm-1", CallID: "call-1", Name: "delete_file", Args: map[string]any{}},
-				{ID: "confirm-2", CallID: "call-2", Name: "restart_pod", Args: map[string]any{}},
+			Tools: []*apia2a.HITLTool{
+				{Id: "confirm-1", CallId: "call-1", Name: "delete_file", Args: testArgs(t, map[string]any{})},
+				{Id: "confirm-2", CallId: "call-2", Name: "restart_pod", Args: testArgs(t, map[string]any{})},
 			},
 		}),
 	}}
 	incoming := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type: HITLTypeToolApprovalResponse,
-		Approvals: []apia2a.ToolApproval{
-			{ID: "confirm-1", Approved: true},
-			{ID: "confirm-2", Approved: false, RejectionReason: "not now"},
+		Approvals: []*apia2a.ToolApproval{
+			{Id: "confirm-1", Approved: true},
+			{Id: "confirm-2", Approved: false, RejectionReason: "not now"},
 		},
 	})
 	resume, err := BuildResumeHITLMessage(stored, incoming)
@@ -328,17 +346,17 @@ func TestBuildResumeHITLMessageNestedAskUser(t *testing.T) {
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
 		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &apia2a.AskUserRequest{
-			Type: HITLTypeAskUserRequest, ID: "parent-confirm",
-			Questions: []apia2a.HITLQuestion{{Question: "Which namespace?"}},
+			Type: HITLTypeAskUserRequest, Id: "parent-confirm",
+			Questions: []*apia2a.HITLQuestion{{Question: "Which namespace?"}},
 			Nested: &apia2a.NestedHITLRequest{
-				TaskID: "child-task", ContextID: "child-context", SubagentName: "child",
-				Tools: []apia2a.HITLTool{{ID: "child-confirm", CallID: "child-call", Name: "ask_user", Args: map[string]any{}}},
+				TaskId: "child-task", ContextId: "child-context", SubagentName: "child",
+				Tools: []*apia2a.HITLTool{{Id: "child-confirm", CallId: "child-call", Name: "ask_user", Args: testArgs(t, map[string]any{})}},
 			},
 		}),
 	}}
 	incoming := hitlDecisionMessage(&apia2a.AskUserResponse{
-		Type: HITLTypeAskUserResponse, ID: "child-confirm",
-		Answers: []apia2a.AskUserAnswer{{Answer: []string{"default"}}},
+		Type: HITLTypeAskUserResponse, Id: "child-confirm",
+		Answers: []*apia2a.AskUserAnswer{{Answer: []string{"default"}}},
 	})
 	resume, err := BuildResumeHITLMessage(stored, incoming)
 	if err != nil {
@@ -360,21 +378,21 @@ func TestBuildResumeHITLMessageNestedApprovals(t *testing.T) {
 		State: a2atype.TaskStateInputRequired,
 		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &apia2a.ToolApprovalRequest{
 			Type:  HITLTypeToolApprovalRequest,
-			Tools: []apia2a.HITLTool{{ID: "parent-confirm", CallID: "parent-call", Name: "child", Args: map[string]any{}}},
+			Tools: []*apia2a.HITLTool{{Id: "parent-confirm", CallId: "parent-call", Name: "child", Args: testArgs(t, map[string]any{})}},
 			Nested: &apia2a.NestedHITLRequest{
-				TaskID: "child-task", ContextID: "child-context", SubagentName: "child",
-				Tools: []apia2a.HITLTool{
-					{ID: "child-confirm-1", CallID: "child-call-1", Name: "delete_pod", Args: map[string]any{}},
-					{ID: "child-confirm-2", CallID: "child-call-2", Name: "restart_pod", Args: map[string]any{}},
+				TaskId: "child-task", ContextId: "child-context", SubagentName: "child",
+				Tools: []*apia2a.HITLTool{
+					{Id: "child-confirm-1", CallId: "child-call-1", Name: "delete_pod", Args: testArgs(t, map[string]any{})},
+					{Id: "child-confirm-2", CallId: "child-call-2", Name: "restart_pod", Args: testArgs(t, map[string]any{})},
 				},
 			},
 		}),
 	}}
 	incoming := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type: HITLTypeToolApprovalResponse,
-		Approvals: []apia2a.ToolApproval{
-			{ID: "child-confirm-1", Approved: true},
-			{ID: "child-confirm-2", Approved: false, RejectionReason: "not now"},
+		Approvals: []*apia2a.ToolApproval{
+			{Id: "child-confirm-1", Approved: true},
+			{Id: "child-confirm-2", Approved: false, RejectionReason: "not now"},
 		},
 	})
 	resume, err := BuildResumeHITLMessage(stored, incoming)
@@ -397,8 +415,8 @@ func TestBuildRemoteHitlStateAndHint(t *testing.T) {
 		Status: a2atype.TaskStatus{
 			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &apia2a.ToolApprovalRequest{
 				Type: HITLTypeToolApprovalRequest,
-				Tools: []apia2a.HITLTool{{
-					ID: "child-confirm", CallID: "child-call", Name: "delete_pod", Args: map[string]any{},
+				Tools: []*apia2a.HITLTool{{
+					Id: "child-confirm", CallId: "child-call", Name: "delete_pod", Args: testArgs(t, map[string]any{}),
 				}},
 			}),
 		},
@@ -419,8 +437,8 @@ func TestBuildRemoteHitlStateAndHintAskUser(t *testing.T) {
 		Status: a2atype.TaskStatus{
 			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &apia2a.AskUserRequest{
 				Type: HITLTypeAskUserRequest,
-				ID:   "confirm-1",
-				Questions: []apia2a.HITLQuestion{
+				Id:   "confirm-1",
+				Questions: []*apia2a.HITLQuestion{
 					{Question: "What is the GitHub owner/org for the repo?"},
 				},
 			}),
@@ -445,13 +463,13 @@ func TestBuildRemoteHitlStateAndHintAskUserNested(t *testing.T) {
 		Status: a2atype.TaskStatus{
 			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &apia2a.AskUserRequest{
 				Type:      HITLTypeAskUserRequest,
-				ID:        "confirm-1",
-				Questions: []apia2a.HITLQuestion{{Question: question}},
+				Id:        "confirm-1",
+				Questions: []*apia2a.HITLQuestion{{Question: question}},
 				Nested: &apia2a.NestedHITLRequest{
-					TaskID: "grandchild-task", ContextID: "grandchild-context", SubagentName: "grandchild_agent",
-					Tools: []apia2a.HITLTool{{
-						ID: "confirm-2", CallID: "confirm-2", Name: "ask_user",
-						Args: map[string]any{"questions": []map[string]any{{"question": question}}},
+					TaskId: "grandchild-task", ContextId: "grandchild-context", SubagentName: "grandchild_agent",
+					Tools: []*apia2a.HITLTool{{
+						Id: "confirm-2", CallId: "confirm-2", Name: "ask_user",
+						Args: testArgs(t, map[string]any{"questions": []map[string]any{{"question": question}}}),
 					}},
 				},
 			}),
@@ -461,11 +479,33 @@ func TestBuildRemoteHitlStateAndHintAskUserNested(t *testing.T) {
 	if state == nil || state.AskUserRequest == nil || state.AskUserRequest.Nested == nil {
 		t.Fatalf("state = %#v", state)
 	}
-	if _, ok := state.AskUserRequest.Nested.Tools[0].Args["questions"].([]map[string]any); ok {
+	if _, ok := state.AskUserRequest.Nested.Tools[0].Args.AsMap()["questions"].([]map[string]any); ok {
 		t.Fatalf("nested tool args decoded as []map[string]any; test no longer exercises the []any round-trip shape")
 	}
 	want := "Remote agent 'github_agent' asks: " + question
 	if got := RemoteHitlHint(state); got != want {
 		t.Fatalf("hint = %q, want %q", got, want)
 	}
+}
+
+func buildHITLStatusMessage(t *testing.T, message *a2atype.Message, activated bool) *a2atype.Message {
+	t.Helper()
+	public, err := BuildHITLStatusMessage(message, activated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return public
+}
+
+func testArgs(t *testing.T, value map[string]any) *structpb.Struct {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result structpb.Struct
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		t.Fatal(err)
+	}
+	return &result
 }
