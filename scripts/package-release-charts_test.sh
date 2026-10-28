@@ -13,6 +13,7 @@ output_dir="$scratch/release charts"
 version=1.0.0-alpha9
 digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 config_digest="sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+tools_digest="sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 mkdir -p "$source_dir/kagent/templates" "$source_dir/kagent/files" "$metadata_dir" "$output_dir"
 
 # Use the real controller templates in dependency-free charts. The test invokes
@@ -22,13 +23,17 @@ for chart in kagent kagent-crds; do
   printf 'apiVersion: v2\nname: %s\nversion: ${VERSION}\n' "${chart##*/}" > "$source_dir/$chart/Chart-template.yaml"
 done
 cp "$root/helm/kagent/values.yaml" "$source_dir/kagent/values.yaml"
-cp "$root/helm/kagent/templates/"*.tpl "$root/helm/kagent/templates/controller-configmap.yaml" "$source_dir/kagent/templates/"
+cp "$root/helm/kagent/templates/"*.tpl "$root/helm/kagent/templates/controller-configmap.yaml" \
+  "$root/helm/kagent/templates/example-agent.yaml" "$source_dir/kagent/templates/"
 printf 'stale catalog\n' > "$source_dir/kagent/files/builtin-harness-images.json"
+printf 'stale tools image\n' > "$source_dir/kagent/files/kagent-tools-image.json"
 cp -R "$source_dir" "$scratch/source-before"
 for image in golang-adk claude-harness codex-harness; do
   jq -n --arg digest "$digest" --arg config "$config_digest" \
     '{"containerimage.digest": $digest, "containerimage.config.digest": $config}' > "$metadata_dir/$image.json"
 done
+jq -n --arg digest "$tools_digest" \
+  '{"image.name": "ghcr.io/kagent-dev/kagent/tools:0.3.0", "containerimage.digest": $digest}' > "$metadata_dir/kagent-tools.json"
 
 release() {
   make --no-print-directory -C "$root" VERSION="$version" AWK=awk \
@@ -41,6 +46,15 @@ render_images() {
   shift
   helm template release "$archive" --show-only templates/controller-configmap.yaml "$@" > "$scratch/rendered.yaml"
   yq -o=json '.data["controller.yaml"] | from_yaml | .harnessImages' \
+    "$scratch/rendered.yaml" > "$scratch/rendered.json"
+}
+
+render_skills_source() {
+  local archive="$1"
+  shift
+  helm template release "$archive" --show-only templates/example-agent.yaml \
+    --set exampleAgent.enabled=true --set exampleAgent.snapshotLocation=gs://bucket/kagent/ "$@" > "$scratch/rendered.yaml"
+  yq -o=json 'select(.kind == "Agent") | .spec.template.inline.plugins[0].source' \
     "$scratch/rendered.yaml" > "$scratch/rendered.json"
 }
 
@@ -68,6 +82,20 @@ jq -e --arg digest "$digest" --arg version "$version" '
 ' "$scratch/rendered.json" >/dev/null
 cp "$scratch/rendered.json" "$scratch/defaults.json"
 diff -r "$scratch/source-before" "$source_dir"
+
+check="release packages the kagent-tools image digest"
+render_skills_source "$archive"
+jq -e --arg digest "$tools_digest" \
+  '. == {oci: ("ghcr.io/kagent-dev/kagent/tools@" + $digest), path: "opt/kagent-tools-skills"}' \
+  "$scratch/rendered.json" >/dev/null
+
+check="mirror and override the kagent-tools image"
+render_skills_source "$archive" --set global.imageRegistry=mirror.example/
+jq -e --arg digest "$tools_digest" '.oci == "mirror.example/kagent-dev/kagent/tools@" + $digest' \
+  "$scratch/rendered.json" >/dev/null
+render_skills_source "$archive" --set-string "exampleAgent.skillsImage=custom.example/team/tools@$config_digest"
+jq -e --arg config "$config_digest" '.oci == "custom.example/team/tools@" + $config' \
+  "$scratch/rendered.json" >/dev/null
 
 check="override one image"
 render_images "$archive" --set-string "config.harnessImages.codex=custom.example/team/codex@$config_digest"
@@ -117,11 +145,96 @@ mv "$metadata_dir/codex-harness.json" "$scratch/codex-invalid.json"
 expect_failure codex-harness helm-release
 cp "$scratch/codex-valid.json" "$metadata_dir/codex-harness.json"
 
+cp "$metadata_dir/kagent-tools.json" "$scratch/kagent-tools-valid.json"
+for invalid in '{}' '{"image.name":"ghcr.io/kagent-dev/kagent/tools:0.3.0","containerimage.digest":"sha256:bad"}' \
+  '{"containerimage.digest":"'"$tools_digest"'"}' '{broken'; do
+  check="invalid kagent-tools metadata: $invalid"
+  printf '%s\n' "$invalid" > "$metadata_dir/kagent-tools.json"
+  expect_failure kagent-tools helm-release
+done
+cp "$scratch/kagent-tools-valid.json" "$metadata_dir/kagent-tools.json"
+# The check runs before packaging, so the dependency is never fetched.
+check="kagent-tools metadata for another kagent-tools version"
+cp "$source_dir/kagent/Chart-template.yaml" "$scratch/kagent-chart-template.yaml"
+printf 'dependencies:\n  - name: kagent-tools\n    version: 0.3.1\n' >> "$source_dir/kagent/Chart-template.yaml"
+expect_failure 'its tag is not kagent-tools 0.3.1' helm-release
+cp "$scratch/kagent-chart-template.yaml" "$source_dir/kagent/Chart-template.yaml"
+
 check="packaging failure preserves previous archives"
 mv "$source_dir/kagent/Chart-template.yaml" "$scratch/Chart-template.yaml"
 expect_failure kagent/Chart-template.yaml helm-release
 mv "$scratch/Chart-template.yaml" "$source_dir/kagent/Chart-template.yaml"
 diff -r "$scratch/source-before" "$source_dir"
+
+# The stale source file would fail to parse, so the message also proves that
+# packaging dropped it.
+check="release without kagent-tools metadata requires an explicit skills image"
+mv "$metadata_dir/kagent-tools.json" "$scratch/kagent-tools.json"
+release helm-release
+if helm template release "$archive" --show-only templates/example-agent.yaml \
+  --set exampleAgent.enabled=true --set exampleAgent.snapshotLocation=gs://bucket/kagent/ > "$scratch/rendered.yaml" 2> "$scratch/command.log"; then
+  exit 1
+fi
+[[ "$(< "$scratch/command.log")" == *'requires the kagent-tools image digest'* ]]
+mv "$scratch/kagent-tools.json" "$metadata_dir/kagent-tools.json"
+
+# kagent-tools is released from its own repository, so its digest is the one
+# registry lookup in release packaging. A fixture stands in for the registry.
+mkdir -p "$scratch/tools-bin" "$scratch/tools-source/kagent"
+cat > "$scratch/tools-bin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "docker $*" >> "$CONTAINER_LOG"
+[[ "$1 $2 $3" == "buildx imagetools inspect" ]]
+printf 'Name:      %s\nMediaType: application/vnd.oci.image.index.v1+json\nDigest:    %s\n' "$4" "$TOOLS_FIXTURE_DIGEST"
+EOF
+chmod +x "$scratch/tools-bin/docker"
+resolve_tools() {
+  PATH="$scratch/tools-bin:$PATH" CONTAINER_LOG="$scratch/tools.log" release tools-image-metadata \
+    HELM_SOURCE_DIR="$scratch/tools-source" RUNTIME_IMAGE_METADATA_DIR="$scratch/tools-metadata" "$@"
+}
+printf 'apiVersion: v2\nname: kagent\nversion: ${VERSION}\ndependencies:\n  - name: kagent-tools\n    version: %s\n' \
+  0.3.1 > "$scratch/tools-source/kagent/Chart-template.yaml"
+
+check="tools-image-metadata resolves the pinned kagent-tools version"
+TOOLS_FIXTURE_DIGEST="$tools_digest" resolve_tools TOOLS_IMAGE_REPOSITORY=registry.example/team/tools
+grep -qx 'docker buildx imagetools inspect registry.example/team/tools:0.3.1' "$scratch/tools.log"
+jq -e --arg digest "$tools_digest" \
+  '. == {"image.name": "registry.example/team/tools:0.3.1", "containerimage.digest": $digest}' \
+  "$scratch/tools-metadata/kagent-tools.json" >/dev/null
+
+check="tools-image-metadata records no digest for kagent-tools without skills"
+printf 'apiVersion: v2\nname: kagent\nversion: ${VERSION}\ndependencies:\n  - name: kagent-tools\n    version: %s\n' \
+  0.3.0 > "$scratch/tools-source/kagent/Chart-template.yaml"
+: > "$scratch/tools.log"
+TOOLS_FIXTURE_DIGEST="$tools_digest" resolve_tools
+test ! -e "$scratch/tools-metadata/kagent-tools.json"
+test ! -s "$scratch/tools.log"
+printf 'apiVersion: v2\nname: kagent\nversion: ${VERSION}\ndependencies:\n  - name: kagent-tools\n    version: %s\n' \
+  0.3.1 > "$scratch/tools-source/kagent/Chart-template.yaml"
+TOOLS_FIXTURE_DIGEST="$tools_digest" resolve_tools
+
+check="tools-image-metadata requires a resolved digest"
+rm "$scratch/tools-metadata/kagent-tools.json"
+if TOOLS_FIXTURE_DIGEST= resolve_tools; then
+  exit 1
+fi
+[[ "$(< "$scratch/command.log")" == *'could not resolve the digest of ghcr.io/kagent-dev/kagent/tools:0.3.1'* ]]
+test ! -e "$scratch/tools-metadata/kagent-tools.json"
+
+check="tools-image-metadata requires an exact kagent-tools version"
+printf 'apiVersion: v2\nname: kagent\nversion: ${VERSION}\ndependencies:\n  - name: kagent-tools\n    version: "~0.3.0"\n' \
+  > "$scratch/tools-source/kagent/Chart-template.yaml"
+if TOOLS_FIXTURE_DIGEST="$tools_digest" resolve_tools; then
+  exit 1
+fi
+[[ "$(< "$scratch/command.log")" == *'must pin an exact version'* ]]
+
+check="helm-publish resolves the kagent-tools digest before packaging"
+release -n helm-publish
+tools_line="$(grep -n 'tools-image-metadata.sh' "$scratch/command.log" | head -1 | cut -d: -f1)"
+package_line="$(grep -n 'package-release-charts.sh' "$scratch/command.log" | head -1 | cut -d: -f1)"
+test -n "$tools_line" && test -n "$package_line" && ((tools_line < package_line))
 
 # Run the real development Make targets with container-tool fixtures. Docker's
 # final Buildx digest and Podman's pushed digest must both reach the installed
