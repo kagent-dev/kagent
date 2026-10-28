@@ -28,6 +28,7 @@ import (
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 func TestEmbeddedPushConfig(t *testing.T) {
@@ -860,7 +861,7 @@ func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 	require.NoError(t, store.SaveTaskPushConfig(t.Context(), fastSession.Id, fastRequest.TaskId, &a2a.PushConfig{
 		ID: "fast", URL: receiver.URL + "/fast",
 	}))
-	_, err = taskstore.NewService(store, nil, wake).SettleTask(settlementContext(t, fastSession), fastRequest)
+	_, err = taskstore.NewService(store, auth.NoopAuthorizer{}, nil, wake).SettleTask(settlementContext(t, fastSession), fastRequest)
 	require.NoError(t, err)
 	select {
 	case <-fastFinished:
@@ -901,7 +902,7 @@ func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
 	for range 2 {
 		wake := make(chan struct{}, 1)
 		startPushWorker(t, NewPushWorker(writes, &gatedPushSender{entered: entered, release: release}, nil, wake, testPushWorkerConfig(time.Hour)))
-		services = append(services, taskstore.NewService(store, nil, wake))
+		services = append(services, taskstore.NewService(store, auth.NoopAuthorizer{}, nil, wake))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 2 }, 5*time.Second, time.Millisecond)
 	for i := range 2 {
