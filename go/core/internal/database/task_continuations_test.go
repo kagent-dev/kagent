@@ -167,3 +167,36 @@ func TestTaskContinuationSkipsSynchronousCompletionAndCancellation(t *testing.T)
 		})
 	}
 }
+
+func TestTaskContinuationCanReuseAChildSessionAfterAnEarlierCancellation(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	a, b, c := continuationSession(t, client), continuationSession(t, client), continuationSession(t, client)
+	ta := continuationTask(t, client, a, "a")
+	require.NoError(t, client.RegisterTaskContinuation(t.Context(), a.Id, b.Id, "b"))
+	tb := continuationTask(t, client, b, "b")
+	require.NoError(t, client.RegisterTaskContinuation(t.Context(), b.Id, c.Id, "c"))
+	tc := continuationTask(t, client, c, "c")
+	settleContinuation(t, client, tc, a2a.TaskStateInputRequired)
+	settleContinuation(t, client, tb, a2a.TaskStateCompleted)
+	settleContinuation(t, client, ta, a2a.TaskStateCompleted)
+	require.NoError(t, client.CancelTaskContinuations(t.Context(), b.Id, string(tb.ID)))
+	settleContinuation(t, client, tc, a2a.TaskStateCanceled)
+	claimed, err := client.ClaimTaskContinuations(t.Context(), 4)
+	require.NoError(t, err)
+	require.Empty(t, claimed)
+
+	ta = continuationTask(t, client, a, "a-new")
+	require.NoError(t, client.RegisterTaskContinuation(t.Context(), a.Id, b.Id, "b-new"))
+	tb = continuationTask(t, client, b, "b-new")
+	settleContinuation(t, client, tb, a2a.TaskStateInputRequired)
+	settleContinuation(t, client, ta, a2a.TaskStateCompleted)
+	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("yes"))
+	reply.ID, reply.ContextID, reply.TaskID = "yes", b.Id, tb.ID
+	tb, _ = resumeRuntimeTask(t, client, b.Id, reply)
+	settleContinuation(t, client, tb, a2a.TaskStateCompleted)
+	claimed, err = client.ClaimTaskContinuations(t.Context(), 4)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	require.Equal(t, string(ta.ID), claimed[0].ParentTaskID)
+}

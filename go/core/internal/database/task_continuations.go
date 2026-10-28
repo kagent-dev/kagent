@@ -102,7 +102,12 @@ func (c *Client) withContinuationClaims(ctx context.Context, limit int) ([]TaskC
 			return err
 		}
 		if err := execSQL(ctx, tx, `
-     UPDATE task_continuation d SET abandoned = TRUE, claim_token = NULL, lease_until = NULL
+     WITH RECURSIVE lineage(id, session_id, task_id) AS (
+       SELECT id, child_session_id, child_task_id FROM task_continuation WHERE NOT delivered AND NOT abandoned
+       UNION SELECT l.id, l.session_id, n.resume_task_id FROM lineage l
+         JOIN task_continuation n ON n.parent_session_id = l.session_id AND n.parent_task_id = l.task_id
+         WHERE n.delivered AND n.resume_task_id IS NOT NULL
+     ) UPDATE task_continuation d SET abandoned = TRUE, claim_token = NULL, lease_until = NULL
      FROM session_record p, session_record c, session_task pt, session_task ct
      WHERE NOT d.delivered AND NOT d.abandoned
        AND p.id = d.parent_session_id AND c.id = d.child_session_id
@@ -112,13 +117,19 @@ func (c *Client) withContinuationClaims(ctx context.Context, limit int) ([]TaskC
          OR ct.state = 'TASK_STATE_CANCELED'
          OR p.state = 'RUNTIME_STATE_DELETED' OR c.state = 'RUNTIME_STATE_DELETED'
          OR EXISTS (SELECT 1 FROM task_continuation nested
-           WHERE nested.parent_session_id = d.child_session_id AND nested.abandoned))
+           WHERE nested.parent_session_id = d.child_session_id AND nested.abandoned
+             AND nested.parent_task_id IN (SELECT task_id FROM lineage WHERE id = d.id)))
    `); err != nil {
 			return err
 		}
 		var err error
 		claimed, err = queryMany(ctx, tx, `
-     WITH ready AS (
+     WITH RECURSIVE lineage(id, session_id, task_id) AS (
+       SELECT id, child_session_id, child_task_id FROM task_continuation WHERE NOT delivered AND NOT abandoned
+       UNION SELECT l.id, l.session_id, n.resume_task_id FROM lineage l
+         JOIN task_continuation n ON n.parent_session_id = l.session_id AND n.parent_task_id = l.task_id
+         WHERE n.delivered AND n.resume_task_id IS NOT NULL
+     ), ready AS (
        SELECT d.id FROM task_continuation d
        JOIN session_record p ON p.id = d.parent_session_id
        JOIN session_record c ON c.id = d.child_session_id
@@ -134,9 +145,11 @@ func (c *Client) withContinuationClaims(ctx context.Context, limit int) ([]TaskC
          AND NOT EXISTS (SELECT 1 FROM session s WHERE s.id IN (p.id, c.id)
            AND s.dispatch_id IS NOT NULL AND s.dispatch_expires_at > clock_timestamp())
          AND NOT EXISTS (SELECT 1 FROM task_continuation nested
-           WHERE nested.parent_session_id = d.child_session_id AND NOT nested.delivered AND NOT nested.abandoned)
+           WHERE nested.parent_session_id = d.child_session_id AND NOT nested.delivered AND NOT nested.abandoned
+             AND nested.parent_task_id IN (SELECT task_id FROM lineage WHERE id = d.id))
          AND NOT EXISTS (SELECT 1 FROM task_continuation nested
-           WHERE nested.parent_session_id = d.child_session_id AND nested.abandoned)
+           WHERE nested.parent_session_id = d.child_session_id AND nested.abandoned
+             AND nested.parent_task_id IN (SELECT task_id FROM lineage WHERE id = d.id))
          AND NOT EXISTS (SELECT 1 FROM task_continuation sibling
            JOIN session_record sc ON sc.id = sibling.child_session_id
            JOIN session_task st ON st.history_id = sc.history_id AND st.id = sibling.child_task_id
@@ -162,13 +175,14 @@ func (c *Client) CancelTaskContinuations(ctx context.Context, sessionID, taskID 
 			return notFoundOr(err)
 		}
 		tag, err := tx.Exec(ctx, `
-     WITH RECURSIVE descendants(id) AS (
-       SELECT id FROM task_continuation WHERE parent_session_id = $1 AND parent_task_id = $2
-       UNION SELECT next.id FROM task_continuation next
-         JOIN task_continuation previous ON next.parent_task_id = previous.child_task_id
-         JOIN descendants ON previous.id = descendants.id
+     WITH RECURSIVE descendants(task_id) AS (
+       SELECT parent_task_id FROM task_continuation WHERE parent_session_id = $1 AND parent_task_id = $2
+       UNION SELECT child.id FROM descendants previous
+         JOIN task_continuation d ON d.parent_task_id = previous.task_id
+         CROSS JOIN LATERAL (VALUES (d.child_task_id), (d.resume_task_id)) child(id)
+         WHERE child.id IS NOT NULL
      ) UPDATE task_continuation SET abandoned = TRUE, claim_token = NULL, lease_until = NULL
-       WHERE id IN (SELECT id FROM descendants) AND NOT delivered AND NOT abandoned
+       WHERE parent_task_id IN (SELECT task_id FROM descendants) AND NOT delivered AND NOT abandoned
    `, session.ID, taskID)
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
