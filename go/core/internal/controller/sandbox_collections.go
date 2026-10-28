@@ -99,8 +99,10 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		if pool == nil {
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}
 		} else {
-			var err error
-			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.DefaultSandboxClass(), policy)
+			workspace, goldenAccess, err := translator.CompileWorkspace(ctx, inputs.Secrets, template.Namespace, template.Spec.Workspace)
+			if err == nil {
+				state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.DefaultSandboxClass(), policy, workspace, goldenAccess)
+			}
 			if err != nil {
 				state.CompilationError = err.Error()
 				state.Failure = &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage}

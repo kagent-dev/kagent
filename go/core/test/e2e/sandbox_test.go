@@ -54,7 +54,9 @@ func newSandboxFixture(t *testing.T) *sandboxFixture {
 		pool = kagentenv.E2ESandboxWorkerPool.DefaultValue()
 	}
 	conn := newControllerConn(t, target)
-	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
+	// A failed workspace preparation can consume the four-minute startup probe
+	// before recovery begins. Leave time for its retry and lifecycle assertions.
+	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 12*time.Minute)
 	t.Cleanup(cancel)
 	ref := &apiv1.ResourceReference{Namespace: namespace, Name: "scratch-" + uuid.NewString()[:8]}
 	value, err := structpb.NewStruct(map[string]any{

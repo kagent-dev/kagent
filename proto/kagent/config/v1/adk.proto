@@ -5,6 +5,7 @@ package kagent.config.v1;
 import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
 import "kagent/config/v1/config.proto";
+import "kagent/config/v1/workspace.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1";
 
@@ -14,6 +15,7 @@ option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;co
 message ADKConfig {
   ADKRuntimeConfig runtime = 1;
   ADKAgentConfig agent = 2;
+  GitWorkspaceConfig workspace = 3;
 }
 
 // ADKAgentConfig defines an agent and its subagents within one runtime.

@@ -87,6 +87,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
+	config.Workspace = input.Workspace
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
 	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()

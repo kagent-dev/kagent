@@ -355,6 +355,12 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
+func (p *preparationTestBackend) RetryActorTemplatePreparation(ctx context.Context, template *ateapipb.ActorTemplate) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.templates.RetryActorTemplatePreparation(ctx, template)
+}
+
 func (p *preparationTestBackend) ListAgentEgressSources(ctx context.Context) ([]database.RuntimeEgressSource, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

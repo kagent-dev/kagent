@@ -113,6 +113,13 @@ func (s *sandboxTestActors) CreateActorTemplate(_ context.Context, template *ate
 	return proto.CloneOf(template), nil
 }
 
+func (s *sandboxTestActors) RetryActorTemplatePreparation(_ context.Context, template *ateapipb.ActorTemplate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.templates, template.GetMetadata().GetAtespace()+"/"+template.GetMetadata().GetName())
+	return nil
+}
+
 func sandboxGoldenStatus() *ateapipb.ActorTemplateStatus {
 	return &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 }
@@ -248,21 +255,78 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	require.Nil(t, s.collections.states.GetKey(key).ObservedActorTemplate)
 }
 
+func TestSandboxWorkspacePreparationTracksSourceCredentials(t *testing.T) {
+	opts := krt.NewOptionsBuilder(t.Context().Done(), "workspace-sandbox", nil)
+	template := sandboxTestTemplate()
+	template.Spec.Workspace = &kagentv1alpha3.WorkspaceSpec{Git: &kagentv1alpha3.GitWorkspaceSource{
+		URL: "https://github.com/org/repo.git", Ref: "main",
+		CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "repo"}, Key: "authorization"},
+	}}
+	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.SandboxTemplate{template}, opts.WithName("SandboxTemplates")...)
+	pools := krt.NewStaticCollection(nil, []*atev1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...)
+	secrets := krt.NewStaticCollection[*corev1.Secret](nil, nil, opts.WithName("Secrets")...)
+	policies := krt.NewStaticCollection[*kagentv1alpha3.EgressPolicy](nil, nil, opts.WithName("EgressPolicies")...)
+	collections := newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools, Secrets: secrets, EgressPolicies: policies}, substrate.SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}, opts)
+	const key = "team-a/scratch"
+	waitFor(t, func() bool {
+		state := collections.states.GetKey(key)
+		return state != nil && state.CompilationError != ""
+	})
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "repo"}, Data: map[string][]byte{"authorization": []byte("private-value")}}
+	secrets.UpdateObject(secret)
+	waitFor(t, func() bool { return collections.states.GetKey(key).RevisionID != "" })
+	prepared := collections.states.GetKey(key)
+	require.Empty(t, prepared.EgressGrant.Destinations)
+	require.NotContains(t, string(prepared.SourceSnapshot), "private-value")
+	policy := prepared.DesiredActorTemplate.GetGoldenEgressPolicy()
+	require.Len(t, policy.Rules, 1)
+	require.Equal(t, "ate-secret://k8s.io/default/team-a/repo/authorization", policy.Rules[0].GetHttps().GetEffects().GetReplaceHeaders()[0].CredentialUri)
+	rotated := secret.DeepCopy()
+	rotated.Data["authorization"] = []byte("rotated-value")
+	secrets.UpdateObject(rotated)
+	changed := template.DeepCopy()
+	changed.Generation++
+	changed.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "live"}}
+	templates.UpdateObject(changed)
+	waitFor(t, func() bool { return collections.states.GetKey(key).Template.Generation == changed.Generation })
+	require.Equal(t, prepared.RevisionID, collections.states.GetKey(key).RevisionID)
+	secrets.DeleteObject("team-a/repo")
+	waitFor(t, func() bool { return collections.states.GetKey(key).CompilationError != "" })
+	secrets.UpdateObject(rotated)
+	waitFor(t, func() bool { return collections.states.GetKey(key).RevisionID == prepared.RevisionID })
+	pinned := changed.DeepCopy()
+	pinned.Spec.Workspace.Git.Ref = "0123456789abcdef0123456789abcdef01234567"
+	templates.UpdateObject(pinned)
+	waitFor(t, func() bool {
+		state := collections.states.GetKey(key)
+		return state.RevisionID != "" && state.RevisionID != prepared.RevisionID
+	})
+}
+
 func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *testing.T) {
 	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
 	const key = "team-a/scratch"
 	require.NoError(t, s.reconcile(t.Context(), key))
-	syncSandboxTemplate(t, s, templates)
+	template := syncSandboxTemplate(t, s, templates).DeepCopy()
+	template.Spec.Workspace = &kagentv1alpha3.WorkspaceSpec{Git: &kagentv1alpha3.GitWorkspaceSource{URL: "https://github.com/org/repo.git", Ref: "main"}}
+	templates.UpdateObject(template)
+	waitFor(t, func() bool { return s.collections.states.GetKey(key).Template.Spec.Workspace != nil })
 	require.NoError(t, s.reconcile(t.Context(), key))
 	ref := s.collections.states.GetKey(key).DesiredActorTemplate.Metadata
 	observed := s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name]
+	observed.Metadata.Uid = "failed-uid"
 	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "snapshot backend unavailable"}}
-	require.ErrorContains(t, s.reconcile(t.Context(), key), "golden snapshot failed")
+	require.ErrorContains(t, s.reconcile(t.Context(), key), "retrying")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	require.True(t, s.collections.states.GetKey(key).canPrepare())
-	observed.Status = sandboxGoldenStatus()
+	require.Nil(t, s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name])
+	s.actors.(*sandboxTestActors).autoReady = true
 	require.NoError(t, s.reconcile(t.Context(), key))
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure == nil })
+	observed = s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name]
+	require.NotEqual(t, "failed-uid", observed.Metadata.Uid)
+	require.Equal(t, observed.Metadata.Uid, s.store.(*sandboxTestStore).revision.ActorTemplateUID)
+	require.True(t, s.store.(*sandboxTestStore).ready)
 	observed.Containers[0].Image = "unexpected"
 	require.ErrorContains(t, s.reconcile(t.Context(), key), "immutable inputs disagree")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })

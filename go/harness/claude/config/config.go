@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -65,18 +67,19 @@ func OwnsEnvironment(name string) bool {
 }
 
 type Config struct {
-	MaxContentLength      *int64                 `json:"max_content_length,omitempty"`
-	ControlPlaneURL       string                 `json:"control_plane_url"`
-	LogLevel              string                 `json:"log_level,omitempty"`
-	Version               int                    `json:"version"`
-	ClaudeExecutable      string                 `json:"claude_executable"`
-	ExpectedClaudeVersion string                 `json:"expected_claude_version"`
-	StrictVersion         bool                   `json:"strict_version"`
-	Model                 string                 `json:"model,omitempty"`
-	AppendSystemPrompt    string                 `json:"append_system_prompt,omitempty"`
-	Agents                map[string]Agent       `json:"agents,omitempty"`
-	SkillResources        *agentplugin.Resources `json:"skill_resources,omitempty"`
-	MCPServers            map[string]MCPServer   `json:"mcp_servers,omitempty"`
+	Workspace             *configv1.GitWorkspaceConfig `json:"workspace,omitempty"`
+	MaxContentLength      *int64                       `json:"max_content_length,omitempty"`
+	ControlPlaneURL       string                       `json:"control_plane_url"`
+	LogLevel              string                       `json:"log_level,omitempty"`
+	Version               int                          `json:"version"`
+	ClaudeExecutable      string                       `json:"claude_executable"`
+	ExpectedClaudeVersion string                       `json:"expected_claude_version"`
+	StrictVersion         bool                         `json:"strict_version"`
+	Model                 string                       `json:"model,omitempty"`
+	AppendSystemPrompt    string                       `json:"append_system_prompt,omitempty"`
+	Agents                map[string]Agent             `json:"agents,omitempty"`
+	SkillResources        *agentplugin.Resources       `json:"skill_resources,omitempty"`
+	MCPServers            map[string]MCPServer         `json:"mcp_servers,omitempty"`
 	// RuntimeTelemetry carries the compiler-owned span identity and content
 	// capture policy. It is absent for standalone runs, which fall back to the
 	// environment for service identity and leave capture disabled.
@@ -136,6 +139,9 @@ func Parse(b []byte) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if err := workspace.Validate(c.Workspace); err != nil {
+		return err
+	}
 	if c.MaxContentLength != nil && *c.MaxContentLength < 0 {
 		return fmt.Errorf("max_content_length must be nonnegative")
 	}

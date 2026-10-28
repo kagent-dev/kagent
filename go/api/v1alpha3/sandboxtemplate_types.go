@@ -22,6 +22,11 @@ type SandboxTemplateWorkload struct {
 
 // SandboxTemplateSpec defines standalone sandbox environment configuration.
 type SandboxTemplateSpec struct {
+	// Workspace selects the repository captured during preparation. The
+	// workload image must include Git when a Git source is configured.
+	// +optional
+	Workspace *WorkspaceSpec `json:"workspace,omitempty"`
+
 	// Workload selects the immutable runtime image.
 	// +required
 	Workload SandboxTemplateWorkload `json:"workload"`

@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestAteAPITLSConfig(t *testing.T) {
@@ -130,6 +131,8 @@ func (f *createAtespaceFake) GetAtespace(_ context.Context, in *ateapipb.GetAtes
 type createActorFake struct {
 	ateapipb.ControlClient
 	actor *ateapipb.Actor
+	tag   *ateapipb.ObjectRef
+	err   error
 }
 
 type createActorTemplateFake struct {
@@ -165,17 +168,104 @@ type deleteActorTemplateFake struct {
 	actor    *ateapipb.DeleteActorRequest
 }
 
+type retryPreparationFake struct {
+	ateapipb.ControlClient
+	request *ateapipb.DeleteActorTemplateRequest
+	err     error
+}
+
+func (f *retryPreparationFake) DeleteActorTemplate(_ context.Context, in *ateapipb.DeleteActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
+	f.request = in
+	return nil, f.err
+}
+
+func TestRetryActorTemplatePreparation(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		change     func(*ateapipb.ActorTemplate)
+		backendErr error
+		wantDelete bool
+		wantErr    bool
+	}{
+		{name: "failed checkout", wantDelete: true},
+		{name: "already deleted", backendErr: status.Error(codes.NotFound, "gone"), wantDelete: true},
+		{name: "concurrent replacement or publication", backendErr: status.Error(codes.Aborted, "version changed"), wantDelete: true, wantErr: true},
+		{name: "interrupted cleanup", backendErr: status.Error(codes.DeadlineExceeded, "cleanup timed out"), wantDelete: true, wantErr: true},
+		{name: "no workspace", change: func(template *ateapipb.ActorTemplate) { template.GoldenEgressPolicy = nil }, wantErr: true},
+		{name: "still preparing", change: func(template *ateapipb.ActorTemplate) { template.Status.GoldenSnapshotStatus.ErrorMessage = "" }, wantErr: true},
+		{name: "published snapshot", change: func(template *ateapipb.ActorTemplate) {
+			template.Status.GoldenSnapshotStatus.GoldenTag = &ateapipb.ObjectRef{Name: "published"}
+		}, wantErr: true},
+		{name: "missing UID", change: func(template *ateapipb.ActorTemplate) { template.Metadata.Uid = "" }, wantErr: true},
+		{name: "missing version", change: func(template *ateapipb.ActorTemplate) { template.Metadata.Version = 0 }, wantErr: true},
+		{name: "missing failure time", change: func(template *ateapipb.ActorTemplate) { template.Metadata.UpdateTime = nil }, wantErr: true},
+		{name: "recent failure after slow startup", change: func(template *ateapipb.ActorTemplate) { template.Metadata.UpdateTime = timestamppb.Now() }, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			template := &ateapipb.ActorTemplate{
+				Metadata:           &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "template", Uid: "failed-uid", Version: 7, CreateTime: timestamppb.New(time.Now().Add(-10 * time.Minute)), UpdateTime: timestamppb.New(time.Now().Add(-time.Minute))},
+				GoldenEgressPolicy: &ateapipb.EgressPolicyTemplate{},
+				Status:             &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "checkout failed"}},
+			}
+			if test.change != nil {
+				test.change(template)
+			}
+			fake := &retryPreparationFake{err: test.backendErr}
+			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+			err := client.RetryActorTemplatePreparation(t.Context(), template)
+			if test.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if test.wantDelete {
+				require.NotNil(t, fake.request)
+				require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.request.ActorTemplate)
+				require.Equal(t, &ateapipb.DeleteOptions{Uid: "failed-uid", Version: 7}, fake.request.Options)
+			} else {
+				require.Nil(t, fake.request)
+			}
+		})
+	}
+}
+
 func (f *createActorFake) CreateActor(_ context.Context, in *ateapipb.CreateActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
 	f.actor = in.GetActor()
 	return f.actor, nil
 }
 
+func (f *createActorFake) GetActorTemplate(_ context.Context, _ *ateapipb.GetActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
+	return &ateapipb.ActorTemplate{Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: f.tag}}}, f.err
+}
+
 func TestCreateActorUsesStableTemplateRef(t *testing.T) {
-	fake := &createActorFake{}
+	fake := &createActorFake{tag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "prepared"}}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
 	_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
+	require.Equal(t, fake.tag, fake.actor.GetSourceTag())
+}
+
+func TestCreateActorRequiresPreparedGolden(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{"missing golden", nil},
+		{"deleted template", status.Error(codes.NotFound, "deleted")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &createActorFake{err: test.err}
+			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+			_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
+			require.Error(t, err)
+			require.Nil(t, fake.actor, "never request a cold boot")
+			_, err = client.CreateActorFromTag(t.Context(), "team-a", "fork", "team-a", "template", "snapshots", "checkpoint")
+			require.NoError(t, err)
+			require.Equal(t, "checkpoint", fake.actor.GetSourceTag().GetName(), "forks use their saved files")
+		})
+	}
 }
 
 func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {

@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	sharedtelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 const codexHomeEnv = "CODEX_HOME"
@@ -41,6 +42,12 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("workspace and durable directories must be absolute paths")
 	}
 	codexHome := filepath.Join(input.DurableDir, "codex")
+	if cfg.Workspace != nil && filepath.Clean(input.Workspace) != workspace.Path(input.DurableDir) {
+		return nil, fmt.Errorf("repository workspace must be under the durable directory")
+	}
+	if err := workspace.Initialize(ctx, input.DurableDir, cfg.Workspace); err != nil {
+		return nil, err
+	}
 	skillsRoot := config.SkillsRoot(input.DurableDir)
 	for _, directory := range []string{input.Workspace, codexHome, filepath.Join(codexHome, "agents"), skillsRoot} {
 		if err := utils.EnsurePrivateDir(directory); err != nil {
