@@ -72,19 +72,30 @@ func (p Plan) Steps() []Step {
 // Plan resolves the controller identity using the same chart and overrides that
 // Apply will install. It performs no Kubernetes writes or key generation.
 func (c *Client) Plan(ctx context.Context, cfg Config) (Plan, error) {
+	return planInstall(ctx, c.runner, cfg)
+}
+
+func validateInstallConfig(cfg Config) error {
 	if problems := validation.IsDNS1123Label(cfg.Namespace); len(problems) != 0 {
-		return Plan{}, fmt.Errorf("invalid namespace %q: %s", cfg.Namespace, strings.Join(problems, ", "))
+		return fmt.Errorf("invalid namespace %q: %s", cfg.Namespace, strings.Join(problems, ", "))
 	}
 	for _, chart := range []Chart{cfg.Kagent, cfg.KagentCRDs, cfg.Substrate, cfg.SubstrateCRDs, cfg.PodCertificate} {
 		if chart.Name == "" || chart.Repository == "" || chart.Version == "" {
-			return Plan{}, fmt.Errorf("chart name, repository and version are required")
+			return fmt.Errorf("chart name, repository and version are required")
 		}
 	}
 	if cfg.ModelProvider == "" || cfg.WorkerImage == "" {
-		return Plan{}, fmt.Errorf("model provider and worker image are required")
+		return fmt.Errorf("model provider and worker image are required")
+	}
+	return nil
+}
+
+func planInstall(ctx context.Context, runner Runner, cfg Config) (Plan, error) {
+	if err := validateInstallConfig(cfg); err != nil {
+		return Plan{}, err
 	}
 	kagent := cloneChart(cfg.Kagent)
-	provider := strings.ToLower(cfg.ModelProvider[:1]) + cfg.ModelProvider[1:]
+	provider := modelProviderKey(cfg.ModelProvider)
 	kagent.Values = append([]string{"providers.default=" + provider,
 		"providers." + provider + ".apiKey=" + cfg.APIKey}, kagent.Values...)
 	kagent.inlineValues = `controller:
@@ -105,7 +116,7 @@ config:
 			return Plan{}, err
 		}
 	}
-	serviceAccount, err := c.controllerServiceAccount(ctx, cfg.Namespace, kagent)
+	serviceAccount, err := controllerServiceAccount(ctx, runner, cfg.Namespace, kagent)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -129,6 +140,13 @@ config:
 		ChartInstall{Release: "substrate", Namespace: substrateNamespace, Chart: substrate},
 		ChartInstall{Release: "kagent", Namespace: cfg.Namespace, Chart: kagent})
 	return Plan{steps: steps}, nil
+}
+
+func modelProviderKey(provider string) string {
+	if provider == "" {
+		return ""
+	}
+	return strings.ToLower(provider[:1]) + provider[1:]
 }
 
 // Apply runs the plan in order and stops at the first failure. Progress messages

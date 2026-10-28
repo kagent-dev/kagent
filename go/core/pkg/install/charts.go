@@ -88,12 +88,12 @@ func helmValueArgs(chart Chart) []string {
 	return args
 }
 
-func (c *Client) controllerServiceAccount(ctx context.Context, namespace string, chart Chart) (string, error) {
+func controllerServiceAccount(ctx context.Context, runner Runner, namespace string, chart Chart) (string, error) {
 	args := []string{"template", "kagent", chartReference(chart), "--version", chart.Version,
 		"--namespace", namespace, "--show-only", "templates/controller-deployment.yaml"}
 	args = append(args, chartTransportArgs(chart)...)
 	args = append(args, helmValueArgs(chart)...)
-	manifest, err := c.runner.Run(ctx, Command{Program: "helm", Args: args, Stdin: chart.inlineValues})
+	manifest, err := runner.Run(ctx, Command{Program: "helm", Args: args, Stdin: chart.inlineValues})
 	if err != nil {
 		return "", fmt.Errorf("failed to render controller deployment: %w: %s", err, strings.TrimSpace(manifest))
 	}

@@ -30,6 +30,8 @@ const kagentChartName = "kagent"
 type InstallCfg struct {
 	Profile           string
 	SkipDatabaseSetup bool
+	DryRun            bool
+	OutputDir         string
 }
 
 func newInstallClient() (*installer.Client, error) {
@@ -54,16 +56,24 @@ func chartConfig(chart *configv1.ChartConfig, name string) installer.Chart {
 }
 
 func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg) (resultErr error) {
-	if version.Version == "dev" {
+	if !cfg.DryRun && version.Version == "dev" {
 		return errors.New("installation requires a released version of kagent")
 	}
 	settings := cliconfig.FromContext(cmd.Context()).GetInstall()
 	modelProvider := v1alpha3.ModelProvider(settings.GetDefaultModelProvider())
 	apiKeyValue := ""
+	var references []installer.SecretReference
 	if apiKey, ok := providerAPIKey(modelProvider); ok {
-		apiKeyValue = apiKey.Get()
-		if apiKeyValue == "" {
-			return fmt.Errorf("%s is not set; set it, or choose another provider with install.defaultModelProvider in the CLI config", apiKey.Name())
+		if cfg.DryRun {
+			apiKeyValue = "${" + apiKey.Name() + "}"
+			provider := string(modelProvider)
+			provider = strings.ToLower(provider[:1]) + provider[1:]
+			references = append(references, installer.SecretReference{Release: "kagent", Path: []string{"providers", provider, "apiKey"}, Environment: apiKey.Name()})
+		} else {
+			apiKeyValue = apiKey.Get()
+			if apiKeyValue == "" {
+				return fmt.Errorf("%s is not set; set it, or choose another provider with install.defaultModelProvider in the CLI config", apiKey.Name())
+			}
 		}
 	}
 	kagent := chartConfig(settings.GetKagent(), kagentChartName)
@@ -86,11 +96,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		}
 		kagent.ValuesFiles = append([]string{path}, kagent.ValuesFiles...)
 	}
-	client, err := newInstallClient()
-	if err != nil {
-		return err
-	}
-	plan, err := client.Plan(cmd.Context(), installer.Config{
+	input := installer.Config{
 		Namespace:      options.Namespace,
 		Kagent:         kagent,
 		KagentCRDs:     chartConfig(settings.GetKagent(), kagentChartName+"-crds"),
@@ -101,7 +107,23 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		WorkerImage:       "ghcr.io/kagent-dev/substrate/ateworker-gvisor:v" + strings.TrimPrefix(settings.GetSubstrate().GetVersion(), "v"),
 		SkipDatabaseSetup: cfg.SkipDatabaseSetup,
 		Database:          installer.Postgres{Image: settings.GetBundledPostgresImage()},
-	})
+	}
+	if cfg.DryRun {
+		if _, err := exec.LookPath("helm"); err != nil {
+			return fmt.Errorf("helm not found in PATH; install it first")
+		}
+		directory, err := installer.Export(cmd.Context(), installer.CommandRunner{}, input, installer.ExportOptions{Directory: cfg.OutputDir, Secrets: references})
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Wrote Helm commands and values to %s\n", directory)
+		return err
+	}
+	client, err := newInstallClient()
+	if err != nil {
+		return err
+	}
+	plan, err := client.Plan(cmd.Context(), input)
 	if err != nil {
 		return err
 	}
@@ -150,8 +172,11 @@ func NewInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install kagent",
-		Long:  `Install kagent`,
+		Long:  `Install kagent. With --dry-run, write Helm commands and merged values to a directory without changing the cluster. Complete the documented prerequisites before running the exported commands.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cmd.Flags().Changed("output-dir") && !cfg.DryRun {
+				return fmt.Errorf("--output-dir requires --dry-run")
+			}
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
 				return err
@@ -161,6 +186,8 @@ func NewInstallCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal)")
 	cmd.Flags().BoolVar(&cfg.SkipDatabaseSetup, "skip-database-setup", false, "Skip bundled PostgreSQL deployment and initialization")
+	cmd.Flags().BoolVar(&cfg.DryRun, "dry-run", false, "Export Helm commands and values without changing the cluster")
+	cmd.Flags().StringVar(&cfg.OutputDir, "output-dir", "kagent-install", "Directory for --dry-run output (must not exist)")
 	_ = cmd.RegisterFlagCompletionFunc("profile", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})

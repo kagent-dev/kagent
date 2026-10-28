@@ -1,0 +1,339 @@
+package install
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
+)
+
+func valuesManifest(values map[string]any) string {
+	data, err := json.Marshal(values)
+	if err != nil {
+		panic(err)
+	}
+	return "apiVersion: v1\nkind: ConfigMap\ndata:\n  values: " + strconv.Quote(string(data)) + "\n"
+}
+
+func exportReferences() []SecretReference {
+	return []SecretReference{{Release: "kagent", Path: []string{"providers", "openAI", "apiKey"}, Environment: "OPENAI_API_KEY"}}
+}
+
+func exportRunner() *recordingRunner {
+	merges := 0
+	return &recordingRunner{run: func(cmd Command) (string, error) {
+		if cmd.Args[1] != "kagent-install-values" {
+			return "kind: Deployment\nspec: {template: {spec: {serviceAccountName: test-controller}}}", nil
+		}
+		merges++
+		if merges == 10 {
+			return valuesManifest(map[string]any{"providers": map[string]any{"openAI": map[string]any{"apiKey": "placeholder"}}}), nil
+		}
+		return valuesManifest(map[string]any{}), nil
+	}}
+}
+
+func TestExportOnlyWritesHelmArtifacts(t *testing.T) {
+	for _, skip := range []bool{false, true} {
+		t.Run(fmt.Sprintf("skip_database=%t", skip), func(t *testing.T) {
+			cfg := testConfig()
+			cfg.SkipDatabaseSetup = skip
+			dir := filepath.Join(t.TempDir(), "export")
+			runner := exportRunner()
+			path, err := Export(t.Context(), runner, cfg, ExportOptions{Directory: dir, Secrets: exportReferences()})
+			require.NoError(t, err)
+			require.Equal(t, dir, path)
+			files, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			var names []string
+			for _, file := range files {
+				names = append(names, file.Name())
+			}
+			require.Equal(t, []string{"README.md", "install.sh", "values"}, names)
+			values, err := os.ReadDir(filepath.Join(dir, "values"))
+			require.NoError(t, err)
+			require.Len(t, values, 5)
+			for _, cmd := range runner.commands {
+				require.Equal(t, "helm", cmd.Program)
+				require.Equal(t, "template", cmd.Args[0], "export must never invoke mutating commands")
+				require.NotContains(t, strings.Join(cmd.Args, " ")+cmd.Stdin, cfg.APIKey)
+			}
+			require.Equal(t, "secret-provider-key", cfg.APIKey, "export must not mutate its input")
+			require.NoError(t, filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+				if err != nil || entry.IsDir() {
+					return err
+				}
+				data, err := os.ReadFile(path)
+				require.NoError(t, err)
+				require.NotContains(t, string(data), cfg.APIKey)
+				return nil
+			}))
+			readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
+			require.NoError(t, err)
+			require.Contains(t, string(readme), "arbitrary secrets are not automatically detected")
+			if skip {
+				require.Contains(t, string(readme), "Generated with `--skip-database-setup`")
+			}
+		})
+	}
+}
+
+func TestExportDoesNotOverwriteExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "keep")
+	require.NoError(t, os.WriteFile(file, []byte("original"), 0o600))
+	runner := exportRunner()
+	_, err := Export(t.Context(), runner, testConfig(), ExportOptions{Directory: dir})
+	require.ErrorContains(t, err, "already exists")
+	require.Empty(t, runner.commands)
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	require.Equal(t, "original", string(data))
+	link := filepath.Join(t.TempDir(), "link")
+	require.NoError(t, os.Symlink(dir, link))
+	_, err = Export(t.Context(), runner, testConfig(), ExportOptions{Directory: link})
+	require.ErrorContains(t, err, "already exists")
+}
+
+func TestExportFailuresLeaveNoPartialDirectory(t *testing.T) {
+	for _, failAt := range []int{1, 6, 9, 11} {
+		t.Run(fmt.Sprintf("command_%d", failAt), func(t *testing.T) {
+			parent := t.TempDir()
+			runner := exportRunner()
+			run := runner.run
+			cause := errors.New("secret-from-a-diagnostic")
+			calls := 0
+			runner.run = func(cmd Command) (string, error) {
+				calls++
+				if calls == failAt {
+					return "secret-from-a-diagnostic", cause
+				}
+				return run(cmd)
+			}
+			_, err := Export(t.Context(), runner, testConfig(), ExportOptions{Directory: filepath.Join(parent, "export"), Secrets: exportReferences()})
+			require.ErrorIs(t, err, cause)
+			require.NotContains(t, err.Error(), "secret-from-a-diagnostic")
+			files, err := os.ReadDir(parent)
+			require.NoError(t, err)
+			require.Empty(t, files)
+		})
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	runner := exportRunner()
+	_, err := Export(ctx, runner, testConfig(), ExportOptions{Directory: filepath.Join(t.TempDir(), "export")})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, runner.commands)
+}
+
+func TestExplicitSecretReferences(t *testing.T) {
+	values := map[string]any{"password": "user-supplied", "auth": map[string]any{"api.key": "owned-secret"}}
+	ref := SecretReference{Release: "kagent", Path: []string{"auth", "api.key"}, Environment: "OWNED_API_KEY"}
+	require.NoError(t, replaceSecrets(values, "kagent", []SecretReference{ref}, true))
+	require.Equal(t, "user-supplied", values["password"], "export must not guess which values are secrets")
+	require.Equal(t, "${OWNED_API_KEY}", values["auth"].(map[string]any)["api.key"])
+	require.Equal(t, `auth.api\.key`, helmMapPath(ref.Path))
+	ref.Path = []string{"missing"}
+	require.NoError(t, replaceSecrets(values, "kagent", []SecretReference{ref}, false))
+	require.ErrorContains(t, replaceSecrets(values, "kagent", []SecretReference{ref}, true), "missing")
+}
+
+func TestExportRejectsInvalidSecretReferences(t *testing.T) {
+	for _, refs := range [][]SecretReference{
+		nil,
+		{{Release: "kagent", Path: []string{"providers", "openAI", "apiKey"}, Environment: "INVALID-NAME"}},
+		{{Release: "kagent", Path: []string{""}, Environment: "API_KEY"}},
+		append(exportReferences(), exportReferences()...),
+	} {
+		runner := exportRunner()
+		_, err := Export(t.Context(), runner, testConfig(), ExportOptions{Directory: filepath.Join(t.TempDir(), "export"), Secrets: refs})
+		require.Error(t, err)
+		require.Empty(t, runner.commands)
+	}
+}
+
+func TestExportValidatesConfigBeforeRendering(t *testing.T) {
+	for _, edit := range []func(*Config){
+		func(cfg *Config) { cfg.Namespace = "invalid namespace" },
+		func(cfg *Config) { cfg.Kagent.Version = "dev" },
+	} {
+		cfg := testConfig()
+		edit(&cfg)
+		runner := exportRunner()
+		_, err := Export(t.Context(), runner, cfg, ExportOptions{Directory: filepath.Join(t.TempDir(), "export"), Secrets: exportReferences()})
+		require.Error(t, err)
+		require.Empty(t, runner.commands)
+	}
+}
+
+func TestExportWithoutCredentialReferences(t *testing.T) {
+	cfg := testConfig()
+	cfg.ModelProvider, cfg.APIKey = "Bedrock", ""
+	dir := filepath.Join(t.TempDir(), "export")
+	_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{Directory: dir})
+	require.NoError(t, err)
+	script, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	require.NoError(t, err)
+	require.NotContains(t, string(script), "secret_dir")
+	require.NotContains(t, string(script), "--set-file")
+}
+
+func TestExportScriptBindsRawSecretsAndCleansTemporaryFiles(t *testing.T) {
+	// The shell harness observes arguments and secret files before cleanup. Helm
+	// semantics are checked separately against the real executable below.
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	require.NoError(t, os.Mkdir(bin, 0o700))
+	argsFile, secretFile, pathFile := filepath.Join(dir, "args"), filepath.Join(dir, "secret"), filepath.Join(dir, "secret-path")
+	shim := `#!/bin/sh
+printf '%s\n' "$*" >> "$TEST_ARGS_FILE"
+for arg in "$@"; do
+  case "$arg" in
+    providers.openAI.apiKey=*)
+      path=${arg#*=}
+      printf '%s' "$path" > "$TEST_PATH_FILE"
+      cat "$path" > "$TEST_SECRET_FILE"
+      ;;
+  esac
+done
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "helm"), []byte(shim), 0o700))
+	output := filepath.Join(dir, "directory with ' quotes")
+	cfg := testConfig()
+	marker := filepath.Join(dir, "must-not-exist")
+	cfg.Kagent.Repository = filepath.Join(dir, "repo'$(touch "+marker+")")
+	_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{Directory: output, Secrets: exportReferences()})
+	require.NoError(t, err)
+	secret := "key,with=punctuation'\"\\$()\nsecond line"
+	cmd := exec.CommandContext(t.Context(), "sh", filepath.Join(output, "install.sh"))
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"OPENAI_API_KEY="+secret, "TEST_ARGS_FILE="+argsFile, "TEST_PATH_FILE="+pathFile, "TEST_SECRET_FILE="+secretFile)
+	data, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(data))
+	require.NotContains(t, string(data), secret)
+	captured, err := os.ReadFile(secretFile)
+	require.NoError(t, err)
+	require.Equal(t, secret, string(captured))
+	path, err := os.ReadFile(pathFile)
+	require.NoError(t, err)
+	_, err = os.Stat(string(path))
+	require.True(t, os.IsNotExist(err), "temporary credential files must be removed")
+	args, err := os.ReadFile(argsFile)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(args)), "\n")
+	require.Len(t, lines, 5)
+	for i, release := range []string{"kagent-crds", "substrate-crds", podCertificateRelease, "substrate", "kagent"} {
+		require.True(t, strings.HasPrefix(lines[i], "upgrade --install "+release+" "))
+	}
+	require.NotContains(t, string(args), secret)
+	_, err = os.Stat(marker)
+	require.True(t, os.IsNotExist(err), "chart references must not become shell commands")
+}
+
+func TestExportMatchesHelmInstallInputs(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("Helm is required for export integration")
+	}
+	for _, skip := range []bool{false, true} {
+		t.Run(fmt.Sprintf("skip_database=%t", skip), func(t *testing.T) {
+			root := t.TempDir()
+			t.Chdir(root)
+			cfg := testConfig()
+			cfg.SkipDatabaseSetup = skip
+			for _, chart := range []*Chart{&cfg.Kagent, &cfg.KagentCRDs, &cfg.Substrate, &cfg.SubstrateCRDs, &cfg.PodCertificate} {
+				chart.Repository, chart.Version = ".", "0.0.0"
+				chart.ValuesFiles = nil
+				dir := filepath.Join(root, chart.Name)
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, "templates"), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v2\nname: "+chart.Name+"\nversion: 0.0.0\n"), 0o600))
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(root, cfg.Kagent.Name, "templates", "controller-deployment.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: controller}\nspec: {template: {spec: {serviceAccountName: custom-controller}}}\n"), 0o600))
+			file := filepath.Join(root, "operator.yaml")
+			require.NoError(t, os.WriteFile(file, []byte("controller: {replicas: 2}\nconfig: {logging: {level: debug}}\nuserValue: retained\n"), 0o600))
+			profile := filepath.Join(root, "profile.yaml")
+			require.NoError(t, os.WriteFile(profile, []byte("agents: {enabled: false}\n"), 0o600))
+			cfg.Kagent.ValuesFiles = []string{profile, file}
+			runner := CommandRunner{}
+			plan, err := planInstall(t.Context(), runner, cfg)
+			require.NoError(t, err)
+			output := filepath.Join(root, "export")
+			_, err = Export(t.Context(), runner, cfg, ExportOptions{Directory: output, Secrets: exportReferences()})
+			require.NoError(t, err)
+			script, err := os.ReadFile(filepath.Join(output, "install.sh"))
+			require.NoError(t, err)
+			require.Contains(t, string(script), filepath.Join(root, "kagent"))
+			require.Equal(t, ".", cfg.Kagent.Repository)
+			mergeChart := filepath.Join(root, "merge")
+			require.NoError(t, writeValuesChart(mergeChart))
+			for _, step := range plan.steps {
+				release, ok := step.(ChartInstall)
+				if !ok {
+					continue
+				}
+				expected, err := mergeValues(t.Context(), runner, release.Chart, mergeChart)
+				require.NoError(t, err)
+				path := filepath.Join(output, "values", release.Release+".yaml")
+				args := []string{"template", "replay", mergeChart, "-f", path}
+				if release.Release == "kagent" {
+					secret := filepath.Join(root, "runtime-key")
+					require.NoError(t, os.WriteFile(secret, []byte(cfg.APIKey), 0o600))
+					args = append(args, "--set-file", "providers.openAI.apiKey="+secret)
+				}
+				out, err := runner.Run(t.Context(), Command{Program: "helm", Args: args})
+				require.NoError(t, err)
+				var manifest struct{ Data map[string]string }
+				require.NoError(t, yaml.Unmarshal([]byte(out), &manifest))
+				var got map[string]any
+				require.NoError(t, json.Unmarshal([]byte(manifest.Data["values"]), &got))
+				require.Equal(t, expected, got, release.Release)
+			}
+			// The directory is independent of later changes to input values files.
+			require.NoError(t, os.WriteFile(file, []byte("userValue: changed\n"), 0o600))
+			data, err := os.ReadFile(filepath.Join(output, "values", "kagent.yaml"))
+			require.NoError(t, err)
+			require.Contains(t, string(data), "userValue: retained")
+			require.NotContains(t, string(data), "userValue: changed")
+		})
+	}
+}
+
+func TestExportScriptMissingCredentialsStopsBeforeHelm(t *testing.T) {
+	refs := exportReferences()
+	refs[0].Environment = "KAGENT_TEST_UNSET_CREDENTIAL"
+	path := filepath.Join(t.TempDir(), "install.sh")
+	require.NoError(t, os.WriteFile(path, []byte(exportScript(nil, refs)), 0o700))
+	cmd := exec.CommandContext(t.Context(), "sh", path)
+	cmd.Env = slices.DeleteFunc(os.Environ(), func(value string) bool { return strings.HasPrefix(value, "KAGENT_TEST_UNSET_CREDENTIAL=") })
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err)
+	require.Contains(t, string(out), "Set KAGENT_TEST_UNSET_CREDENTIAL")
+}
+
+func TestExportScriptCleansCredentialsAfterHelmFailure(t *testing.T) {
+	dir := t.TempDir()
+	bin, temporary := filepath.Join(dir, "bin"), filepath.Join(dir, "temporary")
+	require.NoError(t, os.Mkdir(bin, 0o700))
+	require.NoError(t, os.Mkdir(temporary, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "helm"), []byte("#!/bin/sh\nexit 7\n"), 0o700))
+	path := filepath.Join(dir, "install.sh")
+	require.NoError(t, os.WriteFile(path, []byte(exportScript([]ChartInstall{{Release: "kagent", Namespace: "test", Chart: Chart{Name: "kagent", Repository: "./charts", Version: "1"}}}, exportReferences())), 0o700))
+	cmd := exec.CommandContext(t.Context(), "sh", path)
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "TMPDIR="+temporary, "OPENAI_API_KEY=runtime-only-key")
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err)
+	require.NotContains(t, string(out), "runtime-only-key")
+	files, err := os.ReadDir(temporary)
+	require.NoError(t, err)
+	require.Empty(t, files)
+}

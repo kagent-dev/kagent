@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/client-go/kubernetes/fake"
 )
 
 func TestChartCommand(t *testing.T) {
@@ -53,7 +52,7 @@ func TestControllerServiceAccount(t *testing.T) {
 				return tc.manifest, nil
 			}}
 			chart := Chart{Name: "custom-kagent", Repository: "./charts/", Version: "v1", Values: []string{"controller.replicas=1"}, ValuesFiles: []string{"operator.yaml", "local.yaml"}, inlineValues: "controller: {}\n"}
-			got, err := NewClient(runner, fake.NewSimpleClientset()).controllerServiceAccount(t.Context(), "team", chart)
+			got, err := controllerServiceAccount(t.Context(), runner, "team", chart)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				return
