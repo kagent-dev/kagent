@@ -79,6 +79,8 @@ export {
   useModel,
   useModels,
   useProviderModels,
+ useConfiguredModelProviders,
+ useModelDiscovery,
   useProviders,
 } from "./hooks/useModels";
 export { usePrompt, usePrompts } from "./hooks/usePrompts";

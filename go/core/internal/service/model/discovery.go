@@ -2,30 +2,28 @@ package model
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/modeldiscovery"
 )
 
-// ProviderModelRefresher refreshes the discovered models for one provider config.
-type ProviderModelRefresher interface {
-	RefreshModelProviderConfigModels(ctx context.Context, namespace, name string) ([]string, error)
+// ProviderDiscovery owns refresh scheduling and the local read-only catalog.
+type ProviderDiscovery interface {
+	modeldiscovery.Reader
+	Refresh(context.Context, types.NamespacedName) (*modeldiscovery.Snapshot, error)
 }
-
 type ServiceOption func(*Service)
 
-func WithProviderModelRefresher(refresher ProviderModelRefresher) ServiceOption {
-	return func(service *Service) {
-		service.providerModelRefresher = refresher
-	}
+func WithProviderDiscovery(discovery ProviderDiscovery) ServiceOption {
+	return func(s *Service) { s.discovery = discovery }
 }
 
 type ModelInfo struct {
@@ -42,20 +40,11 @@ type ProviderDefinition struct {
 	OptionalParams []string `json:"optionalParams"`
 }
 
-type ConfiguredProvider struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Endpoint string `json:"endpoint"`
-}
+type ConfiguredProvider = apiv1.ConfiguredProvider
 
 type GetProviderModelsRequest struct {
-	Name    string
+	Ref     types.NamespacedName
 	Refresh bool
-}
-
-type ProviderModelsResult struct {
-	Provider string   `json:"provider"`
-	Models   []string `json:"models"`
 }
 
 // ollamaCatalogModels renders the Ollama catalog from the same list that
@@ -352,64 +341,47 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 	return providers
 }
 
-func (s *Service) ListConfiguredProviders(ctx context.Context) ([]ConfiguredProvider, error) {
-	providerConfigs, err := s.providerConfigs.List(ctx, s.defaultNamespace)
+func (s *Service) ListConfiguredProviders(ctx context.Context) ([]*ConfiguredProvider, error) {
+	configs, err := s.providerConfigs.List(ctx, "")
 	if err != nil {
 		return nil, err
 	}
-
-	providers := make([]ConfiguredProvider, 0, len(providerConfigs))
-	for _, providerConfig := range providerConfigs {
-		if meta.IsStatusConditionTrue(providerConfig.Status.Conditions, v1alpha3.ModelProviderConfigConditionTypeReady) {
-			providers = append(providers, ConfiguredProvider{
-				Name:     providerConfig.Name,
-				Type:     string(providerConfig.Spec.Type),
-				Endpoint: providerConfig.Spec.GetEndpoint(),
-			})
-		}
+	result := make([]*ConfiguredProvider, 0, len(configs))
+	for _, config := range configs {
+		snapshot := s.providerSnapshot(config)
+		result = append(result, &ConfiguredProvider{Ref: snapshot.Ref, Type: snapshot.Type, Endpoint: snapshot.Endpoint, State: snapshot.State, Error: snapshot.Error})
 	}
-	return providers, nil
+	return result, nil
 }
 
-func (s *Service) GetProviderModels(ctx context.Context, request GetProviderModelsRequest) (ProviderModelsResult, error) {
-	if request.Name == "" {
-		return ProviderModelsResult{}, serviceerrors.NewInvalidArgument("Model provider name is required", nil)
+func (s *Service) providerSnapshot(config *v1alpha3.ModelProviderConfig) *modeldiscovery.Snapshot {
+	if s.discovery != nil {
+		snapshot := s.discovery.Get(types.NamespacedName{Namespace: config.Namespace, Name: config.Name})
+		if snapshot != nil && snapshot.Uid == string(config.UID) && snapshot.Generation == config.Generation {
+			return snapshot
+		}
 	}
+	return &modeldiscovery.Snapshot{Ref: &apiv1.ResourceReference{Namespace: config.Namespace, Name: config.Name}, Uid: string(config.UID), Generation: config.Generation, Type: string(config.Spec.Type), Endpoint: config.Spec.GetEndpoint(), State: apiv1.DiscoveryState_DISCOVERY_STATE_PENDING}
+}
 
-	ref := types.NamespacedName{Namespace: s.defaultNamespace, Name: request.Name}
-	var models []string
+func (s *Service) GetProviderModels(ctx context.Context, request GetProviderModelsRequest) (*modeldiscovery.Snapshot, error) {
 	if request.Refresh {
-		// The RPC also serves cached reads, so its transport read policy cannot
-		// reject this mutation. A share must never trigger provider discovery.
 		if _, shared := auth.ShareContextFrom(ctx); shared {
-			return ProviderModelsResult{}, serviceerrors.NewPermissionDenied("Session shares cannot refresh provider models", nil)
+			return nil, serviceerrors.NewPermissionDenied("Session shares cannot refresh provider models", nil)
 		}
-		if err := s.providerConfigs.Authorize(ctx, auth.VerbUpdate, ref); err != nil {
-			return ProviderModelsResult{}, err
+		if err := s.providerConfigs.Authorize(ctx, auth.VerbUpdate, request.Ref); err != nil {
+			return nil, err
 		}
-		if s.providerModelRefresher == nil {
-			return ProviderModelsResult{}, serviceerrors.NewInternal(
-				"Failed to refresh models for model provider",
-				errors.New("provider model refresher is not configured"),
-			)
+		if s.discovery == nil {
+			return nil, serviceerrors.NewUnavailable("Model discovery is starting", nil)
 		}
-		refreshedModels, err := s.providerModelRefresher.RefreshModelProviderConfigModels(ctx, s.defaultNamespace, request.Name)
-		if err != nil {
-			return ProviderModelsResult{}, serviceerrors.NewInternal("Failed to refresh models for model provider", err)
-		}
-		models = refreshedModels
-	} else {
-		providerConfig, err := s.providerConfigs.Get(ctx, ref)
-		if err != nil {
-			return ProviderModelsResult{}, err
-		}
-		if len(providerConfig.Status.DiscoveredModels) == 0 {
-			return ProviderModelsResult{}, serviceerrors.NewNotFound("No models discovered for model provider, try refreshing", nil)
-		}
-		models = providerConfig.Status.DiscoveredModels
+		return s.discovery.Refresh(ctx, request.Ref)
 	}
-
-	return ProviderModelsResult{Provider: request.Name, Models: models}, nil
+	config, err := s.providerConfigs.Get(ctx, request.Ref)
+	if err != nil {
+		return nil, err
+	}
+	return s.providerSnapshot(config), nil
 }
 
 func providerDefinition(name string, allKeys, requiredKeys []string) ProviderDefinition {

@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -21,17 +22,20 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/modeldiscovery"
 )
 
 type recordingModelRefresher struct {
+	modeldiscovery.Reader
 	namespace string
 	name      string
 }
 
-func (r *recordingModelRefresher) RefreshModelProviderConfigModels(_ context.Context, namespace, name string) ([]string, error) {
-	r.namespace = namespace
-	r.name = name
-	return []string{"fresh-model"}, nil
+func (r *recordingModelRefresher) Get(types.NamespacedName) *modeldiscovery.Snapshot { return nil }
+func (r *recordingModelRefresher) Refresh(_ context.Context, ref types.NamespacedName) (*modeldiscovery.Snapshot, error) {
+	r.namespace = ref.Namespace
+	r.name = ref.Name
+	return &modeldiscovery.Snapshot{Ref: &apiv1.ResourceReference{Namespace: ref.Namespace, Name: ref.Name}, State: apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT, Models: []*apiv1.DiscoveredModel{{Id: "fresh-model"}}}, nil
 }
 
 func TestModelServiceCRUD(t *testing.T) {
@@ -47,7 +51,6 @@ func TestModelServiceCRUD(t *testing.T) {
 				Type:   v1alpha3.ModelProviderConfigConditionTypeReady,
 				Status: metav1.ConditionTrue,
 			}},
-			DiscoveredModels: []string{"cached-model"},
 		},
 	}).Build()
 	refresher := &recordingModelRefresher{}
@@ -55,7 +58,7 @@ func TestModelServiceCRUD(t *testing.T) {
 		kubeClient,
 		&pkgauth.NoopAuthorizer{},
 		"default",
-		modelservice.WithProviderModelRefresher(refresher),
+		modelservice.WithProviderDiscovery(refresher),
 	)
 
 	listener := bufconn.Listen(1024 * 1024)
@@ -180,19 +183,19 @@ func TestModelServiceCRUD(t *testing.T) {
 		t.Fatalf("ListConfiguredProviders() = %+v", configuredProviders.GetProviders())
 	}
 
-	cachedModels, err := client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider-config"})
+	cachedModels, err := client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{Ref: &apiv1.ResourceReference{Namespace: "default", Name: "provider-config"}})
 	if err != nil {
 		t.Fatalf("ListProviderModels(cached) error = %v", err)
 	}
-	if cachedModels.GetProvider() != "provider-config" || len(cachedModels.GetModels()) != 1 || cachedModels.GetModels()[0] != "cached-model" {
+	if cachedModels.GetState() != apiv1.DiscoveryState_DISCOVERY_STATE_PENDING {
 		t.Fatalf("ListProviderModels(cached) = %+v", cachedModels)
 	}
 
-	refreshedModels, err := client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider-config", Refresh: true})
+	refreshedModels, err := client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{Ref: &apiv1.ResourceReference{Namespace: "default", Name: "provider-config"}, Refresh: true})
 	if err != nil {
 		t.Fatalf("ListProviderModels(refresh) error = %v", err)
 	}
-	if len(refreshedModels.GetModels()) != 1 || refreshedModels.GetModels()[0] != "fresh-model" || refresher.namespace != "default" || refresher.name != "provider-config" {
+	if len(refreshedModels.GetDiscoveredModels()) != 1 || refreshedModels.GetDiscoveredModels()[0].GetId() != "fresh-model" || refresher.namespace != "default" || refresher.name != "provider-config" {
 		t.Fatalf("ListProviderModels(refresh) = %+v, refresher = %+v", refreshedModels, refresher)
 	}
 

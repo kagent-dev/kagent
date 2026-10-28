@@ -29,10 +29,14 @@ import {
   isValidResourceName,
   slugifyResourceName,
 } from "@/components/common/resourceName";
+import { invocationSettings } from "./discoverySelection";
 import { paths } from "@/router/routes";
 import {
   useNamespaces,
   useProviderModels,
+  useConfiguredModelProviders,
+  useModelDiscovery,
+  apiClient,
   useProviders,
   type CreateModelConfigRequest,
 } from "@/api";
@@ -121,6 +125,18 @@ export function ModelForm({
   const providers = useProviders();
   const providerModels = useProviderModels();
   const namespaces = useNamespaces();
+  const sources = useConfiguredModelProviders();
+  const [sourceKey, setSourceKey] = useState<string>();
+  const source = sources.data?.find(p => `${p.namespace}/${p.name}` === sourceKey);
+  const discovery = useModelDiscovery(source?.namespace, source?.name);
+  const [invocationFormat, setInvocationFormat] = useState<string>();
+  const [refreshingDiscovery, setRefreshingDiscovery] = useState(false);
+  const catalog = discovery.data;
+  const [observedCatalog, setObservedCatalog] = useState(catalog);
+  // SWR retains successful data on read errors, including a deleted or forbidden
+  // source. Such data cannot authorize a new selection or submission.
+  const selectable = !!source && !sources.error && !discovery.error &&
+    (catalog?.state === "current" || catalog?.state === "stale");
 
   const [draft, setDraft] = useState<ModelDraft>(initial ?? emptyModelDraft());
   // Whether the name has been typed into. True when editing: an existing name is
@@ -169,6 +185,25 @@ export function ModelForm({
       defaultHeaders: current.defaultHeaders.filter((row) => row.id !== id),
     }));
 
+  // A new catalog may invalidate a completed selection. Typing into the model
+  // input does not itself invalidate the draft; submission checks membership.
+  if (sourceKey && draft.model && !selectable) {
+    setDraft(current => ({...current, model: undefined}));
+  }
+  if (catalog !== observedCatalog) {
+    setObservedCatalog(catalog);
+    if (sourceKey && draft.model && (!catalog || !selectable ||
+      (catalog.endpoint !== observedCatalog?.endpoint) ||
+      !catalog.models.some(m => m.id === draft.model))) {
+      setDraft(current => ({...current, model: undefined}));
+    }
+    if (sourceKey && catalog && invocationFormat && (
+      catalog.endpoint !== observedCatalog?.endpoint
+    )) {
+      setDraft(current => ({...current, ...invocationSettings(invocationFormat, catalog.endpoint)}));
+    }
+  }
+
   const providerList = useMemo(
     () =>
       [...(providers.data ?? [])].sort((a, b) =>
@@ -208,8 +243,18 @@ export function ModelForm({
   );
 
   const modelsForProvider = useMemo(
-    () => (draft.provider ? (providerModels.data?.[draft.provider] ?? []) : []),
-    [draft.provider, providerModels.data],
+    () => sourceKey ? (selectable ? (catalog?.models ?? []).map(m => ({name:m.id, function_calling:m.capabilities?.tools})) : [])
+      : (draft.provider ? (providerModels.data?.[draft.provider] ?? []) : []),
+    [sourceKey, selectable, catalog, draft.provider, providerModels.data],
+  );
+  const modelOptions = useMemo(
+    () => sourceKey
+      ? (selectable ? (catalog?.models ?? []).map(model => ({
+          value: model.id,
+          label: model.name ? `${model.name} (${model.id})` : model.id,
+        })) : [])
+      : modelsForProvider.map(model => ({value: model.name, label: model.name})),
+    [sourceKey, selectable, catalog, modelsForProvider],
   );
   const selectedModel = modelsForProvider.find((m) => m.name === draft.model);
   const isOllama = draft.provider === OLLAMA_PROVIDER;
@@ -330,6 +375,10 @@ export function ModelForm({
     setSubmitted(true);
     setFailure(undefined);
     if (issues.length > 0) return;
+    if (sourceKey && (!invocationFormat || !selectable || !catalog?.models.some(m => m.id === draft.model))) {
+      setFailure(new Error("Choose a discovered model and invocation format from the current source."));
+      return;
+    }
 
     setSaving(true);
     try {
@@ -397,6 +446,29 @@ export function ModelForm({
       ) : null}
 
       <Form layout="vertical" component="div">
+        {!isEdit && <>
+          <Form.Item label="Discovery source" extra="Select a ModelProviderConfig to discover models. Leave empty to configure a model manually.">
+            <Select data-testid="model-discovery-source" allowClear placeholder="Manual configuration"
+              value={sourceKey} loading={sources.isLoading}
+              options={(sources.data ?? []).map(p => ({value:`${p.namespace}/${p.name}`, label:`${p.namespace}/${p.name}`}))}
+              onChange={(value) => {setSourceKey(value);setInvocationFormat(undefined);
+                setDraft(current => ({...current, provider:undefined, model:undefined, params:{}}));}} />
+          </Form.Item>
+          {sources.error && <Alert type="error" title="Unable to load discovery sources" description={sources.error.message} />}
+          {sourceKey && <>
+            <Form.Item label="Invocation format" required extra="Select the API exposed by your gateway. Discovery credentials are not used for invocation.">
+              <Select data-testid="model-invocation-format" value={invocationFormat} placeholder="Choose an invocation format"
+                options={[{value:"chatCompletions",label:"Chat Completions"},{value:"responses",label:"Responses"},{value:"messages",label:"Anthropic Messages"}]}
+                onChange={format => {
+                  setInvocationFormat(format);
+                  setDraft(current => ({...current, ...invocationSettings(format, catalog?.endpoint ?? "")}));
+                }} />
+            </Form.Item>
+            <Alert type={discovery.error || catalog?.state === "failed" ? "error" : catalog?.state === "stale" ? "warning" : "info"}
+              title={discovery.error ? "Unable to load discovered models" : `Discovery: ${catalog?.state ?? "pending"}`}
+              description={discovery.error?.message ?? catalog?.error ?? (catalog?.state === "current" && catalog.models.length === 0 ? "No models discovered." : undefined)} />
+          </>}
+        </>}
         <Row gutter={16}>
           <Col xs={24} md={12}>
             <Form.Item
@@ -424,7 +496,7 @@ export function ModelForm({
                   value={draft.provider}
                   loading={providers.isLoading}
                   disabled={
-                    identityLocked && !allowProviderSelectionWhenIdentityLocked
+                    !!sourceKey || (identityLocked && !allowProviderSelectionWhenIdentityLocked)
                   }
                   css={{ flex: 1 }}
                   options={providerSelectOptions}
@@ -447,10 +519,14 @@ export function ModelForm({
                 <Button
                   data-testid="model-fetch"
                   icon={<RefreshCw size={14} aria-hidden />}
-                  loading={providers.isLoading || providerModels.isLoading}
-                  onClick={() => {
-                    void providers.refresh();
-                    void providerModels.refresh();
+                  loading={refreshingDiscovery || providers.isLoading || providerModels.isLoading}
+                  onClick={async () => {
+                    if (source) {
+                      setRefreshingDiscovery(true);
+                      try {await apiClient.models.refreshDiscovery(source.namespace, source.name);}
+                      catch (error) {setFailure(error);}
+                      finally {try {await discovery.refresh();} catch(error) {setFailure(error);} setRefreshingDiscovery(false);}
+                    } else {try {await Promise.all([providers.refresh(),providerModels.refresh(),sources.refresh()]);} catch(error) {setFailure(error);}}
                   }}
                 >
                   Refresh models
@@ -468,7 +544,7 @@ export function ModelForm({
                 submitted && !draft.model
                   ? "Choose a model."
                   : draft.provider
-                    ? "Pick model from the list, or type it if it isn't listed."
+                    ? sourceKey ? "Choose a model discovered by this source." : "Pick model from the list, or type it if it isn't listed."
                     : "Pick a provider first."
               }
             >
@@ -482,17 +558,17 @@ export function ModelForm({
                 value={draft.model}
                 disabled={
                   !draft.provider ||
-                  (identityLocked && !allowProviderSelectionWhenIdentityLocked)
+                  (identityLocked && !allowProviderSelectionWhenIdentityLocked) || (!!sourceKey && !selectable)
                 }
-                options={modelsForProvider.map((item) => ({
-                  value: item.name,
-                }))}
+                options={modelOptions}
                 filterOption={(input, option) =>
                   (option?.value ?? "")
                     .toLowerCase()
                     .includes(input.toLowerCase())
                 }
-                onChange={(next) => set("model", next)}
+                onChange={(next) => {
+                  set("model", next);
+                }}
               />
               {selectedModel && selectedModel.function_calling === false ? (
                 <Text

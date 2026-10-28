@@ -3,6 +3,7 @@
 import type { ActorJWT, TLSConfig } from "./common";
 
 export interface OpenAIConfig {
+ apiFormat?: "chatCompletions" | "responses";
   baseUrl?: string;
   organization?: string;
   temperature?: string;
@@ -164,4 +165,28 @@ export interface UpdateModelConfigRequest {
   apiKey?: string | null;
   spec: ModelConfigSpec;
   secrets?: SecretMaterial[];
+}
+
+export type DiscoveryState = "pending" | "current" | "stale" | "failed";
+export interface ConfiguredModelProvider {
+  namespace: string;
+  name: string;
+  type: string;
+  endpoint: string;
+  state: DiscoveryState;
+  error?: string;
+}
+export interface DiscoveredModel {
+  id: string;
+  name?: string;
+  ownedBy?: string;
+  contextWindow?: string;
+  maxTokens?: string;
+  capabilities?: { tools?: boolean; reasoning?: boolean; structuredOutputs?: boolean; temperature?: boolean };
+}
+export interface ModelDiscoveryResult {
+  endpoint: string;
+  state: DiscoveryState;
+  error?: string;
+  models: DiscoveredModel[];
 }
