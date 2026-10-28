@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
@@ -46,7 +48,7 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"cmd","command":"pwd","commandActions":[],"cwd":"/data/workspace","status":"inProgress"}}}`,
 		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"cmd","command":"pwd","commandActions":[],"cwd":"/data/workspace","aggregatedOutput":"/data/workspace","exitCode":0,"status":"completed"}}}`,
 		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"mcp","server":"tools","tool":"lookup","arguments":{"query":"safe"},"status":"inProgress"}}}`,
-		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"mcp","server":"tools","tool":"lookup","arguments":{"query":"safe"},"result":{"content":"ok"},"status":"completed"}}}`,
+		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"mcp","server":"tools","tool":"lookup","arguments":{"query":"safe"},"result":{"content":[{"type":"text","text":"ok"}]},"status":"completed"}}}`,
 		`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"completed"}}}`,
 	}
 	terminal := 0
@@ -74,6 +76,10 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 	if call := sink.calls[1]; call.Name != "tools.lookup" || call.MCPServer != "tools" || call.MCPTool != "lookup" || sink.results[1].Name != "tools.lookup" {
 		t.Fatalf("MCP events = %#v, %#v, want tools.lookup", sink.calls[1], sink.results[1])
 	}
+	require.Equal(t, map[string]any{"query": "safe"}, sink.calls[1].Arguments)
+	require.Equal(t, map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}, sink.results[1].Result)
+	require.Equal(t, "lookup", sink.results[1].MCPTool)
+
 	if call := sink.calls[0]; call.MCPServer != "" || call.MCPTool != "" {
 		t.Fatalf("non-MCP call = %#v, want no MCP server or tool", call)
 	}
