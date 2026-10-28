@@ -70,7 +70,7 @@ KIND_KUBECONFIG ?= /tmp/kind-config
 # registry container, and templates reconcile at the minimum interval.
 KIND_SUBSTRATE_HELM_ARGS = --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000 --set ateApi.extraArgs[0]=--template-resync-interval=250ms
 # A file only releases whose `kagent install` deploys the database contain.
-CLI_DATABASE_SENTINEL = go/core/cli/internal/commands/bundled_postgres.yaml
+CLI_DATABASE_SENTINEL = go/core/pkg/install/bundled_postgres.yaml
 KAGENT_POSTGRES_OWNER_SECRET ?= kagent-postgres-owner
 KAGENT_POSTGRES_READWRITE_SECRET ?= kagent-postgres-readwrite
 

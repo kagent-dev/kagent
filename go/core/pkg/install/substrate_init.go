@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package commands
+package install
 
 import (
 	"bytes"
@@ -36,7 +36,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 const (
@@ -46,8 +45,6 @@ const (
 	inClusterIssuer         = "https://kubernetes.default.svc"
 	caValidity              = 365 * 24 * time.Hour
 )
-
-var prepareSubstrate = prepareSubstratePrerequisites
 
 type caKeyType int
 
@@ -78,16 +75,10 @@ type serializedJWTAuthority struct {
 	SigningKeyPKCS8 []byte
 }
 
-func prepareSubstratePrerequisites(ctx context.Context, namespace string) error {
-	restConfig, err := config.GetConfig()
-	if err != nil {
-		return fmt.Errorf("load Kubernetes configuration: %w", err)
-	}
-	client, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("create Kubernetes client: %w", err)
-	}
-	return ensureSubstratePrerequisites(ctx, client, namespace)
+// PrepareSubstrate creates or preserves the identity pools and authentication
+// configuration needed by Substrate. Existing signing keys are never rotated.
+func (c *Client) PrepareSubstrate(ctx context.Context, namespace string) error {
+	return ensureSubstratePrerequisites(ctx, c.kubernetes, namespace)
 }
 
 func ensureSubstratePrerequisites(ctx context.Context, client kubernetes.Interface, namespace string) error {
