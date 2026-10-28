@@ -61,6 +61,13 @@ type activeTool struct {
 	approvalMatched bool
 }
 
+func (t activeTool) mcpTool() string {
+	if t.server != "" {
+		return t.tool
+	}
+	return ""
+}
+
 func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) (runtime.Outcome, bool, error) {
 	if subagent, err := t.subagentItem(message, sink); err != nil || subagent {
 		return runtime.Outcome{}, false, err
@@ -338,9 +345,15 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 		name, arguments = "file_change", map[string]any{"changes": boundValue(item.Changes)}
 		result["changes"] = boundValue(item.Changes)
 	case "mcpToolCall":
-		name, arguments = item.Server+"."+item.Tool, map[string]any{"arguments": boundValue(item.Arguments)}
+		name = item.Server + "." + item.Tool
+		if item.Arguments != nil {
+			var ok bool
+			arguments, ok = boundValue(item.Arguments).(map[string]any)
+			if !ok {
+				return fmt.Errorf("codex MCP arguments must be an object")
+			}
+		}
 		mcpServer, mcpTool = item.Server, item.Tool
-		result["result"], result["error"] = boundValue(item.Result), boundValue(item.Error)
 	case "collabAgentToolCall":
 		name, arguments = "Agent", map[string]any{"prompt": bounded(item.Prompt), "tool": item.Tool}
 		// wait and closeAgent calls also list the subagent thread. Only the spawnAgent call started it.
@@ -365,7 +378,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 			}
 			delete(t.tools, item.ID)
 			if err := sink.ToolResult(runtime.ToolResult{
-				ID: item.ID, Name: existing.name, Result: map[string]any{"error": "Codex reused the tool ID"}, IsError: true, Status: runtime.ToolUnfinished,
+				ID: item.ID, Name: existing.name, MCPTool: existing.mcpTool(), Result: map[string]any{"error": "Codex reused the tool ID"}, IsError: true, Status: runtime.ToolUnfinished,
 			}); err != nil {
 				return err
 			}
@@ -391,7 +404,15 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 	if item.Status == "declined" {
 		status = runtime.ToolDeclined
 	}
-	return sink.ToolResult(runtime.ToolResult{ID: item.ID, Name: name, Result: result, IsError: item.Status == "failed", Status: status})
+	var output any = result
+	failed := item.Status == "failed"
+	if mcpTool != "" {
+		output = boundValue(item.Result)
+		if item.Error != nil {
+			output, failed = boundValue(item.Error), true
+		}
+	}
+	return sink.ToolResult(runtime.ToolResult{ID: item.ID, Name: name, Result: output, IsError: failed, Status: status, MCPTool: mcpTool})
 }
 
 func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
@@ -402,7 +423,7 @@ func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
 	slices.Sort(ids)
 	for _, id := range ids {
 		if err := sink.ToolResult(runtime.ToolResult{
-			ID: id, Name: t.tools[id].name, Result: map[string]any{"error": "Codex turn ended before tool completion"}, IsError: true, Status: runtime.ToolUnfinished,
+			ID: id, Name: t.tools[id].name, MCPTool: t.tools[id].mcpTool(), Result: map[string]any{"error": "Codex turn ended before tool completion"}, IsError: true, Status: runtime.ToolUnfinished,
 		}); err != nil {
 			return err
 		}

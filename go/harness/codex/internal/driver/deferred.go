@@ -353,7 +353,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 					if didNotExecute {
 						status = runtime.ToolDeclined
 					}
-					telemetry.ToolExecutionFinished(runtime.ToolResult{ID: r.Approval.CallID, Name: r.Approval.Name, Result: r.Result, IsError: err != nil || r.Result != nil && r.Result.IsError, Status: status})
+					telemetry.ToolExecutionFinished(runtime.ToolResult{ID: r.Approval.CallID, Name: r.Approval.Name, MCPTool: r.Tool, Result: r.Result, IsError: err != nil || r.Result != nil && r.Result.IsError, Status: status})
 				}
 				if err != nil {
 					if didNotExecute {
@@ -382,7 +382,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		namespace := "mcp__" + r.Server
 		tool = &toolContinuation{
 			output: turnToolOutput{Name: r.Tool, Namespace: &namespace, Output: string(data)},
-			result: runtime.ToolResult{ID: r.Approval.CallID, Name: r.Approval.Name, Result: r.Result, IsError: r.Result.IsError},
+			result: runtime.ToolResult{ID: r.Approval.CallID, Name: r.Approval.Name, MCPTool: r.Tool, Result: r.Result, IsError: r.Result.IsError},
 		}
 		if !r.Decision.Approved {
 			tool.result.Status = runtime.ToolDeclined
