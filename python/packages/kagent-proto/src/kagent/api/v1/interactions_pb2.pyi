@@ -17,8 +17,18 @@ class ToolActivity(_message.Message):
     id: str
     name: str
     args: _struct_pb2.Value
-    response: _struct_pb2.Value
-    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., args: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., response: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ...) -> None: ...
+    response: ToolResponse
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., args: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., response: _Optional[_Union[ToolResponse, _Mapping]] = ...) -> None: ...
+
+class ToolResponse(_message.Message):
+    __slots__ = ("output", "error", "pending")
+    OUTPUT_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    PENDING_FIELD_NUMBER: _ClassVar[int]
+    output: _struct_pb2.Value
+    error: _struct_pb2.Value
+    pending: _struct_pb2.Value
+    def __init__(self, output: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., error: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., pending: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ...) -> None: ...
 
 class HitlTool(_message.Message):
     __slots__ = ("id", "call_id", "name", "args")

@@ -12,7 +12,11 @@ func TestToolActivityParts(t *testing.T) {
 		t.Fatalf("tool call = %#v, %v", call, ok)
 	}
 
-	part, err = NewToolResultPart("call-1", "lookup", map[string]any{"result": "ok"})
+	response, err := NewToolResponse(map[string]any{"result": "ok"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	part, err = NewToolResultPart("call-1", "lookup", response)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -19,6 +20,8 @@ func TestInteractionContractValidation(t *testing.T) {
 		message proto.Message
 		valid   bool
 	}{
+		{"tool result", &apiv1.ToolResponse{Outcome: &apiv1.ToolResponse_Output{Output: structpb.NewNullValue()}}, true},
+		{"missing tool outcome", &apiv1.ToolResponse{}, false},
 		{"approval", &apiv1.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []*apiv1.ToolApproval{{Id: "call", Approved: true}}}, true},
 		{"rejection", &apiv1.ToolApproval{Id: "call", RejectionReason: "read only"}, true},
 		{"contradictory decision", &apiv1.ToolApproval{Id: "call", Approved: true, RejectionReason: "read only"}, false},

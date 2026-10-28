@@ -11,9 +11,23 @@ option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1
 // The part kind is carried by kagent.dev/a2a/part-type metadata.
 message ToolActivity {
   string id = 1;
+  // Exact tool name, without a harness-specific MCP server prefix.
   string name = 2;
+  // The tool's arguments, without SDK transport envelopes.
   google.protobuf.Value args = 3;
-  google.protobuf.Value response = 4;
+  ToolResponse response = 4;
+}
+
+// ToolResponse distinguishes a result, a tool failure, and deferred user input.
+// MCP results prefer structuredContent, then text content; other content is
+// retained as the original MCP CallToolResult.
+message ToolResponse {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Value output = 1;
+    google.protobuf.Value error = 2;
+    google.protobuf.Value pending = 3;
+  }
 }
 
 // HitlTool identifies a tool invocation awaiting a human decision.

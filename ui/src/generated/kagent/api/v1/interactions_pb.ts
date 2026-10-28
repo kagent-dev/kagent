@@ -13,7 +13,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1/interactions.proto.
  */
 export const file_kagent_api_v1_interactions: GenFile = /*@__PURE__*/
-  fileDesc("CiBrYWdlbnQvYXBpL3YxL2ludGVyYWN0aW9ucy5wcm90bxINa2FnZW50LmFwaS52MSJ4CgxUb29sQWN0aXZpdHkSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIkCgRhcmdzGAMgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEigKCHJlc3BvbnNlGAQgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlIm4KCEhpdGxUb29sEhMKAmlkGAEgASgJQge6SARyAhABEhgKB2NhbGxfaWQYAiABKAlSB2NhbGxfaWQSDAoEbmFtZRgDIAEoCRIlCgRhcmdzGAQgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdCKbAQoRTmVzdGVkSGl0bFJlcXVlc3QSJAoNc3ViYWdlbnRfbmFtZRgBIAEoCVINc3ViYWdlbnRfbmFtZRIYCgd0YXNrX2lkGAIgASgJUgd0YXNrX2lkEh4KCmNvbnRleHRfaWQYAyABKAlSCmNvbnRleHRfaWQSJgoFdG9vbHMYBCADKAsyFy5rYWdlbnQuYXBpLnYxLkhpdGxUb29sIrMBChNUb29sQXBwcm92YWxSZXF1ZXN0EioKBHR5cGUYASABKAlCHLpIGXIXChV0b29sX2FwcHJvdmFsX3JlcXVlc3QSDAoEaGludBgCIAEoCRIwCgV0b29scxgDIAMoCzIXLmthZ2VudC5hcGkudjEuSGl0bFRvb2xCCLpIBZIBAggBEjAKBm5lc3RlZBgEIAEoCzIgLmthZ2VudC5hcGkudjEuTmVzdGVkSGl0bFJlcXVlc3Qi6wEKDFRvb2xBcHByb3ZhbBITCgJpZBgBIAEoCUIHukgEcgIQARIQCghhcHByb3ZlZBgCIAEoCBIqChByZWplY3Rpb25fcmVhc29uGAMgASgJUhByZWplY3Rpb25fcmVhc29uOocBukiDARqAAQoedG9vbF9hcHByb3ZhbC5yZWplY3Rpb25fcmVhc29uEi9hbiBhcHByb3ZlZCB0b29sIGNhbm5vdCBoYXZlIGEgcmVqZWN0aW9uIHJlYXNvbhotIXRoaXMuYXBwcm92ZWQgfHwgdGhpcy5yZWplY3Rpb25fcmVhc29uID09ICcnIn0KFFRvb2xBcHByb3ZhbFJlc3BvbnNlEisKBHR5cGUYASABKAlCHbpIGnIYChZ0b29sX2FwcHJvdmFsX3Jlc3BvbnNlEjgKCWFwcHJvdmFscxgCIAMoCzIbLmthZ2VudC5hcGkudjEuVG9vbEFwcHJvdmFsQgi6SAWSAQIIASJMCgxIaXRsUXVlc3Rpb24SGQoIcXVlc3Rpb24YASABKAlCB7pIBHICEAESDwoHY2hvaWNlcxgCIAMoCRIQCghtdWx0aXBsZRgDIAEoCCK4AQoOQXNrVXNlclJlcXVlc3QSJQoEdHlwZRgBIAEoCUIXukgUchIKEGFza191c2VyX3JlcXVlc3QSEwoCaWQYAiABKAlCB7pIBHICEAESOAoJcXVlc3Rpb25zGAMgAygLMhsua2FnZW50LmFwaS52MS5IaXRsUXVlc3Rpb25CCLpIBZIBAggBEjAKBm5lc3RlZBgEIAEoCzIgLmthZ2VudC5hcGkudjEuTmVzdGVkSGl0bFJlcXVlc3QiKQoNQXNrVXNlckFuc3dlchIYCgZhbnN3ZXIYASADKAlCCLpIBZIBAggBIocBCg9Bc2tVc2VyUmVzcG9uc2USJgoEdHlwZRgBIAEoCUIYukgVchMKEWFza191c2VyX3Jlc3BvbnNlEhMKAmlkGAIgASgJQge6SARyAhABEjcKB2Fuc3dlcnMYAyADKAsyHC5rYWdlbnQuYXBpLnYxLkFza1VzZXJBbnN3ZXJCCLpIBZIBAggBQj1aO2dpdGh1Yi5jb20va2FnZW50LWRldi9rYWdlbnQvZ28vYXBpL2dlbi9rYWdlbnQvYXBpL3YxO2FwaXYxYgZwcm90bzM", [file_buf_validate_validate, file_google_protobuf_struct]);
+  fileDesc("CiBrYWdlbnQvYXBpL3YxL2ludGVyYWN0aW9ucy5wcm90bxINa2FnZW50LmFwaS52MSJ9CgxUb29sQWN0aXZpdHkSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIkCgRhcmdzGAMgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEi0KCHJlc3BvbnNlGAQgASgLMhsua2FnZW50LmFwaS52MS5Ub29sUmVzcG9uc2UingEKDFRvb2xSZXNwb25zZRIoCgZvdXRwdXQYASABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWVIABInCgVlcnJvchgCIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZUgAEikKB3BlbmRpbmcYAyABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWVIAEIQCgdvdXRjb21lEgW6SAIIASJuCghIaXRsVG9vbBITCgJpZBgBIAEoCUIHukgEcgIQARIYCgdjYWxsX2lkGAIgASgJUgdjYWxsX2lkEgwKBG5hbWUYAyABKAkSJQoEYXJncxgEIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QimwEKEU5lc3RlZEhpdGxSZXF1ZXN0EiQKDXN1YmFnZW50X25hbWUYASABKAlSDXN1YmFnZW50X25hbWUSGAoHdGFza19pZBgCIAEoCVIHdGFza19pZBIeCgpjb250ZXh0X2lkGAMgASgJUgpjb250ZXh0X2lkEiYKBXRvb2xzGAQgAygLMhcua2FnZW50LmFwaS52MS5IaXRsVG9vbCKzAQoTVG9vbEFwcHJvdmFsUmVxdWVzdBIqCgR0eXBlGAEgASgJQhy6SBlyFwoVdG9vbF9hcHByb3ZhbF9yZXF1ZXN0EgwKBGhpbnQYAiABKAkSMAoFdG9vbHMYAyADKAsyFy5rYWdlbnQuYXBpLnYxLkhpdGxUb29sQgi6SAWSAQIIARIwCgZuZXN0ZWQYBCABKAsyIC5rYWdlbnQuYXBpLnYxLk5lc3RlZEhpdGxSZXF1ZXN0IusBCgxUb29sQXBwcm92YWwSEwoCaWQYASABKAlCB7pIBHICEAESEAoIYXBwcm92ZWQYAiABKAgSKgoQcmVqZWN0aW9uX3JlYXNvbhgDIAEoCVIQcmVqZWN0aW9uX3JlYXNvbjqHAbpIgwEagAEKHnRvb2xfYXBwcm92YWwucmVqZWN0aW9uX3JlYXNvbhIvYW4gYXBwcm92ZWQgdG9vbCBjYW5ub3QgaGF2ZSBhIHJlamVjdGlvbiByZWFzb24aLSF0aGlzLmFwcHJvdmVkIHx8IHRoaXMucmVqZWN0aW9uX3JlYXNvbiA9PSAnJyJ9ChRUb29sQXBwcm92YWxSZXNwb25zZRIrCgR0eXBlGAEgASgJQh26SBpyGAoWdG9vbF9hcHByb3ZhbF9yZXNwb25zZRI4CglhcHByb3ZhbHMYAiADKAsyGy5rYWdlbnQuYXBpLnYxLlRvb2xBcHByb3ZhbEIIukgFkgECCAEiTAoMSGl0bFF1ZXN0aW9uEhkKCHF1ZXN0aW9uGAEgASgJQge6SARyAhABEg8KB2Nob2ljZXMYAiADKAkSEAoIbXVsdGlwbGUYAyABKAgiuAEKDkFza1VzZXJSZXF1ZXN0EiUKBHR5cGUYASABKAlCF7pIFHISChBhc2tfdXNlcl9yZXF1ZXN0EhMKAmlkGAIgASgJQge6SARyAhABEjgKCXF1ZXN0aW9ucxgDIAMoCzIbLmthZ2VudC5hcGkudjEuSGl0bFF1ZXN0aW9uQgi6SAWSAQIIARIwCgZuZXN0ZWQYBCABKAsyIC5rYWdlbnQuYXBpLnYxLk5lc3RlZEhpdGxSZXF1ZXN0IikKDUFza1VzZXJBbnN3ZXISGAoGYW5zd2VyGAEgAygJQgi6SAWSAQIIASKHAQoPQXNrVXNlclJlc3BvbnNlEiYKBHR5cGUYASABKAlCGLpIFXITChFhc2tfdXNlcl9yZXNwb25zZRITCgJpZBgCIAEoCUIHukgEcgIQARI3CgdhbnN3ZXJzGAMgAygLMhwua2FnZW50LmFwaS52MS5Bc2tVc2VyQW5zd2VyQgi6SAWSAQIIAUI9WjtnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MTthcGl2MWIGcHJvdG8z", [file_buf_validate_validate, file_google_protobuf_struct]);
 
 /**
  * ToolActivity is the DataPart payload for function_call and function_response.
@@ -28,19 +28,23 @@ export type ToolActivity = Message<"kagent.api.v1.ToolActivity"> & {
   id: string;
 
   /**
+   * Exact tool name, without a harness-specific MCP server prefix.
+   *
    * @generated from field: string name = 2;
    */
   name: string;
 
   /**
+   * The tool's arguments, without SDK transport envelopes.
+   *
    * @generated from field: google.protobuf.Value args = 3;
    */
   args?: Value | undefined;
 
   /**
-   * @generated from field: google.protobuf.Value response = 4;
+   * @generated from field: kagent.api.v1.ToolResponse response = 4;
    */
-  response?: Value | undefined;
+  response?: ToolResponse | undefined;
 };
 
 /**
@@ -49,6 +53,45 @@ export type ToolActivity = Message<"kagent.api.v1.ToolActivity"> & {
  */
 export const ToolActivitySchema: GenMessage<ToolActivity> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1_interactions, 0);
+
+/**
+ * ToolResponse distinguishes a result, a tool failure, and deferred user input.
+ * MCP results prefer structuredContent, then text content; other content is
+ * retained as the original MCP CallToolResult.
+ *
+ * @generated from message kagent.api.v1.ToolResponse
+ */
+export type ToolResponse = Message<"kagent.api.v1.ToolResponse"> & {
+  /**
+   * @generated from oneof kagent.api.v1.ToolResponse.outcome
+   */
+  outcome: {
+    /**
+     * @generated from field: google.protobuf.Value output = 1;
+     */
+    value: Value;
+    case: "output";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Value error = 2;
+     */
+    value: Value;
+    case: "error";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Value pending = 3;
+     */
+    value: Value;
+    case: "pending";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message kagent.api.v1.ToolResponse.
+ * Use `create(ToolResponseSchema)` to create a new message.
+ */
+export const ToolResponseSchema: GenMessage<ToolResponse> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1_interactions, 1);
 
 /**
  * HitlTool identifies a tool invocation awaiting a human decision.
@@ -82,7 +125,7 @@ export type HitlTool = Message<"kagent.api.v1.HitlTool"> & {
  * Use `create(HitlToolSchema)` to create a new message.
  */
 export const HitlToolSchema: GenMessage<HitlTool> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 1);
+  messageDesc(file_kagent_api_v1_interactions, 2);
 
 /**
  * @generated from message kagent.api.v1.NestedHitlRequest
@@ -114,7 +157,7 @@ export type NestedHitlRequest = Message<"kagent.api.v1.NestedHitlRequest"> & {
  * Use `create(NestedHitlRequestSchema)` to create a new message.
  */
 export const NestedHitlRequestSchema: GenMessage<NestedHitlRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 2);
+  messageDesc(file_kagent_api_v1_interactions, 3);
 
 /**
  * ToolApprovalRequest is carried by the https://kagent.dev/extensions/hitl/v1
@@ -149,7 +192,7 @@ export type ToolApprovalRequest = Message<"kagent.api.v1.ToolApprovalRequest"> &
  * Use `create(ToolApprovalRequestSchema)` to create a new message.
  */
 export const ToolApprovalRequestSchema: GenMessage<ToolApprovalRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 3);
+  messageDesc(file_kagent_api_v1_interactions, 4);
 
 /**
  * @generated from message kagent.api.v1.ToolApproval
@@ -176,7 +219,7 @@ export type ToolApproval = Message<"kagent.api.v1.ToolApproval"> & {
  * Use `create(ToolApprovalSchema)` to create a new message.
  */
 export const ToolApprovalSchema: GenMessage<ToolApproval> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 4);
+  messageDesc(file_kagent_api_v1_interactions, 5);
 
 /**
  * @generated from message kagent.api.v1.ToolApprovalResponse
@@ -198,7 +241,7 @@ export type ToolApprovalResponse = Message<"kagent.api.v1.ToolApprovalResponse">
  * Use `create(ToolApprovalResponseSchema)` to create a new message.
  */
 export const ToolApprovalResponseSchema: GenMessage<ToolApprovalResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 5);
+  messageDesc(file_kagent_api_v1_interactions, 6);
 
 /**
  * @generated from message kagent.api.v1.HitlQuestion
@@ -225,7 +268,7 @@ export type HitlQuestion = Message<"kagent.api.v1.HitlQuestion"> & {
  * Use `create(HitlQuestionSchema)` to create a new message.
  */
 export const HitlQuestionSchema: GenMessage<HitlQuestion> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 6);
+  messageDesc(file_kagent_api_v1_interactions, 7);
 
 /**
  * @generated from message kagent.api.v1.AskUserRequest
@@ -257,7 +300,7 @@ export type AskUserRequest = Message<"kagent.api.v1.AskUserRequest"> & {
  * Use `create(AskUserRequestSchema)` to create a new message.
  */
 export const AskUserRequestSchema: GenMessage<AskUserRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 7);
+  messageDesc(file_kagent_api_v1_interactions, 8);
 
 /**
  * @generated from message kagent.api.v1.AskUserAnswer
@@ -274,7 +317,7 @@ export type AskUserAnswer = Message<"kagent.api.v1.AskUserAnswer"> & {
  * Use `create(AskUserAnswerSchema)` to create a new message.
  */
 export const AskUserAnswerSchema: GenMessage<AskUserAnswer> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 8);
+  messageDesc(file_kagent_api_v1_interactions, 9);
 
 /**
  * @generated from message kagent.api.v1.AskUserResponse
@@ -301,5 +344,5 @@ export type AskUserResponse = Message<"kagent.api.v1.AskUserResponse"> & {
  * Use `create(AskUserResponseSchema)` to create a new message.
  */
 export const AskUserResponseSchema: GenMessage<AskUserResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_interactions, 9);
+  messageDesc(file_kagent_api_v1_interactions, 10);
 
