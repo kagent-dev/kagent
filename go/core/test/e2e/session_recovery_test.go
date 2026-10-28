@@ -98,7 +98,11 @@ func TestSessionWorkerLossRecovery(t *testing.T) {
 		require.NoError(t, err)
 		var interrupted *a2apb.Task
 		for _, task := range page.GetTasks() {
-			if task.GetStatus().GetState() == a2apb.TaskState_TASK_STATE_WORKING {
+			// ADK runtimes record WORKING while their model call is already in
+			// flight, so the accepted turn can still read SUBMITTED here. Recovery
+			// fails both.
+			switch task.GetStatus().GetState() {
+			case a2apb.TaskState_TASK_STATE_SUBMITTED, a2apb.TaskState_TASK_STATE_WORKING:
 				require.Nil(t, interrupted)
 				interrupted = task
 			}
