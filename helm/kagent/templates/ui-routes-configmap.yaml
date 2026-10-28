@@ -1,3 +1,7 @@
+{{- /* Helm ignores a key no template reads, so a renamed ui.nginx value fails rather than going quiet. */}}
+{{- range $old, $new := dict "proxyReadTimeout" "readTimeout" "proxySendTimeout" "sendTimeout" "clientMaxBodySize" "maxBodySize" }}
+{{- if hasKey ($.Values.ui.nginx | default dict) $old }}{{ fail (printf "ui.nginx.%s has been renamed to ui.proxy.%s." $old $new) }}{{ end }}
+{{- end }}
 {{- /*
   Identity headers an upstream auth proxy (oauth2-proxy and friends) sets and a
   backend may trust. The UI forwards every request header, so these are cleared
@@ -58,8 +62,8 @@ data:
   ui.json: |
     {{- dict
           "listen" (ternary ":8080" "0.0.0.0:8080" .Values.ipv6.enabled)
-          "clientMaxBodySize" (toString .Values.ui.nginx.clientMaxBodySize)
-          "proxyReadTimeout" (toString .Values.ui.nginx.proxyReadTimeout)
-          "proxySendTimeout" (toString .Values.ui.nginx.proxySendTimeout)
+          "clientMaxBodySize" (toString .Values.ui.proxy.maxBodySize)
+          "proxyReadTimeout" (toString .Values.ui.proxy.readTimeout)
+          "proxySendTimeout" (toString .Values.ui.proxy.sendTimeout)
           "proxies" $proxies
         | toPrettyJson | nindent 4 }}

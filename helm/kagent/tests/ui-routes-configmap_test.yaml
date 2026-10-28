@@ -123,9 +123,9 @@ tests:
     template: ui-routes-configmap.yaml
     set:
       ui:
-        nginx:
-          proxyReadTimeout: 900s
-          proxySendTimeout: 800s
+        proxy:
+          readTimeout: 900s
+          sendTimeout: 800s
     asserts:
       - matchRegex:
           path: data["ui.json"]
@@ -196,20 +196,45 @@ tests:
           path: data.KAGENT_UI_BASE_PATH
           value: /
 
-  - it: should set client_max_body_size by default
+  - it: should set the body size limit by default
     template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
           pattern: '"clientMaxBodySize": "20m"'
 
-  - it: should allow overriding client_max_body_size
+  - it: should allow overriding the body size limit
     template: ui-routes-configmap.yaml
     set:
       ui:
-        nginx:
-          clientMaxBodySize: 200m
+        proxy:
+          maxBodySize: 200m
     asserts:
       - matchRegex:
           path: data["ui.json"]
           pattern: '"clientMaxBodySize": "200m"'
+
+  # Helm ignores a key no template reads, so a renamed value fails rather than going quiet.
+  - it: should name the replacement for ui.nginx.proxyReadTimeout
+    template: ui-routes-configmap.yaml
+    set:
+      ui.nginx.proxyReadTimeout: 900s
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.nginx.proxyReadTimeout has been renamed to ui.proxy.readTimeout.
+
+  - it: should name the replacement for ui.nginx.proxySendTimeout
+    template: ui-routes-configmap.yaml
+    set:
+      ui.nginx.proxySendTimeout: 900s
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.nginx.proxySendTimeout has been renamed to ui.proxy.sendTimeout.
+
+  - it: should name the replacement for ui.nginx.clientMaxBodySize
+    template: ui-routes-configmap.yaml
+    set:
+      ui.nginx.clientMaxBodySize: 50m
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.nginx.clientMaxBodySize has been renamed to ui.proxy.maxBodySize.

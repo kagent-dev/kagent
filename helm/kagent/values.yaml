@@ -474,18 +474,18 @@ ui:
     ssoRedirectPath: "/oauth2/start"
   # -- Client-side chat stream inactivity timeout (seconds). The browser aborts a
   # streaming response if no event is received within this window. Should be >=
-  # ui.nginx.proxyReadTimeout so the UI proxy isn't the silent limit. Default 1800 (30m).
+  # ui.proxy.readTimeout so the UI proxy isn't the silent limit. Default 1800 (30m).
   streamTimeoutSeconds: 1800
-  # -- UI proxy settings, written in nginx syntax: times such as "1800s" (a bare
-  # number is seconds) and sizes such as "20m".
-  nginx:
-    # -- proxy_read_timeout: max time between two successive reads from the upstream.
-    proxyReadTimeout: 1800s
-    # -- proxy_send_timeout: max time between two successive writes to the upstream.
-    proxySendTimeout: 1800s
-    # -- client_max_body_size: max request body size (0 disables it). Just above the
-    # gateway's 16 MiB gRPC cap, which chat attachments hit first.
-    clientMaxBodySize: 20m
+  # -- UI proxy settings. Times take a unit such as "1800s" or "30m" (a bare
+  # number is seconds); sizes take k, m or g, such as "20m".
+  proxy:
+    # -- Max time between two successive reads from the controller.
+    readTimeout: 1800s
+    # -- Max time between two successive writes to the controller.
+    sendTimeout: 1800s
+    # -- Max request body size (0 disables it). Just above the gateway's 16 MiB
+    # gRPC cap, which chat attachments hit first.
+    maxBodySize: 20m
   # -- Extra environment variables for the UI container, applied after ConfigMap
   # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
   # expansion. An installed app extension's settings go here, named
