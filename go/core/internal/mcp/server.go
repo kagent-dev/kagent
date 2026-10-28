@@ -2,10 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -16,6 +14,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
@@ -30,10 +29,11 @@ const (
 )
 
 type Handler struct {
-	sessions    *sessionsvc.Service
-	checkpoints *checkpoint.Service
-	gateway     a2asrv.RequestHandler
-	http        http.Handler
+	sessions      *sessionsvc.Service
+	checkpoints   *checkpoint.Service
+	gateway       a2asrv.RequestHandler
+	http          http.Handler
+	continuations *sessionsvc.Continuations
 }
 
 type ListSessionsInput struct {
@@ -106,6 +106,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.http.ServeHTTP(w, r)
 }
 
+// WithContinuations enables durable native synchronous delegation.
+func (h *Handler) WithContinuations(continuations *sessionsvc.Continuations) {
+	h.continuations = continuations
+}
+
 func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, input ListSessionsInput) (*mcp.CallToolResult, ListSessionsOutput, error) {
 	result, err := h.sessions.List(ctx, sessionsvc.ListRequest{
 		PageSize: input.PageSize, PageToken: input.PageToken,
@@ -155,6 +160,11 @@ func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bo
 		return nil, err
 	}
 	message.ContextID = session.GetId()
+	if origin := runtimeauth.Origin(ctx); !async && origin != nil && h.continuations != nil {
+		if err := h.continuations.Register(ctx, origin.SessionID, session.Id, message.ID); err != nil {
+			return nil, err
+		}
+	}
 	// Direct gateway calls carry the Agent tenant on the request, like A2A transports do.
 	tenant := session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName()
 	routed := interactionContext(ctx)
@@ -186,7 +196,7 @@ func interactionContext(ctx context.Context) context.Context {
 }
 
 func invocationResult(input InvokeSessionInput, task *a2atype.Task) (*mcp.CallToolResult, InvokeSessionOutput) {
-	text := taskText(task)
+	text := a2a.TaskText(task)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 		IsError: task.Status.State == a2atype.TaskStateFailed ||
@@ -197,33 +207,6 @@ func invocationResult(input InvokeSessionInput, task *a2atype.Task) (*mcp.CallTo
 		TaskID:    string(task.ID), ContextID: task.ContextID,
 		State: task.Status.State.String(), Text: text,
 	}
-}
-
-func taskText(task *a2atype.Task) string {
-	var text strings.Builder
-	if task.Status.Message != nil {
-		text.WriteString(a2a.ExtractText(task.Status.Message))
-	}
-	for _, artifact := range task.Artifacts {
-		for _, part := range artifact.Parts {
-			if part != nil {
-				text.WriteString(part.Text())
-			}
-		}
-	}
-	if text.Len() == 0 {
-		for _, message := range slices.Backward(task.History) {
-			if message.Role == a2atype.MessageRoleAgent {
-				text.WriteString(a2a.ExtractText(message))
-				break
-			}
-		}
-	}
-	if text.Len() == 0 {
-		data, _ := json.Marshal(task)
-		return string(data)
-	}
-	return text.String()
 }
 
 func toolError(err error) *mcp.CallToolResult {

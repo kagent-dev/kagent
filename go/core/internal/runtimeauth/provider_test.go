@@ -41,6 +41,31 @@ func newBinding() *bindingStore {
 	}}
 }
 
+func TestDelegatedMCPOriginRequiresAnActorOfTheAuthenticatedOwner(t *testing.T) {
+	issuer := jwttest.New(t)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	require.NoError(t, err)
+	store := newBinding()
+	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)
+	token := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(store.session.Id), store.actorUID))
+	headers := http.Header{"X-User-Id": {"owner"}, "X-Substrate-Actor-Token": {token}}
+	caller, err := provider.Authenticate(t.Context(), headers, nil)
+	require.NoError(t, err)
+	require.Nil(t, caller.Principal().RuntimeBinding, "the origin does not replace the caller's authorization")
+	require.Equal(t, "owner", caller.Principal().ID)
+	require.Equal(t, store.session.Id, runtimeauth.Origin(auth.AuthSessionTo(t.Context(), caller)).SessionID)
+	headers.Set("X-User-Id", "other")
+	_, err = provider.Authenticate(t.Context(), headers, nil)
+	require.Error(t, err)
+	headers.Set("X-User-Id", "owner")
+	headers.Add("X-Substrate-Actor-Token", token)
+	_, err = provider.Authenticate(t.Context(), headers, nil)
+	require.Error(t, err)
+	headers.Set("X-Substrate-Actor-Token", "forged")
+	_, err = provider.Authenticate(t.Context(), headers, nil)
+	require.Error(t, err)
+}
+
 func TestSharedAuthenticationNeverFallsBackForActorCredentials(t *testing.T) {
 	issuer := jwttest.New(t)
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
