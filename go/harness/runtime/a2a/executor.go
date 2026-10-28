@@ -4,7 +4,6 @@ package a2a
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -541,28 +540,27 @@ func toolCallPart(event runtime.ToolCall) (*a2atype.Part, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
-	return apia2a.NewToolCallPart(event.ID, event.Name, args)
+	name := event.Name
+	if event.MCPTool != "" {
+		name = event.MCPTool
+	}
+	return apia2a.NewToolCallPart(event.ID, name, args)
 }
 
 func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
 	if event.ID == "" || event.Name == "" {
 		return nil, fmt.Errorf("runtime tool result requires an ID and name")
 	}
-	// Runtime results may be SDK structs. A2A persistence and artifact copies
-	// require JSON values rather than concrete Go types inside interface fields.
-	data, err := json.Marshal(event.Result)
+	name := event.Name
+	encode := apia2a.NewToolResponse
+	if event.MCPTool != "" {
+		name, encode = event.MCPTool, apia2a.NewMCPToolResponse
+	}
+	response, err := encode(event.Result, event.IsError)
 	if err != nil {
 		return nil, fmt.Errorf("encode runtime tool result: %w", err)
 	}
-	var result any
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("decode runtime tool result: %w", err)
-	}
-	response := map[string]any{"result": result}
-	if event.IsError {
-		response["isError"] = true
-	}
-	return apia2a.NewToolResultPart(event.ID, event.Name, response)
+	return apia2a.NewToolResultPart(event.ID, name, response)
 }
 
 func taskMessage(reqCtx *a2asrv.ExecutorContext, text string) *a2atype.Message {

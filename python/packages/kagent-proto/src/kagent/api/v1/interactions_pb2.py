@@ -26,7 +26,7 @@ from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
 from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n kagent/api/v1/interactions.proto\x12\rkagent.api.v1\x1a\x1b\x62uf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\"\x92\x01\n\x0cToolActivity\x12\x0e\n\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\x12*\n\x04\x61rgs\x18\x03 \x01(\x0b\x32\x16.google.protobuf.ValueR\x04\x61rgs\x12\x32\n\x08response\x18\x04 \x01(\x0b\x32\x16.google.protobuf.ValueR\x08response\"~\n\x08HitlTool\x12\x17\n\x02id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x02id\x12\x18\n\x07\x63\x61ll_id\x18\x02 \x01(\tR\x07\x63\x61ll_id\x12\x12\n\x04name\x18\x03 \x01(\tR\x04name\x12+\n\x04\x61rgs\x18\x04 \x01(\x0b\x32\x17.google.protobuf.StructR\x04\x61rgs\"\xa2\x01\n\x11NestedHitlRequest\x12$\n\rsubagent_name\x18\x01 \x01(\tR\rsubagent_name\x12\x18\n\x07task_id\x18\x02 \x01(\tR\x07task_id\x12\x1e\n\ncontext_id\x18\x03 \x01(\tR\ncontext_id\x12-\n\x05tools\x18\x04 \x03(\x0b\x32\x17.kagent.api.v1.HitlToolR\x05tools\"\xce\x01\n\x13ToolApprovalRequest\x12\x30\n\x04type\x18\x01 \x01(\tB\x1c\xbaH\x19r\x17\n\x15tool_approval_requestR\x04type\x12\x12\n\x04hint\x18\x02 \x01(\tR\x04hint\x12\x37\n\x05tools\x18\x03 \x03(\x0b\x32\x17.kagent.api.v1.HitlToolB\x08\xbaH\x05\x92\x01\x02\x08\x01R\x05tools\x12\x38\n\x06nested\x18\x04 \x01(\x0b\x32 .kagent.api.v1.NestedHitlRequestR\x06nested\"\xf9\x01\n\x0cToolApproval\x12\x17\n\x02id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x02id\x12\x1a\n\x08\x61pproved\x18\x02 \x01(\x08R\x08\x61pproved\x12*\n\x10rejection_reason\x18\x03 \x01(\tR\x10rejection_reason:\x87\x01\xbaH\x83\x01\x1a\x80\x01\n\x1etool_approval.rejection_reason\x12/an approved tool cannot have a rejection reason\x1a-!this.approved || this.rejection_reason == \'\'\"\x8e\x01\n\x14ToolApprovalResponse\x12\x31\n\x04type\x18\x01 \x01(\tB\x1d\xbaH\x1ar\x18\n\x16tool_approval_responseR\x04type\x12\x43\n\tapprovals\x18\x02 \x03(\x0b\x32\x1b.kagent.api.v1.ToolApprovalB\x08\xbaH\x05\x92\x01\x02\x08\x01R\tapprovals\"i\n\x0cHitlQuestion\x12#\n\x08question\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x08question\x12\x18\n\x07\x63hoices\x18\x02 \x03(\tR\x07\x63hoices\x12\x1a\n\x08multiple\x18\x03 \x01(\x08R\x08multiple\"\xd5\x01\n\x0e\x41skUserRequest\x12+\n\x04type\x18\x01 \x01(\tB\x17\xbaH\x14r\x12\n\x10\x61sk_user_requestR\x04type\x12\x17\n\x02id\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x02id\x12\x43\n\tquestions\x18\x03 \x03(\x0b\x32\x1b.kagent.api.v1.HitlQuestionB\x08\xbaH\x05\x92\x01\x02\x08\x01R\tquestions\x12\x38\n\x06nested\x18\x04 \x01(\x0b\x32 .kagent.api.v1.NestedHitlRequestR\x06nested\"1\n\rAskUserAnswer\x12 \n\x06\x61nswer\x18\x01 \x03(\tB\x08\xbaH\x05\x92\x01\x02\x08\x01R\x06\x61nswer\"\x9a\x01\n\x0f\x41skUserResponse\x12,\n\x04type\x18\x01 \x01(\tB\x18\xbaH\x15r\x13\n\x11\x61sk_user_responseR\x04type\x12\x17\n\x02id\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x02id\x12@\n\x07\x61nswers\x18\x03 \x03(\x0b\x32\x1c.kagent.api.v1.AskUserAnswerB\x08\xbaH\x05\x92\x01\x02\x08\x01R\x07\x61nswersB=Z;github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n kagent/api/v1/interactions.proto\x12\rkagent.api.v1\x1a\x1b\x62uf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\"\x97\x01\n\x0cToolActivity\x12\x0e\n\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\x12*\n\x04\x61rgs\x18\x03 \x01(\x0b\x32\x16.google.protobuf.ValueR\x04\x61rgs\x12\x37\n\x08response\x18\x04 \x01(\x0b\x32\x1b.kagent.api.v1.ToolResponseR\x08response\"\xb6\x01\n\x0cToolResponse\x12\x30\n\x06output\x18\x01 \x01(\x0b\x32\x16.google.protobuf.ValueH\x00R\x06output\x12.\n\x05\x65rror\x18\x02 \x01(\x0b\x32\x16.google.protobuf.ValueH\x00R\x05\x65rror\x12\x32\n\x07pending\x18\x03 \x01(\x0b\x32\x16.google.protobuf.ValueH\x00R\x07pendingB\x10\n\x07outcome\x12\x05\xbaH\x02\x08\x01\"~\n\x08HitlTool\x12\x17\n\x02id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x02id\x12\x18\n\x07\x63\x61ll_id\x18\x02 \x01(\tR\x07\x63\x61ll_id\x12\x12\n\x04name\x18\x03 \x01(\tR\x04name\x12+\n\x04\x61rgs\x18\x04 \x01(\x0b\x32\x17.google.protobuf.StructR\x04\x61rgs\"\xa2\x01\n\x11NestedHitlRequest\x12$\n\rsubagent_name\x18\x01 \x01(\tR\rsubagent_name\x12\x18\n\x07task_id\x18\x02 \x01(\tR\x07task_id\x12\x1e\n\ncontext_id\x18\x03 \x01(\tR\ncontext_id\x12-\n\x05tools\x18\x04 \x03(\x0b\x32\x17.kagent.api.v1.HitlToolR\x05tools\"\xce\x01\n\x13ToolApprovalRequest\x12\x30\n\x04type\x18\x01 \x01(\tB\x1c\xbaH\x19r\x17\n\x15tool_approval_requestR\x04type\x12\x12\n\x04hint\x18\x02 \x01(\tR\x04hint\x12\x37\n\x05tools\x18\x03 \x03(\x0b\x32\x17.kagent.api.v1.HitlToolB\x08\xbaH\x05\x92\x01\x02\x08\x01R\x05tools\x12\x38\n\x06nested\x18\x04 \x01(\x0b\x32 .kagent.api.v1.NestedHitlRequestR\x06nested\"\xf9\x01\n\x0cToolApproval\x12\x17\n\x02id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x02id\x12\x1a\n\x08\x61pproved\x18\x02 \x01(\x08R\x08\x61pproved\x12*\n\x10rejection_reason\x18\x03 \x01(\tR\x10rejection_reason:\x87\x01\xbaH\x83\x01\x1a\x80\x01\n\x1etool_approval.rejection_reason\x12/an approved tool cannot have a rejection reason\x1a-!this.approved || this.rejection_reason == \'\'\"\x8e\x01\n\x14ToolApprovalResponse\x12\x31\n\x04type\x18\x01 \x01(\tB\x1d\xbaH\x1ar\x18\n\x16tool_approval_responseR\x04type\x12\x43\n\tapprovals\x18\x02 \x03(\x0b\x32\x1b.kagent.api.v1.ToolApprovalB\x08\xbaH\x05\x92\x01\x02\x08\x01R\tapprovals\"i\n\x0cHitlQuestion\x12#\n\x08question\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x08question\x12\x18\n\x07\x63hoices\x18\x02 \x03(\tR\x07\x63hoices\x12\x1a\n\x08multiple\x18\x03 \x01(\x08R\x08multiple\"\xd5\x01\n\x0e\x41skUserRequest\x12+\n\x04type\x18\x01 \x01(\tB\x17\xbaH\x14r\x12\n\x10\x61sk_user_requestR\x04type\x12\x17\n\x02id\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x02id\x12\x43\n\tquestions\x18\x03 \x03(\x0b\x32\x1b.kagent.api.v1.HitlQuestionB\x08\xbaH\x05\x92\x01\x02\x08\x01R\tquestions\x12\x38\n\x06nested\x18\x04 \x01(\x0b\x32 .kagent.api.v1.NestedHitlRequestR\x06nested\"1\n\rAskUserAnswer\x12 \n\x06\x61nswer\x18\x01 \x03(\tB\x08\xbaH\x05\x92\x01\x02\x08\x01R\x06\x61nswer\"\x9a\x01\n\x0f\x41skUserResponse\x12,\n\x04type\x18\x01 \x01(\tB\x18\xbaH\x15r\x13\n\x11\x61sk_user_responseR\x04type\x12\x17\n\x02id\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x02id\x12@\n\x07\x61nswers\x18\x03 \x03(\x0b\x32\x1c.kagent.api.v1.AskUserAnswerB\x08\xbaH\x05\x92\x01\x02\x08\x01R\x07\x61nswersB=Z;github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,6 +34,8 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'kagent.api.v1.interactions_
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z;github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1'
+  _globals['_TOOLRESPONSE'].oneofs_by_name['outcome']._loaded_options = None
+  _globals['_TOOLRESPONSE'].oneofs_by_name['outcome']._serialized_options = b'\272H\002\010\001'
   _globals['_HITLTOOL'].fields_by_name['id']._loaded_options = None
   _globals['_HITLTOOL'].fields_by_name['id']._serialized_options = b'\272H\004r\002\020\001'
   _globals['_TOOLAPPROVALREQUEST'].fields_by_name['type']._loaded_options = None
@@ -65,23 +67,25 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_ASKUSERRESPONSE'].fields_by_name['answers']._loaded_options = None
   _globals['_ASKUSERRESPONSE'].fields_by_name['answers']._serialized_options = b'\272H\005\222\001\002\010\001'
   _globals['_TOOLACTIVITY']._serialized_start=111
-  _globals['_TOOLACTIVITY']._serialized_end=257
-  _globals['_HITLTOOL']._serialized_start=259
-  _globals['_HITLTOOL']._serialized_end=385
-  _globals['_NESTEDHITLREQUEST']._serialized_start=388
-  _globals['_NESTEDHITLREQUEST']._serialized_end=550
-  _globals['_TOOLAPPROVALREQUEST']._serialized_start=553
-  _globals['_TOOLAPPROVALREQUEST']._serialized_end=759
-  _globals['_TOOLAPPROVAL']._serialized_start=762
-  _globals['_TOOLAPPROVAL']._serialized_end=1011
-  _globals['_TOOLAPPROVALRESPONSE']._serialized_start=1014
-  _globals['_TOOLAPPROVALRESPONSE']._serialized_end=1156
-  _globals['_HITLQUESTION']._serialized_start=1158
-  _globals['_HITLQUESTION']._serialized_end=1263
-  _globals['_ASKUSERREQUEST']._serialized_start=1266
-  _globals['_ASKUSERREQUEST']._serialized_end=1479
-  _globals['_ASKUSERANSWER']._serialized_start=1481
-  _globals['_ASKUSERANSWER']._serialized_end=1530
-  _globals['_ASKUSERRESPONSE']._serialized_start=1533
-  _globals['_ASKUSERRESPONSE']._serialized_end=1687
+  _globals['_TOOLACTIVITY']._serialized_end=262
+  _globals['_TOOLRESPONSE']._serialized_start=265
+  _globals['_TOOLRESPONSE']._serialized_end=447
+  _globals['_HITLTOOL']._serialized_start=449
+  _globals['_HITLTOOL']._serialized_end=575
+  _globals['_NESTEDHITLREQUEST']._serialized_start=578
+  _globals['_NESTEDHITLREQUEST']._serialized_end=740
+  _globals['_TOOLAPPROVALREQUEST']._serialized_start=743
+  _globals['_TOOLAPPROVALREQUEST']._serialized_end=949
+  _globals['_TOOLAPPROVAL']._serialized_start=952
+  _globals['_TOOLAPPROVAL']._serialized_end=1201
+  _globals['_TOOLAPPROVALRESPONSE']._serialized_start=1204
+  _globals['_TOOLAPPROVALRESPONSE']._serialized_end=1346
+  _globals['_HITLQUESTION']._serialized_start=1348
+  _globals['_HITLQUESTION']._serialized_end=1453
+  _globals['_ASKUSERREQUEST']._serialized_start=1456
+  _globals['_ASKUSERREQUEST']._serialized_end=1669
+  _globals['_ASKUSERANSWER']._serialized_start=1671
+  _globals['_ASKUSERANSWER']._serialized_end=1720
+  _globals['_ASKUSERRESPONSE']._serialized_start=1723
+  _globals['_ASKUSERRESPONSE']._serialized_end=1877
 # @@protoc_insertion_point(module_scope)

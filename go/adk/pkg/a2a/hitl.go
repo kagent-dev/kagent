@@ -755,7 +755,11 @@ func buildConfirmationResponsePart(fcID string, confirmed bool, payload map[stri
 	if err != nil {
 		return nil, err
 	}
-	return apia2a.NewToolResultPart(fcID, toolconfirmation.FunctionCallName, map[string]any{"response": string(serialized)})
+	response, err := apia2a.NewToolResponse(map[string]any{"response": string(serialized)}, false)
+	if err != nil {
+		return nil, err
+	}
+	return apia2a.NewToolResultPart(fcID, toolconfirmation.FunctionCallName, response)
 }
 
 func stringValue(value any) string {

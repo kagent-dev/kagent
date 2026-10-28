@@ -362,7 +362,11 @@ func TestBuildResumeHITLMessageNestedAskUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildResumeHITLMessage() error = %v", err)
 	}
-	response := asDataPart(resume.Parts[0])[PartKeyResponse].(map[string]any)["response"].(string)
+	converted, err := a2aPartConverter(t.Context(), nil, resume.Parts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := converted.FunctionResponse.Response["response"].(string)
 	var confirmation toolconfirmation.ToolConfirmation
 	if err := json.Unmarshal([]byte(response), &confirmation); err != nil {
 		t.Fatalf("confirmation JSON: %v", err)
@@ -399,7 +403,11 @@ func TestBuildResumeHITLMessageNestedApprovals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildResumeHITLMessage() error = %v", err)
 	}
-	response := asDataPart(resume.Parts[0])[PartKeyResponse].(map[string]any)["response"].(string)
+	converted, err := a2aPartConverter(t.Context(), nil, resume.Parts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := converted.FunctionResponse.Response["response"].(string)
 	var confirmation toolconfirmation.ToolConfirmation
 	_ = json.Unmarshal([]byte(response), &confirmation)
 	state := ParseRemoteHitlState(confirmation.Payload.(map[string]any))

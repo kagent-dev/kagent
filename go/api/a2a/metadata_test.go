@@ -8,7 +8,11 @@ import (
 )
 
 func TestSanitizeCallerRequest(t *testing.T) {
-	part, err := NewToolResultPart("call-1", "lookup", map[string]any{"result": "ok"})
+	response, err := NewToolResponse(map[string]any{"result": "ok"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	part, err := NewToolResultPart("call-1", "lookup", response)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -44,6 +44,26 @@ Timeline positions are written at the boundary producing an item: the gateway
 for inbound messages and runtime adapters for outbound messages and artifacts.
 The gateway remains responsible for applying the resulting durable order.
 
+## Tool activity
+
+`function_call` and `function_response` data parts carry the ProtoJSON form of
+[`ToolActivity`](../../proto/kagent/api/v1/interactions.proto). Calls and results
+share an invocation `id`. `name` is the exact tool name from discovery; MCP server
+prefixes used privately by Claude and Codex are resolved by their adapters.
+`args` is the tool's argument object.
+
+`response` contains exactly one `ToolResponse` outcome:
+
+| Outcome | Meaning |
+| --- | --- |
+| `output` | Successful output, including JSON null, false, zero, or an empty string |
+| `error` | Tool or transport failure |
+| `pending` | Deferred user input |
+
+MCP results prefer `structuredContent`, then joined text blocks. Rich content
+retains its original representation. Managed ADK, Claude, and Codex adapters
+produce this contract before events enter public task history.
+
 ## Other metadata
 
 Versioned A2A extensions, such as the [human-in-the-loop](human-in-the-loop.md)

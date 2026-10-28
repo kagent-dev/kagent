@@ -852,11 +852,13 @@ func (m *chatModel) renderToolActivity(parts a2atype.ContentParts) {
 			m.tools[activity.ID] = entry
 			m.appendBlock(&block{tool: entry, expanded: m.expanded})
 		case activity.Kind == kagenta2a.ToolResultKind && entry != nil:
-			entry.response, entry.done = activity.Response, true
+			entry.setResponse(activity.Response)
 			m.render()
 		case activity.Kind == kagenta2a.ToolResultKind:
 			// A result whose call came before this stream shows on its own.
-			m.appendBlock(&block{tool: &toolEntry{name: activity.Name, response: activity.Response, done: true}})
+			entry := &toolEntry{name: activity.Name}
+			entry.setResponse(activity.Response)
+			m.appendBlock(&block{tool: entry})
 		}
 	}
 }

@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"encoding/json"
+	"fmt"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -22,7 +23,7 @@ type ToolActivity struct {
 	ID       string
 	Name     string
 	Args     any
-	Response any
+	Response *apiv1.ToolResponse
 }
 
 func NewToolCallPart(id, name string, args any) (*a2atype.Part, error) {
@@ -33,12 +34,11 @@ func NewToolCallPart(id, name string, args any) (*a2atype.Part, error) {
 	return newToolActivityPart(ToolCallKind, &apiv1.ToolActivity{Id: id, Name: name, Args: value})
 }
 
-func NewToolResultPart(id, name string, response any) (*a2atype.Part, error) {
-	value, err := toolActivityValue(response)
-	if err != nil {
-		return nil, err
+func NewToolResultPart(id, name string, response *apiv1.ToolResponse) (*a2atype.Part, error) {
+	if response == nil || response.Outcome == nil {
+		return nil, fmt.Errorf("tool response requires an outcome")
 	}
-	return newToolActivityPart(ToolResultKind, &apiv1.ToolActivity{Id: id, Name: name, Response: value})
+	return newToolActivityPart(ToolResultKind, &apiv1.ToolActivity{Id: id, Name: name, Response: response})
 }
 
 func toolActivityValue(value any) (*structpb.Value, error) {
@@ -73,7 +73,10 @@ func ParseToolActivity(part *a2atype.Part) (ToolActivity, bool) {
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(encoded, &wire); err != nil {
 		return ToolActivity{}, false
 	}
-	return ToolActivity{Kind: ToolActivityKind(kind), ID: wire.Id, Name: wire.Name, Args: wire.Args.AsInterface(), Response: wire.Response.AsInterface()}, true
+	if ToolActivityKind(kind) == ToolResultKind && (wire.Response == nil || wire.Response.Outcome == nil) {
+		return ToolActivity{}, false
+	}
+	return ToolActivity{Kind: ToolActivityKind(kind), ID: wire.Id, Name: wire.Name, Args: wire.Args.AsInterface(), Response: wire.Response}, true
 }
 
 func newToolActivityPart(kind ToolActivityKind, data *apiv1.ToolActivity) (*a2atype.Part, error) {

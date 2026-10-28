@@ -82,7 +82,7 @@ type ToolCall struct {
 	Name      string
 	Arguments map[string]any
 	// MCPServer and MCPTool are set for an MCP tool, such as kagent and k8s_get.
-	// Name keeps the harness's full name, such as mcp__kagent__k8s_get for Claude.
+	// Name keeps the harness's full name for runtime diagnostics.
 	MCPServer, MCPTool string
 	// ParentToolID is the ID of the tool call that started this call's subagent, such as an Agent call.
 	ParentToolID string
@@ -95,6 +95,7 @@ type ToolResult struct {
 	Result  any
 	IsError bool
 	Status  ToolStatus
+	MCPTool string
 }
 
 // ToolStatus says whether a tool call ran. The zero value means it ran and returned a result.
