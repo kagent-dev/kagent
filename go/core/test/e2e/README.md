@@ -7,11 +7,12 @@ the three `config.harnessImages` defaults matching the explicit Harness
 fixtures. The test checks runtime readiness, effective-image status, and that
 the controller leaves the user spec unchanged.
 
-`TestExampleAgentToolsSkills` runs the chart's example Agent behavior on every
-harness with a mock model. It needs `KAGENT_E2E_TOOLS_SKILLS_IMAGE`, a
-digest-pinned kagent-tools image that contains the `opt/kagent-tools-skills`
-Agent Plugin, in the local test registry; the test is skipped without it. It
-checks that the seven skills are advertised and that `helm-release-management`
+`TestExampleAgentToolsSkills` runs the chart's cluster-ops example Agent
+behavior on every harness with a mock model. It needs
+`KAGENT_E2E_TOOLS_SKILLS_IMAGE`, a digest-pinned kagent-tools image that
+contains the `opt/kagent-tools-skills` Agent Plugin, in the local test registry;
+the test is skipped without it. It checks that the Agent's four skills are
+advertised, that the other three are not, and that `helm-release-management`
 loads. It omits the tool server binding because the test install does not run
 kagent-tools.
 

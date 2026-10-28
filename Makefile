@@ -9,7 +9,7 @@ HELM_REPO ?= oci://ghcr.io/kagent-dev
 HELM_DIST_FOLDER ?= dist
 HELM_SOURCE_DIR ?= helm
 RUNTIME_IMAGE_REPOSITORY ?= ghcr.io/kagent-dev/kagent
-# The kagent-tools image whose skills the chart's example Agent mounts. Its tag
+# The kagent-tools image whose skills the chart's example Agents mount. Its tag
 # is the kagent-tools chart version that helm/kagent depends on.
 TOOLS_IMAGE_REPOSITORY ?= ghcr.io/kagent-dev/kagent/tools
 # Release packaging requires an explicit metadata directory; local builds have a default.

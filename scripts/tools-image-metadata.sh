@@ -14,7 +14,7 @@ if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   exit 1
 fi
 # kagent-tools 0.3.0 and earlier ship no opt/kagent-tools-skills folder. Record
-# no digest for them, so the example Agent needs an explicit skillsImage.
+# no digest for them, so the example Agents need an explicit skillsImage.
 last_without_skills="0.3.0"
 if [[ "$(printf '%s\n%s\n' "$version" "$last_without_skills" | sort -V | tail -n1)" == "$last_without_skills" ]]; then
   echo "kagent-tools $version has no skills folder; recording no digest" >&2

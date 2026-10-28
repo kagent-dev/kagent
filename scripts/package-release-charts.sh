@@ -18,8 +18,8 @@ bash "$root/scripts/harness-image-catalog.sh" "$version" "$metadata_dir" \
   > "$staging/builtin-harness-images.json"
 
 # make tools-image-metadata records the kagent-tools image digest for the
-# example Agent. Without it, the chart can enable that Agent only with an
-# explicit exampleAgent.skillsImage.
+# example Agents. Without it, the chart can enable those Agents only with an
+# explicit exampleAgents.skillsImage.
 tools_metadata="$metadata_dir/kagent-tools.json"
 if [[ -e "$tools_metadata" ]]; then
   # The image tag must be the kagent-tools version the chart depends on, so a
