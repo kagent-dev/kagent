@@ -6,7 +6,7 @@
         "match_type": "contains",
         "message": {
           "role": "user",
-          "content": "Which Helm releases are installed?"
+          "content": "QUESTION"
         }
       },
       "response": {
@@ -22,11 +22,11 @@
               "content": "",
               "tool_calls": [
                 {
-                  "id": "call_load_helm_release_management",
+                  "id": "call_load_skill",
                   "type": "function",
                   "function": {
                     "name": "load_skill",
-                    "arguments": "{\"name\": \"helm-release-management\"}"
+                    "arguments": "{\"name\": \"SKILL_NAME\"}"
                   }
                 }
               ]
@@ -42,7 +42,7 @@
         "match_type": "contains",
         "message": {
           "role": "tool",
-          "content": "helm_list_releases"
+          "content": "SKILL_TOOL"
         }
       },
       "response": {
@@ -68,7 +68,7 @@
       "name": "example_skills_load",
       "match": {
         "match_type": "contains",
-        "input": "Which Helm releases are installed?"
+        "input": "QUESTION"
       },
       "response": {
         "id": "example_skills_load",
@@ -77,12 +77,12 @@
         "model": "gpt-5.2-codex",
         "output": [
           {
-            "id": "fc_load_helm_release_management",
+            "id": "fc_load_skill",
             "type": "function_call",
             "status": "completed",
-            "call_id": "call_load_helm_release_management",
+            "call_id": "call_load_skill",
             "name": "exec_command",
-            "arguments": "{\"cmd\": \"cat ROOT/helm-release-management/SKILL.md\"}"
+            "arguments": "{\"cmd\": \"cat ROOT/SKILL_NAME/SKILL.md\"}"
           }
         ],
         "parallel_tool_calls": false,
@@ -98,7 +98,7 @@
       "name": "example_skills_loaded",
       "match": {
         "match_type": "contains",
-        "input": "helm_list_releases"
+        "input": "SKILL_TOOL"
       },
       "response": {
         "id": "example_skills_loaded",
@@ -140,7 +140,7 @@
           "content": [
             {
               "type": "text",
-              "text": "Which Helm releases are installed?"
+              "text": "QUESTION"
             }
           ]
         }
@@ -152,10 +152,10 @@
         "content": [
           {
             "type": "tool_use",
-            "id": "toolu_load_helm_release_management",
+            "id": "toolu_load_skill",
             "name": "Skill",
             "input": {
-              "skill": "helm-release-management"
+              "skill": "SKILL_NAME"
             }
           }
         ],
@@ -176,7 +176,7 @@
           "content": [
             {
               "type": "text",
-              "text": "helm_list_releases"
+              "text": "SKILL_TOOL"
             }
           ]
         }
