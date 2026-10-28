@@ -6,7 +6,6 @@
 {{- fail "exampleAgents.snapshotLocation is required: set the snapshot storage location for the example Harness" }}
 {{- end }}
 {{- $skillsImage := include "kagent.exampleAgentsSkillsImage" . }}
-{{- $harnessImage := get (include "kagent.builtinHarnessImages" . | fromJson) "kagent" }}
 {{- $prefix := .Values.exampleAgents.namePrefix }}
 {{- $toolServer := printf "%s-tool-server" (include "kagent.fullname" .) }}
 {{- /*
@@ -33,7 +32,8 @@ OpenAI and Azure OpenAI accept at most 128 tools in one request.
     "description" "Istio service mesh and Cilium networking assistant."
     "skills" (list "istio-traffic-debugging" "cilium-network-debugging")
     "tools" (list
-      "k8s_apply_manifest" "k8s_get_resource_yaml"
+      "k8s_apply_manifest" "k8s_describe_resource" "k8s_get_events" "k8s_get_pod_logs" "k8s_get_resource_yaml"
+      "k8s_get_resources"
       "istio_analyze_cluster_configuration" "istio_apply_waypoint" "istio_delete_waypoint" "istio_list_waypoints"
       "istio_proxy_config" "istio_proxy_status" "istio_version" "istio_waypoint_status" "istio_ztunnel_config"
       "cilium_display_policy_node_information" "cilium_display_selectors" "cilium_flush_ipsec_state"
@@ -62,10 +62,6 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   kagent: {}
-  {{- with $harnessImage }}
-  workload:
-    image: {{ . | quote }}
-  {{- end }}
   substrate:
     workerPoolRef:
       name: {{ .Values.substrateWorkerPool.name | quote }}
