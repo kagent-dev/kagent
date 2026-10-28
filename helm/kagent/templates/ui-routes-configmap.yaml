@@ -1,6 +1,6 @@
 {{- /* Helm ignores a key no template reads, so a renamed ui.nginx value fails rather than going quiet. */}}
 {{- range $old, $new := dict "proxyReadTimeout" "readTimeout" "proxySendTimeout" "sendTimeout" "clientMaxBodySize" "maxBodySize" }}
-{{- if hasKey ($.Values.ui.nginx | default dict) $old }}{{ fail (printf "ui.nginx.%s has been renamed to ui.proxy.%s." $old $new) }}{{ end }}
+{{- if and (kindIs "map" $.Values.ui.nginx) (hasKey $.Values.ui.nginx $old) }}{{ fail (printf "ui.nginx.%s has been renamed to ui.proxy.%s." $old $new) }}{{ end }}
 {{- end }}
 {{- /*
   Identity headers an upstream auth proxy (oauth2-proxy and friends) sets and a
