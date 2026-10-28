@@ -65,16 +65,17 @@ spec:
                 description: |-
                   Endpoint is the API endpoint URL for the provider.
                   If not specified, the default endpoint for the provider type will be used.
-                pattern: ^https?://.*
+                pattern: ^https?://[^/?#@]+(/[^?#]*)?$
                 type: string
               secretRef:
                 description: |-
                   SecretRef references the Kubernetes Secret containing the API key.
-                  Optional for providers that don't require authentication (e.g., local Ollama).
+                  Omit for unauthenticated discovery. Invocation credentials are configured separately.
                 properties:
                   name:
                     description: Name is the name of the secret in the same namespace
                       as the ModelProviderConfig.
+                    minLength: 1
                     type: string
                 required:
                 - name
@@ -101,10 +102,6 @@ spec:
             - message: endpoint must be a valid URL starting with http:// or https://
               rule: '!has(self.endpoint) || size(self.endpoint) == 0 || self.endpoint.startsWith(''http://'')
                 || self.endpoint.startsWith(''https://'')'
-            - message: secretRef is required for providers that need authentication
-                (not Ollama)
-              rule: self.type == 'Ollama' || (has(self.secretRef) && has(self.secretRef.name)
-                && size(self.secretRef.name) > 0)
           status:
             description: ModelProviderConfigStatus defines the observed state of ModelProviderConfig.
             properties:
@@ -169,12 +166,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              discoveredModels:
-                description: DiscoveredModels is the cached list of model IDs available
-                  from this model provider
-                items:
-                  type: string
-                type: array
               lastDiscoveryTime:
                 description: LastDiscoveryTime is the timestamp of the last successful
                   model discovery
@@ -189,10 +180,6 @@ spec:
                   recently observed ModelProviderConfig spec
                 format: int64
                 type: integer
-              secretHash:
-                description: SecretHash is a hash of the referenced secret data, used
-                  to detect secret changes
-                type: string
             type: object
         type: object
     served: true

@@ -23,6 +23,7 @@ type Collections struct {
 	Agents                   krt.Collection[*kagentv1alpha3.Agent]
 	AgentTemplates           krt.Collection[*kagentv1alpha3.AgentTemplate]
 	Harnesses                krt.Collection[*kagentv1alpha3.Harness]
+	ModelProviderConfigs     krt.Collection[*kagentv1alpha3.ModelProviderConfig]
 	ModelConfigs             krt.Collection[*kagentv1alpha3.ModelConfig]
 	RemoteMCPServers         krt.Collection[*kagentv1alpha3.RemoteMCPServer]
 	ConfigMaps               krt.Collection[*corev1.ConfigMap]
@@ -57,6 +58,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)
 	harnesses := typedCollection[*kagentv1alpha3.Harness](client, watchNamespaces, "Harnesses", opts)
+	modelProviderConfigs := typedCollection[*kagentv1alpha3.ModelProviderConfig](client, watchNamespaces, "ModelProviderConfigs", opts)
 	modelConfigs := typedCollection[*kagentv1alpha3.ModelConfig](client, watchNamespaces, "ModelConfigs", opts)
 	remoteMCPServers := typedCollection[*kagentv1alpha3.RemoteMCPServer](client, watchNamespaces, "RemoteMCPServers", opts)
 	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
@@ -81,6 +83,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		AgentTemplates:           agentTemplates,
 		Harnesses:                harnesses,
 		ModelConfigs:             modelConfigs,
+		ModelProviderConfigs:     modelProviderConfigs,
 		RemoteMCPServers:         remoteMCPServers,
 		ConfigMaps:               configMaps,
 		Secrets:                  secrets,

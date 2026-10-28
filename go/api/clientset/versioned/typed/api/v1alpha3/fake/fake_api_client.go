@@ -32,6 +32,10 @@ func (c *FakeApiV1alpha3) ModelConfigs(namespace string) v1alpha3.ModelConfigInt
 	return newFakeModelConfigs(c, namespace)
 }
 
+func (c *FakeApiV1alpha3) ModelProviderConfigs(namespace string) v1alpha3.ModelProviderConfigInterface {
+	return newFakeModelProviderConfigs(c, namespace)
+}
+
 func (c *FakeApiV1alpha3) RemoteMCPServers(namespace string) v1alpha3.RemoteMCPServerInterface {
 	return newFakeRemoteMCPServers(c, namespace)
 }

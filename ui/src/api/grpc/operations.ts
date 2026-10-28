@@ -15,11 +15,6 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb
  * Most ids are a single RPC. These are not, and each is a decision rather than a
  * detail:
  *
- * - **`models.providers`** merges `ListSupportedModelProviders` (the providers the
- *   controller ships with) and `ListConfiguredProviders` (the ones an operator
- *   added). The old REST endpoint returned one list and the UI's provider picker
- *   still wants one; keeping them apart here would mean every caller merging them
- *   itself.
  * - **`mcpServers.list`** is also how a single tool server is read, because
  *   `ToolService` has **no GetToolServer RPC**. Nothing in the app reads one today
  *   — which is why there is no `mcpServers.get` id — and anything that starts to
@@ -27,7 +22,6 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb
  *
  * ## What is not reachable from here
  *
- * `ListProviderModels` (refresh one provider's catalogue),
  * `ListToolServerTypes`, the MCP-app RPCs
  * (`ListMCPAppTools`, `CallMCPAppTool`, `ReadMCPAppResource`), the
  * `SystemService`'s `GetVersion` and `GetCurrentUser` exist on the controller and
@@ -41,7 +35,7 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb
  * the chat reads boundaries from the list and nothing removes one yet.
  */
 
-import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { DiscoveryState, type ListProviderModelsResponse, ModelService } from "@/generated/kagent/api/v1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
@@ -76,7 +70,7 @@ import {
   unwrap,
   wrap,
 } from "./wire";
-import type { ModelConfig, ModelConfigSpec, Provider } from "../domain/models";
+import type { ModelConfig, ModelConfigSpec } from "../domain/models";
 import type {
   ToolServerResponse,
   ToolsResponse,
@@ -193,6 +187,9 @@ const models: Pick<
   | "models.delete"
   | "models.providers"
   | "models.providerModels"
+ | "models.configuredProviders"
+ | "models.discovery"
+ | "models.refreshDiscovery"
 > = {
   "models.list": async (_input, options) => {
     const name = "ModelService/ListModelConfigs";
@@ -267,41 +264,28 @@ const models: Pick<
   },
 
   "models.providers": async (_input, options) => {
-    const client = serviceClient(ModelService);
-
-    // Both lists, in parallel: a picker that offered only the stock providers
-    // would silently hide whatever the operator added, and one that offered only
-    // the configured ones would be empty on a fresh install.
-    const [supported, configured] = await Promise.all([
-      rpc("ModelService/ListSupportedModelProviders", options.signal, () =>
-        client.listSupportedModelProviders({}, call("models.providers", options)),
-      ),
-      rpc("ModelService/ListConfiguredProviders", options.signal, () =>
-        client.listConfiguredProviders({}, call("models.providers", options)),
-      ),
-    ]);
-
-    const stock: Provider[] = list(supported.providers).map((provider) => ({
-      name: provider.name,
-      type: provider.type,
-      requiredParams: list(provider.requiredParams),
-      optionalParams: list(provider.optionalParams),
-      source: "stock",
-    }));
-
-    // A configured provider carries no parameter lists — the controller does not
-    // report any — so the fields are empty rather than absent, because every
-    // caller iterates them.
-    const added: Provider[] = list(configured.providers).map((provider) => ({
-      name: provider.name,
-      type: provider.type,
-      requiredParams: [],
-      optionalParams: [],
-      source: "configured",
-      endpoint: orUndefined(provider.endpoint),
-    }));
-
-    return [...stock, ...added];
+    const response = await rpc("ModelService/ListSupportedModelProviders", options.signal, () =>
+      serviceClient(ModelService).listSupportedModelProviders({}, call("models.providers", options)));
+    return response.providers.map(provider => ({name: provider.name, type: provider.type,
+      requiredParams: provider.requiredParams, optionalParams: provider.optionalParams, source: "stock" as const}));
+  },
+  "models.configuredProviders": async (_input, options) => {
+    const response = await rpc("ModelService/ListConfiguredProviders", options.signal, () =>
+      serviceClient(ModelService).listConfiguredProviders({}, call("models.configuredProviders", options)));
+    return response.providers.map(provider => ({namespace: provider.ref?.namespace ?? "", name: provider.ref?.name ?? "",
+      type: provider.type, endpoint: provider.endpoint, state: discoveryState(provider.state), error: orUndefined(provider.error)}));
+  },
+  "models.discovery": async (input, options) => {
+    const name = "ModelService/ListProviderModels";
+    const response = await rpc(name, options.signal, () => serviceClient(ModelService).listProviderModels(
+      {ref: input}, call("models.discovery", options)));
+    return discoveryResult(response);
+  },
+  "models.refreshDiscovery": async (input, options) => {
+    const name = "ModelService/ListProviderModels";
+    const response = await rpc(name, options.signal, () => serviceClient(ModelService).listProviderModels(
+      {ref: input, refresh: true}, call("models.refreshDiscovery", options)));
+    return discoveryResult(response);
   },
 
   "models.providerModels": async (_input, options) => {
@@ -1403,3 +1387,19 @@ export const defaultOperations: ApiOperations = {
     return { ...response, executions: list(response.executions) };
   }),
 };
+
+function discoveryState(state: DiscoveryState): import("../domain/models").DiscoveryState {
+  switch(state) {
+    case DiscoveryState.CURRENT: return "current";
+    case DiscoveryState.STALE: return "stale";
+    case DiscoveryState.FAILED: return "failed";
+    default: return "pending";
+  }
+}
+function discoveryResult(response: ListProviderModelsResponse): import("../domain/models").ModelDiscoveryResult {
+ return {endpoint: response.endpoint, state: discoveryState(response.state), error: orUndefined(response.error),
+   models: response.discoveredModels.map(model => ({id:model.id, name:model.name, ownedBy:model.ownedBy,
+     contextWindow:model.contextWindow?.toString(), maxTokens:model.maxTokens?.toString(), capabilities:model.capabilities ? {
+       tools:model.capabilities.tools, reasoning:model.capabilities.reasoning,
+       structuredOutputs:model.capabilities.structuredOutputs, temperature:model.capabilities.temperature} : undefined}))};
+}

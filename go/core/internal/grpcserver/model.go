@@ -131,28 +131,22 @@ func (s *modelServer) ListConfiguredProviders(ctx context.Context, _ *apiv1.List
 	if err != nil {
 		return nil, err
 	}
-	providers := make([]*apiv1.ConfiguredProvider, 0, len(result))
-	for _, provider := range result {
-		providers = append(providers, &apiv1.ConfiguredProvider{
-			Name:     provider.Name,
-			Type:     provider.Type,
-			Endpoint: provider.Endpoint,
-		})
-	}
-	return &apiv1.ListConfiguredProvidersResponse{Providers: providers}, nil
+	return &apiv1.ListConfiguredProvidersResponse{Providers: result}, nil
 }
 
 func (s *modelServer) ListProviderModels(ctx context.Context, request *apiv1.ListProviderModelsRequest) (*apiv1.ListProviderModelsResponse, error) {
 	result, err := s.service.GetProviderModels(ctx, modelservice.GetProviderModelsRequest{
-		Name:    request.GetProviderName(),
+		Ref:     types.NamespacedName{Namespace: request.GetRef().GetNamespace(), Name: request.GetRef().GetName()},
 		Refresh: request.GetRefresh(),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &apiv1.ListProviderModelsResponse{
-		Provider: result.Provider,
-		Models:   result.Models,
+		DiscoveredModels: result.Models,
+		Endpoint:         result.Endpoint,
+		State:            result.State,
+		Error:            result.Error,
 	}, nil
 }
 

@@ -71,6 +71,9 @@ const INPUTS = {
   },
   "models.delete": { namespace: "kagent", name: "swept-model" },
   "models.providers": {},
+  "models.configuredProviders": {},
+  "models.discovery": {namespace:"kagent",name:"gateway"},
+  "models.refreshDiscovery": {namespace:"kagent",name:"gateway"},
   "models.providerModels": {},
 
   "mcpServers.list": {},
@@ -286,32 +289,15 @@ describe("the fixture backend", () => {
     expect(last.nextPageToken).toBeUndefined();
   });
 
-  /*
-   * `models.providers` is two RPCs merged, and a merge with nothing on one side is
-   * wired rather than exercised — so the fixtures carry one provider of each kind and
-   * this asserts both arrive with the right provenance.
-   */
-  it("merges the providers an operator added with the ones the controller ships", async () => {
+  it("keeps discovery sources separate from invocation providers", async () => {
     const providers = await invoke("models.providers", {});
-
-    const stock = providers.filter((provider) => provider.source === "stock");
-    const configured = providers.filter((provider) => provider.source === "configured");
-    expect(stock.length).toBeGreaterThan(0);
-    expect(configured).toHaveLength(1);
-
-    // A configured provider is a `ModelProviderConfig` resource, so its name is the
-    // resource's name while its type is the provider enum. They differ, where for a
-    // stock provider they are the same string — which is exactly what a picker keyed
-    // on the wrong one of the two gets wrong.
+    const configured = await invoke("models.configuredProviders", {});
+    expect(providers.length).toBeGreaterThan(0);
+    expect(configured).toHaveLength(2);
+    expect(configured[0].namespace).toBe("kagent");
     expect(configured[0].name).not.toBe(configured[0].type);
     expect(configured[0].endpoint).toBeTruthy();
-    // No parameter lists: the controller reports none for a configured provider, and
-    // every caller iterates them, so they are empty rather than absent.
-    expect(configured[0].requiredParams).toEqual([]);
-    expect(configured[0].optionalParams).toEqual([]);
-
-    // The stock RPC must not also report it, or the picker shows it twice.
-    expect(stock.map((provider) => provider.name)).not.toContain(configured[0].name);
+    expect(providers.every(p => p.source === "stock")).toBe(true);
   });
 
   it("lists only the prompt libraries in the namespace asked about", async () => {

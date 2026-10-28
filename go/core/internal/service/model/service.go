@@ -28,11 +28,11 @@ const (
 )
 
 type Service struct {
-	kubeClient             client.Client
-	modelConfigs           *kubecrud.Service[*v1alpha3.ModelConfig, *v1alpha3.ModelConfigList]
-	providerConfigs        *kubecrud.Service[*v1alpha3.ModelProviderConfig, *v1alpha3.ModelProviderConfigList]
-	defaultNamespace       string
-	providerModelRefresher ProviderModelRefresher
+	kubeClient       client.Client
+	modelConfigs     *kubecrud.Service[*v1alpha3.ModelConfig, *v1alpha3.ModelConfigList]
+	providerConfigs  *kubecrud.Service[*v1alpha3.ModelProviderConfig, *v1alpha3.ModelProviderConfigList]
+	defaultNamespace string
+	discovery        ProviderDiscovery
 }
 
 type ListRequest struct{}

@@ -454,7 +454,7 @@ on(ModelService.method.listConfiguredProviders, (_input, call) => ({
       : mockProviders
           .filter((provider) => provider.source === "configured")
           .map((provider) => ({
-            name: provider.name,
+            ref: {namespace:"kagent",name:provider.name},
             type: provider.type,
             endpoint: provider.endpoint ?? "",
           })),
@@ -473,16 +473,9 @@ on(ModelService.method.listSupportedModels, (_input, call) => ({
         })),
 }));
 
-/**
- * One provider's catalogue.
- *
- * No operation id reaches this RPC today; it is served because the controller
- * serves it, so a deployment that overrides an operation to call it finds a fake
- * rather than an `Unimplemented`.
- */
+/** Configured source responses use the same contract as the live discovery API. */
 on(ModelService.method.listProviderModels, (input) => ({
-  provider: input.providerName,
-  models: (mockProviderModels[input.providerName] ?? []).map((model) => model.name),
+  state: 2, endpoint: "https://models.example.com/v1", discoveredModels: [{id:input.ref?.name.endsWith("-b") ? "other-chat" : "team-chat", object:"model"}],
 }));
 
 // ---------------------------------------------------------------------------

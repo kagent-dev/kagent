@@ -1,8 +1,11 @@
 import { apiClient } from "../client";
+import type { ApiError } from "../ApiError";
 import type {
   ModelConfig,
   Provider,
   ProviderModelsResponse,
+ ConfiguredModelProvider,
+ ModelDiscoveryResult,
 } from "../domain/models";
 import { type ApiResource, useApiResource } from "./useApiResource";
 
@@ -35,4 +38,19 @@ export function useProviderModels(): ApiResource<ProviderModelsResponse> {
  */
 export function useProviders(): ApiResource<Provider[]> {
   return useApiResource(["models.providers"], () => apiClient.models.providers());
+}
+
+export function useConfiguredModelProviders(): ApiResource<ConfiguredModelProvider[]> {
+ return useApiResource(["models.configuredProviders"], () => apiClient.models.configuredProviders());
+}
+export function useModelDiscovery(namespace?: string, name?: string): ApiResource<ModelDiscoveryResult> {
+ return useApiResource(namespace && name ? ["models.discovery", namespace, name] : null,
+   () => apiClient.models.discovery(namespace!,name!), {
+     refreshInterval: 10000,
+     // SWR pauses polling on errors. Override the app's disabled retries so
+     // transient read failures recover; missing/forbidden sources need user action.
+     shouldRetryOnError: (error: ApiError) => error.isUnreachable || error.status === 429 || (error.status !== undefined && error.status >= 500),
+     errorRetryInterval: 5000,
+     errorRetryCount: 5,
+   });
 }

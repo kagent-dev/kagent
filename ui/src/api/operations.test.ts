@@ -29,7 +29,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
-import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { DiscoveryState, ModelService } from "@/generated/kagent/api/v1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
@@ -142,7 +142,7 @@ describe("model configurations", () => {
    * providers would hide whatever the operator added; one offering only the
    * configured providers would be empty on a fresh install.
    */
-  it("merges the stock providers with the configured ones", async () => {
+  it("keeps invocation providers separate from configured sources", async () => {
     serve(({ service }) => {
       service(ModelService, {
         listSupportedModelProviders: () => ({
@@ -157,7 +157,7 @@ describe("model configurations", () => {
         }),
         listConfiguredProviders: () => ({
           providers: [
-            { name: "in-house", type: "openai", endpoint: "https://llm.internal" },
+            { ref: {namespace:"team",name:"in-house"}, type: "openai", endpoint: "https://llm.internal", state: 2 },
           ],
         }),
       });
@@ -171,14 +171,10 @@ describe("model configurations", () => {
         optionalParams: ["baseUrl"],
         source: "stock",
       },
-      {
-        name: "in-house",
-        type: "openai",
-        requiredParams: [],
-        optionalParams: [],
-        source: "configured",
-        endpoint: "https://llm.internal",
-      },
+
+    ]);
+    expect(await apiClient.models.configuredProviders()).toEqual([
+      {namespace:"team",name:"in-house",type:"openai",endpoint:"https://llm.internal",state:"current",error:undefined}
     ]);
   });
 
@@ -1017,5 +1013,35 @@ describe("session shares", () => {
       createdAt: "",
     });
     expect(created.token).toBe("token");
+  });
+});
+
+
+describe("model discovery response", () => {
+  it.each([
+    [DiscoveryState.PENDING, "pending", ""],
+    [DiscoveryState.CURRENT, "current", ""],
+    [DiscoveryState.STALE, "stale", "RequestFailed"],
+    [DiscoveryState.FAILED, "failed", "SecretUnresolved"],
+  ] as const)("maps the flat %s response for reads and refreshes", async (state, expectedState, error) => {
+    const refreshes: boolean[] = [];
+    serve(router => router.service(ModelService, {
+      listProviderModels(request) {
+        expect(request.ref).toMatchObject({namespace: "team", name: "gateway"});
+        refreshes.push(request.refresh);
+        return {state, error, endpoint: "https://gateway.example/v1", discoveredModels: [
+          {id: "team-chat", object: "model", capabilities: {tools: false}},
+        ]};
+      },
+    }));
+    for (const response of [
+      await apiClient.models.discovery("team", "gateway"),
+      await apiClient.models.refreshDiscovery("team", "gateway"),
+    ]) {
+      expect(Object.keys(response).sort()).toEqual(["endpoint", "error", "models", "state"]);
+      expect(response).toMatchObject({endpoint: "https://gateway.example/v1", state: expectedState,
+        error: error || undefined, models: [{id: "team-chat", capabilities: {tools: false}}]});
+    }
+    expect(refreshes).toEqual([false, true]);
   });
 });

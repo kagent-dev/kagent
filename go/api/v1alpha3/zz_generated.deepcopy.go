@@ -1387,11 +1387,6 @@ func (in *ModelProviderConfigStatus) DeepCopyInto(out *ModelProviderConfigStatus
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.DiscoveredModels != nil {
-		in, out := &in.DiscoveredModels, &out.DiscoveredModels
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	if in.LastDiscoveryTime != nil {
 		in, out := &in.LastDiscoveryTime, &out.LastDiscoveryTime
 		*out = (*in).DeepCopy()

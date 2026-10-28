@@ -163,22 +163,8 @@ export const mockProviders: Provider[] = [
     requiredParams: ["deployment", "endpoint"],
     optionalParams: ["apiVersion", "apiFormat"],
   },
-  /*
-   * One provider an operator added, rather than one the controller ships with.
-   *
-   * `models.providers` merges two RPCs — `ListSupportedModelProviders` and
-   * `ListConfiguredProviders` — and a merge with nothing on one side of it is
-   * wired and unexercised, which is the shape of thing that is wrong and green.
-   *
-   * Checked against the controller rather than against this app's types
-   * (`Service.ListConfiguredProviders`, `go/core/internal/service/model/discovery.go`):
-   * a configured provider is a `ModelProviderConfig` resource, so its `name` is the
-   * *resource's* name and its `type` is the provider enum — the two differ, where
-   * for every stock provider above they are the same string. It carries an endpoint
-   * and no parameter lists, because the controller reports none for one. Only
-   * configs whose Ready condition is true are listed at all, so this fixture stands
-   * for a provider that came up rather than one merely created.
-   */
+  // Distinct configured sources sharing an invocation provider type. The
+  // discovery selector must retain their resource identities independently.
   {
     name: "example-openai-proxy",
     type: "OpenAI",
@@ -186,6 +172,14 @@ export const mockProviders: Provider[] = [
     optionalParams: [],
     source: "configured",
     endpoint: "https://llm.example.test/v1",
+  },
+  {
+    name: "example-openai-proxy-b",
+    type: "OpenAI",
+    requiredParams: [],
+    optionalParams: [],
+    source: "configured",
+    endpoint: "https://other.example.test/v1",
   },
 ];
 

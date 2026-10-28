@@ -14,6 +14,7 @@ import {
   confirmDelete,
   confirmation,
   expectRequired,
+  optionNamed,
   selectOption,
 } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
@@ -316,5 +317,48 @@ test("models: a configuration is created, read, changed and deleted", async ({
     await loadPage(page, routes.models, { scenario: "ok", title: "Models" });
     await expect(page.getByTestId("models-error")).toHaveCount(0);
     await expect(rowNamed(page, "default-model-config")).toHaveCount(1);
+  });
+
+  for (const format of ["Chat Completions", "Responses", "Anthropic Messages"]) {
+    await test.step(`14. discovery creates a model using ${format}`, async () => {
+      await loadPage(page, routes.models, {scenario:"ok", title:"Models"});
+      await page.getByTestId("models-new").click();
+      await selectOption(page, "model-discovery-source", "kagent/example-openai-proxy");
+      await expect(page.getByText("Discovery: current")).toBeVisible();
+      await selectOption(page, "model-invocation-format", format);
+      await page.getByTestId("model-model").locator("input").fill("team-chat");
+      await page.getByText(/^Optional parameters/).click();
+      const baseUrl = page.getByTestId("model-param-baseUrl");
+      await baseUrl.fill("https://invocation.example/custom");
+      // Editing the selected ID must preserve independently configured invocation settings.
+      await page.getByTestId("model-model").locator("input").fill("team-chat-edited");
+      await page.getByTestId("model-model").locator("input").fill("team-chat");
+      await expect(baseUrl).toHaveValue("https://invocation.example/custom");
+      await page.getByTestId("model-name").fill(`discovered-${format === "Responses" ? "responses" : format === "Anthropic Messages" ? "messages" : "chat"}`);
+      await page.getByTestId("model-auth-type").getByText("No credential", {exact:true}).click();
+      const before = await operationCalls(page, rpc.createModelConfig);
+      await page.getByTestId("model-submit").click();
+      await expect.poll(() => operationCalls(page, rpc.createModelConfig)).toBeGreaterThan(before);
+      await expect(page).toHaveURL(/\/models(\?|$)/);
+      const row = rowNamed(page, `discovered-${format === "Responses" ? "responses" : format === "Anthropic Messages" ? "messages" : "chat"}`);
+      await expect(row).toContainText("team-chat");
+      await expect(row).toContainText(format === "Anthropic Messages" ? "Anthropic" : "OpenAI");
+    });
+  }
+
+  await test.step("15. switching discovery gateways clears the selection", async () => {
+    await loadPage(page, routes.models, {scenario:"ok", title:"Models"});
+    await page.getByTestId("models-new").click();
+    await selectOption(page, "model-discovery-source", "kagent/example-openai-proxy");
+    await expect(page.getByText("Discovery: current")).toBeVisible();
+    await selectOption(page, "model-invocation-format", "Responses");
+    const model = page.getByTestId("model-model").locator("input");
+    await model.fill("team-chat");
+    await selectOption(page, "model-discovery-source", "kagent/example-openai-proxy-b");
+    await expect(model).toHaveValue("");
+    await expect(page.getByText("Discovery: current")).toBeVisible();
+    await selectOption(page, "model-invocation-format", "Responses");
+    await model.click();
+    await expect(optionNamed(page, "other-chat")).toBeVisible();
   });
 });

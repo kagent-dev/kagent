@@ -89,6 +89,19 @@ func registerTypes() {
 		},
 	)
 	kubeclient.Register(
+		kagentv1alpha3.GroupVersion.WithResource("modelproviderconfigs"),
+		kagentv1alpha3.GroupVersion.WithKind("ModelProviderConfig"),
+		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {
+			return c.(Client).Kagent().ApiV1alpha3().ModelProviderConfigs(namespace).List(context.Background(), options)
+		},
+		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (watch.Interface, error) {
+			return c.(Client).Kagent().ApiV1alpha3().ModelProviderConfigs(namespace).Watch(context.Background(), options)
+		},
+		func(c kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*kagentv1alpha3.ModelProviderConfig] {
+			return c.(Client).Kagent().ApiV1alpha3().ModelProviderConfigs(namespace)
+		},
+	)
+	kubeclient.Register(
 		kagentv1alpha3.GroupVersion.WithResource("modelconfigs"),
 		kagentv1alpha3.GroupVersion.WithKind("ModelConfig"),
 		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {

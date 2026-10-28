@@ -24,12 +24,13 @@ import (
 const (
 	// ModelProviderConfigConditionTypeReady indicates whether the model provider config is ready for use
 	ModelProviderConfigConditionTypeReady = "Ready"
+)
 
-	// ModelProviderConfigConditionTypeSecretResolved indicates whether the model provider config's secret reference is valid
-	ModelProviderConfigConditionTypeSecretResolved = "SecretResolved"
-
-	// ModelProviderConfigConditionTypeModelsDiscovered indicates whether model discovery has succeeded
-	ModelProviderConfigConditionTypeModelsDiscovered = "ModelsDiscovered"
+// ModelProviderConfig condition reasons describe discovery and credential state.
+const (
+	ModelProviderConfigReasonPending          = "Pending"
+	ModelProviderConfigReasonDiscovered       = "Discovered"
+	ModelProviderConfigReasonSecretUnresolved = "SecretUnresolved"
 )
 
 // DefaultModelProviderEndpoint returns the default API endpoint for a given model provider type.
@@ -57,13 +58,13 @@ func DefaultModelProviderEndpoint(providerType ModelProvider) string {
 type SecretReference struct {
 	// Name is the name of the secret in the same namespace as the ModelProviderConfig.
 	// +required
+	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 }
 
 // ModelProviderConfigSpec defines the desired state of ModelProviderConfig.
 //
 // +kubebuilder:validation:XValidation:message="endpoint must be a valid URL starting with http:// or https://",rule="!has(self.endpoint) || size(self.endpoint) == 0 || self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')"
-// +kubebuilder:validation:XValidation:message="secretRef is required for providers that need authentication (not Ollama)",rule="self.type == 'Ollama' || (has(self.secretRef) && has(self.secretRef.name) && size(self.secretRef.name) > 0)"
 type ModelProviderConfigSpec struct {
 	// Type is the model provider type (OpenAI, Anthropic, etc.)
 	// +required
@@ -72,11 +73,11 @@ type ModelProviderConfigSpec struct {
 	// Endpoint is the API endpoint URL for the provider.
 	// If not specified, the default endpoint for the provider type will be used.
 	// +optional
-	// +kubebuilder:validation:Pattern=`^https?://.*`
+	// +kubebuilder:validation:Pattern=`^https?://[^/?#@]+(/[^?#]*)?$`
 	Endpoint string `json:"endpoint,omitempty"`
 
 	// SecretRef references the Kubernetes Secret containing the API key.
-	// Optional for providers that don't require authentication (e.g., local Ollama).
+	// Omit for unauthenticated discovery. Invocation credentials are configured separately.
 	// +optional
 	SecretRef *SecretReference `json:"secretRef,omitempty"`
 }
@@ -87,11 +88,6 @@ func (p *ModelProviderConfigSpec) GetEndpoint() string {
 		return p.Endpoint
 	}
 	return DefaultModelProviderEndpoint(p.Type)
-}
-
-// RequiresSecret returns true if this model provider type requires a secret for authentication.
-func (p *ModelProviderConfigSpec) RequiresSecret() bool {
-	return p.Type != ModelProviderOllama
 }
 
 // ModelProviderConfigStatus defines the observed state of ModelProviderConfig.
@@ -106,10 +102,6 @@ type ModelProviderConfigStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// DiscoveredModels is the cached list of model IDs available from this model provider
-	// +optional
-	DiscoveredModels []string `json:"discoveredModels,omitempty"`
-
 	// ModelCount is the number of discovered models (for kubectl display)
 	// +optional
 	ModelCount int `json:"modelCount,omitempty"`
@@ -117,12 +109,9 @@ type ModelProviderConfigStatus struct {
 	// LastDiscoveryTime is the timestamp of the last successful model discovery
 	// +optional
 	LastDiscoveryTime *metav1.Time `json:"lastDiscoveryTime,omitempty"`
-
-	// SecretHash is a hash of the referenced secret data, used to detect secret changes
-	// +optional
-	SecretHash string `json:"secretHash,omitempty"`
 }
 
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:resource:categories=kagent,shortName=mprov

@@ -3,6 +3,7 @@ syntax = "proto3";
 package kagent.api.v1;
 
 import "kagent/api/v1/common.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
 
@@ -85,9 +86,13 @@ message ListSupportedModelProvidersResponse {
 }
 
 message ConfiguredProvider {
-  string name = 1;
+  // Deprecated: use ref to identify the ModelProviderConfig.
+  string name = 1 [deprecated = true];
   string type = 2;
   string endpoint = 3;
+  ResourceReference ref = 4;
+  DiscoveryState state = 5;
+  string error = 6;
 }
 
 message ListConfiguredProvidersRequest {}
@@ -97,13 +102,59 @@ message ListConfiguredProvidersResponse {
 }
 
 message ListProviderModelsRequest {
-  string provider_name = 1;
+  // Deprecated: use ref to identify the ModelProviderConfig.
+  string provider_name = 1 [deprecated = true];
   bool refresh = 2;
+  ResourceReference ref = 3 [(buf.validate.field).required = true];
 }
 
 message ListProviderModelsResponse {
-  string provider = 1;
-  repeated string models = 2;
+  // Deprecated: the request ref identifies the ModelProviderConfig.
+  string provider = 1 [deprecated = true];
+  // Deprecated: use discovered_models for typed discovery metadata.
+  repeated string models = 2 [deprecated = true];
+  reserved 3;
+  reserved "snapshot";
+  repeated DiscoveredModel discovered_models = 4;
+  string endpoint = 5;
+  DiscoveryState state = 6;
+  string error = 7;
+}
+
+enum DiscoveryState {
+  DISCOVERY_STATE_UNSPECIFIED = 0;
+  DISCOVERY_STATE_PENDING = 1;
+  DISCOVERY_STATE_CURRENT = 2;
+  DISCOVERY_STATE_STALE = 3;
+  DISCOVERY_STATE_FAILED = 4;
+}
+
+// Canonical OpenAI-compatible model entry, including optional Agw enrichment.
+message DiscoveredModel {
+  string id = 1;
+  string object = 2;
+  optional uint64 created = 3;
+  optional string owned_by = 4;
+  optional string name = 5;
+  optional uint64 context_window = 6;
+  optional uint64 context_length = 7;
+  optional uint64 max_input_tokens = 8;
+  optional uint64 max_tokens = 9;
+  ModelArchitecture architecture = 10;
+  ModelCapabilities capabilities = 11;
+  repeated string supported_parameters = 12;
+}
+
+message ModelArchitecture {
+  repeated string input_modalities = 1;
+  repeated string output_modalities = 2;
+}
+
+message ModelCapabilities {
+  optional bool reasoning = 1;
+  optional bool structured_outputs = 2;
+  optional bool tools = 3;
+  optional bool temperature = 4;
 }
 
 message ModelInfo {

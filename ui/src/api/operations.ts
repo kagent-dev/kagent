@@ -40,6 +40,8 @@ import type {
   ModelConfig,
   Provider,
   ProviderModelsResponse,
+ ConfiguredModelProvider,
+ ModelDiscoveryResult,
 } from "./domain/models";
 import type {
   ToolServerCreateRequest,
@@ -135,6 +137,9 @@ export interface OperationMap {
   };
   "models.delete": { input: ResourceRefInput; output: void };
   "models.providers": { input: NoInput; output: Provider[] };
+  "models.configuredProviders": { input: NoInput; output: ConfiguredModelProvider[] };
+  "models.discovery": { input: ResourceRefInput; output: ModelDiscoveryResult };
+  "models.refreshDiscovery": { input: ResourceRefInput; output: ModelDiscoveryResult };
   "models.providerModels": { input: NoInput; output: ProviderModelsResponse };
 
   "mcpServers.list": { input: NoInput; output: ToolServerResponse[] };
