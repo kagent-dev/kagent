@@ -9,13 +9,14 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 const claudeE2EHarness = "claude-e2e"
@@ -109,7 +110,7 @@ func createClaudeTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, des
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: modelConfig},
+			ModelConfig: &v1alpha3.ObjectReference{Name: modelConfig},
 			Description: description, SystemPrompt: "Reply concisely and follow the requested output format exactly.",
 		},
 	}
@@ -125,7 +126,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "Claude local specialist",
 			SystemPrompt: childPrompt,
 		},
@@ -137,7 +138,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "Claude local-subagent E2E fixture",
 			SystemPrompt: "Always delegate the request to the specialist subagent, then return its answer.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
@@ -152,7 +153,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 
 func assertNoClaudeChildSession(t *testing.T, fixture *interactionFixture, childTemplate string) {
 	t.Helper()
-	sessions, err := fixture.sessions.ListSessions(fixture.ctx, &apiv1alpha1.ListSessionsRequest{})
+	sessions, err := fixture.sessions.ListSessions(fixture.ctx, &apiv1.ListSessionsRequest{})
 	if err != nil {
 		t.Fatalf("list Claude Sessions: %v", err)
 	}
@@ -221,11 +222,11 @@ func createClaudeMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, 
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: modelConfig},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: modelConfig},
 			Description:  "Claude direct whole-server MCP E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				Server:          corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
 				RequireApproval: requireApproval,
 			}}},
 		},

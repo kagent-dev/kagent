@@ -12,10 +12,11 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+	otel "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -59,7 +60,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}
 	var pluginDirs []string
 	if cfg.SkillResources != nil {
-		skillsDir := filepath.Join(skillRoot, ".claude", "skills")
+		skillsDir := config.SkillsRoot(input.DurableDir)
 		if err := utils.EnsurePrivateDir(skillsDir); err != nil {
 			return nil, fmt.Errorf("prepare generated Claude skills directory: %w", err)
 		}
@@ -70,81 +71,75 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		if err != nil {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}
-		pluginDirs = materialized.ClaudeFormatPluginRoots()
+		// --setting-sources disables project skill discovery, including --add-dir.
+		// Load compiler-selected skills explicitly without enabling workspace settings.
+		if err := utils.ReplacePrivateFile(filepath.Join(skillRoot, ".claude-plugin", "plugin.json"), []byte(`{"name":"kagent-skills","skills":"./.claude/skills/"}`)); err != nil {
+			return nil, fmt.Errorf("materialize Claude skill plugin: %w", err)
+		}
+		pluginDirs = append([]string{skillRoot}, materialized.ClaudeFormatPluginRoots()...)
 	}
 	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
 	// The native runtime inherits the compiled identity through the standard
 	// resource variable, so no user-supplied marker is required.
-	environment, awaitTelemetry := nativeTelemetryEnvironment(telemetry.WithDefaults(tracing.ResourceEnvironment(environment, cfg.RuntimeTelemetry.ChildResource())), cfg.RuntimeTelemetry)
+	environment, awaitTelemetry := nativeTelemetryEnvironment(tracing.ResourceEnvironment(otel.Environment(environment, cfg.RuntimeTelemetry.ExporterConfig()), cfg.RuntimeTelemetry.ChildResource()), cfg.RuntimeTelemetry)
 	// The image and compiler pin an exact Claude version. Prevent both automatic
 	// and manual update paths from changing that runtime after validation.
 	environment = setEnvironment(environment, config.DisableUpdatesEnvName, "1")
+	// TODO: REMOVE this test-only override and its reserved environment name once upstream
+	// denial handling permits bounded native retries: https://github.com/agent-substrate/substrate/issues/2663
+	// Alpha3 fixes musl DNS search fallback, but denied requests still retry for minutes.
+	if slices.Contains(input.Environment, env.TestClaudeDisableRetries+"=true") {
+		environment = setEnvironment(environment, config.MaxRetriesEnvName, "0")
+	}
 	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
 	if err != nil {
 		return nil, err
 	}
 	protectedServers := approvalServerNames(cfg.MCPServers)
-	var approvalBroker *driver.ApprovalBroker
-	var settingsPath string
-	var permissionPromptTool string
-	if len(protectedServers) != 0 {
-		if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
-			return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
-		}
-		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
-			return nil, fmt.Errorf("prepare ephemeral Claude settings directory: %w", err)
-		}
-		approvalBroker, err = driver.NewApprovalBroker(protectedServers, cfg.MaxEventBytes)
-		if err != nil {
-			return nil, fmt.Errorf("start Claude approval broker: %w", err)
-		}
-		settingsJSON, settingsErr := approvalBroker.SettingsJSON()
-		if settingsErr != nil {
-			_ = approvalBroker.Close()
-			return nil, settingsErr
-		}
-		settingsPath = filepath.Join(input.EphemeralDir, "settings.json")
-		if err := utils.ReplacePrivateFile(settingsPath, settingsJSON); err != nil {
-			_ = approvalBroker.Close()
-			return nil, fmt.Errorf("materialize Claude approval settings: %w", err)
-		}
-		permissionPromptTool = "mcp__" + approvalMCPServerName + "__" + driver.ApprovalToolName
-		mcpServers := make(map[string]config.MCPServer, len(cfg.MCPServers)+1)
-		maps.Copy(mcpServers, cfg.MCPServers)
-		mcpServers[approvalMCPServerName] = config.MCPServer{
-			Type: "http", URL: approvalBroker.URL(), Headers: approvalBroker.Headers(),
-		}
-		cfg.MCPServers = mcpServers
+	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
+		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}
+	if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
+		return nil, fmt.Errorf("prepare ephemeral Claude settings directory: %w", err)
+	}
+	approvalBroker, err := driver.NewApprovalBroker(protectedServers, filepath.Join(input.DurableDir, "adapter"), cfg.MaxEventBytes)
+	if err != nil {
+		return nil, fmt.Errorf("start Claude approval broker: %w", err)
+	}
+	settingsJSON, settingsErr := approvalBroker.SettingsJSON()
+	if settingsErr != nil {
+		_ = approvalBroker.Close()
+		return nil, settingsErr
+	}
+	settingsPath := filepath.Join(input.EphemeralDir, "settings.json")
+	if err := utils.ReplacePrivateFile(settingsPath, settingsJSON); err != nil {
+		_ = approvalBroker.Close()
+		return nil, fmt.Errorf("materialize Claude approval settings: %w", err)
+	}
+	permissionPromptTool := "mcp__" + approvalMCPServerName + "__" + driver.ApprovalToolName
+	mcpServers := make(map[string]config.MCPServer, len(cfg.MCPServers)+1)
+	maps.Copy(mcpServers, cfg.MCPServers)
+	mcpServers[approvalMCPServerName] = config.MCPServer{
+		Type: "http", URL: approvalBroker.URL(), Headers: approvalBroker.Headers(),
+	}
+	cfg.MCPServers = mcpServers
 	mcpJSON, err := cfg.MCPConfigJSON()
 	if err != nil {
-		if approvalBroker != nil {
-			_ = approvalBroker.Close()
-		}
+		_ = approvalBroker.Close()
 		return nil, err
 	}
-	var mcpConfigPath string
-	if len(mcpJSON) != 0 {
-		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
-			if approvalBroker != nil {
-				_ = approvalBroker.Close()
-			}
-			return nil, fmt.Errorf("prepare ephemeral MCP directory: %w", err)
-		}
-		mcpConfigPath = filepath.Join(input.EphemeralDir, "mcp.json")
-		if err := utils.ReplacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
-			if approvalBroker != nil {
-				_ = approvalBroker.Close()
-			}
-			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
-		}
+	mcpConfigPath := filepath.Join(input.EphemeralDir, "mcp.json")
+	if err := utils.ReplacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
+		_ = approvalBroker.Close()
+		return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 	}
+
 	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
 		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath,
 		SettingsPath: settingsPath, PermissionPromptTool: permissionPromptTool, ApprovalBroker: approvalBroker,
-		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
+		PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
 	}), nil
@@ -196,25 +191,30 @@ func materializeGoogleCredentials(environment []string, directory string) ([]str
 // controller exports, and its content flags when capture is on. It reports
 // whether telemetry is on.
 func nativeTelemetryEnvironment(environment []string, telemetry tracing.RuntimeTelemetry) ([]string, bool) {
-	exported := func(name string) bool {
-		return slices.Contains(environment, name+"=otlp")
+	telemetry = telemetry.WithEnvironment(environment)
+	traces, logs := otel.SignalEnabled(environment, "TRACES"), otel.SignalEnabled(environment, "LOGS")
+	environment = setEnvironment(environment, "CLAUDE_CODE_ENABLE_TELEMETRY", "0")
+	environment = setEnvironment(environment, "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "0")
+	if telemetry.CaptureRawAPIBodies && logs {
+		environment = defaultEnvironment(environment, env.OTELLogRawAPIBodies.Name(), "1")
 	}
-	traces, logs := exported("OTEL_TRACES_EXPORTER"), exported("OTEL_LOGS_EXPORTER")
-	if !traces && !logs && !exported("OTEL_METRICS_EXPORTER") {
+	if !traces && !logs && !otel.SignalEnabled(environment, "METRICS") {
 		return environment, false
 	}
-	flags := []string{"CLAUDE_CODE_ENABLE_TELEMETRY", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"}
+	environment = setEnvironment(environment, "CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+	environment = setEnvironment(environment, "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1")
+	var flags []string
 	if telemetry.CaptureContent {
-		flags = append(flags, "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS")
+		flags = append(flags, env.OTELLogUserPrompts.Name(), env.OTELLogToolDetails.Name())
 		if traces {
-			flags = append(flags, "OTEL_LOG_TOOL_CONTENT")
+			flags = append(flags, env.OTELLogToolContent.Name())
 		}
 		if logs {
-			flags = append(flags, "OTEL_LOG_ASSISTANT_RESPONSES")
+			flags = append(flags, env.OTELLogAssistantResponses.Name())
 		}
 	}
 	for _, flag := range flags {
-		environment = setEnvironment(environment, flag, "1")
+		environment = defaultEnvironment(environment, flag, "1")
 	}
 	return environment, true
 }
@@ -228,4 +228,13 @@ func setEnvironment(environment []string, name, value string) []string {
 		}
 	}
 	return append(result, prefix+value)
+}
+
+func defaultEnvironment(environment []string, name, value string) []string {
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, name+"=") {
+			return environment
+		}
+	}
+	return append(environment, name+"="+value)
 }

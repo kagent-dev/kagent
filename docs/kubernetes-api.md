@@ -62,13 +62,20 @@ admission rules together determine what clients can send.
 ## Validation and unions
 
 Enforce rules that depend only on the submitted object through structural schemas
-and CEL `XValidation`: requiredness, bounds, enums, immutable fields, and
-relationships between fields. Exclusive variants use typed sibling fields with
-exactly-one or at-most-one CEL validation. Avoid a second discriminator that can
+and kubebuilder validation markers. Prefer the most specific built-in marker
+available. Use CEL `XValidation` only when built-in markers cannot express the
+rule, such as conditional relationships between fields or comparisons with the
+previous state.
+
+Model unions as typed sibling fields with the declarative cardinality markers
+(`ExactlyOneOf`, `AtMostOneOf`, or `AtLeastOneOf`). Do not handwrite
+equivalent CEL cardinality rules or add a second discriminator that can
 contradict the selected branch.
 
-Admission must reject invalid combinations. Test both-set and neither-set cases
-against the generated schema, not only Go constructors. Defaults must not turn
+Use kube-api-linter as the automated baseline for API shape and marker patterns
+it covers. Add focused tests for new or changed admission invariants against the
+generated CRD schema, not only Go constructors. For union cardinality changes,
+cover the combinations rejected by the selected marker. Defaults must not turn
 invalid input into an apparently valid choice.
 
 Checks requiring other objects or external systems belong to the owning

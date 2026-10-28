@@ -5,11 +5,12 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // isEmptyDataPart returns true if the part is a DataPart with nil or empty Data.
@@ -46,7 +47,7 @@ func a2aPartConverter(_ context.Context, _ a2atype.Event, part *a2atype.Part) (*
 }
 
 // keepFileName copies a non-image file's name into PartMetadata, which survives ADK blanking DisplayName.
-// Vertex rejects PartMetadata; this is safe only because the file wrapper replaces these parts.
+// Vertex rejects PartMetadata, but Gemini never gets these parts: the file wrapper turns them into text.
 func keepFileName(p *genai.Part) {
 	if p == nil || p.InlineData == nil || p.InlineData.DisplayName == "" || strings.HasPrefix(p.InlineData.MIMEType, "image/") {
 		return

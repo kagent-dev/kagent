@@ -1,0 +1,28 @@
+{{- if .Values.config.server.auth.serviceAccount }}
+{{- $name := printf "%s-%s-invocation-auth" .Release.Namespace (include "kagent.fullname" .) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagent.controller.serviceAccountName" . | quote }}
+    namespace: {{ include "kagent.namespace" . }}
+{{- end }}

@@ -88,8 +88,8 @@ def _get_bedrock_client(
     tls_disable_verify: Optional[bool] = None,
     tls_ca_cert_path: Optional[str] = None,
     tls_disable_system_cas: Optional[bool] = None,
-    read_timeout: Optional[int] = None,
-    connect_timeout: Optional[int] = None,
+    read_timeout: Optional[float] = None,
+    connect_timeout: Optional[float] = None,
 ):
     region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
     kwargs: dict[str, Any] = {"region_name": region}
@@ -286,10 +286,9 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
     cache_ttl: Optional[str] = None
     # Bedrock HTTP client timeouts in seconds. read_timeout overrides botocore's
     # ~60s default, which otherwise aborts long completions with a
-    # ReadTimeoutError. None keeps botocore's defaults. Constrained to >= 1 so
-    # invalid values can't reach the boto3 client (matches the CRD contract).
-    read_timeout: Optional[int] = Field(default=None, ge=1)
-    connect_timeout: Optional[int] = Field(default=None, ge=1)
+    # ReadTimeoutError. None keeps botocore's defaults. Positive fractional seconds preserve protobuf duration precision.
+    read_timeout: Optional[float] = Field(default=None, gt=0)
+    connect_timeout: Optional[float] = Field(default=None, gt=0)
 
     model_config = {"arbitrary_types_allowed": True}
 

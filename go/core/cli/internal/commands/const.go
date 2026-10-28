@@ -9,34 +9,6 @@ import (
 
 const DefaultModelProvider = v1alpha3.ModelProviderOpenAI
 
-// GetModelProvider returns the model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable
-func GetModelProvider() v1alpha3.ModelProvider {
-	modelProvider := env.KagentDefaultModelProvider.Get()
-	if modelProvider == "" || modelProvider == env.KagentDefaultModelProvider.DefaultValue() {
-		return DefaultModelProvider
-	}
-	switch modelProvider {
-	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderOpenAI):
-		return v1alpha3.ModelProviderOpenAI
-	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderOllama):
-		return v1alpha3.ModelProviderOllama
-	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderAnthropic):
-		return v1alpha3.ModelProviderAnthropic
-	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderAzureOpenAI):
-		return v1alpha3.ModelProviderAzureOpenAI
-	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderGemini):
-		return v1alpha3.ModelProviderGemini
-	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderGeminiVertexAI):
-		return v1alpha3.ModelProviderGeminiVertexAI
-	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderAnthropicVertexAI):
-		return v1alpha3.ModelProviderAnthropicVertexAI
-	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderBedrock):
-		return v1alpha3.ModelProviderBedrock
-	default:
-		return v1alpha3.ModelProviderOpenAI
-	}
-}
-
 // GetModelProviderHelmValuesKey returns the helm values key for the model provider with lowercased name
 func GetModelProviderHelmValuesKey(provider v1alpha3.ModelProvider) string {
 	helmKey := string(provider)

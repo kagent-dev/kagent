@@ -2,29 +2,34 @@ package byo
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
+	"buf.build/go/protovalidate"
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
-type Compiler struct{ config *adkconfig.Builder }
+type Compiler struct {
+	config   *adkconfig.Builder
+	settings *configv1.RuntimeDefaultsConfig
+}
 
 var _ translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections) *Compiler {
-	return &Compiler{config: adkconfig.NewBuilder(ctx, collections)}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{settings: settings, config: adkconfig.NewBuilder(ctx, collections)}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
@@ -33,8 +38,15 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
-	configJSON, err := json.Marshal(compiled.Config)
+	configJSON, err := runtimeconfig.Marshal(&configv1.ADKConfig{
+		Runtime: translator.RuntimeConfig(c.settings, input.AgentName, template.Namespace),
+		Agent:   compiled.Config,
+	})
 	if err != nil {
+		var invalid *protovalidate.ValidationError
+		if errors.As(err, &invalid) {
+			return nil, translator.NewValidationError("invalid agent config: %w", err)
+		}
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
 	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.AgentName, template))
@@ -42,36 +54,37 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 	// An opaque image may export to its own backend, so its own values win.
-	telemetryConfig, _ := translator.TelemetryConfigFromProcess()
-	environment := append([]corev1.EnvVar(nil), compiled.Environment...)
-	if telemetryConfig.Enabled() {
-		environment = append(environment, translator.DefaultsEnvironment()...)
-		environment = append(environment, telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
-			AgentName: input.AgentName, AgentNamespace: template.Namespace,
-		}, "")...)
-		compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
-	}
-	environment = append(environment, adkconfig.HarnessEnvironment(harness)...)
-	environment = adkconfig.DedupeEnv(append(environment,
-		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-	))
-	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
-	if err != nil {
-		return nil, fmt.Errorf("build revision provenance: %w", err)
-	}
-	environment, credentials, err := translator.CompileCredentials(input, compiled.Models, environment)
+	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
 	if err != nil {
 		return nil, err
 	}
-	compiled.Egress = append(compiled.Egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
+	environment := append([]corev1.EnvVar(nil), compiled.Environment...)
+	environment = append(environment, adkconfig.HarnessEnvironment(harness)...)
+	environment = adkconfig.DedupeEnv(environment)
+	if telemetryConfig.Enabled() {
+		environment = telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
+			AgentName: input.AgentName, AgentNamespace: template.Namespace,
+		}, environment)
+	}
+	provenance, err := c.config.BuildProvenance(ctx, harness, compiled)
+	if err != nil {
+		return nil, fmt.Errorf("build revision provenance: %w", err)
+	}
+	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, compiled.Models, environment)
+	if err != nil {
+		return nil, err
+	}
+	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations(environment)...)
+	compiled.Egress = append(compiled.Egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(compiled.Egress)
 
 	return &translator.CompileResult{Revision: translator.Revision{
 		Namespace: template.Namespace,
-		Image:     harness.Spec.Workload.Image, Command: harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
+		Command:   harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
+		TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
 	}}, nil
 }
 

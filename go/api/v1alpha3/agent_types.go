@@ -22,53 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// AgentSpec pairs portable behavior with a runner. References are local to the
-// Agent's namespace, including references nested in inline specs.
-// +kubebuilder:validation:XValidation:rule="has(self.template) != has(self.templateRef)",message="exactly one of template or templateRef must be specified"
-// +kubebuilder:validation:XValidation:rule="has(self.harness) != has(self.harnessRef)",message="exactly one of harness or harnessRef must be specified"
-type AgentSpec struct {
-	// +optional
-	Template *AgentTemplateSpec `json:"template,omitempty"`
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="templateRef.name must not be empty"
-	// +optional
-	TemplateRef *corev1.LocalObjectReference `json:"templateRef,omitempty"`
-	// +optional
-	Harness *HarnessSpec `json:"harness,omitempty"`
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="harnessRef.name must not be empty"
-	// +optional
-	HarnessRef *corev1.LocalObjectReference `json:"harnessRef,omitempty"`
-}
-
-const (
-	AgentConditionAccepted     = "Accepted"
-	AgentConditionResolvedRefs = "ResolvedRefs"
-	AgentConditionCompatible   = "Compatible"
-	AgentConditionReady        = "Ready"
-)
-
-// AgentStatus reports compilation and preparation of an Agent.
-type AgentStatus struct {
-	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// +kubebuilder:validation:MinLength=1
-	// +optional
-	DesiredRevision string `json:"desiredRevision,omitempty"`
-	// +kubebuilder:validation:MinLength=1
-	// +optional
-	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
-	// Warnings reports non-blocking compatibility decisions made while compiling
-	// this Agent.
-	// +kubebuilder:validation:MaxItems=100
-	// +listType=set
-	// +optional
-	Warnings []string `json:"warnings,omitempty"`
-	// +kubebuilder:validation:MaxItems=4
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agents,singular=agent,categories=kagent
@@ -85,6 +38,85 @@ type Agent struct {
 	Spec AgentSpec `json:"spec"`
 	// +optional
 	Status AgentStatus `json:"status,omitempty"`
+}
+
+// AgentSpec pairs portable behavior with a platform-managed runtime. References
+// are local to the Agent's namespace, including references nested in inline
+// template specs.
+type AgentSpec struct {
+	// Template selects the portable behavior this Agent exposes.
+	// +required
+	Template AgentTemplateSource `json:"template"`
+	// HarnessRef selects the platform-managed runtime configuration that executes
+	// the behavior.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="harnessRef.name must not be empty"
+	// +required
+	HarnessRef corev1.LocalObjectReference `json:"harnessRef"`
+
+	// EgressPolicyRefs grants additional access to the whole runtime, including
+	// shared subagents. Policies resolve in this Agent's namespace. Integration
+	// access inferred from models and tools is always included. Changes update
+	// existing Sessions without a new invocation or runtime restart.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(ref, has(ref.name) && ref.name != '')",message="egressPolicyRefs requires non-empty names"
+	// +listType=map
+	// +listMapKey=name
+	EgressPolicyRefs []corev1.LocalObjectReference `json:"egressPolicyRefs,omitempty"`
+}
+
+// AgentTemplateSource selects portable behavior inline or by local reference.
+// +kubebuilder:validation:ExactlyOneOf=inline;ref
+type AgentTemplateSource struct {
+	// Inline defines the Agent's portable behavior directly. It cannot be set
+	// together with Ref.
+	// +optional
+	Inline *AgentTemplateSpec `json:"inline,omitempty"`
+	// Ref names an AgentTemplate in the Agent's namespace. It cannot be set
+	// together with Inline.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="ref.name must not be empty"
+	// +optional
+	Ref *corev1.LocalObjectReference `json:"ref,omitempty"`
+}
+
+const (
+	AgentConditionAccepted              = "Accepted"
+	AgentConditionEgressPoliciesApplied = "EgressPoliciesApplied"
+	AgentConditionResolvedRefs          = "ResolvedRefs"
+	AgentConditionCompatible            = "Compatible"
+	AgentConditionReady                 = "Ready"
+)
+
+// AgentStatus reports compilation and preparation of an Agent.
+type AgentStatus struct {
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	DesiredRevision string `json:"desiredRevision,omitempty"`
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
+	// WorkloadImage is the digest-pinned image selected for the desired revision.
+	// Existing Sessions may still use an older revision and image.
+	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
+	// +optional
+	WorkloadImage *string `json:"workloadImage,omitempty"`
+	// Warnings reports non-blocking compatibility decisions made while compiling
+	// this Agent.
+	// +kubebuilder:validation:MaxItems=100
+	// +listType=set
+	// +optional
+	Warnings []string `json:"warnings,omitempty"`
+	// Conditions report runtime readiness and independent egress grant admission.
+	// EgressPoliciesApplied is False for EgressPolicyNotFound, InvalidEgressPolicy,
+	// or EgressGrantConflict; Applied means all grants are admitted. Grant issues
+	// do not affect Ready.
+	// +kubebuilder:validation:MaxItems=5
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

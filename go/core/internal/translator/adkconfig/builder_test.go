@@ -2,18 +2,19 @@ package adkconfig
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func TestBuildModelStreaming(t *testing.T) {
@@ -39,12 +40,12 @@ func TestBuildModelStreaming(t *testing.T) {
 			require.NoError(t, err)
 			// The runtime consumes serialized configuration. In particular, false
 			// must survive omitempty rather than reverting to the runtime default.
-			payload, err := json.Marshal(result.Config)
+			payload, err := runtimeconfig.Marshal(&configv1.ADKConfig{Agent: result.Config})
 			require.NoError(t, err)
-			var config adk.AgentConfig
-			require.NoError(t, json.Unmarshal(payload, &config))
-			require.NotNil(t, config.Stream)
-			require.Equal(t, tc.want, config.GetStream())
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(payload, &config))
+			require.NotNil(t, config.Agent.Stream)
+			require.Equal(t, tc.want, config.Agent.GetStream())
 		})
 	}
 }
@@ -59,9 +60,9 @@ func TestBuildUsesDurableSessionStore(t *testing.T) {
 		})
 	require.NoError(t, err)
 	require.True(t, result.Config.GetStream())
-	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", result.Config.SessionDBURL)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", result.Config.SessionDbUrl)
 	require.Len(t, result.Config.SubAgents, 1)
-	require.Empty(t, result.Config.SubAgents[0].SessionDBURL)
+	require.Empty(t, result.Config.SubAgents[0].SessionDbUrl)
 }
 
 func TestBuildCompaction(t *testing.T) {
@@ -72,11 +73,11 @@ func TestBuildCompaction(t *testing.T) {
 	agentModel := resolvedModel(t, collections, "agent")
 	template := &translator.TemplateConfiguration{
 		Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
-		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
+		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "agent"}},
 	}
 	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *translator.HarnessConfiguration {
 		return &translator.HarnessConfiguration{
-			Name: "kagent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+			Name: "kagent", Namespace: "test", Source: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 			Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
 		}
 	}
@@ -97,14 +98,14 @@ func TestBuildCompaction(t *testing.T) {
 		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
 			CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
 			Summarizer: &v1alpha3.KagentHarnessSummarizer{
-				ModelConfigRef: &corev1.LocalObjectReference{Name: "agent"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
+				ModelConfigRef: &v1alpha3.ObjectReference{Name: "agent"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
 			},
 		}))
 		require.NoError(t, err)
 		// The agent's own model is the runtime's default summarizer, so it is
 		// not repeated in the configuration.
-		require.Equal(t, &adk.AgentContextConfig{Compaction: &adk.AgentCompressionConfig{
-			CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
+		require.Equal(t, &configv1.ADKContextConfig{Compaction: &configv1.ADKCompressionConfig{
+			CompactionInterval: new(int64(5)), OverlapSize: new(int64(2)), TokenThreshold: new(int64(50000)), EventRetentionSize: new(int64(10)),
 			PromptTemplate: "Summarize.\n\n{conversation_history}",
 		}}, result.Config.ContextConfig)
 		require.Len(t, result.Models, 1)
@@ -113,10 +114,11 @@ func TestBuildCompaction(t *testing.T) {
 	t.Run("dedicated summarizer model", func(t *testing.T) {
 		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
 			CompactionInterval: new(2),
-			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{Name: "summarizer"}},
+			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &v1alpha3.ObjectReference{Name: "summarizer"}},
 		}))
 		require.NoError(t, err)
-		summarizer, ok := result.Config.ContextConfig.Compaction.SummarizerModel.(*adk.OpenAI)
+		summarizer := result.Config.ContextConfig.Compaction.SummarizerModel.GetOpenai()
+		ok := summarizer != nil
 		require.True(t, ok, "summarizer model = %T", result.Config.ContextConfig.Compaction.SummarizerModel)
 		require.Equal(t, "https://summarizer.example.com/v1", summarizer.BaseUrl)
 		require.Len(t, result.Models, 2)
@@ -134,7 +136,7 @@ func TestBuildCompaction(t *testing.T) {
 	t.Run("missing summarizer model", func(t *testing.T) {
 		_, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
 			CompactionInterval: new(2),
-			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{Name: "missing"}},
+			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &v1alpha3.ObjectReference{Name: "missing"}},
 		}))
 		require.ErrorContains(t, err, `summarizer ModelConfig "missing"`)
 	})
@@ -334,7 +336,7 @@ func TestBuildMemory(t *testing.T) {
 			harness := &translator.HarnessConfiguration{
 				Namespace: "test",
 				Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
-					ModelConfigRef: corev1.LocalObjectReference{Name: tc.modelName}, TTLDays: 7,
+					ModelConfigRef: v1alpha3.ObjectReference{Name: tc.modelName}, TTLDays: 7,
 				}}},
 			}
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{Harness: harness, Root: root})
@@ -344,7 +346,7 @@ func TestBuildMemory(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, 7, result.Config.Memory.TTLDays)
+			require.Equal(t, int64(7), result.Config.Memory.TtlDays)
 			require.Equal(t, "https://embedding.example.com/v1", result.Config.Memory.Embedding.BaseUrl)
 			require.Len(t, result.Models, 2)
 			require.Equal(t, "embedding", result.Models[1].Config.Name)

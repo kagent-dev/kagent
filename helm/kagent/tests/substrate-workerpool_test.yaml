@@ -4,15 +4,18 @@ templates:
 release:
   namespace: kagent
 set:
-  controller.substrate.enabled: true
+  controller.substrateClientCertificate.enabled: true
   substrateWorkerPool.create: true
   substrateWorkerPool.name: selected-pool
-  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
+  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v0.7.0-alpha1
 tests:
   - it: should default to gvisor and label the selected pool
     asserts:
       - isKind:
           of: WorkerPool
+      - equal:
+          path: apiVersion
+          value: ate.dev/v1
       - equal:
           path: metadata.namespace
           value: kagent
@@ -30,18 +33,31 @@ tests:
       - notExists:
           path: metadata.labels["kagent.dev/worker-pool"]
       - equal:
-          path: spec.sandboxClass
+          path: spec.sandboxClasses[0].name
           value: gvisor
       - equal:
+          path: spec.sandboxClasses[0].configRef.name
+          value: gvisor-default
+      - equal:
           path: spec.workerImage
-          value: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
+          value: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v0.7.0-alpha1
   - it: should preserve gvisor when the class is empty
     set:
       substrateWorkerPool.sandboxClass: ""
     asserts:
       - equal:
-          path: spec.sandboxClass
+          path: spec.sandboxClasses[0].name
           value: gvisor
+      - equal:
+          path: spec.sandboxClasses[0].configRef.name
+          value: gvisor-default
+  - it: should use a custom SandboxConfig reference when configured
+    set:
+      substrateWorkerPool.sandboxConfigRef: custom-gvisor-config
+    asserts:
+      - equal:
+          path: spec.sandboxClasses[0].configRef.name
+          value: custom-gvisor-config
   - it: should scope a same-named pool to its release namespace
     release:
       namespace: tenant-b
@@ -101,14 +117,17 @@ tests:
   - it: should render microvm with the selected image and worker selector label
     set:
       substrateWorkerPool.sandboxClass: microvm
-      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-microvm:v0.3.0-alpha1
+      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-microvm:v0.7.0-alpha1
     asserts:
       - equal:
-          path: spec.sandboxClass
+          path: spec.sandboxClasses[0].name
+          value: microvm
+      - equal:
+          path: spec.sandboxClasses[0].configRef.name
           value: microvm
       - equal:
           path: spec.workerImage
-          value: ghcr.io/kagent-dev/substrate/ateom-microvm:v0.3.0-alpha1
+          value: ghcr.io/kagent-dev/substrate/ateworker-microvm:v0.7.0-alpha1
       - equal:
           path: metadata.labels["kagent.dev/worker-pool-name"]
           value: selected-pool
@@ -118,15 +137,26 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
-  - it: should not create a pool when substrate integration is disabled
-    set:
-      controller.substrate.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
   - it: should require an explicit worker image
     set:
       substrateWorkerPool.workerImage: ""
     asserts:
       - failedTemplate:
           errorMessage: substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true
+  - it: should run the workers as the chart worker ServiceAccount
+    asserts:
+      - equal:
+          path: spec.template.serviceAccountName
+          value: selected-pool
+  - it: should use a user ServiceAccount and keep the rest of the template
+    set:
+      substrateWorkerPool.serviceAccount.create: false
+      substrateWorkerPool.serviceAccount.name: my-worker-sa
+      substrateWorkerPool.template.priorityClassName: high
+    asserts:
+      - equal:
+          path: spec.template.serviceAccountName
+          value: my-worker-sa
+      - equal:
+          path: spec.template.priorityClassName
+          value: high

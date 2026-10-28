@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
 )
 
 // OpenAI API format values (ModelConfig openAI.apiFormat).
@@ -27,16 +28,19 @@ type OpenAIConfig struct {
 	// If both keys are empty, only a custom BaseUrl may be used without authentication.
 	APIKey              string
 	FrequencyPenalty    *float64
-	MaxTokens           *int
-	MaxCompletionTokens *int
-	N                   *int
+	MaxTokens           *int64
+	MaxCompletionTokens *int64
+	N                   *int64
 	PresencePenalty     *float64
 	ReasoningEffort     *string
-	Seed                *int
+	Seed                *int64
 	Temperature         *float64
 	TopP                *float64
 	// APIFormat selects chatCompletions (default) or responses.
 	APIFormat string
+	// StrictOutputSchema sends strict with this value alongside the structured
+	// output schema. Nil omits strict.
+	StrictOutputSchema *bool
 }
 
 // AzureOpenAIConfig holds Azure OpenAI configuration
@@ -46,6 +50,9 @@ type AzureOpenAIConfig struct {
 	Endpoint   string
 	Deployment string
 	APIVersion string
+	APIFormat  string
+
+	StrictOutputSchema *bool
 
 	// credential overrides the Azure credential used for the implicit Workload
 	// Identity auth path. When nil, azureai.NewDefaultCredential is used. It is
@@ -164,6 +171,7 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 		Deployment: deployment,
 		APIVersion: apiVersion,
 		HTTPClient: httpClient,
+		V1:         config.APIFormat == OpenAIAPIFormatResponses,
 	}
 
 	// Implicit auth: the incoming bearer token when APIKeyPassthrough is enabled
@@ -186,11 +194,13 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 	if err != nil {
 		return nil, err
 	}
-	logger.InfoContext(ctx, "initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion)
+	logger.InfoContext(ctx, "initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion, "api_format", config.APIFormat)
 	return &OpenAIModel{
 		Config: &OpenAIConfig{
-			TransportConfig: config.TransportConfig,
-			Model:           deployment,
+			TransportConfig:    config.TransportConfig,
+			Model:              deployment,
+			APIFormat:          config.APIFormat,
+			StrictOutputSchema: config.StrictOutputSchema,
 		},
 		Client:  client,
 		IsAzure: true,

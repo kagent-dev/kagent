@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -46,7 +47,7 @@ func TestAuthnMiddleware(t *testing.T) {
 				t.Fatalf("status Not Found, router not engaged")
 			}
 			if tt.expectedUser != "" {
-				if session == nil || session.Principal().User.ID != tt.expectedUser {
+				if session == nil || session.Principal().ID != tt.expectedUser {
 					t.Fatalf("Expected user %s but got %v", tt.expectedUser, session)
 				}
 			} else if session != nil {

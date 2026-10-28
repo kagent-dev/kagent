@@ -4,9 +4,10 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func TestAssemblerAppliesArtifactReplacement(t *testing.T) {
@@ -65,4 +66,16 @@ func TestPartsTextSerializesStructuredOutput(t *testing.T) {
 	text, err := PartsText(a2atype.ContentParts{toolResult, structured})
 	require.NoError(t, err)
 	require.JSONEq(t, `{"answer":4}`, text)
+}
+
+// A thought is the model's reasoning summary, so it stays out of the answer.
+func TestPartsTextLeavesOutThoughts(t *testing.T) {
+	thought := a2atype.NewTextPart("weighing options")
+	thought.SetMeta(kagenta2a.ThoughtMetadataKey, true)
+	parts := a2atype.ContentParts{thought, a2atype.NewTextPart("answer")}
+
+	text, err := PartsText(parts)
+	require.NoError(t, err)
+	require.Equal(t, "answer", text)
+	require.Equal(t, "weighing options", ThoughtText(parts))
 }

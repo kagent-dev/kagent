@@ -8,10 +8,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func recordingTracer(t *testing.T) (trace.Tracer, *tracetest.InMemoryExporter) {

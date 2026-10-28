@@ -19,6 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
 from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app, signal_enabled
+from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
@@ -51,9 +52,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
         return PlainTextResponse(tmp.read())
 
 
-sts_well_known_uri = os.getenv("KAGENT_STS_WELL_KNOWN_URI")
-
-
 def _configure_openai_client() -> None:
     """
     Configure the default OpenAI client to use OPENAI_API_BASE.
@@ -75,7 +73,7 @@ def _configure_openai_client() -> None:
         logger.info(f"Configured OpenAI client with base URL: {openai_api_base}")
 
 
-def _openai_agents_instrument_options() -> dict[str, dict[str, bool]]:
+def _openai_agents_instrument_options(keep_native: bool = False) -> dict[str, dict[str, bool]]:
     """Export OpenAI Agents SDK traces through OpenTelemetry only.
 
     The SDK's built-in processor POSTs to a hardcoded https://api.openai.com/v1/traces/ingest
@@ -84,9 +82,8 @@ def _openai_agents_instrument_options() -> dict[str, dict[str, bool]]:
     The instrumentor adds its processor alongside that one, and set_tracing_disabled(True)
     would silence the OpenTelemetry spans too, so drop the built-in processor instead.
 
-    KAGENT_OPENAI_AGENTS_NATIVE_TRACING=true keeps it, for real OpenAI platform keys.
+    runtime.telemetry.openai_native_tracing keeps it for OpenAI platform keys.
     """
-    keep_native = os.getenv("KAGENT_OPENAI_AGENTS_NATIVE_TRACING", "false").strip().lower() == "true"
     if keep_native:
         logger.info("Keeping the OpenAI Agents SDK native trace exporter alongside OpenTelemetry")
     else:
@@ -96,7 +93,7 @@ def _openai_agents_instrument_options() -> dict[str, dict[str, bool]]:
         logger.warning(
             "OPENAI_AGENTS_DISABLE_TRACING is set, which switches off the Agents SDK tracing that the "
             "OpenTelemetry instrumentation feeds on, so no agent spans will be exported. Unset it and rely "
-            "on KAGENT_OPENAI_AGENTS_NATIVE_TRACING=false (the default) to keep traces away from OpenAI."
+            "on runtime.telemetry.openai_native_tracing=false (the default) to keep traces away from OpenAI."
         )
     return {"openai_agents": {"disable_openai_trace_export": not keep_native}}
 
@@ -165,14 +162,17 @@ class KAgentApp:
         app = FastAPI(lifespan=shutdown_lifespan(controller.lifespan()))
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
 
         if self.tracing:
             bootstrap(
                 conv.KagentRuntimeValues.OPENAI_AGENTS,
                 fallback_name=self.agent_card.name,
-                instrument_options=_openai_agents_instrument_options(),
+                config=self.config.runtime,
+                instrument_options=_openai_agents_instrument_options(
+                    self.config.runtime.telemetry.openai_native_tracing
+                ),
             )
             instrument_app(app)
             if not signal_enabled("TRACES") or not OpenAIAgentsInstrumentor().is_instrumented_by_opentelemetry:
@@ -230,7 +230,7 @@ class KAgentApp:
         app = FastAPI()
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
 
         # Add health check endpoints

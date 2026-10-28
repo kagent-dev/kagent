@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package kagent.runtime.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1";
+
+// Memory is scoped to an agent and a user. Actor calls derive both from the
+// persisted session bound to the verified Actor JWT. List and Delete also
+// accept user authentication and use the authenticated user's identity.
+service MemoryService {
+  // Requires an Actor JWT.
+  rpc AddSession(MemoryServiceAddSessionRequest) returns (MemoryServiceAddSessionResponse);
+  // Requires an Actor JWT.
+  rpc AddSessionBatch(MemoryServiceAddSessionBatchRequest) returns (MemoryServiceAddSessionBatchResponse);
+  // Requires an Actor JWT.
+  rpc Search(MemoryServiceSearchRequest) returns (MemoryServiceSearchResponse);
+  // Accepts an Actor JWT or user authentication on the same RPC endpoint.
+  rpc List(MemoryServiceListRequest) returns (MemoryServiceListResponse);
+  // Accepts an Actor JWT or user authentication on the same RPC endpoint.
+  rpc Delete(MemoryServiceDeleteRequest) returns (MemoryServiceDeleteResponse);
+}
+
+message SessionMemoryInput {
+  string content = 3;
+  repeated float vector = 4;
+  google.protobuf.Struct metadata = 5;
+  optional int32 ttl_days = 6;
+}
+
+message MemorySearchResult {
+  string id = 1;
+  string content = 2;
+  double score = 3;
+  google.protobuf.Struct metadata = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message MemorySummary {
+  string id = 1;
+  string content = 2;
+  int64 access_count = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message MemoryServiceAddSessionRequest {
+  SessionMemoryInput memory = 1;
+}
+
+message MemoryServiceAddSessionResponse {
+  string id = 1;
+}
+
+message MemoryServiceAddSessionBatchRequest {
+  repeated SessionMemoryInput items = 1;
+}
+
+message MemoryServiceAddSessionBatchResponse {
+  int32 count = 1;
+}
+
+message MemoryServiceSearchRequest {
+  repeated float vector = 3;
+  optional int32 limit = 4;
+  optional double min_score = 5;
+}
+
+message MemoryServiceSearchResponse {
+  repeated MemorySearchResult memories = 1;
+}
+
+message MemoryServiceListRequest {
+  // User calls must supply the stored agent key. Actor-created memories use
+  // "namespace/name"; legacy keys remain valid for managing older memories.
+  // Actor calls ignore this field and use the agent from their persisted session.
+  string agent_name = 1;
+}
+
+message MemoryServiceListResponse {
+  repeated MemorySummary memories = 1;
+}
+
+message MemoryServiceDeleteRequest {
+  // User calls must supply the stored agent key. Actor-created memories use
+  // "namespace/name"; legacy keys remain valid for managing older memories.
+  // Actor calls ignore this field and use the agent from their persisted session.
+  string agent_name = 1;
+}
+
+message MemoryServiceDeleteResponse {
+  string status = 1;
+}

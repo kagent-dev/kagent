@@ -1,5 +1,22 @@
 package env
 
+// TODO: REMOVE these test-only switches when Substrate denial handling permits
+// native retries without minutes of backoff: https://github.com/agent-substrate/substrate/issues/2663
+const (
+	TestCodexDisableRetries  = "KAGENT_TEST_CODEX_DISABLE_RETRIES"
+	TestClaudeDisableRetries = "KAGENT_TEST_CLAUDE_DISABLE_RETRIES"
+)
+
+func init() {
+	for _, name := range []string{TestCodexDisableRetries, TestClaudeDisableRetries} {
+		register(Var{
+			Name: name, DefaultValue: "false", Type: TypeBool,
+			Description: "Disable native model retries when exactly true. Internal E2E workaround for slow denied connections.",
+			Components:  []Component{ComponentAgentRuntime, ComponentTesting}, Hidden: true,
+		})
+	}
+}
+
 // Testing environment variables used in E2E tests and mock services.
 var (
 	KagentLocalHost = RegisterStringVar(
@@ -33,7 +50,7 @@ var (
 
 var (
 	TestPython                = RegisterStringVar("KAGENT_TEST_PYTHON", "", "Python executable enabling the Python TaskStore/PostgreSQL interoperability test. That subtest is not run when unset.", ComponentTesting)
-	E2EAPIURL                 = RegisterStringVar("KAGENT_E2E_API_URL", "", "Controller URL for Go E2E tests. Falls back to KAGENT_API_URL; tests skip when neither is set.", ComponentTesting)
+	E2EAPIURL                 = RegisterStringVar("KAGENT_E2E_API_URL", "", "Controller URL for Go E2E tests. Tests skip when it is unset.", ComponentTesting)
 	E2ECLI                    = RegisterStringVar("KAGENT_E2E_CLI", "", "CLI executable for catalog lifecycle E2E tests; make -C go e2e builds and supplies it.", ComponentTesting)
 	E2ERuntimeImage           = RegisterStringVar("KAGENT_E2E_RUNTIME_IMAGE", "", "Required digest-pinned Go ADK image for sandbox E2E tests and lifecycle manifests.", ComponentTesting)
 	_                         = RegisterStringVar("KAGENT_E2E_BYO_IMAGE", "", "Digest-pinned BYO image substituted into E2E lifecycle manifests.", ComponentTesting)

@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"slices"
 
-	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type Object interface {
@@ -44,13 +44,12 @@ func NewService[T Object, L client.ObjectList](
 }
 
 func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error) {
-	scope, err := s.scope(ctx, auth.VerbList)
+	matcher, err := kubeauth.CollectionMatcher(ctx, s.authorizer, s.resource)
 	if err != nil {
 		return nil, err
 	}
-	matcher, err := kubeauth.CompileScope(scope)
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to apply the "+s.resource+" authorization scope", err)
+	if matcher.Empty() {
+		return []T{}, nil
 	}
 	list := s.list.DeepCopyObject().(L)
 	if err := s.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
@@ -102,7 +101,7 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 		case apierrors.IsAlreadyExists(err):
 			return zero, serviceerrors.NewAlreadyExists(s.resource+" already exists", err)
 		case apierrors.IsInvalid(err):
-			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
+			return zero, serviceerrors.NewInvalidArgument(err.Error(), err)
 		default:
 			return zero, serviceerrors.NewInternal("Failed to create "+s.resource, err)
 		}
@@ -122,7 +121,7 @@ func (s *Service[T, L]) Update(ctx context.Context, object T) (T, error) {
 	}
 	if err := s.client.Update(ctx, object); err != nil {
 		if apierrors.IsInvalid(err) {
-			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
+			return zero, serviceerrors.NewInvalidArgument(err.Error(), err)
 		}
 		return zero, serviceerrors.NewInternal("Failed to update "+s.resource, err)
 	}
@@ -141,18 +140,6 @@ func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) er
 		return serviceerrors.NewInternal("Failed to delete "+s.resource, err)
 	}
 	return nil
-}
-
-func (s *Service[T, L]) scope(ctx context.Context, verb auth.Verb) (apiauthorization.AuthorizationScope, error) {
-	session, ok := auth.AuthSessionFrom(ctx)
-	if !ok || session == nil {
-		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
-	}
-	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, s.resource)
-	if err != nil {
-		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnavailable("Failed to read the "+s.resource+" authorization scope", err)
-	}
-	return scope, nil
 }
 
 func (s *Service[T, L]) get(ctx context.Context, ref types.NamespacedName) (T, error) {

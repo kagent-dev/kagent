@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha3
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -40,7 +39,7 @@ type KagentHarness struct {
 // (tokenThreshold, eventRetentionSize) bounds the prompt by summarizing
 // everything but the most recent events once the prompt grows past a token
 // count. At least one strategy must be configured.
-// +kubebuilder:validation:XValidation:rule="has(self.compactionInterval) || has(self.tokenThreshold)",message="compactionInterval or tokenThreshold must be specified"
+// +kubebuilder:validation:AtLeastOneOf=compactionInterval;tokenThreshold
 // +kubebuilder:validation:XValidation:rule="has(self.tokenThreshold) == has(self.eventRetentionSize)",message="tokenThreshold and eventRetentionSize must be specified together"
 // +kubebuilder:validation:XValidation:rule="!has(self.overlapSize) || has(self.compactionInterval)",message="overlapSize requires compactionInterval"
 type KagentHarnessCompaction struct {
@@ -75,11 +74,11 @@ type KagentHarnessCompaction struct {
 // KagentHarnessSummarizer configures the model that summarizes compacted events.
 // +kubebuilder:validation:XValidation:rule="!has(self.promptTemplate) || self.promptTemplate.contains('{conversation_history}')",message="promptTemplate must contain {conversation_history}"
 type KagentHarnessSummarizer struct {
-	// ModelConfigRef references the ModelConfig in the Harness namespace that
+	// ModelConfigRef references the ModelConfig (defaulting to the Harness namespace) that
 	// writes the summaries. Omitted uses the agent's own model.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +optional
-	ModelConfigRef *corev1.LocalObjectReference `json:"modelConfigRef,omitempty"`
+	ModelConfigRef *ObjectReference `json:"modelConfigRef,omitempty"`
 	// PromptTemplate replaces the runtime's default summarization prompt. It
 	// must contain {conversation_history}, which the runtime replaces with the
 	// rendered events.
@@ -91,9 +90,9 @@ type KagentHarnessSummarizer struct {
 // KagentHarnessMemory configures kagent's long-term memory service.
 // +kubebuilder:validation:XValidation:rule="self.modelConfigRef.name.size() > 0",message="modelConfigRef name must not be empty"
 type KagentHarnessMemory struct {
-	// ModelConfigRef references the embedding ModelConfig in the Harness namespace.
+	// ModelConfigRef references the embedding ModelConfig (defaulting to the Harness namespace).
 	// +required
-	ModelConfigRef corev1.LocalObjectReference `json:"modelConfigRef"`
+	ModelConfigRef ObjectReference `json:"modelConfigRef"`
 
 	// TTLDays controls how many days a stored memory entry remains valid.
 	// +kubebuilder:validation:Minimum=1
@@ -112,10 +111,11 @@ type BYOHarness struct{}
 
 // HarnessWorkload identifies the immutable runtime image used by a Harness.
 type HarnessWorkload struct {
-	// Image is an OCI image reference pinned by sha256 digest.
+	// Image overrides the release's built-in runtime image. BYO requires an image.
+	// When set, it must be an OCI image reference pinned by sha256 digest.
 	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
-	// +required
-	Image string `json:"image"`
+	// +optional
+	Image *string `json:"image,omitempty"`
 
 	// Command overrides the image entrypoint when set.
 	// +kubebuilder:validation:MaxItems=32
@@ -130,8 +130,9 @@ type HarnessWorkload struct {
 
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
-// +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
-// +kubebuilder:validation:XValidation:rule="!has(self.byo) || size(self.workload.command) > 0",message="BYO harnesses must specify workload.command"
+// +kubebuilder:validation:ExactlyOneOf=kagent;codex;claude;byo
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.command) && size(self.workload.command) > 0)",message="BYO harnesses must specify workload.command"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.image))",message="BYO harnesses must specify workload.image"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`
@@ -145,8 +146,9 @@ type HarnessSpec struct {
 	// +optional
 	BYO *BYOHarness `json:"byo,omitempty"`
 
-	// +required
-	Workload HarnessWorkload `json:"workload"`
+	// Workload overrides the built-in runtime image and its command. BYO requires it.
+	// +optional
+	Workload HarnessWorkload `json:"workload,omitzero"`
 
 	// +optional
 	// +kubebuilder:validation:MaxItems=100

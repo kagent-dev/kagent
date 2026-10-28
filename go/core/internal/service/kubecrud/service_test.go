@@ -6,23 +6,25 @@ import (
 	"slices"
 	"testing"
 
-	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type testSession struct{}
 
 func (testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "test-user"}}
+	return auth.Principal{ID: "test-user"}
 }
 
 type authorizationCall struct {
@@ -182,6 +184,10 @@ func TestSandboxTemplateAuthorization(t *testing.T) {
 		{verb: auth.VerbDelete, resource: auth.Resource{Type: v1alpha3.SandboxTemplateKind, Namespace: "team", Name: "created"}},
 	}, authorizer.checkCalls)
 	authorizer.checkErr = errors.New("denied")
+	_, err = service.Create(ctx, &v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "forbidden"}})
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	err = kubeClient.Get(ctx, types.NamespacedName{Namespace: "team", Name: "forbidden"}, &v1alpha3.SandboxTemplate{})
+	require.True(t, apierrors.IsNotFound(err))
 	require.Error(t, service.Delete(ctx, types.NamespacedName{Namespace: "team", Name: "a"}))
 	require.NoError(t, kubeClient.Get(ctx, types.NamespacedName{Namespace: "team", Name: "a"}, &v1alpha3.SandboxTemplate{}))
 	authorizer.scope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
@@ -361,7 +367,7 @@ func TestAgentServiceFiltersAndAuthorizesStoredObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	mutable.Spec.Template = &v1alpha3.AgentTemplateSpec{Description: "updated"}
+	mutable.Spec.Template = v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{Description: "updated"}}
 	if _, err := service.Update(ctx, mutable); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}

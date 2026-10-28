@@ -1,6 +1,11 @@
-{{- $databaseConnectionStringSecretRef := .Values.database.postgres.connectionStringSecretRef | default dict -}}
-{{- if not (get $databaseConnectionStringSecretRef "name") -}}
-{{- fail "database.postgres.connectionStringSecretRef.name is required" -}}
+{{- $readWriteSecretRef := .Values.database.postgres.readWriteConnectionStringSecretRef | default dict -}}
+{{- if not (get $readWriteSecretRef "name") -}}
+{{- fail "database.postgres.readWriteConnectionStringSecretRef.name is required" -}}
+{{- end -}}
+{{- $ownerSecretRef := .Values.database.postgres.ownerConnectionStringSecretRef | default dict -}}
+{{- $skipMigrations := include "kagent.database.skipMigrations" . -}}
+{{- if and (not $skipMigrations) (not (get $ownerSecretRef "name")) -}}
+{{- fail "database.postgres.ownerConnectionStringSecretRef.name is required unless config.database.skipMigrations is true" -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -38,18 +43,50 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kagent.controller.serviceAccountName" . | quote }}
-      {{- if or .Values.database.postgres.clientCertificate.enabled (and .Values.controller.substrate .Values.controller.substrate.enabled) .Values.controller.volumes }}
       volumes:
+      - name: controller-config
+        configMap:
+          name: {{ include "kagent.fullname" . }}-controller
+      - name: controller-secrets
+        projected:
+          sources:
+          - secret:
+              name: {{ get $readWriteSecretRef "name" }}
+              items:
+              - key: {{ get $readWriteSecretRef "key" | default "readWriteConnectionString" }}
+                path: database-readwrite-url
+          {{- if not $skipMigrations }}
+          - secret:
+              name: {{ get $ownerSecretRef "name" }}
+              items:
+              - key: {{ get $ownerSecretRef "key" | default "ownerConnectionString" }}
+                path: database-owner-url
+          {{- end }}
+          {{- if .Values.controller.push.signing.secretName }}
+          - secret:
+              name: {{ .Values.controller.push.signing.secretName }}
+              items:
+              - key: private-key.pem
+                path: push-private-key.pem
+          {{- end }}
       {{- if .Values.database.postgres.clientCertificate.enabled }}
       - name: postgres-client-certificate
         projected:
           sources:
+          {{- if not $skipMigrations }}
           - podCertificate:
               signerName: postgres.podcert.ate.dev/identity
               keyType: ECDSAP256
-              credentialBundlePath: credential-bundle.pem
+              credentialBundlePath: kagent_owner_user.pem
               userAnnotations:
-                postgres.podcert.ate.dev/username: kagent_user
+                postgres.podcert.ate.dev/username: kagent_owner_user
+          {{- end }}
+          - podCertificate:
+              signerName: postgres.podcert.ate.dev/identity
+              keyType: ECDSAP256
+              credentialBundlePath: kagent_readwrite_user.pem
+              userAnnotations:
+                postgres.podcert.ate.dev/username: kagent_readwrite_user
           - clusterTrustBundle:
               signerName: servicedns.podcert.ate.dev/identity
               labelSelector:
@@ -57,7 +94,7 @@ spec:
                   podcert.ate.dev/canarying: live
               path: trust-bundle.pem
       {{- end }}
-      {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
+      {{- if .Values.controller.substrateClientCertificate.enabled }}
       - name: substrate-servicedns
         projected:
           sources:
@@ -77,7 +114,6 @@ spec:
       {{- end }}
       {{- with .Values.controller.volumes }}
       {{- toYaml . | nindent 6 }}
-      {{- end }}
       {{- end }}
       {{- with .Values.controller.nodeSelector }}
       nodeSelector:
@@ -99,18 +135,9 @@ spec:
         - name: controller
           image: {{ include "kagent.controllerImage" . | quote }}
           imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.controller.image.pullPolicy) }}
+          args: ["--config=/etc/kagent/controller.yaml"]
           env:
-            - name: KAGENT_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            {{- if .Values.controller.push.signing.secretName }}
-            - name: KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.controller.push.signing.secretName }}
-                  key: private-key.pem
-            {{- end }}
+            # Private pod identity defaults; explicit OTEL resource attributes win.
             - name: K8S_POD_NAME
               valueFrom:
                 fieldRef:
@@ -123,23 +150,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            {{- /* Kubelet expands pod identity here; envFrom values are not expanded. */}}
-            - name: OTEL_RESOURCE_ATTRIBUTES
-              value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
-            - name: KAGENT_POSTGRES_DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "kagent.postgres.connectionStringSecretName" . }}
-                  key: {{ get $databaseConnectionStringSecretRef "key" | default "connectionString" }}
             {{- with .Values.controller.env }}
-              {{- toYaml . | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- with .Values.controller.envFrom }}
           envFrom:
-            - configMapRef:
-                name: {{ include "kagent.fullname" . }}-controller
-            {{- with .Values.controller.envFrom }}
-              {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
@@ -176,14 +193,19 @@ spec:
               port: http
             periodSeconds: 30
           {{- end }}
-          {{- if or .Values.database.postgres.clientCertificate.enabled (and .Values.controller.substrate .Values.controller.substrate.enabled) .Values.controller.volumeMounts }}
           volumeMounts:
+            - name: controller-config
+              mountPath: /etc/kagent
+              readOnly: true
+            - name: controller-secrets
+              mountPath: /etc/kagent/secrets
+              readOnly: true
             {{- if .Values.database.postgres.clientCertificate.enabled }}
             - name: postgres-client-certificate
               mountPath: /run/postgres.podcert.ate.dev
               readOnly: true
             {{- end }}
-            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
+            {{- if .Values.controller.substrateClientCertificate.enabled }}
             - name: substrate-servicedns
               mountPath: /run/substrate-servicedns
               readOnly: true
@@ -194,4 +216,3 @@ spec:
             {{- with .Values.controller.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- end }}

@@ -2,17 +2,17 @@ package auth
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type SimpleSession struct {
-	P          auth.Principal
-	authHeader string
+	P auth.Principal
+	bearerCredential
 }
 
 func (s *SimpleSession) Principal() auth.Principal {
@@ -29,95 +29,50 @@ func (a *InsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 	if userID == "" {
 		userID = "admin@kagent.dev"
 	}
-	agentId := reqHeaders.Get("X-Agent-Name")
 	authHeader := reqHeaders.Get("Authorization")
 
 	return &SimpleSession{
 		P: auth.Principal{
-			User: auth.User{
-				ID: userID,
-			},
-			Agent: auth.Agent{
-				ID: agentId,
-			},
+			ID: userID,
 		},
-		authHeader: authHeader,
+		bearerCredential: bearerCredential{authHeader: authHeader},
 	}, nil
 }
 
-func (a *InsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {
-	// for insecure, just forward user id in header
-	if session == nil || session.Principal().User.ID == "" {
-		return nil
+func (a *InsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, destinationSessionID string) error {
+	return auth.ForwardCredential(r, session)
+}
+
+// bearerCredential is the immutable credential captured for one request.
+type bearerCredential struct {
+	authHeader string
+	expiresAt  time.Time
+}
+
+var _ auth.TokenSource = bearerCredential{}
+
+func (s bearerCredential) Token(ctx context.Context) (string, error) {
+	if !s.expiresAt.IsZero() && !time.Now().Before(s.expiresAt) {
+		return "", ErrUnauthenticated
 	}
-	r.Header.Set("X-User-Id", session.Principal().User.ID)
-
-	if simpleSession, ok := session.(*SimpleSession); ok && simpleSession.authHeader != "" {
-		r.Header.Set("Authorization", simpleSession.authHeader)
+	if s.authHeader == "" {
+		return "", nil
 	}
-
-	return nil
-}
-
-func NewA2AAuthenticator(provider auth.AuthProvider) *A2AAuthenticator {
-	return &A2AAuthenticator{
-		provider: provider,
+	scheme, token, ok := strings.Cut(s.authHeader, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
+		return "", ErrUnauthenticated
 	}
+	return token, nil
 }
 
-type A2AAuthenticator struct {
-	provider auth.AuthProvider
-}
-
-func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
-	return auth.AuthnMiddleware(p.provider)(next)
-}
-
-type handler func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error)
-
-func (h handler) Handle(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
-	return h(ctx, client, req)
-}
-
-func A2ARequestHandler(authProvider auth.AuthProvider, agentNns types.NamespacedName) handler {
-	return func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
-		var err error
-		var resp *http.Response
-		defer func() {
-			if err != nil && resp != nil {
-				resp.Body.Close()
-			}
-		}()
-
-		if client == nil {
-			return nil, fmt.Errorf("a2aClient.httpRequestHandler: http client is nil")
+func jwtExpiration(claims map[string]any) (time.Time, error) {
+	var expiresAt time.Time
+	if raw, exists := claims["exp"]; exists {
+		seconds, ok := raw.(float64)
+		if !ok || seconds <= float64(time.Now().Unix()) {
+			return time.Time{}, ErrUnauthenticated
 		}
-		upstreamPrincipal := auth.Principal{
-			Agent: auth.Agent{
-				ID: types.NamespacedName{
-					Name:      agentNns.Name,
-					Namespace: agentNns.Namespace,
-				}.String(),
-			},
-		}
-
-		if session, ok := auth.AuthSessionFrom(ctx); ok {
-			if err := authProvider.UpstreamAuth(req, session, upstreamPrincipal); err != nil {
-				return nil, fmt.Errorf("a2aClient.httpRequestHandler: upstream auth failed: %w", err)
-			}
-			// When the request carries a share token, the agent pod must use the
-			// session owner's identity — not the caller's — when calling back to
-			// the controller, so that session lookups resolve to the owner's row.
-			if sc, ok := auth.ShareContextFrom(ctx); ok {
-				req.Header.Set("X-User-Id", sc.UserID)
-			}
-		}
-
-		resp, err = client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("a2aClient.httpRequestHandler: http request failed: %w", err)
-		}
-
-		return resp, nil
+		expiresAt = time.Unix(int64(seconds), 0)
 	}
+	return expiresAt, nil
 }

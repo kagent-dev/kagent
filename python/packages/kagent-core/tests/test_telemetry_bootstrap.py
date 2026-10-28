@@ -1,9 +1,11 @@
+import os
 from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
+from opentelemetry.instrumentation._semconv import _OpenTelemetrySemanticConventionStability
 from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, InMemoryMetricReader
@@ -12,126 +14,97 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import get_current_span
 
+from kagent.core._runtime_config import OTLPConfig, RuntimeConfig, TelemetryConfig
 from kagent.core.telemetry import _boot, _defaults
 from kagent.core.telemetry._conv import KagentRuntimeValues
 from kagent.core.telemetry._profiles import PROFILES, profile_for
 from kagent.core.telemetry._span_processor import KagentAttributesSpanProcessor
 
-_RESOURCE_ENV = ("OTEL_SERVICE_NAME", "OTEL_RESOURCE_ATTRIBUTES", "KAGENT_NAME", "KAGENT_NAMESPACE")
+_RESOURCE_ENV = ("OTEL_SERVICE_NAME", "OTEL_RESOURCE_ATTRIBUTES")
 
 
 @pytest.fixture(autouse=True)
 def fresh_bootstrap(monkeypatch):
     monkeypatch.setattr(_boot, "_current", None)
-    for name in _RESOURCE_ENV + ("OTEL_SDK_DISABLED", "OTEL_PYTHON_DISABLED_INSTRUMENTATIONS"):
+    # OTEL caches env opt-ins on first instrumentation. Reset that cache too,
+    # so these startup tests model a fresh process regardless of test order.
+    monkeypatch.setattr(_OpenTelemetrySemanticConventionStability, "_initialized", False)
+    monkeypatch.setattr(_OpenTelemetrySemanticConventionStability, "_OTEL_SEMCONV_STABILITY_SIGNAL_MAPPING", {})
+    previous_environment = dict(os.environ)
+    for name in tuple(os.environ):
+        if not name.startswith("OTEL_") and name not in _RESOURCE_ENV:
+            continue
         monkeypatch.delenv(name, raising=False)
     previous = get_global_textmap()
     yield
     set_global_textmap(previous)
+    os.environ.clear()
+    os.environ.update(previous_environment)
 
 
 @pytest.fixture
 def configurator(monkeypatch):
     calls = SimpleNamespace(configure=[], instrument=[])
     monkeypatch.setattr(
-        _boot.OpenTelemetryConfigurator, "configure", lambda self, **kwargs: calls.configure.append(kwargs)
+        _boot, "_install_providers", lambda identity, config: calls.configure.append((identity, config))
     )
     monkeypatch.setattr(_boot, "_instrument", lambda names, options: calls.instrument.append((names, options)))
     return calls
 
 
-def test_bootstrap_declares_runtime_and_identity(monkeypatch, configurator):
-    monkeypatch.setenv("KAGENT_NAME", "researcher-kagent")
-    monkeypatch.setenv("KAGENT_NAMESPACE", "team-a")
+def exporting_config(**kwargs):
+    return RuntimeConfig(
+        telemetry=TelemetryConfig(traces=OTLPConfig(endpoint="http://collector:4317", protocol="grpc")),
+        **kwargs,
+    )
 
-    providers = _boot.bootstrap(KagentRuntimeValues.LANGGRAPH, fallback_name="ignored")
 
-    (kwargs,) = configurator.configure
-    assert kwargs["resource_attributes"] == {
-        "service.name": "researcher-kagent",
+def test_bootstrap_uses_config_identity_and_environment_telemetry(monkeypatch, configurator):
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "ignored")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp")
+    config = exporting_config(name="researcher-kagent", namespace="team-a")
+    providers = _boot.bootstrap(KagentRuntimeValues.LANGGRAPH, fallback_name="ignored", config=config)
+    identity, exporters = configurator.configure[0]
+    assert _boot._resource_attributes(identity, exporters) == {
+        "service.name": "ignored",
         "service.namespace": "team-a",
         "kagent.runtime": "langgraph",
     }
-    assert [type(processor) for processor in kwargs["span_processors"]] == [KagentAttributesSpanProcessor]
     assert providers.identity.attributes() == {
         "gen_ai.agent.name": "researcher-kagent",
         "gen_ai.agent.id": "team-a/researcher-kagent",
     }
     assert configurator.instrument == [(("httpx", "httpx2", "langchain"), {})]
+    assert _boot.signal_enabled("TRACES")
+    assert not _boot.signal_enabled("METRICS")
 
 
-def test_environment_identity_wins_over_defaults(monkeypatch, configurator):
-    monkeypatch.setenv("OTEL_SERVICE_NAME", "compiled-name")
-    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.namespace=compiled-ns")
-
-    _boot.bootstrap(KagentRuntimeValues.ADK_PYTHON, fallback_name="card-name")
-
-    (kwargs,) = configurator.configure
-    assert kwargs["resource_attributes"] == {"kagent.runtime": "adk-python"}
-
-
-def test_exporter_timeouts_are_read_as_milliseconds(monkeypatch, configurator):
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "500")
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT", "750")
-
-    _boot.bootstrap(KagentRuntimeValues.BYO)
-
-    timeouts = {
-        exporter.__module__.split(".")[4] + "." + exporter.__name__: args["timeout"]
-        for exporter, args in configurator.configure[0]["exporter_args_map"].items()
-    }
-    assert timeouts == {
-        "grpc.OTLPSpanExporter": 0.5,
-        "http.OTLPSpanExporter": 0.5,
-        "grpc.OTLPMetricExporter": 0.5,
-        "http.OTLPMetricExporter": 0.5,
-        "grpc.OTLPLogExporter": 0.75,
-        "http.OTLPLogExporter": 0.75,
-    }
-
-
-def test_disabled_sdk_installs_nothing(monkeypatch, configurator):
-    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
-
+def test_absent_exporters_disable_instrumentation(monkeypatch, configurator):
     providers = _boot.bootstrap(KagentRuntimeValues.CREWAI)
-
-    assert configurator.configure == []
     assert configurator.instrument == []
+    assert not _boot.signal_enabled("TRACES")
     assert providers.profile == PROFILES[KagentRuntimeValues.CREWAI]
 
 
-def test_no_exporting_signal_installs_no_instrumentation(monkeypatch, configurator):
-    for signal in ("TRACES", "METRICS", "LOGS"):
-        monkeypatch.setenv(f"OTEL_{signal}_EXPORTER", "none")
-
-    _boot.bootstrap(KagentRuntimeValues.OPENAI_AGENTS)
-
-    assert len(configurator.configure) == 1
-    assert configurator.instrument == []
-
-
-def test_configuration_errors_never_stop_startup(monkeypatch):
-    def boom(self, **kwargs):
-        raise RuntimeError("bad exporter")
-
-    installed = []
-    monkeypatch.setattr(_boot.OpenTelemetryConfigurator, "configure", boom)
-    monkeypatch.setattr(_boot, "_instrument", lambda names, options: installed.append(names))
-
-    providers = _boot.bootstrap(KagentRuntimeValues.ADK_PYTHON, fallback_name="agent")
-
+def test_invalid_exporter_logs_and_continues(monkeypatch, caplog):
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "jaeger")
+    instrumented = []
+    monkeypatch.setattr(_boot, "_instrument", lambda names, options: instrumented.extend(names))
+    providers = _boot.bootstrap(KagentRuntimeValues.ADK_PYTHON, config=exporting_config(name="agent"))
     assert providers.identity.agent_name == "agent"
-    assert installed == []
+    assert _boot.current() is providers
+    assert instrumented
+    assert "Failed to configure OpenTelemetry providers" in caplog.text
+    assert "jaeger" in caplog.text
 
 
 def test_bootstrap_runs_once(configurator):
     first = _boot.bootstrap(KagentRuntimeValues.BYO)
-
     assert _boot.bootstrap(KagentRuntimeValues.LANGGRAPH) is first
     assert len(configurator.configure) == 1
 
 
-def test_disabled_instrumentations_are_skipped(monkeypatch):
+def test_instrumentation_selection_honors_environment(monkeypatch):
     instrumented = []
 
     class Instrumentor:
@@ -141,14 +114,11 @@ def test_disabled_instrumentations_are_skipped(monkeypatch):
         def instrument(self, **kwargs):
             instrumented.append((self.name, kwargs))
 
-    def entry_points(group, name):
-        return [SimpleNamespace(load=lambda: lambda: Instrumentor(name))]
-
-    monkeypatch.setattr(_boot, "entry_points", entry_points)
+    monkeypatch.setattr(
+        _boot, "entry_points", lambda group, name: [SimpleNamespace(load=lambda: lambda: Instrumentor(name))]
+    )
     monkeypatch.setenv("OTEL_PYTHON_DISABLED_INSTRUMENTATIONS", "httpx, openai")
-
-    _boot._instrument(("httpx", "openai_agents", "openai"), {"openai_agents": {"disable_openai_trace_export": True}})
-
+    _boot._instrument(("httpx", "openai_agents"), {"openai_agents": {"disable_openai_trace_export": True}})
     assert instrumented == [("openai_agents", {"disable_openai_trace_export": True})]
 
 
@@ -190,11 +160,11 @@ def test_profile_instrumentations_are_installed():
             assert list(entry_points(group="opentelemetry_instrumentor", name=name)), name
 
 
-def test_defaults_keep_explicit_values(monkeypatch):
+def test_instrumentation_adapter_preserves_overrides(monkeypatch):
     monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
     monkeypatch.delenv("OTEL_INSTRUMENTATION_A2A_SDK_ENABLED", raising=False)
 
-    _defaults.apply()
+    _defaults.apply(TelemetryConfig())
 
     import os
 
@@ -203,7 +173,7 @@ def test_defaults_keep_explicit_values(monkeypatch):
 
 
 def test_propagates_trace_context_without_baggage(monkeypatch, configurator):
-    monkeypatch.setenv("OTEL_PROPAGATORS", "")
+    monkeypatch.delenv("OTEL_PROPAGATORS", raising=False)
 
     _boot.bootstrap(KagentRuntimeValues.BYO)
 
@@ -211,24 +181,6 @@ def test_propagates_trace_context_without_baggage(monkeypatch, configurator):
     trace_id = 0x4BF92F3577B34DA6A3CE929D0E0E4736
     carrier = {"traceparent": f"00-{trace_id:032x}-00f067aa0ba902b7-01"}
     assert get_current_span(get_global_textmap().extract(carrier)).get_span_context().trace_id == trace_id
-
-
-@pytest.mark.parametrize(
-    ("env", "expected"),
-    [
-        ({}, True),
-        ({"OTEL_TRACES_EXPORTER": "none"}, False),
-        ({"OTEL_TRACES_EXPORTER": "console,otlp"}, True),
-        ({"OTEL_TRACES_EXPORTER": "console"}, True),
-        ({"OTEL_TRACES_EXPORTER": "otlp", "OTEL_SDK_DISABLED": "true"}, False),
-    ],
-)
-def test_signal_enabled_follows_the_sdk(monkeypatch, env, expected):
-    monkeypatch.delenv("OTEL_TRACES_EXPORTER", raising=False)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-
-    assert _boot.signal_enabled("TRACES") is expected
 
 
 def test_force_flush_flushes_every_provider_within_the_budget(monkeypatch):
@@ -270,7 +222,8 @@ def _streaming_app():
     return app
 
 
-def test_inbound_http_follows_stable_semantic_conventions():
+def test_inbound_http_follows_stable_semantic_conventions(configurator):
+    _boot.bootstrap(KagentRuntimeValues.BYO, config=exporting_config())
     exporter = InMemorySpanExporter()
     tracer_provider = TracerProvider()
     tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -304,3 +257,74 @@ def test_inbound_http_follows_stable_semantic_conventions():
         "url.scheme",
     }
     assert "http.server.duration" not in metrics
+
+
+@pytest.mark.parametrize("prefix", ["OTEL_EXPORTER_OTLP_", "OTEL_EXPORTER_OTLP_TRACES_"])
+def test_environment_exporter_overrides_file(monkeypatch, configurator, prefix):
+    monkeypatch.setenv(prefix + "ENDPOINT", "http://override:4318/v1/traces")
+    monkeypatch.setenv(prefix + "PROTOCOL", "http/protobuf")
+    monkeypatch.setenv(prefix + "TIMEOUT", "1200")
+    _boot.bootstrap(KagentRuntimeValues.BYO, config=exporting_config())
+    assert (
+        os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"))
+        == "http://override:4318/v1/traces"
+    )
+    assert _boot._resolve_otlp_timeout_seconds("TRACES") == 1.2
+
+
+def test_environment_can_enable_and_disable_export(monkeypatch, configurator):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
+    _boot.bootstrap(KagentRuntimeValues.BYO)
+    assert _boot.signal_enabled("TRACES")
+    assert not _boot.signal_enabled("METRICS")
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+    assert not _boot.signal_enabled("TRACES")
+
+
+@pytest.mark.parametrize("prefix", ["OTEL_EXPORTER_OTLP_", "OTEL_EXPORTER_OTLP_TRACES_"])
+@pytest.mark.parametrize("option,value", [("ENDPOINT", "http://override:4317"), ("PROTOCOL", "http/protobuf")])
+def test_partial_connection_override_replaces_file_pair(monkeypatch, prefix, option, value):
+    monkeypatch.setenv(prefix + option, value)
+    _defaults.apply(exporting_config().telemetry)
+    assert os.environ[prefix + option] == value
+    missing = "PROTOCOL" if option == "ENDPOINT" else "ENDPOINT"
+    assert "OTEL_EXPORTER_OTLP_TRACES_" + missing not in os.environ
+    if option == "PROTOCOL":
+        # Exercise the SDK's default endpoint and HTTP path handling, without
+        # connecting to a collector or installing global providers.
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+        exporter = OTLPSpanExporter()
+        try:
+            assert exporter._endpoint == "http://localhost:4318/v1/traces"
+        finally:
+            exporter.shutdown()
+
+
+def test_specific_connection_overrides_generic(monkeypatch):
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://generic:4317")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://specific:4318/custom")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "http/protobuf")
+    _defaults.apply(exporting_config().telemetry)
+    exporter = OTLPSpanExporter()
+    try:
+        assert exporter._endpoint == "http://specific:4318/custom"
+        assert os.environ["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"] == "http/protobuf"
+    finally:
+        exporter.shutdown()
+
+
+@pytest.mark.parametrize("timeout", [0, 10000, 1234])
+def test_timeout_omits_only_sdk_default(timeout):
+    config = exporting_config().telemetry
+    if timeout:
+        config.traces.timeout.FromMilliseconds(timeout)
+    _defaults.apply(config)
+    if timeout in (0, 10000):
+        assert "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT" not in os.environ
+        assert _boot._resolve_otlp_timeout_seconds("TRACES") == 10
+    else:
+        assert _boot._resolve_otlp_timeout_seconds("TRACES") == 1.234

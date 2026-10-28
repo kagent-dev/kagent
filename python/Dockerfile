@@ -6,6 +6,7 @@ FROM debian:bookworm-slim AS base
 ENV UV_PYTHON_INSTALL_DIR=/python
 COPY --from=uv-bin /uv /usr/local/bin/uv
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends bash ca-certificates libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,7 +22,7 @@ COPY pyproject.toml .python-version uv.lock README.md ./
 COPY packages/kagent-adk packages/kagent-adk
 COPY packages/kagent-core packages/kagent-core
 COPY packages/kagent-proto packages/kagent-proto
-COPY packages/kagent-skills packages/kagent-skills
+COPY packages/kagent-tools packages/kagent-tools
 COPY packages/agentsts-adk packages/agentsts-adk
 COPY packages/agentsts-core packages/agentsts-core
 RUN --mount=type=cache,target=/root/.cache/uv \

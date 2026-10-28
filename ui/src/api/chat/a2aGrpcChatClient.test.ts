@@ -12,8 +12,8 @@
  * against a live controller, and none of them is implied by the protocol.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
-import { createRouterTransport } from "@connectrpc/connect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
 import { fromJson } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
@@ -25,6 +25,7 @@ import {
 } from "@/generated/a2a_pb";
 import { setApiTransport } from "../transport";
 import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
+import { LinkFile } from "./attachments";
 import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
 
@@ -275,6 +276,85 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
 });
 
 describe("A2AGrpcChatClient.send", () => {
+  it.each([TaskState.INPUT_REQUIRED, TaskState.AUTH_REQUIRED])(
+    "reads tool approval directly from a task snapshot in state %s",
+    async (state) => {
+      const events = await turn([{
+        payload: {
+          case: "task",
+          value: {
+            id: "task-1",
+            contextId: CONVERSATION.id,
+            status: {
+              state,
+              message: {
+                messageId: "approval-request",
+                role: Role.AGENT,
+                parts: [text("Allow describe?")],
+                extensions: ["https://kagent.dev/extensions/hitl/v1"],
+                metadata: {
+                  "https://kagent.dev/extensions/hitl/v1": {
+                    type: "tool_approval_request",
+                    tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+                  },
+                },
+              },
+            },
+          },
+        },
+      }]);
+      expect(transcript(events)).toEqual([]);
+      expect(events).toContainEqual({
+        type: "status",
+        state: "input_required",
+        taskId: "task-1",
+        awaiting: {
+          kind: "tool_approval",
+          taskId: "task-1",
+          tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+          hint: undefined,
+          askedBy: undefined,
+        },
+      });
+    },
+  );
+
+  it("reads ask-user choices directly from a task snapshot", async () => {
+    const events = await turn([{
+      payload: {
+        case: "task",
+        value: {
+          id: "task-1",
+          status: {
+            state: TaskState.INPUT_REQUIRED,
+            message: {
+              messageId: "ask-request",
+              role: Role.AGENT,
+              parts: [text("Which database?")],
+              extensions: ["https://kagent.dev/extensions/hitl/v1"],
+              metadata: {
+                "https://kagent.dev/extensions/hitl/v1": {
+                  type: "ask_user_request",
+                  id: "ask-1",
+                  questions: [{ question: "Which database?", choices: ["PostgreSQL"] }],
+                },
+              },
+            },
+          },
+        },
+      },
+    }]);
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status", state: "input_required", taskId: "task-1",
+      awaiting: {
+        kind: "ask_user", taskId: "task-1", requestId: "ask-1",
+        questions: [{ question: "Which database?", choices: ["PostgreSQL"], multiple: false }],
+        askedBy: undefined,
+      },
+    });
+  });
+
   it("shows only the interactive card when ask_user parks the turn", async () => {
     const events = await turn([
       {
@@ -521,6 +601,106 @@ describe("A2AGrpcChatClient.send", () => {
     ).toEqual([" beta", " gamma"]);
   });
 
+  it("delivers appended tool results before the turn completes", async () => {
+    const call = data({ id: "call-1", name: "alerts_list_alerts", args: {} });
+    const result = data({
+      id: "call-1",
+      name: "alerts_list_alerts",
+      response: { result: "disk full", error: null },
+    });
+    const frame = (parts: unknown[], append = false) => ({
+      payload: {
+        case: "artifactUpdate",
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "call-1", parts },
+          append,
+        },
+      },
+    });
+    // No terminal frame: each update must be visible while the task is working.
+    const events = await turn([frame([call]), frame([result], true)]);
+    const messages = events.filter((event) => event.type === "message");
+    expect(messages).toHaveLength(2);
+    expect(messages[0].message.parts).toHaveLength(1);
+    expect(messages[1].message.parts).toMatchObject([
+      { kind: "data", dataKind: "tool_call" },
+      { kind: "data", dataKind: "tool_result", data: { response: { result: "disk full" } } },
+    ]);
+    expect(transcript(events)).toHaveLength(1);
+  });
+
+  it("preserves structured parts when text is appended to a mixed artifact", async () => {
+    const frame = (parts: unknown[], append = false) => ({
+      payload: {
+        case: "artifactUpdate",
+        value: {
+          taskId: "task-1",
+          artifact: { artifactId: "mixed", parts },
+          append,
+        },
+      },
+    });
+    const events = await turn([
+      frame([text("Checking ")]),
+      frame([data({ id: "call-1", name: "alerts_list_alerts", args: {} })], true),
+      frame([text("done")], true),
+    ]);
+    const messages = transcript(events);
+    expect(messages[0].parts).toMatchObject([
+      { kind: "text", text: "Checking " },
+      { kind: "data", dataKind: "tool_call" },
+      { kind: "text", text: "done" },
+    ]);
+  });
+
+  it.each([{}, { query: { page_size: 10 } }])(
+    "preserves streamed invocation arguments when tool output contains params: %j",
+    async (args) => {
+      const frame = (parts: unknown[], append = false) => ({
+        payload: {
+          case: "artifactUpdate",
+          value: {
+            taskId: "task-1",
+            artifact: { artifactId: "tools", parts },
+            append,
+          },
+        },
+      });
+      const events = await turn([
+        frame([
+          data({ id: "call-1", name: "alerts_list_alerts", args: {} }),
+          data({ id: "call-2", name: "alerts_list_alerts", args }),
+        ]),
+        frame([
+          data({
+            id: "call-2",
+            name: "alerts_list_alerts",
+            response: { data: "observed alert", params: { query: { page_size: 1 } } },
+          }),
+        ], true),
+      ]);
+      const messages = events.filter((event) => event.type === "message");
+      expect(messages[0].message.parts).toMatchObject([
+        { data: { id: "call-1", args: {} } },
+        { data: { id: "call-2", args } },
+      ]);
+      expect(messages[0].message.parts[1]).toHaveProperty("data.args", args);
+      expect(transcript(events)[0].parts).toMatchObject([
+        { data: { id: "call-1", args: {} } },
+        { data: { id: "call-2", args } },
+        {
+          data: {
+            id: "call-2",
+            response: { data: "observed alert", params: { query: { page_size: 1 } } },
+          },
+        },
+      ]);
+      expect(transcript(events)[0].parts[1]).toHaveProperty("data.args", args);
+    },
+  );
+
   it("does not double the answer when the last chunk repeats what was streamed", async () => {
     // The closing frame carries the whole reply rather than the last increment, and
     // is not flagged `append` — so it is a replacement. Appending it instead would
@@ -765,6 +945,41 @@ describe("A2AGrpcChatClient.send", () => {
 });
 
 describe("A2AGrpcChatClient.history", () => {
+  it.each([{}, { query: { page_size: 10 } }])(
+    "preserves saved invocation arguments when tool output contains params: %j",
+    async (args) => {
+      serveTasks([
+        {
+          id: "task-1",
+          contextId: CONVERSATION.id,
+          status: { state: TaskState.COMPLETED },
+          artifacts: [{
+            artifactId: "call-1",
+            parts: [
+              data({ id: "call-1", name: "alerts_list_alerts", args }),
+              data({
+                id: "call-1",
+                name: "alerts_list_alerts",
+                response: { data: "observed alert", params: { query: { page_size: 1 } } },
+              }),
+            ],
+          }],
+        },
+      ]);
+
+      const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+      expect(messages[0].parts[0]).toMatchObject({
+        dataKind: "tool_call",
+        data: { id: "call-1", name: "alerts_list_alerts", args },
+      });
+      expect(messages[0].parts[0]).toHaveProperty("data.args", args);
+      expect(messages[0].parts[1]).toMatchObject({
+        dataKind: "tool_result",
+        data: { response: { data: "observed alert", params: { query: { page_size: 1 } } } },
+      });
+    },
+  );
+
   it("routes history and cancellation to the conversation's Agent", async () => {
     const seen: unknown[] = [];
     serve(({ service }) => {
@@ -852,7 +1067,7 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
   });
 
-  it("orders a canonically positioned approval between its tool call and result", async () => {
+  it("keeps earlier tool activity before a positioned approval on reload", async () => {
     const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
@@ -860,6 +1075,12 @@ describe("A2AGrpcChatClient.history", () => {
         contextId: CONVERSATION.id,
         status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
         history: [
+          {
+            messageId: "opening",
+            role: Role.USER,
+            parts: [text("List pods and delete one")],
+            metadata: position("2025-12-31T23:59:59.000000001Z"),
+          },
           {
             messageId: "request",
             role: Role.AGENT,
@@ -889,6 +1110,16 @@ describe("A2AGrpcChatClient.history", () => {
         ],
         artifacts: [
           {
+            artifactId: "list-call",
+            parts: [data({ id: "list-1", name: "list_pods", args: {} })],
+            metadata: position("2025-12-31T23:59:59.000000002Z"),
+          },
+          {
+            artifactId: "list-result",
+            parts: [data({ id: "list-1", name: "list_pods", response: { result: "old" } })],
+            metadata: position("2025-12-31T23:59:59.000000003Z"),
+          },
+          {
             artifactId: "call",
             parts: [data({ id: "call-1", name: "delete_pod", args: {} })],
             metadata: position("2026-01-01T00:00:00.000000001Z"),
@@ -903,7 +1134,9 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
-    expect(messages.map((message) => message.id)).toEqual(["call", "approval", "result"]);
+    expect(messages.map((message) => message.id)).toEqual([
+      "opening", "list-call", "list-result", "call", "approval", "result",
+    ]);
   });
 
   it("replays a completed ask_user exchange as one structured record", async () => {
@@ -1408,6 +1641,52 @@ describe("A2AGrpcChatClient files", () => {
     expect(new TextDecoder().decode(part?.content.value as Uint8Array)).toBe("# hi");
   });
 
+  it("sends a link from the text as a url part after the text, with no bytes", async () => {
+    let captured: SendMessageRequest | undefined;
+    serve(({ service }) => {
+      service(A2AService, {
+        // eslint-disable-next-line require-yield
+        sendStreamingMessage: async function* (request) {
+          captured = request;
+        },
+      });
+    });
+    const link = "https://files.example/a/report.pdf?sig=abc";
+    for await (const event of new A2AGrpcChatClient().send({
+      conversation: CONVERSATION,
+      text: `summarize ${link}`,
+      files: [new LinkFile(link)],
+    })) {
+      void event;
+    }
+    const [text, part] = captured?.message?.parts ?? [];
+    expect(text?.content).toEqual({ case: "text", value: `summarize ${link}` });
+    expect(part?.content).toEqual({ case: "url", value: link });
+    expect(part?.filename).toBe("report.pdf");
+    expect(part?.mediaType).toBe("application/pdf");
+  });
+
+  it("keeps the chip of an agent-sent link that its text also names", async () => {
+    const link = "https://files.example/out/report.pdf";
+    const events = await turn([
+      statusFrame({
+        state: TaskState.WORKING,
+        message: {
+          messageId: "m-agent-link",
+          role: Role.AGENT,
+          parts: [
+            { content: { case: "text" as const, value: `Your report is ready: ${link}` } },
+            { content: { case: "url" as const, value: link }, filename: "report.pdf", mediaType: "application/pdf" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      { kind: "text", text: `Your report is ready: ${link}` },
+      { kind: "file", name: "report.pdf", mediaType: "application/pdf", url: link },
+    ]);
+  });
+
   it("renders a file the agent sent rather than dropping it", async () => {
     const events = await turn([
       statusFrame({
@@ -1436,6 +1715,23 @@ describe("A2AGrpcChatClient files", () => {
     ]);
   });
 
+  it("shows no chip for a link whose URL is in the message text", async () => {
+    const link = "https://files.example/a.pdf";
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "m-text-link",
+          role: Role.USER,
+          parts: [
+            { content: { case: "text" as const, value: `summarize ${link}` } },
+            { content: { case: "url" as const, value: link }, filename: "a.pdf", mediaType: "application/pdf" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([{ kind: "text", text: `summarize ${link}` }]);
+  });
+
   it("names a linked file by its path and drops non-http links", async () => {
     const events = await turn([
       statusFrame({
@@ -1462,5 +1758,315 @@ describe("A2AGrpcChatClient files", () => {
         url: "https://files.example/out/report.pdf?sig=abc",
       },
     ]);
+  });
+});
+
+/**
+ * A stream cut by something between the browser and the controller.
+ *
+ * Measured behind a proxy that closes streams after 60 s without data: the model
+ * read a long prompt silently, the browser saw `network error`, and the turn was
+ * shown as failed while the task finished on the server.
+ */
+describe("A2AGrpcChatClient.send, when the stream breaks", () => {
+  const completed = {
+    payload: {
+      case: "task" as const,
+      value: {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.COMPLETED },
+        artifacts: [{ artifactId: "answer", parts: [text("checkout is out of memory")] }],
+      },
+    },
+  };
+
+  /** What `SubscribeToTask` opens with while the task is still running. */
+  const snapshot = {
+    payload: {
+      case: "task" as const,
+      value: {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.WORKING },
+      },
+    },
+  };
+
+  const broken = () => new ConnectError("network error", Code.Unavailable);
+
+  // Re-attaching waits between attempts and judges a stream by how long it lasted,
+  // so the clock is driven by the test rather than waited out.
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  async function run(
+    sent: () => AsyncGenerator<unknown>,
+    subscribe: (attempt: number) => AsyncGenerator<unknown> = async function* () {},
+  ) {
+    const subscribed: unknown[] = [];
+    serve(({ service }) => {
+      service(A2AService, {
+        sendStreamingMessage: sent as never,
+        subscribeToTask: async function* (request) {
+          subscribed.push({ tenant: request.tenant, id: request.id });
+          for await (const frame of subscribe(subscribed.length)) yield frame as never;
+        },
+      });
+    });
+    const events: ChatEvent[] = [];
+    let error: unknown;
+    let done = false;
+    const turn = (async () => {
+      try {
+        for await (const event of new A2AGrpcChatClient().send({
+          conversation: CONVERSATION,
+          text: "why is checkout crashlooping?",
+        })) {
+          events.push(event);
+        }
+      } catch (cause) {
+        error = cause;
+      } finally {
+        done = true;
+      }
+    })();
+    // Ten simulated minutes at most, so a loop that never ends fails the test
+    // instead of hanging it.
+    for (let second = 0; !done && second < 600; second += 1) {
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
+    expect(done).toBe(true);
+    await turn;
+    return { events, error, subscribed };
+  }
+
+  it("follows the task it already named instead of failing the turn", async () => {
+    const { events, error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw new ConnectError("network error", Code.Unknown);
+      },
+      async function* () {
+        yield completed;
+      },
+    );
+    expect(error).toBeUndefined();
+    expect(subscribed).toEqual([{ tenant: CONVERSATION.agent, id: "task-1" }]);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "completed", taskId: "task-1" });
+    expect(transcript(events).map(textOf)).toContain("checkout is out of memory");
+  });
+
+  it("does not re-attach before the stream has named a task", async () => {
+    const { error, subscribed } = await run(async function* () {
+      yield* [];
+      throw new ConnectError("network error", Code.Unknown);
+    });
+    expect(error).toBeDefined();
+    expect(subscribed).toEqual([]);
+  });
+
+  it("surfaces an error the controller decided", async () => {
+    const { error, subscribed } = await run(async function* () {
+      yield statusFrame({});
+      throw new ConnectError("dispatch busy", Code.FailedPrecondition);
+    });
+    expect(error).toMatchObject({ message: "dispatch busy" });
+    expect(subscribed).toEqual([]);
+  });
+
+  it("gives up after repeated breaks with nothing in between", async () => {
+    const { error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw new ConnectError("network error", Code.Unknown);
+      },
+      async function* () {
+        yield* [];
+        throw new ConnectError("network error", Code.Unavailable);
+      },
+    );
+    expect(error).toBeDefined();
+    expect(subscribed).toHaveLength(3);
+  });
+
+  // The server opens every re-attached stream with the task as it stands, so a
+  // path that breaks right after that frame must still run out of attempts. The
+  // completed task after twenty attempts only stops a loop that never gives up.
+  it("gives up when each re-attach breaks right after the task's snapshot", async () => {
+    const { error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt > 20) {
+          yield completed;
+          return;
+        }
+        yield snapshot;
+        throw broken();
+      },
+    );
+    expect(error).toBeDefined();
+    expect(subscribed).toHaveLength(3);
+  });
+
+  it("keeps following a task whose re-attached streams are cut for being quiet", async () => {
+    const { events, error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt > 4) {
+          yield completed;
+          return;
+        }
+        yield snapshot;
+        await new Promise((resolve) => setTimeout(resolve, 60_000));
+        throw broken();
+      },
+    );
+    expect(error).toBeUndefined();
+    expect(subscribed).toHaveLength(5);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "completed", taskId: "task-1" });
+  });
+
+  it("starts counting again after a re-attach that brought news", async () => {
+    const { events, error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt > 4) {
+          yield completed;
+          return;
+        }
+        yield snapshot;
+        yield statusFrame({});
+        throw broken();
+      },
+    );
+    expect(error).toBeUndefined();
+    expect(subscribed).toHaveLength(5);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "completed", taskId: "task-1" });
+  });
+
+  // A reply that started while the stream was down is first seen in the snapshot,
+  // as the chunks stored so far. The chunk after it is an increment to that text.
+  // The turn stops before the closing chunk, which would replace the text whole
+  // and hide the difference.
+  it("continues a reply the snapshot showed instead of replacing it", async () => {
+    const chunk = (value: string, flags: { append?: boolean } = {}) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "a-1", parts: [text(value)] },
+          ...flags,
+        },
+      },
+    });
+    const { events, error } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* () {
+        yield {
+          payload: {
+            case: "task" as const,
+            value: {
+              ...snapshot.payload.value,
+              artifacts: [{ artifactId: "a-1", parts: [text("alpha"), text(" beta")] }],
+            },
+          },
+        };
+        yield chunk(" gamma", { append: true });
+      },
+    );
+    expect(error).toBeUndefined();
+    const agent = transcript(events).filter((message) => message.role === "agent");
+    expect(agent.map(textOf), "not \" gamma\"").toEqual(["alpha beta gamma"]);
+  });
+
+  // " gamma" was sent while the second re-attach was waiting, so only the second
+  // snapshot has it.
+  it("shows what a later snapshot adds to a reply already on screen", async () => {
+    const chunk = (value: string, flags: { append?: boolean } = {}) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "a-1", parts: [text(value)] },
+          ...flags,
+        },
+      },
+    });
+    const withReply = (...chunks: string[]) => ({
+      payload: {
+        case: "task" as const,
+        value: {
+          ...snapshot.payload.value,
+          artifacts: [{ artifactId: "a-1", parts: chunks.map(text) }],
+        },
+      },
+    });
+    const { events, error } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt === 1) {
+          yield withReply("alpha");
+          yield chunk(" beta", { append: true });
+          throw broken();
+        }
+        yield withReply("alpha", " beta", " gamma");
+        yield chunk(" delta", { append: true });
+      },
+    );
+    expect(error).toBeUndefined();
+    const agent = transcript(events).filter((message) => message.role === "agent");
+    expect(agent.map(textOf), "not \"alpha beta delta\"").toEqual(["alpha beta gamma delta"]);
+  });
+
+  it("stops waiting to re-attach when the reader presses stop", async () => {
+    const subscribed: unknown[] = [];
+    serve(({ service }) => {
+      service(A2AService, {
+        sendStreamingMessage: async function* () {
+          yield statusFrame({}) as never;
+          throw broken();
+        },
+        subscribeToTask: async function* () {
+          subscribed.push(true);
+          yield completed as never;
+        },
+      });
+    });
+    const stop = new AbortController();
+    const events: ChatEvent[] = [];
+    const turn = (async () => {
+      for await (const event of new A2AGrpcChatClient().send({
+        conversation: CONVERSATION,
+        text: "why is checkout crashlooping?",
+        signal: stop.signal,
+      })) {
+        events.push(event);
+      }
+    })();
+    const outcome = expect(turn).rejects.toMatchObject({ name: "AbortError" });
+    // The stream has broken and the first re-attach is waiting its 500 ms.
+    await vi.advanceTimersByTimeAsync(100);
+    stop.abort();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await outcome;
+    expect(subscribed).toEqual([]);
   });
 });

@@ -1,16 +1,21 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.4.0-alpha1**. The compiler turns ModelConfig API
-keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
-bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
+Kagent requires Substrate **v0.7.0-alpha1**. The runtime compiler turns
+ModelConfig API keys and Secret-backed RemoteMCPServer headers into pinned
+destination-scoped bindings. Independently, EgressPolicy admission supplies
+additional live bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
 replaces the outgoing HTTP header when the request carries a placeholder. SDKs
 receive an inert placeholder where they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
 
-Bindings are persisted with the prepared revision and installed before a
-session becomes ready, including retries and checkpoint forks. Secret names,
-keys, destinations, and headers affect revision identity. Secret values and
-Secret UIDs do not. Rotation is handled by the gateway; its credential cache can
+Inferred integration bindings are persisted with the prepared revision; their
+Secret names, keys, destinations, and headers affect revision identity. Explicit
+EgressPolicy bindings are resolved from current policies and update live actors
+without changing that revision. Conflicts hold new grants and report the
+independent [EgressPoliciesApplied condition](egress-policies.md#preparation-and-lifecycle);
+they do not block runtime compilation. Both are installed before execution, including
+creation retries, resume, and checkpoint forks. Secret values and Secret UIDs
+do not affect revision identity. Rotation is handled by the gateway; its credential cache can
 take up to five minutes to refresh, without recompiling or restarting an agent.
 
 ## Installation
@@ -27,9 +32,11 @@ credentialProvider:
 ```
 
 For an embedded Substrate chart, put these values under `substrate:` in the
-kagent chart. Empty grants deny all credential fetches. Kagent compiles
-same-namespace references such as
+kagent chart. Empty grants deny all credential fetches. Kagent compiles namespace-qualified references such as
 `ate-secret://k8s.io/default/kagent/model-auth/api-key`.
+For [shared models and MCP servers](cross-namespace-references.md), grant the
+consuming actor atespace access to the target Secret namespace explicitly.
+Resource reference permission does not change credential-provider grants.
 
 Create the gateway CA in the Substrate release namespace before waiting for
 the rollout (alongside the other Substrate CA pools):
@@ -58,23 +65,118 @@ overrides of these variables are rejected.
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
-match its scheme, DNS name, and port; credential bindings remain scoped to the
-hostname and header. Different credentials for the same hostname and header
-are rejected, including conflicts between models, memory embeddings, and MCP
-servers. Use distinct DNS names for
-origins requiring different credentials. IP-address destinations are unsupported
-by Substrate egress policies.
+and credential bindings both match its scheme, DNS name, and port. Different
+credentials for the same origin and header are rejected, including conflicts
+between models, memory embeddings, MCP servers, and explicit policies. Distinct
+ports on the same DNS name can use different credentials. IP-address destinations
+are unsupported by Substrate egress policies.
+
+The v1alpha3 revision format stores full origins. It assumes a clean installation;
+previously persisted hostname-only credential bindings are rejected rather than
+reinterpreted across every port on that host.
 
 Harness and SandboxTemplate environment entries accept only literal `value`
 strings, including empty strings. Configure Secret-backed credentials on
-ModelConfig or RemoteMCPServer for gateway injection.
+ModelConfig, RemoteMCPServer, or [EgressPolicy](egress-policies.md) for gateway injection.
 
 AWS IAM signing keys, Google service-account keys, and OAuth client credentials
 require mechanisms beyond static header injection and are rejected rather than
 serialized into runtimes.
-Caller-token passthrough retains its existing behavior. A passthrough model
-cannot share a hostname with static gateway credentials, which would override
-the caller's authentication.
+
+Caller-token passthrough is set with `tokenPassthrough` on ModelConfig or
+RemoteMCPServer. It forwards the bearer token from the incoming A2A request
+instead of a gateway credential. A passthrough model or MCP server cannot share
+an origin with static gateway credentials, which would override the caller's
+authentication. A passthrough RemoteMCPServer cannot set `Authorization` in
+`headersFrom`.
+
+Compilation records each passthrough client as a target {origin, header,
+prefix} in the revision. It rejects a client with no credential target (SAP AI
+Core), a client that shares its origin with an MCP server or model that did not
+opt in, and an explicit header that matches a target header.
+
+RemoteMCPServer passthrough is implemented only by the Go kagent runtime.
+Codex and Claude reject it at compilation, and the Python runtime fails at
+startup. A request without a caller token fails instead of connecting
+anonymously. The runtime discovers tools on first use, because startup has no
+caller token. Controller discovery also has no caller token, so servers that
+require one should set the `kagent.dev/discovery: disabled` label. The runtime
+shares one MCP session per server. The standalone SSE stream and session
+teardown therefore carry the token of the caller that opened the session.
+
+### Gateway token passthrough
+
+Without `app.Options.EgressPolicyCompilers`, runtimes forward the caller token
+as described above. To keep it out of runtimes, an embedding program registers
+compilers and its `Authenticator.UpstreamAuth` must replace the caller's
+`Authorization` with `Bearer kagent-credential-injected`; registering compilers
+alone changes nothing, and a forwarding authenticator still exposes the token.
+The runtime forwards the placeholder as usual. Compilers run in order after the
+built-in EgressPolicy compiler and may change anything it produced. Kagent then
+validates the result, and every target must have a header. New create and resume
+operations compile the policy before they are issued, so a failure stops them
+before any lifecycle mutation. If a later compile or this validation fails, the
+actor gets no egress until a retry succeeds. Kagent never names a credential provider.
+
+This covers Go ADK MCP servers and models, OpenAI, Azure and Foundry memory
+embeddings, and Python OpenAI and Anthropic models. Python MCP, Claude and
+Codex still do not support passthrough.
+
+## Actor JWT authentication
+
+`ModelConfig.spec.actorJwt` and `RemoteMCPServer.spec.actorJwt` select the
+executing Actor's identity independently of the invocation caller:
+
+```yaml
+actorJwt:
+  audiences: [my-service]
+  expirationSeconds: 900
+```
+
+Substrate mints, injects, and refreshes this token at the gateway. The runtime
+only receives an inert SDK placeholder. Models use their provider's existing
+credential header from the table above; MCP uses `Authorization: Bearer`.
+The destination must trust Substrate's issuer and validate its own audience.
+This option supports providers with configurable endpoints and header credentials.
+Bedrock and Gemini use fixed AWS and Google endpoints, and Ollama's credential
+path only targets its hosted service. These providers reject `actorJwt`; Kagent
+does not exchange Actor JWTs for their credentials. Vertex and SAP OAuth
+authentication are also unsupported.
+
+The option is mutually exclusive with `tokenPassthrough` and model API-key
+Secrets. Omit unused credential fields: `tokenPassthrough: false` still counts
+as a set field for this union. MCP `headersFrom` may still supply other headers,
+but cannot supply `Authorization`. Model `defaultHeaders` cannot override the
+credential header.
+Global MCP discovery is disabled automatically for Actor authentication;
+the executing runtime discovers tools using its own identity. Control-plane
+MCP calls cannot authenticate as an Actor.
+These servers publish no global tool catalog, so their tools do not appear in
+the UI tool picker; agents discover them at runtime.
+
+EgressPolicy uses the same token settings as an alternative to `secretKeyRef`:
+
+```yaml
+spec:
+  destinations:
+    - origin: https://my-service.example.com
+      authentication:
+        header: Authorization
+        prefix: "Bearer "
+        actorJwt:
+          audiences: [my-service]
+          expirationSeconds: 900
+```
+
+EgressPolicy retains its explicit header and prefix. A client must send that
+header for the gateway to replace it; arbitrary tools and BYO clients supply
+their own placeholder. Managed model and MCP compilers set it automatically.
+
+Audiences contain 1–16 unique, nonempty values. The `kagent-runtime` audience is
+reserved for internal control-plane calls and cannot be exported. Lifetimes
+range from 300 to 3600 seconds and default to 900 seconds. Actor JWT settings
+follow the same grant lifetimes as Secret credentials: model and MCP bindings
+are pinned in revisions, while EgressPolicy bindings update existing Actors.
 
 ## Deferred API fields
 

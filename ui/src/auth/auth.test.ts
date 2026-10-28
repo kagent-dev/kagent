@@ -174,7 +174,7 @@ describe("runtimeConfig", () => {
   });
 
   // No script tag is rendered by `yarn dev` before Vite's plugin runs, none is
-  // rendered under vitest, and a deployment whose startup script failed serves
+  // rendered under vitest, and a deployment whose entrypoint failed serves
   // none either. Every one of those has to be silent and normal.
   it("uses defaults when nothing was injected", () => {
     expect(runtimeConfig()).toEqual(RUNTIME_CONFIG_DEFAULTS);

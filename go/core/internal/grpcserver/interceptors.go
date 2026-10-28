@@ -12,29 +12,30 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 var forwardedMetadataKeys = map[string]string{
-	apia2a.InsecureRuntimeIdentityHeader: apia2a.InsecureRuntimeIdentityHeader,
-	"authorization":                      "Authorization",
-	"x-user-id":                          "X-User-Id",
-	"x-agent-name":                       "X-Agent-Name",
-	"x-share-token":                      "X-Share-Token",
+	"authorization": "Authorization",
+	"x-user-id":     "X-User-Id",
+	"x-agent-name":  "X-Agent-Name",
+	"x-share-token": "X-Share-Token",
 }
 
-func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
+func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, runtimeAuthenticator, shareStore, policies)
+		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, shareStore, policies, identity)
 		if err != nil {
 			return nil, err
 		}
@@ -42,9 +43,9 @@ func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.Aut
 	}
 }
 
-func authenticationStreamInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
+func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, runtimeAuthenticator, shareStore, policies)
+		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, shareStore, policies, identity)
 		if err != nil {
 			return err
 		}
@@ -52,34 +53,35 @@ func authenticationStreamInterceptor(authenticator, runtimeAuthenticator auth.Au
 	}
 }
 
-func authenticate(ctx context.Context, fullMethod string, authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) (context.Context, error) {
+func authenticate(ctx context.Context, fullMethod string, authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service) (context.Context, error) {
 	access, ok := policies[fullMethod]
 	if !ok {
 		return ctx, status.Error(codes.PermissionDenied, "RPC authorization policy is not configured")
 	}
-	if access == auth.AccessPublic {
-		return ctx, nil
+	headers := incomingHTTPHeaders(ctx)
+	// Metadata credentials use a distinct audience and must never fall back to
+	// user authentication or gain authority through a Session share.
+	if fullMethod == apiv1.AgentIdentityService_ResolveAgentIdentity_FullMethodName {
+		if identity == nil {
+			return ctx, status.Error(codes.Unauthenticated, "Agent identity authentication is not configured")
+		}
+		authenticatedContext, err := identity.Authenticate(ctx, headers)
+		return authenticatedContext, mapError(err)
 	}
-	if access == auth.AccessRuntime {
-		authenticator = runtimeAuthenticator
+	if access == auth.AccessPublic && len(headers.Values("Authorization")) == 0 {
+		return ctx, nil
 	}
 	if authenticator == nil {
 		return ctx, status.Error(codes.Unauthenticated, "authentication is not configured")
 	}
-
-	headers := incomingHTTPHeaders(ctx)
 	session, err := authenticator.Authenticate(ctx, headers, url.Values{})
 	if err != nil || session == nil {
 		return ctx, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
-
-	authenticatedContext := auth.AuthSessionTo(ctx, session)
-	if access == auth.AccessRuntime {
-		if headers.Get("X-Share-Token") != "" {
-			return ctx, status.Error(codes.PermissionDenied, "share credentials cannot access runtime storage")
-		}
-		return authenticatedContext, nil
+	if access == auth.AccessRuntime && session.Principal().RuntimeBinding == nil {
+		return ctx, status.Error(codes.PermissionDenied, "runtime actor identity is required")
 	}
+	authenticatedContext := auth.AuthSessionTo(ctx, session)
 	share, err := sessionsvc.ResolveShare(authenticatedContext, shareStore, headers.Get("X-Share-Token"))
 	if err != nil {
 		return ctx, mapError(err)
@@ -90,7 +92,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator, runtime
 	// A2A delegates Session share authorization to the Session service. Retain
 	// the coarse read-only gate for other RPCs, including non-Session services.
 	a2aMethod := strings.HasPrefix(fullMethod, "/"+a2apb.A2AService_ServiceDesc.ServiceName+"/")
-	if !a2aMethod && share.ReadOnly && access != auth.AccessRead {
+	if !a2aMethod && access != auth.AccessRead {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
 	}
 	return auth.ShareContextTo(authenticatedContext, share), nil

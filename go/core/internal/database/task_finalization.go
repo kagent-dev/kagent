@@ -67,7 +67,7 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		`, session.HistoryID, taskID, row.ExpectedVersion, version); err != nil {
 			return err
 		}
-		return enqueuePushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
+		return publishPushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
 	})
 }
 

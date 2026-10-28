@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 )
+
+// DefaultSkillsRoot is where the ADK installs root-agent skills.
+const DefaultSkillsRoot = "/skills"
 
 // AgentPluginPaths contains the ADK runtime destinations for Agent Plugin
 // packages, selected skills, and mutable MCP server data.
@@ -19,9 +22,9 @@ type AgentPluginPaths struct {
 
 // MaterializeAgentPlugins materializes plugins independently for each agent
 // and adds their skills and MCP servers to the ADK runtime configuration.
-func MaterializeAgentPlugins(ctx context.Context, agentConfig *adk.AgentConfig, paths AgentPluginPaths) error {
+func MaterializeAgentPlugins(ctx context.Context, agentConfig *configv1.ADKAgentConfig, paths AgentPluginPaths) error {
 	if agentConfig.AgentPlugins != nil {
-		materialization, err := agentplugins.Materialize(ctx, *agentConfig.AgentPlugins, agentplugins.Paths{
+		materialization, err := agentplugins.Materialize(ctx, PluginResources(agentConfig.AgentPlugins), agentplugins.Paths{
 			Packages: paths.Packages,
 			Skills:   paths.Skills,
 		})
@@ -51,19 +54,19 @@ func MaterializeAgentPlugins(ctx context.Context, agentConfig *adk.AgentConfig, 
 	return nil
 }
 
-func addMCPConfig(agentConfig *adk.AgentConfig, mcpConfig agentplugins.MCPConfig) {
+func addMCPConfig(agentConfig *configv1.ADKAgentConfig, mcpConfig agentplugins.MCPConfig) {
 	for _, server := range mcpConfig.StreamableHTTP {
-		agentConfig.HttpTools = append(agentConfig.HttpTools, adk.HttpMcpServerConfig{
-			Params: adk.StreamableHTTPConnectionParams{Url: server.URL, Headers: server.Headers},
+		agentConfig.HttpTools = append(agentConfig.HttpTools, &configv1.ADKHTTPMCPServerConfig{
+			Params: &configv1.ADKHTTPConnectionParams{Url: server.URL, Headers: server.Headers},
 		})
 	}
 	for _, server := range mcpConfig.SSE {
-		agentConfig.SseTools = append(agentConfig.SseTools, adk.SseMcpServerConfig{
-			Params: adk.SseConnectionParams{Url: server.URL, Headers: server.Headers},
+		agentConfig.SseTools = append(agentConfig.SseTools, &configv1.ADKSSEMCPServerConfig{
+			Params: &configv1.ADKSSEConnectionParams{Url: server.URL, Headers: server.Headers},
 		})
 	}
 	for _, server := range mcpConfig.Stdio {
-		agentConfig.StdioTools = append(agentConfig.StdioTools, adk.StdioMcpServerConfig{
+		agentConfig.StdioTools = append(agentConfig.StdioTools, &configv1.ADKStdioMCPServerConfig{
 			Command: server.Command,
 			Args:    server.Args,
 			Env:     server.Env,

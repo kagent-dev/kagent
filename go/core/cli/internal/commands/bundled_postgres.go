@@ -16,17 +16,17 @@ package commands
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	_ "embed"
 	"fmt"
 	"os/exec"
 	"strings"
 
-	"github.com/agent-substrate/substrate/pkg/postgressetup"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	substratesetup "go.ate.dev/substrate/pkg/postgressetup"
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 )
 
 const substrateNamespace = "ate-system"
@@ -34,11 +34,15 @@ const substrateNamespace = "ate-system"
 //go:embed bundled_postgres.yaml
 var bundledPostgresYAML string
 
-//go:embed bundled_postgres.sql
-var bundledPostgresSQL string
-
 func bundledPostgresSetupSQL() string {
-	return "BEGIN;\n" + bundledPostgresSQL + "\n" + postgressetup.SQL() + "\nCOMMIT;\n"
+	return "BEGIN;\n" + kagentsetup.SQL() + "\n" + substratesetup.SQL() + "\nCOMMIT;\n"
+}
+
+// bundledPostgresSetupArgs returns the psql variables for both setup scripts.
+// The bundled database authenticates application logins with client
+// certificates, so the default configurations carry no passwords.
+func bundledPostgresSetupArgs() []string {
+	return append(kagentsetup.DefaultConfig().PSQLArgs(), substratesetup.DefaultConfig().PSQLArgs()...)
 }
 
 // bundledPostgresManifest renders the PostgreSQL manifest kagent install applies. Both values are
@@ -69,8 +73,7 @@ func kubectl(ctx context.Context, stdin string, args ...string) ([]byte, error) 
 	return out, nil
 }
 
-func prepareBundledPostgres(ctx context.Context, namespace string) error {
-	image := cmp.Or(env.KagentBundledPostgresImage.Get(), env.KagentBundledPostgresImage.DefaultValue())
+func prepareBundledPostgres(ctx context.Context, namespace, image string) error {
 	manifest, err := bundledPostgresManifest(namespace, image)
 	if err != nil {
 		return err
@@ -85,9 +88,7 @@ func prepareBundledPostgres(ctx context.Context, namespace string) error {
 	var sqlErr bytes.Buffer
 	args := []string{"-n", namespace, "exec", "-i", "deployment/kagent-postgresql", "-c", "postgresql", "--",
 		"psql", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--username", "postgres", "--dbname", "kagent"}
-	cfg := postgressetup.DefaultConfig()
-	// The bundled database authenticates application logins with client certificates.
-	args = append(args, cfg.PSQLArgs()...)
+	args = append(args, bundledPostgresSetupArgs()...)
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	cmd.Stdin = strings.NewReader(bundledPostgresSetupSQL())
 	cmd.Stderr = &sqlErr
@@ -96,6 +97,31 @@ func prepareBundledPostgres(ctx context.Context, namespace string) error {
 			return fmt.Errorf("prepare bundled PostgreSQL: %w: %s", err, detail)
 		}
 		return fmt.Errorf("prepare bundled PostgreSQL: %w", err)
+	}
+	return nil
+}
+
+// bundledPostgresExists reports whether install deployed the bundled
+// PostgreSQL. After --skip-database-setup it did not, and Secrets with the same
+// names hold the operator's own database credentials, so uninstall never
+// touches them.
+func bundledPostgresExists(ctx context.Context, namespace string) (bool, error) {
+	out, err := kubectl(ctx, "", "-n", namespace, "get", "deployment/kagent-postgresql", "--ignore-not-found", "-o", "name")
+	if err != nil {
+		return false, fmt.Errorf("check for bundled PostgreSQL: %w", err)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
+}
+
+// deleteBundledPostgres deletes the objects prepareBundledPostgres applies,
+// including the volume that holds the data.
+func deleteBundledPostgres(ctx context.Context, namespace, image string) error {
+	manifest, err := bundledPostgresManifest(namespace, image)
+	if err != nil {
+		return err
+	}
+	if _, err := kubectl(ctx, manifest, "delete", "--ignore-not-found", "-f", "-"); err != nil {
+		return fmt.Errorf("delete bundled PostgreSQL: %w", err)
 	}
 	return nil
 }

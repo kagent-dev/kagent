@@ -9,7 +9,6 @@ import {
   StateTag,
   ValueOrNotReported,
 } from "@/components/agent-instances/InstanceTags";
-import { LifecycleButton } from "@/components/agent-instances/LifecycleButton";
 import {
   relativeAge,
   stateAppearance,
@@ -93,7 +92,7 @@ export function AgentDetailsPage() {
 
         {
           key: "creator",
-          label: "Creator",
+          label: "Creator ID",
           span: 2,
           children: <ValueOrNotReported value={data.creator} />,
         },
@@ -251,30 +250,6 @@ export function AgentDetailsPage() {
                 >
                   {stateAppearance(data.state).meaning}
                 </Paragraph>
-
-                {/*
-                  One control, not two.
-
-                  Both actions used to be rendered side by side with whichever did not
-                  apply left disabled — so a ready conversation showed a greyed-out
-                  Resume, and a suspended one a greyed-out Suspend. A disabled control
-                  the reader can never use in this state is not information; it is a
-                  second thing to read past to find the one that works.
-
-                  The state decides which is offered. Anything that is neither ready nor
-                  suspended — creating, failed, deleting — gets Suspend, disabled with
-                  the controller's own reason, which is the honest answer: there is a
-                  lifecycle action here and this state cannot take it.
-                */}
-                <Space size={8}>
-                  <LifecycleButton
-                    instance={data}
-                    action={data.state === "suspended" ? "resume" : "suspend"}
-                    onDone={refresh}
-                    size="middle"
-                    showLabel
-                  />
-                </Space>
               </Space>
             </Card>
 

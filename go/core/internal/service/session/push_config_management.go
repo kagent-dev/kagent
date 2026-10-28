@@ -8,16 +8,17 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // CreateTaskPushConfig registers or replaces a callback for an existing task.
 // Task authorization precedes storage access so no configuration leaks across users.
 func (s *InteractionService) CreateTaskPushConfig(ctx context.Context, agent types.NamespacedName, req *a2a.PushConfig) (*a2a.PushConfig, error) {
-	config, err := validatePushConfig(agent, req)
+	config, err := validatePushConfig(agent, req, s.allowPushHTTP)
 	if err != nil {
 		return nil, err
 	}

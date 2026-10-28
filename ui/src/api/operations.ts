@@ -1,6 +1,6 @@
 import type { Agent, AgentResource } from "./domain/agents";
 import type { Client } from "@connectrpc/connect";
-import type { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import type { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * Every call the UI knows how to make, behind a stable id.
  *
@@ -61,7 +61,6 @@ import type {
 import type {
   AgentInstance,
   AgentInstanceShare,
-  AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
 import type { Checkpoint } from "./domain/checkpoints";
@@ -279,7 +278,7 @@ export interface OperationMap {
     output: AgentInstanceShare[];
   };
   "agentInstances.shares.create": {
-    input: AgentInstanceRef & { permission: AgentInstanceSharePermission };
+    input: AgentInstanceRef;
     output: CreatedAgentInstanceShare;
   };
 
@@ -289,8 +288,6 @@ export interface OperationMap {
     output: void;
   };
 
-  "agentInstances.suspend": { input: AgentInstanceRef; output: AgentInstance };
-  "agentInstances.resume": { input: AgentInstanceRef; output: AgentInstance };
 
   "harnesses.list": { input: { namespace?: string }; output: Harness[] };
   /**

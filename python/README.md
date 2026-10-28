@@ -64,6 +64,6 @@ spec:
 ```
 
 In this example, the HTTP listener uses port `8080`. Substrate readiness uses a
-separate listener on port `8081`. A2A gRPC binds to `[::]` on `KAGENT_PORT`,
+separate listener on port `8081`. A2A gRPC binds to `[::]` on `runtime.port`,
 which the controller sets to `80`. The same variable selects the Go ADK's
 shared HTTP/gRPC port.

@@ -1,8 +1,8 @@
-import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
-import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1alpha1/agents_pb";
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
+import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent, AgentResource } from "../domain/agents";
-import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
-import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SnapshotStorageStatus } from "@/generated/api/ateapi/v1/ateapi_pb";
+import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
  *
@@ -41,32 +41,29 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_r
  * the chat reads boundaries from the list and nothing removes one yet.
  */
 
-import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
-import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
-import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
+import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
+import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
   SystemService,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
-import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
-import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
-import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
-import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
-import {
-  SessionService,
-  SessionSharePermission as PbSharePermission,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
-import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1alpha1/sessions_pb";
-import type { Session as PbSession } from "@/generated/kagent/api/v1alpha1/sessions_pb";
+} from "@/generated/kagent/api/v1/system_pb";
+import { HarnessService } from "@/generated/kagent/api/v1/harnesses_pb";
+import type { Harness as PbHarness } from "@/generated/kagent/api/v1/harnesses_pb";
+import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_pb";
+import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1/agent_templates_pb";
+import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
+import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1/sessions_pb";
+import type { Session as PbSession } from "@/generated/kagent/api/v1/sessions_pb";
 import {
   CheckpointService,
   CheckpointState as PbCheckpointState,
-} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
-import type { Checkpoint as PbCheckpoint } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
-import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
+} from "@/generated/kagent/api/v1/checkpoints_pb";
+import type { Checkpoint as PbCheckpoint } from "@/generated/kagent/api/v1/checkpoints_pb";
+import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1/tools_pb";
 import type {
   SubstrateWorkerPool as PbSubstrateWorkerPool,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
-import type { StructuredObject } from "@/generated/kagent/api/v1alpha1/common_pb";
+} from "@/generated/kagent/api/v1/system_pb";
+import type { StructuredObject } from "@/generated/kagent/api/v1/common_pb";
 import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
 import { operationContext, serviceClient } from "../transport";
 import {
@@ -100,7 +97,6 @@ import type {
   AgentInstance,
   AgentInstanceOperation,
   AgentInstanceShare,
-  AgentInstanceSharePermission,
   AgentInstanceState,
 } from "../domain/agentInstances";
 import type { Checkpoint, CheckpointState } from "../domain/checkpoints";
@@ -360,8 +356,7 @@ const toolServers: Pick<
   "mcpServers.create": async (input, options) => {
     const name = "ToolService/CreateToolServer";
     const { payload } = input;
-    const server =
-      payload.type === "RemoteMCPServer" ? payload.remoteMCPServer : payload.mcpServer;
+    const server = payload.remoteMCPServer;
 
     if (!server) {
       throw new ApiError(
@@ -380,11 +375,7 @@ const toolServers: Pick<
           },
           // The envelope's kind is the server type, which is what the handler
           // checks it against (`decodeCreateToolServerResource`).
-          resource: wrap(
-            payload.type,
-            server,
-            payload.type === "MCPServer" ? "kagent.dev/v1alpha1" : KAGENT_API_VERSION,
-          ),
+          resource: wrap(payload.type, server, KAGENT_API_VERSION),
           secrets: payload.secrets ?? [],
         },
         call("mcpServers.create", options),
@@ -624,32 +615,10 @@ function toAgentInstance(instance: PbSession): AgentInstance {
  */
 const INSTANCE_PAGE_LIMIT = 50;
 
-/** Which permission the wire spells, both ways. */
-const SHARE_PERMISSION_TO_PB = {
-  readOnly: PbSharePermission.READ_ONLY,
-  readWrite: PbSharePermission.READ_WRITE,
-} as const;
-
-const SHARE_PERMISSION_FROM_PB: Partial<
-  Record<PbSharePermission, AgentInstanceSharePermission>
-> = {
-  [PbSharePermission.READ_ONLY]: "readOnly",
-  [PbSharePermission.READ_WRITE]: "readWrite",
-};
-
-/**
- * One share record.
- *
- * An unrecognised permission reads as `readOnly` rather than as the permissive
- * one — which is also what the controller does, treating anything that is not
- * `READ_WRITE` as read-only. A build newer than this one adding a permission must
- * not have it silently widen access here.
- */
 function toAgentInstanceShare(share: PbSessionShare): AgentInstanceShare {
   return {
     id: share.id,
     agentInstanceId: share.sessionId,
-    permission: SHARE_PERMISSION_FROM_PB[share.permission] ?? "readOnly",
     createdAt: isoFrom(share.createdAt),
   };
 }
@@ -697,8 +666,6 @@ const agentInstances: Pick<
   | "agentInstances.rename"
   | "agentInstances.fork"
   | "agentInstances.delete"
-  | "agentInstances.suspend"
-  | "agentInstances.resume"
 > = {
   "agentInstances.list": async (input, options) => {
     const name = "SessionService/ListSessions";
@@ -942,7 +909,6 @@ const agentInstances: Pick<
       serviceClient(SessionService).createSessionShare(
         {
           sessionId: input.id,
-          permission: SHARE_PERMISSION_TO_PB[input.permission],
         },
         call("agentInstances.shares.create", options),
       ),
@@ -975,34 +941,6 @@ const agentInstances: Pick<
     return toAgentInstance(required(response.session, name, "agent instance"));
   },
 
-  /*
-   * Suspend and resume answer with the instance as it now stands, and that answer
-   * is returned rather than discarded: both complete synchronously on the
-   * controller (see `ActorWorkflow.Suspend`), so the record handed back is the
-   * finished state and a caller that re-read the list instead would be asking for
-   * something it already has.
-   */
-  "agentInstances.suspend": async (input, options) => {
-    const name = "SessionService/SuspendSession";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(SessionService).suspendSession(
-        { sessionId: input.id },
-        call("agentInstances.suspend", options),
-      ),
-    );
-    return toAgentInstance(required(response.session, name, "agent instance"));
-  },
-
-  "agentInstances.resume": async (input, options) => {
-    const name = "SessionService/ResumeSession";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(SessionService).resumeSession(
-        { sessionId: input.id },
-        call("agentInstances.resume", options),
-      ),
-    );
-    return toAgentInstance(required(response.session, name, "agent instance"));
-  },
 };
 
 // endregion
@@ -1268,10 +1206,6 @@ function toActorTemplateEntry(
       ? "Failed"
       : golden?.goldenTag ? "Ready" : "Pending",
     goldenTag: golden?.goldenTag ? `${golden.goldenTag.atespace}/${golden.goldenTag.name}` : undefined,
-    sandboxClass:
-      SandboxClass[
-        actorTemplate.sandboxConfig?.sandboxClass ?? SandboxClass.UNSPECIFIED
-      ]?.toLowerCase(),
     workerSelector: orUndefined(
       Object.entries(actorTemplate.workerSelector?.matchLabels ?? {})
         .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
@@ -1288,8 +1222,6 @@ const ACTOR_STATUS_LABELS: Record<ActorState, string> = {
   [ActorState.RUNNING]: "Running",
   [ActorState.SUSPENDING]: "Suspending",
   [ActorState.SUSPENDED]: "Suspended",
-  [ActorState.PAUSING]: "Pausing",
-  [ActorState.PAUSED]: "Paused",
   [ActorState.CRASHED]: "ACTOR_STATE_CRASHED",
   [ActorState.DELETING]: "ACTOR_STATE_DELETING",
   [ActorState.REVERTING]: "Reverting",
@@ -1299,18 +1231,24 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
   const metadata = required(actor.metadata, "Substrate", "actor metadata");
   const state = actor.status?.state ?? ActorState.UNSPECIFIED;
   const assignment = actor.status?.workerAssignment;
+  const snapshots = [...(actor.status?.snapshots ?? [])].sort((a, b) => b.generation - a.generation);
+  const latest = snapshots[0];
+  const paused = state === ActorState.SUSPENDED && latest?.locality && !latest.durableSnapshot;
+  const durable = snapshots.find((snapshot) => snapshot.durableSnapshot?.status === SnapshotStorageStatus.COMPLETED);
+  const pending = snapshots.find((snapshot) => snapshot.durableSnapshot?.status === SnapshotStorageStatus.PENDING
+    || (state === ActorState.SUSPENDING && !snapshot.locality && !snapshot.durableSnapshot));
   return {
     actorId: metadata.name,
     atespace: metadata.atespace,
-    status: ACTOR_STATUS_LABELS[state] ?? String(state),
+    status: paused ? "Paused" : ACTOR_STATUS_LABELS[state] ?? String(state),
     actorTemplateAtespace: orUndefined(actor.actorTemplate?.atespace),
     actorTemplateName: orUndefined(actor.actorTemplate?.name),
     ateomPodNamespace: orUndefined(assignment?.workerNamespace),
     ateomPodName: orUndefined(assignment?.workerPod),
     ateomPodIp: orUndefined(assignment?.workerPodIps[0]),
-    latestSnapshot: orUndefined(actor.status?.externalSnapshot?.snapshotUri),
+    latestSnapshot: orUndefined(durable?.durableSnapshot?.object?.snapshotUri),
     workerPoolName: orUndefined(assignment?.workerPool),
-    inProgressSnapshot: orUndefined(actor.status?.inProgressLocalSnapshotName),
+    inProgressSnapshot: orUndefined(pending?.uuid),
     version: toNumber(metadata.version),
   };
 }
@@ -1320,7 +1258,7 @@ function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    ip: orUndefined(worker.ips[0]),
+    ip: orUndefined(worker.status?.ips[0]),
     version: toNumber(worker.metadata?.version),
   };
 }

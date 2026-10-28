@@ -14,10 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -296,7 +297,7 @@ func upgradeCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
 		"DOCKER_REGISTRY="+env.dockerRegistry,
 		"KIND_CLUSTER_NAME="+env.kindClusterName,
 		"OPENAI_API_KEY="+env.openAIAPIKey,
-		"KAGENT_DEFAULT_MODEL_PROVIDER=openAI",
+		"MODEL_PROVIDER=openAI",
 	)
 	return cmd
 }

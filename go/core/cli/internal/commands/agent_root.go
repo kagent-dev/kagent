@@ -1,8 +1,9 @@
 package commands
 
 import (
-	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/session"
 	"github.com/spf13/cobra"
+
+	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/session"
 )
 
 // NewAgentCmd groups agent discovery, invocation, and conversations.

@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 )
 
 // defaultTimeout is the default execution timeout used by model implementations.
@@ -25,8 +26,8 @@ type TransportConfig struct {
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
 	APIKeyPassthrough     bool
-	Timeout               *int // seconds; nil = defaultTimeout. Bounds the whole request (connect + write + read).
-	ConnectTimeout        *int // seconds; nil = Go transport default. Bounds connection establishment only.
+	Timeout               *time.Duration // nil = defaultTimeout. Bounds the whole request (connect + write + read).
+	ConnectTimeout        *time.Duration // nil = Go transport default. Bounds connection establishment only.
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
@@ -46,7 +47,7 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	// never mutate the shared http.DefaultTransport that BuildTLSTransport
 	// returns when no TLS override is set.
 	if tc.ConnectTimeout != nil {
-		transport, err = withConnectTimeout(transport, time.Duration(*tc.ConnectTimeout)*time.Second)
+		transport, err = withConnectTimeout(transport, *tc.ConnectTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -63,7 +64,7 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 
 	timeout := defaultTimeout
 	if tc.Timeout != nil {
-		timeout = time.Duration(*tc.Timeout) * time.Second
+		timeout = *tc.Timeout
 	}
 
 	return &http.Client{Timeout: timeout, Transport: transport}, nil

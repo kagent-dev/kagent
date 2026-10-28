@@ -13,16 +13,9 @@ import (
 
 	"github.com/agent-substrate/env/guest"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/jackc/pgx/v5/pgxpool"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	sandboxservice "github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -30,12 +23,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	sandboxservice "github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type testSession string
 
 func (s testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: string(s)}}
+	return auth.Principal{ID: string(s)}
 }
 
 type testAuth struct{}
@@ -47,8 +48,8 @@ func (testAuth) Authenticate(_ context.Context, headers http.Header, _ url.Value
 	return nil, status.Error(codes.Unauthenticated, "missing test identity")
 }
 
-func (testAuth) UpstreamAuth(request *http.Request, _ auth.Session, principal auth.Principal) error {
-	request.Header.Set("X-User-Id", principal.User.ID)
+func (testAuth) UpstreamAuth(request *http.Request, session auth.Session, destinationSessionID string) error {
+	request.Header.Set("X-User-Id", session.Principal().ID)
 	return nil
 }
 
@@ -81,7 +82,8 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
-func (a *testActors) EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error {
+func (a *testActors) CheckActorEgressPolicy(context.Context, string, string) error { return nil }
+func (a *testActors) EnsureActorEgressPolicy(context.Context, string, string, string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "policy")
@@ -99,6 +101,7 @@ func (a *testActors) SuspendActor(context.Context, string, string) (*ateapipb.Ac
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/sandbox"}}}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
 func (a *testActors) DeleteActor(context.Context, string, string) error {
@@ -127,11 +130,12 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	store := database.NewClient(pool, "public")
-	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"}))
+	upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"})
+	require.NoError(t, upsertErr)
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
-	}, true))
+	}, database.RecordRevisionOptions{Ready: true}))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.SandboxTemplate{
@@ -168,15 +172,15 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	}
 }
 
-func createRequest() *apiv1alpha1.CreateSandboxRequest {
-	return &apiv1alpha1.CreateSandboxRequest{SandboxTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "scratch"}, RequestId: "create"}
+func createRequest() *apiv1.CreateSandboxRequest {
+	return &apiv1.CreateSandboxRequest{SandboxTemplate: &apiv1.ResourceReference{Namespace: "team-a", Name: "scratch"}, RequestId: "create"}
 }
 
 func TestSandboxGuestLifecycle(t *testing.T) {
 	service, ctx, actors, headers := guestFixture(t)
 	instance, err := service.Create(ctx, createRequest())
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, instance.State)
 	require.Equal(t, []string{"create", "policy", "resume"}, actors.observedCalls())
 	retry, err := service.Create(ctx, createRequest())
 	require.NoError(t, err)
@@ -189,7 +193,7 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, database.ErrNotFound)
 	_, err = service.StartProcess(mallory, instance.Id, &guestpb.StartProcessRequest{})
 	require.ErrorIs(t, err, database.ErrNotFound)
-	list, err := service.List(mallory, &apiv1alpha1.ListSandboxesRequest{})
+	list, err := service.List(mallory, &apiv1.ListSandboxesRequest{})
 	require.NoError(t, err)
 	require.Empty(t, list.Sandboxes)
 
@@ -213,7 +217,7 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.Equal(t, "alice", headers().Get("x-user-id"))
 	require.Empty(t, headers().Get("authorization"))
 	var data []byte
-	require.NoError(t, service.ReadFile(ctx, instance.Id, &guestpb.ReadFileRequest{Path: "input.bin"}, func(chunk *guestpb.FileChunk) error { data = append(data, chunk.Data...); return nil }))
+	require.NoError(t, service.ReadFile(ctx, instance.Id, &guestpb.ReadFileRequest{Path: "input.bin"}, func(chunk *guestpb.ReadFileResponse) error { data = append(data, chunk.GetChunk()...); return nil }))
 	require.Equal(t, []byte{0, 128, 255}, data)
 
 	start := &guestpb.StartProcessRequest{Command: []string{"sh", "-c", "printf once >> count; cat count"}}
@@ -221,11 +225,11 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		current, err := service.GetProcess(ctx, instance.Id, &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-		return err == nil && current.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+		return err == nil && current.State == guestpb.ProcessState_PROCESS_STATE_EXITED
 	}, 5*time.Second, 10*time.Millisecond)
 	var output []byte
-	require.NoError(t, service.StreamProcessOutputs(ctx, instance.Id, &guestpb.StreamProcessOutputsRequest{ProcessId: process.ProcessId}, func(chunk *guestpb.OutputChunk) error {
-		output = append(output, chunk.Data...)
+	require.NoError(t, service.StreamProcessOutput(ctx, instance.Id, &guestpb.StreamProcessOutputRequest{ProcessId: process.ProcessId}, func(chunk *guestpb.ProcessOutput) error {
+		output = append(output, chunk.GetStdout()...)
 		return nil
 	}))
 	require.Equal(t, "once", string(output))
@@ -233,30 +237,30 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, process.ProcessId, again.ProcessId)
 	output = nil
-	require.NoError(t, service.StreamProcessOutputs(ctx, instance.Id, &guestpb.StreamProcessOutputsRequest{ProcessId: again.ProcessId, Follow: true}, func(chunk *guestpb.OutputChunk) error {
-		output = append(output, chunk.Data...)
+	require.NoError(t, service.StreamProcessOutput(ctx, instance.Id, &guestpb.StreamProcessOutputRequest{ProcessId: again.ProcessId, Follow: true}, func(chunk *guestpb.ProcessOutput) error {
+		output = append(output, chunk.GetStdout()...)
 		return nil
 	}))
 	require.Equal(t, "onceonce", string(output), "each start executes a new command")
 	_, err = service.GetProcess(mallory, instance.Id, &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
 	require.ErrorIs(t, err, database.ErrNotFound)
-	_, err = service.KillProcess(mallory, instance.Id, &guestpb.KillProcessRequest{ProcessId: process.ProcessId})
+	_, err = service.SignalProcess(mallory, instance.Id, &guestpb.SignalProcessRequest{ProcessId: process.ProcessId, Signal: guestpb.Signal_SIGNAL_KILL})
 	require.ErrorIs(t, err, database.ErrNotFound)
 	_, err = service.GetProcess(ctx, instance.Id, &guestpb.GetProcessRequest{ProcessId: "unknown-guest-process"})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	err = service.StreamProcessOutputs(ctx, instance.Id, &guestpb.StreamProcessOutputsRequest{ProcessId: "unknown-guest-process"}, func(*guestpb.OutputChunk) error {
+	err = service.StreamProcessOutput(ctx, instance.Id, &guestpb.StreamProcessOutputRequest{ProcessId: "unknown-guest-process"}, func(*guestpb.ProcessOutput) error {
 		t.Fatal("unknown process returned output")
 		return nil
 	})
 	require.Equal(t, codes.NotFound, status.Code(err))
 	running, err := service.StartProcess(ctx, instance.Id, &guestpb.StartProcessRequest{Command: []string{"sleep", "60"}})
 	require.NoError(t, err)
-	_, err = service.KillProcess(ctx, instance.Id, &guestpb.KillProcessRequest{ProcessId: running.ProcessId})
+	_, err = service.SignalProcess(ctx, instance.Id, &guestpb.SignalProcessRequest{ProcessId: running.ProcessId, Signal: guestpb.Signal_SIGNAL_KILL})
 	require.NoError(t, err)
-	killed, err := service.GetProcess(ctx, instance.Id, &guestpb.GetProcessRequest{ProcessId: running.ProcessId})
-	require.NoError(t, err)
-	require.Equal(t, running.ProcessId, killed.ProcessId)
-	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_TERMINATED, killed.Status)
+	require.Eventually(t, func() bool {
+		killed, err := service.GetProcess(ctx, instance.Id, &guestpb.GetProcessRequest{ProcessId: running.ProcessId})
+		return err == nil && killed.State == guestpb.ProcessState_PROCESS_STATE_EXITED && killed.ExitCode == 137
+	}, 5*time.Second, 10*time.Millisecond)
 
 	// Neither an active process nor a streaming file write reserves a lifecycle
 	// boundary. The caller accepts interruption when suspending this sandbox.
@@ -286,18 +290,18 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	}
 	instance, err = service.Suspend(ctx, instance.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, instance.State)
 	unblock()
 	require.ErrorIs(t, <-writeResult, io.ErrUnexpectedEOF)
 
-	err = service.ReadFile(ctx, instance.Id, &guestpb.ReadFileRequest{Path: "input.bin"}, func(*guestpb.FileChunk) error { t.Fatal("suspended guest reached"); return nil })
+	err = service.ReadFile(ctx, instance.Id, &guestpb.ReadFileRequest{Path: "input.bin"}, func(*guestpb.ReadFileResponse) error { t.Fatal("suspended guest reached"); return nil })
 	require.ErrorIs(t, err, database.ErrFailedPrecondition)
 	instance, err = service.Resume(ctx, instance.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, instance.State)
 	instance, err = service.Delete(ctx, instance.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, instance.State)
 	deletedActor, err := actors.GetActor(ctx, "", "")
 	require.Nil(t, deletedActor)
 	require.Equal(t, codes.NotFound, status.Code(err))

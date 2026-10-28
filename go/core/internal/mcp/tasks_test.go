@@ -14,15 +14,16 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -351,7 +352,7 @@ func taskParamsBase() mcp.ParamsBase {
 	}}
 }
 
-func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, tasks bool) map[string]any {
+func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, tasks bool, headers ...http.Header) map[string]any {
 	t.Helper()
 	extensions := map[string]any{}
 	if tasks {
@@ -371,6 +372,13 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(string(body)))
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, header := range headers {
+		for key, values := range header {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
@@ -410,7 +418,7 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 type testSession struct{}
 
 func (testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "user@example.com"}}
+	return auth.Principal{ID: "user@example.com"}
 }
 
 func authContext() context.Context {
@@ -514,37 +522,37 @@ func (*fakeGateway) GetExtendedAgentCard(context.Context, *a2atype.GetExtendedAg
 
 type fakeSessionStore struct{}
 
-func (*fakeSessionStore) CreateSession(context.Context, *apiv1alpha1.Session, string) (*apiv1alpha1.Session, bool, error) {
+func (*fakeSessionStore) CreateSession(context.Context, *apiv1.Session, string) (*apiv1.Session, bool, error) {
 	return nil, false, database.ErrNotFound
 }
 
-func (*fakeSessionStore) GetSession(_ context.Context, id, _ string) (*apiv1alpha1.Session, error) {
+func (*fakeSessionStore) GetSession(_ context.Context, id, _ string) (*apiv1.Session, error) {
 	if id != testSessionID {
 		return nil, database.ErrNotFound
 	}
-	return &apiv1alpha1.Session{Id: id, ContextId: id, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
+	return &apiv1.Session{Id: id, ContextId: id, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
 }
 
-func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1.Session, error) {
 	return s.GetSession(ctx, id, "")
 }
 
-func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error) {
-	return []*apiv1alpha1.Session{{
-		Id: testSessionID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
-		Agent: &apiv1alpha1.ResourceReference{Name: "assistant"},
+func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error) {
+	return []*apiv1.Session{{
+		Id: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Agent: &apiv1.ResourceReference{Name: "assistant"},
 	}}, nil
 }
 
-func (*fakeSessionStore) UpdateSessionName(context.Context, string, string, string) (*apiv1alpha1.Session, error) {
+func (*fakeSessionStore) UpdateSessionName(context.Context, string, string, string) (*apiv1.Session, error) {
 	return nil, database.ErrNotFound
 }
 
-func (*fakeSessionStore) CreateSessionShare(context.Context, *apiv1alpha1.SessionShare, []byte, string) (*apiv1alpha1.SessionShare, error) {
+func (*fakeSessionStore) CreateSessionShare(context.Context, *apiv1.SessionShare, []byte, string) (*apiv1.SessionShare, error) {
 	return nil, database.ErrNotFound
 }
 
-func (*fakeSessionStore) ListSessionShares(context.Context, string, string, string, int) ([]*apiv1alpha1.SessionShare, error) {
+func (*fakeSessionStore) ListSessionShares(context.Context, string, string, string, int) ([]*apiv1.SessionShare, error) {
 	return nil, nil
 }
 
@@ -554,19 +562,11 @@ func (*fakeSessionStore) DeleteSessionShare(context.Context, string, string) err
 
 type fakeSessionWorkflow struct{}
 
-func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }
 
-func (*fakeSessionWorkflow) Suspend(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return session, nil
-}
-
-func (*fakeSessionWorkflow) Resume(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return session, nil
-}
-
-func (*fakeSessionWorkflow) Delete(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (*fakeSessionWorkflow) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }
 

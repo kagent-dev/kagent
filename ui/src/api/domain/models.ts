@@ -1,6 +1,6 @@
 /** ModelConfig domain models, mirroring the `api.kagent.dev/v1alpha3` ModelConfig CRD. */
 
-import type { TLSConfig } from "./common";
+import type { ActorJWT, TLSConfig } from "./common";
 
 export interface OpenAIConfig {
   baseUrl?: string;
@@ -32,6 +32,7 @@ export interface AzureOpenAIConfig {
   temperature?: string;
   maxTokens?: number;
   topP?: string;
+  apiFormat?: "chatCompletions" | "responses";
 }
 
 export interface OllamaConfig {
@@ -88,11 +89,19 @@ export interface FoundryConfig {
 }
 
 export interface ModelConfigSpec {
+  allowedNamespaces?: {
+    from?: "Same" | "All" | "Selector";
+    selector?: {
+      matchLabels?: Record<string, string>;
+      matchExpressions?: { key: string; operator: "In" | "NotIn" | "Exists" | "DoesNotExist"; values?: string[] }[];
+    };
+  };
   model: string;
   provider: string;
   apiKeySecret?: string;
   apiKeySecretKey?: string;
-  apiKeyPassthrough?: boolean;
+  tokenPassthrough?: boolean;
+  actorJwt?: ActorJWT;
   defaultHeaders?: Record<string, string>;
   tls?: TLSConfig;
   openAI?: OpenAIConfig;

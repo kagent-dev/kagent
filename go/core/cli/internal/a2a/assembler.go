@@ -7,6 +7,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
+
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
@@ -74,12 +75,24 @@ func (a *Assembler) Complete() bool {
 	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
 }
 
+// ThoughtText concatenates the reasoning summaries among parts.
+func ThoughtText(parts a2atype.ContentParts) string {
+	var text strings.Builder
+	for _, part := range parts {
+		if kagenta2a.IsThought(part) {
+			text.WriteString(part.Text())
+		}
+	}
+	return text.String()
+}
+
 // PartsText concatenates text parts and serializes structured terminal results.
-// Other data parts are runtime activity and remain excluded from answer text.
+// Other data parts are runtime activity, and thoughts are reasoning, so both
+// stay out of answer text.
 func PartsText(parts a2atype.ContentParts) (string, error) {
 	var text strings.Builder
 	for _, part := range parts {
-		if part == nil {
+		if part == nil || kagenta2a.IsThought(part) {
 			continue
 		}
 		if value := part.Text(); value != "" {

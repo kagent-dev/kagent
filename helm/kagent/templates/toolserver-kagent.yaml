@@ -17,8 +17,14 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  url: "http://{{ $toolsFullname }}.{{ $toolsNamespace }}:8084/mcp"
+  url: "http://{{ $toolsFullname }}.{{ $toolsNamespace }}.svc.{{ .Values.global.clusterDomain }}:8084/mcp"
   timeout: 30s
   sseReadTimeout: 5m0s
   description: "Official KAgent tool server"
+  {{- with $toolsValues.remoteMCPServer }}
+  {{- with .allowedNamespaces }}
+  allowedNamespaces:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
 {{- end }}

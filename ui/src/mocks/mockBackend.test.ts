@@ -43,13 +43,13 @@ afterEach(() => clearApiExtensions());
  * entry here fails to compile, so the sweep below cannot silently stop covering
  * the whole surface.
  */
-for (const name of ["draft-assistant", "disposable-agent"]) saveAgent({name, namespace:"kagent", ref:`kagent/${name}`, resource:{metadata:{name, namespace:"kagent"},spec:{template:{description:"Inline fixture"},harnessRef:{name:"k8s-agent"}}}});
+for (const name of ["draft-assistant", "disposable-agent"]) saveAgent({name, namespace:"kagent", ref:`kagent/${name}`, resource:{metadata:{name, namespace:"kagent"},spec:{template:{inline:{description:"Inline fixture"}},harnessRef:{name:"k8s-agent"}}}});
 
 const INPUTS = {
   "agents.list": {namespace:"kagent"},
   "agents.get": {namespace:"kagent", name:"k8s-agent-7f3a91c"},
-  "agents.create": {namespace:"kagent", name:"swept-agent", resource:{metadata:{name:"swept-agent",namespace:"kagent"},spec:{templateRef:{name:"note-taker"},harnessRef:{name:"k8s-agent"}}}},
-  "agents.update": {namespace:"kagent", name:"draft-assistant", resource:{metadata:{name:"draft-assistant",namespace:"kagent"},spec:{template:{description:"Changed inline"},harnessRef:{name:"k8s-agent"}}}},
+  "agents.create": {namespace:"kagent", name:"swept-agent", resource:{metadata:{name:"swept-agent",namespace:"kagent"},spec:{template:{ref:{name:"note-taker"}},harnessRef:{name:"k8s-agent"}}}},
+  "agents.update": {namespace:"kagent", name:"draft-assistant", resource:{metadata:{name:"draft-assistant",namespace:"kagent"},spec:{template:{inline:{description:"Changed inline"}},harnessRef:{name:"k8s-agent"}}}},
   "agents.delete": {namespace:"kagent", name:"disposable-agent"},
 
   "scheduledRuns.list": {},
@@ -103,24 +103,10 @@ const INPUTS = {
   },
   "prompts.delete": { namespace: "kagent", name: "swept-prompts" },
 
-  /*
-   * Each of these acts on a different instance, because this sweep runs every
-   * operation concurrently and the controller refuses a second lifecycle operation
-   * on an instance that already has one in flight. Suspending and resuming the same
-   * row here would be a race with itself.
-   */
   "agentInstances.list": {},
   "agentInstances.get": {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-  },
-  "agentInstances.suspend": {
-
-    id: "5a3c8e17-4b92-4d05-9f61-8c2e7a03b4d9",
-  },
-  "agentInstances.resume": {
-
-    id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
   },
   "agentInstances.shares.list": {
 
@@ -129,7 +115,6 @@ const INPUTS = {
   "agentInstances.shares.create": {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-    permission: "readOnly",
   },
   // The seeded share, not one the sweep created: the sweep runs everything at once,
   // so revoking the create above would be a race with it.
@@ -279,7 +264,6 @@ describe("the fixture backend", () => {
     expect(summary.actorTemplates[0]).toMatchObject({
       name: "coder-template",
       phase: "Ready",
-      sandboxClass: "gvisor",
       workerSelector: "pool=kagent-default",
     });
     expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "kagent-default", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
@@ -287,6 +271,10 @@ describe("the fixture backend", () => {
       atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
     });
     expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
+    expect(summary.actorStatusCounts).toContainEqual({ status: "Suspended", count: 2 });
+    expect(summary.actorStatusCounts.some((entry) => entry.status === "Paused")).toBe(false);
+    expect(page.actors.find((actor) => actor.actorId === "actor-5d17")?.status).toBe("Paused");
+    expect(page.actors.find((actor) => actor.actorId === "actor-c3f5")?.status).toBe("Suspended");
   });
 
   it("preserves continuation through a worker page with no namespace matches", async () => {
@@ -336,64 +324,7 @@ describe("the fixture backend", () => {
     expect(all.length).toBeGreaterThan(scoped.length);
   });
 
-  /*
-   * The fixture backend has to refuse a lifecycle operation for the same reasons the
-   * controller does, or the disabled buttons on the instances page are decoration:
-   * a fake that suspended anything from any state would let the page ship with its
-   * preconditions inverted and nothing would object until a cluster did.
-   */
-  describe("agent instance lifecycle", () => {
-    const READY = "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44";
-    const FAILED = "d4b02f87-3a55-4c18-9e6b-1f70c9a8e332";
-    const MID_OPERATION = "0a7d6c58-9e21-4b3c-a05d-4e8f1b6d2277";
-
-    it("records a suspend, so the list and the record agree afterwards", async () => {
-      const before = await invoke("agentInstances.get", {
-
-        id: READY,
-      });
-      expect(before.state).toBe("ready");
-
-      const suspended = await invoke("agentInstances.suspend", {
-
-        id: READY,
-      });
-      expect(suspended.state).toBe("suspended");
-      // Cleared, because the controller's operation completes synchronously — an
-      // instance still claiming to be suspending would refuse the resume that
-      // follows.
-      expect(suspended.operation).toBe("unspecified");
-
-      const listed = await invoke("agentInstances.list", {});
-      expect(listed.find((row) => row.id === READY)?.state).toBe("suspended");
-
-      const resumed = await invoke("agentInstances.resume", {
-
-        id: READY,
-      });
-      expect(resumed.state).toBe("ready");
-    });
-
-    it("refuses a suspend from a state the controller would refuse", async () => {
-      const error = await invoke("agentInstances.suspend", {
-
-        id: FAILED,
-      }).catch((reason: unknown) => reason);
-
-      expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).code).toBe("Aborted");
-    });
-
-    it("refuses a second operation while one is already in flight", async () => {
-      const error = await invoke("agentInstances.resume", {
-
-        id: MID_OPERATION,
-      }).catch((reason: unknown) => reason);
-
-      expect((error as ApiError).code).toBe("Aborted");
-      expect((error as ApiError).message).toMatch(/conflicting lifecycle operation/);
-    });
-
+  describe("agent instance listing", () => {
     it("lists other people's instances only when asked", async () => {
       const mine = await invoke("agentInstances.list", {});
       const everyone = await invoke("agentInstances.list", {

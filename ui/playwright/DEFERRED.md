@@ -138,25 +138,7 @@ no single surface shows both.
 
 ## What the chat fixes could not be covered against
 
-Three gaps left by the work on the reader's own message, the artifact-append streaming
-and the lifecycle indicator. Each is a *mock* gap: the mock backend cannot produce the
-state the assertion would need, and inventing one would make the fixture the thing being
-tested.
-
-### The suspending stage of the lifecycle indicator
-
-`chat.spec.ts` drives the indicator through its resting reading and through `running`,
-because a turn produces both. It never sees `resuming` or `suspending`: those come from
-`AgentInstance.operation`, which the controller claims and clears as it works, and the
-mock backend serves a static record. Faking one would prove only that a fixture can hold
-a string.
-
-The reading itself is covered exhaustively in `src/components/chat/lifecycleReading.test.ts`
-— including the case worth guarding hardest, that **no stage is claimed when a turn ends**,
-since a substrate agent really does suspend itself then and nothing in the API reports it.
-What is missing is a browser journey that suspends an instance from the agents list while a
-chat page is open on it and watches the indicator follow. That belongs in `playwright/live/`,
-where the operation is real.
+Two gaps remain in streaming and interaction coverage against a live controller.
 
 ### Streaming, end to end, against a controller
 
@@ -173,11 +155,6 @@ artifact path. Teaching the fixture to emit artifact frames would mean it stoppe
 `ChatClient` and started being an A2A server, which is the wrong seam — the transport is
 already covered by unit tests over real bytes. The browser-level gap is a `playwright/live/`
 spec that sends a message and asserts the reply grows on screen before the turn completes.
-
-A related gap worth naming rather than leaving implicit: the mock backend serves one
-instance per conversation and never *changes* an instance's `operation`, so the lifecycle
-indicator's `resuming` and `suspending` stages have no browser coverage either. Both
-belong in the same live spec.
 
 ### Tool approval, and a question asked without the extension
 
@@ -219,11 +196,13 @@ when it holds one page of them, and only the proto says which.
 | `ListSubstrateActors` | `ListSubstrateActorsRequest { atespace, page }` | a page | `string filter` and a sort field enum — **and ate-api has to grow them first** |
 | `ListSubstrateWorkers` | `ListSubstrateWorkersRequest { namespace, page }` | a page | the same two, on the same condition |
 
-**Substrate actor and worker lists use upstream pagination.** Each list request makes
-one ate-api call and preserves its order and continuation token. Actors use upstream
-atespace filtering. Worker namespace filtering applies only to the returned page, so an
-empty worker page may still have a next token. The UI labels counts as "on this page"
-and offers no actor/worker text search or column sorting.
+**Substrate actor and worker lists use upstream pagination.** A controller that watches
+every namespace makes one ate-api call per list request and passes its order and
+continuation token through. Worker namespace filtering then applies only to the returned
+page, so an empty worker page may still have a next token. A controller that watches some
+namespaces reads actors with one scoped ate-api list per watched atespace and returns its
+own token. It reads every ate-api worker page and returns a worker-name cursor. The UI
+labels counts as "on this page" and offers no actor/worker text search or column sorting.
 
 Two capabilities remain deferred until Substrate supports them:
 

@@ -12,13 +12,14 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	localsession "github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	localsession "github.com/kagent-dev/kagent/go/adk/pkg/session"
 )
 
 func TestKAgentExecutorForkRetainsConversation(t *testing.T) {

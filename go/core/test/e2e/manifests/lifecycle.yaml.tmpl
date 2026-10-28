@@ -20,6 +20,10 @@ metadata:
   namespace: kagent
 spec:
   codex: {}
+  # TODO: Remove when Substrate denial handling permits native retries (#2663).
+  env:
+  - name: KAGENT_TEST_CODEX_DISABLE_RETRIES
+    value: "true"
   workload:
     image: ${KAGENT_E2E_CODEX_IMAGE}
   substrate:
@@ -54,9 +58,6 @@ spec:
   workload:
     image: ${KAGENT_E2E_RUNTIME_IMAGE}
     command: ["/app"]
-  env:
-  - name: KAGENT_PORT
-    value: "80"
   substrate:
     workerPoolRef:
       name: kagent-default
@@ -70,6 +71,10 @@ metadata:
   namespace: kagent
 spec:
   claude: {}
+  # TODO: Remove when Substrate denial handling permits native retries (#2663).
+  env:
+  - name: KAGENT_TEST_CLAUDE_DISABLE_RETRIES
+    value: "true"
   workload:
     image: ${KAGENT_E2E_CLAUDE_IMAGE}
   substrate:
@@ -107,8 +112,9 @@ metadata:
   name: smoke
   namespace: kagent
 spec:
-  templateRef:
-    name: smoke
+  template:
+    ref:
+      name: smoke
   harnessRef:
     name: kagent
 ---
@@ -118,7 +124,8 @@ metadata:
   name: byo-smoke
   namespace: kagent
 spec:
-  templateRef:
-    name: byo-smoke
+  template:
+    ref:
+      name: byo-smoke
   harnessRef:
     name: byo-e2e

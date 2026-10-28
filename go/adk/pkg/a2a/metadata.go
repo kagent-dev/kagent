@@ -4,8 +4,9 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/server/adka2a/v2"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // canonicalizeADKEvent is the managed ADK runtime's outbound adapter boundary.
@@ -59,6 +60,8 @@ func canonicalizeADKPart(part *a2atype.Part) {
 	}
 	metadata := part.Metadata
 	copyADKMetadata(metadata, adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey), apia2a.PartTypeMetadataKey)
+	// Without this, dropping ADK's keys would turn a reasoning summary into answer text.
+	copyADKMetadata(metadata, adka2a.ToA2AMetaKey("thought"), apia2a.ThoughtMetadataKey)
 	canonicalizeADKMetadata(metadata)
 }
 

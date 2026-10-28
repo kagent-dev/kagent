@@ -7,8 +7,9 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/stretchr/testify/require"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func TestPublicTaskCreationTimeSurvivesUpdates(t *testing.T) {
@@ -65,7 +66,7 @@ func TestTaskHistoryLimitsAndSessionScope(t *testing.T) {
 			message.ID = id + suffix
 			task.History = append(task.History, message)
 		}
-		require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, ContentScope: "DATA"}))
+		require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	}
 	for _, test := range []struct {
 		name  string

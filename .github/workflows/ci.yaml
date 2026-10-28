@@ -3,16 +3,8 @@ name: CI Build
 on:
   push:
     branches: [main, "release/**"]
-    paths:
-      - "**"
-      - "!**/*.md"
-      - "docs/env.md"
   pull_request:
     branches: [main, "release/**"]
-    paths:
-      - "**"
-      - "!**/*.md"
-      - "docs/env.md"
   merge_group:
   workflow_dispatch:
     inputs:
@@ -38,7 +30,7 @@ env:
   BUILDX_VERSION: v0.23.0
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
     steps:
@@ -56,24 +48,24 @@ jobs:
         sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.5.0-alpha2
+      SUBSTRATE_VERSION: 0.7.0-alpha1
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
-      # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
+      # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: false
       - name: Cache E2E Go dependencies and build
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
@@ -82,27 +74,27 @@ jobs:
           restore-keys: |
             e2e-go-${{ runner.os }}-${{ runner.arch }}-
       - name: Allow unprivileged user namespaces
-        # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
+        # Ubuntu 24.04 enables AppArmor-based restrictions on
         # unprivileged user namespaces by default, which causes bubblewrap
         # to fail with EPERM on unshare(CLONE_NEWUSER)
         # See https://github.com/openai/codex/issues/14919
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v2
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
         with:
           cache-key: kagent-e2e
           platforms: linux/amd64
           nofallback: true
 
       - name: Set up Helm
-        uses: azure/setup-helm@v5.0.1
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.18.0
 
       - name: Install Kind
         id: kind
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           version: v0.33.0
           install_only: true
@@ -114,30 +106,6 @@ jobs:
         id: install-kagent
         env:
           OPENAI_API_KEY: fake
-          KAGENT_HELM_EXTRA_ARGS: >-
-            --set registry=localhost:5001
-            --set tag=${{ env.VERSION }}
-            --set imagePullPolicy=Always
-            --set controller.image.pullPolicy=Always
-            --set controller.service.type=LoadBalancer
-            --set ui.replicas=0
-            --set kmcp.enabled=false
-            --set kagent-tools.enabled=false
-            --set grafana-mcp.enabled=false
-            --set controller.push.allowHTTP=true
-            --set controller.push.allowPrivateNetworks=true
-            --set substrateWorkerPool.create=true
-            --set substrateWorkerPool.replicas=4
-            --set substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
-            --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
-            --set otel.traces.enabled=true
-            --set otel.metrics.enabled=true
-            --set otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317
-          KAGENT_SUBSTRATE_HELM_EXTRA_ARGS: >-
-            --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000
-            --set ateApi.extraArgs[0]=--template-resync-interval=250ms
-            --set credentialProvider.namespacePolicies[0].atespace=kagent
-            --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent
         run: |
           # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
           # otherwise selects a fresh local builder, discarding that cache.
@@ -145,8 +113,10 @@ jobs:
           test -n "$BUILDX_BUILDER_NAME"
           export BUILDX_BUILDER_NAME
           make buildx-create
+          mkdir -p "$RUNNER_TEMP/runtime-images"
           printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
             image="$1"
+            RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP/runtime-images" \
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
               make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
           ' _
@@ -154,15 +124,97 @@ jobs:
           # from the controller pod. Substrate rewrites registry pulls on workers.
           GUEST_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/sandbox-guest:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$GUEST_DIGEST"
-          export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
-          make build-cli-local helm-version
-          KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent
+          make build-cli-local helm-release RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP/runtime-images" RUNTIME_IMAGE_REPOSITORY=localhost:5001/kagent-dev/kagent
+          mkdir -p "$RUNNER_TEMP/release-charts"
+          tar -xzf "dist/kagent-${VERSION}.tgz" -C "$RUNNER_TEMP/release-charts"
+          tar -xzf "dist/kagent-crds-${VERSION}.tgz" -C "$RUNNER_TEMP/release-charts"
+          cat > "$RUNNER_TEMP/kagent-values.yaml" <<EOF
+          registry: localhost:5001
+          tag: "${VERSION}"
+          imagePullPolicy: Always
+          controller:
+            image:
+              pullPolicy: Always
+            service:
+              type: LoadBalancer
+            # Check startup promptly across restart tests, keeping a 60s budget.
+            startupProbe:
+              httpGet:
+                path: /health
+                port: http
+              periodSeconds: 1
+              failureThreshold: 60
+            readinessProbe:
+              httpGet:
+                path: /health
+                port: http
+              periodSeconds: 1
+          config:
+            push:
+              allowHttp: true
+              allowPrivateNetworks: true
+            sandboxes:
+              guestImage: "localhost:5001/kagent-dev/kagent/sandbox-guest@${GUEST_DIGEST}"
+            telemetry:
+              traces:
+                endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+              metrics:
+                endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+            runtimeDefaults:
+              tokenPropagation:
+                enabled: true
+              telemetry:
+                traces:
+                  endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+                metrics:
+                  endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+          ui:
+            replicas: 0
+          kagent-tools:
+            enabled: false
+          substrateWorkerPool:
+            create: true
+            replicas: 4
+            sandboxClass: ${{ matrix.sandbox_class }}
+            workerImage: ghcr.io/kagent-dev/substrate/ateworker-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
+          EOF
+          cat > "$RUNNER_TEMP/substrate-values.yaml" <<EOF
+          # CI-only grants for cross-namespace model and MCP credential tests.
+          # Keep kagent-untrusted excluded to verify credential-provider denial.
+          credentialProvider:
+            namespacePolicies:
+              - atespace: kagent
+                allowedNamespaces: [kagent, kagent-shared-models, kagent-shared-tools]
+          atelet:
+            resources:
+              limits:
+                memory: 2Gi
+            extraArgs: [--localhost-registry-replacement=kind-registry:5000]
+          ateApi:
+            extraArgs: [--template-resync-interval=250ms]
+          EOF
+          cat > "$RUNNER_TEMP/kagent-cli.yaml" <<EOF
+          install:
+            kagent:
+              repository: "${RUNNER_TEMP}/release-charts/"
+              version: "${VERSION}"
+              valuesFiles: ["${RUNNER_TEMP}/kagent-values.yaml"]
+            substrate:
+              valuesFiles: ["${RUNNER_TEMP}/substrate-values.yaml"]
+          EOF
+          ./go/core/bin/kagent-local --config "$RUNNER_TEMP/kagent-cli.yaml" install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
 
+      - name: Verify Substrate CLI access after install
+        working-directory: go
+        run: |
+          SUBSTRATE_CLI_SOURCE=$(go mod download -json go.ate.dev/substrate | jq -r .Dir)
+          go -C "$SUBSTRATE_CLI_SOURCE" run -mod=readonly ./cmd/kubectl-ate get actors --all-atespaces
+
       - name: Cache Cloud Hypervisor assets
         if: matrix.sandbox_class == 'microvm'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/substrate/microvm-assets/amd64
           key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
@@ -196,12 +248,10 @@ jobs:
             sleep 5
           done
           test "$READY" = True
-          export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
-          export KAGENT_GATEWAY_URL="$KAGENT_API_URL"
-          echo "KAGENT_API_URL: $KAGENT_API_URL"
+          export KAGENT_E2E_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
+          echo "KAGENT_E2E_API_URL: $KAGENT_E2E_API_URL"
           make core/bin/kagent-local
           export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
-          export KAGENT_E2E_API_URL="$KAGENT_API_URL"
           export KAGENT_E2E_LOCAL_HOST=172.17.0.1
           envsubst < core/test/e2e/manifests/tracing.yaml.tmpl | kubectl apply -f -
           # TestMain keeps the receiver alive for every runtime's response flush.
@@ -233,7 +283,7 @@ jobs:
 
       - name: Upload E2E logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-logs-${{ matrix.sandbox_class }}
           path: ${{ runner.temp }}/e2e-logs
@@ -250,9 +300,10 @@ jobs:
           echo "::error::Kubectl get Harnesses and AgentTemplates -n kagent"
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
-          kubectl logs -n kagent deployment/kagent-controller
+          kubectl logs -n kagent deployment/kagent-controller || true
           kubectl get pods,workerpools -A
           echo "::error::Substrate logs"
+          kubectl describe pods -n ate-system || true
           kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true
           kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
@@ -260,14 +311,14 @@ jobs:
 
   proto-check:
     name: Protobuf Contract Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: true
@@ -279,12 +330,12 @@ jobs:
 
   semconv-check:
     name: Telemetry Contract Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: false
@@ -307,7 +358,7 @@ jobs:
         upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history + tags so the version resolvers can derive the
           # upgrade-from release, and so the local action below is on disk.
@@ -354,7 +405,7 @@ jobs:
         upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history + tags so the version resolvers can derive the
           # upgrade-from release, and so the local action below is on disk.
@@ -386,13 +437,13 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller || true
 
   go-unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: true
@@ -405,21 +456,22 @@ jobs:
           # and its single session-scoped reaper is contended by the parallel package
           # processes of `go test ./...`, intermittently timing out the Postgres tests.
           TESTCONTAINERS_RYUK_DISABLED: "true"
-        run: |
-          make setup-envtest
-          export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
-          go test -race -skip 'TestE2E.*' -v ./...
+        run: make test
+
+      - name: Run UI entrypoint tests
+        working-directory: ui/entrypoint
+        run: go test ./...
 
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Helm
-        uses: azure/setup-helm@v5.0.1
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.18.0
       # Install unittest plugin
@@ -431,10 +483,13 @@ jobs:
         run: |
           make helm-version
 
+      - name: Test release image packaging
+        # Validate packaged runtime defaults without accessing an image registry.
+        run: bash scripts/package-release-charts_test.sh
+
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-          helm unittest helm/tools/grafana-mcp
 
   ui-tests:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -443,10 +498,10 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: ui/.nvmrc
 
@@ -457,7 +512,7 @@ jobs:
         run: corepack enable
 
       - name: Cache Yarn downloads
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ui/.yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
@@ -489,7 +544,7 @@ jobs:
         working-directory: ./ui
         run: yarn test:pw
 
-  # This job builds the Docker images for the controller, UI, ADKs, and CLI on arm64.
+  # Build component images and the CLI for amd64 and arm64.
   build:
     env:
       VERSION: v0.0.1-test
@@ -498,7 +553,6 @@ jobs:
         image:
           - controller
           - ui
-          - kagent-adk
           - cli
           - golang-adk
           - claude-harness
@@ -512,13 +566,13 @@ jobs:
           - 5001:5000
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: linux/amd64,linux/arm64
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v2
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
         with:
           cache-key: kagent-build-${{ matrix.image }}
           platforms: linux/amd64,linux/arm64
@@ -538,13 +592,13 @@ jobs:
         working-directory: ./
 
   go-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: true
@@ -556,16 +610,16 @@ jobs:
   python-test:
     env:
       OPENAI_API_KEY: fake
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Install python
         run: uv python install ${{ matrix.python-version }}
@@ -583,13 +637,13 @@ jobs:
         run: make test
 
   python-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Install python
         run: uv python install 3.11
@@ -615,13 +669,13 @@ jobs:
           fi
 
   manifests-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache: true

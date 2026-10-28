@@ -9,14 +9,18 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"google.golang.org/protobuf/encoding/protojson"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // provenanceEntry records a non-secret Kubernetes input to a compiled revision.
@@ -42,11 +46,13 @@ func NewBuilder(ctx krt.HandlerContext, collections translator.Collections) *Bui
 }
 
 type Result struct {
-	Config      *adk.AgentConfig
+	Config      *configv1.ADKAgentConfig
 	Models      []*translator.ResolvedModelConfig
 	Templates   []*translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
+	SkillImages []translator.SkillImage
+	MCPTools    []translator.ResolvedMCPTool
 }
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
@@ -84,7 +90,7 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 	}
 	// The Python runtime needs an async SQLite driver; the Go runtime accepts
 	// this URL and strips the driver before opening the same durable database.
-	result.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
+	result.Config.SessionDbUrl = "sqlite+aiosqlite:////data/sessions.db"
 	return result, nil
 }
 
@@ -106,16 +112,16 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 	if modelConfig != nil && modelConfig.Spec.Stream != nil {
 		stream = modelConfig.Spec.Stream
 	}
-	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
-	pluginConfig, pluginEgress, err := translator.CompileSkillResources(input.Template)
+	cfg := &configv1.ADKAgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
+	plugins, err := translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = &pluginConfig
+	if len(plugins.Resources.Skills) > 0 || len(plugins.Resources.Plugins) > 0 {
+		cfg.AgentPlugins = runtimeconfig.PluginConfig(plugins.Resources)
 	}
 	for _, tool := range input.MCPTools {
-		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
+		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, tool.Server.Namespace, tool.Server.Spec.HeadersFrom)
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
@@ -127,9 +133,10 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
 	}
 	result := &Result{
-		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
+		MCPTools: slices.Clone(input.MCPTools), Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
-		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
+		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), plugins.Egress...),
+		SkillImages: plugins.Images,
 	}
 	if modelConfig != nil {
 		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
@@ -141,22 +148,24 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		}
 		child.Config.Name, child.Config.Description = binding.Name, binding.Description
 		cfg.SubAgents = append(cfg.SubAgents, child.Config)
+		result.MCPTools = append(result.MCPTools, child.MCPTools...)
 		result.Models = append(result.Models, child.Models...)
 		result.Templates = append(result.Templates, child.Templates...)
 		result.Environment = append(result.Environment, child.Environment...)
 		result.Egress = append(result.Egress, child.Egress...)
+		result.SkillImages = append(result.SkillImages, child.SkillImages...)
 	}
 	return result, nil
 }
 
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, templates []*translator.TemplateConfiguration, models []*translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, compiled *Result) ([]byte, error) {
+	templates, models := compiled.Templates, compiled.Models
 	var entries []provenanceEntry
-	// Inline configuration is recorded by the enclosing Agent provenance.
-	if harness.Source != nil {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
-	}
+	// The Harness is always a standalone resource. Inline template configuration
+	// is recorded by the enclosing Agent provenance below.
+	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	configMaps := map[string]struct{}{}
 	for _, template := range templates {
 		if template.Source != nil {
@@ -176,7 +185,7 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.Harne
 	}
 	for _, resolved := range models {
 		model := resolved.Config
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec))
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec))
 	}
 	for name := range configMaps {
 		fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
@@ -186,42 +195,20 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.Harne
 		configMap := *fetched
 		entries = append(entries, objectProvenance("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
 	}
-	for _, template := range templates {
-		for _, binding := range template.Spec.Tools {
-			if binding.MCP == nil {
+	for _, tool := range compiled.MCPTools {
+		server := tool.Server
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Namespace+"/"+server.Name, server.UID, server.Generation, server.Spec))
+		for _, header := range server.Spec.HeadersFrom {
+			if header.ValueFrom == nil || header.ValueFrom.Type != v1alpha3.ConfigMapValueSource {
 				continue
 			}
-			switch binding.MCP.Server.Kind {
-			case "RemoteMCPServer":
-				fetched := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}))
-				if fetched == nil {
-					return nil, fmt.Errorf("remote MCP server %q not found", binding.MCP.Server.Name)
-				}
-				server := *fetched
-				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
+			key := types.NamespacedName{Namespace: server.Namespace, Name: header.ValueFrom.Name}
+			found := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(key))
+			if found == nil {
+				return nil, fmt.Errorf("ConfigMap %q not found", key)
 			}
-		}
-	}
-	// Validate Secret references without making rotation part of revision identity.
-	seenSecrets := map[string]struct{}{}
-	for _, variable := range environment {
-		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
-			continue
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		identity := ref.Name + "\x00" + ref.Key
-		if _, ok := seenSecrets[identity]; ok {
-			continue
-		}
-		seenSecrets[identity] = struct{}{}
-		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}))
-		if fetched == nil {
-			return nil, fmt.Errorf("secret %q not found", ref.Name)
-		}
-		secret := *fetched
-		_, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
+			cm := *found
+			entries = append(entries, objectProvenance("v1", "ConfigMap", key.String(), cm.UID, cm.Generation, cm.Data))
 		}
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
@@ -253,6 +240,9 @@ func (c *Builder) resolveAgentTemplateHeaders(ctx context.Context, namespace str
 			}
 			headers[name] = value
 			continue
+		}
+		if err := translator.ValidateSecretKey(c.ctx, c.collections, namespace, ref.ValueFrom.Name, ref.ValueFrom.Key); err != nil {
+			return nil, nil, err
 		}
 		selector := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.ValueFrom.Name}, Key: ref.ValueFrom.Key}
 		sum := sha256.Sum256([]byte(namespace + "\x00" + selector.Name + "\x00" + selector.Key))
@@ -302,7 +292,7 @@ func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 // agentConfigDestinations extracts the network allowlist required by the
 // resolved model and MCP configuration. Provider defaults are included when
 // no explicit endpoint appears in the serialized model.
-func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model adk.Model) []string {
+func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3.ModelConfig, model *configv1.ADKModelConfig) []string {
 	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
 	for _, tool := range cfg.HttpTools {
 		destinations = appendURLOrigin(destinations, tool.Params.Url)
@@ -310,7 +300,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 	for _, tool := range cfg.SseTools {
 		destinations = appendURLOrigin(destinations, tool.Params.Url)
 	}
-	modelJSON, _ := json.Marshal(model)
+	modelJSON, _ := protojson.Marshal(model)
 	var values any
 	if json.Unmarshal(modelJSON, &values) == nil {
 		destinations = appendURLValues(destinations, values)
@@ -348,7 +338,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 			// ignoring the operator's host. That over-allowed egress: with a
 			// host set the request goes to that host, so api.ollama.com never
 			// needs to be reachable.
-			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
+			hasCredential := modelConfig.Spec.APIKeySecret != "" || ptr.Deref(modelConfig.Spec.TokenPassthrough, false) || modelConfig.Spec.ActorJWT != nil
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
 				destinations = append(destinations, "https://api.ollama.com:443")
 			}

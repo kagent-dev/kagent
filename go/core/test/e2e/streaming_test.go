@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iter"
 	"strings"
 	"sync"
 	"testing"
@@ -13,12 +14,14 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/adk/v2/tool"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestSessionModelStreamingDisabled(t *testing.T) {
@@ -30,7 +33,7 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 	} {
 		t.Run(string(format), func(t *testing.T) {
 			t.Parallel()
-			recorder := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func(body []byte) error {
+			recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")), func(body []byte) error {
 				var request struct {
 					Stream bool `json:"stream"`
 				}
@@ -53,7 +56,7 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "non-streaming-", Namespace: "kagent", Labels: harness.labels()},
 				Spec: v1alpha3.AgentTemplateSpec{
-					ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+					ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
 				},
 			}
 			createAndWaitInteractionTemplate(t, harness, kube, template)
@@ -81,7 +84,7 @@ func TestSessionCompletesAfterDisconnect(t *testing.T) {
 		started, release := make(chan struct{}), make(chan struct{})
 		var startedOnce, releaseOnce sync.Once
 		upstream := startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")
-		recorder := startModelRecorder(t, upstream, func([]byte) error {
+		recorder := startModelRecorder(t, mockLLMProxy(t, upstream), func([]byte) error {
 			startedOnce.Do(func() { close(started) })
 			select {
 			case <-release:
@@ -173,34 +176,57 @@ type streamResult struct {
 }
 
 type toolEvent struct {
-	partType string
-	id       string
-	name     string
+	awaitingConfirmation bool
+	partType             string
+	id                   string
+	name                 string
+}
+
+// gRPC can report rejection on the first Recv, after opening the stream succeeds.
+// Match unary and HTTP sends: replay only proven rejection before any event.
+func sendStreamingMessageWithRetry(ctx context.Context, client a2apb.A2AServiceClient, request *a2apb.SendMessageRequest) iter.Seq2[*a2apb.StreamResponse, error] {
+	return func(yield func(*a2apb.StreamResponse, error) bool) {
+		err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) {
+			// The retry budget must not shorten an accepted task's deadline.
+			// Cancel each stream when it ends or its consumer stops reading.
+			attemptCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			stream, err := client.SendStreamingMessage(attemptCtx, request)
+			if sendNotAccepted(err) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			received := false
+			for {
+				response, err := stream.Recv()
+				if !received && response == nil && sendNotAccepted(err) {
+					return false, nil
+				}
+				if errors.Is(err, io.EOF) {
+					return true, nil
+				}
+				received = true
+				if !yield(response, err) || err != nil {
+					return true, nil
+				}
+			}
+		})
+		if err != nil {
+			yield(nil, err)
+		}
+	}
 }
 
 func sendStreaming(t *testing.T, fixture *interactionFixture, text string) streamResult {
 	t.Helper()
 	_, request := newMessageRequest(t, text)
 	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
-	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
-	if err != nil {
-		t.Fatalf("start streaming A2A message: %v", err)
-	}
 	var result streamResult
 	var output strings.Builder
 	terminalEvents := 0
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			if terminalEvents != 1 {
-				t.Fatalf("stream terminal event count = %d, want 1", terminalEvents)
-			}
-			if result.taskID == "" {
-				t.Fatal("stream completed without a task ID")
-			}
-			result.text = output.String()
-			return result
-		}
+	for response, err := range sendStreamingMessageWithRetry(fixture.ctx, fixture.client, request) {
 		if err != nil {
 			t.Fatalf("receive task stream: %v", err)
 		}
@@ -248,6 +274,14 @@ func sendStreaming(t *testing.T, fixture *interactionFixture, text string) strea
 			terminalEvents++
 		}
 	}
+	if terminalEvents != 1 {
+		t.Fatalf("stream terminal event count = %d, want 1", terminalEvents)
+	}
+	if result.taskID == "" {
+		t.Fatal("stream completed without a task ID")
+	}
+	result.text = output.String()
+	return result
 }
 
 func toolEvents(parts []*a2atype.Part) []toolEvent {
@@ -263,7 +297,10 @@ func toolEvents(parts []*a2atype.Part) []toolEvent {
 		}
 		id, _ := data["id"].(string)
 		name, _ := data["name"].(string)
-		events = append(events, toolEvent{partType: partType, id: id, name: name})
+		response, _ := data["response"].(map[string]any)
+		errorText, _ := response["error"].(string)
+		awaitingConfirmation := partType == "function_response" && strings.HasSuffix(errorText, tool.ErrConfirmationRequired.Error())
+		events = append(events, toolEvent{partType: partType, id: id, name: name, awaitingConfirmation: awaitingConfirmation})
 	}
 	return events
 }

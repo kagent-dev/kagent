@@ -47,6 +47,7 @@
 
 import { create, toJson, type JsonObject } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 import {
   A2AService,
   MessageSchema,
@@ -68,7 +69,7 @@ import {
   readToolApprovalResponse,
   type PendingRequest,
 } from "./hitl";
-import { mediaTypeOf } from "./attachments";
+import { fileNameFromUrl, isHttpUrl, LinkFile, mediaTypeOf } from "./attachments";
 import { agentInstanceShareToken } from "../shareToken";
 import { interleaveTaskMessages } from "./transcriptOrder";
 import { serviceClient } from "../transport";
@@ -98,6 +99,56 @@ const SHARE_HEADER = "X-Share-Token";
  */
 const HISTORY_PAGE_LIMIT = 50;
 
+/** Consecutive broken streams that came to nothing before a turn is given up. */
+const REATTACH_LIMIT = 3;
+
+/**
+ * How long a stream has to stay open for its break to count as a quiet stream
+ * being cut rather than a failure.
+ *
+ * A proxy closes an idle stream after its timeout, commonly 30 s or more, so a
+ * stream cut that late was working and the turn keeps following its task. One
+ * that breaks sooner with nothing new in it counts towards `REATTACH_LIMIT`.
+ */
+const REATTACH_HEALTHY_MS = 10_000;
+
+/** The wait before the first re-attach after a failure, doubled for each one after. */
+const REATTACH_BACKOFF_MS = 500;
+
+/** Resolves after `ms`, or rejects with the abort as soon as `signal` fires. */
+function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+type StreamFrame = { payload: { case?: string; value?: unknown } };
+
+/**
+ * Whether an error is the connection failing rather than the server answering.
+ *
+ * A proxy closing a quiet stream reaches the browser as a bare `network error` or
+ * a body that ends without its trailer — both `Unknown` — or as an HTTP 502/503/504,
+ * which is `Unavailable`. Anything the controller decided (a refusal, a missing
+ * permission) arrives with its own code and is not retried.
+ */
+function isBrokenTransport(error: unknown): boolean {
+  const { code } = ConnectError.from(error);
+  return code === Code.Unknown || code === Code.Unavailable;
+}
+
 /** Ids for the messages the wire did not name. */
 let counter = 0;
 function nextId(prefix: string): string {
@@ -116,6 +167,15 @@ function nextId(prefix: string): string {
  */
 function isAwaitingReply(state: TaskState | undefined): boolean {
   return state === TaskState.INPUT_REQUIRED || state === TaskState.AUTH_REQUIRED;
+}
+
+function pendingRequestFromStatus(
+  taskId: string,
+  status: TaskStatus | undefined,
+): PendingRequest | undefined {
+  if (!taskId || !isAwaitingReply(status?.state)) return undefined;
+  return readHitlRequest(taskId, status?.message?.metadata, status?.message?.extensions)
+    ?? { kind: "unknown", taskId };
 }
 
 /** The turn states this client has an opinion about. */
@@ -207,24 +267,6 @@ function toPart(part: A2APart): ChatPart | undefined {
   return undefined;
 }
 
-function isHttpUrl(url: string): boolean {
-  try {
-    const { protocol } = new URL(url);
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-// Last path segment, so a query string or fragment never becomes the name.
-function fileNameFromUrl(url: string): string {
-  try {
-    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
-  } catch {
-    return "file";
-  }
-}
-
 /**
  * What a data part represents.
  *
@@ -250,7 +292,7 @@ function dataKindOf(
   return "unknown";
 }
 
-function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
+function toParts(parts: readonly A2APart[] | undefined, role?: Role): ChatPart[] {
   const result: ChatPart[] = [];
   for (const source of parts ?? []) {
     const part = toPart(source);
@@ -263,7 +305,12 @@ function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
     }
     result.push(part);
   }
-  return result;
+  // A link the user sent beside its own URL in the text (see LinkFile) gets no chip.
+  if (role !== Role.USER) return result;
+  return result.filter(
+    (part) =>
+      !(part.kind === "file" && part.url && result.some((t) => t.kind === "text" && t.text.includes(part.url!))),
+  );
 }
 
 type ControlFlowResult = "confirmation_required" | "rejected";
@@ -416,12 +463,7 @@ export class A2AGrpcChatClient implements ChatClient {
           if (isAwaitingReply(task.status?.state) && task.id) {
             // The payload is persisted with the task, so a reader who comes back
             // tomorrow gets the same choices the reader who watched it park did.
-            awaitingReply =
-              readHitlRequest(
-                task.id,
-                task.status?.message?.metadata,
-                task.status?.message?.extensions,
-              ) ?? { kind: "unknown", taskId: task.id };
+            awaitingReply = pendingRequestFromStatus(task.id, task.status);
           }
         }
 
@@ -452,7 +494,10 @@ export class A2AGrpcChatClient implements ChatClient {
     const client = serviceClient(A2AService);
     const fileParts = await Promise.all(
       (input.files ?? []).map(async (file) => ({
-        content: { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
+        content:
+          file instanceof LinkFile
+            ? { case: "url" as const, value: file.url }
+            : { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
         filename: file.name,
         mediaType: mediaTypeOf(file),
       })),
@@ -522,21 +567,67 @@ export class A2AGrpcChatClient implements ChatClient {
      * every frame of a run carries the same one. A local rather than a field: it
      * belongs to this turn and must not outlive it.
      */
-    const artifacts = new Map<string, string>();
+    const artifacts = new Map<string, ChatPart[]>();
 
-    let stream: AsyncIterable<{ payload: { case?: string; value?: unknown } }>;
+    const options = this.callOptions(conversation, signal);
+    let stream: AsyncIterable<StreamFrame>;
     try {
-      stream = client.sendStreamingMessage(
-        request,
-        this.callOptions(conversation, signal),
-      );
+      stream = client.sendStreamingMessage(request, options);
     } catch (error) {
       rethrowIfAborted(error, signal);
       throw fromConnectError(error, "A2AService/SendStreamingMessage");
     }
 
+    /*
+     * The turn's frames, followed past a broken stream.
+     *
+     * A proxy between the browser and the controller may close a stream that has
+     * been quiet for a while — a model reading a long prompt sends nothing for
+     * minutes. The task keeps running on the server, so once the stream has named
+     * its task, losing the connection is not a failed turn: the task is re-attached
+     * with `SubscribeToTask`, which is read-only and returns the stored task once it
+     * has finished. The message itself is never sent twice.
+     *
+     * A re-attached stream opens with the task as it stands, so that first frame is
+     * not taken as a sign the path works: a path that breaks right after it would
+     * otherwise never run out of attempts. What resets the count is a frame after
+     * it, or a stream that stayed open long enough to have been cut for being quiet.
+     */
+    let taskId = "";
+    let settled = false;
+    const follow = async function* (): AsyncGenerator<StreamFrame> {
+      let source = stream;
+      for (let failures = 0; ; ) {
+        const opened = Date.now();
+        let progressed = false;
+        try {
+          for await (const frame of source) {
+            if (frame.payload.case !== "task") progressed = true;
+            const event = frame.payload.value as
+              | { id?: string; taskId?: string; status?: TaskStatus }
+              | undefined;
+            const id = frame.payload.case === "task" ? event?.id : event?.taskId;
+            if (id) taskId = id;
+            if (event?.status) {
+              settled = !["working", "submitted"].includes(turnState(event.status.state));
+            }
+            yield frame;
+          }
+          return;
+        } catch (error) {
+          if (progressed || Date.now() - opened >= REATTACH_HEALTHY_MS) failures = 0;
+          failures += 1;
+          const reattach = !signal?.aborted && taskId !== "" && !settled
+            && failures <= REATTACH_LIMIT && isBrokenTransport(error);
+          if (!reattach) throw error;
+          await pause(REATTACH_BACKOFF_MS * 2 ** (failures - 1), signal);
+          source = client.subscribeToTask({ tenant: conversation.agent, id: taskId }, options);
+        }
+      }
+    };
+
     try {
-      for await (const frame of stream) {
+      for await (const frame of follow()) {
         const payload = frame.payload;
 
         if (payload.case === "statusUpdate") {
@@ -546,7 +637,7 @@ export class A2AGrpcChatClient implements ChatClient {
           };
           const status = event.status;
           const message = status?.message;
-          const parts = visibleParts(toParts(message?.parts), { hideRejected: true });
+          const parts = visibleParts(toParts(message?.parts, message?.role), { hideRejected: true });
           const state = turnState(status?.state);
           /*
            * The question, when this is the frame that parked the turn.
@@ -555,13 +646,7 @@ export class A2AGrpcChatClient implements ChatClient {
            * it — so the choices reach the transcript as the turn parks rather than
            * waiting for the next read of history.
            */
-          const awaiting =
-            state === "input_required"
-              ? (readHitlRequest(event.taskId, message?.metadata, message?.extensions) ?? {
-                  kind: "unknown" as const,
-                  taskId: event.taskId,
-                })
-              : undefined;
+          const awaiting = pendingRequestFromStatus(event.taskId, status);
 
           if (
             message &&
@@ -635,18 +720,23 @@ export class A2AGrpcChatClient implements ChatClient {
 
           if (known) {
             const id = artifactId;
-            if (event.append) {
-              const whole = (artifacts.get(artifactId) ?? "") + body;
-              artifacts.set(artifactId, whole);
+            const previous = artifacts.get(id) ?? [];
+            const textOnly = previous.every((part) => part.kind === "text") &&
+              parts.every((part) => part.kind === "text");
+            const combined = event.append ? [...previous, ...parts] : parts;
+            const updated: ChatPart[] = textOnly
+              ? [{ kind: "text", text: textOf(combined) }]
+              : combined;
+            artifacts.set(id, updated);
+            if (event.append && textOnly) {
               yield { type: "delta", messageId: id, text: body };
             } else {
-              artifacts.set(artifactId, body);
               yield {
                 type: "message",
                 message: {
                   id,
                   role: "agent",
-                  parts,
+                  parts: updated,
                   createdAt: new Date().toISOString(),
                   taskId: event.taskId,
                 },
@@ -668,7 +758,7 @@ export class A2AGrpcChatClient implements ChatClient {
           statusReply = "";
 
           const id = artifactId || nextId("artifact");
-          artifacts.set(id, body);
+          artifacts.set(id, parts);
           yield {
             type: "message",
             message: {
@@ -685,18 +775,36 @@ export class A2AGrpcChatClient implements ChatClient {
         // A non-streaming agent answers with the whole task instead of updates.
         if (payload.case === "task") {
           const task = payload.value as A2ATask;
+          // An artifact is shown again from every snapshot rather than once: a
+          // later snapshot holds chunks that were sent while the stream was down.
+          const artifactIds = new Set(task.artifacts.map((artifact) => artifact.artifactId));
           for (const message of messagesFromTask(task)) {
-            if (delivered.has(message.id)) continue;
-            delivered.add(message.id);
+            if (!artifactIds.has(message.id)) {
+              if (delivered.has(message.id)) continue;
+              delivered.add(message.id);
+            }
             yield { type: "message", message };
           }
-          yield { type: "status", state: turnState(task.status?.state), taskId: task.id };
+          // A re-attached stream opens with this snapshot, and an artifact still
+          // being streamed carries on with `append` chunks. Known here, the next
+          // chunk adds to what the snapshot showed instead of replacing it.
+          for (const artifact of task.artifacts) {
+            if (artifact.artifactId) {
+              artifacts.set(artifact.artifactId, toParts(artifact.parts));
+            }
+          }
+          yield {
+            type: "status",
+            state: turnState(task.status?.state),
+            taskId: task.id,
+            awaiting: pendingRequestFromStatus(task.id, task.status),
+          };
           continue;
         }
 
         if (payload.case === "message") {
           const message = payload.value as A2AMessage;
-          const parts = visibleParts(toParts(message.parts), { hideRejected: true });
+          const parts = visibleParts(toParts(message.parts, message.role), { hideRejected: true });
           if (parts.length === 0) continue;
           const id = message.messageId || nextId("message");
           if (delivered.has(id)) continue;
@@ -809,7 +917,7 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
               },
             },
           ]
-      : toParts(message.parts);
+      : toParts(message.parts, message.role);
     if (decisions) pendingApproval = undefined;
     if (answer) pendingQuestions.delete(answer.requestId);
     if (parts.length === 0) return;

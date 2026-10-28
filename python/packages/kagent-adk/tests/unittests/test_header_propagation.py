@@ -1,6 +1,7 @@
 """Tests for header propagation to MCP tools."""
 
-from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
+from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
+from kagent.config.v1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
 
 from kagent.adk.types import (
     HttpMcpServerConfig,
@@ -174,12 +175,12 @@ class TestMcpServerConfigAllowedHeaders:
         )
         assert config.allowed_headers == ["x-user-email", "x-tenant-id"]
 
-    def test_http_mcp_config_allowed_headers_default_none(self):
+    def test_http_mcp_config_allowed_headers_default_empty(self):
         """Test that allowed_headers defaults to None."""
         config = HttpMcpServerConfig(
             params=StreamableHTTPConnectionParams(url="http://localhost:8080"),
         )
-        assert config.allowed_headers is None
+        assert not config.allowed_headers
 
     def test_sse_mcp_config_has_allowed_headers(self):
         """Test that SseMcpServerConfig has allowed_headers field."""
@@ -189,9 +190,9 @@ class TestMcpServerConfigAllowedHeaders:
         )
         assert config.allowed_headers == ["x-user-email"]
 
-    def test_sse_mcp_config_allowed_headers_default_none(self):
+    def test_sse_mcp_config_allowed_headers_default_empty(self):
         """Test that allowed_headers defaults to None."""
         config = SseMcpServerConfig(
             params=SseConnectionParams(url="http://localhost:8080"),
         )
-        assert config.allowed_headers is None
+        assert not config.allowed_headers

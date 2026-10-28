@@ -44,12 +44,14 @@ type AgentTemplatePromptSource struct {
 	Alias string `json:"alias,omitempty"`
 }
 
-// MCPToolBinding binds tools from a same-namespace MCP server.
+// MCPToolBinding binds tools from an authorized MCP server.
 type MCPToolBinding struct {
 	// +kubebuilder:validation:XValidation:rule="self.kind == 'RemoteMCPServer'",message="kind must be RemoteMCPServer"
 	// +kubebuilder:validation:XValidation:rule="!has(self.apiGroup)",message="apiGroup must be omitted"
+	// +kubebuilder:validation:XValidation:rule="size(self.name) > 0 && size(self.name) <= 253",message="name must contain between 1 and 253 characters",fieldPath=".name"
+	// +kubebuilder:validation:XValidation:rule="!has(self.namespace) || size(self.namespace) <= 63",message="namespace must contain at most 63 characters",fieldPath=".namespace"
 	// +required
-	Server corev1.TypedLocalObjectReference `json:"server"`
+	Server corev1.TypedObjectReference `json:"server"`
 	// Tools optionally limits which server tools are exposed. An omitted or empty
 	// list exposes every tool. Harnesses that cannot enforce a partial selection
 	// may expose the whole server and report a warning.
@@ -84,7 +86,7 @@ type SubAgentToolBinding struct {
 }
 
 // ToolBinding selects exactly one MCP or subagent tool source.
-// +kubebuilder:validation:XValidation:rule="has(self.mcp) != has(self.subAgent)",message="exactly one of mcp or subAgent must be specified"
+// +kubebuilder:validation:ExactlyOneOf=mcp;subAgent
 type ToolBinding struct {
 	// +optional
 	MCP *MCPToolBinding `json:"mcp,omitempty"`
@@ -139,7 +141,7 @@ type BucketArtifact struct {
 }
 
 // ArtifactSource selects exactly one immutable artifact.
-// +kubebuilder:validation:XValidation:rule="(has(self.oci) ? 1 : 0) + (has(self.git) ? 1 : 0) + (has(self.bucket) ? 1 : 0) == 1",message="exactly one of oci, git or bucket must be specified"
+// +kubebuilder:validation:ExactlyOneOf=oci;git;bucket
 // +kubebuilder:validation:XValidation:rule="!has(self.path) || (!self.path.startsWith('/') && !self.path.split('/').exists(p, p == '..'))",message="path must be relative and must not contain '..' segments"
 type ArtifactSource struct {
 	// OCI is a digest-pinned image reference.
@@ -169,13 +171,14 @@ type PluginBundle struct {
 }
 
 // AgentTemplateSpec defines portable agent behavior.
-// +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
-// +kubebuilder:validation:XValidation:rule="!(has(self.outputSchema) && has(self.outputSchemaFrom))",message="outputSchema and outputSchemaFrom are mutually exclusive"
+// +kubebuilder:validation:AtMostOneOf=systemPrompt;systemPromptFrom
+// +kubebuilder:validation:AtMostOneOf=outputSchema;outputSchemaFrom
+// +kubebuilder:validation:XValidation:rule="!has(self.outputSchemaStrict) || !self.outputSchemaStrict || has(self.outputSchema) || has(self.outputSchemaFrom)",message="outputSchemaStrict requires outputSchema or outputSchemaFrom"
 type AgentTemplateSpec struct {
 	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +optional
-	ModelConfig *corev1.LocalObjectReference `json:"modelConfig,omitempty"`
+	ModelConfig *ObjectReference `json:"modelConfig,omitempty"`
 	// +optional
 	Description string `json:"description,omitempty"`
 	// +optional
@@ -193,6 +196,11 @@ type AgentTemplateSpec struct {
 	// same-namespace ConfigMap key.
 	// +optional
 	OutputSchemaFrom *ConfigMapKeyReference `json:"outputSchemaFrom,omitempty"`
+	// OutputSchemaStrict tells OpenAI, Azure OpenAI, and Foundry (openai format)
+	// to limit generation to the output schema. kagent then checks the schema
+	// against OpenAI's strict mode rules on every provider.
+	// +optional
+	OutputSchemaStrict bool `json:"outputSchemaStrict,omitempty"`
 	// +optional
 	PromptTemplate *AgentTemplatePromptTemplateSpec `json:"promptTemplate,omitempty"`
 	// +kubebuilder:validation:MaxItems=50

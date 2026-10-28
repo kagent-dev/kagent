@@ -3,19 +3,25 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/propagation"
+
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"go.opentelemetry.io/otel/propagation"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // ProcessConfig contains validated, compiler-owned inputs for one Claude Code
@@ -31,7 +37,6 @@ type ProcessConfig struct {
 	MCPConfigPath        string
 	SettingsPath         string
 	PermissionPromptTool string
-	SkillRoot            string
 	PluginDirs           []string
 	Environment          []string
 	MaxEventBytes        int
@@ -44,7 +49,7 @@ type ProcessConfig struct {
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
-// and retains it while the permission-prompt MCP tool awaits a decision.
+// and exits at durable deferred-input boundaries.
 type ProcessDriver struct {
 	config ProcessConfig
 }
@@ -62,35 +67,19 @@ type processSession struct {
 	stderr    *utils.BoundedBuffer
 	terminal  *runtime.Outcome
 	sessionID string
+	deferred  *DeferredTool
 	stopOnce  sync.Once
+	canceled  bool
+	seed      *DeferredTool
 }
 
-// pendingTurn owns a Claude process blocked in the permission MCP hook. Resume
-// resolves the hook and continues that process; Cancel terminates it.
-type pendingTurn struct {
-	driver  *ProcessDriver
-	session *processSession
-	pending *PendingApprovalRequest
-}
+// processStartError proves that no native process ran for this attempt.
+type processStartError struct{ err error }
 
-const interruptedResponseWarning = "API Error: Connection lost mid-response. The response above may be incomplete."
+func (e *processStartError) Error() string { return e.err.Error() }
+func (e *processStartError) Unwrap() error { return e.err }
 
-// resumedEventSink removes Claude Code's synthetic connection warning after an
-// intentional Actor pause. The live process and its provider stream are frozen
-// while input is pending; Claude reports that interruption as assistant text
-// when execution resumes even though it continues the tool call successfully.
-// Keep the filter on the resume path so the same text remains visible if Claude
-// emits it during an ordinary, uninterrupted turn.
-type resumedEventSink struct {
-	runtime.EventSink
-}
-
-func (s resumedEventSink) TextDelta(event runtime.TextDelta) error {
-	if strings.TrimSpace(event.Text) == interruptedResponseWarning {
-		return nil
-	}
-	return s.EventSink.TextDelta(event)
-}
+const cancellationCleanupTimeout = 30 * time.Second
 
 // NewProcessDriver constructs a Claude Code process driver.
 func NewProcessDriver(config ProcessConfig) *ProcessDriver {
@@ -147,11 +136,6 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	if d.config.MCPConfigPath != "" {
 		args = append(args, "--mcp-config", d.config.MCPConfigPath)
 	}
-	if d.config.SkillRoot != "" {
-		// --add-dir exposes compiler-selected skills materialized beneath
-		// SkillRoot/.claude/skills.
-		args = append(args, "--add-dir", d.config.SkillRoot)
-	}
 	for _, dir := range d.config.PluginDirs {
 		args = append(args, "--plugin-dir", dir)
 	}
@@ -165,13 +149,31 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 
 // Run supervises one Claude Code process and emits its ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
-	if strings.TrimSpace(turn.Prompt) == "" {
+	return d.run(ctx, turn, sink, nil)
+}
+
+func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink, seed *DeferredTool) (outcome runtime.Outcome, returnErr error) {
+	started := false
+	defer func() {
+		if !started && returnErr != nil {
+			returnErr = &processStartError{err: returnErr}
+		} else if seed != nil && ctx.Err() != nil && returnErr != nil {
+			var cancellationErr *runtime.CancellationError
+			if !errors.As(returnErr, &cancellationErr) {
+				returnErr = &runtime.CancellationError{Err: returnErr}
+			}
+		}
+	}()
+	if strings.TrimSpace(turn.Prompt) == "" && seed == nil {
 		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
 	}
 	message, err := userMessage(turn.Prompt)
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
+	if seed != nil {
+		message = nil
+	} // --resume replays deferred input without a new user turn.
 	environment := traceEnvironment(ctx, d.config.Environment)
 	var gate *tracingGate
 	if d.config.AwaitTelemetry {
@@ -195,15 +197,21 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	stderr := utils.NewBoundedBuffer(d.config.MaxStderrBytes)
 	cmd.Stderr = stderr
+	// Read before Claude starts, since the process saves its own totals when it ends.
+	startUsage, err := sessionUsage(d.config.Environment, turn.ContinuationID)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "failed to read the Claude session usage, so this turn adds no tokens that only its totals show", "error", err)
+	}
 	if err := cmd.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Claude: %w", err)
 	}
+	started = true
 	items := make(chan parseItem)
 	stopEmit := make(chan struct{})
 	parseDone := make(chan struct{})
 	go func() {
 		defer close(items)
-		parseErr := ParseJSONL(stdout, d.config.MaxEventBytes, func(event Event) error {
+		parseErr := parseJSONL(ctx, stdout, d.config.MaxEventBytes, startUsage, seed, func(event Event) error {
 			select {
 			case items <- parseItem{event: &event}:
 				return nil
@@ -211,8 +219,8 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 				return context.Canceled
 			}
 		})
-		// Wait closes pipes returned by StdoutPipe, so it must not run until the
-		// parser has finished its final read.
+		// Wait closes pipes returned by StdoutPipe, so it runs only after the parser
+		// returns; a read still in flight then fails and its goroutine exits.
 		close(parseDone)
 		select {
 		case items <- parseItem{err: parseErr}:
@@ -226,26 +234,62 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		close(waitDone)
 	}()
 	session := &processSession{
-		command: cmd, items: items, stopEmit: stopEmit, wait: waitDone, stderr: stderr,
+		command: cmd, items: items, stopEmit: stopEmit, wait: waitDone, stderr: stderr, seed: seed,
 	}
 	go sendPrompt(ctx, stdin, message, gate, parseDone)
-	sessionOwnedByPendingTurn := false
-	defer func() {
-		if !sessionOwnedByPendingTurn {
-			d.stopSession(session)
-		}
-	}()
-	outcome, err := d.consume(ctx, session, sink)
-	// A pending outcome carries this same live session. Every other return path
-	// leaves cleanup with this Run invocation.
-	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
+	defer d.stopSession(session, sink)
+	outcome, err = d.consume(ctx, session, sink)
+	if err == nil && session.deferred != nil {
+		return d.parkDeferred(turn, session.sessionID, session.deferred)
+	}
 	return outcome, err
 }
 
+// sessionUsage reads the session totals Claude Code saved when its last process ended. A resumed
+// process starts its result.modelUsage from these, so they are this process's baseline.
+func sessionUsage(environment []string, sessionID string) (map[string]modelUsage, error) {
+	usage := map[string]modelUsage{}
+	if sessionID == "" {
+		return usage, nil
+	}
+	var configDir string
+	for _, entry := range environment {
+		if value, ok := strings.CutPrefix(entry, config.ClaudeConfigDirEnvName+"="); ok {
+			configDir = value
+		}
+	}
+	if configDir == "" {
+		return nil, fmt.Errorf("%s is not set", config.ClaudeConfigDirEnvName)
+	}
+	files, err := filepath.Glob(filepath.Join(configDir, "projects", "*", sessionID+".jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	if len(files) != 1 {
+		return nil, fmt.Errorf("found %d files for session %s, want 1", len(files), sessionID)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		return nil, err
+	}
+	for line := range bytes.Lines(raw) {
+		if !bytes.Contains(line, []byte(`"cost-state"`)) {
+			continue
+		}
+		var state struct {
+			Type       string                `json:"type"`
+			ModelUsage map[string]modelUsage `json:"modelUsage"`
+		}
+		if json.Unmarshal(line, &state) == nil && state.Type == "cost-state" && state.ModelUsage != nil {
+			usage = state.ModelUsage
+		}
+	}
+	return usage, nil
+}
+
 // traceEnvironment injects the trace context into the environment variables.
-// Claude reads it once at startup, so a turn that is resumed after an approval
-// keeps emitting under the trace of the request that started the process. The
-// resumed A2A segment records a link to that origin rather than reparenting it.
+// Claude reads it once at startup. A deferred resume starts a new native process
+// under the current A2A invocation's trace.
 func traceEnvironment(ctx context.Context, environment []string) []string {
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)
@@ -301,33 +345,32 @@ func sendPrompt(ctx context.Context, stdin io.WriteCloser, message []byte, gate 
 	_, _ = stdin.Write(message)
 }
 
-func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
-	var approvalPending *PendingApprovalRequest
+func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (outcome runtime.Outcome, returnErr error) {
+	cleaning := false
+	defer func() {
+		if cleaning && returnErr != nil {
+			returnErr = &runtime.CancellationError{Err: returnErr}
+		}
+	}()
 	for {
-		if approvalPending != nil && session.sessionID != "" {
-			if !approvalPending.waiting() {
-				approvalPending = nil
-				continue
-			}
-			return runtime.Outcome{Pending: &pendingTurn{
-				driver: d, session: session, pending: approvalPending,
-			}}, nil
-		}
-		var approvals <-chan *PendingApprovalRequest
-		if d.config.ApprovalBroker != nil && approvalPending == nil {
-			approvals = d.config.ApprovalBroker.Requests()
-		}
 		select {
-		case request := <-approvals:
-			if session.terminal != nil {
-				return runtime.Outcome{}, fmt.Errorf("Claude requested approval after its terminal result")
-			}
-			approvalPending = request
 		case item, ok := <-session.items:
 			if !ok {
 				return runtime.Outcome{}, fmt.Errorf("claude parser stopped without a result")
 			}
 			if item.event != nil {
+				if item.event.Kind == EventDeferred {
+					if session.terminal != nil || session.deferred != nil {
+						return runtime.Outcome{}, fmt.Errorf("duplicate Claude deferred result")
+					}
+					if session.sessionID != "" && session.sessionID != item.event.SessionID {
+						return runtime.Outcome{}, fmt.Errorf("Claude deferred result changed session ID")
+					}
+					session.sessionID = item.event.SessionID
+					session.deferred = item.event.Deferred
+					session.terminal = &runtime.Outcome{}
+					continue
+				}
 				outcome, err := emitEvent(*item.event, sink, session.terminal != nil)
 				if err == nil {
 					if item.event.Kind == EventSessionStarted {
@@ -347,7 +390,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				// A process that exits before its result can explain the failure
 				// only on stderr. Reap it to finish draining stderr; malformed
 				// output can also stop the parser while the process is still alive.
-				d.stopSession(session)
+				d.stopSession(session, sink)
 				if stderr := strings.TrimSpace(session.stderr.String()); stderr != "" {
 					return runtime.Outcome{}, fmt.Errorf("%w: %s", item.err, stderr)
 				}
@@ -359,50 +402,30 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			if session.terminal == nil {
 				return runtime.Outcome{}, fmt.Errorf("claude process exited without a terminal result")
 			}
+			if cleaning && (session.deferred != nil || session.terminal.Failure != nil) {
+				return runtime.Outcome{}, fmt.Errorf("Claude did not settle its canceled replay")
+			}
 			return *session.terminal, nil
 		case <-ctx.Done():
-			return runtime.Outcome{}, ctx.Err()
+			session.canceled = true
+			if session.seed == nil || cleaning {
+				return runtime.Outcome{}, ctx.Err()
+			}
+			// A deferred replay must settle its transcript before cancellation is
+			// published. Deny subsequent tools and drain this process; killing it
+			// here would leave its journal reserved forever.
+			cleaning = true
+			if err := d.cancelReplay(session.seed); err != nil {
+				return runtime.Outcome{}, err
+			}
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancellationCleanupTimeout)
+			defer cancel()
+			ctx, sink = cleanupCtx, discardSink{ModelCallSink: sink}
 		}
 	}
 }
 
-func (p *pendingTurn) Request() runtime.InputRequest { return p.pending.approvalRequest() }
-
-// Resume resolves the permission MCP call and continues consuming the same process
-// until it completes, fails, or returns another PendingTurn.
-func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
-	sessionOwnedByPendingTurn := false
-	defer func() {
-		if !sessionOwnedByPendingTurn {
-			p.driver.stopSession(p.session)
-		}
-	}()
-	decision, ok := response.(*runtime.ApprovalDecision)
-	if !ok {
-		return runtime.Outcome{}, fmt.Errorf("Claude is waiting for a structured tool approval response")
-	}
-	if decision.ID != p.pending.request.ID {
-		return runtime.Outcome{}, fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, p.pending.request.ID)
-	}
-	if err := p.pending.resolve(*decision); err != nil {
-		return runtime.Outcome{}, err
-	}
-	outcome, err := p.driver.consume(ctx, p.session, resumedEventSink{EventSink: sink})
-	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
-	return outcome, err
-}
-
-// Cancel denies the outstanding permission MCP call and reaps the Claude process.
-func (p *pendingTurn) Cancel(_ context.Context) error {
-	_ = p.pending.resolve(runtime.ApprovalDecision{
-		ID: p.pending.request.ID, Approved: false, RejectionReason: "The task was canceled.",
-	})
-	p.driver.stopSession(p.session)
-	return nil
-}
-
-// Close releases the Actor-local permission MCP listener. Pending process ownership is
-// transferred to the runtime.PendingTurn returned by Run.
+// Close releases the ephemeral permission and hook listener.
 func (d *ProcessDriver) Close() error {
 	if d.config.ApprovalBroker != nil {
 		return d.config.ApprovalBroker.Close()
@@ -414,7 +437,7 @@ func (d *ProcessDriver) Close() error {
 // provided event sink, which is then consumed by the shared A2A executor.
 func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Outcome, error) {
 	if terminal {
-		return nil, fmt.Errorf("claude emitted activity after its terminal result")
+		return nil, fmt.Errorf("claude emitted %s after its terminal result", event.Kind)
 	}
 	switch event.Kind {
 	case EventSessionStarted:
@@ -424,9 +447,9 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	case EventToolActivity:
 		switch event.ToolPhase {
 		case "started":
-			return nil, sink.ToolCall(runtime.ToolCall{
-				ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata,
-			})
+			call := runtime.ToolCall{ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata, ParentToolID: event.ParentToolID}
+			call.MCPServer, call.MCPTool = splitMCPName(event.ToolName)
+			return nil, sink.ToolCall(call)
 		case "completed":
 			return nil, sink.ToolResult(runtime.ToolResult{
 				ID: event.ToolID, Name: event.ToolName, Result: event.ToolResult, IsError: event.ToolError,
@@ -434,6 +457,9 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 		default:
 			return nil, fmt.Errorf("claude tool activity has unsupported phase %q", event.ToolPhase)
 		}
+	case EventModelCall:
+		sink.ModelCall(*event.ModelCall)
+		return nil, nil
 	case EventCompleted:
 		return &runtime.Outcome{}, nil
 	case EventFailed:
@@ -443,9 +469,19 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	}
 }
 
-func (d *ProcessDriver) stopSession(session *processSession) {
+func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelCallSink) {
 	session.stopOnce.Do(func() {
-		close(session.stopEmit)
+		drained := make(chan struct{})
+		go func() {
+			defer close(drained)
+			for item := range session.items {
+				if item.event != nil && item.event.ModelCall != nil {
+					call := *item.event.ModelCall
+					call.Canceled = session.canceled && call.UsagePartial
+					sink.ModelCall(call)
+				}
+			}
+		}()
 		_ = utils.InterruptProcessGroup(session.command.Process)
 		timer := time.NewTimer(d.config.InterruptGrace)
 		defer timer.Stop()
@@ -458,9 +494,21 @@ func (d *ProcessDriver) stopSession(session *processSession) {
 			_ = utils.KillProcessGroup(session.command.Process)
 			<-session.wait
 		}
-		for range session.items {
-		}
+		<-drained
+		close(session.stopEmit)
 	})
 }
 
-var _ runtime.PendingTurn = (*pendingTurn)(nil)
+// splitMCPName splits Claude's mcp__<server>__<tool> name at the first "__". Agent server
+// names come from Kubernetes names, which never contain "__"; plugin servers are best effort.
+func splitMCPName(name string) (server, tool string) {
+	rest, ok := strings.CutPrefix(name, "mcp__")
+	if !ok {
+		return "", ""
+	}
+	server, tool, ok = strings.Cut(rest, "__")
+	if !ok || server == "" || tool == "" {
+		return "", ""
+	}
+	return server, tool
+}

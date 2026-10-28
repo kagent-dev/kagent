@@ -13,15 +13,13 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
+
+	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 )
 
 const maxOutputSchemaBytes = 64 << 10
 
-// portableOutputSchemaMetaSchema describes the JSON Schema subset that every
-// supported kagent ADK integration can consume. It is deliberately itself a
-// JSON Schema so keyword forms and recursive schema locations are validated by
-// jsonschema-go rather than by a parallel handwritten schema implementation.
-const portableOutputSchemaMetaSchema = `{
+const portableOutputSchemaMetaSchemaTemplate = `{
 	"$schema":"https://json-schema.org/draft/2020-12/schema",
 	"$defs":{
 		"schema":{
@@ -36,14 +34,22 @@ const portableOutputSchemaMetaSchema = `{
 				"const":{},
 				"description":{"type":"string"},
 				"enum":{"type":"array","minItems":1},
+				"format":{"enum":%s},
 				"items":{"$ref":"#/$defs/schema"},
+				"pattern":{"type":"string"},
 				"properties":{"type":"object","additionalProperties":{"$ref":"#/$defs/schema"}},
 				"required":{"type":"array","items":{"type":"string","minLength":1},"uniqueItems":true},
 				"title":{"type":"string"},
-				"type":{"enum":["object","array","string","number","integer","boolean","null"]}
+				"type":{"anyOf":[{"$ref":"#/$defs/typeName"},{"type":"array","minItems":1,"uniqueItems":true,"items":{"$ref":"#/$defs/typeName"}}]}
 			},
-			"additionalProperties":false
-		}
+			"additionalProperties":false,
+			"dependentSchemas":{
+				"format":{"$ref":"#/$defs/stringSchema"},
+				"pattern":{"$ref":"#/$defs/stringSchema"}
+			}
+		},
+		"typeName":{"enum":["object","array","string","number","integer","boolean","null"]},
+		"stringSchema":{"properties":{"type":{"anyOf":[{"const":"string"},{"type":"array","contains":{"const":"string"}}]}},"required":["type"]}
 	},
 	"allOf":[{"$ref":"#/$defs/schema"}],
 	"properties":{"type":{"const":"object"}},
@@ -51,8 +57,12 @@ const portableOutputSchemaMetaSchema = `{
 }`
 
 var resolvePortableOutputSchemaMetaSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
+	formats, err := json.Marshal(adkoutputschema.SupportedStringFormats())
+	if err != nil {
+		return nil, fmt.Errorf("encode supported output formats: %w", err)
+	}
 	var schema jsonschema.Schema
-	if err := json.Unmarshal([]byte(portableOutputSchemaMetaSchema), &schema); err != nil {
+	if err := json.Unmarshal(fmt.Appendf(nil, portableOutputSchemaMetaSchemaTemplate, formats), &schema); err != nil {
 		return nil, fmt.Errorf("decode portable output meta-schema: %w", err)
 	}
 	resolved, err := schema.Resolve(nil)
@@ -68,6 +78,7 @@ type ResolvedOutputSchema struct {
 	Schema []byte
 	SHA256 string
 	Source *ResolvedConfigMapKeyReference
+	Strict bool
 }
 
 // ResolvedConfigMapKeyReference identifies the exact ConfigMap input used by a
@@ -105,7 +116,7 @@ func (c *Compiler) resolveOutputSchema(_ context.Context, template *TemplateConf
 		return nil, NewValidationError("invalid output schema: %v", err)
 	}
 	digest := sha256.Sum256(canonical)
-	return &ResolvedOutputSchema{Schema: canonical, SHA256: hex.EncodeToString(digest[:]), Source: source}, nil
+	return &ResolvedOutputSchema{Schema: canonical, SHA256: hex.EncodeToString(digest[:]), Source: source, Strict: template.Spec.OutputSchemaStrict}, nil
 }
 
 // validateOutputSchema validates a document against kagent's portable JSON
@@ -148,6 +159,9 @@ func validateOutputSchema(raw []byte) ([]byte, error) {
 	var schema jsonschema.Schema
 	if err := json.Unmarshal(canonical, &schema); err != nil {
 		return nil, fmt.Errorf("parse schema: %w", err)
+	}
+	if err := adkoutputschema.CheckPatterns(&schema); err != nil {
+		return nil, err
 	}
 	if _, err := schema.Resolve(nil); err != nil {
 		return nil, fmt.Errorf("resolve schema: %w", err)

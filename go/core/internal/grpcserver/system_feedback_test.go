@@ -6,42 +6,102 @@ import (
 	"strings"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	kubetesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
+
+func TestCurrentUserServiceAccountGeneratedClient(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		groups []string
+		want   []any
+	}{
+		{name: "populated", groups: []string{"system:serviceaccounts", "system:authenticated"}, want: []any{"system:serviceaccounts", "system:authenticated"}},
+		{name: "empty", groups: []string{}, want: []any{}},
+		{name: "nil", want: []any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+				"sub": "system:serviceaccount:ns:caller", "groups": []string{"unverified"},
+			}).SignedString([]byte("test-key"))
+			require.NoError(t, err)
+			kube := kubefake.NewClientset()
+			kube.PrependReactor("create", "tokenreviews", func(action kubetesting.Action) (bool, runtime.Object, error) {
+				request := action.(kubetesting.CreateAction).GetObject().(*authenticationv1.TokenReview)
+				return true, &authenticationv1.TokenReview{Status: authenticationv1.TokenReviewStatus{
+					Authenticated: true, Audiences: request.Spec.Audiences,
+					User: authenticationv1.UserInfo{Username: "system:serviceaccount:ns:caller", UID: "sa-uid", Groups: tc.groups},
+				}}, nil
+			})
+			listener := bufconn.Listen(DefaultMaxMessageSize)
+			server, err := New(Config{
+				Listener:      listener,
+				Authenticator: authimpl.NewServiceAccountProvider(&authimpl.InsecureAuthenticator{}, kube.AuthenticationV1().TokenReviews(), "cluster"),
+				SystemService: systemservice.NewService(nil, nil, pkgauth.NoopAuthorizer{}, nil),
+			})
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- server.Start(ctx) }()
+			t.Cleanup(func() {
+				cancel()
+				require.NoError(t, <-done)
+			})
+			connection, err := grpc.NewClient("passthrough:///bufnet",
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = connection.Close() })
+			client := apiv1.NewSystemServiceClient(connection)
+			requestCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", "Bearer "+token))
+			for range 2 {
+				current, err := client.GetCurrentUser(requestCtx, &apiv1.GetCurrentUserRequest{})
+				require.NoError(t, err)
+				require.Equal(t, map[string]any{"username": "system:serviceaccount:ns:caller", "groups": tc.want}, current.GetClaims().AsMap())
+			}
+			require.Len(t, kube.Actions(), 1, "both fresh and cached identities must serialize")
+		})
+	}
+}
 
 func TestSystemGeneratedClient(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("corev1.AddToScheme() error = %v", err)
 	}
-	if err := atev1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("atev1alpha1.AddToScheme() error = %v", err)
+	if err := atev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("atev1.AddToScheme() error = %v", err)
 	}
-	workerPool := &atev1alpha1.WorkerPool{
+	workerPool := &atev1.WorkerPool{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "alpha", Name: "pool", Labels: map[string]string{"team": "agents"}},
-		Spec: atev1alpha1.WorkerPoolSpec{
+		Spec: atev1.WorkerPoolSpec{
 			Replicas: 2, WorkerImage: "ateom:test",
-			Template: &atev1alpha1.WorkerPoolPodTemplate{NodeSelector: map[string]string{"disk": "ssd"}},
+			Template: &atev1.WorkerPoolPodTemplate{NodeSelector: map[string]string{"disk": "ssd"}},
 		},
-		Status: atev1alpha1.WorkerPoolStatus{Replicas: 2, ReadyReplicas: 1},
+		Status: atev1.WorkerPoolStatus{Replicas: 2, ReadyReplicas: 1},
 	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		workerPool,
@@ -78,8 +138,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	t.Cleanup(func() { _ = connection.Close() })
 
 	userContext := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "system-user"))
-	systemClient := apiv1alpha1.NewSystemServiceClient(connection)
-	currentUser, err := systemClient.GetCurrentUser(userContext, &apiv1alpha1.GetCurrentUserRequest{})
+	systemClient := apiv1.NewSystemServiceClient(connection)
+	currentUser, err := systemClient.GetCurrentUser(userContext, &apiv1.GetCurrentUserRequest{})
 	if err != nil {
 		t.Fatalf("GetCurrentUser() error = %v", err)
 	}
@@ -87,7 +147,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 		t.Fatalf("GetCurrentUser() sub = %q, want system-user", got)
 	}
 
-	namespaces, err := systemClient.ListNamespaces(userContext, &apiv1alpha1.ListNamespacesRequest{})
+	namespaces, err := systemClient.ListNamespaces(userContext, &apiv1.ListNamespacesRequest{})
 	if err != nil {
 		t.Fatalf("ListNamespaces() error = %v", err)
 	}
@@ -103,7 +163,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 	 * is a successful answer. A service-level test sees none
 	 * of that — it never passes through the interceptors or the generated client.
 	 */
-	summary, err := systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: "alpha"})
+	summary, err := systemClient.GetSubstrateSummary(userContext, &apiv1.GetSubstrateSummaryRequest{Namespace: "alpha"})
 	if err != nil {
 		t.Fatalf("GetSubstrateSummary() error = %v", err)
 	}
@@ -114,8 +174,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	for _, pool := range summary.GetWorkerPools() {
 		assert.Equal(t, "alpha", pool.GetRef().GetNamespace())
 		assert.Equal(t, "pool", pool.GetRef().GetName())
-		assert.Equal(t, atev1alpha1.GroupVersion.String(), pool.GetResource().GetApiVersion())
-		var decoded atev1alpha1.WorkerPool
+		assert.Equal(t, atev1.GroupVersion.String(), pool.GetResource().GetApiVersion())
+		var decoded atev1.WorkerPool
 		require.NoError(t, structuredobject.ToGo(pool.GetResource(), "WorkerPool", &decoded, DefaultMaxMessageSize))
 		assert.Equal(t, workerPool.Labels, decoded.Labels)
 		assert.Equal(t, workerPool.Name, decoded.Name)
@@ -124,9 +184,9 @@ func TestSystemGeneratedClient(t *testing.T) {
 		assert.Equal(t, workerPool.Status, decoded.Status)
 	}
 
-	actors, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
+	actors, err := systemClient.ListSubstrateActors(userContext, &apiv1.ListSubstrateActorsRequest{
 		Atespace: "alpha",
-		Page:     &apiv1alpha1.PageRequest{Limit: 100},
+		Page:     &apiv1.PageRequest{Limit: 100},
 	})
 	if err != nil {
 		t.Fatalf("ListSubstrateActors() error = %v", err)
@@ -135,9 +195,9 @@ func TestSystemGeneratedClient(t *testing.T) {
 		t.Fatalf("ListSubstrateActors() = %+v, want empty page", actors)
 	}
 
-	workers, err := systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{
+	workers, err := systemClient.ListSubstrateWorkers(userContext, &apiv1.ListSubstrateWorkersRequest{
 		Namespace: "alpha",
-		Page:      &apiv1alpha1.PageRequest{Limit: 100},
+		Page:      &apiv1.PageRequest{Limit: 100},
 	})
 	if err != nil {
 		t.Fatalf("ListSubstrateWorkers() error = %v", err)
@@ -152,13 +212,13 @@ func TestSystemGeneratedClient(t *testing.T) {
 			if namespace == "" || namespace == "a" || namespace == "team-1" || namespace == strings.Repeat("a", 63) {
 				want = codes.OK
 			}
-			_, err := systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: namespace})
+			_, err := systemClient.GetSubstrateSummary(userContext, &apiv1.GetSubstrateSummaryRequest{Namespace: namespace})
 			assert.Equal(t, want, status.Code(err), "summary")
-			_, err = systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: namespace})
+			_, err = systemClient.ListSubstrateActors(userContext, &apiv1.ListSubstrateActorsRequest{Atespace: namespace})
 			assert.Equal(t, want, status.Code(err), "actors")
-			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Atespace: namespace})
+			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1.GetSubstrateSummaryRequest{Atespace: namespace})
 			assert.Equal(t, want, status.Code(err), "summary atespace")
-			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{Namespace: namespace})
+			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1.ListSubstrateWorkersRequest{Namespace: namespace})
 			assert.Equal(t, want, status.Code(err), "workers")
 		})
 	}
@@ -171,12 +231,12 @@ func TestSystemGeneratedClient(t *testing.T) {
 		{name: "oversized limit", limit: 101},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
-				Page: &apiv1alpha1.PageRequest{Limit: tc.limit},
+			_, err := systemClient.ListSubstrateActors(userContext, &apiv1.ListSubstrateActorsRequest{
+				Page: &apiv1.PageRequest{Limit: tc.limit},
 			})
 			assert.Equal(t, codes.InvalidArgument, status.Code(err), "actors")
-			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{
-				Page: &apiv1alpha1.PageRequest{Limit: tc.limit},
+			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1.ListSubstrateWorkersRequest{
+				Page: &apiv1.PageRequest{Limit: tc.limit},
 			})
 			assert.Equal(t, codes.InvalidArgument, status.Code(err), "workers")
 		})

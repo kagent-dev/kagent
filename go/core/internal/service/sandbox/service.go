@@ -9,16 +9,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"google.golang.org/protobuf/proto"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"google.golang.org/protobuf/proto"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Config struct {
@@ -48,7 +49,7 @@ func (s *Service) principal(ctx context.Context, verb auth.Verb, resource auth.R
 		return auth.Principal{}, serviceerrors.NewPermissionDenied("Agent shares do not grant sandbox access", nil)
 	}
 	session, ok := auth.AuthSessionFrom(ctx)
-	if !ok || session.Principal().User.ID == "" {
+	if !ok || session.Principal().ID == "" {
 		return auth.Principal{}, serviceerrors.NewUnauthenticated("Sandbox access requires an authenticated owner", nil)
 	}
 	principal := session.Principal()
@@ -58,7 +59,7 @@ func (s *Service) principal(ctx context.Context, verb auth.Verb, resource auth.R
 	return principal, nil
 }
 
-func (s *Service) Create(ctx context.Context, request *apiv1alpha1.CreateSandboxRequest) (*apiv1alpha1.Sandbox, error) {
+func (s *Service) Create(ctx context.Context, request *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
 	principal, err := s.principal(ctx, auth.VerbCreate, auth.Resource{Type: "Sandbox"})
 	if err != nil {
 		return nil, err
@@ -93,8 +94,8 @@ func (s *Service) Create(ctx context.Context, request *apiv1alpha1.CreateSandbox
 	if err != nil {
 		return nil, err
 	}
-	instance, _, err := s.config.Store.CreateSandbox(ctx, &apiv1alpha1.Sandbox{
-		Id: id.String(), Creator: principal.User.ID, Name: request.Name, SandboxTemplate: ref,
+	instance, _, err := s.config.Store.CreateSandbox(ctx, &apiv1.Sandbox{
+		Id: id.String(), Creator: principal.ID, Name: request.Name, SandboxTemplate: ref,
 	}, request.RequestId, database.SandboxCreateOptions{RequestHash: hash, TemplateUID: string(template.UID), TTL: ttl})
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewFailedPrecondition("SandboxTemplate has no prepared revision", err)
@@ -102,23 +103,23 @@ func (s *Service) Create(ctx context.Context, request *apiv1alpha1.CreateSandbox
 	if err != nil {
 		return nil, sandboxError(err)
 	}
-	return s.run(ctx, instance.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	return s.run(ctx, instance.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 }
 
-func (s *Service) authorized(ctx context.Context, id string, verb auth.Verb) (*apiv1alpha1.Sandbox, error) {
+func (s *Service) authorized(ctx context.Context, id string, verb auth.Verb) (*apiv1.Sandbox, error) {
 	principal, err := s.principal(ctx, verb, auth.Resource{Type: "Sandbox", Name: id})
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.config.Store.GetSandbox(ctx, id, principal.User.ID)
+	instance, err := s.config.Store.GetSandbox(ctx, id, principal.ID)
 	return instance, sandboxError(err)
 }
 
-func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.Sandbox, error) {
+func (s *Service) Get(ctx context.Context, id string) (*apiv1.Sandbox, error) {
 	return s.authorized(ctx, id, auth.VerbGet)
 }
 
-func (s *Service) List(ctx context.Context, request *apiv1alpha1.ListSandboxesRequest) (*apiv1alpha1.ListSandboxesResponse, error) {
+func (s *Service) List(ctx context.Context, request *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error) {
 	principal, err := s.principal(ctx, auth.VerbList, auth.Resource{Type: "Sandbox"})
 	if err != nil {
 		return nil, err
@@ -141,11 +142,11 @@ func (s *Service) List(ctx context.Context, request *apiv1alpha1.ListSandboxesRe
 		}
 		after = string(decoded)
 	}
-	instances, err := s.config.Store.ListSandboxes(ctx, principal.User.ID, after, limit+1, request.SandboxTemplate)
+	instances, err := s.config.Store.ListSandboxes(ctx, principal.ID, after, limit+1, request.SandboxTemplate)
 	if err != nil {
 		return nil, sandboxError(err)
 	}
-	response := &apiv1alpha1.ListSandboxesResponse{Sandboxes: instances, Page: &apiv1alpha1.PageResponse{}}
+	response := &apiv1.ListSandboxesResponse{Sandboxes: instances, Page: &apiv1.PageResponse{}}
 	if len(instances) > limit {
 		response.Sandboxes = instances[:limit]
 		response.Page.NextPageToken = base64.RawURLEncoding.EncodeToString([]byte(instances[limit-1].Id))
@@ -153,25 +154,25 @@ func (s *Service) List(ctx context.Context, request *apiv1alpha1.ListSandboxesRe
 	return response, nil
 }
 
-func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Sandbox, error) {
+func (s *Service) Suspend(ctx context.Context, id string) (*apiv1.Sandbox, error) {
 	if _, err := s.authorized(ctx, id, auth.VerbUpdate); err != nil {
 		return nil, err
 	}
-	return s.run(ctx, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	return s.run(ctx, id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 }
 
-func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Sandbox, error) {
+func (s *Service) Resume(ctx context.Context, id string) (*apiv1.Sandbox, error) {
 	if _, err := s.authorized(ctx, id, auth.VerbUpdate); err != nil {
 		return nil, err
 	}
-	return s.run(ctx, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+	return s.run(ctx, id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 }
 
-func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Sandbox, error) {
+func (s *Service) Delete(ctx context.Context, id string) (*apiv1.Sandbox, error) {
 	if _, err := s.authorized(ctx, id, auth.VerbDelete); err != nil {
 		return nil, err
 	}
-	return s.run(ctx, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	return s.run(ctx, id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 }
 
 func requestHash(request proto.Message) ([]byte, error) {

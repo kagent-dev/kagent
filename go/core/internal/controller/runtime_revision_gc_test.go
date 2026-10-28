@@ -9,10 +9,11 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 )
 
 func TestRuntimeRevisionGCRejectsInvalidInterval(t *testing.T) {

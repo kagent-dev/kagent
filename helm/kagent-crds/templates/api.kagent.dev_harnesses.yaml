@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: harnesses.api.kagent.dev
 spec:
   group: api.kagent.dev
@@ -114,20 +114,21 @@ spec:
                         properties:
                           modelConfigRef:
                             description: |-
-                              ModelConfigRef references the ModelConfig in the Harness namespace that
+                              ModelConfigRef references the ModelConfig (defaulting to the Harness namespace) that
                               writes the summaries. Omitted uses the agent's own model.
                             properties:
                               name:
-                                default: ""
-                                description: |-
-                                  Name of the referent.
-                                  This field is effectively required, but due to backwards compatibility is
-                                  allowed to be empty. Instances of this type with an empty value here are
-                                  almost certainly wrong.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                maxLength: 253
+                                minLength: 1
+                                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                 type: string
+                              namespace:
+                                maxLength: 63
+                                pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                                type: string
+                            required:
+                            - name
                             type: object
-                            x-kubernetes-map-type: atomic
                             x-kubernetes-validations:
                             - message: name must not be empty
                               rule: has(self.name) && self.name != ''
@@ -150,32 +151,34 @@ spec:
                         type: integer
                     type: object
                     x-kubernetes-validations:
-                    - message: compactionInterval or tokenThreshold must be specified
-                      rule: has(self.compactionInterval) || has(self.tokenThreshold)
                     - message: tokenThreshold and eventRetentionSize must be specified
                         together
                       rule: has(self.tokenThreshold) == has(self.eventRetentionSize)
                     - message: overlapSize requires compactionInterval
                       rule: '!has(self.overlapSize) || has(self.compactionInterval)'
+                    - message: at least one of the fields in [compactionInterval tokenThreshold]
+                        must be set
+                      rule: has(self.compactionInterval)||has(self.tokenThreshold)
                   memory:
                     description: Memory enables long-term memory for agents using
                       this Harness.
                     properties:
                       modelConfigRef:
                         description: ModelConfigRef references the embedding ModelConfig
-                          in the Harness namespace.
+                          (defaulting to the Harness namespace).
                         properties:
                           name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
+                          namespace:
+                            maxLength: 63
+                            pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                            type: string
+                        required:
+                        - name
                         type: object
-                        x-kubernetes-map-type: atomic
                       ttlDays:
                         description: TTLDays controls how many days a stored memory
                           entry remains valid.
@@ -226,8 +229,8 @@ spec:
                 - message: workerPoolRef name must not be empty
                   rule: self.workerPoolRef.name.size() > 0
               workload:
-                description: HarnessWorkload identifies the immutable runtime image
-                  used by a Harness.
+                description: Workload overrides the built-in runtime image and its
+                  command. BYO requires it.
                 properties:
                   args:
                     description: Args overrides the image command arguments when set.
@@ -242,23 +245,25 @@ spec:
                     maxItems: 32
                     type: array
                   image:
-                    description: Image is an OCI image reference pinned by sha256
-                      digest.
+                    description: |-
+                      Image overrides the release's built-in runtime image. BYO requires an image.
+                      When set, it must be an OCI image reference pinned by sha256 digest.
                     pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
                     type: string
-                required:
-                - image
                 type: object
             required:
             - substrate
-            - workload
             type: object
             x-kubernetes-validations:
-            - message: exactly one of kagent, codex, claude, or byo must be specified
-              rule: '(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude)
-                ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1'
             - message: BYO harnesses must specify workload.command
-              rule: '!has(self.byo) || size(self.workload.command) > 0'
+              rule: '!has(self.byo) || (has(self.workload) && has(self.workload.command)
+                && size(self.workload.command) > 0)'
+            - message: BYO harnesses must specify workload.image
+              rule: '!has(self.byo) || (has(self.workload) && has(self.workload.image))'
+            - message: exactly one of the fields in [kagent codex claude byo] must
+                be set
+              rule: (has(self.kagent)?1:0)+(has(self.codex)?1:0)+(has(self.claude)?1:0)+(has(self.byo)?1:0)
+                == 1
           status:
             description: HarnessStatus reports controller-derived capabilities and
               current health.

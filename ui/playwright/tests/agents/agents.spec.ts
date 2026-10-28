@@ -10,13 +10,20 @@ import {
   routes,
   withScenario,
 } from "../../helpers/app";
-import { clickRefresh } from "../../helpers/resource";
+import { clickRefresh, optionNamed, pressOnce } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
-import { optionNamed } from "../../helpers/resource";
 import { background, settledPaint } from "../../helpers/style";
 
-/** Agents — each row is one explicit Agent, whose template and harness are each shared or inline. */
-test("agents: the list is Agent resources, with each half shared or inline", async ({
+test("agents: an empty Harness selector links to Harness creation", async ({ page }) => {
+  await loadPage(page, routes.agentNew, { scenario: "empty", title: "New agent" });
+  await page.getByTestId("agent-form-harness-ref").click();
+
+  const createHarness = page.getByRole("link", { name: "Create a harness" });
+  await expect(createHarness).toHaveAttribute("href", routes.harnessNew);
+});
+
+/** Agents -- each row is one explicit Agent with behavior and a referenced Harness. */
+test("agents: the list is Agent resources with explicit template and harness sources", async ({
   page,
 }) => {
   await test.step("1. every namespace by default", async () => {
@@ -27,15 +34,15 @@ test("agents: the list is Agent resources, with each half shared or inline", asy
     await expect(page.getByTestId("agents-table")).toContainText("analytics");
   });
 
-  await test.step("2. each row says whether its template and harness are shared or inline", async () => {
+  await test.step("2. each row shows its template source and referenced Harness", async () => {
     const sources = async (name: string) => [
       await page.getByTestId(`agent-template-kagent/${name}`).getAttribute("data-source"),
       await page.getByTestId(`agent-harness-kagent/${name}`).getAttribute("data-source"),
     ];
     expect(await sources("shared-brain")).toEqual(["reference", "reference"]);
     expect(await sources("release-notes")).toEqual(["inline", "reference"]);
-    expect(await sources("triage-on-claude")).toEqual(["reference", "inline"]);
-    expect(await sources("scratchpad")).toEqual(["inline", "inline"]);
+    expect(await sources("triage-on-claude")).toEqual(["reference", "reference"]);
+    expect(await sources("scratchpad")).toEqual(["inline", "reference"]);
     await expect(page.getByTestId("agent-template-kagent/shared-brain")).toHaveText("shared-brain");
     await expect(page.getByTestId("agent-harness-kagent/shared-brain")).toHaveText("k8s-agent");
   });
@@ -103,13 +110,11 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
 
   await test.step("2. choosing one narrows the list and shows it as a pill", async () => {
     await page.getByTestId("agents-filters-filter-ns").click();
-    // Located by `title` on the option element, not by role: rc-select renders a
-    // second, zero-sized `role=listbox` for screen readers, and Playwright resolves
-    // it happily and then waits for a visibility that never arrives.
-    await optionNamed(page, "analytics").click();
-    await page.keyboard.press("Escape");
-
+    // Wait for the dropdown to settle before selecting. A click during its entrance
+    // animation can miss the option, leaving no filter pill after Escape closes it.
+    await pressOnce(optionNamed(page, "analytics"));
     await expect(page.getByTestId("agents-filters-pill-ns-analytics")).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(dataRows(page)).toHaveCount(1);
     // In the address, so a narrowed view can be linked to and survives a reload.
     await expect(page).toHaveURL(/ns=analytics/);

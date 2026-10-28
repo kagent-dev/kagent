@@ -13,25 +13,27 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 type Compiler struct {
+	settings    *configv1.RuntimeDefaultsConfig
 	ctx         krt.HandlerContext
 	collections translator.Collections
 }
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{settings: settings, ctx: ctx, collections: collections}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
@@ -42,22 +44,24 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, translator.NewValidationError("Claude ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
-		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
+	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || ptr.Deref(model.Spec.TokenPassthrough, false) {
+		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough yet")
 	}
-	telemetryConfig, _ := translator.TelemetryConfigFromProcess()
-	logConfig := telemetryConfig.Logs
+	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
+	if err != nil {
+		return nil, err
+	}
 	template, harness := input.Root.Template, input.Harness
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
 	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
 		tracing.RuntimeClaude, input.AgentName, template.Namespace, model.Spec)
 
-	providerEnvironment, egress, err := c.provider(ctx, model)
+	providerEnvironment, egress, err := c.provider(ctx, input.Root.ResolvedModelConfig)
 	if err != nil {
 		return nil, err
 	}
-	skillResources, skillEgress, err := translator.CompileSkillResources(input.Root.Template)
+	skills, err := translator.CompileSkillResources(input.Root.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -67,30 +71,16 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	}
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
-	harnessAttributes := translator.HarnessResourceAttributes(input.Harness)
 	for _, variable := range input.Harness.Spec.Env {
-		if translator.IsResourceAttributesVariable(variable.Name) {
-			continue
-		}
-		if variable.Name == env.KagentAPIURL.Name() || claudeconfig.OwnsEnvironment(variable.Name) || translator.OwnsTelemetryEnvironment(variable.Name) {
+		if claudeconfig.OwnsEnvironment(variable.Name) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
-	environment = append(environment,
-		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
-		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-	)
-	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
-	// The adapter derives Claude Code's own telemetry flags; raw bodies have no
-	// compiled field yet.
-	if telemetryConfig.CaptureRawAPIBodies && logConfig.Enabled {
-		environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"})
-	}
+
+	environment = append(environment, corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"})
 
 	localAgents, err := c.compileLocalAgents(input.Root)
 	if err != nil {
@@ -99,8 +89,11 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
-	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
-		config.SkillResources = &skillResources
+	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()
+	config.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
+	config.LogLevel = c.settings.GetLogging().GetLevel()
+	if len(skills.Resources.Skills) != 0 || len(skills.Resources.Plugins) != 0 {
+		config.SkillResources = &skills.Resources
 	}
 	config.MCPServers = mcp.servers
 	if err := config.Validate(); err != nil {
@@ -118,25 +111,26 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, err := translator.CompileCredentials(input, nil, environment)
+	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
 
-	egress = append(egress, skillEgress...)
+	egress = append(egress, skills.Egress...)
 	egress = append(egress, mcp.egress...)
-	egress = append(egress, telemetryConfig.Destinations()...)
-	egress = append(egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
+	egress = append(egress, telemetryConfig.Destinations(environment)...)
+	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &translator.CompileResult{
 		Revision: translator.Revision{
-			Namespace: template.Namespace,
-			Image:     harness.Spec.Workload.Image, Environment: environment,
-			ConfigJSON: configJSON, AgentCard: card,
-			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
-			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			Credentials:      credentials, Provenance: provenance, EgressDestinations: egress,
+			Namespace:   template.Namespace,
+			SkillImages: skills.Images,
+			Environment: environment,
+			ConfigJSON:  configJSON, AgentCard: card,
+			WorkerPoolName:          harness.Spec.Substrate.WorkerPoolRef.Name,
+			SnapshotLocation:        harness.Spec.Substrate.SnapshotPolicy.Location,
+			TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -162,7 +156,7 @@ func (c *Compiler) compileLocalAgents(root *translator.AgentInput) (map[string]c
 		if strings.TrimSpace(childModel.Spec.Model) == "" {
 			return nil, translator.NewValidationError("Claude local agent %q ModelConfig model is required", binding.Name)
 		}
-		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, childModel.Spec) {
+		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, childModel.Spec) || !translator.SameModelCredentials(root.ResolvedModelConfig.Config, childModel) {
 			return nil, translator.NewValidationError("Claude local agent %q must use the root agent's provider and authentication configuration", binding.Name)
 		}
 		if _, exists := agents[binding.Name]; exists {
@@ -179,10 +173,20 @@ func (c *Compiler) compileLocalAgents(root *translator.AgentInput) (map[string]c
 
 func sameProviderConfiguration(root, child v1alpha3.ModelConfigSpec) bool {
 	root.Model, child.Model = "", ""
+	root.AllowedNamespaces, child.AllowedNamespaces = nil, nil
 	return reflect.DeepEqual(root, child)
 }
 
-func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([]corev1.EnvVar, []string, error) {
+func (c *Compiler) provider(ctx context.Context, resolved *translator.ResolvedModelConfig) ([]corev1.EnvVar, []string, error) {
+	model := resolved.Config
+	var credential corev1.EnvVar
+	if model.Spec.ActorJWT != nil {
+		var err error
+		credential, err = translator.ActorJWTEnvironment(resolved)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderAnthropic:
 		var baseURL string
@@ -198,10 +202,13 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 				return nil, nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
 			}
 		}
-		if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
-			return nil, nil, err
+		if model.Spec.ActorJWT == nil {
+			if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
+				return nil, nil, err
+			}
+			credential = secretEnvironment(claudeconfig.AnthropicAPIKeyEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)
 		}
-		environment := []corev1.EnvVar{secretEnvironment(claudeconfig.AnthropicAPIKeyEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}
+		environment := []corev1.EnvVar{credential}
 		egress := []string{"https://api.anthropic.com:443"}
 		if baseURL != "" {
 			hostname, err := anthropicBaseURLOrigin(baseURL)
@@ -268,7 +275,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		return []corev1.EnvVar{
 			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
 			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{"https://" + vertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
+		}, []string{"https://" + translator.VertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
 	default:
 		return nil, nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
@@ -345,17 +352,6 @@ func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
 	}}}
 }
 
-func vertexHostname(location string) string {
-	switch location {
-	case "global":
-		return "aiplatform.googleapis.com"
-	case "us", "eu":
-		return "aiplatform." + location + ".rep.googleapis.com"
-	default:
-		return location + "-aiplatform.googleapis.com"
-	}
-}
-
 type provenanceEntry struct {
 	APIVersion string    `json:"apiVersion"`
 	Kind       string    `json:"kind"`
@@ -369,11 +365,10 @@ type provenanceEntry struct {
 func (c *Compiler) buildProvenance(ctx context.Context, input *translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	harness := input.Harness
 	var entries []provenanceEntry
-	// Inline configuration is recorded by the enclosing Agent provenance.
-	if harness.Source != nil {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
-	}
-	configMaps := map[string]struct{}{}
+	// The Harness is always a standalone resource. Inline template configuration
+	// is recorded by the enclosing Agent provenance below.
+	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
+	configMaps := map[types.NamespacedName]struct{}{}
 	objects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, content any) {
 		identity := kind + "\x00" + name
@@ -389,13 +384,15 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 		if template.Source != nil {
 			addObject("AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec)
 		}
-		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
+		// Qualify shared models so same-name resources in different namespaces
+		// remain distinct when deduplicating provenance and computing revisions.
+		addObject("ModelConfig", model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec)
 		if template.Spec.SystemPromptFrom != nil {
-			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
+			configMaps[types.NamespacedName{Namespace: harness.Namespace, Name: template.Spec.SystemPromptFrom.Name}] = struct{}{}
 		}
 		if template.Spec.PromptTemplate != nil {
 			for _, source := range template.Spec.PromptTemplate.DataSources {
-				configMaps[source.Name] = struct{}{}
+				configMaps[types.NamespacedName{Namespace: harness.Namespace, Name: source.Name}] = struct{}{}
 			}
 		}
 		for _, child := range agent.Shared {
@@ -404,37 +401,23 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 		for _, tool := range agent.MCPTools {
 			server := tool.Server
 			if server != nil {
-				addObject("RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec)
+				// Shared MCP servers also need namespace-qualified provenance identities.
+				addObject("RemoteMCPServer", server.Namespace+"/"+server.Name, server.UID, server.Generation, server.Spec)
+				for _, header := range server.Spec.HeadersFrom {
+					if header.ValueFrom != nil && header.ValueFrom.Type == v1alpha3.ConfigMapValueSource {
+						configMaps[types.NamespacedName{Namespace: server.Namespace, Name: header.ValueFrom.Name}] = struct{}{}
+					}
+				}
 			}
 		}
 	}
 	addAgent(input.Root)
 	for name := range configMaps {
-		configMap := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
+		configMap := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(name))
 		if configMap == nil {
 			return nil, fmt.Errorf("ConfigMap %q not found", name)
 		}
-		entries = append(entries, objectProvenance("v1", "ConfigMap", name, (*configMap).UID, (*configMap).Generation, (*configMap).Data))
-	}
-	seen := map[string]struct{}{}
-	for _, variable := range environment {
-		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
-			continue
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		identity := ref.Name + "\x00" + ref.Key
-		if _, ok := seen[identity]; ok {
-			continue
-		}
-		seen[identity] = struct{}{}
-		secret, err := c.secret(ctx, harness.Namespace, ref.Name)
-		if err != nil {
-			return nil, err
-		}
-		_, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
+		entries = append(entries, objectProvenance("v1", "ConfigMap", name.String(), (*configMap).UID, (*configMap).Generation, (*configMap).Data))
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)

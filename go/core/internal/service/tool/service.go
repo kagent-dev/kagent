@@ -6,33 +6,32 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/secretmaterial"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ServerType string
 
-const (
-	ServerTypeRemoteMCPServer ServerType = "RemoteMCPServer"
-	ServerTypeMCPServer       ServerType = "MCPServer"
-)
+const ServerTypeRemoteMCPServer ServerType = "RemoteMCPServer"
 
-var (
-	remoteMCPServerGVK = v1alpha3.GroupVersion.WithKind(string(ServerTypeRemoteMCPServer))
-	mcpServerGVK       = kmcp.GroupVersion.WithKind(string(ServerTypeMCPServer))
-)
+const toolServerResource = "ToolServer"
+
+var remoteMCPServerGVK = v1alpha3.GroupVersion.WithKind(string(ServerTypeRemoteMCPServer))
 
 type DiscoveryStore interface {
 	ListTools(context.Context) ([]database.Tool, error)
@@ -48,7 +47,7 @@ type MCPClient interface {
 type Service struct {
 	kubeClient       client.Client
 	discoveryStore   DiscoveryStore
-	authorizer       auth.Authorizer
+	authorizer       auth.CollectionAuthorizer
 	defaultNamespace string
 	mcpClient        MCPClient
 }
@@ -62,7 +61,6 @@ type ToolServer struct {
 type CreateToolServerRequest struct {
 	Type            ServerType
 	RemoteMCPServer *v1alpha3.RemoteMCPServer
-	MCPServer       *kmcp.MCPServer
 	Secrets         []secretmaterial.Material
 }
 
@@ -82,7 +80,7 @@ type MCPAppTool struct {
 func NewService(
 	kubeClient client.Client,
 	discoveryStore DiscoveryStore,
-	authorizer auth.Authorizer,
+	authorizer auth.CollectionAuthorizer,
 	defaultNamespace string,
 	mcpClient MCPClient,
 ) *Service {
@@ -99,23 +97,34 @@ func NewService(
 }
 
 func (s *Service) ListTools(ctx context.Context) ([]database.Tool, error) {
-	if err := requireSession(ctx); err != nil {
+	servers, err := s.visibleServers(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if len(servers) == 0 {
+		return []database.Tool{}, nil
 	}
 	tools, err := s.discoveryStore.ListTools(ctx)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to list tools", err)
 	}
-	return tools, nil
+	visible := make(map[[2]string]struct{}, len(servers))
+	for _, server := range servers {
+		visible[[2]string{server.Name, server.GroupKind}] = struct{}{}
+	}
+	result := make([]database.Tool, 0, len(tools))
+	for _, tool := range tools {
+		if _, ok := visible[[2]string{tool.ServerName, tool.GroupKind}]; ok {
+			result = append(result, tool)
+		}
+	}
+	return result, nil
 }
 
 func (s *Service) ListToolServers(ctx context.Context) ([]ToolServer, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "ToolServer"}); err != nil {
-		return nil, err
-	}
-	servers, err := s.discoveryStore.ListToolServers(ctx)
+	servers, err := s.visibleServers(ctx)
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to list ToolServers from database", err)
+		return nil, err
 	}
 	if len(servers) == 0 {
 		return []ToolServer{}, nil
@@ -140,6 +149,42 @@ func (s *Service) ListToolServers(ctx context.Context) ([]ToolServer, error) {
 	return result, nil
 }
 
+// Both discovery APIs authorize the owning server before returning tool metadata.
+// A tool's name alone cannot establish its parent: kind is part of the join even
+// though a policy grant intentionally covers kinds at the same namespace/name.
+func (s *Service) visibleServers(ctx context.Context) ([]database.ToolServer, error) {
+	matcher, err := kubeauth.CollectionMatcher(ctx, s.authorizer, toolServerResource)
+	if err != nil {
+		return nil, err
+	}
+	if matcher.Empty() {
+		return []database.ToolServer{}, nil
+	}
+	servers, err := s.discoveryStore.ListToolServers(ctx)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to list ToolServers from database", err)
+	}
+	result := make([]database.ToolServer, 0, len(servers))
+	for _, server := range servers {
+		namespace, name, ok := strings.Cut(server.Name, "/")
+		if !ok || len(utilvalidation.IsDNS1123Label(namespace)) != 0 || len(utilvalidation.IsDNS1123Subdomain(name)) != 0 {
+			continue
+		}
+		if !supportedDiscoveryKind(server.GroupKind) {
+			continue
+		}
+		identity := &metav1.ObjectMeta{Namespace: namespace, Name: name}
+		if matcher.Matches(identity) {
+			result = append(result, server)
+		}
+	}
+	return result, nil
+}
+
+func supportedDiscoveryKind(groupKind string) bool {
+	return groupKind == remoteMCPServerGVK.GroupKind().String() || groupKind == "Service"
+}
+
 func (s *Service) CreateToolServer(ctx context.Context, request CreateToolServerRequest) (client.Object, error) {
 	supportedTypes := s.supportedServerTypes()
 	if !slices.Contains(supportedTypes, request.Type) {
@@ -158,19 +203,13 @@ func (s *Service) CreateToolServer(ctx context.Context, request CreateToolServer
 		}
 		owner = request.RemoteMCPServer
 		gvk = remoteMCPServerGVK
-	case ServerTypeMCPServer:
-		if request.MCPServer == nil {
-			return nil, serviceerrors.NewInvalidArgument("MCPServer data is required when type is MCPServer", nil)
-		}
-		owner = request.MCPServer
-		gvk = mcpServerGVK
 	}
 
 	ref, err := normalizeCreateRef(owner, s.defaultNamespace)
 	if err != nil {
 		return nil, serviceerrors.NewInvalidArgument("Invalid ToolServer metadata", err)
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "ToolServer", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: toolServerResource, Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return nil, err
 	}
 	if err := secretmaterial.ValidateMaterials(request.Secrets); err != nil {
@@ -196,7 +235,7 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 	if ref.Namespace == "" || ref.Name == "" {
 		return serviceerrors.NewInvalidArgument("ToolServer namespace and name are required", nil)
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "ToolServer", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
+	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: toolServerResource, Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return err
 	}
 
@@ -206,10 +245,13 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 	}
 	groupKind := ""
 	for _, server := range servers {
-		if server.Name == ref.String() {
-			groupKind = server.GroupKind
-			break
+		if server.Name != ref.String() || !supportedDiscoveryKind(server.GroupKind) {
+			continue
 		}
+		if groupKind != "" && groupKind != server.GroupKind {
+			return serviceerrors.NewFailedPrecondition("ToolServer reference matches multiple resource kinds", nil)
+		}
+		groupKind = server.GroupKind
 	}
 	if groupKind == "" {
 		return serviceerrors.NewNotFound("ToolServer not found", nil)
@@ -219,8 +261,6 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 	switch groupKind {
 	case remoteMCPServerGVK.GroupKind().String():
 		object = &v1alpha3.RemoteMCPServer{}
-	case mcpServerGVK.GroupKind().String():
-		object = &kmcp.MCPServer{}
 	case "Service":
 		object = &corev1.Service{}
 	default:
@@ -239,7 +279,7 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 }
 
 func (s *Service) ListToolServerTypes(ctx context.Context) ([]ServerType, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "ToolServerType"}); err != nil {
+	if err := requireSession(ctx); err != nil {
 		return nil, err
 	}
 	return s.supportedServerTypes(), nil
@@ -297,21 +337,14 @@ func (s *Service) ReadMCPAppResource(ctx context.Context, ref MCPServerRef, uri 
 }
 
 func (s *Service) supportedServerTypes() []ServerType {
-	result := []ServerType{ServerTypeRemoteMCPServer}
-	if s.kubeClient != nil {
-		groupKind := schema.GroupKind{Group: kmcp.GroupVersion.Group, Kind: string(ServerTypeMCPServer)}
-		if _, err := s.kubeClient.RESTMapper().RESTMapping(groupKind); err == nil {
-			result = append(result, ServerTypeMCPServer)
-		}
-	}
-	return result
+	return []ServerType{ServerTypeRemoteMCPServer}
 }
 
 func (s *Service) authorizeMCP(ctx context.Context, verb auth.Verb, ref MCPServerRef) error {
 	if ref.Ref.Namespace == "" || ref.Ref.Name == "" {
 		return serviceerrors.NewInvalidArgument("ToolServer namespace and name are required", nil)
 	}
-	return s.authorize(ctx, verb, auth.Resource{Type: "ToolServer", Namespace: ref.Ref.Namespace, Name: ref.Ref.Name})
+	return s.authorize(ctx, verb, auth.Resource{Type: toolServerResource, Namespace: ref.Ref.Namespace, Name: ref.Ref.Name})
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {
@@ -359,8 +392,6 @@ func objectKindName(object client.Object) string {
 	switch object.(type) {
 	case *v1alpha3.RemoteMCPServer:
 		return "RemoteMCPServer"
-	case *kmcp.MCPServer:
-		return "MCPServer"
 	case *corev1.Service:
 		return "Service"
 	default:

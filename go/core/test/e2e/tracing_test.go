@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"slices"
 	"strings"
@@ -16,13 +15,8 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/otel"
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -34,11 +28,17 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -130,16 +130,8 @@ func TestOTLPTraceReceiverFlush(t *testing.T) {
 	require.NoError(t, err)
 	receiver, stop := serveOTLPTraceReceiver(listener)
 	t.Cleanup(func() { require.NoError(t, stop()) })
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_METRICS_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+listener.Addr().String())
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
-	t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
-	// Only an explicit flush can deliver the span during this test.
-	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
 	previous := otel.GetTracerProvider()
-	providers, err := telemetry.Init(t.Context(), telemetry.Options{})
+	providers, err := telemetry.Init(t.Context(), telemetry.Options{Config: telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://" + listener.Addr().String(), Protocol: "grpc"}}})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		otel.SetTracerProvider(previous)
@@ -338,6 +330,15 @@ func stringAttribute(attributes []*commonpb.KeyValue, key string) string {
 	return ""
 }
 
+func intAttribute(attributes []*commonpb.KeyValue, key string) (int64, bool) {
+	for _, attribute := range attributes {
+		if attribute.GetKey() == key {
+			return attribute.GetValue().GetIntValue(), true
+		}
+	}
+	return 0, false
+}
+
 func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)
@@ -482,6 +483,33 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			if version := stringAttribute(invocation.resource.GetAttributes(), "service.version"); len(version) != 12 {
 				t.Errorf("resource service.version = %q, want the short revision id", version)
 			}
+			// The mock answers in one model call, so the runtime writes exactly one chat span
+			// under the invocation, with the mock's token counts.
+			chats := receiver.selectSpans(traceID, "", "", "", map[string]string{tracing.AttributeOperationName: conv.GenAIOperationNameChat})
+			if len(chats) != 1 {
+				t.Fatalf("chat spans = %d, want exactly one before suspension: %s", len(chats), receiver.diagnostic(traceID))
+			}
+			chat := chats[0].span
+			if !bytes.Equal(chat.GetParentSpanId(), invocation.span.GetSpanId()) || chat.GetKind() != tracepb.Span_SPAN_KIND_CLIENT {
+				t.Errorf("chat span parent = %x, kind = %s, want a CLIENT child of the invocation", chat.GetParentSpanId(), chat.GetKind())
+			}
+			if got, want := chat.GetName(), "chat "+model.Spec.Model; got != want {
+				t.Errorf("chat span name = %q, want %q", got, want)
+			}
+			for key, want := range map[string]string{
+				tracing.AttributeProviderName:   test.provider,
+				tracing.AttributeRequestModel:   model.Spec.Model,
+				tracing.AttributeConversationID: streamed.contextID,
+			} {
+				if got := stringAttribute(chat.GetAttributes(), key); got != want {
+					t.Errorf("chat %s = %q, want %q", key, got, want)
+				}
+			}
+			for key, want := range map[string]int64{string(conv.GenAIUsageInputTokensKey): 10, string(conv.GenAIUsageOutputTokensKey): 4} {
+				if got, ok := intAttribute(chat.GetAttributes(), key); !ok || got != want {
+					t.Errorf("chat %s = %d (present %v), want %d", key, got, ok, want)
+				}
+			}
 			test.assertNative(t, receiver, traceID)
 		})
 	}
@@ -514,7 +542,7 @@ func createTracingTemplate(t *testing.T, harnessName, runtimeLabel, modelName st
 			Labels: map[string]string{"kagent.dev/e2e-runtime": runtimeLabel},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: modelName},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: modelName},
 			Description:  "Completed-chat trace flush E2E fixture",
 			SystemPrompt: "Reply concisely and follow the requested output format exactly.",
 		},
@@ -550,23 +578,9 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 	t.Helper()
 	_, request := newMessageRequest(t, text)
 	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
-	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
-	if err != nil {
-		t.Fatalf("start streaming traced A2A message: %v", err)
-	}
 	var turn tracedTurn
 	terminalEvents := 0
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			if terminalEvents != 1 {
-				t.Fatalf("traced stream terminal event count = %d, want 1", terminalEvents)
-			}
-			if turn.taskID == "" || turn.contextID == "" {
-				t.Fatal("traced stream did not report a task and context ID")
-			}
-			return turn
-		}
+	for response, err := range sendStreamingMessageWithRetry(fixture.ctx, fixture.client, request) {
 		if err != nil {
 			t.Fatalf("receive traced A2A stream: %v", err)
 		}
@@ -589,6 +603,13 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 			turn.state = state
 		}
 	}
+	if terminalEvents != 1 {
+		t.Fatalf("traced stream terminal event count = %d, want 1", terminalEvents)
+	}
+	if turn.taskID == "" || turn.contextID == "" {
+		t.Fatal("traced stream did not report a task and context ID")
+	}
+	return turn
 }
 
 func assertActorSuspended(t *testing.T, fixture *interactionFixture) {
@@ -601,9 +622,13 @@ func assertActorSuspended(t *testing.T, fixture *interactionFixture) {
 		if err != nil {
 			return false, err
 		}
-		return actor != nil && actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_SUSPENDED, nil
+		if actor == nil || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+			return false, nil
+		}
+		snapshot := substrate.LatestActorSnapshot(actor)
+		return substrate.SnapshotURI(snapshot) != "" && snapshot.GetFidelity() == ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, nil
 	})
 	if err != nil {
-		t.Fatalf("Actor %s did not reach Suspended: %v", actorID, err)
+		t.Fatalf("Actor %s did not reach Suspended with an durable VOLUMES snapshot: %v", actorID, err)
 	}
 }

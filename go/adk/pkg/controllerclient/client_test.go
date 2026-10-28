@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
 type mutableTokenProvider struct {
@@ -34,24 +35,24 @@ func (provider *mutableTokenProvider) set(token string) {
 }
 
 type metadataMemoryServer struct {
-	apiv1alpha1.UnimplementedMemoryServiceServer
+	runtimev1.UnimplementedMemoryServiceServer
 	metadata  []metadata.MD
 	deadlines []bool
 }
 
-func (server *metadataMemoryServer) List(ctx context.Context, _ *apiv1alpha1.MemoryServiceListRequest) (*apiv1alpha1.MemoryServiceListResponse, error) {
+func (server *metadataMemoryServer) List(ctx context.Context, _ *runtimev1.MemoryServiceListRequest) (*runtimev1.MemoryServiceListResponse, error) {
 	values, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
 	server.metadata = append(server.metadata, values)
 	server.deadlines = append(server.deadlines, hasDeadline)
-	return &apiv1alpha1.MemoryServiceListResponse{}, nil
+	return &runtimev1.MemoryServiceListResponse{}, nil
 }
 
 func TestClientAddsDynamicMetadataAndDeadlines(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	service := &metadataMemoryServer{}
 	grpcServer := grpc.NewServer()
-	apiv1alpha1.RegisterMemoryServiceServer(grpcServer, service)
+	runtimev1.RegisterMemoryServiceServer(grpcServer, service)
 	go func() { _ = grpcServer.Serve(listener) }()
 	t.Cleanup(func() {
 		grpcServer.Stop()
@@ -71,13 +72,13 @@ func TestClientAddsDynamicMetadataAndDeadlines(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
 	ctx, cancel := client.CallContext(auth.WithUserID(t.Context(), "context-user"), "")
-	_, err = client.MemoryService().List(ctx, &apiv1alpha1.MemoryServiceListRequest{})
+	_, err = client.MemoryService().List(ctx, &runtimev1.MemoryServiceListRequest{})
 	cancel()
 	require.NoError(t, err)
 
 	tokens.set("second-token")
 	ctx, cancel = client.CallContext(t.Context(), "explicit-user")
-	_, err = client.MemoryService().List(ctx, &apiv1alpha1.MemoryServiceListRequest{})
+	_, err = client.MemoryService().List(ctx, &runtimev1.MemoryServiceListRequest{})
 	cancel()
 	require.NoError(t, err)
 
@@ -108,4 +109,17 @@ func TestClientCanDisableDefaultDeadline(t *testing.T) {
 	defer cancel()
 	_, hasDeadline := ctx.Deadline()
 	assert.False(t, hasDeadline)
+}
+
+func TestCallContextRequestsActorJWTWithoutDuplicateCredentials(t *testing.T) {
+	client, err := New(Config{APIURL: "http://controller.test:8084"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	original := metadata.Pairs("authorization", "Bearer inherited", "x-trace-id", "trace")
+	ctx, cancel := client.CallContext(metadata.NewOutgoingContext(t.Context(), original), "")
+	defer cancel()
+	got, _ := metadata.FromOutgoingContext(ctx)
+	require.Equal(t, []string{"Bearer placeholder"}, got.Get("authorization"))
+	require.Equal(t, []string{"trace"}, got.Get("x-trace-id"))
+	require.Equal(t, []string{"Bearer inherited"}, original.Get("authorization"))
 }
