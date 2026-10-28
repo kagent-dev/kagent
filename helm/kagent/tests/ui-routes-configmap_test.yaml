@@ -1,10 +1,10 @@
 suite: test ui config configmap
 templates:
-  - ui-nginx-configmap.yaml
+  - ui-routes-configmap.yaml
   - ui-configmap.yaml
 tests:
   - it: preserves internal identity header forwarding in insecure mode
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - notMatchRegex:
           path: data["ui.json"]
@@ -14,14 +14,14 @@ tests:
           pattern: '"x-user-id": ""'
 
   - it: routes MCP to the controller without buffering
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
           pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/mcp"'
 
   - it: serves public JWKS through the controller
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
@@ -31,7 +31,7 @@ tests:
     set:
       config.server.auth.mode: trusted-proxy
       ui.additionalForwardedHeaders: [X-Agent-Name, X-User-Id]
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
@@ -41,7 +41,7 @@ tests:
           pattern: '"x-user-id": ""'
 
   - it: should render the unified UI ConfigMap
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - hasDocuments:
           count: 1
@@ -56,20 +56,20 @@ tests:
           path: data["nginx.conf"]
 
   - it: should no longer ship a supervisord config
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - notExists:
           path: data["supervisord.conf"]
 
   - it: should only have IPv4 listen by default
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
           pattern: '"listen": "0\.0\.0\.0:8080"'
 
   - it: should add IPv6 listen when ipv6 is enabled
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     set:
       ipv6:
         enabled: true
@@ -79,7 +79,7 @@ tests:
           pattern: '"listen": ":8080"'
 
   - it: should proxy api upstream to controller Cluster DNS
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
@@ -93,7 +93,7 @@ tests:
   # The route table only proxies, so none of those paths may reach the controller.
   # ---------------------------------------------------------------------------
   - it: should leave the bundle and the SPA fallback to the image
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - notMatchRegex:
           path: data["ui.json"]
@@ -103,7 +103,7 @@ tests:
           pattern: '"path": "/(assets/|index\.html|env-config\.js|mockServiceWorker\.js|health)"'
 
   - it: should drop the node upstream now that no server process runs
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - notMatchRegex:
           path: data["ui.json"]
@@ -113,14 +113,14 @@ tests:
   # Streaming
   # ---------------------------------------------------------------------------
   - it: should route a2a to the backend, not the removed node server
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
           pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/a2a/"'
 
   - it: should pass the stream timeouts to the UI proxy
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     set:
       ui:
         nginx:
@@ -141,7 +141,7 @@ tests:
   # cleared unless opted in.
   # ---------------------------------------------------------------------------
   - it: should strip spoofable identity headers by default
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
@@ -154,7 +154,7 @@ tests:
           pattern: '"x-forwarded-user": ""'
 
   - it: should forward an identity header the operator opted into
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     set:
       ui:
         additionalForwardedHeaders:
@@ -197,14 +197,14 @@ tests:
           value: /
 
   - it: should set client_max_body_size by default
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     asserts:
       - matchRegex:
           path: data["ui.json"]
           pattern: '"clientMaxBodySize": "20m"'
 
   - it: should allow overriding client_max_body_size
-    template: ui-nginx-configmap.yaml
+    template: ui-routes-configmap.yaml
     set:
       ui:
         nginx:

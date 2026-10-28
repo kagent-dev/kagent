@@ -2,7 +2,7 @@ suite: test ui deployment
 templates:
   - ui-configmap.yaml
   - ui-deployment.yaml
-  - ui-nginx-configmap.yaml
+  - ui-routes-configmap.yaml
 tests:
   - it: loads browser settings from the ConfigMap and rolls out on changes
     template: ui-deployment.yaml

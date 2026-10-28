@@ -4,7 +4,7 @@ templates:
   - controller-configmap.yaml
   - ui-deployment.yaml
   - ui-configmap.yaml
-  - ui-nginx-configmap.yaml
+  - ui-routes-configmap.yaml
 tests:
   - it: should not add extra pod labels by default (controller)
     template: controller-deployment.yaml

@@ -209,7 +209,7 @@ cookie. A backend using `ProxyAuthenticator` trusts that validation; decoding
 claims does not verify a token. Such a deployment must prevent callers from
 bypassing the proxy or supplying trusted internal identity headers directly.
 
-The [UI route table](../../helm/kagent/templates/ui-nginx-configmap.yaml) preserves
+The [UI route table](../../helm/kagent/templates/ui-routes-configmap.yaml) preserves
 `Authorization` while proxying API requests. It clears its listed
 `X-Auth-Request-*` and `X-Forwarded-*` identity headers unless explicitly allowed
 by `ui.additionalForwardedHeaders`. In `trusted-proxy` mode it always clears
