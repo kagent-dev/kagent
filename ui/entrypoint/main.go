@@ -36,7 +36,7 @@ func main() {
 	must(err)
 	handler, err := newHandler(cfg, "/usr/share/nginx/html", "/tmp/kagent", basePath)
 	must(err)
-	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: time.Minute}
+	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: time.Minute, IdleTimeout: 75 * time.Second}
 	must(server.ListenAndServe())
 }
 

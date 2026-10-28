@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -112,6 +113,20 @@ func TestHandler(t *testing.T) {
 		t.Errorf("a2a origin %q", seen.Header.Get("Origin"))
 	}
 
+	// CONNECT skips ServeMux's path cleaning, so it must never reach the file system.
+	conn, _ := net.Dial("tcp", server.Listener.Addr().String())
+	fmt.Fprintf(conn, "CONNECT /assets/../../%s/favicon.svg HTTP/1.1\r\nHost: x\r\n\r\n", filepath.Base(root))
+	status, _ := bufio.NewReader(conn).ReadString('\n')
+	conn.Close()
+	if !strings.Contains(status, "405") {
+		t.Errorf("CONNECT traversal: %q", status)
+	}
+
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if resp, _ := noRedirect.Get(server.URL + "/ui/api"); resp.Header.Get("Location") != "/ui/api/" {
+		t.Errorf("redirect under base path: %q", resp.Header.Get("Location"))
+	}
+
 	big, _ := http.Post(server.URL+"/api/upload", "text/plain", strings.NewReader(strings.Repeat("x", 2048)))
 	if big.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Errorf("oversized body: %d", big.StatusCode)
@@ -132,7 +147,10 @@ func TestIdleTimeout(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		resp, err := http.Get(server.URL + "/a2a/stream")
+		// An Upgrade header the backend does not honour must not switch the timeout off.
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/a2a/stream", nil)
+		req.Header.Set("Upgrade", "bogus")
+		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			bufio.NewReader(resp.Body).WriteTo(&strings.Builder{})
 		}

@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -59,6 +60,8 @@ func newHandler(cfg config, root, generated, basePath string) (http.Handler, err
 		return nil, err
 	}
 
+	// ServeMux cleans every path but a CONNECT target's, which stripBasePath refuses.
+	file := func(r *http.Request) string { return root + path.Clean("/"+r.URL.Path) }
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "OK") })
 	mux.HandleFunc("/env-config.js", func(w http.ResponseWriter, r *http.Request) {
@@ -77,12 +80,12 @@ func newHandler(cfg config, root, generated, basePath string) (http.Handler, err
 	// Vite fingerprints these filenames, so a given URL's bytes never change.
 	mux.HandleFunc("/assets/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		serveFile(w, r, root+r.URL.Path)
+		serveFile(w, r, file(r))
 	})
 	// SPA fallback: a deep link such as /agents is a client-side route, not a file.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if fi, err := os.Stat(root + r.URL.Path); err == nil && fi.Mode().IsRegular() {
-			serveFile(w, r, root+r.URL.Path)
+		if fi, err := os.Stat(file(r)); err == nil && fi.Mode().IsRegular() {
+			serveFile(w, r, file(r))
 			return
 		}
 		index(w, r)
@@ -124,6 +127,13 @@ func newProxy(backend *url.URL, headers map[string]string) *httputil.ReverseProx
 				}
 			}
 		},
+		// An upgraded connection outlives its idle timer, which would otherwise cut the socket.
+		ModifyResponse: func(resp *http.Response) error {
+			if t, ok := resp.Request.Context().Value(timerKey{}).(*time.Timer); ok && resp.StatusCode == http.StatusSwitchingProtocols {
+				t.Stop()
+			}
+			return nil
+		},
 		// Chat is server-sent events; buffering would hold tokens back.
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -137,20 +147,17 @@ func newProxy(backend *url.URL, headers map[string]string) *httputil.ReverseProx
 	}
 }
 
+type timerKey struct{}
+
 // idleTimeout cancels a request once the backend neither reads nor writes for the
 // send or read timeout, like nginx's proxy_send_timeout and proxy_read_timeout.
 func idleTimeout(next http.Handler, read, send time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// An upgraded connection outlives the request, so cancelling it would cut the socket.
-		if r.Header.Get("Upgrade") != "" {
-			next.ServeHTTP(w, r)
-			return
-		}
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		timer := time.AfterFunc(read, cancel)
 		defer timer.Stop()
-		r = r.WithContext(ctx)
+		r = r.WithContext(context.WithValue(ctx, timerKey{}, timer))
 		r.Body = &idleBody{ReadCloser: r.Body, timer: timer, send: send, read: read}
 		next.ServeHTTP(&idleWriter{ResponseWriter: w, timer: timer, read: read}, r)
 	})
@@ -200,18 +207,35 @@ func limitBody(next http.Handler, max int64) http.Handler {
 	})
 }
 
-// stripBasePath drops ui.basePath when the proxy in front forwards it unstripped.
+// stripBasePath drops ui.basePath when the proxy in front forwards it unstripped, and
+// puts it back on redirects. It refuses CONNECT, whose path ServeMux leaves uncleaned.
 func stripBasePath(next http.Handler, basePath string) http.Handler {
-	if basePath == "" {
-		return next
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if rest, ok := strings.CutPrefix(r.URL.Path, basePath); ok && (rest == "" || rest[0] == '/') {
+		if r.Method == http.MethodConnect {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if rest, ok := strings.CutPrefix(r.URL.Path, basePath); ok && basePath != "" && (rest == "" || rest[0] == '/') {
 			r.URL.Path, r.URL.RawPath = "/"+strings.TrimPrefix(rest, "/"), ""
+			w = &baseWriter{ResponseWriter: w, basePath: basePath}
 		}
 		next.ServeHTTP(w, r)
 	})
 }
+
+type baseWriter struct {
+	http.ResponseWriter
+	basePath string
+}
+
+func (w *baseWriter) WriteHeader(code int) {
+	if loc := w.Header().Get("Location"); strings.HasPrefix(loc, "/") {
+		w.Header().Set("Location", w.basePath+loc)
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *baseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // serveFile serves a regular file, unlike http.ServeFile, which redirects /index.html.
 func serveFile(w http.ResponseWriter, r *http.Request, name string) {
