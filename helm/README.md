@@ -231,38 +231,44 @@ release namespace.
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 
-#### Example Agent
+#### Example Agents
 
-Set `exampleAgent.enabled: true` and `exampleAgent.snapshotLocation` to install
-one example Agent, named by `exampleAgent.name` (default
-`kagent-tools-example`). It is off by default. The chart then creates:
+Set `exampleAgents.enabled: true` and `exampleAgents.snapshotLocation` to
+install three example Agents. They are off by default. The chart then creates:
 
-- a Harness of the same name that runs the Go ADK runtime from the release's
-  Harness image catalog, on the `substrateWorkerPool.name` WorkerPool;
-- an Agent with an inline template that uses `default-model-config`, includes
-  the `skills-usage`, `kubernetes-context`, `tool-usage-best-practices`, and
-  `safety-guardrails` prompts from the `kagent-builtin-prompts` ConfigMap, binds
-  the chart's `<fullname>-tool-server` RemoteMCPServer, and selects these skills
-  from the kagent-tools image at `opt/kagent-tools-skills`:
-  `k8s-troubleshooting`, `helm-release-management`, `istio-traffic-debugging`,
-  `argo-rollouts-progressive-delivery`, `cilium-network-debugging`,
-  `kubescape-security-posture`, and `prometheus-observability`.
+- a Harness named `<namePrefix>-example` (default `kagent-tools-example`) that
+  runs the Go ADK runtime from the release's Harness image catalog, on the
+  `substrateWorkerPool.name` WorkerPool;
+- three Agents on that Harness, each with skills from the kagent-tools image at
+  `opt/kagent-tools-skills`:
 
-The Agent needs `kagent-tools.enabled: true`. Each skill names the
-kagent-tools MCP tools it uses. The Agent binds only those 64 tools, split over
-two bindings of the tool server because one binding lists at most 50 tools. The
-whole server, with the built-in tools, has more than the 128 tools that OpenAI
-and Azure OpenAI accept in one request. The Claude and Codex harnesses accept
-each MCP server only once, so this Agent runs on the Go ADK harness only.
+  | Agent | Skills | Tools |
+  |---|---|---|
+  | `<namePrefix>-cluster-ops` | `k8s-troubleshooting`, `helm-release-management`, `argo-rollouts-progressive-delivery`, `prometheus-observability` | 29 |
+  | `<namePrefix>-networking` | `istio-traffic-debugging`, `cilium-network-debugging` | 27 |
+  | `<namePrefix>-security` | `kubescape-security-posture` | 10 |
+
+Each Agent uses `default-model-config` and includes the `skills-usage`,
+`kubernetes-context`, `tool-usage-best-practices`, and `safety-guardrails`
+prompts from the `kagent-builtin-prompts` ConfigMap. Each skill names the
+kagent-tools MCP tools it uses, and each Agent binds only those tools from the
+chart's `<fullname>-tool-server` RemoteMCPServer, in one binding. The Agents need
+`kagent-tools.enabled: true`.
+
+The skills are split over three Agents to keep every Agent within three limits:
+one binding lists at most 50 tools, the Claude and Codex harnesses accept each
+MCP server only once, and OpenAI and Azure OpenAI accept at most 128 tools in
+one request. The seven skills together name 64 tools, and the whole tool server
+has more than 128.
 
 The skills come from the kagent-tools image, pinned by digest. `make
 helm-publish` resolves the digest of the kagent-tools version in the chart's
 dependencies (`make tools-image-metadata`) and packages it in
 `files/kagent-tools-image.json`. A source chart has no packaged digest. With a
-source chart, or to use another image, set `exampleAgent.skillsImage`:
+source chart, or to use another image, set `exampleAgents.skillsImage`:
 
 ```yaml
-exampleAgent:
+exampleAgents:
   enabled: true
   snapshotLocation: gs://<bucket>/kagent/
   skillsImage: ghcr.io/kagent-dev/kagent/tools@sha256:<digest>
@@ -273,7 +279,7 @@ the packaged digest and the override.
 
 The skills folder ships in kagent-tools releases that include
 [kagent-dev/tools#91](https://github.com/kagent-dev/tools/pull/91). Until the
-chart depends on such a release, set `exampleAgent.skillsImage` to an image
+chart depends on such a release, set `exampleAgents.skillsImage` to an image
 built from it.
 
 Notes:
@@ -284,11 +290,11 @@ Notes:
   read-only, so the agent can still read the files of skills it did not
   select.
 
-The example replaces the ready-made agents of kagent 0.x. These 0.x behaviors
+The example Agents replace the ready-made agents of kagent 0.x. These 0.x behaviors
 are not carried forward:
 
-- one Helm flag per agent (for example `argo-rollouts-agent.enabled`); the chart
-  installs at most this one example Agent;
+- one Helm flag per agent (for example `argo-rollouts-agent.enabled`); one
+  flag installs all three example Agents;
 - the kgateway, cilium-policy, and promql agents, which have no matching skill;
 - the Cilium install, upgrade, and ClusterMesh steps of the cilium-manager
   agent; `cilium-network-debugging` covers only debugging;

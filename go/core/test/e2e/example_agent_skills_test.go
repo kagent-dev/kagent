@@ -16,21 +16,26 @@ import (
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
-// exampleAgentSkills are the kagent-tools skills that the chart's example Agent
-// (helm/kagent/templates/example-agent.yaml) selects.
+// exampleAgentSkills are the kagent-tools skills that the chart's cluster-ops
+// example Agent (helm/kagent/templates/example-agents.yaml) selects.
 var exampleAgentSkills = []string{
 	"k8s-troubleshooting",
 	"helm-release-management",
-	"istio-traffic-debugging",
 	"argo-rollouts-progressive-delivery",
-	"cilium-network-debugging",
-	"kubescape-security-posture",
 	"prometheus-observability",
 }
 
-// TestExampleAgentToolsSkills runs the chart's example Agent behavior on every
-// harness with a mock model: the kagent-tools image as an Agent Plugin, its
-// seven skills, and the built-in prompt library. The chart's tool server
+// exampleAgentOtherSkills are in the same image but belong to the other
+// example Agents.
+var exampleAgentOtherSkills = []string{
+	"istio-traffic-debugging",
+	"cilium-network-debugging",
+	"kubescape-security-posture",
+}
+
+// TestExampleAgentToolsSkills runs the chart's cluster-ops example Agent
+// behavior on every harness with a mock model: the kagent-tools image as an
+// Agent Plugin, four of its skills, and the built-in prompt library. The chart's tool server
 // binding is left out because the E2E install does not run kagent-tools.
 func TestExampleAgentToolsSkills(t *testing.T) {
 	t.Parallel()
@@ -48,7 +53,7 @@ func TestExampleAgentToolsSkills(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "example-skills-", Namespace: "kagent", Labels: harness.labels()},
 			Spec: v1alpha3.AgentTemplateSpec{
 				ModelConfig: &corev1.LocalObjectReference{Name: config.Name},
-				Description: "Kubernetes operations assistant that uses the kagent-tools skills and MCP tools.",
+				Description: "Kubernetes workload, Helm release, Argo Rollouts, and Prometheus metrics assistant.",
 				PromptTemplate: &v1alpha3.AgentTemplatePromptTemplateSpec{
 					DataSources: []v1alpha3.AgentTemplatePromptSource{{Name: "kagent-builtin-prompts", Alias: "builtin"}},
 				},
@@ -78,6 +83,9 @@ func TestExampleAgentToolsSkills(t *testing.T) {
 		first := string(requests[0].Body)
 		for _, skill := range exampleAgentSkills {
 			require.Contains(t, first, skill, "skill must be advertised to the model")
+		}
+		for _, skill := range exampleAgentOtherSkills {
+			require.NotContains(t, first, skill, "unselected skill must not be advertised")
 		}
 		require.Contains(t, first, "## Safety Guidelines", "built-in prompts must be included")
 		// Discovery exposes metadata only. The skill body names its MCP tools.

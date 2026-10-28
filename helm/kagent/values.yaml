@@ -25,7 +25,7 @@ global:
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
   # substrateWorkerPool.workerImage, built-in Harness images
   # (both packaged defaults and config.harnessImages overrides), and the example
-  # Agent skills image (packaged default and exampleAgent.skillsImage). The vendored subcharts
+  # Agent skills image (packaged default and exampleAgents.skillsImage). The vendored subcharts
   # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
@@ -772,16 +772,18 @@ kagent-tools:
       port: 8085 # Use a different port than the controller service port to avoid duplicate port definitions
 
 # ==============================================================================
-# EXAMPLE AGENT
+# EXAMPLE AGENTS
 # ==============================================================================
-# One Agent with its own Go ADK Harness. It uses the default ModelConfig, the
-# kagent-tools MCP server, and the seven skills packaged in the kagent-tools
-# image under opt/kagent-tools-skills. Requires kagent-tools.enabled.
-exampleAgent:
-  # -- Install the example Agent and its Harness.
+# Three Agents (cluster-ops, networking, security) on one Go ADK Harness. They
+# use the default ModelConfig, the kagent-tools MCP server, and the seven skills
+# packaged in the kagent-tools image under opt/kagent-tools-skills. Requires
+# kagent-tools.enabled.
+exampleAgents:
+  # -- Install the example Agents and their Harness.
   enabled: false
-  # -- Name of the example Agent and its Harness.
-  name: kagent-tools-example
+  # -- Name prefix: the Harness is <prefix>-example and the Agents are
+  # <prefix>-cluster-ops, <prefix>-networking, and <prefix>-security.
+  namePrefix: kagent-tools
   # -- Digest-pinned kagent-tools image that holds the skills, for example
   # ghcr.io/kagent-dev/kagent/tools@sha256:<digest>. Empty uses the digest that
   # release packaging resolved for the kagent-tools version this chart pins.

@@ -56,7 +56,7 @@ var (
 	_                         = RegisterStringVar("KAGENT_E2E_BYO_IMAGE", "", "Digest-pinned BYO image substituted into E2E lifecycle manifests.", ComponentTesting)
 	_                         = RegisterStringVar("KAGENT_E2E_CLAUDE_IMAGE", "", "Digest-pinned Claude harness image substituted into E2E lifecycle manifests.", ComponentTesting)
 	_                         = RegisterStringVar("KAGENT_E2E_CODEX_IMAGE", "", "Digest-pinned Codex harness image substituted into E2E lifecycle manifests.", ComponentTesting)
-	E2EToolsSkillsImage       = RegisterStringVar("KAGENT_E2E_TOOLS_SKILLS_IMAGE", "", "Digest-pinned kagent-tools image with the opt/kagent-tools-skills Agent Plugin for the example Agent E2E test. That test is skipped when unset.", ComponentTesting)
+	E2EToolsSkillsImage       = RegisterStringVar("KAGENT_E2E_TOOLS_SKILLS_IMAGE", "", "Digest-pinned kagent-tools image with the opt/kagent-tools-skills Agent Plugin for the example Agents E2E test. That test is skipped when unset.", ComponentTesting)
 	E2ESandboxNamespace       = RegisterStringVar("KAGENT_E2E_SANDBOX_NAMESPACE", "kagent", "Namespace for sandbox E2E resources.", ComponentTesting)
 	E2ESandboxWorkerPool      = RegisterStringVar("KAGENT_E2E_SANDBOX_WORKER_POOL", "kagent-default", "Worker pool used by sandbox E2E resources.", ComponentTesting)
 	E2EOTLPListenAddress      = RegisterStringVar("KAGENT_E2E_OTLP_LISTEN_ADDRESS", "", "Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver.", ComponentTesting)

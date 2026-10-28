@@ -24,7 +24,7 @@ for chart in kagent kagent-crds; do
 done
 cp "$root/helm/kagent/values.yaml" "$source_dir/kagent/values.yaml"
 cp "$root/helm/kagent/templates/"*.tpl "$root/helm/kagent/templates/controller-configmap.yaml" \
-  "$root/helm/kagent/templates/example-agent.yaml" "$source_dir/kagent/templates/"
+  "$root/helm/kagent/templates/example-agents.yaml" "$source_dir/kagent/templates/"
 printf 'stale catalog\n' > "$source_dir/kagent/files/builtin-harness-images.json"
 printf 'stale tools image\n' > "$source_dir/kagent/files/kagent-tools-image.json"
 cp -R "$source_dir" "$scratch/source-before"
@@ -52,8 +52,8 @@ render_images() {
 render_skills_source() {
   local archive="$1"
   shift
-  helm template release "$archive" --show-only templates/example-agent.yaml \
-    --set exampleAgent.enabled=true --set exampleAgent.snapshotLocation=gs://bucket/kagent/ "$@" > "$scratch/rendered.yaml"
+  helm template release "$archive" --show-only templates/example-agents.yaml \
+    --set exampleAgents.enabled=true --set exampleAgents.snapshotLocation=gs://bucket/kagent/ "$@" > "$scratch/rendered.yaml"
   yq -o=json 'select(.kind == "Agent") | .spec.template.inline.plugins[0].source' \
     "$scratch/rendered.yaml" > "$scratch/rendered.json"
 }
@@ -93,7 +93,7 @@ check="mirror and override the kagent-tools image"
 render_skills_source "$archive" --set global.imageRegistry=mirror.example/
 jq -e --arg digest "$tools_digest" '.oci == "mirror.example/kagent-dev/kagent/tools@" + $digest' \
   "$scratch/rendered.json" >/dev/null
-render_skills_source "$archive" --set-string "exampleAgent.skillsImage=custom.example/team/tools@$config_digest"
+render_skills_source "$archive" --set-string "exampleAgents.skillsImage=custom.example/team/tools@$config_digest"
 jq -e --arg config "$config_digest" '.oci == "custom.example/team/tools@" + $config' \
   "$scratch/rendered.json" >/dev/null
 
@@ -171,8 +171,8 @@ diff -r "$scratch/source-before" "$source_dir"
 check="release without kagent-tools metadata requires an explicit skills image"
 mv "$metadata_dir/kagent-tools.json" "$scratch/kagent-tools.json"
 release helm-release
-if helm template release "$archive" --show-only templates/example-agent.yaml \
-  --set exampleAgent.enabled=true --set exampleAgent.snapshotLocation=gs://bucket/kagent/ > "$scratch/rendered.yaml" 2> "$scratch/command.log"; then
+if helm template release "$archive" --show-only templates/example-agents.yaml \
+  --set exampleAgents.enabled=true --set exampleAgents.snapshotLocation=gs://bucket/kagent/ > "$scratch/rendered.yaml" 2> "$scratch/command.log"; then
   exit 1
 fi
 [[ "$(< "$scratch/command.log")" == *'requires the kagent-tools image digest'* ]]

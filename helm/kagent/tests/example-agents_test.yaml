@@ -1,21 +1,26 @@
-suite: test example agent
+suite: test example agents
 templates:
-  - example-agent.yaml
+  - example-agents.yaml
 release:
   name: kagent
   namespace: kagent
 set:
-  exampleAgent.enabled: true
-  exampleAgent.snapshotLocation: gs://bucket/kagent/
-  exampleAgent.skillsImage: ghcr.io/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  exampleAgents.enabled: true
+  exampleAgents.snapshotLocation: gs://bucket/kagent/
+  exampleAgents.skillsImage: ghcr.io/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
   config.harnessImages.kagent: ghcr.io/kagent-dev/kagent/golang-adk@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 tests:
   - it: should render nothing by default
     set:
-      exampleAgent.enabled: false
+      exampleAgents.enabled: false
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: should render one Harness and three Agents
+    asserts:
+      - hasDocuments:
+          count: 4
 
   - it: should render a Go ADK Harness with the release image
     documentSelector:
@@ -54,17 +59,15 @@ tests:
       - notExists:
           path: spec.workload
 
-  - it: should render one Agent with the skills, model, prompts, and tool server
+  - it: should give every Agent the Harness, model, prompts, skills image, and one tool server binding
     documentSelector:
       path: kind
       value: Agent
+      matchMany: true
     asserts:
       - equal:
           path: apiVersion
           value: api.kagent.dev/v1alpha3
-      - equal:
-          path: metadata.name
-          value: kagent-tools-example
       - equal:
           path: spec.harnessRef.name
           value: kagent-tools-example
@@ -84,66 +87,98 @@ tests:
           pattern: '\{\{include "builtin/skills-usage"\}\}'
       - lengthEqual:
           path: spec.template.inline.tools
-          count: 2
+          count: 1
       - equal:
           path: spec.template.inline.tools[0].mcp.server
           value:
             kind: RemoteMCPServer
             name: kagent-tool-server
       - equal:
-          path: spec.template.inline.tools[1].mcp.server
+          path: spec.template.inline.plugins[0].source
           value:
-            kind: RemoteMCPServer
-            name: kagent-tool-server
+            oci: ghcr.io/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+            path: opt/kagent-tools-skills
+
+  - it: should render the cluster-ops Agent
+    documentSelector:
+      path: metadata.name
+      value: kagent-tools-cluster-ops
+    asserts:
+      - equal:
+          path: spec.template.inline.plugins[0].skills
+          value:
+            - k8s-troubleshooting
+            - helm-release-management
+            - argo-rollouts-progressive-delivery
+            - prometheus-observability
       - lengthEqual:
           path: spec.template.inline.tools[0].mcp.tools
-          count: 33
-      - lengthEqual:
-          path: spec.template.inline.tools[1].mcp.tools
-          count: 31
+          count: 29
       - contains:
           path: spec.template.inline.tools[0].mcp.tools
           content: helm_list_releases
-      - equal:
-          path: spec.template.inline.plugins
-          value:
-            - source:
-                oci: ghcr.io/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-                path: opt/kagent-tools-skills
-              skills:
-                - k8s-troubleshooting
-                - helm-release-management
-                - istio-traffic-debugging
-                - argo-rollouts-progressive-delivery
-                - cilium-network-debugging
-                - kubescape-security-posture
-                - prometheus-observability
 
-  - it: should follow the release name, namespace override, and Agent name
+  - it: should render the networking Agent
+    documentSelector:
+      path: metadata.name
+      value: kagent-tools-networking
+    asserts:
+      - equal:
+          path: spec.template.inline.plugins[0].skills
+          value:
+            - istio-traffic-debugging
+            - cilium-network-debugging
+      - lengthEqual:
+          path: spec.template.inline.tools[0].mcp.tools
+          count: 27
+      - contains:
+          path: spec.template.inline.tools[0].mcp.tools
+          content: istio_proxy_status
+
+  - it: should render the security Agent
+    documentSelector:
+      path: metadata.name
+      value: kagent-tools-security
+    asserts:
+      - equal:
+          path: spec.template.inline.plugins[0].skills
+          value:
+            - kubescape-security-posture
+      - lengthEqual:
+          path: spec.template.inline.tools[0].mcp.tools
+          count: 10
+      - contains:
+          path: spec.template.inline.tools[0].mcp.tools
+          content: kubescape_list_vulnerabilities
+
+  - it: should follow the release name, namespace override, and name prefix
     release:
       name: custom
     set:
       namespaceOverride: agents
-      exampleAgent.name: tools-demo
+      exampleAgents.namePrefix: tools-demo
     asserts:
       - equal:
           path: metadata.namespace
           value: agents
       - equal:
           path: metadata.name
-          value: tools-demo
-      - equal:
-          path: spec.harnessRef.name
-          value: tools-demo
+          value: tools-demo-example
         documentSelector:
           path: kind
-          value: Agent
+          value: Harness
+      - equal:
+          path: spec.harnessRef.name
+          value: tools-demo-example
+        documentSelector:
+          path: metadata.name
+          value: tools-demo-security
       - equal:
           path: spec.template.inline.tools[0].mcp.server.name
           value: custom-tool-server
         documentSelector:
-          path: kind
-          value: Agent
+          path: metadata.name
+          value: tools-demo-networking
 
   - it: should mirror the skills and Harness images
     set:
@@ -155,6 +190,7 @@ tests:
         documentSelector:
           path: kind
           value: Agent
+          matchMany: true
       - equal:
           path: spec.workload.image
           value: mirror.example/kagent-dev/kagent/golang-adk@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -164,28 +200,28 @@ tests:
 
   - it: should fail without a skills image digest
     set:
-      exampleAgent.skillsImage: ""
+      exampleAgents.skillsImage: ""
     asserts:
       - failedTemplate:
-          errorMessage: "exampleAgent.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills; otherwise set exampleAgent.skillsImage to <repository>@sha256:<digest>."
+          errorMessage: "exampleAgents.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills; otherwise set exampleAgents.skillsImage to <repository>@sha256:<digest>."
 
   - it: should fail when the skills image is not pinned by digest
     set:
-      exampleAgent.skillsImage: ghcr.io/kagent-dev/kagent/tools:0.3.0
+      exampleAgents.skillsImage: ghcr.io/kagent-dev/kagent/tools:0.3.0
     asserts:
       - failedTemplate:
-          errorMessage: 'exampleAgent.skillsImage must be pinned by sha256 digest: "ghcr.io/kagent-dev/kagent/tools:0.3.0"'
+          errorMessage: 'exampleAgents.skillsImage must be pinned by sha256 digest: "ghcr.io/kagent-dev/kagent/tools:0.3.0"'
 
   - it: should fail without the kagent-tools server
     set:
       kagent-tools.enabled: false
     asserts:
       - failedTemplate:
-          errorMessage: "exampleAgent.enabled requires kagent-tools.enabled: the example skills call the kagent-tools MCP server"
+          errorMessage: "exampleAgents.enabled requires kagent-tools.enabled: the example skills call the kagent-tools MCP server"
 
   - it: should fail without a snapshot location
     set:
-      exampleAgent.snapshotLocation: ""
+      exampleAgents.snapshotLocation: ""
     asserts:
       - failedTemplate:
-          errorMessage: "exampleAgent.snapshotLocation is required: set the snapshot storage location for the example Harness"
+          errorMessage: "exampleAgents.snapshotLocation is required: set the snapshot storage location for the example Harness"
