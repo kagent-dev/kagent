@@ -63,6 +63,33 @@ new revision; create a new Session to use it. A2A task events remain streamable
 when model streaming is disabled. This setting does not configure
 the Codex or Claude harnesses.
 
+### Agent identity for model gateways
+
+The kagent Harness can add `X-Agent-Id: <namespace>/<Agent-name>` to model
+requests when a `ModelConfig` sets `spec.sendAgentIDHeader: true`. The field is
+optional and defaults to off. Enable it only for a model endpoint that should
+receive the runnable Agent's identity, such as an operator-controlled
+agentgateway route. A shared `ModelConfig` does not fix the header value: Agents
+`team-a/east` and `team-a/west` can use the same ModelConfig and send different
+IDs. Model calls from shared subagents use their parent Agent's ID, so they
+count toward the same per-Agent allowance.
+
+See [the agentgateway ModelConfig example](../../examples/modelconfig-agentgateway-agent-id.yaml).
+Agentgateway must separately configure its token-limit key to read
+`request.headers["x-agent-id"]`; sending the header alone does not create a
+limit. The value is supplied by the client, so a gateway rule keyed on this
+header is not an authenticated Agent identity unless a trusted boundary binds
+the request to that identity. Local rate-limit buckets may also be separate
+across gateway replicas.
+
+When the option is omitted or false, kagent does not generate this header.
+An explicit `X-Agent-Id` in `spec.defaultHeaders` is still forwarded as a
+user-configured header. When the option is true, kagent replaces any
+case-insensitive user-configured spelling with the computed ID. This applies
+to agent models and dedicated compaction summarizer models; memory embedding
+configuration has no header field, and the Codex and Claude Harnesses do not
+use this kagent-specific option.
+
 ### Harness images and workload overrides
 
 For built-in kagent, Claude, and Codex Harnesses, the whole `workload` block is

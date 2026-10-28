@@ -23,7 +23,7 @@ type modelResult struct {
 }
 
 // buildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
+func (c *Builder) buildModel(namespace, name string, agentID types.NamespacedName) (*modelResult, error) {
 	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
 	if resolved == nil {
 		return nil, fmt.Errorf("model config %q not found", name)
@@ -34,7 +34,13 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 	if failures := resolved.ReferenceFailures; len(failures) > 0 {
 		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
 	}
-	runtime, err := resolveModel(resolved)
+	model := resolved
+	if modelWantsAgentIDHeader(resolved.Config, agentID) {
+		modelCopy := *resolved
+		modelCopy.Config = modelConfigWithAgentID(resolved.Config, agentID)
+		model = &modelCopy
+	}
+	runtime, err := resolveModel(model)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +63,7 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 // and egress join the revision, and it joins the provenance so a change to it
 // compiles a new revision. The agent's own model is left out because the
 // runtime already summarizes with it by default.
-func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessConfiguration, template *translator.TemplateConfiguration) error {
+func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessConfiguration, template *translator.TemplateConfiguration, agentID types.NamespacedName) error {
 	spec := harness.Spec.Kagent.Compaction
 	if spec == nil {
 		return nil
@@ -71,7 +77,7 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
 		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
-			model, err := c.buildModel(harness.Namespace, ref.Name)
+			model, err := c.buildModel(harness.Namespace, ref.Name, agentID)
 			if err != nil {
 				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
 			}
@@ -142,7 +148,7 @@ func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfigu
 		return nil
 	}
 	name := memory.ModelConfigRef.Name
-	model, err := c.buildModel(harness.Namespace, name)
+	model, err := c.buildModel(harness.Namespace, name, types.NamespacedName{})
 	if err != nil {
 		return fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 	}

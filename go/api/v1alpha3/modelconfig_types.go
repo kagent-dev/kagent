@@ -611,6 +611,12 @@ type ModelConfigSpec struct {
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
 
+	// SendAgentIDHeader adds the runnable Agent's namespace/name as X-Agent-Id
+	// to LLM requests made with this model by the kagent harness. Enable only for
+	// trusted model gateways; omitted or false does not add the header.
+	// +optional
+	SendAgentIDHeader *bool `json:"sendAgentIDHeader,omitempty"`
+
 	// The provider of the model
 	// +kubebuilder:default=OpenAI
 	// +optional
