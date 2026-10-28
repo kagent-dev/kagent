@@ -290,20 +290,6 @@ Notes:
   read-only, so the agent can still read the files of skills it did not
   select.
 
-The example Agents replace the ready-made agents of kagent 0.x. These 0.x behaviors
-are not carried forward:
-
-- one Helm flag per agent (for example `argo-rollouts-agent.enabled`); one
-  flag installs all three example Agents;
-- the kgateway, cilium-policy, and promql agents, which have no matching skill;
-- the Cilium install, upgrade, and ClusterMesh steps of the cilium-manager
-  agent; `cilium-network-debugging` covers only debugging;
-- the persona text of each agent's system message;
-- the Grafana tools of the observability agent (1.x has no Grafana MCP server),
-  and its call to the promql agent as a sub-agent;
-- the `query_documentation` tool named in the helm, istio, and kgateway prompts;
-- the A2A skill entries in `a2aConfig.skills`, which have no 1.x field.
-
 ### Using Make
 
 ```bash
