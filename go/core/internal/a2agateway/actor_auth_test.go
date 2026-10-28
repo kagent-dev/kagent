@@ -2,7 +2,9 @@ package a2agateway
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -28,6 +30,20 @@ func (s actorBinding) GetSessionForRuntime(_ context.Context, id, uid string) (*
 	return s.session, nil
 }
 
+type configuredActorPolicy struct {
+	auth.NoopAuthorizer
+	revoked atomic.Bool
+}
+
+var _ auth.CollectionAuthorizer = (*configuredActorPolicy)(nil)
+
+func (p *configuredActorPolicy) Check(_ context.Context, principal auth.Principal, _ auth.Verb, _ auth.Resource) error {
+	if principal.RuntimeBinding != nil && p.revoked.Load() {
+		return errors.New("actor permission revoked")
+	}
+	return nil
+}
+
 func TestHTTPActorA2AUsesSessionAuthorization(t *testing.T) {
 	session := gatewayTestSession()
 	session.A2AAuthority = substrate.ActorHost("team-a", substrate.ActorName(session.Id), "")
@@ -37,7 +53,8 @@ func TestHTTPActorA2AUsesSessionAuthorization(t *testing.T) {
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
 	require.NoError(t, err)
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, binding, issuer.URL)
-	policy := runtimeauth.NewAuthorizer(auth.NoopAuthorizer{}, binding)
+	configured := &configuredActorPolicy{}
+	policy := runtimeauth.NewAuthorizer(configured, binding)
 	runtime := &gatewayTestRuntime{task: store.task}
 	gateway := newTestGateway(store, policy, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 	server := httptest.NewServer(NewHTTPHandler(gateway, provider, nil))
@@ -55,6 +72,20 @@ func TestHTTPActorA2AUsesSessionAuthorization(t *testing.T) {
 	_, err = transport.SendMessage(t.Context(), actor, gatewayTestRequest())
 	require.NoError(t, err)
 	require.True(t, runtime.sent, "an authorized actor call reaches its runtime")
+	configured.revoked.Store(true)
+	store.id = ""
+	before := runtime.sendCalls
+	_, err = transport.GetTask(t.Context(), actor, &a2atype.GetTaskRequest{ID: "runtime-task"})
+	require.ErrorIs(t, err, a2atype.ErrUnauthorized, "the same Actor credential must observe policy revocation")
+	_, err = transport.SendMessage(t.Context(), actor, gatewayTestRequest())
+	require.ErrorIs(t, err, a2atype.ErrUnauthorized)
+	require.Empty(t, store.id, "denied calls must not read Session content")
+	require.Equal(t, before, runtime.sendCalls, "denied calls must not reach the runtime")
+	_, err = transport.GetTask(t.Context(), user, &a2atype.GetTaskRequest{ID: "runtime-task"})
+	require.NoError(t, err, "creator and Actor grants are independent")
+	configured.revoked.Store(false)
+	_, err = transport.GetTask(t.Context(), actor, &a2atype.GetTaskRequest{ID: "runtime-task"})
+	require.NoError(t, err)
 	_, err = transport.GetTask(t.Context(), a2aclient.ServiceParams{"authorization": {token}, "x-share-token": {"share"}}, &a2atype.GetTaskRequest{ID: "runtime-task"})
 	require.Error(t, err)
 	// A different session for the same owner is still outside actor authority.
