@@ -83,7 +83,7 @@ export const LIVE_PROJECT = "chromium-live";
 
 /**
  * A live run reaches the backend through Vite's proxy, exactly as a deployed
- * build reaches it through nginx — so the app uses the same relative URLs either
+ * build reaches it through the UI proxy — so the app uses the same relative URLs either
  * way and this mode tests the addressing a real deployment uses.
  *
  * `KAGENT_UI_VITE_API_MODE` is pinned as well as the runtime flag: the build-time pin is

@@ -153,7 +153,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: Number(process.env.KAGENT_E2E_UI_LOOP_PORT ?? 8001),
     host: "0.0.0.0",
-    // Stands in for what nginx does in a deployed cluster, so a dev server
+    // Stands in for the UI proxy in a deployed cluster, so a dev server
     // talking to a real controller uses the same relative URLs as production.
     // Requests are only proxied in live mode; the mock worker intercepts first
     // otherwise, so these rules are inert by default.

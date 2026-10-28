@@ -219,7 +219,7 @@ port-forwarded. It is not run in CI. The specs live in `playwright/live/`, and t
 coverage deliberately left out of it is in `DEFERRED.md`.
 
 A live run reaches the controller through Vite's proxy, exactly as a deployed
-build reaches it through nginx, so the app uses the same relative URLs either way
+build reaches it through the UI proxy, so the app uses the same relative URLs either way
 and this mode tests the addressing a real deployment uses.
 
 **Why a separate mode rather than a third project.** `KAGENT_E2E_UI_LOOP_LIVE=true` swaps the

@@ -62,7 +62,7 @@ func render(environ []string) (string, string) {
 
 	basePath := strings.TrimSuffix(get("KAGENT_UI_BASE_PATH", ""), "/")
 	if !basePathRe.MatchString(basePath) || dotSegmentRe.MatchString(basePath) || reservedPathRe.MatchString(basePath) {
-		fmt.Fprintf(os.Stderr, "entrypoint: KAGENT_UI_BASE_PATH='%s' is not a path like /ui, or starts with a path nginx serves; serving at the root\n", basePath)
+		fmt.Fprintf(os.Stderr, "entrypoint: KAGENT_UI_BASE_PATH='%s' is not a path like /ui, or starts with a path the UI serves; serving at the root\n", basePath)
 		basePath = ""
 	}
 	// A non-numeric timeout would abort every chat stream at once, so fall back instead.

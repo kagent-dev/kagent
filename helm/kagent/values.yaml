@@ -492,13 +492,13 @@ ui:
   # `KAGENT_UI_EXTENSION_*`; the container's entrypoint copies
   # those onto `window.environmentVariables` for the browser to read.
   env: []
-  # -- Identity headers the UI's nginx proxy will forward to the backend on
+  # -- Identity headers the UI proxy will forward to the backend on
   # /api/, /a2a/, and /mcp. Names are case-insensitive. Authorization is always
   # forwarded; the auth-proxy identity headers (x-auth-request-*, x-forwarded-user,
   # x-forwarded-email, x-forwarded-groups, x-forwarded-preferred-username) are
   # stripped from client requests unless listed here, so a caller cannot spoof
   # an identity the backend trusts. Headers outside that set are forwarded by
-  # nginx as normal. In trusted-proxy mode, X-Agent-Name and X-User-Id are
+  # the UI proxy as normal. In trusted-proxy mode, X-Agent-Name and X-User-Id are
   # always stripped, even if listed here.
   additionalForwardedHeaders: []
   # Example:
@@ -509,7 +509,7 @@ ui:
   # runtime as the `apiBaseUrl` key of /config.json, which the app fetches on
   # startup — it is deliberately not baked into the bundle, so changing it here
   # takes effect on pod restart rather than requiring an image rebuild.
-  # The default is a path on the UI's own hostname, which nginx proxies to the
+  # The default is a path on the UI's own hostname, which the UI proxy sends to the
   # controller; set an absolute URL only if the browser must reach the API
   # somewhere other than the UI origin.
   publicBackendUrl: "/api"

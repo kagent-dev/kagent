@@ -73,7 +73,7 @@ func TestMatchesInitScript(t *testing.T) {
 			}
 			wantConfig, _ := os.ReadFile(filepath.Join(root, "tmp/kagent/env-config.js"))
 			wantHTML, _ := os.ReadFile(filepath.Join(root, "tmp/kagent/index.html"))
-			wantStderr := strings.ReplaceAll(stderr.String(), "init.sh:", "entrypoint:")
+			wantStderr := strings.NewReplacer("init.sh:", "entrypoint:", "nginx serves", "the UI serves").Replace(stderr.String())
 
 			r, w, _ := os.Pipe()
 			saved := os.Stderr

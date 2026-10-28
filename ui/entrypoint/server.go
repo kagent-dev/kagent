@@ -150,7 +150,7 @@ func newProxy(backend *url.URL, headers map[string]string) *httputil.ReverseProx
 type timerKey struct{}
 
 // idleTimeout cancels a request once the backend neither reads nor writes for the
-// send or read timeout, like nginx's proxy_send_timeout and proxy_read_timeout.
+// send or read timeout.
 func idleTimeout(next http.Handler, read, send time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithCancel(r.Context())
@@ -192,7 +192,7 @@ func (w *idleWriter) Write(p []byte) (int, error) {
 
 func (w *idleWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// limitBody answers 413 for a body over max, like nginx's client_max_body_size; 0 disables it.
+// limitBody answers 413 for a body over max; 0 disables it.
 func limitBody(next http.Handler, max int64) http.Handler {
 	if max == 0 {
 		return next
@@ -253,7 +253,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, name string) {
 	http.ServeContent(w, r, name, fi.ModTime(), f)
 }
 
-// parseSize reads an nginx size such as 20m or 512k.
+// parseSize reads a size such as 20m or 512k.
 func parseSize(s string) (int64, error) {
 	mult := int64(1)
 	switch strings.ToLower(s[len(s)-1:]) {
@@ -271,7 +271,7 @@ func parseSize(s string) (int64, error) {
 	return n * mult, err
 }
 
-// parseDuration reads an nginx time such as 1800s or 30m; a bare number is seconds.
+// parseDuration reads a time such as 1800s or 30m; a bare number is seconds.
 func parseDuration(s string) (time.Duration, error) {
 	if _, err := strconv.Atoi(s); err == nil {
 		s += "s"

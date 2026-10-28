@@ -414,14 +414,14 @@ tests:
       - failedTemplate:
           errorMessage: ui.basePath must be a path like /ui
 
-  - it: should reject a ui.basePath that starts with a path nginx serves
+  - it: should reject a ui.basePath that starts with a path the UI serves
     template: ui-deployment.yaml
     set:
       ui:
         basePath: /assets/ui
     asserts:
       - failedTemplate:
-          errorMessage: ui.basePath cannot start with a path nginx serves, such as /api or /assets
+          errorMessage: ui.basePath cannot start with a path the UI serves, such as /api or /assets
 
   - it: should accept a ui.basePath that only shares a prefix with a served path
     template: ui-configmap.yaml

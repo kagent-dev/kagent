@@ -87,7 +87,7 @@ kubectl get pods -n kagent
 
 # Both forwards a developer needs, held open together.
 #
-# 8080 is the UI the cluster is running -- the image built above, served by its nginx,
+# 8080 is the UI the cluster is running -- the image built above, served by its UI server,
 # not a dev server. 8083 is the controller, which `yarn dev` proxies to by default.
 #
 # The second one is here so that default is true. With only the UI forwarded, running
