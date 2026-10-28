@@ -10,10 +10,12 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -616,6 +618,72 @@ func TestStreamingToolCallParseArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A failure that arrives after the first deltas closes the event channel
+// without a messageStop. The adapter must report it instead of returning the
+// partial text as a completed turn.
+func TestBedrockStreamErrorSurfacesAsErrorResponse(t *testing.T) {
+	t.Setenv("AWS_BEARER_TOKEN_BEDROCK", "")
+	encoder := eventstream.NewEncoder()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+		w.WriteHeader(http.StatusOK)
+		writeEvent := func(message eventstream.Message) {
+			// t.Errorf instead of require: this runs in the server goroutine,
+			// where FailNow is not allowed.
+			if err := encoder.Encode(w, message); err != nil {
+				t.Errorf("encode event: %v", err)
+			}
+		}
+		writeEvent(eventstream.Message{
+			Headers: eventstream.Headers{
+				{Name: ":event-type", Value: eventstream.StringValue("contentBlockDelta")},
+				{Name: ":message-type", Value: eventstream.StringValue("event")},
+				{Name: ":content-type", Value: eventstream.StringValue("application/json")},
+			},
+			Payload: []byte(`{"contentBlockIndex":0,"delta":{"text":"partial answer"}}`),
+		})
+		writeEvent(eventstream.Message{
+			Headers: eventstream.Headers{
+				{Name: ":exception-type", Value: eventstream.StringValue("throttlingException")},
+				{Name: ":message-type", Value: eventstream.StringValue("exception")},
+				{Name: ":content-type", Value: eventstream.StringValue("application/json")},
+			},
+			Payload: []byte(`{"message":"Too many requests, please wait before trying again."}`),
+		})
+	}))
+	defer server.Close()
+
+	client := bedrockruntime.New(bedrockruntime.Options{
+		Region:           "us-east-1",
+		BaseEndpoint:     aws.String(server.URL),
+		HTTPClient:       server.Client(),
+		Credentials:      credentials.NewStaticCredentialsProvider("test", "test", ""),
+		RetryMaxAttempts: 1,
+	})
+	llm := &BedrockModel{Config: &BedrockConfig{Model: "claude"}, Client: client}
+	request := &model.LLMRequest{
+		Contents: []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{Text: "hello"}}}},
+	}
+
+	var last *model.LLMResponse
+	var text strings.Builder
+	for response, err := range llm.GenerateContent(context.Background(), request, true) {
+		require.NoError(t, err)
+		last = response
+		if response.Content != nil {
+			for _, part := range response.Content.Parts {
+				text.WriteString(part.Text)
+			}
+		}
+	}
+
+	require.Contains(t, text.String(), "partial answer")
+	require.NotNil(t, last)
+	require.Equal(t, "STREAM_ERROR", last.ErrorCode)
+	require.Contains(t, last.ErrorMessage, "Too many requests")
+	require.False(t, last.TurnComplete, "a failed stream must not report a completed turn")
 }
 
 func TestThinkingOnlyInLastAssistantTurn(t *testing.T) {

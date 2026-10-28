@@ -443,6 +443,17 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 		}
 	}
 
+	// A mid-stream failure closes the event channel without delivering a
+	// messageStop, so without this check the partial text below would be
+	// reported as a finished turn and the caller would never see the error.
+	if err := stream.Err(); err != nil {
+		if ctx.Err() == context.Canceled {
+			return
+		}
+		_ = yield(&model.LLMResponse{ErrorCode: "STREAM_ERROR", ErrorMessage: err.Error()}, nil)
+		return
+	}
+
 	// thinking parts first; block order must match what Bedrock returned.
 	finalParts := []*genai.Part{}
 	finalParts = append(finalParts, completedThinkingParts...)
