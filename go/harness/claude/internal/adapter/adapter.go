@@ -4,7 +4,6 @@ package adapter
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -91,10 +90,6 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if slices.Contains(input.Environment, env.TestClaudeDisableRetries+"=true") {
 		environment = setEnvironment(environment, config.MaxRetriesEnvName, "0")
 	}
-	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
-	if err != nil {
-		return nil, err
-	}
 	protectedServers := approvalServerNames(cfg.MCPServers)
 	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
 		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
@@ -152,39 +147,6 @@ func approvalServerNames(servers map[string]config.MCPServer) (protected []strin
 		}
 	}
 	return protected
-}
-
-func materializeGoogleCredentials(environment []string, directory string) ([]string, error) {
-	// The compiler injects the Secret value as JSON, while Google ADC expects a
-	// file path. Keep the credential in ephemeral Actor storage rather than the
-	// well-known path under /data, which is durable and may be snapshotted.
-	prefix := config.GoogleCredentialsJSONEnvName + "="
-	var credentials string
-	filtered := make([]string, 0, len(environment))
-	for _, item := range environment {
-		if strings.HasPrefix(item, prefix) {
-			if credentials != "" {
-				return nil, fmt.Errorf("%s is configured more than once", config.GoogleCredentialsJSONEnvName)
-			}
-			credentials = strings.TrimPrefix(item, prefix)
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	if credentials == "" {
-		return filtered, nil
-	}
-	if !json.Valid([]byte(credentials)) {
-		return nil, fmt.Errorf("%s must contain valid JSON", config.GoogleCredentialsJSONEnvName)
-	}
-	if err := utils.EnsurePrivateDir(directory); err != nil {
-		return nil, fmt.Errorf("prepare ephemeral credentials directory: %w", err)
-	}
-	path := filepath.Join(directory, "google-credentials.json")
-	if err := utils.ReplacePrivateFile(path, []byte(credentials)); err != nil {
-		return nil, fmt.Errorf("materialize Google credentials: %w", err)
-	}
-	return setEnvironment(filtered, config.GoogleApplicationCredentialsEnvName, path), nil
 }
 
 // nativeTelemetryEnvironment turns on Claude Code telemetry for the signals the

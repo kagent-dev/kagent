@@ -18,7 +18,7 @@ func TestCompileActorJWTUnsupportedProviders(t *testing.T) {
 		t.Run(string(spec.Provider), func(t *testing.T) {
 			spec.Model = "test:cloud"
 			spec.ActorJWT = &v1alpha3.ActorJWT{Audiences: []string{"model"}}
-			environment, bindings, passthrough, err := CompileCredentials(credentialInput(spec), nil, nil)
+			environment, bindings, passthrough, err := CompileCredentials(credentialInput(spec), nil, nil, nil)
 			require.ErrorContains(t, err, "does not support actorJwt")
 			require.Empty(t, environment)
 			require.Empty(t, bindings)
@@ -33,7 +33,7 @@ func TestCompileActorJWTCredentials(t *testing.T) {
 	input.Root.MCPTools = []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com/tools", ActorJWT: token}}}}
 	placeholder, err := ActorJWTEnvironment(input.Root.ResolvedModelConfig)
 	require.NoError(t, err)
-	environment, bindings, passthrough, err := CompileCredentials(input, nil, []corev1.EnvVar{placeholder})
+	environment, bindings, passthrough, err := CompileCredentials(input, nil, []corev1.EnvVar{placeholder}, nil)
 	require.NoError(t, err)
 	require.Empty(t, passthrough)
 	require.Equal(t, []corev1.EnvVar{{Name: "ANTHROPIC_API_KEY", Value: CredentialPlaceholder}}, environment)
@@ -53,14 +53,14 @@ func TestCompileActorJWTCredentials(t *testing.T) {
 	require.Equal(t, "x-actor", access.Credentials[0].Header)
 	require.Equal(t, bindings[0].ActorJWT, access.Credentials[0].ActorJWT)
 	input.Root.ResolvedModelConfig.Config.Spec.DefaultHeaders = map[string]string{"X-Api-Key": "conflict"}
-	environment, bindings, passthrough, err = CompileCredentials(input, nil, nil)
+	environment, bindings, passthrough, err = CompileCredentials(input, nil, nil, nil)
 	require.Empty(t, environment)
 	require.Empty(t, bindings)
 	require.Empty(t, passthrough)
 	require.ErrorContains(t, err, "defaultHeaders")
 	input.Root.ResolvedModelConfig.Config.Spec.DefaultHeaders = nil
 	input.Root.MCPTools[0].Server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "AUTHORIZATION", Value: "conflict"}}
-	environment, bindings, passthrough, err = CompileCredentials(input, nil, nil)
+	environment, bindings, passthrough, err = CompileCredentials(input, nil, nil, nil)
 	require.Empty(t, environment)
 	require.Empty(t, bindings)
 	require.Empty(t, passthrough)

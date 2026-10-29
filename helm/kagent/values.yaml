@@ -216,6 +216,14 @@ config:
     logging:
       level: info
     telemetry: {}
+    # Credential provider class (the ate-secret:// URI authority) the Substrate
+    # egress gateway resolves a ModelConfig's apiKeySecret through, keyed by
+    # ModelConfig provider. A provider absent here uses k8s.io, which injects
+    # the Secret value as stored. Another class must be routed by the gateway.
+    # GeminiVertexAI and AnthropicVertexAI need a class that mints access tokens.
+    # modelCredentialAuthorities:
+    #   GeminiVertexAI: tokens.example.com
+    modelCredentialAuthorities: {}
 
 # ==============================================================================
 # CONTROLLER DEPLOYMENT

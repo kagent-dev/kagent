@@ -1,10 +1,13 @@
 package config_test
 
 import (
+	"os"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
@@ -61,6 +64,11 @@ func TestControllerConfig(t *testing.T) {
 		{"runtime service name", "runtimeDefaults: {telemetry: {resourceAttributes: {service.name: shared}}}", true},
 		{"runtime service namespace", "runtimeDefaults: {telemetry: {resourceAttributes: {service.namespace: shared}}}", true},
 		{"runtime resource attributes", "runtimeDefaults: {telemetry: {resourceAttributes: {deployment.environment.name: production}}}", false},
+		{"model credential authority", "runtimeDefaults: {modelCredentialAuthorities: {GeminiVertexAI: tokens.example.com, AnthropicVertexAI: tokens.example.com}}", false},
+		{"model credential authority for an unknown provider", "runtimeDefaults: {modelCredentialAuthorities: {Vertex: tokens.example.com}}", true},
+		{"model credential authority with a port", "runtimeDefaults: {modelCredentialAuthorities: {OpenAI: 'tokens.example.com:50051'}}", true},
+		{"uppercase model credential authority", "runtimeDefaults: {modelCredentialAuthorities: {OpenAI: Tokens.Example.com}}", true},
+		{"IP model credential authority", "runtimeDefaults: {modelCredentialAuthorities: {OpenAI: 192.0.2.1}}", true},
 		{"controller service labels", "telemetry: {resourceAttributes: {service.name: controller, service.namespace: control-plane}}", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -77,6 +85,40 @@ func TestControllerConfig(t *testing.T) {
 				require.NoError(t, err)
 			}
 		})
+	}
+}
+
+// The provider keys modelCredentialAuthorities accepts are the ModelConfig
+// provider enum of the published CRD.
+func TestModelCredentialAuthorityProvidersMatchModelConfig(t *testing.T) {
+	type schema struct {
+		Enum       []string          `yaml:"enum"`
+		Properties map[string]schema `yaml:"properties"`
+	}
+	type version struct {
+		Name   string `yaml:"name"`
+		Schema struct {
+			OpenAPIV3Schema schema `yaml:"openAPIV3Schema"`
+		} `yaml:"schema"`
+	}
+	var crd struct {
+		Spec struct {
+			Versions []version `yaml:"versions"`
+		} `yaml:"spec"`
+	}
+	data, err := os.ReadFile("../../../../helm/kagent-crds/templates/api.kagent.dev_modelconfigs.yaml")
+	require.NoError(t, err)
+	require.NoError(t, yaml.Unmarshal(data, &crd))
+	index := slices.IndexFunc(crd.Spec.Versions, func(v version) bool { return v.Name == "v1alpha3" })
+	require.GreaterOrEqual(t, index, 0)
+	providers := crd.Spec.Versions[index].Schema.OpenAPIV3Schema.Properties["spec"].Properties["provider"].Enum
+	require.NotEmpty(t, providers)
+	for _, provider := range providers {
+		cfg := &configv1.ControllerConfig{}
+		config.DefaultController(cfg)
+		setLogins(cfg)
+		cfg.RuntimeDefaults.ModelCredentialAuthorities = map[string]string{provider: "tokens.example.com"}
+		require.NoError(t, config.Validate(cfg), provider)
 	}
 }
 

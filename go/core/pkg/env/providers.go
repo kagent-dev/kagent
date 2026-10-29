@@ -105,6 +105,16 @@ var (
 		"Path to Google Cloud service account JSON key file.",
 		ComponentAgentRuntime,
 	)
+
+	// The compiler sets this for a Vertex AI ModelConfig whose service account
+	// key the egress gateway exchanges for an access token on every call, the
+	// counterpart of Claude Code's CLAUDE_CODE_SKIP_VERTEX_AUTH.
+	SkipVertexAuth = RegisterBoolVar(
+		"KAGENT_SKIP_VERTEX_AUTH",
+		false,
+		"When true, call Vertex AI without Google credentials of the runtime's own; the egress gateway sets the access token.",
+		ComponentAgentRuntime,
+	)
 )
 
 // AWS / Bedrock

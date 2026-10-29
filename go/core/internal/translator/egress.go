@@ -127,7 +127,7 @@ func compileEgressPolicy(namespace string, policy *v1alpha3.EgressPolicy, getSec
 		if secret.Name == "" || secret.Key == "" || (secret.Optional != nil && *secret.Optional) {
 			return egress.Access{}, NewValidationError("requires a non-optional Secret name and key")
 		}
-		binding.URI = "ate-secret://k8s.io/default/" + namespace + "/" + secret.Name + "/" + secret.Key
+		binding.URI = egress.CredentialURI(egress.KubernetesSecretAuthority, namespace, secret.Name, secret.Key)
 		if _, err := egress.CanonicalCredentials([]egress.Credential{binding}); err != nil {
 			return egress.Access{}, err
 		}

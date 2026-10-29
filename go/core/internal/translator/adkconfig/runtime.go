@@ -32,9 +32,6 @@ func (c *Builder) buildModel(namespace string, ref v1alpha3.ObjectReference) (*m
 	if err != nil {
 		return nil, err
 	}
-	if runtime.HasUnsupportedVolumes {
-		return nil, translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
-	}
 	return &modelResult{
 		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,
 		Egress: agentConfigDestinations(&configv1.ADKAgentConfig{}, resolved.Config, runtime.Model),
