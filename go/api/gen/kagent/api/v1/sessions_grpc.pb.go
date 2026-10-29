@@ -23,6 +23,7 @@ const (
 	SessionService_GetSession_FullMethodName         = "/kagent.api.v1.SessionService/GetSession"
 	SessionService_ListSessions_FullMethodName       = "/kagent.api.v1.SessionService/ListSessions"
 	SessionService_UpdateSessionName_FullMethodName  = "/kagent.api.v1.SessionService/UpdateSessionName"
+	SessionService_RevertSession_FullMethodName      = "/kagent.api.v1.SessionService/RevertSession"
 	SessionService_DeleteSession_FullMethodName      = "/kagent.api.v1.SessionService/DeleteSession"
 	SessionService_CreateSessionShare_FullMethodName = "/kagent.api.v1.SessionService/CreateSessionShare"
 	SessionService_ListSessionShares_FullMethodName  = "/kagent.api.v1.SessionService/ListSessionShares"
@@ -43,6 +44,8 @@ type SessionServiceClient interface {
 	GetSession(ctx context.Context, in *GetSessionRequest, opts ...grpc.CallOption) (*GetSessionResponse, error)
 	ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error)
 	UpdateSessionName(ctx context.Context, in *UpdateSessionNameRequest, opts ...grpc.CallOption) (*UpdateSessionNameResponse, error)
+	// Restores a crashed runtime to its last snapshot without replaying its turn.
+	RevertSession(ctx context.Context, in *RevertSessionRequest, opts ...grpc.CallOption) (*RevertSessionResponse, error)
 	DeleteSession(ctx context.Context, in *DeleteSessionRequest, opts ...grpc.CallOption) (*DeleteSessionResponse, error)
 	CreateSessionShare(ctx context.Context, in *CreateSessionShareRequest, opts ...grpc.CallOption) (*CreateSessionShareResponse, error)
 	ListSessionShares(ctx context.Context, in *ListSessionSharesRequest, opts ...grpc.CallOption) (*ListSessionSharesResponse, error)
@@ -91,6 +94,16 @@ func (c *sessionServiceClient) UpdateSessionName(ctx context.Context, in *Update
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpdateSessionNameResponse)
 	err := c.cc.Invoke(ctx, SessionService_UpdateSessionName_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sessionServiceClient) RevertSession(ctx context.Context, in *RevertSessionRequest, opts ...grpc.CallOption) (*RevertSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevertSessionResponse)
+	err := c.cc.Invoke(ctx, SessionService_RevertSession_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +164,8 @@ type SessionServiceServer interface {
 	GetSession(context.Context, *GetSessionRequest) (*GetSessionResponse, error)
 	ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error)
 	UpdateSessionName(context.Context, *UpdateSessionNameRequest) (*UpdateSessionNameResponse, error)
+	// Restores a crashed runtime to its last snapshot without replaying its turn.
+	RevertSession(context.Context, *RevertSessionRequest) (*RevertSessionResponse, error)
 	DeleteSession(context.Context, *DeleteSessionRequest) (*DeleteSessionResponse, error)
 	CreateSessionShare(context.Context, *CreateSessionShareRequest) (*CreateSessionShareResponse, error)
 	ListSessionShares(context.Context, *ListSessionSharesRequest) (*ListSessionSharesResponse, error)
@@ -176,6 +191,9 @@ func (UnimplementedSessionServiceServer) ListSessions(context.Context, *ListSess
 }
 func (UnimplementedSessionServiceServer) UpdateSessionName(context.Context, *UpdateSessionNameRequest) (*UpdateSessionNameResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateSessionName not implemented")
+}
+func (UnimplementedSessionServiceServer) RevertSession(context.Context, *RevertSessionRequest) (*RevertSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevertSession not implemented")
 }
 func (UnimplementedSessionServiceServer) DeleteSession(context.Context, *DeleteSessionRequest) (*DeleteSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteSession not implemented")
@@ -282,6 +300,24 @@ func _SessionService_UpdateSessionName_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SessionService_RevertSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevertSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionServiceServer).RevertSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SessionService_RevertSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionServiceServer).RevertSession(ctx, req.(*RevertSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SessionService_DeleteSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteSessionRequest)
 	if err := dec(in); err != nil {
@@ -376,6 +412,10 @@ var SessionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateSessionName",
 			Handler:    _SessionService_UpdateSessionName_Handler,
+		},
+		{
+			MethodName: "RevertSession",
+			Handler:    _SessionService_RevertSession_Handler,
 		},
 		{
 			MethodName: "DeleteSession",
