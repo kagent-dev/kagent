@@ -52,7 +52,7 @@ func TestExportOnlyWritesHelmArtifacts(t *testing.T) {
 			cfg.SkipDatabaseSetup = skip
 			dir := filepath.Join(t.TempDir(), "export")
 			runner := exportRunner()
-			path, err := Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: dir, Secrets: exportReferences()})
+			path, err := Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: dir, APIKeyEnvironment: "OPENAI_API_KEY"})
 			require.NoError(t, err)
 			require.Equal(t, dir, path)
 			files, err := os.ReadDir(dir)
@@ -120,7 +120,7 @@ func TestExportFailuresLeaveNoPartialDirectory(t *testing.T) {
 				}
 				return run(cmd)
 			}
-			_, err := Export(t.Context(), runner, testConfig(), ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(parent, "export"), Secrets: exportReferences()})
+			_, err := Export(t.Context(), runner, testConfig(), ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(parent, "export"), APIKeyEnvironment: "OPENAI_API_KEY"})
 			require.ErrorIs(t, err, cause)
 			require.NotContains(t, err.Error(), "secret-from-a-diagnostic")
 			files, err := os.ReadDir(parent)
@@ -149,16 +149,69 @@ func TestExplicitSecretReferences(t *testing.T) {
 }
 
 func TestExportRejectsInvalidSecretReferences(t *testing.T) {
-	for _, refs := range [][]SecretReference{
-		nil,
-		{{Release: "kagent", Path: []string{"providers", "openAI", "apiKey"}, Environment: "INVALID-NAME"}},
-		{{Release: "kagent", Path: []string{""}, Environment: "API_KEY"}},
-		append(exportReferences(), exportReferences()...),
+	for _, tc := range []struct {
+		name, environment, wantErr string
+		refs                       []SecretReference
+	}{
+		{"missing model environment", "", "model API key requires APIKeyEnvironment", nil},
+		{"invalid model environment", "INVALID-NAME", "valid environment variable", nil},
+		{"invalid additional environment", "OPENAI_API_KEY", "valid environment variable", []SecretReference{{Release: "kagent", Path: []string{"auth", "token"}, Environment: "INVALID-NAME"}}},
+		{"empty path", "OPENAI_API_KEY", "map path", []SecretReference{{Release: "kagent", Path: []string{""}, Environment: "API_KEY"}}},
+		{"conflicting model reference", "OPENAI_API_KEY", "duplicate secret reference", exportReferences()},
+		{"duplicate additional reference", "OPENAI_API_KEY", "duplicate secret reference", []SecretReference{
+			{Release: "kagent", Path: []string{"auth", "token"}, Environment: "TOKEN"},
+			{Release: "kagent", Path: []string{"auth", "token"}, Environment: "OTHER_TOKEN"},
+		}},
 	} {
-		runner := exportRunner()
-		_, err := Export(t.Context(), runner, testConfig(), ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(t.TempDir(), "export"), Secrets: refs})
-		require.Error(t, err)
-		require.Empty(t, runner.commands)
+		t.Run(tc.name, func(t *testing.T) {
+			runner := exportRunner()
+			_, err := Export(t.Context(), runner, testConfig(), ExportOptions{
+				ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(t.TempDir(), "export"), APIKeyEnvironment: tc.environment, Secrets: tc.refs,
+			})
+			require.ErrorContains(t, err, tc.wantErr)
+			require.Empty(t, runner.commands)
+		})
+	}
+}
+
+func TestExportBuildsModelAPIKeyReference(t *testing.T) {
+	for _, tc := range []struct{ provider, path string }{
+		{"OpenAI", "openAI"},
+		{"Anthropic", "anthropic"},
+		{"AzureOpenAI", "azureOpenAI"},
+		{"Gemini", "gemini"},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.ModelProvider, cfg.APIKey = tc.provider, ""
+			runner := &recordingRunner{run: func(cmd Command) (string, error) {
+				if cmd.Args[1] == "kagent-install-values" {
+					return valuesManifest(map[string]any{"providers": map[string]any{tc.path: map[string]any{"apiKey": "placeholder"}}}), nil
+				}
+				return "kind: Deployment\nspec: {template: {spec: {serviceAccountName: test-controller}}}", nil
+			}}
+			refs := []SecretReference{{Release: "untouched"}}
+			dir := filepath.Join(t.TempDir(), "export")
+			_, err := Export(t.Context(), runner, cfg, ExportOptions{
+				Directory: dir, APIKeyEnvironment: "CUSTOM_MODEL_KEY", Secrets: refs[:0], ReadmeTemplate: testReadmeTemplate,
+			})
+			require.NoError(t, err)
+			require.Equal(t, "", cfg.APIKey)
+			require.Equal(t, "untouched", refs[0].Release, "export must not overwrite the caller's reference backing array")
+			readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
+			require.NoError(t, err)
+			require.Contains(t, string(readme), "kagent providers."+tc.path+".apiKey CUSTOM_MODEL_KEY")
+			script, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+			require.NoError(t, err)
+			require.Contains(t, string(script), "--set-file providers."+tc.path+".apiKey=\"$secret_dir/CUSTOM_MODEL_KEY\"")
+			data, err := os.ReadFile(filepath.Join(dir, "values", "kagent.yaml"))
+			require.NoError(t, err)
+			var values struct {
+				Providers map[string]struct{ APIKey string }
+			}
+			require.NoError(t, yaml.Unmarshal(data, &values))
+			require.Equal(t, "${CUSTOM_MODEL_KEY}", values.Providers[tc.path].APIKey)
+		})
 	}
 }
 
@@ -170,7 +223,7 @@ func TestExportValidatesConfigBeforeRendering(t *testing.T) {
 		cfg := testConfig()
 		edit(&cfg)
 		runner := exportRunner()
-		_, err := Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(t.TempDir(), "export"), Secrets: exportReferences()})
+		_, err := Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(t.TempDir(), "export"), APIKeyEnvironment: "OPENAI_API_KEY"})
 		require.Error(t, err)
 		require.Empty(t, runner.commands)
 	}
@@ -215,7 +268,7 @@ done
 	cfg := testConfig()
 	marker := filepath.Join(dir, "must-not-exist")
 	cfg.Kagent.Repository = filepath.Join(dir, "repo'$(touch "+marker+")")
-	_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: output, Secrets: exportReferences()})
+	_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: output, APIKeyEnvironment: "OPENAI_API_KEY"})
 	require.NoError(t, err)
 	secret := "key,with=punctuation'\"\\$()\nsecond line"
 	cmd := exec.CommandContext(t.Context(), "sh", filepath.Join(output, "install.sh"))
@@ -275,7 +328,7 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 			profile := filepath.Join(root, "profile.yaml")
 			require.NoError(t, os.WriteFile(profile, []byte("agents: {enabled: false}\n"), 0o600))
 			cfg.Kagent.ValuesFiles = []string{profile, file}
-			refs := exportReferences()
+			var refs []SecretReference
 			const token = "owned-token-must-not-be-exported"
 			if tc.overrides {
 				cfg.Kagent.Values = []string{"providers.default=ollama", "auth.token=" + token}
@@ -287,7 +340,7 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 			plan, err := planInstall(t.Context(), runner, cfg)
 			require.NoError(t, err)
 			output := filepath.Join(root, "export")
-			_, err = Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: output, Secrets: refs})
+			_, err = Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: output, APIKeyEnvironment: "OPENAI_API_KEY", Secrets: refs})
 			require.NoError(t, err)
 			script, err := os.ReadFile(filepath.Join(output, "install.sh"))
 			require.NoError(t, err)
@@ -304,7 +357,7 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 				require.NoError(t, err)
 				path := filepath.Join(output, "values", release.Release+".yaml")
 				args := []string{"template", "replay", mergeChart, "-f", path}
-				for _, ref := range refs {
+				for _, ref := range append(exportReferences(), refs...) {
 					if ref.Release != release.Release {
 						continue
 					}
@@ -379,10 +432,10 @@ func TestExportReadmeTemplate(t *testing.T) {
 			cfg.SkipDatabaseSetup = true
 			directory := filepath.Join(t.TempDir(), "export")
 			_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{
-				Directory:      directory,
-				Secrets:        exportReferences(),
-				ReadmeTemplate: "# Installation\n\nFollow {{.Data.DocsURL}}.\nSkip database: {{.SkipDatabaseSetup}}\nCaller mode: {{.Data.SkipDatabaseSetup}}\n{{range .Secrets}}{{.Release}} {{.Path}} {{.Environment}}\n{{end}}",
-				ReadmeData:     tc.data,
+				Directory:         directory,
+				APIKeyEnvironment: "OPENAI_API_KEY",
+				ReadmeTemplate:    "# Installation\n\nFollow {{.Data.DocsURL}}.\nSkip database: {{.SkipDatabaseSetup}}\nCaller mode: {{.Data.SkipDatabaseSetup}}\n{{range .Secrets}}{{.Release}} {{.Path}} {{.Environment}}\n{{end}}",
+				ReadmeData:        tc.data,
 			})
 			require.NoError(t, err)
 			readme, err := os.ReadFile(filepath.Join(directory, "README.md"))
@@ -408,10 +461,10 @@ func TestExportReadmeTemplateErrorsLeaveNoOutput(t *testing.T) {
 			runner := exportRunner()
 			cfg := testConfig()
 			_, err := Export(t.Context(), runner, cfg, ExportOptions{
-				Directory:      filepath.Join(parent, "export"),
-				Secrets:        exportReferences(),
-				ReadmeTemplate: tc.source,
-				ReadmeData:     map[string]any{},
+				Directory:         filepath.Join(parent, "export"),
+				APIKeyEnvironment: "OPENAI_API_KEY",
+				ReadmeTemplate:    tc.source,
+				ReadmeData:        map[string]any{},
 			})
 			require.ErrorContains(t, err, tc.wantErr)
 			require.NotContains(t, err.Error(), cfg.APIKey)

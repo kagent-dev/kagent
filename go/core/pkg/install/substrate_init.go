@@ -40,7 +40,6 @@ import (
 
 const (
 	podCertificateNamespace = "podcertificate-controller-system"
-	podCertificateRelease   = "substrate-podcert"
 	poolKeyID               = "1"
 	inClusterIssuer         = "https://kubernetes.default.svc"
 	caValidity              = 365 * 24 * time.Hour

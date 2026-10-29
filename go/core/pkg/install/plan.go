@@ -128,8 +128,8 @@ config:
 		substrate.Values = append(substrate.Values, "postgres.clientCertificates.enabled=true")
 	}
 	steps := []Step{
-		ChartInstall{Release: "kagent-crds", Namespace: cfg.Namespace, Chart: cloneChart(cfg.KagentCRDs)},
-		ChartInstall{Release: "substrate-crds", Namespace: substrateNamespace, Chart: cloneChart(cfg.SubstrateCRDs)},
+		ChartInstall{Release: kagentCRDsRelease, Namespace: cfg.Namespace, Chart: cloneChart(cfg.KagentCRDs)},
+		ChartInstall{Release: substrateCRDsRelease, Namespace: substrateNamespace, Chart: cloneChart(cfg.SubstrateCRDs)},
 		SubstratePrerequisites{Namespace: cfg.Namespace},
 		ChartInstall{Release: podCertificateRelease, Namespace: podCertificateNamespace, Chart: podcert},
 	}
@@ -137,8 +137,8 @@ config:
 		steps = append(steps, database)
 	}
 	steps = append(steps,
-		ChartInstall{Release: "substrate", Namespace: substrateNamespace, Chart: substrate},
-		ChartInstall{Release: "kagent", Namespace: cfg.Namespace, Chart: kagent})
+		ChartInstall{Release: substrateRelease, Namespace: substrateNamespace, Chart: substrate},
+		ChartInstall{Release: kagentRelease, Namespace: cfg.Namespace, Chart: kagent})
 	return Plan{steps: steps}, nil
 }
 
@@ -166,7 +166,7 @@ func (c *Client) Apply(ctx context.Context, plan Plan, progress func(string)) er
 		case ChartInstall:
 			out, err := c.runner.Run(ctx, s.Command())
 			if err != nil {
-				if s.Release == "kagent-crds" && strings.Contains(out+err.Error(), "exists and cannot be imported into the current release") {
+				if s.Release == kagentCRDsRelease && strings.Contains(out+err.Error(), "exists and cannot be imported into the current release") {
 					return fmt.Errorf("failed to install kagent-crds: Kagent CRDs from a previous installation exist outside Helm; delete them, then retry: %w: %s", err, strings.TrimSpace(out))
 				}
 				return fmt.Errorf("failed to install %s: %w: %s", s.Release, err, strings.TrimSpace(out))

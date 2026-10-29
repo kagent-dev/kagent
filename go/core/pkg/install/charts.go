@@ -12,6 +12,14 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const (
+	kagentRelease         = "kagent"
+	kagentCRDsRelease     = "kagent-crds"
+	substrateRelease      = "substrate"
+	substrateCRDsRelease  = "substrate-crds"
+	podCertificateRelease = "substrate-podcert"
+)
+
 // Chart names an artifact and its overrides. Name is independent of the Helm
 // release name, allowing embedding applications to select different chart artifacts.
 type Chart struct {
@@ -89,7 +97,7 @@ func helmValueArgs(chart Chart) []string {
 }
 
 func controllerServiceAccount(ctx context.Context, runner Runner, namespace string, chart Chart) (string, error) {
-	args := []string{"template", "kagent", chartReference(chart), "--version", chart.Version,
+	args := []string{"template", kagentRelease, chartReference(chart), "--version", chart.Version,
 		"--namespace", namespace, "--show-only", "templates/controller-deployment.yaml"}
 	args = append(args, chartTransportArgs(chart)...)
 	args = append(args, helmValueArgs(chart)...)

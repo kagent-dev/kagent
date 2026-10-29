@@ -66,13 +66,10 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 	settings := cliconfig.FromContext(cmd.Context()).GetInstall()
 	modelProvider := v1alpha3.ModelProvider(settings.GetDefaultModelProvider())
 	apiKeyValue := ""
-	var references []installer.SecretReference
+	apiKeyEnvironment := ""
 	if apiKey, ok := providerAPIKey(modelProvider); ok {
 		if cfg.DryRun {
-			apiKeyValue = "${" + apiKey.Name() + "}"
-			provider := string(modelProvider)
-			provider = strings.ToLower(provider[:1]) + provider[1:]
-			references = append(references, installer.SecretReference{Release: "kagent", Path: []string{"providers", provider, "apiKey"}, Environment: apiKey.Name()})
+			apiKeyEnvironment = apiKey.Name()
 		} else {
 			apiKeyValue = apiKey.Get()
 			if apiKeyValue == "" {
@@ -117,7 +114,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 			return fmt.Errorf("helm not found in PATH; install it first")
 		}
 		directory, err := installer.Export(cmd.Context(), installer.CommandRunner{}, input, installer.ExportOptions{
-			Directory: cfg.OutputDir, Secrets: references, ReadmeTemplate: installReadmeTemplate,
+			Directory: cfg.OutputDir, APIKeyEnvironment: apiKeyEnvironment, ReadmeTemplate: installReadmeTemplate,
 			ReadmeData: struct{ DocsURL string }{
 				DocsURL: "https://kagent.dev/docs/kagent/1.x/setup/installation/#before-you-begin",
 			},

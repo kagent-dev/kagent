@@ -103,7 +103,7 @@ func (c *Client) Uninstall(ctx context.Context, namespace, postgresImage string,
 	}
 	// kagent goes before Substrate. Its release holds the Substrate WorkerPool,
 	// and Helm can delete that only while substrate-crds still serves the kind.
-	if err := release("kagent", namespace); err != nil {
+	if err := release(kagentRelease, namespace); err != nil {
 		return result, err
 	}
 	// atecontroller releases a SandboxConfig once no WorkerPool uses it. With the
@@ -112,7 +112,7 @@ func (c *Client) Uninstall(ctx context.Context, namespace, postgresImage string,
 	if err := c.deleteServed(ctx, "sandboxconfigs.ate.dev", "--all"); err != nil {
 		return result, fmt.Errorf("delete Substrate sandbox configs: %w", err)
 	}
-	if err := release("substrate", substrateNamespace); err != nil {
+	if err := release(substrateRelease, substrateNamespace); err != nil {
 		return result, err
 	}
 	bundled, err := c.bundledPostgresExists(ctx, namespace)
@@ -130,10 +130,10 @@ func (c *Client) Uninstall(ctx context.Context, namespace, postgresImage string,
 	}
 	// The CRDs go only through their releases. A list of CRD names falls behind
 	// the chart, so CRDs applied outside Helm stay.
-	if err := release("substrate-crds", substrateNamespace); err != nil {
+	if err := release(substrateCRDsRelease, substrateNamespace); err != nil {
 		return result, err
 	}
-	if err := release("kagent-crds", namespace); err != nil {
+	if err := release(kagentCRDsRelease, namespace); err != nil {
 		return result, err
 	}
 

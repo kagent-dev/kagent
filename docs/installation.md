@@ -25,7 +25,7 @@ sh ./kagent-install/install.sh
 
 The script passes the value through Helm `--set-file` using a private temporary file and removes that file when it exits. It does not use `envsubst`; quotes, punctuation, and newlines in the credential do not become YAML or shell syntax.
 
-User-provided values are exported as supplied. The exporter does not infer which arbitrary chart fields contain secrets. Review the values files before committing or sharing the directory. Applications calling the library can identify additional credentials through `ExportOptions.Secrets`; only those explicit references are replaced.
+User-provided values are exported as supplied. The exporter does not infer which arbitrary chart fields contain secrets. Review the values files before committing or sharing the directory. Library callers select the model API-key variable through `ExportOptions.APIKeyEnvironment` and identify additional credentials through `ExportOptions.Secrets`.
 
 ## README template
 

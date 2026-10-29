@@ -25,6 +25,9 @@ type SecretReference struct {
 type ExportOptions struct {
 	Directory string
 	Secrets   []SecretReference
+	// APIKeyEnvironment names the runtime variable for the selected model provider.
+	// Export constructs its credential reference; Secrets describes additional credentials.
+	APIKeyEnvironment string
 	// ReadmeTemplate contains the required Go text/template source for README.md.
 	// Templates expose SkipDatabaseSetup, Secrets (Release, Path, Environment), and Data.
 	ReadmeTemplate string
@@ -57,6 +60,17 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("failed to inspect export directory: %w", err)
 	}
+	if err := validateInstallConfig(cfg); err != nil {
+		return "", err
+	}
+	if options.APIKeyEnvironment != "" {
+		cfg.APIKey = "${" + options.APIKeyEnvironment + "}"
+		options.Secrets = append(slices.Clone(options.Secrets), SecretReference{
+			Release: kagentRelease, Path: []string{"providers", modelProviderKey(cfg.ModelProvider), "apiKey"}, Environment: options.APIKeyEnvironment,
+		})
+	} else if cfg.APIKey != "" {
+		return "", fmt.Errorf("model API key requires APIKeyEnvironment for export")
+	}
 	for i, ref := range options.Secrets {
 		if ref.Release == "" || len(ref.Path) == 0 || !environmentName.MatchString(ref.Environment) || slices.Contains(ref.Path, "") {
 			return "", fmt.Errorf("secret reference %d requires a release, map path and valid environment variable", i+1)
@@ -67,25 +81,9 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 			}
 		}
 	}
-	if err := validateInstallConfig(cfg); err != nil {
-		return "", err
-	}
 	for _, chart := range []Chart{cfg.Kagent, cfg.KagentCRDs, cfg.Substrate, cfg.SubstrateCRDs, cfg.PodCertificate} {
 		if chart.Version == "" || chart.Version == "dev" {
 			return "", fmt.Errorf("chart %s requires an explicit released version in the CLI configuration", chart.Name)
-		}
-	}
-	if cfg.APIKey != "" {
-		path := []string{"providers", modelProviderKey(cfg.ModelProvider), "apiKey"}
-		found := false
-		for _, ref := range options.Secrets {
-			if ref.Release == "kagent" && slices.Equal(ref.Path, path) {
-				cfg.APIKey = "${" + ref.Environment + "}"
-				found = true
-			}
-		}
-		if !found {
-			return "", fmt.Errorf("model API key requires an explicit environment reference for export")
 		}
 	}
 	readme, err := exportReadme(cfg.SkipDatabaseSetup, options.Secrets, options.ReadmeTemplate, options.ReadmeData)
@@ -116,8 +114,8 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 		release string
 		chart   *Chart
 	}{
-		{"kagent-crds", &cfg.KagentCRDs}, {"substrate-crds", &cfg.SubstrateCRDs},
-		{podCertificateRelease, &cfg.PodCertificate}, {"substrate", &cfg.Substrate}, {"kagent", &cfg.Kagent},
+		{kagentCRDsRelease, &cfg.KagentCRDs}, {substrateCRDsRelease, &cfg.SubstrateCRDs},
+		{podCertificateRelease, &cfg.PodCertificate}, {substrateRelease, &cfg.Substrate}, {kagentRelease, &cfg.Kagent},
 	}
 	for _, item := range charts {
 		// Keep local chart references usable when the script runs elsewhere.
