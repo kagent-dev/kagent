@@ -36,7 +36,8 @@ func (s *scheduledSessionStore) GetSessionByID(context.Context, string) (*apiv1.
 
 func TestScheduledSessionAccessUsesResourcePermissions(t *testing.T) {
 	id := uuid.NewString()
-	value := &apiv1.Session{Id: id, Creator: "scheduler", ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "daily"}, Uid: "schedule-uid", ExecutionId: uuid.NewString()}}
+	value := &apiv1.Session{Id: id, Creator: "scheduler"}
+	scheduled := map[string]*apiv1.ScheduledRunProvenance{id: {Ref: &apiv1.ResourceReference{Namespace: "team", Name: "daily"}, Uid: "schedule-uid", ExecutionId: uuid.NewString()}}
 	for _, tc := range []struct {
 		name     string
 		verb     auth.Verb
@@ -55,7 +56,7 @@ func TestScheduledSessionAccessUsesResourcePermissions(t *testing.T) {
 		{"invocation denied without history", auth.VerbUpdate, []string{"ScheduledRunInvocation", "ScheduledRunHistory"}, serviceerrors.CodeNotFound, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := &scheduledSessionStore{serviceTestStore: serviceTestStore{getErr: database.ErrNotFound}, value: value}
+			store := &scheduledSessionStore{serviceTestStore: serviceTestStore{getErr: database.ErrNotFound, scheduled: scheduled}, value: value}
 			policy := &recordingAuthorizer{deniedTypes: map[string]bool{}}
 			for _, denied := range tc.denied {
 				policy.deniedTypes[denied] = true
@@ -80,9 +81,8 @@ func TestScheduledSessionAccessUsesResourcePermissions(t *testing.T) {
 
 func TestScheduledCheckpointForkRemainsPrivate(t *testing.T) {
 	id := uuid.NewString()
-	value := &apiv1.Session{Id: id, Creator: "alice", ScheduledRun: &apiv1.ScheduledRunProvenance{
-		Ref: &apiv1.ResourceReference{Namespace: "team", Name: "daily"}, Uid: "schedule-uid",
-	}}
+	// A fork copies history from a scheduled Session but has no execution.
+	value := &apiv1.Session{Id: id, Creator: "alice"}
 	store := &scheduledSessionStore{serviceTestStore: serviceTestStore{getErr: database.ErrNotFound}, value: value}
 	_, err := NewService(store, serviceTestAuthorizer{}, nil).Get(serviceTestContext("bob"), id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound), "schedule history access must not expose another caller's fork")
@@ -127,6 +127,17 @@ type serviceTestStore struct {
 	getResult      *apiv1.Session
 	shareUserID    string
 	shareErr       error
+	scheduled      map[string]*apiv1.ScheduledRunProvenance
+}
+
+func (s *serviceTestStore) SessionScheduledRuns(_ context.Context, ids []string) (map[string]*apiv1.ScheduledRunProvenance, error) {
+	result := map[string]*apiv1.ScheduledRunProvenance{}
+	for _, id := range ids {
+		if provenance := s.scheduled[id]; provenance != nil {
+			result[id] = provenance
+		}
+	}
+	return result, nil
 }
 
 func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1.Session, requestID string) (*apiv1.Session, bool, error) {

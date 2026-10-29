@@ -54,7 +54,7 @@ import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_
 import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1/agent_templates_pb";
 import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
 import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1/sessions_pb";
-import type { Session as PbSession } from "@/generated/kagent/api/v1/sessions_pb";
+import type { Session as PbSession, ScheduledRunProvenance as PbScheduledRunProvenance } from "@/generated/kagent/api/v1/sessions_pb";
 import {
   CheckpointService,
   CheckpointState as PbCheckpointState,
@@ -561,7 +561,8 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
 /**
  * Map a Session protobuf into the existing conversation view model.
  *
- * Map Agent identity and optional schedule attribution alongside lifecycle state.
+ * Map Agent identity alongside lifecycle state. Schedule attribution is not part
+ * of the Session; only GetSession reports it, so other callers omit it.
  * An instance is a database row, so there is no custom-resource envelope to unwrap.
  *
  * The `?? "unknown"` on each enum is not dead code, however much the types make it
@@ -570,7 +571,7 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
  * `undefined`. Falling through to `"unknown"` puts that on screen as an unknown
  * state instead of an empty cell.
  */
-function toAgentInstance(instance: PbSession): AgentInstance {
+function toAgentInstance(instance: PbSession, scheduledRun?: PbScheduledRunProvenance): AgentInstance {
   return {
     id: instance.id,
     contextId: instance.contextId,
@@ -578,11 +579,11 @@ function toAgentInstance(instance: PbSession): AgentInstance {
     name: instance.name,
     creator: instance.creator,
     agent: orUndefined(refToString(instance.agent?.ref)),
-    scheduledRun: instance.scheduledRun ? {
-      namespace: instance.scheduledRun.ref?.namespace ?? "",
-      name: instance.scheduledRun.ref?.name ?? "",
-      uid: instance.scheduledRun.uid,
-      executionId: instance.scheduledRun.executionId,
+    scheduledRun: scheduledRun ? {
+      namespace: scheduledRun.ref?.namespace ?? "",
+      name: scheduledRun.ref?.name ?? "",
+      uid: scheduledRun.uid,
+      executionId: scheduledRun.executionId,
     } : undefined,
     preparedRevision: orUndefined(instance.preparedRevision),
     a2aAuthority: orUndefined(instance.a2aAuthority),
@@ -691,7 +692,7 @@ const agentInstances: Pick<
         ),
       );
 
-      rows.push(...list(response.sessions).map(toAgentInstance));
+      rows.push(...list(response.sessions).map(session => toAgentInstance(session)));
 
       const next = response.page?.nextPageToken ?? "";
       if (!next) return rows;
@@ -941,7 +942,7 @@ const agentInstances: Pick<
         call("agentInstances.get", options),
       ),
     );
-    return toAgentInstance(required(response.session, name, "agent instance"));
+    return toAgentInstance(required(response.session, name, "agent instance"), response.scheduledRun);
   },
 
 };

@@ -640,7 +640,6 @@ function agentInstanceMessage(
     name: row.name,
     creator: row.creator,
     agent: row.agent ? { ref: { namespace: row.agent.split("/")[0], name: row.agent.split("/")[1] }, uid: `mock-agent-${row.agent}` } : undefined,
-    scheduledRun: row.scheduledRun ? { ref: { namespace: row.scheduledRun.namespace, name: row.scheduledRun.name }, uid: row.scheduledRun.uid, executionId: row.scheduledRun.executionId } : undefined,
     // Proto3 cannot carry an absent string, so an unset field goes back as the
     // empty one the controller would also send — and `orUndefined` on the client
     // turns it back into "not reported".
@@ -818,14 +817,13 @@ on(SessionService.method.listSessions, (input, call) => {
   };
 });
 
-on(SessionService.method.getSession, (input, call) => ({
-  session: agentInstanceMessage(
-    instanceFor(
-      requireInstanceId(input.sessionId),
-      call,
-    ),
-  ),
-}));
+on(SessionService.method.getSession, (input, call) => {
+  const row = instanceFor(requireInstanceId(input.sessionId), call);
+  return {
+    session: agentInstanceMessage(row),
+    scheduledRun: row.scheduledRun ? { ref: { namespace: row.scheduledRun.namespace, name: row.scheduledRun.name }, uid: row.scheduledRun.uid, executionId: row.scheduledRun.executionId } : undefined,
+  };
+});
 
 on(SessionService.method.createSession, (input, call) => {
   const namespace = requireNamespace(input.agent?.namespace ?? "");

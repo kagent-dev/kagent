@@ -696,18 +696,26 @@ func readCheckpointRequest(ctx context.Context, db dbExecutor, userID, requestID
 	`, pgx.RowToStructByName[sessionCheckpointRow], userID, requestID)
 }
 
+// CheckpointSource is a checkpoint source Session's retained identity. ScheduledRun
+// is set when a schedule execution created the source Session.
+type CheckpointSource struct {
+	SessionID    string
+	Creator      string
+	ScheduledRun *apiv1.ScheduledRunProvenance
+}
+
 // GetCheckpointSourceSession reads a checkpoint's immutable source identity and
 // schedule provenance independently of a live source Session. Callers authorize
 // the checkpoint first, then its returned source before accessing contents.
 // Missing checkpoints return ErrNotFound; malformed provenance returns an error.
-func (c *Client) GetCheckpointSourceSession(ctx context.Context, checkpointID string) (*apiv1.Session, error) {
+func (c *Client) GetCheckpointSourceSession(ctx context.Context, checkpointID string) (*CheckpointSource, error) {
 	row, err := queryOne(ctx, c.db, `
         SELECT source_session_id, user_id FROM session_checkpoint WHERE id = $1
     `, pgx.RowToStructByName[checkpointSourceRow], checkpointID)
 	if err != nil {
 		return nil, fmt.Errorf("get checkpoint source Session: %w", notFoundOr(err))
 	}
-	return c.checkpointSourceSession(ctx, row)
+	return c.checkpointSource(ctx, row)
 }
 
 type checkpointSourceRow struct {
@@ -715,30 +723,17 @@ type checkpointSourceRow struct {
 	UserID          string
 }
 
-// checkpointSourceSession resolves schedule provenance from retained execution
-// history. It survives idle expiration, which removes the source Session entirely.
+// checkpointSource resolves schedule provenance from retained execution history.
+// It survives idle expiration, which removes the source Session entirely.
 // Ordinary retained checkpoints remain private to their recorded owner.
-func (c *Client) checkpointSourceSession(ctx context.Context, source checkpointSourceRow) (*apiv1.Session, error) {
-	session := &apiv1.Session{Id: source.SourceSessionID.String(), Creator: source.UserID}
-	row, err := queryOne(ctx, c.db, `
-        SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, session_id,
-            task_id, completed_at, state FROM scheduled_run_execution WHERE session_id = $1
-    `, pgx.RowToStructByName[scheduledRunExecutionRow], source.SourceSessionID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return session, nil
-	}
+func (c *Client) checkpointSource(ctx context.Context, row checkpointSourceRow) (*CheckpointSource, error) {
+	source := &CheckpointSource{SessionID: row.SourceSessionID.String(), Creator: row.UserID}
+	scheduled, err := c.SessionScheduledRuns(ctx, []string{source.SessionID})
 	if err != nil {
 		return nil, fmt.Errorf("get checkpoint schedule provenance: %w", err)
 	}
-	execution, err := toScheduledRunExecution(row)
-	if err != nil {
-		return nil, err
-	}
-	if execution.Creator != source.UserID {
-		return nil, fmt.Errorf("checkpoint owner differs from source execution creator")
-	}
-	session.ScheduledRun = &apiv1.ScheduledRunProvenance{Ref: execution.ScheduledRun, Uid: execution.ScheduledRunId, ExecutionId: execution.Id}
-	return session, nil
+	source.ScheduledRun = scheduled[source.SessionID]
+	return source, nil
 }
 
 // GetSessionCheckpointSource reads a source Session for checkpoint authorization,
@@ -746,24 +741,18 @@ func (c *Client) checkpointSourceSession(ctx context.Context, source checkpointS
 // checkpoints still supply its immutable owner and schedule provenance. Missing
 // sources without retained checkpoints return ErrNotFound. Callers must authorize
 // the returned identity before accessing artifacts; this never permits runtime work.
-func (c *Client) GetSessionCheckpointSource(ctx context.Context, id string) (*apiv1.Session, error) {
+func (c *Client) GetSessionCheckpointSource(ctx context.Context, id string) (*CheckpointSource, error) {
 	row, err := queryOne(ctx, c.db, `
-        SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-            source_checkpoint_id, history_id, operation_id, executor_id
-        FROM session_record WHERE id = $1
-    `, pgx.RowToStructByName[sessionRow], id)
-	if err == nil {
-		return toSession(row)
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("get checkpoint source Session: %w", err)
-	}
-	source, err := queryOne(ctx, c.db, `
-        SELECT source_session_id, user_id FROM session_checkpoint
-        WHERE source_session_id = $1 ORDER BY id LIMIT 1
+        SELECT id AS source_session_id, user_id FROM session_record WHERE id = $1
     `, pgx.RowToStructByName[checkpointSourceRow], id)
-	if err != nil {
-		return nil, fmt.Errorf("get retained checkpoint source: %w", notFoundOr(err))
+	if errors.Is(err, pgx.ErrNoRows) {
+		row, err = queryOne(ctx, c.db, `
+            SELECT source_session_id, user_id FROM session_checkpoint
+            WHERE source_session_id = $1 ORDER BY id LIMIT 1
+        `, pgx.RowToStructByName[checkpointSourceRow], id)
 	}
-	return c.checkpointSourceSession(ctx, source)
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint source Session: %w", notFoundOr(err))
+	}
+	return c.checkpointSource(ctx, row)
 }

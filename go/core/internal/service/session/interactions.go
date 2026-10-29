@@ -335,15 +335,16 @@ func (s *InteractionService) messageSession(ctx context.Context, agent types.Nam
 }
 
 // checkReservedMessageID rejects scheduler execution message IDs unless the
-// scheduler is sending into the scheduled Session it created. Recovery adopts
-// the task holding that ID, so no other caller may plant it. A nil session is a
-// new conversation, which the scheduler never starts.
+// scheduler is sending into a Session it created; it creates Sessions only for
+// executions. Recovery adopts the task holding that ID, so no other caller may
+// plant it. A nil session is a new conversation, which the scheduler never starts.
 func checkReservedMessageID(ctx context.Context, session *apiv1.Session, message *a2atype.Message) error {
 	if !strings.HasPrefix(string(message.ID), scheduling.MessageIDPrefix) {
 		return nil
 	}
 	caller, _ := auth.AuthSessionFrom(ctx)
-	if session.GetScheduledRun() == nil || caller == nil || caller.Principal().ID != session.GetCreator() {
+	scheduler, ok := caller.(*auth.SchedulerSession)
+	if !ok || session == nil || scheduler.Principal().ID != session.GetCreator() {
 		return a2atype.NewError(a2atype.ErrInvalidParams, "message ID prefix is reserved for scheduled runs")
 	}
 	return nil

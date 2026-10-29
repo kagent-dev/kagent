@@ -36,9 +36,6 @@ message Session {
   string creator = 2;
   // Output only. Agent identity captured from this Session's pinned revision.
   AgentProvenance agent = 15;
-  // Output only. Schedule that triggered this conversation, when applicable.
-  // Resource access uses this immutable provenance, independently of caller credentials.
-  ScheduledRunProvenance scheduled_run = 16;
   string prepared_revision = 5;
   string a2a_authority = 6;
   RuntimeState state = 7;
@@ -58,10 +55,10 @@ message AgentProvenance {
   string uid = 2;
 }
 
+// Schedule execution that created a Session. Checkpoint forks have none.
 message ScheduledRunProvenance {
   ResourceReference ref = 1;
   string uid = 2;
-  // Execution that reserved this Session. Checkpoint forks omit scheduled_run.
   string execution_id = 3;
 }
 
@@ -88,6 +85,8 @@ message GetSessionRequest {
 
 message GetSessionResponse {
   Session session = 1;
+  // Set when a ScheduledRun execution created this Session.
+  ScheduledRunProvenance scheduled_run = 2;
 }
 
 message ListSessionsRequest {

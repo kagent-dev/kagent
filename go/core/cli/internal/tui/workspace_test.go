@@ -585,14 +585,12 @@ func TestWorkspaceDigitsTypeInTheChat(t *testing.T) {
 func TestWorkspaceGroupsScheduledSessionsByAgent(t *testing.T) {
 	direct := &apiv1.Session{Id: "direct-session", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "daily"}}}
 	scheduled := &apiv1.Session{
-		Id:           "scheduled-session",
-		Agent:        &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "daily"}},
-		ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Name: "nightly"}},
+		Id:    "scheduled-session",
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "daily"}},
 	}
 	other := &apiv1.Session{
-		Id:           "other-session",
-		Agent:        &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "other"}},
-		ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Name: "daily"}},
+		Id:    "other-session",
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "other"}},
 	}
 	model := workspaceModel{all: []*apiv1.Session{direct, scheduled, other}, agent: "daily"}
 	assert.Equal(t, []*apiv1.Session{direct, scheduled}, model.visibleSessions())

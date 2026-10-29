@@ -132,8 +132,7 @@ func TestActorCanListOnlyItsScheduledSession(t *testing.T) {
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	binding := newBinding()
-	binding.session.ScheduledRun = &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "daily"}, Uid: uuid.NewString(), ExecutionId: uuid.NewString()}
-	other := &apiv1.Session{Id: uuid.NewString(), Creator: binding.session.Creator, ScheduledRun: binding.session.GetScheduledRun()}
+	other := &apiv1.Session{Id: uuid.NewString(), Creator: binding.session.Creator}
 	store := &actorSessionListStore{bindingStore: binding, sessions: []*apiv1.Session{binding.session, other}}
 	slices.SortFunc(store.sessions, func(a, b *apiv1.Session) int { return strings.Compare(a.Id, b.Id) })
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, binding, issuer.URL)

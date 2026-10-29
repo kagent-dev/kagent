@@ -877,15 +877,16 @@ describe("agent instances", () => {
     expect(row.failure).toBeUndefined();
   });
 
-  it("preserves ScheduledRun provenance", async () => {
+  it("reads ScheduledRun provenance from the GetSession response", async () => {
     serve(({ service }) => {
       service(SessionService, {
-        listSessions: () => ({ sessions: [instanceMessage({
+        getSession: () => ({
+          session: instanceMessage(),
           scheduledRun: { ref: { namespace: "kagent", name: "daily" }, uid: "schedule-uid", executionId: "execution-id" },
-        })], page: {} }),
+        }),
       });
     });
-    const [row] = await apiClient.agentInstances.list();
+    const row = await apiClient.agentInstances.get(INSTANCE_ID);
     expect(row.agent).toBe("kagent/k8s-agent-7f3a91c");
     expect(row.scheduledRun).toEqual({ namespace: "kagent", name: "daily", uid: "schedule-uid", executionId: "execution-id" });
   });

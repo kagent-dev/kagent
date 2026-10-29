@@ -46,6 +46,10 @@ func (s *sessionAuthorizationStore) GetSessionByID(_ context.Context, id string)
 	return nil, database.ErrNotFound
 }
 
+func (*sessionAuthorizationStore) SessionScheduledRuns(context.Context, []string) (map[string]*apiv1.ScheduledRunProvenance, error) {
+	return nil, nil
+}
+
 func (s *sessionAuthorizationStore) UpdateSessionName(ctx context.Context, id, owner, name string) (*apiv1.Session, error) {
 	session, err := s.GetSession(ctx, id, owner)
 	if err != nil {

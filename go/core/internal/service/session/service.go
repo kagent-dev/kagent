@@ -32,6 +32,7 @@ type store interface {
 	GetSession(context.Context, string, string) (*apiv1.Session, error)
 	GetSessionByID(context.Context, string) (*apiv1.Session, error)
 	ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error)
+	SessionScheduledRuns(context.Context, []string) (map[string]*apiv1.ScheduledRunProvenance, error)
 	UpdateSessionName(context.Context, string, string, string) (*apiv1.Session, error)
 	CreateSessionShare(context.Context, *apiv1.SessionShare, []byte, string) (*apiv1.SessionShare, error)
 	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1.SessionShare, error)
@@ -143,6 +144,20 @@ func (s *Service) Get(ctx context.Context, id string) (*apiv1.Session, error) {
 	return s.getAuthorized(ctx, id, auth.VerbGet)
 }
 
+// GetWithScheduledRun returns a readable Session and the schedule execution that
+// created it, if any.
+func (s *Service) GetWithScheduledRun(ctx context.Context, id string) (*apiv1.Session, *apiv1.ScheduledRunProvenance, error) {
+	session, err := s.getAuthorized(ctx, id, auth.VerbGet)
+	if err != nil {
+		return nil, nil, err
+	}
+	scheduled, err := s.store.SessionScheduledRuns(ctx, []string{session.Id})
+	if err != nil {
+		return nil, nil, serviceerrors.NewInternal("Failed to get Session schedule", err)
+	}
+	return session, scheduled[session.Id], nil
+}
+
 // getAuthorized loads a Session authorized for the requested operation. Reads are
 // independent of runtime readiness: viewing a suspended conversation must not
 // provision a worker. Lifecycle and A2A operations use this same access policy.
@@ -165,12 +180,7 @@ func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) 
 	} else {
 		session, err = s.store.GetSession(ctx, id, creator)
 		if errors.Is(err, database.ErrNotFound) && !shared && authSession.Principal().RuntimeBinding == nil {
-			candidate, lookupErr := s.store.GetSessionByID(ctx, id)
-			if lookupErr == nil && candidate.GetScheduledRun().GetExecutionId() != "" {
-				session, err = candidate, nil
-			} else if lookupErr != nil && !errors.Is(lookupErr, database.ErrNotFound) {
-				err = lookupErr
-			}
+			return s.getScheduled(ctx, id, verb)
 		}
 	}
 	if errors.Is(err, database.ErrNotFound) {
@@ -179,10 +189,29 @@ func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) 
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get Session", err)
 	}
-	if !shared {
-		if err := s.authorizeScheduled(ctx, verb, session); err != nil {
-			return nil, err
-		}
+	return session, nil
+}
+
+// getScheduled loads another creator's Session only when a schedule execution
+// created it; the schedule's permissions, not ownership, govern access to it.
+func (s *Service) getScheduled(ctx context.Context, id string, verb auth.Verb) (*apiv1.Session, error) {
+	session, err := s.store.GetSessionByID(ctx, id)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Session not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get Session", err)
+	}
+	scheduled, err := s.store.SessionScheduledRuns(ctx, []string{id})
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get Session schedule", err)
+	}
+	provenance, ok := scheduled[id]
+	if !ok {
+		return nil, serviceerrors.NewNotFound("Session not found", nil)
+	}
+	if err := sessionauth.CheckScheduled(ctx, s.authorizer, verb, provenance); err != nil {
+		return nil, err
 	}
 	return session, nil
 }
@@ -266,9 +295,13 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		if err != nil {
 			return ListResult{}, serviceerrors.NewInternal("Failed to list Sessions", err)
 		}
+		scheduled, err := s.othersScheduledRuns(ctx, caller.Principal().ID, sessions)
+		if err != nil {
+			return ListResult{}, err
+		}
 		for _, session := range sessions {
 			query.AfterID = session.Id
-			if err := s.authorizeScheduled(ctx, auth.VerbGet, session); err != nil {
+			if err := sessionauth.CheckScheduled(ctx, s.authorizer, auth.VerbGet, scheduled[session.Id]); err != nil {
 				if serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
 					continue
 				}
@@ -495,12 +528,21 @@ func generateShareToken() (string, []byte, error) {
 	return token, digest[:], nil
 }
 
-// authorizeScheduled keeps access to machine-created conversations independent
-// from schedule configuration. The reference comes from accepted execution data.
-func (s *Service) authorizeScheduled(ctx context.Context, verb auth.Verb, session *apiv1.Session) error {
-	if caller, ok := auth.AuthSessionFrom(ctx); ok && caller.Principal().RuntimeBinding != nil {
-		// Runtime callers are restricted to their exact Session by authorize.
-		return nil
+// othersScheduledRuns returns schedule provenance for listed Sessions created by
+// someone other than the caller. A caller's own Sessions need no schedule check.
+func (s *Service) othersScheduledRuns(ctx context.Context, callerID string, sessions []*apiv1.Session) (map[string]*apiv1.ScheduledRunProvenance, error) {
+	var ids []string
+	for _, session := range sessions {
+		if session.Creator != callerID {
+			ids = append(ids, session.Id)
+		}
 	}
-	return sessionauth.CheckScheduled(ctx, s.authorizer, verb, session.GetScheduledRun())
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	scheduled, err := s.store.SessionScheduledRuns(ctx, ids)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to list Session schedules", err)
+	}
+	return scheduled, nil
 }

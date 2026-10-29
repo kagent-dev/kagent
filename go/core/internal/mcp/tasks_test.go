@@ -522,6 +522,10 @@ func (*fakeGateway) GetExtendedAgentCard(context.Context, *a2atype.GetExtendedAg
 
 type fakeSessionStore struct{}
 
+func (*fakeSessionStore) SessionScheduledRuns(context.Context, []string) (map[string]*apiv1.ScheduledRunProvenance, error) {
+	return nil, nil
+}
+
 func (*fakeSessionStore) CreateSession(context.Context, *apiv1.Session, string) (*apiv1.Session, bool, error) {
 	return nil, false, database.ErrNotFound
 }

@@ -308,9 +308,6 @@ func reserveScheduledRunExecution(ctx context.Context, db pgx.Tx, schedule *Sche
 	}
 	session, err := insertPinnedSession(ctx, db, &apiv1.Session{
 		Id: sessionID.String(), Creator: schedule.Creator, Agent: agent,
-		ScheduledRun: &apiv1.ScheduledRunProvenance{
-			Ref: proto.CloneOf(execution.ScheduledRun), Uid: schedule.ID, ExecutionId: id.String(),
-		},
 	}, "scheduled-run/"+id.String(), revision)
 	if err != nil {
 		return scheduledRunExecutionRow{}, fmt.Errorf("reserve scheduled Session: %w", err)
@@ -375,6 +372,41 @@ func (c *Client) ListScheduledRunExecutions(ctx context.Context, query Scheduled
 		result = append(result, execution)
 	}
 	return result, nil
+}
+
+// SessionScheduledRuns maps each given Session ID to the schedule execution that
+// created it. Sessions without one, including forks of scheduled Sessions, are
+// absent. The reference comes from accepted execution data and survives schedule
+// deletion. Malformed IDs return an error.
+func (c *Client) SessionScheduledRuns(ctx context.Context, sessionIDs []string) (map[string]*apiv1.ScheduledRunProvenance, error) {
+	ids := make([]uuid.UUID, 0, len(sessionIDs))
+	for _, id := range sessionIDs {
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Session ID: %w", err)
+		}
+		ids = append(ids, parsed)
+	}
+	rows, err := queryMany(ctx, c.db, `
+		SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, session_id,
+		    task_id, completed_at, state FROM scheduled_run_execution WHERE session_id = ANY($1::uuid[])
+	`, pgx.RowToStructByName[scheduledRunExecutionRow], ids)
+	if err != nil {
+		return nil, fmt.Errorf("get Session schedules: %w", err)
+	}
+	result := make(map[string]*apiv1.ScheduledRunProvenance, len(rows))
+	for _, row := range rows {
+		execution, err := toScheduledRunExecution(row)
+		if err != nil {
+			return nil, err
+		}
+		result[row.SessionID.String()] = scheduledRunProvenance(execution)
+	}
+	return result, nil
+}
+
+func scheduledRunProvenance(execution *apiv1.ScheduledRunExecution) *apiv1.ScheduledRunProvenance {
+	return &apiv1.ScheduledRunProvenance{Ref: execution.GetScheduledRun(), Uid: execution.GetScheduledRunId(), ExecutionId: execution.GetId()}
 }
 
 // toScheduledRunExecution decodes an execution and validates its payload, state, and

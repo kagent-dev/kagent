@@ -101,7 +101,7 @@ type scheduledControllerAuth struct {
 }
 
 func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, destinationSessionID string) error {
-	if session.Principal().ID != "scheduler" || destinationSessionID == "" {
+	if session.Principal().ID != schedulerID || destinationSessionID == "" {
 		return errors.New("expected scheduler principal and destination Session")
 	}
 	return auth.ForwardCredential(req, session)
@@ -110,7 +110,7 @@ func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.S
 type scheduledControllerAuthorizer struct{}
 
 func (scheduledControllerAuthorizer) Check(_ context.Context, principal auth.Principal, _ auth.Verb, _ auth.Resource) error {
-	if principal.ID != "scheduler" {
+	if principal.ID != schedulerID {
 		return errors.New("scheduler principal required")
 	}
 	return nil
@@ -121,8 +121,13 @@ type schedulerTokenSource struct{}
 func (schedulerTokenSource) Token(context.Context) (string, error) {
 	return "controller-test-credential", nil
 }
-func schedulerIdentity() auth.Session {
-	return auth.NewCredentialSession(auth.Principal{ID: "scheduler"}, schedulerTokenSource{})
+
+// schedulerID is the creator of scheduled Sessions; only the scheduler's own
+// session type may send reserved execution messages into them.
+var schedulerID = schedulerIdentity().Principal().ID
+
+func schedulerIdentity() *auth.SchedulerSession {
+	return auth.NewSchedulerSession("kagent", schedulerTokenSource{})
 }
 
 type scheduledControllerRuntime struct {
@@ -203,7 +208,7 @@ func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, req *a2a
 	if got := metadata.ValueFromIncomingContext(ctx, "authorization"); len(got) != 1 || got[0] != "Bearer controller-test-credential" {
 		return nil, status.Error(codes.Unauthenticated, "controller credential missing")
 	}
-	if got := metadata.ValueFromIncomingContext(ctx, "x-user-id"); len(got) != 1 || got[0] != "scheduler" {
+	if got := metadata.ValueFromIncomingContext(ctx, "x-user-id"); len(got) != 1 || got[0] != schedulerID {
 		return nil, status.Error(codes.Unauthenticated, "scheduler principal missing")
 	}
 	send, err := pbconv.FromProtoSendMessageRequest(req)
@@ -453,9 +458,9 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			require.NotEmpty(t, execution.TaskId)
 			require.NotEqual(t, execution.Id, execution.TaskId)
 			require.NotEmpty(t, execution.SessionId)
-			session, err := store.GetSession(t.Context(), execution.SessionId, "scheduler")
+			session, err := store.GetSession(t.Context(), execution.SessionId, schedulerID)
 			require.NoError(t, err)
-			require.Equal(t, "scheduler", session.Creator)
+			require.Equal(t, schedulerID, session.Creator)
 			task, err := store.GetSessionTask(t.Context(), session.Id, execution.TaskId, nil)
 			require.NoError(t, err)
 			wantTaskState := tc.state

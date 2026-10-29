@@ -40,7 +40,7 @@ func createScheduleRPC(t *testing.T, store *database.Client, client apiv1.Schedu
 	require.NoError(t, structuredobject.ToGo(created.ScheduledRun.Resource, v1alpha3.ScheduledRunKind, resource, DefaultMaxMessageSize))
 	// The projection is the reconciler's supported persistence boundary. Runtime
 	// integration tests begin after that configuration handoff.
-	projection := &database.ScheduledRun{ID: string(resource.UID), Creator: "scheduler", Ref: types.NamespacedName{Namespace: resource.Namespace, Name: resource.Name}, Generation: resource.Generation, ResourceVersion: resource.ResourceVersion, Spec: resource.Spec, AgentUID: "agent-uid"}
+	projection := &database.ScheduledRun{ID: string(resource.UID), Creator: schedulerID, Ref: types.NamespacedName{Namespace: resource.Namespace, Name: resource.Name}, Generation: resource.Generation, ResourceVersion: resource.ResourceVersion, Spec: resource.Spec, AgentUID: "agent-uid"}
 	recordScheduleRevision(t, store, projection)
 	_, err = store.SyncScheduledRun(t.Context(), projection)
 	require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestScheduledRunServiceCRDAndRetainedExecution(t *testing.T) {
 	trigger := &apiv1.TriggerScheduledRunRequest{ScheduledRunId: string(resource.UID), RequestId: "manual"}
 	accepted, err := client.TriggerScheduledRun(ctx, trigger)
 	require.NoError(t, err)
-	require.Equal(t, "scheduler", accepted.Execution.Creator)
+	require.Equal(t, schedulerID, accepted.Execution.Creator)
 	require.Equal(t, "alice", accepted.Execution.Initiator)
 	_, err = client.DeleteScheduledRun(ctx, &apiv1.DeleteScheduledRunRequest{Ref: ref, Uid: string(resource.UID), ResourceVersion: resource.ResourceVersion})
 	require.NoError(t, err)

@@ -81,17 +81,14 @@ type Session struct {
 	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Creator string                 `protobuf:"bytes,2,opt,name=creator,proto3" json:"creator,omitempty"`
 	// Output only. Agent identity captured from this Session's pinned revision.
-	Agent *AgentProvenance `protobuf:"bytes,15,opt,name=agent,proto3" json:"agent,omitempty"`
-	// Output only. Schedule that triggered this conversation, when applicable.
-	// Resource access uses this immutable provenance, independently of caller credentials.
-	ScheduledRun     *ScheduledRunProvenance `protobuf:"bytes,16,opt,name=scheduled_run,json=scheduledRun,proto3" json:"scheduled_run,omitempty"`
-	PreparedRevision string                  `protobuf:"bytes,5,opt,name=prepared_revision,json=preparedRevision,proto3" json:"prepared_revision,omitempty"`
-	A2AAuthority     string                  `protobuf:"bytes,6,opt,name=a2a_authority,json=a2aAuthority,proto3" json:"a2a_authority,omitempty"`
-	State            RuntimeState            `protobuf:"varint,7,opt,name=state,proto3,enum=kagent.api.v1.RuntimeState" json:"state,omitempty"`
-	Operation        RuntimeOperation        `protobuf:"varint,8,opt,name=operation,proto3,enum=kagent.api.v1.RuntimeOperation" json:"operation,omitempty"`
-	Failure          *Failure                `protobuf:"bytes,9,opt,name=failure,proto3" json:"failure,omitempty"`
-	CreatedAt        *timestamppb.Timestamp  `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt        *timestamppb.Timestamp  `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Agent            *AgentProvenance       `protobuf:"bytes,15,opt,name=agent,proto3" json:"agent,omitempty"`
+	PreparedRevision string                 `protobuf:"bytes,5,opt,name=prepared_revision,json=preparedRevision,proto3" json:"prepared_revision,omitempty"`
+	A2AAuthority     string                 `protobuf:"bytes,6,opt,name=a2a_authority,json=a2aAuthority,proto3" json:"a2a_authority,omitempty"`
+	State            RuntimeState           `protobuf:"varint,7,opt,name=state,proto3,enum=kagent.api.v1.RuntimeState" json:"state,omitempty"`
+	Operation        RuntimeOperation       `protobuf:"varint,8,opt,name=operation,proto3,enum=kagent.api.v1.RuntimeOperation" json:"operation,omitempty"`
+	Failure          *Failure               `protobuf:"bytes,9,opt,name=failure,proto3" json:"failure,omitempty"`
+	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// Reader-supplied display name for the conversation. Empty means unnamed.
 	Name string `protobuf:"bytes,13,opt,name=name,proto3" json:"name,omitempty"`
 	// Output only. A2A conversation ID, equal to this session's ID.
@@ -148,13 +145,6 @@ func (x *Session) GetCreator() string {
 func (x *Session) GetAgent() *AgentProvenance {
 	if x != nil {
 		return x.Agent
-	}
-	return nil
-}
-
-func (x *Session) GetScheduledRun() *ScheduledRunProvenance {
-	if x != nil {
-		return x.ScheduledRun
 	}
 	return nil
 }
@@ -274,12 +264,12 @@ func (x *AgentProvenance) GetUid() string {
 	return ""
 }
 
+// Schedule execution that created a Session. Checkpoint forks have none.
 type ScheduledRunProvenance struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Ref   *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
-	Uid   string                 `protobuf:"bytes,2,opt,name=uid,proto3" json:"uid,omitempty"`
-	// Execution that reserved this Session. Checkpoint forks omit scheduled_run.
-	ExecutionId   string `protobuf:"bytes,3,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Uid           string                 `protobuf:"bytes,2,opt,name=uid,proto3" json:"uid,omitempty"`
+	ExecutionId   string                 `protobuf:"bytes,3,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -485,8 +475,10 @@ func (x *GetSessionRequest) GetSessionId() string {
 }
 
 type GetSessionResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Session       *Session               `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Session *Session               `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	// Set when a ScheduledRun execution created this Session.
+	ScheduledRun  *ScheduledRunProvenance `protobuf:"bytes,2,opt,name=scheduled_run,json=scheduledRun,proto3" json:"scheduled_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -524,6 +516,13 @@ func (*GetSessionResponse) Descriptor() ([]byte, []int) {
 func (x *GetSessionResponse) GetSession() *Session {
 	if x != nil {
 		return x.Session
+	}
+	return nil
+}
+
+func (x *GetSessionResponse) GetScheduledRun() *ScheduledRunProvenance {
+	if x != nil {
+		return x.ScheduledRun
 	}
 	return nil
 }
@@ -1197,12 +1196,11 @@ const file_kagent_api_v1_sessions_proto_rawDesc = "" +
 	"\x1ckagent/api/v1/sessions.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\x1a\x1bkagent/api/v1/runtime.proto\";\n" +
 	"\aFailure\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xd4\x04\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x88\x04\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acreator\x18\x02 \x01(\tR\acreator\x124\n" +
-	"\x05agent\x18\x0f \x01(\v2\x1e.kagent.api.v1.AgentProvenanceR\x05agent\x12J\n" +
-	"\rscheduled_run\x18\x10 \x01(\v2%.kagent.api.v1.ScheduledRunProvenanceR\fscheduledRun\x12+\n" +
+	"\x05agent\x18\x0f \x01(\v2\x1e.kagent.api.v1.AgentProvenanceR\x05agent\x12+\n" +
 	"\x11prepared_revision\x18\x05 \x01(\tR\x10preparedRevision\x12#\n" +
 	"\ra2a_authority\x18\x06 \x01(\tR\fa2aAuthority\x121\n" +
 	"\x05state\x18\a \x01(\x0e2\x1b.kagent.api.v1.RuntimeStateR\x05state\x12=\n" +
@@ -1233,9 +1231,10 @@ const file_kagent_api_v1_sessions_proto_rawDesc = "" +
 	"\asession\x18\x01 \x01(\v2\x16.kagent.api.v1.SessionR\asession\"<\n" +
 	"\x11GetSessionRequest\x12'\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\"F\n" +
+	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\"\x92\x01\n" +
 	"\x12GetSessionResponse\x120\n" +
-	"\asession\x18\x01 \x01(\v2\x16.kagent.api.v1.SessionR\asession\"\xa0\x01\n" +
+	"\asession\x18\x01 \x01(\v2\x16.kagent.api.v1.SessionR\asession\x12J\n" +
+	"\rscheduled_run\x18\x02 \x01(\v2%.kagent.api.v1.ScheduledRunProvenanceR\fscheduledRun\"\xa0\x01\n" +
 	"\x13ListSessionsRequest\x12!\n" +
 	"\fall_creators\x18\x02 \x01(\bR\vallCreators\x12.\n" +
 	"\x04page\x18\x03 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\x126\n" +
@@ -1335,17 +1334,17 @@ var file_kagent_api_v1_sessions_proto_goTypes = []any{
 }
 var file_kagent_api_v1_sessions_proto_depIdxs = []int32{
 	2,  // 0: kagent.api.v1.Session.agent:type_name -> kagent.api.v1.AgentProvenance
-	3,  // 1: kagent.api.v1.Session.scheduled_run:type_name -> kagent.api.v1.ScheduledRunProvenance
-	21, // 2: kagent.api.v1.Session.state:type_name -> kagent.api.v1.RuntimeState
-	22, // 3: kagent.api.v1.Session.operation:type_name -> kagent.api.v1.RuntimeOperation
-	0,  // 4: kagent.api.v1.Session.failure:type_name -> kagent.api.v1.Failure
-	23, // 5: kagent.api.v1.Session.created_at:type_name -> google.protobuf.Timestamp
-	23, // 6: kagent.api.v1.Session.updated_at:type_name -> google.protobuf.Timestamp
-	24, // 7: kagent.api.v1.AgentProvenance.ref:type_name -> kagent.api.v1.ResourceReference
-	24, // 8: kagent.api.v1.ScheduledRunProvenance.ref:type_name -> kagent.api.v1.ResourceReference
-	24, // 9: kagent.api.v1.CreateSessionRequest.agent:type_name -> kagent.api.v1.ResourceReference
-	1,  // 10: kagent.api.v1.CreateSessionResponse.session:type_name -> kagent.api.v1.Session
-	1,  // 11: kagent.api.v1.GetSessionResponse.session:type_name -> kagent.api.v1.Session
+	21, // 1: kagent.api.v1.Session.state:type_name -> kagent.api.v1.RuntimeState
+	22, // 2: kagent.api.v1.Session.operation:type_name -> kagent.api.v1.RuntimeOperation
+	0,  // 3: kagent.api.v1.Session.failure:type_name -> kagent.api.v1.Failure
+	23, // 4: kagent.api.v1.Session.created_at:type_name -> google.protobuf.Timestamp
+	23, // 5: kagent.api.v1.Session.updated_at:type_name -> google.protobuf.Timestamp
+	24, // 6: kagent.api.v1.AgentProvenance.ref:type_name -> kagent.api.v1.ResourceReference
+	24, // 7: kagent.api.v1.ScheduledRunProvenance.ref:type_name -> kagent.api.v1.ResourceReference
+	24, // 8: kagent.api.v1.CreateSessionRequest.agent:type_name -> kagent.api.v1.ResourceReference
+	1,  // 9: kagent.api.v1.CreateSessionResponse.session:type_name -> kagent.api.v1.Session
+	1,  // 10: kagent.api.v1.GetSessionResponse.session:type_name -> kagent.api.v1.Session
+	3,  // 11: kagent.api.v1.GetSessionResponse.scheduled_run:type_name -> kagent.api.v1.ScheduledRunProvenance
 	25, // 12: kagent.api.v1.ListSessionsRequest.page:type_name -> kagent.api.v1.PageRequest
 	24, // 13: kagent.api.v1.ListSessionsRequest.agent:type_name -> kagent.api.v1.ResourceReference
 	1,  // 14: kagent.api.v1.ListSessionsResponse.sessions:type_name -> kagent.api.v1.Session

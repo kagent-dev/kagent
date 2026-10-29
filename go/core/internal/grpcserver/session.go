@@ -21,11 +21,11 @@ func (s *sessionServer) CreateSession(ctx context.Context, request *apiv1.Create
 }
 
 func (s *sessionServer) GetSession(ctx context.Context, request *apiv1.GetSessionRequest) (*apiv1.GetSessionResponse, error) {
-	session, err := s.service.Get(ctx, request.GetSessionId())
+	session, scheduledRun, err := s.service.GetWithScheduledRun(ctx, request.GetSessionId())
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1.GetSessionResponse{Session: session}, nil
+	return &apiv1.GetSessionResponse{Session: session, ScheduledRun: scheduledRun}, nil
 }
 
 func (s *sessionServer) ListSessions(ctx context.Context, request *apiv1.ListSessionsRequest) (*apiv1.ListSessionsResponse, error) {

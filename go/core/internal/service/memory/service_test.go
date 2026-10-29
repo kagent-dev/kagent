@@ -152,7 +152,6 @@ func (store *memoryStore) GetSessionForRuntime(_ context.Context, id, _ string) 
 	session := &apiv1.Session{Id: id, Creator: "user", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, Uid: "agent-uid"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}
 	if store.scheduled {
 		session.Creator = "scheduler"
-		session.ScheduledRun = &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "daily"}}
 	}
 	return session, nil
 }

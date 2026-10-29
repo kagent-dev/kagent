@@ -96,7 +96,10 @@ export interface AgentInstance {
   creator: string;
   /** `namespace/name` of the Agent it was created from, when recorded. */
   agent?: string;
-  /** Present when this conversation was accepted from a schedule. */
+  /**
+   * Present when this conversation was accepted from a schedule. Only
+   * `agentInstances.get` reports it; list and mutation results omit it.
+   */
   scheduledRun?: {
     namespace: string;
     name: string;

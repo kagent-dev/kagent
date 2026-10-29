@@ -286,25 +286,30 @@ func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
 func TestScheduledMessageIDPrefixIsReservedForTheScheduler(t *testing.T) {
 	id := uuid.NewString()
 	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+	scheduler := auth.NewSchedulerSession("kagent", nil)
 	stored := &apiv1.Session{
-		Id: id, ContextId: id, Creator: "scheduler", State: apiv1.RuntimeState_RUNTIME_STATE_READY,
-		Agent:        &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}},
-		ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: "daily"}, ExecutionId: uuid.NewString()},
+		Id: id, ContextId: id, Creator: scheduler.Principal().ID, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}},
 	}
+	messageID := scheduling.ExecutionMessageID(uuid.NewString())
 	for _, test := range []struct {
-		caller string
+		name   string
+		caller auth.Session
 		id     string
 		wantOK bool
 	}{
-		{caller: "scheduler", id: scheduling.ExecutionMessageID(stored.ScheduledRun.ExecutionId), wantOK: true},
-		{caller: "alice", id: scheduling.ExecutionMessageID(stored.ScheduledRun.ExecutionId)},
-		{caller: "alice", id: "ordinary", wantOK: true},
+		{name: "scheduler", caller: scheduler, id: messageID, wantOK: true},
+		// Only the scheduler session type may use the prefix, even under its principal ID.
+		{name: "scheduler principal impersonation", caller: serviceTestSession{userID: scheduler.Principal().ID}, id: messageID},
+		{name: "another scheduler", caller: auth.NewSchedulerSession("other", nil), id: messageID},
+		{name: "alice", caller: serviceTestSession{userID: "alice"}, id: messageID},
+		{name: "alice ordinary", caller: serviceTestSession{userID: "alice"}, id: "ordinary", wantOK: true},
 	} {
-		t.Run(test.caller+"/"+test.id, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			sessions := NewService(&serviceTestStore{getResult: stored}, &recordingAuthorizer{}, serviceTestWorkflow{})
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
 			message.ID, message.ContextID = test.id, id
-			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(serviceTestContext(test.caller), agent, message)
+			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(auth.AuthSessionTo(context.Background(), test.caller), agent, message)
 			if test.wantOK {
 				require.NoError(t, err)
 			} else {

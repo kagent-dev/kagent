@@ -28,8 +28,8 @@ const (
 )
 
 type store interface {
-	GetSessionCheckpointSource(context.Context, string) (*apiv1.Session, error)
-	GetCheckpointSourceSession(context.Context, string) (*apiv1.Session, error)
+	GetSessionCheckpointSource(context.Context, string) (*database.CheckpointSource, error)
+	GetCheckpointSourceSession(context.Context, string) (*database.CheckpointSource, error)
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
@@ -420,7 +420,7 @@ func (s *Service) checkpointOwner(ctx context.Context, checkpointID, callerID st
 		}
 		return "", serviceerrors.NewInternal("Failed to get checkpoint source", err)
 	}
-	sourceID, err := validateIdentity(source.GetId())
+	sourceID, err := validateIdentity(source.SessionID)
 	if err != nil {
 		return "", serviceerrors.NewInternal("Invalid checkpoint source Session", err)
 	}
@@ -444,15 +444,15 @@ func (s *Service) sessionOwner(ctx context.Context, sessionID, callerID string) 
 	return s.sourceOwner(ctx, callerID, auth.VerbGet, source)
 }
 
-func (s *Service) sourceOwner(ctx context.Context, callerID string, verb auth.Verb, source *apiv1.Session) (string, error) {
+func (s *Service) sourceOwner(ctx context.Context, callerID string, verb auth.Verb, source *database.CheckpointSource) (string, error) {
 	caller, _ := auth.AuthSessionFrom(ctx) // authorize authenticated the caller.
-	if source.GetCreator() != callerID && (source.GetScheduledRun().GetExecutionId() == "" || caller.Principal().RuntimeBinding != nil) {
+	if source.Creator != callerID && (source.ScheduledRun == nil || caller.Principal().RuntimeBinding != nil) {
 		return "", serviceerrors.NewNotFound("Session not found", nil)
 	}
-	if err := sessionauth.CheckScheduled(ctx, s.authorizer, verb, source.GetScheduledRun()); err != nil {
+	if err := sessionauth.CheckScheduled(ctx, s.authorizer, verb, source.ScheduledRun); err != nil {
 		return "", err
 	}
-	return source.GetCreator(), nil
+	return source.Creator, nil
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) (string, error) {

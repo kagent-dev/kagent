@@ -49,7 +49,7 @@ type testStore struct {
 	reserveErr      error
 }
 
-func (s *testStore) GetSessionCheckpointSource(_ context.Context, id string) (*apiv1.Session, error) {
+func (s *testStore) GetSessionCheckpointSource(_ context.Context, id string) (*database.CheckpointSource, error) {
 	if s.sourceErr != nil && s.prepared == nil {
 		return nil, s.sourceErr
 	}
@@ -57,10 +57,10 @@ func (s *testStore) GetSessionCheckpointSource(_ context.Context, id string) (*a
 	if owner == "" {
 		owner = "alice"
 	}
-	return &apiv1.Session{Id: id, Creator: owner}, nil
+	return &database.CheckpointSource{SessionID: id, Creator: owner}, nil
 }
 
-func (s *testStore) GetCheckpointSourceSession(ctx context.Context, _ string) (*apiv1.Session, error) {
+func (s *testStore) GetCheckpointSourceSession(ctx context.Context, _ string) (*database.CheckpointSource, error) {
 	if s.prepared == nil {
 		return nil, database.ErrNotFound
 	}

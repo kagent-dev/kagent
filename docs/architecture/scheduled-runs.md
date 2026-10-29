@@ -12,7 +12,7 @@ runs through the A2A gateway as an internal scheduler principal.
 | `ScheduledRun` | Kubernetes | Agent reference, cron expression, time zone, prompt, pause flag, timeout, and reconciliation status |
 | Schedule projection | PostgreSQL, maintained by reconciliation | Resource UID/generation, accepted spec and next occurrence |
 | Execution | PostgreSQL | Accepted inputs, deadline, initiator, lease, dispatch state, and Session/task links |
-| Session | Control-plane Session service | Conversation identity, creator principal, pinned revision, and Agent identity and optional schedule provenance |
+| Session | Control-plane Session service | Conversation identity, creator principal, pinned revision, and Agent identity |
 | Task and history | A2A | Task identity, progress, results, and transcript |
 
 ScheduledRunService exposes CRUD through the same `ResourceReference` and
@@ -162,29 +162,35 @@ runs as the scheduler. A later direct invocation of its Session uses the new
 caller's authenticated context.
 
 Every Session records `agent`, with the resource reference and UID that supplied
-its pinned revision. A scheduled execution additionally records `scheduledRun`,
-with its trigger reference, UID, and execution ID:
+its pinned revision. The Session does not record which schedule created it; that
+link belongs to the execution, which stores its Session ID. `GetSession` composes
+the two and returns the execution's schedule reference, UID, and execution ID
+beside the Session:
 
 ```json
 {
-  "agent": {
-    "ref": {"namespace": "support", "name": "ticket-triage"},
-    "uid": "<Agent UID>"
+  "session": {
+    "agent": {
+      "ref": {"namespace": "support", "name": "ticket-triage"},
+      "uid": "<Agent UID>"
+    },
+    "preparedRevision": "<Runtime revision digest>"
   },
   "scheduledRun": {
     "ref": {"namespace": "support", "name": "morning-triage"},
     "uid": "<ScheduledRun UID>",
     "executionId": "<Execution UUID>"
-  },
-  "preparedRevision": "<Runtime revision digest>"
+  }
 }
 ```
 
-The store derives the Agent identity from the pinned revision. Editing, deleting, or
-recreating the resource does not change existing Session provenance. Schedule
-history authorization uses the saved schedule reference. A human checkpoint fork
-retains the Agent and revision, has no ScheduledRun provenance, and belongs to
-its new creator; schedule history permission does not expose that private conversation.
+Listings and mutation responses return only the Session. The store derives the
+Agent identity from the pinned revision and the schedule reference from the
+accepted execution, so editing, deleting, or recreating either resource does not
+change them. Schedule history authorization uses the execution's schedule
+reference. A human checkpoint fork retains the Agent and revision, has no
+execution, and belongs to its new creator; schedule history permission does not
+expose that private conversation.
 
 ## Scheduler credentials
 
@@ -251,7 +257,8 @@ dispatch is not checked against them:
 | Send, continue, cancel, and rename | `create` on `ScheduledRunInvocation` |
 | Delete | `delete` on `ScheduledRunInvocation` |
 
-For Session operations, a failed schedule-permission check returns
+A caller's own Sessions need no schedule permission. For other callers' scheduled
+Sessions, a failed schedule-permission check returns
 `PermissionDenied` if the caller can read the schedule's history, and `NotFound`
 otherwise. Listings filter unauthorized Sessions before pagination. Stored
 schedule references preserve these checks after the CRD is deleted.
@@ -262,12 +269,13 @@ configuration or its history receives `PermissionDenied`; a caller who can read
 neither receives `NotFound`. An otherwise authorized trigger does not require
 history access.
 
-Checkpoints retain the source Session's creator and scheduled provenance. Reads,
+Checkpoints retain the source Session's ID and creator, and the source's execution
+record outlives the Session. Reads,
 creation, and forks require source Session read access and schedule history
 permission as well as the checkpoint operation's permission. Renaming or removing
 a scheduled checkpoint requires the corresponding schedule invocation permission.
-Retained provenance supports these checks after the source Session expires. A
-fork belongs to its authenticated caller and retains the Agent identity and revision without ScheduledRun provenance.
+These retained records support the checks after the source Session expires. A
+fork belongs to its authenticated caller and retains the Agent identity and revision, with no execution.
 
 Read-only shares remain limited to their Session and cannot invoke work. Shares
 are managed by their recorded creator. Runtime access remains limited to the

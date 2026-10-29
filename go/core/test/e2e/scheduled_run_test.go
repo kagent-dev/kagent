@@ -309,9 +309,9 @@ func (f *scheduledFixture) task(t *testing.T, execution *apiv1.ScheduledRunExecu
 	require.Equal(t, string(f.agent.UID), session.Session.GetAgent().GetUid())
 	require.Equal(t, f.agent.Name, session.Session.GetAgent().GetRef().GetName())
 	require.Equal(t, execution.RuntimeRevision, session.Session.PreparedRevision)
-	require.True(t, proto.Equal(execution.ScheduledRun, session.Session.GetScheduledRun().Ref))
-	require.Equal(t, string(f.schedule.UID), session.Session.GetScheduledRun().Uid)
-	require.Equal(t, execution.Id, session.Session.GetScheduledRun().ExecutionId)
+	require.True(t, proto.Equal(execution.ScheduledRun, session.GetScheduledRun().Ref))
+	require.Equal(t, string(f.schedule.UID), session.GetScheduledRun().Uid)
+	require.Equal(t, execution.Id, session.GetScheduledRun().ExecutionId)
 	return task
 }
 
@@ -427,7 +427,9 @@ func (f *scheduledFixture) assertHumanCheckpointFork(t *testing.T, execution *ap
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, fork.GetState())
 	require.Equal(t, string(f.agent.UID), fork.GetAgent().GetUid())
 	require.Equal(t, execution.RuntimeRevision, fork.PreparedRevision)
-	require.Nil(t, fork.GetScheduledRun(), "a human fork is not a scheduled execution")
+	forkView, err := f.sessions.GetSession(f.ctx, &apiv1.GetSessionRequest{SessionId: fork.Id})
+	require.NoError(t, err)
+	require.Nil(t, forkView.GetScheduledRun(), "a human fork is not a scheduled execution")
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
