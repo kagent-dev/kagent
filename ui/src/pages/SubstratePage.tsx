@@ -1351,8 +1351,8 @@ export function SubstratePage() {
             size="small"
             locale={{
               emptyText: poolQuery.trim()
-                ? "No worker pools match your search."
-                : "No worker pools in this scope. Create one in the cluster, or install one with the Helm chart.",
+                ? "No visible worker pools match your search."
+                : "No worker pools visible in this scope.",
             }}
           />
         </Card>
@@ -1387,8 +1387,8 @@ export function SubstratePage() {
             size="small"
             locale={{
               emptyText: templateQuery.trim()
-                ? "No actor templates match your search."
-                : "No actor templates yet. One appears when you create a harness and an agent template.",
+                ? "No visible actor templates match your search."
+                : "No actor templates visible in this scope.",
             }}
           />
         </Card>
@@ -1430,7 +1430,7 @@ export function SubstratePage() {
             noun="Actors"
             unread={Boolean(summary.error)}
             counts={inventory?.actorStatusCounts ?? []}
-            emptyText="No actors in this scope."
+            emptyText="No actors visible in this scope."
           />
 
           {/* Summary counts cover every worker: more running actors than busy workers means sharing. */}
@@ -1465,7 +1465,7 @@ export function SubstratePage() {
                 ? " "
                 : actors.data?.ateApiError
                   ? "This read could not reach ate-api, so there may be actors it did not see."
-                  : "No actors on this page.",
+                  : "No actors visible in this scope.",
             }}
           />
 
@@ -1543,7 +1543,7 @@ export function SubstratePage() {
                 ? " "
                 : workers.data?.ateApiError
                   ? "This read could not reach ate-api, so there may be workers it did not see."
-                  : "No worker assignments in this namespace scope on this page.",
+                  : "No workers visible in this scope.",
             }}
           />
 

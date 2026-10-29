@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -474,4 +475,93 @@ func (s *fakeRuntimeRevisionStore) GetAgentEgressGrant(_ context.Context, namesp
 		return s.pair.EgressGrant, nil
 	}
 	return egress.Access{}, nil
+}
+
+func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	for _, kind := range []string{"ModelConfig", "RemoteMCPServer"} {
+		for _, failure := range []string{"policy", "namespace-labels", "namespace-observation"} {
+			selector := failure != "policy"
+			name := kind + "/" + failure
+			t.Run(name, func(t *testing.T) {
+				ctx := t.Context()
+				dsn := dbtest.StartT(ctx, t)
+				dbtest.MigrateT(t, dsn, false)
+				pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
+				require.NoError(t, err)
+				t.Cleanup(pool.Close)
+				store := database.NewClient(pool, "public")
+				opts := krt.NewOptionsBuilder(ctx.Done(), "prepared-policy", nil)
+				policy := &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromAll}
+				if selector {
+					policy = &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromSelector, Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "engineering"}}}
+				}
+				model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "shared", Name: "old"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "example", AllowedNamespaces: policy}}
+				server := &kagentv1alpha3.RemoteMCPServer{ObjectMeta: model.ObjectMeta, Spec: kagentv1alpha3.RemoteMCPServerSpec{URL: "https://tools.example.com", AllowedNamespaces: policy}}
+				models := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{model}, opts.WithName("Models")...)
+				servers := krt.NewStaticCollection(nil, []*kagentv1alpha3.RemoteMCPServer{server}, opts.WithName("Servers")...)
+				runner := harness("team-a", "runner", nil)
+				runner.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
+				runner.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
+				runner.Spec.Workload.Image = new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+				agent := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent", UID: "agent-uid"}, Spec: kagentv1alpha3.AgentSpec{
+					HarnessRef: corev1.LocalObjectReference{Name: runner.Name},
+					Template:   kagentv1alpha3.AgentTemplateSource{Inline: &kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: model.Name, Namespace: model.Namespace}}},
+				}}
+				if kind == "RemoteMCPServer" {
+					agent.Spec.Template.Inline.Tools = []kagentv1alpha3.ToolBinding{{MCP: &kagentv1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: kind, Name: server.Name, Namespace: new(server.Namespace)}}}}
+					model.Spec.AllowedNamespaces = &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromAll}
+				}
+				agents := krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{agent}, opts.WithName("Agents")...)
+				namespaces := krt.NewStaticCollection(nil, []translator.NamespaceObservation{{Name: "team-a", Namespace: &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team-a", Labels: map[string]string{"team": "engineering"}}}}}, opts.WithName("Namespaces")...)
+				mock := krttest.NewMock(t, []any{runner, &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}})
+				inputs := translator.Collections{
+					Namespaces: namespaces, WorkerPools: krttest.GetMockCollection[*atev1.WorkerPool](mock),
+					Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+					RemoteMCPServers: servers, Secrets: krttest.GetMockCollection[*corev1.Secret](mock), ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
+				}
+				_, inputs.ResolvedModelConfigs = newModelConfigReconciliations(models, inputs.ConfigMaps, inputs.Secrets, opts)
+				observations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("Observations")...)
+				states := newAgentReconciliations(agents, inputs, observations, opts, testRuntimeDefaults(), nil)
+				reconciler := &Reconciler{store: store, templates: &fakeActorTemplates{}, collections: Collections{Reconciliations: states, AgentRuntimeObservations: observations}}
+				require.NoError(t, store.UpsertAgentDefinition(ctx, database.AgentDefinition{Namespace: agent.Namespace, AgentName: agent.Name, AgentUID: string(agent.UID), DesiredRevision: "r1"}))
+				require.NoError(t, store.RecordRuntimeRevision(ctx, database.RuntimeRevision{Revision: "r1", Namespace: agent.Namespace, AgentName: agent.Name, AgentUID: string(agent.UID), SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: agent.Name}, ActorTemplateAtespace: agent.Namespace, ActorTemplateName: "r1", ActorTemplateUID: "actor-uid"}, database.RecordRevisionOptions{Ready: true}))
+				create := func(key string) (*apiv1.Session, bool, error) {
+					return store.CreateSession(ctx, &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}, key)
+				}
+				pinned, _, err := create("pinned")
+				require.NoError(t, err)
+				key := agent.Namespace + "/" + agent.Name
+				waitFor(t, func() bool { return states.GetKey(key) != nil })
+				require.Nil(t, states.GetKey(key).CompilationFailure)
+				require.NotNil(t, states.GetKey(key).Target)
+				if failure == "namespace-observation" {
+					namespaces.UpdateObject(translator.NamespaceObservation{Name: "team-a", Error: "forbidden"})
+				} else if selector {
+					namespaces.UpdateObject(translator.NamespaceObservation{Name: "team-a", Namespace: &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team-a"}}})
+				} else if kind == "ModelConfig" {
+					updated := model.DeepCopy()
+					updated.Spec.AllowedNamespaces.From = kagentv1alpha3.NamespacesFromSame
+					models.UpdateObject(updated)
+				} else {
+					updated := server.DeepCopy()
+					updated.Spec.AllowedNamespaces.From = kagentv1alpha3.NamespacesFromSame
+					servers.UpdateObject(updated)
+				}
+				waitFor(t, func() bool { return states.GetKey(key).CompilationFailure != nil })
+				require.Nil(t, states.GetKey(key).Target)
+				require.Equal(t, "ReferenceResolutionFailed", states.GetKey(key).CompilationFailure.Reason)
+				require.NoError(t, reconciler.reconcileAgent(ctx, key))
+				fallback, created, err := create("fallback")
+				require.NoError(t, err)
+				require.True(t, created)
+				require.Equal(t, "r1", fallback.PreparedRevision)
+				existing, err := store.GetSessionByID(ctx, pinned.Id)
+				require.NoError(t, err)
+				require.Equal(t, "r1", existing.PreparedRevision)
+			})
+		}
+	}
 }

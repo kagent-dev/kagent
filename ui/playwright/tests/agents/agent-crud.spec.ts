@@ -26,7 +26,7 @@ for (const template of CASES) {
 
       if (template === "inline") {
         await chooseTemplateSource(page, "inline");
-        await selectOption(page, "template-form-model", "default-model-config");
+        await selectOption(page, "template-form-model", "kagent/default-model-config");
         await page.getByTestId("template-form-description").fill("Inline before edit");
         await page.getByTestId("template-form-prompt").fill("You answer briefly.");
       } else {

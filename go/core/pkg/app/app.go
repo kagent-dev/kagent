@@ -34,6 +34,7 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	typedauth "k8s.io/client-go/kubernetes/typed/authentication/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -54,6 +55,7 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -296,7 +298,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer actors.Close()
-	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), cfg.GetSubstrate().GetCaFile())
+	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), cfg.GetSubstrate().GetCaFile(), substrate.RuntimeJWTAudience)
 	if err != nil {
 		return fmt.Errorf("configure runtime authentication: %w", err)
 	}
@@ -326,6 +328,13 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 
 	authenticator, authorizer := opts.resolve()
+	if machine := cfg.GetServer().GetAuth().GetServiceAccount(); machine != nil {
+		reviewer, err := typedauth.NewForConfig(kubeConfig)
+		if err != nil {
+			return fmt.Errorf("create service-account verifier: %w", err)
+		}
+		authenticator = authimpl.NewServiceAccountProvider(authenticator, reviewer.TokenReviews(), machine.GetAuthority())
+	}
 	authenticator = runtimeauth.NewProvider(authenticator, actorVerifier, store, cfg.GetSubstrate().GetActorJwtIssuer())
 	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
@@ -360,14 +369,18 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp())
-	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
+	pushSender := sessionsvc.NewHTTPPushSender(cfg.GetPush().GetSendTimeout().AsDuration(),
 		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
 	pushIssuer := cfg.GetPush().GetIssuer()
 	pushSigner, err := sessionsvc.NewPushJWTSigner(pushPrivateKey, strings.TrimRight(pushIssuer, "/"))
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
-	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, cfg.GetPush().GetRecoveryInterval().AsDuration())); err != nil {
+	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, sessionsvc.PushWorkerConfig{
+		RecoveryInterval: cfg.GetPush().GetRecoveryInterval().AsDuration(),
+		MaxConcurrency:   int(cfg.GetPush().GetMaxConcurrency()),
+		SendTimeout:      cfg.GetPush().GetSendTimeout().AsDuration(),
+	})); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
@@ -441,6 +454,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		ScheduledRunService:   schedules,
 		// Author Agents and their reusable configuration through the API.
 		AgentService:           agents,
+		AgentIdentityService:   agentidentity.NewService(actorVerifier, store, manager.GetAPIReader()),
 		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: sandboxTemplates,

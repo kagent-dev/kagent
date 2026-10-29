@@ -57,7 +57,7 @@ func TestAddRemoteMCPServerTokenPassthrough(t *testing.T) {
 	config := &configv1.ADKAgentConfig{}
 	for _, protocol := range []v1alpha3.RemoteMCPServerProtocol{v1alpha3.RemoteMCPServerProtocolStreamableHttp, v1alpha3.RemoteMCPServerProtocolSse} {
 		server := &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{
-			URL: "https://mcp.example.test", Protocol: protocol, TokenPassthrough: true,
+			URL: "https://mcp.example.test", Protocol: protocol, TokenPassthrough: new(true),
 		}}
 		require.NoError(t, (&Builder{}).addRemoteMCPServer(config, server, nil, false, nil))
 	}

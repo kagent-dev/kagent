@@ -37,7 +37,7 @@ export function RenameConversationButton({
       <Tooltip
         title={
           disabled
-            ? `Only ${instance.creator || "the person who started it"} can rename this conversation.`
+            ? "Only the conversation’s creator can rename it."
             : "Rename this conversation"
         }
       >

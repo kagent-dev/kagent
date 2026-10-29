@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/net/http/httpguts"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -15,10 +16,28 @@ import (
 // Credential binds a provider reference to an exact destination and HTTP header.
 // Values are fetched by the gateway and never enter a runtime revision.
 type Credential struct {
-	Origin string `json:"origin"`
-	Header string `json:"header"`
-	Prefix string `json:"prefix,omitempty"`
-	URI    string `json:"uri"`
+	Origin   string    `json:"origin"`
+	Header   string    `json:"header"`
+	Prefix   string    `json:"prefix,omitempty"`
+	URI      string    `json:"uri,omitempty"`
+	ActorJWT *ActorJWT `json:"actorJwt,omitempty"`
+}
+
+// ActorJWT stores the resolved gateway token request without credential bytes.
+type ActorJWT struct {
+	Audiences         []string `json:"audiences"`
+	ExpirationSeconds int64    `json:"expirationSeconds"`
+}
+
+// Equal compares complete credential sources, including Actor token claims.
+func (c Credential) Equal(other Credential) bool {
+	if c.Origin != other.Origin || c.Header != other.Header || c.Prefix != other.Prefix || c.URI != other.URI {
+		return false
+	}
+	if c.ActorJWT == nil || other.ActorJWT == nil {
+		return c.ActorJWT == other.ActorJWT
+	}
+	return c.ActorJWT.ExpirationSeconds == other.ActorJWT.ExpirationSeconds && slices.Equal(c.ActorJWT.Audiences, other.ActorJWT.Audiences)
 }
 
 // CanonicalGatewayTargets validates, orders and deduplicates targets. One
@@ -69,7 +88,16 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 		if !validCredentialHeader(c.Header) || !httpguts.ValidHeaderFieldValue(c.Prefix) {
 			return nil, fmt.Errorf("invalid credential injection header %q", c.Header)
 		}
-		if err := validCredentialURI(c.URI); err != nil {
+		if (c.URI == "") == (c.ActorJWT == nil) {
+			return nil, fmt.Errorf("credential requires exactly one Secret or Actor token source")
+		}
+		if c.ActorJWT != nil {
+			c.ActorJWT = &ActorJWT{Audiences: slices.Clone(c.ActorJWT.Audiences), ExpirationSeconds: c.ActorJWT.ExpirationSeconds}
+			if err := validateActorJWT(c.ActorJWT); err != nil {
+				return nil, err
+			}
+			slices.Sort(c.ActorJWT.Audiences)
+		} else if err := validCredentialURI(c.URI); err != nil {
 			return nil, err
 		}
 	}
@@ -78,11 +106,11 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 	})
 	for i := 1; i < len(result); i++ {
 		a, b := result[i-1], result[i]
-		if a.Origin == b.Origin && a.Header == b.Header && a != b {
+		if a.Origin == b.Origin && a.Header == b.Header && !a.Equal(b) {
 			return nil, fmt.Errorf("conflicting credentials for %s header %s", a.Origin, a.Header)
 		}
 	}
-	result = slices.Compact(result)
+	result = slices.CompactFunc(result, Credential.Equal)
 	counts := map[string]int{}
 	for _, c := range result {
 		counts[c.Origin]++
@@ -91,6 +119,20 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 		}
 	}
 	return result, nil
+}
+
+func validateActorJWT(source *ActorJWT) error {
+	if len(source.Audiences) < 1 || len(source.Audiences) > 16 || source.ExpirationSeconds < 300 || source.ExpirationSeconds > 3600 {
+		return fmt.Errorf("actor token requires 1 to 16 audiences and a lifetime of 300 to 3600 seconds")
+	}
+	seen := make(map[string]bool)
+	for _, audience := range source.Audiences {
+		if audience == "" || utf8.RuneCountInString(audience) > 512 || audience == "kagent-runtime" || seen[audience] {
+			return fmt.Errorf("invalid, duplicate, or reserved Actor token audience")
+		}
+		seen[audience] = true
+	}
+	return nil
 }
 
 // validCredentialURI accepts ate-secret://<provider>/<path>. Provider names are

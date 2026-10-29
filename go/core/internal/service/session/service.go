@@ -38,8 +38,6 @@ type store interface {
 
 type sessionWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
-	Suspend(context.Context, *apiv1.Session) (*apiv1.Session, error)
-	Resume(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
 }
 
@@ -283,42 +281,6 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1.Session, error)
 	return session, nil
 }
 
-func (s *Service) Suspend(ctx context.Context, id string) (*apiv1.Session, error) {
-	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
-	if err != nil {
-		return nil, err
-	}
-	session, err = s.workflow.Suspend(ctx, session)
-	if errors.Is(err, database.ErrFailedPrecondition) {
-		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
-	}
-	if errors.Is(err, database.ErrConflict) {
-		return nil, serviceerrors.NewAborted(err.Error(), err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to suspend Session", err)
-	}
-	return session, nil
-}
-
-func (s *Service) Resume(ctx context.Context, id string) (*apiv1.Session, error) {
-	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
-	if err != nil {
-		return nil, err
-	}
-	session, err = s.workflow.Resume(ctx, session)
-	if errors.Is(err, database.ErrFailedPrecondition) {
-		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
-	}
-	if errors.Is(err, database.ErrConflict) {
-		return nil, serviceerrors.NewAborted(err.Error(), err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to resume Session", err)
-	}
-	return session, nil
-}
-
 // CreateShare mints a read-only share of the caller's session. A positive ttl bounds how long its
 // token grants access and must not exceed the configured maximum; zero takes the maximum,
 // or leaves the share valid until it is revoked or the session deleted when none is set.
@@ -422,7 +384,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 	}
 	if share, ok := auth.ShareContextFrom(ctx); ok {
 		session, _ := auth.AuthSessionFrom(ctx)
-		if session.Principal().Actor != nil {
+		if session.Principal().RuntimeBinding != nil {
 			return "", serviceerrors.NewPermissionDenied("Actors cannot use share credentials", nil)
 		}
 		if verb != auth.VerbGet || !share.IsForSession(name) {
@@ -447,7 +409,10 @@ func (s *Service) authorizeResource(ctx context.Context, verb auth.Verb, resourc
 	if err := s.authorizer.Check(ctx, principal, verb, resource); err != nil {
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
-	return principal.User.ID, nil
+	if principal.RuntimeBinding != nil {
+		return principal.RuntimeBinding.CreatorID, nil
+	}
+	return principal.ID, nil
 }
 
 func validateCreate(agent *apiv1.ResourceReference, requestID string) error {

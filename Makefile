@@ -101,10 +101,10 @@ export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod)
 
 # Version information for the build
-LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSION) \
-           -X github.com/$(DOCKER_REPO)/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
-           -X github.com/$(DOCKER_REPO)/go/core/internal/version.BuildDate=$(BUILD_DATE) \
-           -X github.com/$(DOCKER_REPO)/go/core/internal/version.SubstrateVersion=$(SUBSTRATE_VERSION)
+LDFLAGS := -X github.com/kagent-dev/kagent/go/core/internal/version.Version=$(VERSION) \
+           -X github.com/kagent-dev/kagent/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
+           -X github.com/kagent-dev/kagent/go/core/internal/version.BuildDate=$(BUILD_DATE) \
+           -X github.com/kagent-dev/kagent/go/core/internal/version.SubstrateVersion=$(SUBSTRATE_VERSION)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.10.4
@@ -153,11 +153,6 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
 ##@ Protobuf
-
-# Builds regenerate protobuf code so local proto edits take effect. CI builds use
-# the committed output instead: proto-check verifies it, and every regeneration
-# spends Buf Schema Registry remote-plugin requests, which are rate limited.
-BUILD_PROTO_GENERATE := $(if $(filter true,$(CI)),,proto-generate)
 
 .PHONY: proto-generate
 proto-generate: ## Generate Go, TypeScript, and Python protobuf clients and servers
@@ -320,7 +315,7 @@ endif
 .PHONY: build-all
 build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/null for CI validation)
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
-build-all: $(BUILD_PROTO_GENERATE) buildx-create
+build-all: buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/claude/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/codex/Dockerfile ./go
@@ -349,12 +344,10 @@ endif
 
 .PHONY: build-cli
 build-cli: ## Build the kagent CLI (cross-compiled via go sub-make)
-build-cli: $(BUILD_PROTO_GENERATE)
 	make -C go build
 
 .PHONY: build-cli-local
 build-cli-local: ## Build the kagent CLI binary for the local machine
-build-cli-local: $(BUILD_PROTO_GENERATE)
 	make -C go clean
 	make -C go core/bin/kagent-local
 
@@ -381,13 +374,13 @@ build-controller: buildx-create
 
 .PHONY: build-ui
 build-ui: ## Build and push the UI image
-build-ui: $(BUILD_PROTO_GENERATE) buildx-create
+build-ui: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 	$(DOCKER_PUSH) $(UI_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
-build-golang-adk: $(BUILD_PROTO_GENERATE) buildx-create
+build-golang-adk: buildx-create
 	mkdir -p "$(RUNTIME_BUILD_METADATA_DIR)"
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(RUNTIME_METADATA_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(call push-runtime-image,$(GOLANG_ADK_IMG))

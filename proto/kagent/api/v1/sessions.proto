@@ -20,8 +20,6 @@ service SessionService {
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc UpdateSessionName(UpdateSessionNameRequest) returns (UpdateSessionNameResponse);
-  rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
-  rpc ResumeSession(ResumeSessionRequest) returns (ResumeSessionResponse);
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
   rpc CreateSessionShare(CreateSessionShareRequest) returns (CreateSessionShareResponse);
   rpc ListSessionShares(ListSessionSharesRequest) returns (ListSessionSharesResponse);
@@ -111,22 +109,6 @@ message UpdateSessionNameRequest {
 }
 
 message UpdateSessionNameResponse {
-  Session session = 1;
-}
-
-message SuspendSessionRequest {
-  string session_id = 1 [(buf.validate.field).string.uuid = true];
-}
-
-message SuspendSessionResponse {
-  Session session = 1;
-}
-
-message ResumeSessionRequest {
-  string session_id = 1 [(buf.validate.field).string.uuid = true];
-}
-
-message ResumeSessionResponse {
   Session session = 1;
 }
 

@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha3
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -75,11 +74,11 @@ type KagentHarnessCompaction struct {
 // KagentHarnessSummarizer configures the model that summarizes compacted events.
 // +kubebuilder:validation:XValidation:rule="!has(self.promptTemplate) || self.promptTemplate.contains('{conversation_history}')",message="promptTemplate must contain {conversation_history}"
 type KagentHarnessSummarizer struct {
-	// ModelConfigRef references the ModelConfig in the Harness namespace that
+	// ModelConfigRef references the ModelConfig (defaulting to the Harness namespace) that
 	// writes the summaries. Omitted uses the agent's own model.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +optional
-	ModelConfigRef *corev1.LocalObjectReference `json:"modelConfigRef,omitempty"`
+	ModelConfigRef *ObjectReference `json:"modelConfigRef,omitempty"`
 	// PromptTemplate replaces the runtime's default summarization prompt. It
 	// must contain {conversation_history}, which the runtime replaces with the
 	// rendered events.
@@ -91,9 +90,9 @@ type KagentHarnessSummarizer struct {
 // KagentHarnessMemory configures kagent's long-term memory service.
 // +kubebuilder:validation:XValidation:rule="self.modelConfigRef.name.size() > 0",message="modelConfigRef name must not be empty"
 type KagentHarnessMemory struct {
-	// ModelConfigRef references the embedding ModelConfig in the Harness namespace.
+	// ModelConfigRef references the embedding ModelConfig (defaulting to the Harness namespace).
 	// +required
-	ModelConfigRef corev1.LocalObjectReference `json:"modelConfigRef"`
+	ModelConfigRef ObjectReference `json:"modelConfigRef"`
 
 	// TTLDays controls how many days a stored memory entry remains valid.
 	// +kubebuilder:validation:Minimum=1

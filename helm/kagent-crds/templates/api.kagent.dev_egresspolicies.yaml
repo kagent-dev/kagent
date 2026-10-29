@@ -56,6 +56,37 @@ spec:
                         Authentication replaces a placeholder header at the gateway. Requests
                         must send the header; its credential value is never supplied to the runtime.
                       properties:
+                        actorJwt:
+                          description: ActorJWT authenticates as the executing Actor.
+                            The gateway mints and injects the token.
+                          properties:
+                            audiences:
+                              description: |-
+                                Audiences names the services permitted to accept this token. The runtime
+                                control-plane audience is reserved and cannot be exported downstream.
+                              items:
+                                maxLength: 512
+                                minLength: 1
+                                type: string
+                              maxItems: 16
+                              minItems: 1
+                              type: array
+                              x-kubernetes-list-type: set
+                              x-kubernetes-validations:
+                              - message: the runtime control-plane audience is reserved
+                                rule: '!self.exists(a, a == ''kagent-runtime'')'
+                            expirationSeconds:
+                              default: 900
+                              description: |-
+                                ExpirationSeconds requests a token lifetime. Substrate refreshes tokens at
+                                the gateway independently of the invocation caller's token lifetime.
+                              format: int64
+                              maximum: 3600
+                              minimum: 300
+                              type: integer
+                          required:
+                          - audiences
+                          type: object
                         header:
                           description: |-
                             Header is the request header carrying the credential, for example
@@ -71,7 +102,7 @@ spec:
                               ''proxy-authenticate'', ''cookie''])'
                         prefix:
                           description: |-
-                            Prefix is prepended verbatim to the Secret value, for example "Bearer ".
+                            Prefix is prepended verbatim to the credential value, for example "Bearer ".
                             Include any separating space. Omitted or empty means no prefix.
                           maxLength: 256
                           pattern: ^[^\x00-\x08\x0a-\x1f\x7f]*$
@@ -109,8 +140,12 @@ spec:
                             rule: '!has(self.optional) || !self.optional'
                       required:
                       - header
-                      - secretKeyRef
                       type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of the fields in [secretKeyRef actorJwt]
+                          must be set
+                        rule: (has(self.secretKeyRef)?1:0)+(has(self.actorJwt)?1:0)
+                          == 1
                     origin:
                       description: |-
                         Origin is a scheme, DNS hostname, and optional port. A wildcard replaces

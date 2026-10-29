@@ -39,7 +39,7 @@ func IntersectAccess(a, b Access) Access {
 		}
 	}
 	for _, credential := range a.Credentials {
-		if slices.Contains(result.Destinations, credential.Origin) && slices.Contains(b.Credentials, credential) {
+		if slices.Contains(result.Destinations, credential.Origin) && slices.ContainsFunc(b.Credentials, credential.Equal) {
 			result.Credentials = append(result.Credentials, credential)
 		}
 	}

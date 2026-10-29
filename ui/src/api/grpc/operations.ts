@@ -666,8 +666,6 @@ const agentInstances: Pick<
   | "agentInstances.rename"
   | "agentInstances.fork"
   | "agentInstances.delete"
-  | "agentInstances.suspend"
-  | "agentInstances.resume"
 > = {
   "agentInstances.list": async (input, options) => {
     const name = "SessionService/ListSessions";
@@ -943,34 +941,6 @@ const agentInstances: Pick<
     return toAgentInstance(required(response.session, name, "agent instance"));
   },
 
-  /*
-   * Suspend and resume answer with the instance as it now stands, and that answer
-   * is returned rather than discarded: both complete synchronously on the
-   * controller (see `ActorWorkflow.Suspend`), so the record handed back is the
-   * finished state and a caller that re-read the list instead would be asking for
-   * something it already has.
-   */
-  "agentInstances.suspend": async (input, options) => {
-    const name = "SessionService/SuspendSession";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(SessionService).suspendSession(
-        { sessionId: input.id },
-        call("agentInstances.suspend", options),
-      ),
-    );
-    return toAgentInstance(required(response.session, name, "agent instance"));
-  },
-
-  "agentInstances.resume": async (input, options) => {
-    const name = "SessionService/ResumeSession";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(SessionService).resumeSession(
-        { sessionId: input.id },
-        call("agentInstances.resume", options),
-      ),
-    );
-    return toAgentInstance(required(response.session, name, "agent instance"));
-  },
 };
 
 // endregion
