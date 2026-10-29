@@ -116,7 +116,12 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		if _, err := exec.LookPath("helm"); err != nil {
 			return fmt.Errorf("helm not found in PATH; install it first")
 		}
-		directory, err := installer.Export(cmd.Context(), installer.CommandRunner{}, input, installer.ExportOptions{Directory: cfg.OutputDir, Secrets: references, ReadmeTemplate: installReadmeTemplate})
+		directory, err := installer.Export(cmd.Context(), installer.CommandRunner{}, input, installer.ExportOptions{
+			Directory: cfg.OutputDir, Secrets: references, ReadmeTemplate: installReadmeTemplate,
+			ReadmeData: struct{ DocsURL string }{
+				DocsURL: "https://kagent.dev/docs/kagent/1.x/setup/installation/#before-you-begin",
+			},
+		})
 		if err != nil {
 			return err
 		}

@@ -83,15 +83,15 @@ func TestInstallDryRunWithoutClusterOrAPIKey(t *testing.T) {
 			require.NoError(t, err)
 			readme, err := os.ReadFile(filepath.Join(destination, "README.md"))
 			require.NoError(t, err)
-			require.Contains(t, string(readme), "Follow the Helm installation documentation to complete the prerequisite steps.")
-			require.Contains(t, string(readme), "`OPENAI_API_KEY`: release `kagent`, value `providers.openAI.apiKey`.")
+			require.Contains(t, string(readme), "Complete the prerequisite steps in the Helm installation guide: https://kagent.dev/docs/kagent/1.x/setup/installation/#before-you-begin.")
+			require.Contains(t, string(readme), "`OPENAI_API_KEY`: `providers.openAI.apiKey` in the `kagent` release")
 			require.NotContains(t, string(readme), "secret-that-must-not-be-exported")
 			if tc.skipDatabase {
 				require.NotContains(t, string(podcert), "postgresClients")
-				require.Contains(t, string(readme), "Generated with `--skip-database-setup`")
+				require.Contains(t, string(readme), "This export was generated with `--skip-database-setup`")
 			} else {
 				require.Contains(t, string(podcert), "postgresClients")
-				require.Contains(t, string(readme), "The values include the bundled database's certificate authentication settings.")
+				require.Contains(t, string(readme), "The values configure certificate authentication for the bundled database.")
 			}
 		})
 	}
