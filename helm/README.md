@@ -243,6 +243,8 @@ make MODEL_PROVIDER=openAI kagent-cli-install
 
 `make kagent-cli-install` builds the local CLI and runs `kagent install` against the local charts. `make helm-install` installs the charts directly with Helm. That needs a prepared database, the `kagent-postgres-owner` and `kagent-postgres-readwrite` Secrets (see [PostgreSQL](#postgresql)), and a separately installed Substrate. Native gRPC, gRPC-Web, A2A, MCP, and operational HTTP endpoints share controller port `8083`.
 
+Use `kagent install --dry-run --output-dir ./kagent-install` to export the Helm commands and merged values without changing the cluster. See [Exporting an installation](../docs/installation.md) for credential handling and prerequisite setup.
+
 ### Using kagent cli
 
 ```bash

@@ -243,11 +243,15 @@ silently pending. Status includes a safe error code. Raw backend error messages
 are not copied into Kubernetes status. The reconciliation queue owns failure retries,
 with exponential backoff from one second to thirty seconds and no operational
 attempt budget. It clears the failure after the prerequisite or service recovers.
-Periodic polling only checks observed templates whose golden snapshots are still
-pending. Observation and status updates do not bypass backoff; changed desired
-revisions, unresolved inputs, and Agent deletion are reconciled immediately.
-Compilation errors, immutable template conflicts, and golden-snapshot failures
-stop preparation until the desired inputs change.
+Periodic polling checks observed templates whose golden snapshots are still
+pending and wakes golden retries whose retry time has passed. Observation and
+status updates do not bypass backoff; changed desired revisions, unresolved
+inputs, and Agent deletion are reconciled immediately. Compilation errors and
+immutable template conflicts stop preparation until the desired inputs change.
+A golden-snapshot failure is retried instead: the controller deletes the failed
+ActorTemplate and recreates it on the persisted schedule described in
+[Sandboxes](sandboxes.md#configuration-and-preparation), reporting `Ready=False`
+with reason `ActorTemplateRetrying` and only the failure reason in its message.
 
 ActorTemplate construction checks the size of each emitted environment value
 against Substrate's 32,768-character limit, including the serialized config and

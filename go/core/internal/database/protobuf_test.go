@@ -287,11 +287,11 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	require.NoError(t, err)
 	addUnknown(card)
 	revision := RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "template", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{})))
 	// Reconciliation can update runtime identity, but the pinned card is immutable.
 	revision.AgentCard = &a2apb.AgentCard{Name: "replacement"}
 	revision.ActorTemplateUID = "new-uid"
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{})))
 	stored, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(card, stored.AgentCard))

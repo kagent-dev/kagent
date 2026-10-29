@@ -70,7 +70,7 @@ KIND_KUBECONFIG ?= /tmp/kind-config
 # registry container, and templates reconcile at the minimum interval.
 KIND_SUBSTRATE_HELM_ARGS = --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000 --set ateApi.extraArgs[0]=--template-resync-interval=250ms
 # A file only releases whose `kagent install` deploys the database contain.
-CLI_DATABASE_SENTINEL = go/core/cli/internal/commands/bundled_postgres.yaml
+CLI_DATABASE_SENTINEL = go/core/pkg/install/bundled_postgres.yaml
 KAGENT_POSTGRES_OWNER_SECRET ?= kagent-postgres-owner
 KAGENT_POSTGRES_READWRITE_SECRET ?= kagent-postgres-readwrite
 
@@ -182,25 +182,6 @@ proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail
 		git status --short -- $(PROTO_GENERATED_PATHS); \
 		exit 1; \
 	fi
-
-##@ Environment documentation
-
-ENV_DOCS_COMMAND = cd go && go run ./core/cli/cmd/kagent env --format markdown
-
-.PHONY: env-docs
-env-docs: ## Generate docs/env.md from the environment variable registry
-	@set -eu; generated=$$(mktemp); trap 'rm -f "$$generated"' EXIT; \
-		($(ENV_DOCS_COMMAND)) > "$$generated"; \
-		cp "$$generated" docs/env.md
-
-.PHONY: env-docs-check
-env-docs-check: ## Check docs/env.md matches the environment variable registry
-	@set -eu; generated=$$(mktemp); trap 'rm -f "$$generated"' EXIT; \
-		($(ENV_DOCS_COMMAND)) > "$$generated"; \
-		if ! diff -u docs/env.md "$$generated"; then \
-			echo "Environment documentation is out of date. Run 'make env-docs' and commit docs/env.md."; \
-			exit 1; \
-		fi
 
 ##@ Telemetry contract
 

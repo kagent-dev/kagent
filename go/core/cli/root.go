@@ -108,7 +108,6 @@ func Root(opts ...Option) *cobra.Command {
 		commands.NewVersionCmd(),
 		commands.NewDashboardCmd(),
 		sandboxcli.NewCmd(),
-		commands.NewEnvCmd(),
 		dbcli.NewDBCmd(o.extraMigrations),
 	)
 	return rootCmd
