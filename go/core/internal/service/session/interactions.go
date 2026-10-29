@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -159,7 +160,7 @@ func (s *InteractionService) ListTasks(ctx context.Context, agent types.Namespac
 // PrepareSend authorizes and resolves the conversation, then reserves its input.
 // An initial-message retry returns its saved task without granting another send.
 func (s *InteractionService) PrepareSend(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (*PreparedSend, error) {
-	initialID := initialMessageID(req)
+	initialID := initialMessageID(ctx, req)
 	pushConfig, err := initialPushConfig(agent, req, s.allowPushHTTP)
 	if err != nil {
 		return nil, err
@@ -463,7 +464,7 @@ func interactionStoreError(ctx context.Context, err error) error {
 	return a2atype.NewError(a2atype.ErrInternalError, "failed to read task")
 }
 
-// acceptedTask recovers an admitted first message without dispatching it again.
+// acceptedTask recovers an admitted initial or controller-continuation input.
 func (s *InteractionService) acceptedTask(ctx context.Context, sessionID, messageID string, historyLength *int) (*a2atype.Task, error) {
 	task, err := s.store.GetSessionTaskByMessage(ctx, sessionID, "", messageID)
 	if err != nil {
@@ -517,8 +518,16 @@ func (s *InteractionService) listSessions(ctx context.Context, agent types.Names
 	}
 }
 
-func initialMessageID(req *a2atype.SendMessageRequest) string {
-	if req != nil && req.Message != nil && req.Message.TaskID == "" {
+// initialMessageID limits existing-context replay to trusted controller continuations.
+func initialMessageID(ctx context.Context, req *a2atype.SendMessageRequest) string {
+	if req == nil || req.Message == nil || req.Message.TaskID != "" {
+		return ""
+	}
+	if req.Message.ContextID == "" {
+		return req.Message.ID
+	}
+	session, _ := auth.AuthSessionFrom(ctx)
+	if _, internal := session.(auth.ControlPlaneSession); internal && strings.HasPrefix(req.Message.ID, "kagent-continuation-") {
 		return req.Message.ID
 	}
 	return ""

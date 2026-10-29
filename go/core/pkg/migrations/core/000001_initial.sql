@@ -389,6 +389,8 @@ CREATE TABLE task_continuation (
     awaited BOOLEAN NOT NULL DEFAULT FALSE,
     delivered BOOLEAN NOT NULL DEFAULT FALSE,
     abandoned BOOLEAN NOT NULL DEFAULT FALSE,
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     claim_token UUID,
     lease_until TIMESTAMPTZ,
     UNIQUE (parent_task_id, child_session_id, child_message_id),

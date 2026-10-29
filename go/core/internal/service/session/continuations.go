@@ -83,7 +83,9 @@ func (c *Continuations) tick(ctx context.Context) error {
 			if err != nil {
 				logging.FromContext(ctx).WarnContext(ctx, "delegated task resume failed", "error", err, "continuation", value.ID)
 			}
-			if finishErr := c.store.CompleteTaskContinuation(attempt, value, taskID); finishErr != nil && ctx.Err() == nil {
+			completion, finish := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer finish()
+			if finishErr := c.store.CompleteTaskContinuation(completion, value, taskID); finishErr != nil && ctx.Err() == nil {
 				logging.FromContext(ctx).WarnContext(ctx, "failed to finish task continuation", "error", finishErr, "continuation", value.ID)
 			}
 		})

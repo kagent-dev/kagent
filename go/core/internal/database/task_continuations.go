@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const taskContinuationMaxAttempts = 8
+
 // TaskContinuation is a durable dependency of an active parent on one native input.
 type TaskContinuation struct {
 	ID              uuid.UUID
@@ -78,6 +80,13 @@ func (c *Client) withContinuationClaims(ctx context.Context, limit int) ([]TaskC
 	var claimed []TaskContinuation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		if err := execSQL(ctx, tx, `
+      UPDATE task_continuation SET abandoned = TRUE, claim_token = NULL, lease_until = NULL
+      WHERE NOT delivered AND NOT abandoned AND attempt_count >= $1
+        AND (lease_until IS NULL OR lease_until < clock_timestamp())
+    `, int32(taskContinuationMaxAttempts)); err != nil {
+			return err
+		}
+		if err := execSQL(ctx, tx, `
       UPDATE task_continuation d SET delivered = TRUE
       FROM session_record p, session_record c, session_task pt
       WHERE d.parent_session_id = p.id AND d.child_session_id = c.id
@@ -135,6 +144,7 @@ func (c *Client) withContinuationClaims(ctx context.Context, limit int) ([]TaskC
        JOIN session_task pt ON pt.history_id = p.history_id AND pt.id = d.parent_task_id
        JOIN session_task ct ON ct.history_id = c.history_id AND ct.id = d.child_task_id
        WHERE d.awaited AND NOT d.delivered AND NOT d.abandoned
+         AND d.attempt_count < $2 AND d.next_attempt_at <= clock_timestamp()
          AND (d.claim_token IS NULL OR d.lease_until < clock_timestamp())
          AND p.state = 'RUNTIME_STATE_READY' AND p.operation = 'RUNTIME_OPERATION_NONE'
          AND pt.state = 'TASK_STATE_COMPLETED'
@@ -155,11 +165,12 @@ func (c *Client) withContinuationClaims(ctx context.Context, limit int) ([]TaskC
            WHERE sibling.parent_task_id = d.parent_task_id AND NOT sibling.delivered AND NOT sibling.abandoned
              AND st.state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_FAILED', 'TASK_STATE_REJECTED', 'TASK_STATE_CANCELED'))
        ORDER BY d.id LIMIT $1 FOR UPDATE OF d SKIP LOCKED
-     ) UPDATE task_continuation d SET claim_token = gen_random_uuid(), lease_until = clock_timestamp() + INTERVAL '30 seconds'
+     ) UPDATE task_continuation d SET claim_token = gen_random_uuid(), lease_until = clock_timestamp() + INTERVAL '30 seconds',
+       attempt_count = attempt_count + 1
        FROM ready WHERE d.id = ready.id
        RETURNING d.id, d.parent_session_id::text, d.parent_task_id, d.child_session_id::text,
          d.child_message_id, d.child_task_id, d.claim_token
-   `, pgx.RowToStructByName[TaskContinuation], int32(limit))
+   `, pgx.RowToStructByName[TaskContinuation], int32(limit), int32(taskContinuationMaxAttempts))
 		return err
 	})
 	return claimed, err
@@ -190,14 +201,17 @@ func (c *Client) CancelTaskContinuations(ctx context.Context, sessionID, taskID 
 	})
 }
 
-// CompleteTaskContinuation releases the lease after a send, or schedules a retry.
+// CompleteTaskContinuation releases the lease after a send. Failed attempts use
+// exponential backoff from five seconds to five minutes and stop after eight claims.
 func (c *Client) CompleteTaskContinuation(ctx context.Context, value TaskContinuation, resumeTaskID string) error {
 	tag, err := c.db.Exec(ctx, `
    UPDATE task_continuation SET delivered = $3, resume_task_id = NULLIF($4, ''),
-     claim_token = CASE WHEN $3 THEN NULL ELSE claim_token END,
-     lease_until = CASE WHEN $3 THEN NULL ELSE clock_timestamp() + INTERVAL '2 seconds' END
+     abandoned = NOT $3 AND attempt_count >= $5,
+     claim_token = NULL, lease_until = NULL,
+     next_attempt_at = CASE WHEN $3 THEN next_attempt_at ELSE clock_timestamp() +
+       LEAST(INTERVAL '5 minutes', INTERVAL '5 seconds' * power(2::double precision, LEAST(attempt_count - 1, 6))) END
    WHERE id = $1 AND claim_token = $2 AND NOT abandoned
- `, value.ID, value.ClaimToken, resumeTaskID != "", resumeTaskID)
+ `, value.ID, value.ClaimToken, resumeTaskID != "", resumeTaskID, int32(taskContinuationMaxAttempts))
 	if err != nil {
 		return err
 	}

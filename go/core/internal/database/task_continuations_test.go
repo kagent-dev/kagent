@@ -1,6 +1,8 @@
 package database
 
 import (
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -98,7 +100,7 @@ func TestTaskContinuationWaitsForEveryApprovalAndRecoversClaims(t *testing.T) {
 	stale.ClaimToken = uuid.New()
 	require.ErrorIs(t, client.CompleteTaskContinuation(t.Context(), stale, "resume"), ErrConflict)
 	require.NoError(t, client.CompleteTaskContinuation(t.Context(), claimed[0], ""))
-	_, err = pool.Exec(t.Context(), "UPDATE task_continuation SET lease_until = clock_timestamp() - INTERVAL '1 second'")
+	_, err = pool.Exec(t.Context(), "UPDATE task_continuation SET next_attempt_at = clock_timestamp() - INTERVAL '1 second'")
 	require.NoError(t, err)
 	retried, err := restarted.ClaimTaskContinuations(t.Context(), 4)
 	require.NoError(t, err)
@@ -109,6 +111,60 @@ func TestTaskContinuationWaitsForEveryApprovalAndRecoversClaims(t *testing.T) {
 	final, err := client.ClaimTaskContinuations(t.Context(), 4)
 	require.NoError(t, err)
 	require.Empty(t, final)
+}
+
+func TestTaskContinuationRetryBudget(t *testing.T) {
+	for _, expiredLease := range []bool{false, true} {
+		t.Run(fmt.Sprintf("expired_lease=%t", expiredLease), func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+			parent, child := continuationSession(t, client), continuationSession(t, client)
+			caller := continuationTask(t, client, parent, "parent")
+			require.NoError(t, client.RegisterTaskContinuation(t.Context(), parent.Id, child.Id, "child"))
+			callee := continuationTask(t, client, child, "child")
+			settleContinuation(t, client, callee, a2a.TaskStateInputRequired)
+			settleContinuation(t, client, caller, a2a.TaskStateCompleted)
+			reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("yes"))
+			reply.ID, reply.ContextID, reply.TaskID = "answer", child.Id, callee.ID
+			callee, _ = resumeRuntimeTask(t, client, child.Id, reply)
+			settleContinuation(t, client, callee, a2a.TaskStateCompleted)
+			var last TaskContinuation
+			for attempt := 1; attempt <= taskContinuationMaxAttempts; attempt++ {
+				claimed, err := client.ClaimTaskContinuations(t.Context(), 1)
+				require.NoError(t, err)
+				require.Len(t, claimed, 1)
+				last = claimed[0]
+				if expiredLease {
+					_, err = client.db.Exec(t.Context(), `UPDATE task_continuation SET lease_until = clock_timestamp() - INTERVAL '1 second' WHERE id = $1`, last.ID)
+					require.NoError(t, err)
+					continue
+				}
+				require.NoError(t, client.CompleteTaskContinuation(t.Context(), last, ""))
+				var delay float64
+				var released bool
+				require.NoError(t, client.db.QueryRow(t.Context(), `
+          SELECT EXTRACT(EPOCH FROM next_attempt_at - clock_timestamp())::float8,
+            claim_token IS NULL AND lease_until IS NULL FROM task_continuation WHERE id = $1
+        `, last.ID).Scan(&delay, &released))
+				require.True(t, released)
+				require.InDelta(t, min(300, 5*math.Pow(2, float64(attempt-1))), delay, 2)
+				waiting, err := client.ClaimTaskContinuations(t.Context(), 1)
+				require.NoError(t, err)
+				require.Empty(t, waiting)
+				_, err = client.db.Exec(t.Context(), `UPDATE task_continuation SET next_attempt_at = clock_timestamp() - INTERVAL '1 second' WHERE id = $1`, last.ID)
+				require.NoError(t, err)
+			}
+			pending, err := client.ClaimTaskContinuations(t.Context(), 1)
+			require.NoError(t, err)
+			require.Empty(t, pending)
+			var attempts int
+			var abandoned bool
+			require.NoError(t, client.db.QueryRow(t.Context(), `SELECT attempt_count, abandoned FROM task_continuation WHERE id = $1`, last.ID).Scan(&attempts, &abandoned))
+			require.Equal(t, taskContinuationMaxAttempts, attempts)
+			require.True(t, abandoned)
+			require.ErrorIs(t, client.CompleteTaskContinuation(t.Context(), last, "late"), ErrConflict)
+		})
+	}
 }
 
 func TestTaskContinuationWaitsForNestedParentResume(t *testing.T) {
