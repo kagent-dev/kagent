@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -282,6 +283,9 @@ func (s *failingFinalizationStore) DeleteRuntimeRevision(ctx context.Context, re
 
 type fakeActorTemplates struct {
 	actorEgressStub
+	// mu guards template and createErr for tests that change them while the
+	// reconciler's queue runs.
+	mu                 sync.Mutex
 	template           *ateapipb.ActorTemplate
 	ensureErr          error
 	getErr             error
@@ -295,6 +299,8 @@ type fakeActorTemplates struct {
 func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return f.ensureErr }
 
 func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -305,6 +311,8 @@ func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (
 }
 
 func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -314,6 +322,18 @@ func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *at
 		f.template.Metadata.Uid, f.queuedUIDs = f.queuedUIDs[0], f.queuedUIDs[1:]
 	}
 	return f.template, nil
+}
+
+func (f *fakeActorTemplates) setCreateErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.createErr = err
+}
+
+func (f *fakeActorTemplates) created() *ateapipb.ActorTemplate {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.template
 }
 
 func (f *fakeActorTemplates) DeleteActorTemplate(_ context.Context, _, _, uid string) error {
@@ -332,6 +352,9 @@ func (f *fakeActorTemplates) DeleteActorTemplate(_ context.Context, _, _, uid st
 
 type fakeRuntimeRevisionStore struct {
 	egressTargetStoreStub
+	// mu guards pair and pairCalls for tests that read them while the
+	// reconciler's queue runs.
+	mu                sync.Mutex
 	pair              *database.AgentDefinition
 	revision          *database.RuntimeRevision
 	markedSuccessful  bool
@@ -374,9 +397,17 @@ func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]da
 }
 
 func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.pairCalls++
 	s.pair = &pair
 	return s.pairErr
+}
+
+func (s *fakeRuntimeRevisionStore) upserts() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pairCalls
 }
 
 func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {

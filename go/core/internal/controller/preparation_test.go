@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -139,7 +140,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 }
 
 func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
-	for _, test := range []struct {
+	tests := []struct {
 		name      string
 		templates fakeActorTemplates
 		store     fakeRuntimeRevisionStore
@@ -151,7 +152,9 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 		{name: "atespace failed", templates: fakeActorTemplates{ensureErr: status.Error(codes.PermissionDenied, "private-credential")}, code: codes.PermissionDenied},
 		{name: "pair store failed", store: fakeRuntimeRevisionStore{pairErr: errors.New("private-database-connection")}, code: codes.Unknown},
 		{name: "revision store failed", store: fakeRuntimeRevisionStore{revisionErr: errors.New("private-database-connection")}, code: codes.Unknown},
-	} {
+	}
+	for i := range tests {
+		test := &tests[i]
 		t.Run(test.name, func(t *testing.T) {
 			collections, _ := newPreparationTestCollections(t, "microvm")
 			initial := collections.Reconciliations.List()[0]
@@ -238,14 +241,16 @@ func TestPreparationRevisionIsolation(t *testing.T) {
 }
 
 func TestPreparationQueueAndPollerBackoff(t *testing.T) {
-	for _, test := range []struct {
+	tests := []struct {
 		name      string
 		templates fakeActorTemplates
 		store     fakeRuntimeRevisionStore
 	}{
 		{name: "revision being collected", store: fakeRuntimeRevisionStore{pairErr: database.ErrObjectDeleting}},
 		{name: "persistence unavailable", store: fakeRuntimeRevisionStore{revisionErr: errors.New("database unavailable")}},
-	} {
+	}
+	for i := range tests {
+		test := &tests[i]
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				collections, _ := newPreparationTestCollections(t, "microvm")
@@ -484,6 +489,84 @@ func TestPreparationTerminalFailures(t *testing.T) {
 			})
 		})
 	}
+}
+
+// Substrate without the GoldenEgressPolicy preview gate rejects a template
+// with a golden egress policy. Enabling the gate must heal the Agent.
+func TestPreparationRetriesGoldenEgressRejection(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		collections, _ := newPreparationTestCollectionsFor(t, "microvm", gitSkillTemplate())
+		initial := collections.Reconciliations.List()[0]
+		gateOff := field.ErrorList{field.Forbidden(field.NewPath("actor_template", "golden_egress_policy"), "")}.ToAggregate()
+		templates := &fakeActorTemplates{createErr: status.Error(codes.InvalidArgument, gateOff.Error())}
+		store := &fakeRuntimeRevisionStore{}
+		statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
+		r := newReconciler(collections, templates, store, statusClient)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go func() { assert.NoError(t, r.Start(ctx)) }()
+		synctest.Wait()
+
+		failure := collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure
+		require.NotNil(t, failure)
+		require.True(t, failure.Retryable, "enabling the gate must not need a controller restart")
+		published, err := statusClient.Agents(initial.Agent.Namespace).Get(t.Context(), initial.Agent.Name, metav1.GetOptions{})
+		require.NoError(t, err)
+		ready := apimeta.FindStatusCondition(published.Status.Conditions, kagentv1alpha3.AgentConditionReady)
+		require.Equal(t, "ActorTemplateRejected", ready.Reason)
+		require.Contains(t, ready.Message, "GoldenEgressPolicy preview gate")
+		require.NotContains(t, ready.Message, "golden_egress_policy")
+
+		time.Sleep(5 * time.Minute)
+		synctest.Wait()
+		require.Greater(t, store.upserts(), 2, "the queue retries the rejected template")
+		require.Less(t, store.upserts(), 30, "retries back off")
+
+		templates.setCreateErr(nil)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		require.NotNil(t, templates.created(), "the template is created once Substrate accepts it")
+		require.Nil(t, collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure)
+		cancel()
+		synctest.Wait()
+	})
+}
+
+// Other validation errors on a template with a golden egress policy stay
+// terminal: enabling the gate cannot repair them.
+func TestPreparationGoldenEgressOtherRejectionIsTerminal(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		collections, _ := newPreparationTestCollectionsFor(t, "microvm", gitSkillTemplate())
+		initial := collections.Reconciliations.List()[0]
+		require.NotNil(t, initial.Target.ActorTemplate.GetGoldenEgressPolicy())
+		templates := &fakeActorTemplates{createErr: status.Error(codes.InvalidArgument, "actor_template.containers[0].env: Too many")}
+		store := &fakeRuntimeRevisionStore{}
+		statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
+		r := newReconciler(collections, templates, store, statusClient)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go func() { assert.NoError(t, r.Start(ctx)) }()
+		synctest.Wait()
+
+		failure := collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure
+		require.NotNil(t, failure)
+		require.False(t, failure.Retryable)
+		require.Equal(t, "ActorTemplateRejected", failure.Reason)
+		require.NotContains(t, failure.Message, "GoldenEgressPolicy")
+		time.Sleep(5 * time.Minute)
+		synctest.Wait()
+		require.Equal(t, 1, store.upserts(), "a terminal rejection is not retried")
+		cancel()
+		synctest.Wait()
+	})
+}
+
+func gitSkillTemplate() *kagentv1alpha3.AgentTemplate {
+	return &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}, Spec: kagentv1alpha3.AgentTemplateSpec{
+		Skills: []kagentv1alpha3.AgentTemplateSkill{{Name: "review", Source: kagentv1alpha3.ArtifactSource{Git: &kagentv1alpha3.GitArtifact{
+			URL: "https://git.example.com/skills.git", Commit: strings.Repeat("a", 40),
+		}}}},
+	}}
 }
 
 func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
