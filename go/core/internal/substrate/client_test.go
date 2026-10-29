@@ -440,14 +440,37 @@ func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
 		require.NoError(t, err)
 		require.Same(t, durable, got)
 	})
-	t.Run("snapshot upload uses longer timeout than metadata calls", func(t *testing.T) {
-		durable := proto.CloneOf(actor)
-		durable.Status.Snapshots = []*ateapipb.Snapshot{completed}
-		fake := &suspendActorFake{actor: durable}
-		client := &Client{ControlClient: fake, cfg: Config{CallTimeout: 30 * time.Second}}
-		started := time.Now()
-		_, err := client.SuspendActor(t.Context(), "team", "actor")
-		require.NoError(t, err)
-		require.WithinDuration(t, started.Add(2*time.Minute), fake.deadline, time.Second)
-	})
+	for _, tc := range []struct {
+		name          string
+		cfg           Config
+		parentTimeout time.Duration
+		want          time.Duration
+	}{
+		{name: "snapshot budget", cfg: Config{CallTimeout: 30 * time.Second, SuspendTimeout: 2 * time.Minute}, want: 2 * time.Minute},
+		{name: "custom snapshot budget", cfg: Config{CallTimeout: 30 * time.Second, SuspendTimeout: 5 * time.Minute}, want: 5 * time.Minute},
+		{name: "fallback to call timeout", cfg: Config{CallTimeout: 30 * time.Second}, want: 30 * time.Second},
+		{name: "shorter caller deadline", cfg: Config{CallTimeout: 30 * time.Second, SuspendTimeout: 2 * time.Minute}, parentTimeout: 5 * time.Second, want: 5 * time.Second},
+		{name: "no configured timeout", cfg: Config{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			durable := proto.CloneOf(actor)
+			durable.Status.Snapshots = []*ateapipb.Snapshot{completed}
+			fake := &suspendActorFake{actor: durable}
+			client := &Client{ControlClient: fake, cfg: tc.cfg}
+			ctx := t.Context()
+			started := time.Now()
+			if tc.parentTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tc.parentTimeout)
+				defer cancel()
+			}
+			_, err := client.SuspendActor(ctx, "team", "actor")
+			require.NoError(t, err)
+			if tc.want == 0 {
+				require.True(t, fake.deadline.IsZero())
+			} else {
+				require.WithinDuration(t, started.Add(tc.want), fake.deadline, time.Second)
+			}
+		})
+	}
 }

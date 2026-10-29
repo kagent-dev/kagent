@@ -291,6 +291,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		CAFile:                cfg.GetSubstrate().GetCaFile(),
 		ClientCertFile:        cfg.GetSubstrate().GetClientCertFile(),
 		CallTimeout:           30 * time.Second,
+		SuspendTimeout:        2 * time.Minute,
 	})
 	if err != nil {
 		return err
