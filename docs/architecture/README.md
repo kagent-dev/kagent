@@ -114,6 +114,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [Token usage](usage-extension.md)
 - [Prompt resolution](prompt-templates.md)
 - [Telemetry](telemetry.md)
+- [Caller context in traces](trace-context.md)
 - [Structured output](structured-output.md)
 
 The documents describe implemented behavior. Full cross-Session delegation

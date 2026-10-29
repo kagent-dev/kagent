@@ -1,0 +1,36 @@
+suite: caller trace context policy
+templates:
+  - controller-deployment.yaml
+  - controller-configmap.yaml
+tests:
+  - it: should leave caller context disabled by default
+    template: controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_TRACE_CONTEXT_KEYS
+          any: true
+  - it: should join string keys into the controller policy
+    set:
+      controller.traceContextKeys: [sub, thread_id, channel]
+    template: controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_TRACE_CONTEXT_KEYS
+            value: sub,thread_id,channel
+  - it: should preserve mappings as JSON
+    set:
+      controller.traceContextKeys:
+        - from: sub
+          to: user.id
+        - thread_id
+    template: controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_TRACE_CONTEXT_KEYS
+            value: '[{"from":"sub","to":"user.id"},"thread_id"]'
