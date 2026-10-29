@@ -6,7 +6,6 @@ release:
   namespace: kagent
 set:
   exampleAgents.enabled: true
-  exampleAgents.snapshotLocation: gs://bucket/kagent/
   exampleAgents.skillsImage: ghcr.io/kagent-dev/kagent/tools@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 tests:
   - it: should render nothing by default
@@ -43,6 +42,17 @@ tests:
       - equal:
           path: spec.substrate.workerPoolRef.name
           value: kagent-default
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: gs://ate-snapshots/kagent/
+
+  - it: should use a custom snapshot location
+    documentSelector:
+      path: kind
+      value: Harness
+    set:
+      exampleAgents.snapshotLocation: gs://bucket/kagent/
+    asserts:
       - equal:
           path: spec.substrate.snapshotPolicy.location
           value: gs://bucket/kagent/
@@ -185,7 +195,7 @@ tests:
       exampleAgents.skillsImage: ""
     asserts:
       - failedTemplate:
-          errorMessage: "exampleAgents.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills; otherwise set exampleAgents.skillsImage to <repository>@sha256:<digest>."
+          errorMessage: "exampleAgents.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills. Otherwise, set exampleAgents.skillsImage to <repository>@sha256:<digest>."
 
   - it: should fail when the skills image is not pinned by digest
     set:

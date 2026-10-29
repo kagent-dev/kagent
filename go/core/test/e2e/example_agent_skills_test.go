@@ -72,16 +72,17 @@ func readExampleAgents(t *testing.T) []exampleAgent {
 	return agents
 }
 
-// TestExampleAgentToolsSkills runs each of the chart's example Agent shapes on
-// every harness with a mock model: the kagent-tools image as an Agent Plugin,
-// the Agent's own skills, and the built-in prompt library. The chart's tool
-// server binding is left out because the E2E install does not run kagent-tools.
+// TestExampleAgentToolsSkills builds each of the chart's example Agents on
+// every harness with a mock model. Each test Agent gets the kagent-tools image
+// as an Agent Plugin, the chart Agent's skills, and the built-in prompts. The
+// test leaves out the chart's tool server binding because the E2E install does
+// not run kagent-tools.
 func TestExampleAgentToolsSkills(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)
 	image := kagentenv.E2EToolsSkillsImage.Get()
 	if image == "" {
-		t.Skip("KAGENT_E2E_TOOLS_SKILLS_IMAGE is not set; it needs a kagent-tools image with the opt/kagent-tools-skills folder")
+		t.Skip("KAGENT_E2E_TOOLS_SKILLS_IMAGE is not set. Set it to a kagent-tools image with the opt/kagent-tools-skills folder.")
 	}
 	agents := readExampleAgents(t)
 	for _, agent := range agents {
@@ -128,7 +129,7 @@ func TestExampleAgentToolsSkills(t *testing.T) {
 				require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, taskText(task))
 				require.Contains(t, taskText(task), "EXAMPLE_SKILL_LOADED")
 
-				// Claude also sends requests without a body; only model turns count.
+				// Claude also sends requests without a body. Count only model turns.
 				requests := slices.DeleteFunc(model.Requests("", ""), func(r recordedModelRequest) bool { return len(r.Body) == 0 })
 				require.GreaterOrEqual(t, len(requests), 2, "the model must be called again after loading the skill")
 				first := string(requests[0].Body)

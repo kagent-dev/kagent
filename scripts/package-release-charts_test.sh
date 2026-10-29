@@ -175,8 +175,9 @@ fi
 [[ "$(< "$scratch/command.log")" == *'requires the kagent-tools image digest'* ]]
 mv "$scratch/kagent-tools.json" "$metadata_dir/kagent-tools.json"
 
-# kagent-tools is released from its own repository, so its digest is the one
-# registry lookup in release packaging. A fixture stands in for the registry.
+# Release packaging looks up one digest in a registry: the kagent-tools image,
+# because kagent-tools releases from its own repository. A fake docker command
+# stands in for the registry.
 mkdir -p "$scratch/tools-bin" "$scratch/tools-source/kagent"
 cat > "$scratch/tools-bin/docker" <<'EOF'
 #!/usr/bin/env bash

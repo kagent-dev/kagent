@@ -10,11 +10,11 @@ the controller leaves the user spec unchanged.
 `TestExampleAgentToolsSkills` runs each of the chart's three example Agents
 on every harness with a mock model. It reads each Agent's name, description,
 and skills from `helm/kagent/templates/example-agents.yaml`. It needs
-`KAGENT_E2E_TOOLS_SKILLS_IMAGE`, a digest-pinned kagent-tools image that
-contains the `opt/kagent-tools-skills` Agent Plugin, in the local test registry;
-the test is skipped without it. For each Agent it checks that exactly the
-Agent's own skills are advertised and that one of them loads. It omits the tool
-server binding because the test install does not run kagent-tools.
+`KAGENT_E2E_TOOLS_SKILLS_IMAGE`: a digest-pinned kagent-tools image in the local
+test registry that contains the `opt/kagent-tools-skills` Agent Plugin. Without
+that variable, the test skips. For each Agent, the test checks that the model
+sees only the Agent's own skills and that one of them loads. The test leaves
+out the tool server binding because the test install does not run kagent-tools.
 
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
 Set `config.sandboxes.guestImage` to the
