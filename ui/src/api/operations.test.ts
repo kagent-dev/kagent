@@ -1002,7 +1002,7 @@ describe("agent instances", () => {
           received = request.sessionId;
           return { session: instanceMessage({
             state: RuntimeState.SUSPENDED,
-            recovery: { needed: false, failedMessages: [
+            recovery: { automatic: false, needed: false, failedMessages: [
               { taskId: "completed-task", messageId: "discarded-message" },
             ] },
           }) };
@@ -1012,7 +1012,7 @@ describe("agent instances", () => {
     const reverted = await apiClient.agentInstances.revert(INSTANCE_ID);
     expect(received).toBe(INSTANCE_ID);
     expect(reverted.state).toBe("suspended");
-    expect(reverted.recovery).toEqual({ needed: false, failedMessages: [
+    expect(reverted.recovery).toEqual({ automatic: false, needed: false, failedMessages: [
       { taskId: "completed-task", messageId: "discarded-message" },
     ] });
   });
@@ -1020,11 +1020,11 @@ describe("agent instances", () => {
   it("keeps an unknown recovery observation distinct from not needing recovery", async () => {
     serve(({ service }) => {
       service(SessionService, {
-        getSession: () => ({ session: instanceMessage({ recovery: {} }) }),
+        getSession: () => ({ session: instanceMessage({ recovery: { automatic: true } }) }),
       });
     });
     expect((await apiClient.agentInstances.get(INSTANCE_ID)).recovery).toEqual({
-      needed: undefined, failedMessages: [],
+      needed: undefined, automatic: true, failedMessages: [],
     });
   });
 

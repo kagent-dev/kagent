@@ -17,17 +17,17 @@ import (
 // that the recorded Actor crashed. Transport failures cannot admit this work.
 const SessionRuntimeCrashed = "RuntimeCrashed"
 
-// ListSessionRecoveryCandidates finds recoveries admitted by an explicit request.
-// Retrying durable work cannot admit recovery for a READY Session.
-func (c *Client) ListSessionRecoveryCandidates(ctx context.Context, afterID string, limit int) ([]*apiv1.Session, error) {
+// Disabling automation must not strand a revert whose response was lost.
+func (c *Client) ListSessionRecoveryCandidates(ctx context.Context, afterID string, limit int, automatic bool) ([]*apiv1.Session, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id, operation_id, executor_id
 		FROM session_record i
 		WHERE ($1::text = '' OR i.id > $1::uuid)
-		  AND i.state = 'RUNTIME_STATE_FAILED' AND i.operation = 'RUNTIME_OPERATION_RESUME'
+		  AND (($3 AND i.state = 'RUNTIME_STATE_READY' AND i.operation = 'RUNTIME_OPERATION_NONE')
+		    OR (i.state = 'RUNTIME_STATE_FAILED' AND i.operation = 'RUNTIME_OPERATION_RESUME'))
 		ORDER BY i.id LIMIT $2
-	`, pgx.RowToStructByName[sessionRow], afterID, limit)
+	`, pgx.RowToStructByName[sessionRow], afterID, limit, automatic)
 	if err != nil {
 		return nil, err
 	}

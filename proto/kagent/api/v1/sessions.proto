@@ -61,6 +61,8 @@ message Session {
 message SessionRecovery {
   // Unset when the recorded runtime's recovery state could not be observed.
   optional bool needed = 1;
+  // Whether automatic recovery is enabled for this controller.
+  bool automatic = 2;
   // User messages whose runtime state a revert discarded. Their A2A history
   // remains available, including completed task results.
   repeated SessionMessageReference failed_messages = 3;

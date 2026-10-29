@@ -248,6 +248,8 @@ message SessionsConfig {
     gt: {}
     lte: {seconds: 9223372036}
   }];
+  // Disabled by default. Already admitted recovery remains retryable.
+  bool automatic_recovery = 5;
 }
 
 message GatewayConfig {

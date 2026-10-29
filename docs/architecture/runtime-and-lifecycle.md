@@ -233,8 +233,10 @@ The worker reverts the same Actor to its last durable snapshot without replaying
 input. A runtime without a durable snapshot returns to its initial state.
 An interrupted revert continues from REVERTING; a lost response can be reconciled
 from SUSPENDED. Already admitted recoveries survive API restarts and retry on the
-existing recovery interval in ID-ordered pages of at most 100. The worker does
-not inspect READY Sessions or initiate a new recovery.
+existing recovery interval in ID-ordered pages of at most 100. Automatic recovery is disabled by default. Set `sessions.automaticRecovery: true`
+in the controller configuration to inspect READY Sessions on the same interval,
+including idle Sessions and waits. Disabling it does not strand already admitted
+recoveries.
 
 A successful revert returns the Session to READY with the same Actor suspended.
 The next authorized interaction resumes it through Substrate ingress. Runtime
@@ -244,8 +246,9 @@ returns `FAILED_PRECONDITION`.
 
 `GetSession` reports a read-only recovery observation for the recorded Actor.
 An unavailable or replaced Actor leaves the observation unknown and does not
-prevent history reads. Chat offers an explicit revert and the existing fork
-action for a saved READY checkpoint.
+prevent history reads. With automatic recovery disabled, chat offers an explicit
+revert and the existing fork action for a saved READY checkpoint. Automatic
+recovery shows progress without those manual choices.
 
 Recovery records exact task and message identities for user inputs after the
 retained snapshot boundary, including accepted inputs not yet published. Chat

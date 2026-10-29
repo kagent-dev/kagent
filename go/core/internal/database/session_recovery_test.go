@@ -51,7 +51,7 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			}
 			before, _, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
 			require.NoError(t, err)
-			page, err := client.ListSessionRecoveryCandidates(t.Context(), "", 100)
+			page, err := client.ListSessionRecoveryCandidates(t.Context(), "", 100, false)
 			require.NoError(t, err)
 			require.Empty(t, page)
 
@@ -85,7 +85,7 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), ErrConflict)
 			_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
 			require.ErrorIs(t, err, ErrConflict)
-			page, err = client.ListSessionRecoveryCandidates(t.Context(), "", 100)
+			page, err = client.ListSessionRecoveryCandidates(t.Context(), "", 100, false)
 			require.NoError(t, err)
 			require.Len(t, page, 1)
 			require.Equal(t, session.Id, page[0].Id)

@@ -106,7 +106,7 @@ func startQuiescenceWorker(t *testing.T, workflow *ActorWorkflow) {
 func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 	store, first := lifecycleFixture(t)
 	base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	creator := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour)
+	creator := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour, false)
 	var sessions []*apiv1.Session
 	var requests []*runtimev1.TaskStoreServiceSettleTaskRequest
 	states := []a2a.TaskState{a2a.TaskStateCompleted, a2a.TaskStateInputRequired, a2a.TaskStateAuthRequired}
@@ -132,7 +132,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 	var services []*taskstore.Service
 	for _, runtime := range actors {
 		wake := make(chan struct{}, 1)
-		workflow := NewActorWorkflow(writes, runtime, wake, time.Hour)
+		workflow := NewActorWorkflow(writes, runtime, wake, time.Hour, false)
 		startQuiescenceWorker(t, workflow)
 		workflows = append(workflows, workflow)
 		services = append(services, taskstore.NewService(store, wake, nil))
@@ -201,11 +201,11 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 func TestQuiescenceRecoversMissedSignal(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Hour).Create(t.Context(), session)
+	session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Hour, false).Create(t.Context(), session)
 	require.NoError(t, err)
 	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateInputRequired)
 	writes := &observedQuiescenceStore{lifecycleTestStore: store}
-	startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), 100*time.Millisecond))
+	startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), 100*time.Millisecond, false))
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 4 }, 5*time.Second, time.Millisecond)
 	// This simulates a commit on a replica that dies before sending its hint.
 	_, err = taskstore.NewService(store, nil, nil).SettleTask(settlementContext(t, session), request)
@@ -218,7 +218,7 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 		t.Run(blocker, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-			session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Hour).Create(t.Context(), session)
+			session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Hour, false).Create(t.Context(), session)
 			require.NoError(t, err)
 			request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateInputRequired)
 			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
@@ -240,7 +240,7 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 				}
 			}
 			writes := &observedQuiescenceStore{lifecycleTestStore: store}
-			startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Hour))
+			startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Hour, false))
 			require.Eventually(t, func() bool { return writes.idle.Load() >= 4 }, 5*time.Second, 10*time.Millisecond)
 			require.Zero(t, writes.finished.Load())
 			pending, err := store.HasPendingSessionQuiescence(t.Context())
@@ -255,7 +255,7 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 func TestQuiescenceCancellationRetainsClaim(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	session, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour).Create(t.Context(), session)
+	session, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour, false).Create(t.Context(), session)
 	require.NoError(t, err)
 	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
 	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
@@ -263,7 +263,7 @@ func TestQuiescenceCancellationRetainsClaim(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Hour).Start(ctx) }()
+	go func() { done <- NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Hour, false).Start(ctx) }()
 	require.Eventually(t, func() bool { return actors.entered.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
 	cancel()
 	select {

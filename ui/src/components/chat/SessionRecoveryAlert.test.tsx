@@ -24,19 +24,19 @@ function show(recovery?: AgentInstanceRecovery, isRecovering = false) {
 
 describe("conversation recovery choices", () => {
   it.each([undefined, false])("does not offer recovery when the runtime observation is %s", (needed) => {
-    show({ needed, failedMessages: [] });
+    show({ needed, automatic: false, failedMessages: [] });
     expect(screen.queryByRole("button", { name: /Revert/ })).not.toBeInTheDocument();
     expect(screen.queryByText("The agent runtime crashed")).not.toBeInTheDocument();
   });
 
   it("offers explicit revert in manual mode", async () => {
-    const { onRevert } = show({ needed: true, failedMessages: [] });
+    const { onRevert } = show({ needed: true, automatic: false, failedMessages: [] });
     await userEvent.click(screen.getByRole("button", { name: "Revert to last snapshot" }));
     expect(onRevert).toHaveBeenCalledOnce();
   });
 
   it("forks only a ready saved snapshot through the supplied callback", async () => {
-    const { onFork } = show({ needed: true, failedMessages: [] });
+    const { onFork } = show({ needed: true, automatic: false, failedMessages: [] });
     expect(screen.getByRole("button", { name: "Fork snapshot" })).toBeDisabled();
     fireEvent.mouseDown(screen.getByRole("combobox", { name: "Saved snapshot to fork" }));
     await userEvent.click(await screen.findByText("Saved conversation"));
@@ -46,7 +46,7 @@ describe("conversation recovery choices", () => {
   });
 
   it("prevents duplicate forks while the selected snapshot is opening", async () => {
-    const { onFork } = show({ needed: true, failedMessages: [] });
+    const { onFork } = show({ needed: true, automatic: false, failedMessages: [] });
     let finish = () => {};
     onFork.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
     fireEvent.mouseDown(screen.getByRole("combobox"));
@@ -58,8 +58,15 @@ describe("conversation recovery choices", () => {
     await act(async () => finish());
   });
 
+  it("shows automatic recovery progress without manual actions", () => {
+    show({ needed: true, automatic: true, failedMessages: [] });
+    expect(screen.getByText("Recovering this conversation")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
   it("prevents another manual request while recovery is running", () => {
-    show({ needed: true, failedMessages: [] }, true);
+    show({ needed: true, automatic: false, failedMessages: [] }, true);
     expect(screen.getByRole("button", { name: /Revert to last snapshot/ })).toBeDisabled();
     expect(screen.getByRole("combobox")).toBeDisabled();
   });

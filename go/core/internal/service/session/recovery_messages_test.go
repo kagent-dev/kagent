@@ -37,7 +37,7 @@ func TestCrashedRecoveryMarksOnlyDiscardedMessagesInOneTask(t *testing.T) {
 	before, _, err := store.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
 	require.NoError(t, err)
 
-	recovered, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
+	recovered, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, false).Revert(t.Context(), session)
 	require.NoError(t, err)
 	require.Equal(t, [][2]string{{string(task.ID), answer.ID}}, recoveryMessageIdentities(recovered))
 	stored, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
@@ -73,7 +73,7 @@ func TestCrashedRecoveryScopesMessageFailuresToTheirTask(t *testing.T) {
 	beforeDiscarded, err := store.GetSettledSessionTask(t.Context(), session.Id, string(discarded.ID), nil)
 	require.NoError(t, err)
 
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, false)
 	recovered, err := workflow.Revert(t.Context(), session)
 	require.NoError(t, err)
 	want := [][2]string{{string(discarded.ID), message.ID}}
@@ -115,7 +115,7 @@ func TestCrashedRecoveryScopesMessageFailuresToTheirTask(t *testing.T) {
 
 func TestCrashedRecoveryWithoutSnapshotMarksAllInputs(t *testing.T) {
 	store, actors, session, task, _ := crashedTurnFixture(t)
-	recovered, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
+	recovered, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, false).Revert(t.Context(), session)
 	require.NoError(t, err)
 	require.Equal(t, [][2]string{{string(task.ID), task.History[0].ID}}, recoveryMessageIdentities(recovered))
 }

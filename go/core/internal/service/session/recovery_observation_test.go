@@ -32,7 +32,7 @@ func TestSessionRecoveryObservation(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 			actors := &recoveryTestActors{lifecycleTestActors: base}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, false)
 			session, err := workflow.Create(t.Context(), session)
 			require.NoError(t, err)
 			key := actorKey("team-a", substrate.ActorName(session.Id))
