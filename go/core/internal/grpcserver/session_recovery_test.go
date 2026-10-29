@@ -129,6 +129,14 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 					require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
 				}
 			}
+			observeRecovery := func(needed bool) *apiv1.Session {
+				t.Helper()
+				response, err := client.GetSession(owner, &apiv1.GetSessionRequest{SessionId: session.Id})
+				require.NoError(t, err)
+				require.Equal(t, new(needed), response.Session.GetRecovery().Needed)
+				return response.Session
+			}
+			require.Empty(t, observeRecovery(false).GetRecovery().FailedMessages)
 			request := &apiv1.RevertSessionRequest{SessionId: session.Id}
 			if test.noSnapshot {
 				control.actors[name].Status.Snapshots = nil
@@ -145,6 +153,11 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			_, err = client.RevertSession(owner, request)
 			require.Equal(t, codes.FailedPrecondition, status.Code(err), "healthy runtimes cannot revert")
 			control.actors[name].Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
+			crashed := observeRecovery(true)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, crashed.State)
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, crashed.Operation)
+			require.Nil(t, crashed.Failure)
+			require.Empty(t, crashed.GetRecovery().FailedMessages)
 			before := proto.CloneOf(control.actors[name])
 			control.actors[name].Metadata.Uid = "replacement-uid"
 			_, err = client.RevertSession(owner, request)
@@ -172,10 +185,17 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			failed, err := client.GetSession(owner, &apiv1.GetSessionRequest{SessionId: session.Id})
 			require.NoError(t, err)
 			require.Equal(t, database.SessionRuntimeCrashed, failed.Session.Failure.Reason)
+			require.Equal(t, new(true), failed.Session.GetRecovery().Needed)
+			var wantFailed []*apiv1.SessionMessageReference
+			if task != nil {
+				wantFailed = []*apiv1.SessionMessageReference{{TaskId: string(task.ID), MessageId: task.History[0].ID}}
+			}
+			require.Equal(t, wantFailed, failed.Session.GetRecovery().FailedMessages)
 			ready, err := client.RevertSession(owner, request)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, ready.Session.State)
 			require.Nil(t, ready.Session.Failure)
+			require.Equal(t, wantFailed, observeRecovery(false).GetRecovery().FailedMessages)
 			if test.lostResponse {
 				require.Equal(t, 1, calls, "a lost response cannot repeat the revert")
 			} else {

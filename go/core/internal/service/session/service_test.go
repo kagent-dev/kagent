@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -123,7 +124,15 @@ func (s *serviceTestStore) DeleteSessionShare(_ context.Context, id, _ string) e
 	return nil
 }
 
-type serviceTestWorkflow struct{ err error }
+type serviceTestWorkflow struct {
+	err         error
+	recovery    *apiv1.SessionRecovery
+	recoveryErr error
+}
+
+func (w serviceTestWorkflow) Recovery(context.Context, *apiv1.Session) (*apiv1.SessionRecovery, error) {
+	return w.recovery, w.recoveryErr
+}
 
 func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, w.err
@@ -512,8 +521,7 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 			stored := &apiv1.Session{Id: id, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED}
 			store := &serviceTestStore{getResult: stored}
 			authorizer := &recordingAuthorizer{denied: map[string]bool{id: test.denied}}
-			// A suspended read must never touch a workflow.
-			service := NewService(store, authorizer, nil)
+			service := NewService(store, authorizer, serviceTestWorkflow{})
 			result, err := service.Get(ctx, id)
 			if test.code != "" {
 				if !serviceerrors.IsCode(err, test.code) || store.getID != "" {
@@ -521,7 +529,7 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || result != stored || store.getCreator != test.owner || store.unscoped != test.unscoped {
+			if err != nil || !proto.Equal(result, stored) || store.getCreator != test.owner || store.unscoped != test.unscoped {
 				t.Fatalf("Get() = %v, owner = %q, unscoped = %v", err, store.getCreator, store.unscoped)
 			}
 			caller, _ := auth.AuthSessionFrom(ctx)

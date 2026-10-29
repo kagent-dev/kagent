@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (
@@ -39,6 +41,7 @@ type store interface {
 type sessionWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Revert(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Recovery(context.Context, *apiv1.Session) (*apiv1.SessionRecovery, error)
 	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
 }
 
@@ -141,7 +144,16 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*apiv1.Session, error) {
-	return s.getAuthorized(ctx, id, auth.VerbGet)
+	session, err := s.getAuthorized(ctx, id, auth.VerbGet)
+	if err != nil {
+		return nil, err
+	}
+	session = proto.CloneOf(session)
+	session.Recovery, err = s.workflow.Recovery(ctx, session)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "observe session recovery", "session_id", session.Id, "error", err)
+	}
+	return session, nil
 }
 
 // getAuthorized loads a Session authorized for the requested operation. Reads are

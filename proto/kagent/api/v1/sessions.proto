@@ -54,6 +54,22 @@ message Session {
   // Output only. A2A conversation ID, equal to this session's ID.
   // Forks receive a new conversation ID and new task IDs.
   string context_id = 14;
+  // Output only. Observed recovery state and messages discarded by past reverts.
+  SessionRecovery recovery = 16;
+}
+
+message SessionRecovery {
+  // Unset when the recorded runtime's recovery state could not be observed.
+  optional bool needed = 1;
+  // User messages whose runtime state a revert discarded. Their A2A history
+  // remains available, including completed task results.
+  repeated SessionMessageReference failed_messages = 3;
+}
+
+// Message IDs are unique within a task, not across a conversation.
+message SessionMessageReference {
+  string task_id = 1;
+  string message_id = 2;
 }
 
 message CreateSessionRequest {

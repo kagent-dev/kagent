@@ -125,6 +125,12 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 	}
 }
 
+type readOnlySessionWorkflow struct{ *sessionsvc.ActorWorkflow }
+
+func (readOnlySessionWorkflow) Recovery(_ context.Context, session *apiv1.Session) (*apiv1.SessionRecovery, error) {
+	return session.GetRecovery(), nil
+}
+
 // Exercise the real SDK -> controller gRPC -> PostgreSQL path. The public observer
 // is disconnected before completion, and a successful save response is lost.
 // Neither fault may cause execution or artifact appends to repeat.
@@ -151,7 +157,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		Authenticator:    runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL),
 		TaskStoreService: tasks,
 		MemoryService:    memoryservice.NewService(memories, policy),
-		SessionService:   sessionsvc.NewService(store, policy, nil),
+		SessionService:   sessionsvc.NewService(store, policy, readOnlySessionWorkflow{}),
 	})
 	require.NoError(t, err)
 	serverCtx, stopServer := context.WithCancel(t.Context())

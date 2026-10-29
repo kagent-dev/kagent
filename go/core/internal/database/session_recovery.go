@@ -108,6 +108,9 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, gen
 		if busy {
 			return ErrConflict
 		}
+		if err := recordDiscardedSessionMessages(ctx, tx, row, session, snapshot); err != nil {
+			return err
+		}
 		row.State = apiv1.RuntimeState_RUNTIME_STATE_FAILED.String()
 		row.runtimeInstanceRow, err = beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 		if err != nil {
@@ -130,6 +133,65 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, gen
 		return err
 	})
 	return operation, err
+}
+
+// The Session lock keeps annotations atomic with recovery admission and task settlement.
+func recordDiscardedSessionMessages(ctx context.Context, tx pgx.Tx, row sessionRow, session *apiv1.Session, snapshot SessionTaskSnapshot) error {
+	type messageRow struct {
+		TaskID    string
+		MessageID string
+		Data      []byte
+	}
+	messages, err := queryMany(ctx, tx, `
+		WITH retained AS (
+		    SELECT COALESCE(MAX(sequence), 0) AS sequence FROM session_task_event
+		    WHERE history_id = $1 AND $2::text <> '' AND snapshot_uri = $2
+		      AND snapshot_fidelity = $3 AND snapshot_atespace = $4
+		)
+		SELECT task_id, message_id, data FROM session_task_event
+		WHERE history_id = $1 AND message_id IS NOT NULL
+		  AND sequence > (SELECT sequence FROM retained)
+		ORDER BY sequence
+	`, pgx.RowToStructByName[messageRow], row.HistoryID, snapshot.URI, snapshot.Fidelity, snapshot.Atespace)
+	if err != nil {
+		return fmt.Errorf("read discarded Session messages: %w", err)
+	}
+	failed := append([]*apiv1.SessionMessageReference(nil), session.GetRecovery().GetFailedMessages()...)
+	for _, row := range messages {
+		event, err := unmarshalSessionTaskEvent(row.Data)
+		if err != nil {
+			return err
+		}
+		message, ok := event.(*a2a.Message)
+		if !ok || message == nil || row.TaskID == "" || row.MessageID == "" || message.ID != row.MessageID || string(message.TaskID) != row.TaskID || message.ContextID != session.ContextId {
+			return fmt.Errorf("discarded Session message has inconsistent identity")
+		}
+		if message.Role == a2a.MessageRoleUser {
+			failed = append(failed, &apiv1.SessionMessageReference{TaskId: row.TaskID, MessageId: row.MessageID})
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	type identity struct{ taskID, messageID string }
+	seen := make(map[identity]struct{}, len(failed))
+	unique := make([]*apiv1.SessionMessageReference, 0, len(failed))
+	for _, message := range failed {
+		if message.GetTaskId() == "" || message.GetMessageId() == "" {
+			return fmt.Errorf("discarded Session message requires a task and message identity")
+		}
+		key := identity{message.TaskId, message.MessageId}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, message)
+	}
+	if session.Recovery == nil {
+		session.Recovery = &apiv1.SessionRecovery{}
+	}
+	session.Recovery.FailedMessages = unique
+	return nil
 }
 
 // settleCrashedSessionTask retains captured waits and fails discarded nonterminal work.
