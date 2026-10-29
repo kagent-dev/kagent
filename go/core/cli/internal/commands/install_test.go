@@ -319,7 +319,10 @@ func TestSubstrateInstallValues(t *testing.T) {
 			}
 			require.NoError(t, yaml.Unmarshal([]byte(substrateInstallValues(namespace, "kagent-controller")), &values))
 			require.Contains(t, values.Preview, "PerTemplateSnapshotLocation")
-			require.Equal(t, []string{"spiffe://cluster.local/ns/" + namespace + "/sa/kagent-controller"}, values.AteAPI.Authorization.BootstrapOwners)
+			require.Equal(t, []string{
+				"spiffe://cluster.local/ns/" + namespace + "/sa/kagent-controller",
+				"system:serviceaccount:ate-system:ate-client",
+			}, values.AteAPI.Authorization.BootstrapOwners)
 			require.Len(t, values.CredentialProvider.NamespacePolicies, 1)
 			require.Equal(t, namespace, values.CredentialProvider.NamespacePolicies[0].Atespace)
 			require.Equal(t, []string{namespace}, values.CredentialProvider.NamespacePolicies[0].AllowedNamespaces)
@@ -395,6 +398,7 @@ cat >/dev/null
 			values, err := os.ReadFile(filepath.Join(dir, "substrate.yaml"))
 			require.NoError(t, err)
 			require.Contains(t, string(values), "spiffe://cluster.local/ns/team/sa/existing-controller")
+			require.Contains(t, string(values), "system:serviceaccount:ate-system:ate-client")
 			require.NotContains(t, string(values), "sa/kagent-controller")
 			commands, err := os.ReadFile(filepath.Join(dir, "helm.log"))
 			require.NoError(t, err)

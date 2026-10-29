@@ -33,7 +33,7 @@ func TestModelActorJWTInjection(t *testing.T) {
 		model.Spec.ActorJWT = &v1alpha3.ActorJWT{Audiences: []string{"model-e2e"}, ExpirationSeconds: new(int64(600))}
 		require.NoError(t, kube.Patch(t.Context(), model, ctrlclient.MergeFrom(base)))
 		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "actor-jwt-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+			ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
 		}}
 		createAndWaitInteractionTemplate(t, harness, kube, template)
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)

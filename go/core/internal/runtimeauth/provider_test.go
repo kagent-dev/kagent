@@ -43,7 +43,7 @@ func newBinding() *bindingStore {
 
 func TestSharedAuthenticationNeverFallsBackForActorCredentials(t *testing.T) {
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	store := newBinding()
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)
@@ -66,7 +66,7 @@ func TestSharedAuthenticationNeverFallsBackForActorCredentials(t *testing.T) {
 
 func TestSharedHTTPAuthenticationBindsActorsAndPreservesUserMode(t *testing.T) {
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	store := newBinding()
 	token := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(store.session.Id), store.actorUID))
@@ -109,7 +109,7 @@ func TestSharedHTTPAuthenticationBindsActorsAndPreservesUserMode(t *testing.T) {
 
 func TestActorUpstreamIdentityIsBoundAndDoesNotForwardBearer(t *testing.T) {
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	store := newBinding()
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)

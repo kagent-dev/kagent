@@ -73,6 +73,40 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 
 	t.Run("Actor JWT credentials", func(t *testing.T) { testActorJWTValidation(t, cl, namespace) })
+	t.Run("cross namespace references survive admission", func(t *testing.T) {
+		for _, ref := range []ObjectReference{{Name: "model"}, {Name: "model", Namespace: namespace}, {Name: "model", Namespace: "shared"}} {
+			template := &AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "shared-", Namespace: namespace}, Spec: AgentTemplateSpec{
+				ModelConfig: &ref,
+				Tools:       []ToolBinding{{MCP: &MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: "tools", Namespace: new(ref.Namespace)}}}},
+			}}
+			require.NoError(t, cl.Create(ctx, template))
+			stored := &AgentTemplate{}
+			require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(template), stored))
+			require.Equal(t, ref, *stored.Spec.ModelConfig)
+			require.NotNil(t, stored.Spec.Tools[0].MCP.Server.Namespace)
+			require.Equal(t, ref.Namespace, *stored.Spec.Tools[0].MCP.Server.Namespace)
+		}
+		for _, ref := range []ObjectReference{{Name: "shared/model"}, {Name: "model", Namespace: "bad/namespace"}, {Name: "model", Namespace: "Uppercase"}, {Name: "bad..name"}} {
+			template := &AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "invalid-ref-", Namespace: namespace}, Spec: AgentTemplateSpec{ModelConfig: &ref}}
+			require.True(t, apierrors.IsInvalid(cl.Create(ctx, template)), "invalid reference: %+v", ref)
+		}
+		for _, ref := range []corev1.TypedObjectReference{
+			{Kind: "RemoteMCPServer", Name: ""},
+			{Kind: "RemoteMCPServer", Name: strings.Repeat("a", 254)},
+			{Kind: "RemoteMCPServer", Name: "tools", Namespace: new(strings.Repeat("a", 64))},
+			{Kind: "RemoteMCPServer", Name: "tools", APIGroup: new("api.kagent.dev")},
+		} {
+			template := &AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "invalid-mcp-ref-", Namespace: namespace}, Spec: AgentTemplateSpec{
+				Tools: []ToolBinding{{MCP: &MCPToolBinding{Server: ref}}},
+			}}
+			require.True(t, apierrors.IsInvalid(cl.Create(ctx, template)), "invalid MCP reference: %+v", ref)
+		}
+		model := &ModelConfig{ObjectMeta: metav1.ObjectMeta{GenerateName: "shared-", Namespace: namespace}, Spec: ModelConfigSpec{Provider: ModelProviderOpenAI, Model: "example", AllowedNamespaces: &AllowedNamespaces{From: NamespacesFromAll}}}
+		require.NoError(t, cl.Create(ctx, model))
+		stored := &ModelConfig{}
+		require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(model), stored))
+		require.Equal(t, NamespacesFromAll, stored.Spec.AllowedNamespaces.From)
+	})
 
 	t.Run("MCP timeout bounds", func(t *testing.T) {
 		for _, field := range []string{"timeout", "sseReadTimeout"} {
@@ -236,7 +270,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "valid kagent memory Harness",
 			object: validHarness(namespace, "valid-memory-harness", HarnessSpec{
 				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{
-					ModelConfigRef: corev1.LocalObjectReference{Name: "embedding-model"}, TTLDays: 7,
+					ModelConfigRef: ObjectReference{Name: "embedding-model"}, TTLDays: 7,
 				}},
 			}),
 		},
@@ -270,7 +304,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "AgentTemplate tool rejects two sources",
 			object: validAgentTemplate(namespace, "template-two-tools", []ToolBinding{{
 				MCP: &MCPToolBinding{
-					Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: "tools"},
+					Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: "tools"},
 					Tools:  []string{"search"},
 				},
 				SubAgent: &SubAgentToolBinding{
@@ -297,7 +331,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "AgentTemplate rejects empty ModelConfig reference",
 			object: &AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Name: "empty-model-reference", Namespace: namespace},
-				Spec:       AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{}},
+				Spec:       AgentTemplateSpec{ModelConfig: &ObjectReference{}},
 			},
 			wantReject: "name must not be empty",
 		},
@@ -321,7 +355,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name: "AgentTemplate rejects unsupported MCP server kind",
 			object: validAgentTemplate(namespace, "unsupported-mcp-kind", []ToolBinding{{
-				MCP: &MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "Service", Name: "tools"}},
+				MCP: &MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "Service", Name: "tools"}},
 			}}),
 			wantReject: "kind must be RemoteMCPServer",
 		},
@@ -354,7 +388,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name: "Harness rejects empty summarizer ModelConfig reference",
 			object: compactionHarness(namespace, "compaction-empty-summarizer-model", KagentHarnessCompaction{
-				CompactionInterval: new(5), Summarizer: &KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{}},
+				CompactionInterval: new(5), Summarizer: &KagentHarnessSummarizer{ModelConfigRef: &ObjectReference{}},
 			}),
 			wantReject: "name must not be empty",
 		},
@@ -363,7 +397,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			object: compactionHarness(namespace, "compaction-valid", KagentHarnessCompaction{
 				CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
 				Summarizer: &KagentHarnessSummarizer{
-					ModelConfigRef: &corev1.LocalObjectReference{Name: "summarizer"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
+					ModelConfigRef: &ObjectReference{Name: "summarizer"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
 				},
 			}),
 		},
@@ -588,7 +622,7 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 	return &AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "default"},
+			ModelConfig: &ObjectReference{Name: "default"},
 			Tools:       tools,
 		},
 	}

@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package kagent.api.v1;
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
+
+// AgentIdentityService resolves the Agent behind a Substrate Actor JWT sent as
+// Authorization: Bearer metadata. The token must target kagent-agent-info and
+// must not target kagent-runtime. It grants access only to this metadata lookup.
+service AgentIdentityService {
+  rpc ResolveAgentIdentity(ResolveAgentIdentityRequest) returns (ResolveAgentIdentityResponse);
+}
+
+message ResolveAgentIdentityRequest {}
+
+// AgentIdentity contains current metadata from the exact Agent UID bound to the
+// Actor's runtime revision. Labels and annotations are operator-controlled.
+message AgentIdentity {
+  string namespace = 1;
+  string name = 2;
+  string uid = 3;
+  map<string, string> labels = 4;
+  map<string, string> annotations = 5;
+}
+
+message ResolveAgentIdentityResponse {
+  AgentIdentity agent = 1;
+  // Session bound to the authenticated Actor.
+  string session_id = 2;
+  // Immutable runtime revision pinned to that Session.
+  string runtime_revision = 3;
+}

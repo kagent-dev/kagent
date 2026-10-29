@@ -329,3 +329,11 @@ describe("authTypeForProvider", () => {
     expect(authTypeForProvider("Anthropic", "apiKey")).toBe("apiKey");
   });
 });
+
+it("preserves target reference policy through model edits", () => {
+  const model: ModelConfig = {
+    ref: "shared/model",
+    spec: { provider: "OpenAI", model: "example", allowedNamespaces: { from: "All" } },
+  };
+  expect(buildModelPayload(modelDraftFrom(model)).spec.allowedNamespaces).toEqual({ from: "All" });
+});

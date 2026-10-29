@@ -1,3 +1,4 @@
+import { referenceLabel } from "@/api/domain/agentTemplates";
 import { Alert, Skeleton, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link } from "react-router-dom";
@@ -103,7 +104,7 @@ export function AgentContextPanel({
         <>
           <Field label="Model">
             <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
-              {spec.modelConfig?.name ?? "—"}
+              {referenceLabel(spec.modelConfig, templateNamespace) || "—"}
             </Text>
           </Field>
 
@@ -116,17 +117,18 @@ export function AgentContextPanel({
               </Text>
             ) : (
               <Space size={4} wrap>
-                {tools.flatMap((binding, index) =>
-                  binding.mcp
-                    ? binding.mcp.tools?.length
-                      ? binding.mcp.tools.map((tool) => (
+                {tools.flatMap((binding, index) => {
+                  const mcp = binding.mcp;
+                  return mcp
+                    ? mcp.tools?.length
+                      ? mcp.tools.map((tool) => (
                           <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
-                            {tool}
+                            {referenceLabel(mcp.server, templateNamespace)}: {tool}
                           </Tag>
                         ))
                       : [
                           <Tag key={`${index}-mcp-all`} css={{ fontFamily: theme.font.mono }}>
-                            {binding.mcp.server.name} (all tools)
+                            {referenceLabel(mcp.server, templateNamespace)} (all tools)
                           </Tag>,
                         ]
                     : binding.subAgent
@@ -135,8 +137,8 @@ export function AgentContextPanel({
                             {binding.subAgent.name}
                           </Tag>,
                         ]
-                      : [],
-                )}
+                      : [];
+                })}
               </Space>
             )}
           </Field>

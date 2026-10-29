@@ -50,7 +50,7 @@ func TestMCPActorListsOnlyItsSession(t *testing.T) {
 	own.A2AAuthority = substrate.ActorHost("team-a", substrate.ActorName(own.Id), "")
 	store.sessions[2].Creator = "other-user"
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)
 	sessions := sessionsvc.NewService(store, runtimeauth.NewAuthorizer(auth.NoopAuthorizer{}, store), &fakeSessionWorkflow{})

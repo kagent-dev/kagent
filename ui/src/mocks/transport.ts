@@ -1103,7 +1103,7 @@ function templateFromResource(
     ref: `${namespace}/${name}`,
     namespace,
     name,
-    modelConfigRef: spec.modelConfig?.name ? `${namespace}/${spec.modelConfig.name}` : "",
+    modelConfigRef: spec.modelConfig?.name ? `${spec.modelConfig.namespace || namespace}/${spec.modelConfig.name}` : "",
     description: spec.description ?? "",
     // Recomputed by `saveAgentTemplate` from the labels; whatever is passed here is
     // replaced.

@@ -25,7 +25,7 @@ func TestCompileDefaultImageRevision(t *testing.T) {
 		t.Run(variant.name, func(t *testing.T) {
 			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: *variant.spec.DeepCopy()}
 			harness.Spec.Substrate.WorkerPoolRef.Name = "default"
-			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}}}
+			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}}}
 			agent := inlineAgent(harness, template)
 			model := modelConfig()
 			if variant.name == "codex" {

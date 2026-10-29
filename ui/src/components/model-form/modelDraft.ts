@@ -43,6 +43,7 @@ export interface ModelTls {
 }
 
 export interface ModelDraft {
+  allowedNamespaces?: ModelConfigSpec["allowedNamespaces"];
   namespace: string;
   name: string;
   /** The provider's `type` (its enum), e.g. `"OpenAI"`. */
@@ -178,6 +179,7 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
 
   return {
     namespace: namespace || DEFAULT_NAMESPACE,
+    allowedNamespaces: config.spec.allowedNamespaces,
     name,
     provider,
     model,
@@ -272,6 +274,7 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
       : draft.model;
 
   const spec: ModelConfigSpec = { model, provider: draft.provider };
+  if (draft.allowedNamespaces) spec.allowedNamespaces = draft.allowedNamespaces;
 
   const blockKey = PROVIDER_SPEC_KEY[draft.provider];
   const block = coerceParams(draft.params);

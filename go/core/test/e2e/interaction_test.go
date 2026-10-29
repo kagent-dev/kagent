@@ -45,6 +45,7 @@ import (
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
@@ -1110,7 +1111,7 @@ func createInteractionTemplate(t *testing.T, harness testHarness, modelURL strin
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "Agent interaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
 		},
@@ -1144,12 +1145,12 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:        &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:        &v1alpha3.ObjectReference{Name: model.Name},
 			SystemPrompt:       "Use available tools when needed, then return the arithmetic answer and a short explanation.",
 			OutputSchema:       &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
 			OutputSchemaStrict: true,
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 				Tools:  []string{"add_numbers"},
 			}}},
 		},
@@ -1160,7 +1161,6 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 
 func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL string, requireApproval bool, actorJWT *v1alpha3.ActorJWT) (string, string) {
 	t.Helper()
-	kube := interactionKubeClient(t)
 	server := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "interaction-mcp-", Namespace: "kagent"},
 		Spec: v1alpha3.RemoteMCPServerSpec{
@@ -1170,6 +1170,12 @@ func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL stri
 			ActorJWT:    actorJWT,
 		},
 	}
+	return createMCPReferenceTemplate(t, harness, server, requireApproval)
+}
+
+func createMCPReferenceTemplate(t *testing.T, harness testHarness, server *v1alpha3.RemoteMCPServer, requireApproval bool) (string, string) {
+	t.Helper()
+	kube := interactionKubeClient(t)
 	if err := kube.Create(t.Context(), server); err != nil {
 		t.Fatalf("create interaction RemoteMCPServer: %v", err)
 	}
@@ -1178,14 +1184,15 @@ func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL stri
 			t.Errorf("delete interaction RemoteMCPServer: %v", err)
 		}
 	})
+	nativeName := translator.MCPRuntimeName("kagent", server)
 	var modelURL string
 	toolName := "add_numbers"
 	switch harness.name {
 	case codexE2EHarness:
-		toolName = server.Name + ".add_numbers"
-		modelURL = startCodexResourceMockLLM(t, codexMCPToolNamespace(server.Name))
+		toolName = nativeName + ".add_numbers"
+		modelURL = startCodexResourceMockLLM(t, codexMCPToolNamespace(nativeName))
 	case claudeE2EHarness:
-		toolName = "mcp__" + server.Name + "__add_numbers"
+		toolName = "mcp__" + nativeName + "__add_numbers"
 		modelURL = startClaudeResourceMockLLM(t, toolName)
 	default:
 		cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_mcp_agent.json", interactionMocks)
@@ -1204,11 +1211,11 @@ func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL stri
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "MCP interaction E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server:          corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name, Namespace: new(server.Namespace)},
 				RequireApproval: requireApproval,
 			}}},
 		},
@@ -1228,7 +1235,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: childModel.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: childModel.Name},
 			Description:  "Shared specialist",
 			SystemPrompt: "Answer as the shared specialist.",
 		},
@@ -1240,7 +1247,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: rootModel.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: rootModel.Name},
 			Description:  "Shared agent interaction E2E fixture",
 			SystemPrompt: "Delegate every request to the specialist.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{

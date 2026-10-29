@@ -55,6 +55,7 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -297,7 +298,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer actors.Close()
-	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), cfg.GetSubstrate().GetCaFile())
+	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), cfg.GetSubstrate().GetCaFile(), substrate.RuntimeJWTAudience)
 	if err != nil {
 		return fmt.Errorf("configure runtime authentication: %w", err)
 	}
@@ -453,6 +454,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		ScheduledRunService:   schedules,
 		// Author Agents and their reusable configuration through the API.
 		AgentService:           agents,
+		AgentIdentityService:   agentidentity.NewService(actorVerifier, store, manager.GetAPIReader()),
 		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: sandboxTemplates,

@@ -315,3 +315,23 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 		})
 	}
 }
+
+func TestSameNamedSecretsInDifferentNamespaces(t *testing.T) {
+	spec := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "auth", APIKeySecretKey: "token"}
+	input := credentialInput(spec)
+	child := credentialInput(spec).Root
+	child.ResolvedModelConfig.Config.Namespace = "shared"
+	input.Root.Shared = []AgentInputBinding{{Agent: child}}
+	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
+	require.Nil(t, environment)
+	require.ErrorContains(t, err, "conflicting credentials", "same Secret name does not make credentials equivalent across namespaces")
+	child.ResolvedModelConfig.Config.Spec.OpenAI = &v1alpha3.OpenAIConfig{BaseURL: "https://shared.example.com/v1"}
+	_, credentials, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
+	require.NoError(t, err)
+	var uris []string
+	for _, credential := range credentials {
+		uris = append(uris, credential.URI)
+	}
+	require.ElementsMatch(t, []string{"ate-secret://k8s.io/default/team/auth/token", "ate-secret://k8s.io/default/shared/auth/token"}, uris)
+	require.False(t, SameModelCredentials(input.Root.ResolvedModelConfig.Config, child.ResolvedModelConfig.Config))
+}

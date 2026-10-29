@@ -10,9 +10,8 @@ import {
   routes,
   withScenario,
 } from "../../helpers/app";
-import { clickRefresh } from "../../helpers/resource";
+import { clickRefresh, optionNamed, pressOnce } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
-import { optionNamed } from "../../helpers/resource";
 import { background, settledPaint } from "../../helpers/style";
 
 test("agents: an empty Harness selector links to Harness creation", async ({ page }) => {
@@ -111,13 +110,11 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
 
   await test.step("2. choosing one narrows the list and shows it as a pill", async () => {
     await page.getByTestId("agents-filters-filter-ns").click();
-    // Located by `title` on the option element, not by role: rc-select renders a
-    // second, zero-sized `role=listbox` for screen readers, and Playwright resolves
-    // it happily and then waits for a visibility that never arrives.
-    await optionNamed(page, "analytics").click();
-    await page.keyboard.press("Escape");
-
+    // Wait for the dropdown to settle before selecting. A click during its entrance
+    // animation can miss the option, leaving no filter pill after Escape closes it.
+    await pressOnce(optionNamed(page, "analytics"));
     await expect(page.getByTestId("agents-filters-pill-ns-analytics")).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(dataRows(page)).toHaveCount(1);
     // In the address, so a narrowed view can be linked to and survives a reload.
     await expect(page).toHaveURL(/ns=analytics/);

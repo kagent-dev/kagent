@@ -13,6 +13,9 @@ revision. Explicit egress grants are applied from the controller's persisted
 intended policy before execution. Lifecycle
 operations do not read or translate Kubernetes policy.
 
+Namespace reference policies constrain compilation. Failed resolution preserves
+the last successful revision for new sessions; existing sessions remain pinned.
+
 The control plane creates a deterministic Actor initially suspended and marks the session
 ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume

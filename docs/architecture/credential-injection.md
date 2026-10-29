@@ -32,9 +32,11 @@ credentialProvider:
 ```
 
 For an embedded Substrate chart, put these values under `substrate:` in the
-kagent chart. Empty grants deny all credential fetches. Kagent compiles
-same-namespace references such as
+kagent chart. Empty grants deny all credential fetches. Kagent compiles namespace-qualified references such as
 `ate-secret://k8s.io/default/kagent/model-auth/api-key`.
+For [shared models and MCP servers](cross-namespace-references.md), grant the
+consuming actor atespace access to the target Secret namespace explicitly.
+Resource reference permission does not change credential-provider grants.
 
 Create the gateway CA in the Substrate release namespace before waiting for
 the rollout (alongside the other Substrate CA pools):
