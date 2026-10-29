@@ -130,10 +130,18 @@ tests:
           path: subjects[0].name
           value: scheduler
         documentIndex: 1
-  - it: needs no TokenReview RBAC for scheduling alone
+  - it: grants TokenReview for the scheduler's startup isolation check alone
     template: rbac/invocation-auth.yaml
     set:
       config.server.auth.serviceAccount: null
+    asserts:
+      - hasDocuments:
+          count: 2
+  - it: needs no TokenReview RBAC without machine authentication or scheduling
+    template: rbac/invocation-auth.yaml
+    set:
+      config.server.auth.serviceAccount: null
+      config.scheduledRuns.outboundCredential: null
     asserts:
       - hasDocuments:
           count: 0

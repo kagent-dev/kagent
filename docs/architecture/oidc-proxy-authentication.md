@@ -132,11 +132,15 @@ seconds to become visible. Token rotation uses a new cache key immediately.
 
 ScheduledRuns call the invocation workflow in-process under an internal scheduler
 principal scoped to the controller's installation namespace. They do not log in
-or perform TokenReviews. One projected token with the configurable `kagent-egress`
+to Kagent. One projected token with the configurable `kagent-egress`
 audience supplies downstream passthrough credentials. The scheduler trusts the
 projected file and checks its expiry and audience locally; downstream services
 authenticate the token. Its audience must differ from `kagent-invocation` and
-the cluster's Kubernetes API audiences. Each dispatch reads the current file;
+the cluster's Kubernetes API audiences. At startup the controller makes one
+TokenReview without audiences and refuses to start if the Kubernetes API accepts
+the token or the review fails; the audience is fixed configuration, so later
+rotations need no review. The chart grants TokenReview access whenever
+scheduling is enabled. Each dispatch reads the current file;
 already running invocations retain their captured token until it expires.
 The chart owns the token path and mount; `tokenFile` values cannot change them.
 Set `config.scheduledRuns.outboundCredential` to `null` to disable scheduling and
@@ -170,7 +174,7 @@ differs.
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
 | `config.server.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
 | `config.server.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
-| `config.server.auth.serviceAccount` | Authority `kubernetes` | Local TokenReview authentication, also used by ScheduledRuns |
+| `config.server.auth.serviceAccount` | Authority `kubernetes` | Local TokenReview authentication for external machine callers |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
 
 For a release named `kagent`, register

@@ -135,7 +135,8 @@ which maps the verified service-account UID under a configured cluster authority
 Rotation preserves their principal ID; deleting and recreating the service account
 changes it. The authority must remain stable across restarts and distinct from
 other Kubernetes authentication sources sharing the store. This authentication
-path is independent of the internal scheduler, which does not use TokenReview.
+path is independent of the internal scheduler, which never authenticates through
+it.
 
 Trusted-proxy authentication scopes its identity claim by the authenticated issuer;
 the proxy owns token verification. Insecure development mode permits caller-selected
@@ -204,10 +205,11 @@ separately from its normal Kubernetes API credential:
 The outbound audience defaults to `kagent-egress` and is configured for the
 receiving service. It must differ from `kagent-invocation`, which authenticates
 external machine callers, and from the cluster's Kubernetes API audiences.
-The scheduler trusts the kubelet-managed file and makes no TokenReview requests.
-It checks expiry and requires exactly the configured downstream audience locally.
-The operator must choose an audience that the Kubernetes API does not accept;
-Kagent no longer probes API acceptance. Downstream services verify the token's
+The scheduler trusts the kubelet-managed file and checks expiry and the exact
+configured downstream audience locally. At startup it submits one TokenReview
+without audiences; the controller fails to start if the Kubernetes API accepts
+the token or the review is unavailable. Because the audience is fixed
+configuration, rotated tokens are not reviewed again. Downstream services verify the token's
 signature, issuer, and audience and assign its downstream permissions.
 
 Helm configures the requested outbound lifetime:
