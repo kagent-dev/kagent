@@ -263,7 +263,7 @@ func TestRuntimeMCPClientResolveServer(t *testing.T) {
 
 func toolTestContext() context.Context {
 	return pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{
-		P: pkgauth.Principal{User: pkgauth.User{ID: "tool-user"}},
+		P: pkgauth.Principal{ID: "tool-user"},
 	})
 }
 

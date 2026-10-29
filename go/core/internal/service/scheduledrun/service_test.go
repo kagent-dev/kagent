@@ -21,7 +21,7 @@ import (
 
 type session struct{}
 
-func (session) Principal() auth.Principal { return auth.Principal{User: auth.User{ID: "alice"}} }
+func (session) Principal() auth.Principal { return auth.Principal{ID: "alice"} }
 
 type authorizer struct {
 	deny  string

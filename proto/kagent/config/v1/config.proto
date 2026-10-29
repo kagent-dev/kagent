@@ -158,6 +158,13 @@ message AuthenticationConfig {
     ]
   }];
   string user_id_claim = 2;
+  ServiceAccountAuthentication service_account = 3;
+}
+
+// Platform-owned invocation authentication for the fixed kagent-invocation audience,
+// independent of the Kubernetes API token.
+message ServiceAccountAuthentication {
+  string authority = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 // DatabaseConfig names two PostgreSQL logins. The owner applies migrations; the

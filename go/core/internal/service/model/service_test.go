@@ -110,7 +110,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	newService := func(authorizer pkgauth.CollectionAuthorizer, objects ...ctrlclient.Object) (*model.Service, ctrlclient.Client, context.Context) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 		service := model.NewService(kubeClient, authorizer, "default")
-		ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+		ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{ID: "test-user"}})
 		return service, kubeClient, ctx
 	}
 
@@ -290,7 +290,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		service := model.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, "default")
 		ctx := pkgauth.AuthSessionTo(
 			context.Background(),
-			&authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}},
+			&authimpl.SimpleSession{P: pkgauth.Principal{ID: "test-user"}},
 		)
 		rotatedKey := "rotated-key"
 
@@ -377,7 +377,7 @@ func TestListAppliesModelConfigScope(t *testing.T) {
 		&v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-b", Name: "denied"}},
 	).Build()
 	service := model.NewService(kubeClient, authorizer, "default")
-	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{ID: "test-user"}})
 
 	list, err := service.List(ctx, model.ListRequest{})
 	require.NoError(t, err)
@@ -403,7 +403,7 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}}
 	service := model.NewService(kubeClient, authorizer, "default")
-	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{ID: "test-user"}})
 
 	if _, err := service.Get(ctx, model.GetRequest{Ref: types.NamespacedName{Namespace: "team", Name: "existing"}}); err != nil {
 		t.Fatalf("Get() error = %v", err)
@@ -447,7 +447,7 @@ func TestDeniedUpdateWritesNothing(t *testing.T) {
 	}).Build()
 	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, denyCheck: 1}
 	service := model.NewService(kubeClient, authorizer, "default")
-	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{ID: "test-user"}})
 
 	apiKey := "api-key-value"
 	_, err := service.Update(ctx, model.UpdateRequest{
@@ -492,7 +492,7 @@ func TestCreateRollsBackWhenSecretWriteFails(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			kubeClient := &secretCreateFailsClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
 			service := model.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, "default")
-			ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+			ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{ID: "test-user"}})
 
 			_, err := service.Create(ctx, request)
 			require.Error(t, err)

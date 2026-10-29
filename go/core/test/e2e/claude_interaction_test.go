@@ -110,7 +110,7 @@ func createClaudeTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, des
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: modelConfig},
+			ModelConfig: &v1alpha3.ObjectReference{Name: modelConfig},
 			Description: description, SystemPrompt: "Reply concisely and follow the requested output format exactly.",
 		},
 	}
@@ -126,7 +126,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "Claude local specialist",
 			SystemPrompt: childPrompt,
 		},
@@ -138,7 +138,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "Claude local-subagent E2E fixture",
 			SystemPrompt: "Always delegate the request to the specialist subagent, then return its answer.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
@@ -222,11 +222,11 @@ func createClaudeMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, 
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: modelConfig},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: modelConfig},
 			Description:  "Claude direct whole-server MCP E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				Server:          corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
 				RequireApproval: requireApproval,
 			}}},
 		},

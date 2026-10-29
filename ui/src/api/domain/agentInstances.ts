@@ -113,49 +113,6 @@ export interface AgentInstance {
 }
 
 /**
- * Whether an instance can be suspended right now.
- *
- * Not a guess about the UI's preferences — it is the controller's precondition,
- * copied. `ActorWorkflow.Suspend` claims the instance from `READY` and no other
- * state, and the claim also requires that no operation is already in flight; a
- * request from anywhere else comes back `Aborted` with "conflicting lifecycle
- * operation". Asking here means the button is disabled with a reason rather than
- * enabled into a refusal.
- */
-export function canSuspend(instance: AgentInstance): boolean {
-  return instance.state === "ready" && instance.operation === "unspecified";
-}
-
-/** Whether an instance can be resumed right now — the mirror of `canSuspend`. */
-export function canResume(instance: AgentInstance): boolean {
-  return instance.state === "suspended" && instance.operation === "unspecified";
-}
-
-/**
- * Why the lifecycle buttons are disabled, in words a reader can act on.
- *
- * Returns `undefined` when the operation is available. A disabled control with no
- * explanation is the thing this exists to avoid: "Suspend" greyed out on a failed
- * instance looks like a permission problem when it is a state machine.
- */
-export function lifecycleBlockedReason(
-  instance: AgentInstance,
-  action: "suspend" | "resume",
-): string | undefined {
-  if (instance.operation !== "unspecified") {
-    return `A ${instance.operation} operation is already in progress. The controller refuses a second one until it finishes.`;
-  }
-
-  const wanted = action === "suspend" ? "ready" : "suspended";
-  if (instance.state === wanted) return undefined;
-
-  if (instance.state === "unspecified") {
-    return `The controller did not report a state for this instance, so it cannot be ${action}d.`;
-  }
-  return `Only a ${wanted} instance can be ${action}d. This one is ${instance.state}.`;
-}
-
-/**
  * The longest name the controller will store, counted the way it counts.
  *
  * Runes, not bytes — `utf8.RuneCountInString` in `validateName` — so a title in a

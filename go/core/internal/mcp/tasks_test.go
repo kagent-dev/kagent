@@ -418,7 +418,7 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 type testSession struct{}
 
 func (testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "user@example.com"}}
+	return auth.Principal{ID: "user@example.com"}
 }
 
 func authContext() context.Context {
@@ -563,14 +563,6 @@ func (*fakeSessionStore) DeleteSessionShare(context.Context, string, string) err
 type fakeSessionWorkflow struct{}
 
 func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return session, nil
-}
-
-func (*fakeSessionWorkflow) Suspend(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return session, nil
-}
-
-func (*fakeSessionWorkflow) Resume(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }
 

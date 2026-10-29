@@ -21,12 +21,13 @@ import type {
   AgentTemplate,
   AgentTemplateSpec,
   ToolBinding,
+  ObjectReference,
 } from "@/api/domain/agentTemplates";
 
 /** One MCP tool selection, flattened for a form to hold. */
 export interface McpToolDraft {
-  /** `namespace/name` of the RemoteMCPServer, as the tool list reports it. */
-  serverRef: string;
+  /** The RemoteMCPServer reference; an omitted namespace means the draft namespace. */
+  serverRef: ObjectReference;
   /** The tool names selected. Empty means every tool the server exposes. */
   tools: string[];
   /** Pause before each invocation of a tool this binding exposes. */
@@ -52,8 +53,8 @@ export type OutputSource = "text" | "inline" | "configMap";
 export interface AgentTemplateDraft {
   name: string;
   namespace: string;
-  /** The ModelConfig, by bare name — the CRD's reference is same-namespace. */
-  modelConfig: string;
+  /** The selected ModelConfig, absent when no model is selected. */
+  modelConfig?: ObjectReference;
   description: string;
   promptSource: PromptSource;
   systemPrompt: string;
@@ -75,7 +76,7 @@ export function emptyDraft(namespace: string): AgentTemplateDraft {
   return {
     name: "",
     namespace,
-    modelConfig: "",
+    modelConfig: undefined,
     description: "",
     promptSource: "inline",
     systemPrompt: "",
@@ -110,7 +111,7 @@ export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): Agent
   return {
     name: "",
     namespace,
-    modelConfig: spec.modelConfig?.name ?? "",
+    modelConfig: spec.modelConfig ? { ...spec.modelConfig } : undefined,
     description: spec.description ?? "",
     // Which one is in use is read from the resource rather than defaulted, so
     // reopening a template that reads its prompt from a ConfigMap does not silently
@@ -133,7 +134,7 @@ export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): Agent
     mcpTools: tools
       .filter((binding) => binding.mcp)
       .map((binding) => ({
-        serverRef: binding.mcp?.server.name ?? "",
+        serverRef: { name: binding.mcp?.server.name ?? "", namespace: binding.mcp?.server.namespace },
         tools: [...(binding.mcp?.tools ?? [])],
         requireApproval: binding.mcp?.requireApproval,
       })),
@@ -163,11 +164,11 @@ export function specFromDraft(
     ...draft.mcpTools
       // A named server with no explicit selection exposes all of its tools. Only an
       // unfinished row with no server is dropped.
-      .filter((tool) => tool.serverRef.trim() !== "")
+      .filter((tool) => tool.serverRef.name.trim() !== "")
       .map((tool) => ({
         mcp: {
           // The only kind the CRD's enum allows.
-          server: { kind: "RemoteMCPServer" as const, name: bareName(tool.serverRef) },
+          server: { kind: "RemoteMCPServer" as const, ...normalizedReference(tool.serverRef, draft.namespace) },
           ...(tool.tools.length > 0 ? { tools: [...tool.tools] } : {}),
           // omitempty on the CRD: false is the default, so only true is sent.
           ...(tool.requireApproval ? { requireApproval: true } : {}),
@@ -190,9 +191,9 @@ export function specFromDraft(
     // Everything the form does not model, carried over untouched.
     ...(existing ?? {}),
   };
-  const model = draft.modelConfig.trim();
-  if (model === "") delete spec.modelConfig;
-  else spec.modelConfig = { name: model };
+  const model = draft.modelConfig;
+  if (!model?.name.trim()) delete spec.modelConfig;
+  else spec.modelConfig = normalizedReference(model, draft.namespace);
 
   setOrDelete(spec, "description", draft.description.trim());
 
@@ -312,10 +313,11 @@ export function draftProblems(
   return problems;
 }
 
-/** `namespace/name` → `name`. The CRD's references are same-namespace and name-only. */
-function bareName(ref: string): string {
-  const slash = ref.lastIndexOf("/");
-  return slash === -1 ? ref : ref.slice(slash + 1);
+/** Keep local manifests concise while preserving shared resource identity. */
+function normalizedReference(ref: ObjectReference, ownerNamespace: string): ObjectReference {
+  const name = ref.name.trim();
+  const namespace = ref.namespace?.trim();
+  return !namespace || namespace === ownerNamespace ? { name } : { name, namespace };
 }
 
 /** Parses only the object-valued JSON shape the public API accepts. */

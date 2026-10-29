@@ -39,7 +39,7 @@ const (
 type gatewayTestAuthSession struct{}
 
 func (gatewayTestAuthSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "alice"}}
+	return auth.Principal{ID: "alice"}
 }
 
 type gatewayTestStore struct {
@@ -604,7 +604,7 @@ func TestGatewayHonoursSessionShare(t *testing.T) {
 	if store.userID != "the-owner" {
 		t.Fatalf("session read as %q, want the share's owner", store.userID)
 	}
-	if authorizer.principal.User.ID != (gatewayTestAuthSession{}).Principal().User.ID {
+	if authorizer.principal.ID != (gatewayTestAuthSession{}).Principal().ID {
 		t.Fatal("policy did not use the authenticated recipient")
 	}
 }

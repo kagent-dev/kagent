@@ -14,7 +14,6 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -259,34 +258,27 @@ func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
 }
 
 func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
-	for _, operation := range []string{"send", "resume"} {
-		for _, denySession := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/session-denied=%v", operation, denySession), func(t *testing.T) {
-				id := uuid.NewString()
-				agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
-				stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED}
-				policy := &recordingAuthorizer{deniedTypes: map[string]bool{"Agent": true, "Session": denySession}}
-				sessions := NewService(&serviceTestStore{getResult: stored}, policy, serviceTestWorkflow{})
-				ctx := serviceTestContext("alice")
-				var err error
-				if operation == "resume" {
-					_, err = sessions.Resume(ctx, id)
-				} else {
-					message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
-					message.ContextID = id
-					_, err = NewInteractionService(nil, nil, sessions, false).messageSession(ctx, agent, message)
+	for _, denySession := range []bool{false, true} {
+		t.Run(fmt.Sprintf("session-denied=%v", denySession), func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
+			policy := &recordingAuthorizer{deniedTypes: map[string]bool{"Agent": true, "Session": denySession}}
+			sessions := NewService(&serviceTestStore{getResult: stored}, policy, serviceTestWorkflow{})
+			ctx := serviceTestContext("alice")
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
+			message.ContextID = id
+			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(ctx, agent, message)
+			if denySession {
+				if !errors.Is(err, a2atype.ErrUnauthorized) {
+					t.Fatalf("error = %v, want Session denial", err)
 				}
-				if denySession {
-					if operation == "send" && !errors.Is(err, a2atype.ErrUnauthorized) || operation == "resume" && !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
-						t.Fatalf("error = %v, want Session denial", err)
-					}
-				} else if err != nil {
-					t.Fatal(err)
-				}
-				if len(policy.resources) != 1 || policy.resources[0] != (auth.Resource{Type: "Session", Name: id}) {
-					t.Fatalf("unexpected authorization: %+v", policy.resources)
-				}
-			})
-		}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if len(policy.resources) != 1 || policy.resources[0] != (auth.Resource{Type: "Session", Name: id}) {
+				t.Fatalf("unexpected authorization: %+v", policy.resources)
+			}
+		})
 	}
 }

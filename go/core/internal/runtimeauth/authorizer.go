@@ -22,7 +22,7 @@ func NewAuthorizer(users auth.CollectionAuthorizer, store SessionStore) *Authori
 }
 
 func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if principal.Actor == nil {
+	if principal.RuntimeBinding == nil {
 		return a.users.Check(ctx, principal, verb, resource)
 	}
 	session, err := Session(ctx, a.store)
@@ -53,7 +53,7 @@ func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb a
 }
 
 func (a *Authorizer) Scope(ctx context.Context, principal auth.Principal, verb auth.Verb, resourceType string) (authorization.AuthorizationScope, error) {
-	if principal.Actor == nil {
+	if principal.RuntimeBinding == nil {
 		return a.users.Scope(ctx, principal, verb, resourceType)
 	}
 	session, err := Session(ctx, a.store)

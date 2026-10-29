@@ -7,6 +7,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
@@ -73,11 +74,19 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		return nil, nil, fmt.Errorf("resolved model config is required")
 	}
 	model := resolved.Config
+	tokenPassthrough := ptr.Deref(model.Spec.TokenPassthrough, false)
 	modelDeploymentData := &modelDeploymentData{}
+	if model.Spec.ActorJWT != nil {
+		placeholder, err := translator.ActorJWTEnvironment(resolved)
+		if err != nil {
+			return nil, nil, err
+		}
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, placeholder)
+	}
 
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -97,7 +106,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(openai, model.Spec.TLS)
-		openai.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		openai.ApiKeyPassthrough = tokenPassthrough
 
 		if model.Spec.OpenAI != nil {
 			openai.GetOpenai().BaseUrl = model.Spec.OpenAI.BaseURL
@@ -138,7 +147,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		return openai, modelDeploymentData, nil
 	case v1alpha3.ModelProviderAnthropic:
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.AnthropicAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -158,7 +167,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(anthropic, model.Spec.TLS)
-		anthropic.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		anthropic.ApiKeyPassthrough = tokenPassthrough
 
 		if model.Spec.Anthropic != nil {
 			spec := model.Spec.Anthropic
@@ -179,7 +188,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.AzureOpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -224,7 +233,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(azureOpenAI, model.Spec.TLS)
-		azureOpenAI.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		azureOpenAI.ApiKeyPassthrough = tokenPassthrough
 		if model.Spec.AzureOpenAI.APIFormat != nil && *model.Spec.AzureOpenAI.APIFormat != "" {
 			azureOpenAI.GetAzureOpenai().ApiFormat = string(*model.Spec.AzureOpenAI.APIFormat)
 		}
@@ -246,7 +255,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(gemini, model.Spec.TLS)
-		gemini.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		gemini.ApiKeyPassthrough = tokenPassthrough
 
 		if model.Spec.GeminiVertexAI.MaxOutputTokens > 0 {
 			gemini.GetGeminiVertexAi().MaxOutputTokens = runtimeInt(&model.Spec.GeminiVertexAI.MaxOutputTokens)
@@ -265,7 +274,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(anthropic, model.Spec.TLS)
-		anthropic.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		anthropic.ApiKeyPassthrough = tokenPassthrough
 
 		return anthropic, modelDeploymentData, nil
 	case v1alpha3.ModelProviderOllama:
@@ -287,7 +296,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		// placeholder. The same predicate decides the credential binding.
 		// Local models and operator-supplied daemon hosts have no cloud
 		// binding, so they must not receive a Secret-backed environment ref.
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" &&
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" &&
 			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true) {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OllamaAPIKey.Name(),
@@ -310,7 +319,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(ollama, model.Spec.TLS)
-		ollama.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		ollama.ApiKeyPassthrough = tokenPassthrough
 
 		return ollama, modelDeploymentData, nil
 	case v1alpha3.ModelProviderGemini:
@@ -349,7 +358,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 
 		// If AWS_BEARER_TOKEN_BEDROCK key exists: use bearer token auth
 		// Otherwise, use IAM credentials
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
 			secret := types.NamespacedName{Namespace: model.Namespace, Name: model.Spec.APIKeySecret}
 			hasSecretKey := func(key string) bool {
 				for _, ref := range resolved.References {
@@ -433,7 +442,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 
 		// Populate shared transport settings.
 		populateTLSFields(bedrock, model.Spec.TLS)
-		bedrock.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		bedrock.ApiKeyPassthrough = tokenPassthrough
 
 		return bedrock, modelDeploymentData, nil
 	case v1alpha3.ModelProviderSAPAICore:
@@ -441,7 +450,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 			return nil, nil, fmt.Errorf("sapAICore model config is required")
 		}
 
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.SAPAICoreClientID.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -477,7 +486,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 
 		populateTLSFields(sapAICore, model.Spec.TLS)
-		sapAICore.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		sapAICore.ApiKeyPassthrough = tokenPassthrough
 
 		return sapAICore, modelDeploymentData, nil
 	case v1alpha3.ModelProviderFoundry:
@@ -491,7 +500,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		// Implicit auth: mount the API key only when a secret is provided and
 		// passthrough is off; otherwise the runtime uses DefaultAzureCredential
 		// (Workload Identity) or the passed-through caller token.
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.FoundryAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -541,11 +550,11 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 			}},
 		}
 		populateTLSFields(foundry, model.Spec.TLS)
-		foundry.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		foundry.ApiKeyPassthrough = tokenPassthrough
 
 		return foundry, modelDeploymentData, nil
 	case v1alpha3.ModelProviderMistral:
-		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.MistralAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -564,7 +573,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 			Provider: &configv1.ADKModelConfig_Mistral{Mistral: &configv1.ADKMistral{}},
 		}
 		populateTLSFields(mistral, model.Spec.TLS)
-		mistral.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		mistral.ApiKeyPassthrough = tokenPassthrough
 
 		if model.Spec.Mistral != nil {
 			spec := model.Spec.Mistral

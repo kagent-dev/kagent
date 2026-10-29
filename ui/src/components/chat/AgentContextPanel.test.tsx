@@ -9,13 +9,13 @@ const {useAgentTemplate, useAgent} = vi.hoisted(() => ({useAgentTemplate: vi.fn(
 
 vi.mock("@/api", () => ({ useAgentTemplate, useAgent }));
 
-function renderPanel(tools: unknown[]) {
+function renderPanel(tools: unknown[], modelNamespace?: string) {
   useAgent.mockReturnValue({data: {resource: {spec: {template: {ref: {name: "assistant"}}, harnessRef: {name: "runner"}}}}});
   useAgentTemplate.mockReturnValue({
     data: {
       resource: {
         spec: {
-          modelConfig: { name: "gpt" },
+          modelConfig: { name: "gpt", namespace: modelNamespace },
           tools,
         },
       },
@@ -45,7 +45,7 @@ describe("AgentContextPanel", () => {
       },
     ]);
 
-    expect(screen.getByText("tools (all tools)")).toBeTruthy();
+    expect(screen.getByText("kagent/tools (all tools)")).toBeTruthy();
   });
 
   it("renders explicitly selected MCP tools by name", () => {
@@ -58,6 +58,21 @@ describe("AgentContextPanel", () => {
       },
     ]);
 
-    expect(screen.getByText("list_pods")).toBeTruthy();
+    expect(screen.getByText("kagent/tools: list_pods")).toBeTruthy();
   });
 });
+
+ it.each([undefined, "", "kagent", "shared"])("qualifies models and servers with namespace %s", (namespace) => {
+   const resolved = namespace || "kagent";
+   renderPanel([{ mcp: { server: { kind: "RemoteMCPServer", name: "tools", namespace } } }], namespace);
+   expect(screen.getByText(`${resolved}/gpt`)).toBeTruthy();
+   expect(screen.getByText(`${resolved}/tools (all tools)`)).toBeTruthy();
+ });
+
+ it("distinguishes identical tool names from different servers", () => {
+   renderPanel(["kagent", "shared"].map((namespace) => ({ mcp: {
+     server: { kind: "RemoteMCPServer", name: "tools", namespace }, tools: ["list_pods"],
+   } })));
+   expect(screen.getByText("kagent/tools: list_pods")).toBeTruthy();
+   expect(screen.getByText("shared/tools: list_pods")).toBeTruthy();
+ });

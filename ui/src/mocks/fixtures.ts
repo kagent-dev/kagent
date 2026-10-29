@@ -381,15 +381,10 @@ export const MOCK_INSTANCE_CREATOR = "alice@example.com";
 /**
  * Agent instances, spread across the states the page has to render.
  *
- * Deliberately not a set of healthy rows. Six of the seven `AgentInstanceState`
- * values appear here — every one but `deleted`, which is the state a record leaves
- * the list in — because the states are the entire point of the page and a fixture
- * set of ready instances would prove only that a table renders. In particular:
+ * Includes ready conversations and states that prevent interaction:
  *
- * - one `ready` and one `suspended`, so both lifecycle buttons have something to
- *   act on and each is disabled on the other's row;
- * - one mid-operation (`creating` with `create` claimed), where both buttons must
- *   be refused because the controller's `claim` refuses a second operation;
+ * - ready conversations, including an idle unnamed sibling;
+ * - one mid-operation (`creating` with `create` claimed);
  * - one `failed` carrying a `Failure`, which is the only row that has one;
  * - one whose state the controller never reported, with no harness, no template
  *   and no timestamps — the row that catches a page rendering absent values as
@@ -430,7 +425,7 @@ export const mockAgentInstances: AgentInstance[] = [
     agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-b28e4f13.kagent.svc.cluster.local:8080",
-    state: "suspended",
+    state: "ready",
     operation: "unspecified",
     /*
      * Older than the named sibling above it, which the rail renders *after* this one

@@ -49,7 +49,7 @@ func (s *Service) principal(ctx context.Context, verb auth.Verb, resource auth.R
 		return auth.Principal{}, serviceerrors.NewPermissionDenied("Agent shares do not grant sandbox access", nil)
 	}
 	session, ok := auth.AuthSessionFrom(ctx)
-	if !ok || session.Principal().User.ID == "" {
+	if !ok || session.Principal().ID == "" {
 		return auth.Principal{}, serviceerrors.NewUnauthenticated("Sandbox access requires an authenticated owner", nil)
 	}
 	principal := session.Principal()
@@ -95,7 +95,7 @@ func (s *Service) Create(ctx context.Context, request *apiv1.CreateSandboxReques
 		return nil, err
 	}
 	instance, _, err := s.config.Store.CreateSandbox(ctx, &apiv1.Sandbox{
-		Id: id.String(), Creator: principal.User.ID, Name: request.Name, SandboxTemplate: ref,
+		Id: id.String(), Creator: principal.ID, Name: request.Name, SandboxTemplate: ref,
 	}, request.RequestId, database.SandboxCreateOptions{RequestHash: hash, TemplateUID: string(template.UID), TTL: ttl})
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewFailedPrecondition("SandboxTemplate has no prepared revision", err)
@@ -111,7 +111,7 @@ func (s *Service) authorized(ctx context.Context, id string, verb auth.Verb) (*a
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.config.Store.GetSandbox(ctx, id, principal.User.ID)
+	instance, err := s.config.Store.GetSandbox(ctx, id, principal.ID)
 	return instance, sandboxError(err)
 }
 
@@ -142,7 +142,7 @@ func (s *Service) List(ctx context.Context, request *apiv1.ListSandboxesRequest)
 		}
 		after = string(decoded)
 	}
-	instances, err := s.config.Store.ListSandboxes(ctx, principal.User.ID, after, limit+1, request.SandboxTemplate)
+	instances, err := s.config.Store.ListSandboxes(ctx, principal.ID, after, limit+1, request.SandboxTemplate)
 	if err != nil {
 		return nil, sandboxError(err)
 	}

@@ -60,8 +60,8 @@ export interface HarnessResource {
 
 /** `spec.kagent.compaction.summarizer`: the model and prompt that write the summaries. */
 export interface KagentHarnessSummarizer {
-  /** A ModelConfig in the harness namespace. Omitted summarizes with the agent's own model. */
-  modelConfigRef?: { name: string };
+  /** An authorized ModelConfig, defaulting to the harness namespace. Omitted summarizes with the agent's own model. */
+  modelConfigRef?: { name: string; namespace?: string };
   /** Must contain `{conversation_history}`. */
   promptTemplate?: string;
 }
@@ -81,7 +81,7 @@ export interface KagentHarnessCompaction {
 
 /** `spec.kagent`: runtime policy of the kagent adapter. */
 export interface KagentHarnessSpec {
-  memory?: { modelConfigRef: { name: string }; ttlDays?: number };
+  memory?: { modelConfigRef: { name: string; namespace?: string }; ttlDays?: number };
   compaction?: KagentHarnessCompaction;
 }
 

@@ -1,6 +1,6 @@
 /** ModelConfig domain models, mirroring the `api.kagent.dev/v1alpha3` ModelConfig CRD. */
 
-import type { TLSConfig } from "./common";
+import type { ActorJWT, TLSConfig } from "./common";
 
 export interface OpenAIConfig {
   baseUrl?: string;
@@ -89,11 +89,19 @@ export interface FoundryConfig {
 }
 
 export interface ModelConfigSpec {
+  allowedNamespaces?: {
+    from?: "Same" | "All" | "Selector";
+    selector?: {
+      matchLabels?: Record<string, string>;
+      matchExpressions?: { key: string; operator: "In" | "NotIn" | "Exists" | "DoesNotExist"; values?: string[] }[];
+    };
+  };
   model: string;
   provider: string;
   apiKeySecret?: string;
   apiKeySecretKey?: string;
   tokenPassthrough?: boolean;
+  actorJwt?: ActorJWT;
   defaultHeaders?: Record<string, string>;
   tls?: TLSConfig;
   openAI?: OpenAIConfig;

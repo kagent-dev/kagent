@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
@@ -18,8 +19,22 @@ import (
 )
 
 // CredentialPlaceholder satisfies SDKs that require a configured API key.
-// The gateway overwrites the corresponding header with the current Secret.
+// The gateway overwrites the corresponding header with the configured credential.
 const CredentialPlaceholder = "kagent-credential-injected"
+
+const (
+	mcpActorJWTHeader = "Authorization"
+	mcpActorJWTPrefix = "Bearer "
+)
+
+// MCPActorJWTHeaders returns a copy with the placeholder for the MCP gateway
+// credential, leaving the caller's headers unchanged.
+func MCPActorJWTHeaders(headers map[string]string) map[string]string {
+	result := make(map[string]string, len(headers)+1)
+	maps.Copy(result, headers)
+	result[mcpActorJWTHeader] = mcpActorJWTPrefix + CredentialPlaceholder
+	return result
+}
 
 // passthroughClient sends the caller's token; an empty header means no target.
 type passthroughClient struct {
@@ -85,6 +100,8 @@ func canonicalOrigin(endpoint string) (*url.URL, error) {
 // CompileCredentials replaces secret-backed environment values with inert SDK
 // placeholders and compiles their destination-scoped gateway bindings. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
+// Compilation accepts resolved objects directly, so enforce credential
+// exclusivity here as well as at Kubernetes admission.
 func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar, settings *configv1.RuntimeDefaultsConfig) ([]corev1.EnvVar, []egress.Credential, []egresspolicy.GatewayTarget, error) {
 	var bindings []egress.Credential
 	boundModels := map[string]bool{}
@@ -107,7 +124,22 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			models = append(models, agent.ResolvedModelConfig)
 		}
 		for _, tool := range agent.MCPTools {
-			if tool.Server.Spec.TokenPassthrough {
+			if token := tool.Server.Spec.ActorJWT; token != nil {
+				if tool.Server.Spec.TokenPassthrough != nil {
+					return NewValidationError("actorJwt and tokenPassthrough are mutually exclusive")
+				}
+				for _, ref := range tool.Server.Spec.HeadersFrom {
+					if strings.EqualFold(ref.Name, mcpActorJWTHeader) {
+						return NewValidationError("headersFrom cannot set Authorization when actorJwt is enabled")
+					}
+				}
+				origin, err := canonicalOrigin(tool.Server.Spec.URL)
+				if err != nil {
+					return err
+				}
+				bindings = append(bindings, egress.Credential{Origin: origin.String(), Header: strings.ToLower(mcpActorJWTHeader), Prefix: mcpActorJWTPrefix, ActorJWT: actorJWTSource(token)})
+			}
+			if ptr.Deref(tool.Server.Spec.TokenPassthrough, false) {
 				var explicit []string
 				for _, ref := range tool.Server.Spec.HeadersFrom {
 					explicit = append(explicit, ref.Name)
@@ -140,7 +172,19 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	}
 	for _, resolved := range models {
 		model := resolved.Config
-		if model.Spec.TokenPassthrough || model.Spec.APIKeySecret == "" {
+		if model.Spec.ActorJWT != nil {
+			if _, err := ActorJWTEnvironment(resolved); err != nil {
+				return nil, nil, nil, err
+			}
+			target := modelCredentialTarget(resolved, nil)
+			origin, err := canonicalOrigin(target.endpoint)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			bindings = append(bindings, egress.Credential{Origin: origin.String(), Header: target.header, Prefix: target.prefix, ActorJWT: actorJWTSource(model.Spec.ActorJWT)})
+			continue
+		}
+		if ptr.Deref(model.Spec.TokenPassthrough, false) || model.Spec.APIKeySecret == "" {
 			continue
 		}
 		target := modelCredentialTarget(resolved, settings)
@@ -170,7 +214,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	}
 	for _, resolved := range models {
 		spec := resolved.Config.Spec
-		if !spec.TokenPassthrough {
+		if !ptr.Deref(spec.TokenPassthrough, false) {
 			directEndpoints = append(directEndpoints, modelEndpoints(resolved, environment)...)
 			continue
 		}
@@ -281,7 +325,7 @@ func modelCredentialTarget(resolved *ResolvedModelConfig, settings *configv1.Run
 		if spec.Ollama == nil {
 			break
 		}
-		hasCredential := spec.APIKeySecret != "" || spec.TokenPassthrough
+		hasCredential := spec.APIKeySecret != "" || ptr.Deref(spec.TokenPassthrough, false)
 		if !models.OllamaReachesCloud(spec.Model, spec.Ollama.Host, hasCredential) {
 			break
 		}
@@ -335,4 +379,37 @@ func modelEndpoints(resolved *ResolvedModelConfig, environment []corev1.EnvVar) 
 		endpoints = append(endpoints, "https://oauth2.googleapis.com")
 	}
 	return endpoints
+}
+
+// ActorJWTEnvironment supplies the existing SDK credential placeholder for an
+// Actor-authenticated model. The token itself is owned by Substrate's gateway.
+func ActorJWTEnvironment(resolved *ResolvedModelConfig) (corev1.EnvVar, error) {
+	spec := resolved.Config.Spec
+	switch spec.Provider {
+	case v1alpha3.ModelProviderBedrock:
+		return corev1.EnvVar{}, NewValidationError("Bedrock requires AWS credentials and does not support actorJwt")
+	case v1alpha3.ModelProviderGemini, v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI, v1alpha3.ModelProviderOllama:
+		return corev1.EnvVar{}, NewValidationError("%s does not support actorJwt", spec.Provider)
+	}
+	if spec.TokenPassthrough != nil || spec.APIKeySecret != "" || spec.APIKeySecretKey != "" {
+		return corev1.EnvVar{}, NewValidationError("actorJwt, apiKeySecret and tokenPassthrough are mutually exclusive")
+	}
+	target := modelCredentialTarget(resolved, nil)
+	if target.name == "" || target.endpoint == "" || target.header == "" {
+		return corev1.EnvVar{}, NewValidationError("ModelConfig %q actorJwt requires a provider with a credential header and endpoint", resolved.Config.Name)
+	}
+	for key := range spec.DefaultHeaders {
+		if strings.EqualFold(key, target.header) {
+			return corev1.EnvVar{}, NewValidationError("defaultHeaders cannot override the actorJwt credential header %q", target.header)
+		}
+	}
+	return corev1.EnvVar{Name: target.name, Value: CredentialPlaceholder}, nil
+}
+
+func actorJWTSource(config *v1alpha3.ActorJWT) *egress.ActorJWT {
+	expiration := int64(900)
+	if config.ExpirationSeconds != nil {
+		expiration = *config.ExpirationSeconds
+	}
+	return &egress.ActorJWT{Audiences: slices.Clone(config.Audiences), ExpirationSeconds: expiration}
 }
