@@ -16,6 +16,8 @@ message ToolActivity {
   // The tool's arguments, without SDK transport envelopes.
   google.protobuf.Value args = 3;
   ToolResponse response = 4;
+  // Configured MCP server identity; together with name, identifies the tool.
+  string mcp_server = 5 [json_name = "mcp_server"];
 }
 
 // ToolResponse distinguishes a result, a tool failure, and deferred user input.

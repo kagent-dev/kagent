@@ -68,7 +68,7 @@ func TestGeneratedHITLRetainsWireNamesAndNegativeDecision(t *testing.T) {
 }
 
 func TestMalformedInteractionValuesFailAtTheBoundary(t *testing.T) {
-	_, err := apia2a.NewToolCallPart("call", "lookup", map[string]any{"unsupported": make(chan string)})
+	_, err := apia2a.NewToolCallPart("call", "lookup", "", map[string]any{"unsupported": make(chan string)})
 	require.Error(t, err)
 	message := a2atype.NewMessage(a2atype.MessageRoleUser)
 	message.Extensions = []string{apia2a.HITLExtensionURI}

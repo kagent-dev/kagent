@@ -12,7 +12,7 @@ func TestSanitizeCallerRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	part, err := NewToolResultPart("call-1", "lookup", response)
+	part, err := NewToolResultPart("call-1", "lookup", "", response)
 	if err != nil {
 		t.Fatal(err)
 	}

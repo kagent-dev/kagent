@@ -378,7 +378,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 			}
 			delete(t.tools, item.ID)
 			if err := sink.ToolResult(runtime.ToolResult{
-				ID: item.ID, Name: existing.name, MCPTool: existing.mcpTool(), Result: map[string]any{"error": "Codex reused the tool ID"}, IsError: true, Status: runtime.ToolUnfinished,
+				ID: item.ID, Name: existing.name, MCPServer: existing.server, MCPTool: existing.mcpTool(), Result: map[string]any{"error": "Codex reused the tool ID"}, IsError: true, Status: runtime.ToolUnfinished,
 			}); err != nil {
 				return err
 			}
@@ -396,8 +396,8 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 	if !exists || started.thread != thread {
 		return fmt.Errorf("codex tool item %q completed without starting", item.ID)
 	}
-	if started.name != name {
-		return fmt.Errorf("codex tool item %q changed name from %q to %q", item.ID, started.name, name)
+	if started.name != name || started.server != mcpServer || started.mcpTool() != mcpTool {
+		return fmt.Errorf("codex tool item %q changed tool identity", item.ID)
 	}
 	delete(t.tools, item.ID)
 	status := runtime.ToolRan
@@ -412,7 +412,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 			output, failed = boundValue(item.Error), true
 		}
 	}
-	return sink.ToolResult(runtime.ToolResult{ID: item.ID, Name: name, Result: output, IsError: failed, Status: status, MCPTool: mcpTool})
+	return sink.ToolResult(runtime.ToolResult{ID: item.ID, Name: name, Result: output, IsError: failed, Status: status, MCPServer: mcpServer, MCPTool: mcpTool})
 }
 
 func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
@@ -423,7 +423,7 @@ func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
 	slices.Sort(ids)
 	for _, id := range ids {
 		if err := sink.ToolResult(runtime.ToolResult{
-			ID: id, Name: t.tools[id].name, MCPTool: t.tools[id].mcpTool(), Result: map[string]any{"error": "Codex turn ended before tool completion"}, IsError: true, Status: runtime.ToolUnfinished,
+			ID: id, Name: t.tools[id].name, MCPServer: t.tools[id].server, MCPTool: t.tools[id].mcpTool(), Result: map[string]any{"error": "Codex turn ended before tool completion"}, IsError: true, Status: runtime.ToolUnfinished,
 		}); err != nil {
 			return err
 		}

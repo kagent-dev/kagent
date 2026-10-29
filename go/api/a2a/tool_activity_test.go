@@ -3,7 +3,7 @@ package a2a
 import "testing"
 
 func TestToolActivityParts(t *testing.T) {
-	part, err := NewToolCallPart("call-1", "lookup", map[string]any{"query": "pods"})
+	part, err := NewToolCallPart("call-1", "lookup", "", map[string]any{"query": "pods"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,7 +16,7 @@ func TestToolActivityParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	part, err = NewToolResultPart("call-1", "lookup", response)
+	part, err = NewToolResultPart("call-1", "lookup", "", response)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -542,9 +542,12 @@ func toolCallPart(event runtime.ToolCall) (*a2atype.Part, error) {
 	}
 	name := event.Name
 	if event.MCPTool != "" {
+		if event.MCPServer == "" {
+			return nil, fmt.Errorf("MCP tool call requires a server identity")
+		}
 		name = event.MCPTool
 	}
-	return apia2a.NewToolCallPart(event.ID, name, args)
+	return apia2a.NewToolCallPart(event.ID, name, event.MCPServer, args)
 }
 
 func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
@@ -554,13 +557,16 @@ func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
 	name := event.Name
 	encode := apia2a.NewToolResponse
 	if event.MCPTool != "" {
+		if event.MCPServer == "" {
+			return nil, fmt.Errorf("MCP tool result requires a server identity")
+		}
 		name, encode = event.MCPTool, apia2a.NewMCPToolResponse
 	}
 	response, err := encode(event.Result, event.IsError)
 	if err != nil {
 		return nil, fmt.Errorf("encode runtime tool result: %w", err)
 	}
-	return apia2a.NewToolResultPart(event.ID, name, response)
+	return apia2a.NewToolResultPart(event.ID, name, event.MCPServer, response)
 }
 
 func taskMessage(reqCtx *a2asrv.ExecutorContext, text string) *a2atype.Message {

@@ -90,12 +90,12 @@ type ToolCall struct {
 
 // ToolResult reports the result paired with one ToolCall ID.
 type ToolResult struct {
-	ID      string
-	Name    string
-	Result  any
-	IsError bool
-	Status  ToolStatus
-	MCPTool string
+	ID                 string
+	Name               string
+	Result             any
+	IsError            bool
+	Status             ToolStatus
+	MCPServer, MCPTool string
 }
 
 // ToolStatus says whether a tool call ran. The zero value means it ran and returned a result.

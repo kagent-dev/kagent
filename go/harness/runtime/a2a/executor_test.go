@@ -216,6 +216,12 @@ func TestExecuteRejectsMalformedToolActivity(t *testing.T) {
 	tests := []func(runtime.EventSink) error{
 		func(sink runtime.EventSink) error { return sink.ToolCall(runtime.ToolCall{Name: "Read"}) },
 		func(sink runtime.EventSink) error { return sink.ToolResult(runtime.ToolResult{ID: "tool-1"}) },
+		func(sink runtime.EventSink) error {
+			return sink.ToolCall(runtime.ToolCall{ID: "tool-1", Name: "lookup", MCPTool: "lookup"})
+		},
+		func(sink runtime.EventSink) error {
+			return sink.ToolResult(runtime.ToolResult{ID: "tool-1", Name: "lookup", MCPTool: "lookup"})
+		},
 	}
 	for _, emit := range tests {
 		executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
@@ -445,7 +451,7 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 			request: &runtime.ApprovalRequest{ID: "7", CallID: "call-1", Name: "tools.write", Args: map[string]any{"value": 7}, Hint: "Allow tools.write?"},
 			resume: func(_ context.Context, response runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
 				decision, _ = response.(*runtime.ApprovalDecision)
-				return runtime.Outcome{}, sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", MCPTool: "write", IsError: true,
+				return runtime.Outcome{}, sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", MCPServer: "tools", MCPTool: "write", IsError: true,
 					Result: &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "denied"}}, StructuredContent: map[string]any{"count": 7, "items": []string{"pod-1"}}}})
 			},
 		}}, nil
@@ -484,7 +490,7 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		}
 	}
 	assertToolActivity(t, resumedEvents, "function_response", map[string]any{
-		"id": "call-1", "name": "write", "response": map[string]any{
+		"id": "call-1", "name": "write", "mcp_server": "tools", "response": map[string]any{
 			"error": map[string]any{"count": float64(7), "items": []any{"pod-1"}}},
 	})
 	if reservedTaskID(t, executor) != "" {

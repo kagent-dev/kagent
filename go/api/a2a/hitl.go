@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"buf.build/go/protovalidate"
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -89,21 +90,9 @@ func ParseToolApprovalResponse(message *a2atype.Message) (*ToolApprovalResponse,
 	if !ok {
 		return nil, fmt.Errorf("tool approval response payload is required")
 	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return nil, err
-	}
 	var response ToolApprovalResponse
-	if err := protojson.Unmarshal(encoded, &response); err != nil {
+	if err := decodeHITLPayload(raw, &response); err != nil {
 		return nil, fmt.Errorf("decode tool approval response: %w", err)
-	}
-	if response.Type != HITLTypeToolApprovalResponse || len(response.Approvals) == 0 {
-		return nil, fmt.Errorf("at least one tool approval decision is required")
-	}
-	for _, approval := range response.Approvals {
-		if approval.GetId() == "" {
-			return nil, fmt.Errorf("tool approval decision ID is required")
-		}
 	}
 	return &response, nil
 }
@@ -115,15 +104,9 @@ func ParseAskUserResponse(message *a2atype.Message) (*AskUserResponse, error) {
 	if !ok {
 		return nil, fmt.Errorf("ask-user response must declare %s", HITLExtensionURI)
 	}
-	if raw["type"] != HITLTypeAskUserResponse {
-		return nil, fmt.Errorf("ask-user response payload is required")
-	}
 	var response AskUserResponse
 	if err := decodeHITLPayload(raw, &response); err != nil {
 		return nil, fmt.Errorf("decode ask-user response: %w", err)
-	}
-	if response.Id == "" {
-		return nil, fmt.Errorf("ask-user response ID is required")
 	}
 	return &response, nil
 }
@@ -134,16 +117,9 @@ func ParseToolApprovalRequest(message *a2atype.Message) (*ToolApprovalRequest, e
 	if !ok || raw["type"] != HITLTypeToolApprovalRequest {
 		return nil, nil
 	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return nil, err
-	}
 	var request ToolApprovalRequest
-	if err := protojson.Unmarshal(encoded, &request); err != nil {
+	if err := decodeHITLPayload(raw, &request); err != nil {
 		return nil, fmt.Errorf("decode tool approval request: %w", err)
-	}
-	if len(request.Tools) == 0 {
-		return nil, fmt.Errorf("tool approval request has no tools")
 	}
 	return &request, nil
 }
@@ -157,9 +133,6 @@ func ParseAskUserRequest(message *a2atype.Message) (*AskUserRequest, error) {
 	var request AskUserRequest
 	if err := decodeHITLPayload(raw, &request); err != nil {
 		return nil, fmt.Errorf("decode ask-user request: %w", err)
-	}
-	if request.Id == "" {
-		return nil, fmt.Errorf("ask-user request ID is required")
 	}
 	return &request, nil
 }
@@ -178,8 +151,8 @@ func ValidateToolApprovalResponse(request *ToolApprovalRequest, response *ToolAp
 	}
 	want := make(map[string]struct{}, len(tools))
 	for _, tool := range tools {
-		if tool.GetId() == "" {
-			return fmt.Errorf("tool approval request contains an empty ID")
+		if err := protovalidate.Validate(tool); err != nil {
+			return fmt.Errorf("invalid requested tool: %w", err)
 		}
 		want[tool.GetId()] = struct{}{}
 	}
@@ -187,8 +160,8 @@ func ValidateToolApprovalResponse(request *ToolApprovalRequest, response *ToolAp
 		if _, ok := want[approval.GetId()]; !ok {
 			return fmt.Errorf("tool approval response contains unknown or duplicate ID %q", approval.GetId())
 		}
-		if approval.GetApproved() && approval.GetRejectionReason() != "" {
-			return fmt.Errorf("approved tool %q cannot have a rejection reason", approval.GetId())
+		if err := protovalidate.Validate(approval); err != nil {
+			return fmt.Errorf("invalid tool approval: %w", err)
 		}
 		delete(want, approval.GetId())
 	}
@@ -203,14 +176,14 @@ func ValidateAskUserResponse(request *AskUserRequest, response *AskUserResponse)
 	if request == nil || response == nil || request.Id != response.Id {
 		return fmt.Errorf("ask-user response has invalid correlation")
 	}
-	if len(response.Answers) == 0 {
-		return fmt.Errorf("ask-user response contains no answers")
-	}
 	if len(response.Answers) != len(request.Questions) {
 		return fmt.Errorf("ask-user response must answer every question")
 	}
 	for i, answer := range response.Answers {
-		if len(answer.GetAnswer()) == 0 || !request.Questions[i].GetMultiple() && len(answer.GetAnswer()) != 1 {
+		if err := protovalidate.Validate(answer); err != nil {
+			return fmt.Errorf("invalid answer for question %d: %w", i, err)
+		}
+		if !request.Questions[i].GetMultiple() && len(answer.GetAnswer()) != 1 {
 			return fmt.Errorf("ask-user response has invalid selection for question %d", i)
 		}
 	}
@@ -222,7 +195,10 @@ func decodeHITLPayload(raw map[string]any, target proto.Message) error {
 	if err != nil {
 		return err
 	}
-	return protojson.Unmarshal(encoded, target)
+	if err := protojson.Unmarshal(encoded, target); err != nil {
+		return err
+	}
+	return protovalidate.Validate(target)
 }
 
 func hitlPayload(message *a2atype.Message) (map[string]any, bool) {

@@ -759,7 +759,7 @@ func buildConfirmationResponsePart(fcID string, confirmed bool, payload map[stri
 	if err != nil {
 		return nil, err
 	}
-	return apia2a.NewToolResultPart(fcID, toolconfirmation.FunctionCallName, response)
+	return apia2a.NewToolResultPart(fcID, toolconfirmation.FunctionCallName, "", response)
 }
 
 func stringValue(value any) string {

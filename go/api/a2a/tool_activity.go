@@ -19,26 +19,27 @@ const (
 )
 
 type ToolActivity struct {
-	Kind     ToolActivityKind
-	ID       string
-	Name     string
-	Args     any
-	Response *apiv1.ToolResponse
+	Kind      ToolActivityKind
+	ID        string
+	Name      string
+	MCPServer string
+	Args      any
+	Response  *apiv1.ToolResponse
 }
 
-func NewToolCallPart(id, name string, args any) (*a2atype.Part, error) {
+func NewToolCallPart(id, name, mcpServer string, args any) (*a2atype.Part, error) {
 	value, err := toolActivityValue(args)
 	if err != nil {
 		return nil, err
 	}
-	return newToolActivityPart(ToolCallKind, &apiv1.ToolActivity{Id: id, Name: name, Args: value})
+	return newToolActivityPart(ToolCallKind, &apiv1.ToolActivity{Id: id, Name: name, McpServer: mcpServer, Args: value})
 }
 
-func NewToolResultPart(id, name string, response *apiv1.ToolResponse) (*a2atype.Part, error) {
+func NewToolResultPart(id, name, mcpServer string, response *apiv1.ToolResponse) (*a2atype.Part, error) {
 	if response == nil || response.Outcome == nil {
 		return nil, fmt.Errorf("tool response requires an outcome")
 	}
-	return newToolActivityPart(ToolResultKind, &apiv1.ToolActivity{Id: id, Name: name, Response: response})
+	return newToolActivityPart(ToolResultKind, &apiv1.ToolActivity{Id: id, Name: name, McpServer: mcpServer, Response: response})
 }
 
 func toolActivityValue(value any) (*structpb.Value, error) {
@@ -76,7 +77,7 @@ func ParseToolActivity(part *a2atype.Part) (ToolActivity, bool) {
 	if ToolActivityKind(kind) == ToolResultKind && (wire.Response == nil || wire.Response.Outcome == nil) {
 		return ToolActivity{}, false
 	}
-	return ToolActivity{Kind: ToolActivityKind(kind), ID: wire.Id, Name: wire.Name, Args: wire.Args.AsInterface(), Response: wire.Response}, true
+	return ToolActivity{Kind: ToolActivityKind(kind), ID: wire.Id, Name: wire.Name, MCPServer: wire.McpServer, Args: wire.Args.AsInterface(), Response: wire.Response}, true
 }
 
 func newToolActivityPart(kind ToolActivityKind, data *apiv1.ToolActivity) (*a2atype.Part, error) {

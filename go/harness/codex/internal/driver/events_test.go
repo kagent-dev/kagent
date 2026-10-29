@@ -79,6 +79,7 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 	require.Equal(t, map[string]any{"query": "safe"}, sink.calls[1].Arguments)
 	require.Equal(t, map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}, sink.results[1].Result)
 	require.Equal(t, "lookup", sink.results[1].MCPTool)
+	require.Equal(t, "tools", sink.results[1].MCPServer)
 
 	if call := sink.calls[0]; call.MCPServer != "" || call.MCPTool != "" {
 		t.Fatalf("non-MCP call = %#v, want no MCP server or tool", call)

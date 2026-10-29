@@ -75,7 +75,7 @@ func genAIPartConverter(_ context.Context, event *adksession.Event, part *genai.
 		if err != nil {
 			return nil, err
 		}
-		canonical, err := kagenta2a.NewToolResultPart(response.ID, response.Name, result)
+		canonical, err := kagenta2a.NewToolResultPart(response.ID, response.Name, "", result)
 		if err != nil {
 			return nil, err
 		}

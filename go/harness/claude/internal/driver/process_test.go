@@ -300,6 +300,7 @@ func TestToolCallSplitsTheMCPName(t *testing.T) {
 				t.Fatal(err)
 			}
 			require.Len(t, sink.results, 1)
+			require.Equal(t, tc.server, sink.results[0].MCPServer)
 			require.Equal(t, tc.tool, sink.results[0].MCPTool)
 			require.Equal(t, false, sink.results[0].Result)
 		})
