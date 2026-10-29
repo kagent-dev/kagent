@@ -201,7 +201,7 @@ completion.
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Agent namespace. Substrate v0.6.0 chooses the sandbox runtime from
+in the Agent namespace. Substrate v0.7.0-alpha1 chooses the sandbox runtime from
 the selected WorkerPool's `spec.sandboxClasses[]` and `configRef`; ActorTemplates
 no longer specify a SandboxConfig. Operators must install the referenced
 cluster-scoped SandboxConfig and provision compatible workers and runtime assets.
@@ -402,6 +402,9 @@ edit is pending or failed. Deleting an Agent
 retires its definition; sessions and checkpoints retain their pinned revisions.
 Recreating the same name creates a new identity and cannot inherit the old
 Agent's last successful revision.
+
+Namespace reference policies constrain compilation. Failed resolution preserves
+the last successful revision for new sessions; existing sessions remain pinned.
 
 This replaces implicit label selection and the old template/Harness inputs as a
 breaking API change. SandboxTemplate hosting configuration is not part of this

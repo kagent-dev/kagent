@@ -111,28 +111,7 @@ export function AgentChatPage() {
     () => (id && agent ? { id, agent, contextId } : undefined),
     [id, agent, contextId],
   );
-  /**
-   * Resume a suspended conversation before any turn begins.
-   *
-   * Handed to `useChat` rather than wrapped around `send`, because a turn begins two
-   * ways: the composer, and Retry. Retry starts one from inside the hook and never
-   * sees a wrapper out here — and with conversations giving their workers back after
-   * every turn, suspended is exactly the state a failed turn leaves behind, so Retry
-   * is the likeliest button to be pressed against one.
-   *
-   * The state is read when the turn starts rather than closed over, and the resume is
-   * awaited rather than fired alongside the send: sending into an instance that has
-   * not finished resuming is the refusal this exists to avoid.
-   */
-
-  const resumeFirst = useCallback(async () => {
-    if (instance.data?.state !== "suspended" || !id) return;
-    await apiClient.agentInstances.resume(id);
-    await instance.refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance.data?.state, id]);
-
-  const chat = useChat(conversation, resumeFirst);
+  const chat = useChat(conversation);
   const [pushTask, setPushTask] = useState<{ conversationId: string; taskId: string }>();
 
   // Keep up with messages sent from other tabs or clients.
@@ -324,30 +303,9 @@ export function AgentChatPage() {
    * is disabled until then rather than creating something from a half-read record.
    */
 
-  /*
-   * Whether this agent can be talked to at all.
-   *
-   * The gateway refuses any call for an instance that is not `READY` — it answers
-   * `UnsupportedOperation` naming the state — so a composer offered over a suspended
-   * or failed agent is a box that swallows what the reader types. The state is said
-   * instead.
-   */
+  // Automatic runtime quiescence leaves the conversation ready for its next turn.
   const state = instance.data?.state;
-  const isReady = state === "ready";
-  /*
-   * Suspended is not "cannot answer" — it is "not resumed yet".
-   *
-   * The gateway does refuse a message for a suspended instance, but the reader's
-   * intention is unambiguous: they typed something and pressed send. Making them find
-   * a Resume control first, having just been told the agent gave its worker back at
-   * the end of the last turn, is a step the page can take for them — and with
-   * that would be a detour on the way to every message.
-   *
-   * Only suspended. Creating, failed and deleting are states a message cannot be
-   * carried through by resuming, so those still say so and disable the box.
-   */
-  const isSuspended = state === "suspended";
-  const canSend = isReady || isSuspended;
+  const canSend = state === "ready";
 
   /*
    * Watching the instance while it is doing something.
@@ -409,7 +367,7 @@ export function AgentChatPage() {
    * happen at all, so this waits for the state that enables it.
    *
    * Once per conversation, tracked rather than left to fire whenever `canSend` is
-   * true. A conversation that comes back from suspended flips it mid-visit, and the
+   * true. A conversation that finishes preparing flips it mid-visit, and the
    * caret is by then wherever the reader put it — quite possibly in the field
    * answering a question, which is the one place taking it from would cost them
    * typing.
@@ -485,25 +443,6 @@ export function AgentChatPage() {
    * That is a fragility in `useChat` — one effect owning another's abort — and worth
    * fixing there rather than worked around here. Until then the list catches up on its
    * next ordinary read, which costs nothing a reader can see.
-   */
-
-  /*
-   * The page no longer suspends a conversation when its turn ends.
-   *
-   * It used to, and had to: nothing on the server gave a worker back, so a conversation
-   * held one from creation until somebody suspended or deleted it, and a cluster with
-   * more conversations than workers could not start another. The page made the
-   * `SuspendAgentInstance` call nobody else was making.
-   *
-   * The server does it now — a completed A2A turn quiesces its own runtime and records
-   * the snapshot boundary it stopped at. That is strictly better than what this did: it
-   * happens whether or not a tab is open, which was this version's stated limitation and
-   * the reason the pool could still fill up.
-   *
-   * Doing both would be worse than doing neither. The server's quiesce releases the
-   * worker and deliberately leaves the instance logically `ready`; this suspended it
-   * logically as well, so every conversation read as suspended and every message paid
-   * for a resume first — a round trip added to each turn for something already done.
    */
 
   // Held in a ref so the interval is not torn down and rebuilt every time SWR
@@ -681,9 +620,6 @@ export function AgentChatPage() {
             />
           ) : null}
 
-          {/* The controller's own precondition, said rather than discovered. A
-              suspended agent is resumable from the agents list, which is why the
-              state is named rather than the page simply refusing. */}
           {instance.data && !canSend ? (
             <Alert
               type="warning"
@@ -692,7 +628,7 @@ export function AgentChatPage() {
               title={`This conversation is ${state}, so the agent cannot answer`}
               description={
                 instance.data.failure?.message ||
-                "The A2A gateway accepts messages only for a ready conversation. Resume it from the agent's page, or start another conversation."
+                "The agent accepts messages once this conversation is ready. You can also start another conversation."
               }
             />
           ) : null}

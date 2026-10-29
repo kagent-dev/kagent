@@ -3,6 +3,7 @@ package database
 import (
 	"crypto/sha256"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
@@ -263,7 +264,7 @@ func TestSettlementSerializesWithSessionDeletion(t *testing.T) {
 			}
 			public, err := client.GetSessionTask(ctx, session.Id, string(task.ID), nil)
 			require.NoError(t, err)
-			delivery, err := client.ClaimDuePushDelivery(ctx)
+			delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 			require.NoError(t, err)
 			if settleErr == nil {
 				require.Equal(t, a2a.TaskStateCompleted, public.Status.State)

@@ -29,7 +29,7 @@ func (denyUsers) Scope(context.Context, auth.Principal, auth.Verb, string) (auth
 
 func TestActorPolicyDoesNotInheritOwnerPermissions(t *testing.T) {
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	store := newBinding()
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)
@@ -51,10 +51,14 @@ func TestActorPolicyDoesNotInheritOwnerPermissions(t *testing.T) {
 			{"own session", auth.VerbGet, auth.Resource{Type: "Session", Name: store.session.Id}, true},
 			{"own session send", auth.VerbCreate, auth.Resource{Type: "Session", Name: store.session.Id}, true},
 			{"own session continue", auth.VerbUpdate, auth.Resource{Type: "Session", Name: store.session.Id}, true},
+			{"create checkpoint", auth.VerbCreate, auth.Resource{Type: "Checkpoint"}, false},
 			{"session collection", auth.VerbGet, auth.Resource{Type: "Session"}, true},
+			{"session list category", auth.VerbList, auth.Resource{Type: "Session"}, true},
+			{"session share administration", auth.VerbList, auth.Resource{Type: "Session", Name: store.session.Id + "/shares"}, false},
 			{"other session", auth.VerbGet, auth.Resource{Type: "Session", Name: uuid.NewString()}, false},
 			{"new session", auth.VerbCreate, auth.Resource{Type: "Session"}, false},
 			{"all creators", auth.VerbGet, auth.Resource{Type: "SessionAllCreators"}, false},
+			{"all creators list", auth.VerbList, auth.Resource{Type: "SessionAllCreators"}, false},
 			{"delete session", auth.VerbDelete, auth.Resource{Type: "Session", Name: store.session.Id}, false},
 			{"share", auth.VerbCreate, auth.Resource{Type: "SessionShare", Name: store.session.Id}, false},
 			{"own memory", auth.VerbList, auth.Resource{Type: "Memory", Name: "team-a/agent"}, true},

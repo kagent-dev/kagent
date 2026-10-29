@@ -106,7 +106,7 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			store.fail.Store(fail)
 			session := createTaskStoreSession(t, store.Client)
 			issuer := jwttest.New(t)
-			verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+			verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 			require.NoError(t, err)
 			runtimeToken := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(session.Id), "actor-uid"))
 			listener := bufconn.Listen(DefaultMaxMessageSize)

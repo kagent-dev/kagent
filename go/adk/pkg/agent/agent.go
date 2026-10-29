@@ -114,7 +114,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 		log.InfoContext(ctx, "wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
 	}
 
-	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, log)
+	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, builtinTools.GetDisableAskUser(), log)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +224,7 @@ func usesRawOutputSchema(model *configv1.ADKModelConfig) bool {
 	}
 }
 
-func buildAgentTools(agentConfig *configv1.ADKAgentConfig, remoteAgentTools, extraTools []tool.Tool, log *slog.Logger) ([]tool.Tool, error) {
+func buildAgentTools(agentConfig *configv1.ADKAgentConfig, remoteAgentTools, extraTools []tool.Tool, disableAskUser bool, log *slog.Logger) ([]tool.Tool, error) {
 	var localTools []tool.Tool
 	if agentConfig.Memory != nil {
 		log.Info("memory configuration detected, adding memory tools")
@@ -236,11 +236,13 @@ func buildAgentTools(agentConfig *configv1.ADKAgentConfig, remoteAgentTools, ext
 	localTools = append(localTools, remoteAgentTools...)
 	localTools = append(localTools, extraTools...)
 
-	askUserTool, err := tools.NewAskUserTool()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ask_user tool: %w", err)
+	if !disableAskUser {
+		askUserTool, err := tools.NewAskUserTool()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ask_user tool: %w", err)
+		}
+		localTools = append(localTools, askUserTool)
 	}
-	localTools = append(localTools, askUserTool)
 	return localTools, nil
 }
 

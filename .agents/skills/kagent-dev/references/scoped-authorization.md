@@ -55,7 +55,7 @@ Pass scopes as ordinary function arguments. Do not place policy decisions in req
 - Prompt libraries, tool discovery, and WorkerPool summary rows use `kubeauth.CollectionMatcher` for custom collection projection.
 - Flat tool discovery must filter through the same exact owning-server identities as server discovery.
 - `GetSubstrateSummary` requires `Check(VerbGet, Resource{Type: "SystemSummary"})` before any resource reads; denial fails the whole request with permission denied. WorkerPool rows then use their own `VerbList` scope.
-- The summary capability covers its ATE inventory. Dedicated actor and worker endpoints independently require `Check(VerbGet, Resource{Type: "Substrate"})`. Both capabilities have empty namespace/name; neither uses `Scope(VerbGet, ...)`.
+- The summary capability grants endpoint access only. ATE inventory uses independent `VerbList` scopes for `SubstrateActor`, `SubstrateActorTemplate` (both `atespace`/`name`), and `SubstrateWorker` (`namespace`/`name`). Dedicated actor and worker endpoints require their respective list scopes, without a `Substrate` or `SystemSummary` capability. Use `inventoryauth.CollectionMatcher` and intersect scopes with watched and requested locations before pagination or counts. See the source contract for cursor and embedded-placement rules.
 - Static provider definitions and supported tool-server types expose no configured object and remain available after authentication.
 
 The default OSS no-op authorizer implements `CollectionAuthorizer` and returns `ScopeAll`, preserving current OSS visibility.

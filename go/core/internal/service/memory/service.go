@@ -212,8 +212,8 @@ func (s *Service) Delete(ctx context.Context, agentName string) error {
 // exists. Actors remain bound to their current session's agent and owner.
 func (s *Service) managementScope(ctx context.Context, verb auth.Verb, agentName string) (string, string, error) {
 	if session, ok := auth.AuthSessionFrom(ctx); ok && session != nil {
-		if principal := session.Principal(); principal.Actor == nil && principal.User.ID != "" {
-			return agentName, principal.User.ID, s.authorize(ctx, verb, agentName)
+		if principal := session.Principal(); principal.RuntimeBinding == nil && principal.ID != "" {
+			return agentName, principal.ID, s.authorize(ctx, verb, agentName)
 		}
 	}
 	return s.scope(ctx, verb)
@@ -237,6 +237,10 @@ func (s *Service) scope(ctx context.Context, verb auth.Verb) (string, string, er
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, agentName string) error {
+	// Share authority belongs only to Session reads, including for direct callers.
+	if _, shared := auth.ShareContextFrom(ctx); shared {
+		return serviceerrors.NewPermissionDenied("Session shares do not grant Memory access", nil)
+	}
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return serviceerrors.NewUnauthenticated("Authenticated identity is required", nil)

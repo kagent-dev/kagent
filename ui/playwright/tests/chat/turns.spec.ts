@@ -47,15 +47,6 @@ test("chat: a failed turn is reported and can be retried", async ({ page }) => {
   });
 
   await test.step("4. retrying resends and clears the previous failure", async () => {
-    /*
-     * This step also covers a turn crossing a suspend, which is not obvious from
-     * reading it.
-     *
-     * A suspended conversation is one a reader can meet at any point — they may have
-     * suspended it themselves, or left it and come back. Retry begins its turn inside
-     * `useChat` and never passes through the composer, so a page that resumed only
-     * around `send` would leave this one button broken while every other path worked.
-     */
     await page.getByRole("button", { name: "Retry" }).click();
     // Still the failing scenario, so it fails again — the point is that the
     // retry ran at all, and that the page did not double up the user's message.

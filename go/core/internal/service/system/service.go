@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,7 +74,7 @@ func (s *Service) GetCurrentUser(ctx context.Context) (map[string]any, error) {
 	if principal.Claims != nil {
 		return maps.Clone(principal.Claims), nil
 	}
-	return map[string]any{"sub": principal.User.ID}, nil
+	return map[string]any{"sub": principal.ID}, nil
 }
 
 func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
@@ -151,13 +151,13 @@ func namespacesFromNames(names []string) []Namespace {
 	return result
 }
 
-func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev1alpha1.WorkerPool, error) {
+func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev1.WorkerPool, error) {
 	var options []client.ListOption
 	if namespace != "" {
 		options = append(options, client.InNamespace(namespace))
 	}
 
-	workerPoolList := &atev1alpha1.WorkerPoolList{}
+	workerPoolList := &atev1.WorkerPoolList{}
 	if err := s.kubeClient.List(ctx, workerPoolList, options...); err != nil {
 		return nil, err
 	}

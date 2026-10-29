@@ -13,12 +13,15 @@ revision. Explicit egress grants are applied from the controller's persisted
 intended policy before execution. Lifecycle
 operations do not read or translate Kubernetes policy.
 
+Namespace reference policies constrain compilation. Failed resolution preserves
+the last successful revision for new sessions; existing sessions remain pinned.
+
 The control plane creates a deterministic Actor initially suspended and marks the session
 ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v0.6.0 requires protocol-specific egress policies and permits
+Substrate v0.7.0-alpha1 requires protocol-specific egress policies and permits
 DNS queries only for hostnames matched by those policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
@@ -34,8 +37,8 @@ Helm chart uses `global.clusterDomain` (default `cluster.local`) for its generat
 controller and API tool URLs; custom model, MCP, and telemetry URLs must also
 use full names.
 
-Create (including forks), explicit Suspend, Resume, and Delete keep their current
-operation UUID and executor claim on the session row. Fork creation loads its
+Create (including forks), Delete, and controller-owned deadline suspension keep
+their current operation UUID and executor claim on the session row. Fork creation loads its
 pinned checkpoint from PostgreSQL. Namespace provisioning belongs to the Agent
 controller; session creation uses the pinned ActorTemplate's existing namespace.
 Read-only preparation may run concurrently, but an atomic execution claim permits
@@ -47,8 +50,7 @@ A joined caller observes the current session only while its admitted generation
 remains current. A superseded caller gets a conflict and issues no runtime work,
 even when the new operation has the same state and kind. There is no historical
 lifecycle result archive or pruning requirement. Creation retries return current
-session state; already-at-target Suspend/Resume requests are successful no-ops.
-Neither requires an old operation receipt. A2A task storage and checkpoint
+session state without requiring an old operation receipt. A2A task storage and checkpoint
 reconstruction have their own durable history requirements.
 
 An unclaimed operation can retry preparation; Delete may supersede it. Every
@@ -85,8 +87,13 @@ deletion and cannot recreate compute. Public Delete still returns NotFound for a
 fresh request after deletion; already-authorized joined Delete callers can observe
 the final tombstone. No public operation API is introduced.
 
-Explicit suspend and resume update the logical lifecycle state. Deletion closes task
-admission, stops and deletes the Actor, then tombstones the session. The workflow
+Session runtime suspension and resumption are platform-managed: idle settlement
+suspends the Actor while the Session stays READY, and Substrate ingress resumes
+it for the next interaction. There are no public Session suspend/resume controls;
+standalone Sandboxes retain their explicit controls. Scheduled-run deadline cleanup
+can still suspend a Session internally when no scheduled task can be identified.
+Deletion closes task admission,
+stops and deletes the Actor, then tombstones the session. The workflow
 entry points are in
 [`go/core/internal/service/session`](../../go/core/internal/service/session).
 TaskStore writes and automatic idle lifecycle work use durable task boundaries
@@ -189,8 +196,7 @@ Ordinary committed settlements do not wait for the recovery interval.
 An empty claim is followed by a check for unclaimed work on ready sessions. If
 dispatch, checkpoint creation, a lifecycle operation, or a row lock blocks that
 work, workers retry within one second until it becomes eligible or is superseded.
-Database errors also use this short retry. Explicit lifecycle completion wakes
-workers when it returns a session to READY. Suspended/deleted sessions and claimed
+Database errors also use this short retry. Sessions that are not READY and claimed
 work do not keep the short retry active. Idle workers make one claim attempt and
 one pending-work check per recovery interval, rather than querying every second.
 Other background workers and connection-pool idle settings still affect whether
@@ -261,7 +267,7 @@ or is canceled. Background processes are not durable work and have no process
 handle API in the bash tool. Suspending an Actor preserves files, not running
 commands. Command payloads and output are not logged by the shell helpers.
 
-Substrate v0.6.0 uses snapshot fidelity. Agent and standalone sandbox
+Substrate v0.7.0-alpha1 uses snapshot fidelity. Agent and standalone sandbox
 templates use VOLUMES. Resume starts fresh containers
 from the OCI image with the saved durable directories. Harnesses recover pending
 approvals and user input from their durable state; sandbox guests start with a
@@ -312,3 +318,31 @@ reconstructs pending from PostgreSQL and resets process-local histogram totals.
   errors require checking the bounded error type and logs (`revision`,
   `actor_template_atespace`, `actor_template_name`, `error`) to identify the
   failing dependency and repeated same-object failures.
+
+## Inventory pagination
+
+Actor and worker lists filter by current authorization, watched namespaces, and
+request scope before filling a public page. They look ahead for one more authorized
+row, and issue a continuation only when it exists. Public cursors contain the last
+returned identity and request scope, never an upstream cursor that could name a
+filtered-out row.
+
+The Substrate adapter translates that identity into the pinned v0.7.0-alpha1 keyset
+token format: actors use atespace/name globally or name within an atespace; workers
+use globally unique names. The encoder is version-dependent and its contract tests
+must be checked when upgrading Substrate. Continuations resume directly after the
+boundary without requiring it to still exist. Authorization is evaluated anew;
+cursors grant no access. Watched atespaces are traversed in sorted order.
+
+Only the authorized page and an upstream batch are retained. Lookahead can be read
+again on the next request, and sparse authorization can require many backend reads,
+but previous public pages are not rescanned. Each public list request has a
+10,000-row and 100-backend-page budget shared across atespaces
+and a 10-second deadline (or the caller's earlier deadline). The first batch
+requests `limit + 1` rows; later batches request up to 1,000 rows, capped by the
+remaining row budget. This applies once per request, across atespaces. All fetched
+rows count, including denied rows, lookahead, and unused rows within a batch. Exhaustion returns an explicit `ResourceExhausted` or
+`DeadlineExceeded` inventory error. Summary scans retain their separate
+10,000-page walk bound. Non-advancing token checks also bound failed scans.
+Failed scans return no partial page
+or continuation, and backend error details remain in server logs.

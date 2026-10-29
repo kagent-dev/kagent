@@ -7,17 +7,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/jwk"
 
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (
-	runtimeJWTAudience  = "kagent-runtime"
+	RuntimeJWTAudience  = "kagent-runtime"
 	runtimeJWTClockSkew = 30 * time.Second
 )
 
@@ -36,14 +38,18 @@ type actorClaims struct {
 
 // ActorJWTVerifier trusts one configured issuer and refreshes its signing keys.
 type ActorJWTVerifier struct {
-	issuer  string
-	jwksURL string
-	keys    *jwk.AutoRefresh
+	issuer   string
+	jwksURL  string
+	keys     *jwk.AutoRefresh
+	audience string
 }
 
 // NewActorJWTVerifier loads discovery over verified TLS. The context owns key
 // refreshes; callers must cancel it when the verifier is no longer used.
-func NewActorJWTVerifier(ctx context.Context, issuer, caFile string) (*ActorJWTVerifier, error) {
+func NewActorJWTVerifier(ctx context.Context, issuer, caFile, audience string) (*ActorJWTVerifier, error) {
+	if audience == "" || strings.TrimSpace(audience) != audience {
+		return nil, fmt.Errorf("actor JWT audience must not be empty or have surrounding whitespace")
+	}
 	if err := validateIssuerURL(issuer); err != nil {
 		return nil, err
 	}
@@ -103,7 +109,29 @@ func NewActorJWTVerifier(ctx context.Context, issuer, caFile string) (*ActorJWTV
 			}
 		}
 	}()
-	return &ActorJWTVerifier{issuer: issuer, jwksURL: discovery.JWKSURI, keys: keys}, nil
+	return &ActorJWTVerifier{issuer: issuer, jwksURL: discovery.JWKSURI, keys: keys, audience: audience}, nil
+}
+
+// ForAudience returns an immutable verifier sharing this issuer's signing-key
+// cache. Audiences come from trusted server configuration, never request fields.
+func (v *ActorJWTVerifier) ForAudience(audience string) *ActorJWTVerifier {
+	bound := *v
+	bound.audience = audience
+	return &bound
+}
+
+// SessionID identifies a kagent Session actor. Other Substrate actors do not gain
+// Session authority merely by having a valid issuer signature.
+func (a ActorIdentity) SessionID() (string, error) {
+	id, ok := strings.CutPrefix(a.ActorName, "session-")
+	if !ok || a.Atespace == "" || a.ActorUID == "" {
+		return "", fmt.Errorf("actor does not identify a kagent Session")
+	}
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed.String() != id {
+		return "", fmt.Errorf("actor has an invalid Session identifier")
+	}
+	return id, nil
 }
 
 func validateIssuerURL(raw string) error {
@@ -114,9 +142,12 @@ func validateIssuerURL(raw string) error {
 	return nil
 }
 
-// Verify authenticates a runtime token. Session authorization remains with the
+// Verify authenticates an Actor token for this verifier's audience. Authorization remains with the
 // control-plane service and checks this identity against the recorded Actor UID.
 func (v *ActorJWTVerifier) Verify(ctx context.Context, raw string) (ActorIdentity, error) {
+	if v.audience == "" || strings.TrimSpace(v.audience) != v.audience {
+		return ActorIdentity{}, fmt.Errorf("actor JWT verifier has no valid audience")
+	}
 	claims := &actorClaims{}
 	_, err := jwt.ParseWithClaims(raw, claims, func(token *jwt.Token) (any, error) {
 		kid, ok := token.Header["kid"].(string)
@@ -137,10 +168,13 @@ func (v *ActorJWTVerifier) Verify(ctx context.Context, raw string) (ActorIdentit
 		}
 		return publicKey, nil
 	}, jwt.WithValidMethods([]string{"ES256", "RS256", "RS384", "RS512"}),
-		jwt.WithIssuer(v.issuer), jwt.WithAudience(runtimeJWTAudience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(),
+		jwt.WithIssuer(v.issuer), jwt.WithAudience(v.audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(),
 		jwt.WithLeeway(runtimeJWTClockSkew))
 	if err != nil {
 		return ActorIdentity{}, fmt.Errorf("verify Actor JWT: %w", err)
+	}
+	if v.audience != RuntimeJWTAudience && slices.Contains(claims.Audience, RuntimeJWTAudience) {
+		return ActorIdentity{}, fmt.Errorf("outbound Actor token also grants runtime authority")
 	}
 	a := claims.Actor
 	if a.Atespace == "" || a.ActorName == "" || a.ActorUID == "" || strings.ContainsAny(a.Atespace+a.ActorName, "/") ||

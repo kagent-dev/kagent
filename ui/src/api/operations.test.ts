@@ -1,5 +1,5 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
-import { ActorState, SnapshotStorageStatus } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageStatus } from "@/generated/api/ateapi/v1/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -38,7 +38,7 @@ import {
 import {
   SessionService,
 } from "@/generated/kagent/api/v1/sessions_pb";
-import { ApiError, isNotFound } from "./ApiError";
+import { isNotFound } from "./ApiError";
 import { apiClient } from "./client";
 import { clearApiExtensions } from "./extensionPoints";
 import { registerAuthTokenSource, setApiTransport } from "./transport";
@@ -378,7 +378,7 @@ describe("the cluster", () => {
             {
               ref: { namespace: "kagent", name: "pool" },
               resource: {
-                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                apiVersion: "ate.dev/v1", kind: "WorkerPool",
                 value: {
                   metadata: { namespace: "kagent", name: "pool" },
                   spec: { replicas: 2, workerImage: "ateom:1" },
@@ -569,7 +569,7 @@ describe("the cluster", () => {
             {
               ref: { namespace: "kagent", name: "pool" },
               resource: {
-                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                apiVersion: "ate.dev/v1", kind: "WorkerPool",
                 value: {
                   metadata: { namespace: "kagent", name: "pool" },
                   spec: { replicas: 2, workerImage: "ateom:1" },
@@ -994,69 +994,6 @@ describe("agent instances", () => {
     expect(isNotFound(missing)).toBe(true);
   });
 
-  /*
-   * Suspend and resume complete synchronously on the controller, so the record they
-   * answer with is the finished state. Returning it rather than discarding it is
-   * what lets a caller update what is on screen without a second read.
-   */
-  it("suspends and resumes through their own RPCs, answering with the new state", async () => {
-    const called: string[] = [];
-    serve(({ service }) => {
-      service(SessionService, {
-        suspendSession: (request) => {
-          called.push(`suspend ${request.sessionId}`);
-          return {
-            session: instanceMessage({ state: RuntimeState.SUSPENDED }),
-          };
-        },
-        resumeSession: (request) => {
-          called.push(`resume ${request.sessionId}`);
-          return { session: instanceMessage({ state: RuntimeState.READY }) };
-        },
-      });
-    });
-
-    const suspended = await apiClient.agentInstances.suspend(INSTANCE_ID);
-    expect(suspended.state).toBe("suspended");
-
-    const resumed = await apiClient.agentInstances.resume(INSTANCE_ID);
-    expect(resumed.state).toBe("ready");
-
-    expect(called).toEqual([
-      `suspend ${INSTANCE_ID}`,
-      `resume ${INSTANCE_ID}`,
-    ]);
-  });
-
-  /*
-   * The controller refuses a lifecycle operation from the wrong state with
-   * `Aborted` — "conflicting lifecycle operation". It must reach the caller as
-   * itself: a page that reported it as a generic failure would tell a reader to
-   * retry the one thing that cannot work.
-   */
-  it("passes a refused lifecycle operation through as the error it was", async () => {
-    serve(({ service }) => {
-      service(SessionService, {
-        suspendSession: () => {
-          throw new ConnectError(
-            "AgentInstance has a conflicting lifecycle operation",
-            Code.Aborted,
-          );
-        },
-      });
-    });
-
-    const failure = await apiClient.agentInstances
-      .suspend(INSTANCE_ID)
-      .catch((error: unknown) => error);
-
-    expect(failure).toBeInstanceOf(ApiError);
-    expect((failure as ApiError).code).toBe("Aborted");
-    expect((failure as ApiError).message).toMatch(/conflicting lifecycle operation/);
-    expect((failure as ApiError).url).toBe(
-      "SessionService/SuspendSession",
-    );
-  });
 });
 
 describe("session shares", () => {

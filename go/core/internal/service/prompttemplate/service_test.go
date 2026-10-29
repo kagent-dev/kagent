@@ -39,7 +39,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 		service := prompttemplate.NewService(kubeClient, authorizer)
 		ctx := pkgauth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{
-			P: pkgauth.Principal{User: pkgauth.User{ID: "prompt-user"}},
+			P: pkgauth.Principal{ID: "prompt-user"},
 		})
 		return service, kubeClient, ctx
 	}
@@ -186,7 +186,7 @@ func TestPromptLibraryScopeAndObjectBoundary(t *testing.T) {
 		{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"library"}},
 	}}}}}
 	service := prompttemplate.NewService(kube, authorizer)
-	ctx := pkgauth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "user"}}})
+	ctx := pkgauth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgauth.Principal{ID: "user"}})
 	listed, err := service.List(ctx, "team")
 	require.NoError(t, err)
 	require.Equal(t, []prompttemplate.Summary{{Namespace: "team", Name: "library", Keys: []string{"visible"}, KeyCount: 2}}, listed)

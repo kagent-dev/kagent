@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -95,16 +95,12 @@ func (w *ActorWorkflow) Create(ctx context.Context, session *apiv1.Session) (*ap
 	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 }
 
-// Suspend returns after the Actor and session are suspended. A retry observes
-// the same operation rather than issuing a second mutation.
+// Suspend is used by controller-owned deadline cleanup when no scheduled task
+// can be identified.
+// It returns after the Actor and Session are suspended; retries observe the same
+// operation rather than issuing a second mutation. It has no public Session RPC.
 func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
-}
-
-// Resume returns after the Actor is running and the session is ready. Missing
-// Actors are errors; Resume never creates replacement compute.
-func (w *ActorWorkflow) Resume(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 }
 
 // Delete closes admission before stopping and deleting compute. It can supersede
@@ -120,12 +116,7 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 	if err != nil {
 		return nil, err
 	}
-	result, err := w.execute(ctx, operation)
-	if err == nil && result.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY {
-		// A resume can make old unclaimed idle work eligible again.
-		w.wakeQuiescence()
-	}
-	return result, err
+	return w.execute(ctx, operation)
 }
 
 // execute keeps lifecycle preparation separate from the durable issue boundary.

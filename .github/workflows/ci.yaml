@@ -48,7 +48,7 @@ jobs:
         sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.6.0
+      SUBSTRATE_VERSION: 0.7.0-alpha1
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
@@ -179,6 +179,12 @@ jobs:
             workerImage: ghcr.io/kagent-dev/substrate/ateworker-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
           EOF
           cat > "$RUNNER_TEMP/substrate-values.yaml" <<EOF
+          # CI-only grants for cross-namespace model and MCP credential tests.
+          # Keep kagent-untrusted excluded to verify credential-provider denial.
+          credentialProvider:
+            namespacePolicies:
+              - atespace: kagent
+                allowedNamespaces: [kagent, kagent-shared-models, kagent-shared-tools]
           atelet:
             resources:
               limits:
@@ -199,6 +205,12 @@ jobs:
           ./go/core/bin/kagent-local --config "$RUNNER_TEMP/kagent-cli.yaml" install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
+
+      - name: Verify Substrate CLI access after install
+        working-directory: go
+        run: |
+          SUBSTRATE_CLI_SOURCE=$(go mod download -json go.ate.dev/substrate | jq -r .Dir)
+          go -C "$SUBSTRATE_CLI_SOURCE" run -mod=readonly ./cmd/kubectl-ate get actors --all-atespaces
 
       - name: Cache Cloud Hypervisor assets
         if: matrix.sandbox_class == 'microvm'

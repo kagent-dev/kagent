@@ -6,9 +6,6 @@ ARG TARGETOS
 
 WORKDIR /workspace
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
-    --mount=type=cache,target=/root/.cache/go-build,rw \
-    go mod download
 COPY api/ api/
 COPY adk/ adk/
 COPY core/ core/

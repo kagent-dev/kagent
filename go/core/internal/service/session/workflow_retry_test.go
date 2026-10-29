@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -85,7 +85,7 @@ func (a *retryTestActors) DeleteActor(ctx context.Context, space, name string) e
 }
 
 func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
-	for _, name := range []string{"create", "fork", "resume", "suspend", "delete"} {
+	for _, name := range []string{"create", "fork", "suspend", "delete"} {
 		t.Run(name, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
@@ -94,14 +94,10 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 			if name != "create" && name != "fork" {
 				session, err = setup.Create(t.Context(), session)
 				require.NoError(t, err)
-				switch name {
-				case "resume":
-					session, err = setup.Suspend(t.Context(), session)
-					require.NoError(t, err)
-				case "suspend":
-					_, err = base.ResumeActor(t.Context(), "team-a", substrate.ActorName(session.Id))
-					require.NoError(t, err)
-				}
+			}
+			if name == "suspend" {
+				_, err = base.ResumeActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+				require.NoError(t, err)
 			}
 			var checkpointID string
 			if name == "fork" {
@@ -111,8 +107,6 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			call := workflow.Create
 			switch name {
-			case "resume":
-				call = workflow.Resume
 			case "suspend":
 				call = workflow.Suspend
 			case "delete":
@@ -139,8 +133,6 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			retryCall := restarted.Create
 			switch name {
-			case "resume":
-				retryCall = restarted.Resume
 			case "suspend":
 				retryCall = restarted.Suspend
 			case "delete":
@@ -154,75 +146,6 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 			}
 			if name == "delete" {
 				require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, result.State)
-			}
-		})
-	}
-}
-
-func TestSupersededLifecycleObserverCannotExecute(t *testing.T) {
-	for _, test := range []struct {
-		name        string
-		deleteAfter bool
-		beforeRead  bool
-	}{
-		{name: "after suspend"},
-		{name: "after delete", deleteAfter: true},
-		{name: "lookup after delete", deleteAfter: true, beforeRead: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			store, session := lifecycleFixture(t)
-			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-			workflow := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second)
-			session, err := workflow.Create(t.Context(), session)
-			require.NoError(t, err)
-			session, err = workflow.Suspend(t.Context(), session)
-			require.NoError(t, err)
-			read, release := make(chan struct{}), make(chan struct{})
-			actors := &retryTestActors{lifecycleTestActors: base, afterRead: func(ctx context.Context) {
-				close(read)
-				select {
-				case <-release:
-				case <-ctx.Done():
-				}
-			}}
-			if test.beforeRead {
-				actors.beforeRead, actors.afterRead = actors.afterRead, nil
-			}
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			type outcome struct {
-				session *apiv1.Session
-				err     error
-			}
-			result := make(chan outcome, 1)
-			go func() {
-				session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Resume(ctx, session)
-				result <- outcome{session, err}
-			}()
-			select {
-			case <-read:
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
-			}
-			ready, err := workflow.Resume(ctx, session)
-			require.NoError(t, err, "another replica can finish still-unissued work")
-			suspended, err := workflow.Suspend(ctx, ready)
-			require.NoError(t, err)
-			if test.deleteAfter {
-				_, err = workflow.Delete(ctx, suspended)
-				require.NoError(t, err)
-			}
-			close(release)
-			late := <-result
-			require.ErrorIs(t, late.err, database.ErrConflict)
-			require.Nil(t, late.session)
-			require.Zero(t, actors.mutations.Load(), "the delayed caller must not become another executor")
-			current, err := store.GetSessionByID(ctx, session.Id)
-			if test.deleteAfter {
-				require.ErrorIs(t, err, database.ErrNotFound)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, current.State)
 			}
 		})
 	}
@@ -300,8 +223,6 @@ func TestDeletePreparationFailureKeepsAdmissionClosed(t *testing.T) {
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, current.State)
 			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
 			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next turn"), database.ErrConflict)
-			_, err = workflow.Resume(t.Context(), session)
-			require.ErrorIs(t, err, database.ErrConflict)
 			worker, err := NewExpirationWorker(store, workflow, time.Hour, time.Minute)
 			require.NoError(t, err)
 			require.ErrorIs(t, worker.expire(t.Context(), session.Id, time.Now()), database.ErrConflict,
@@ -483,7 +404,7 @@ func TestDelayedCreationObservesOnlyCurrentGeneration(t *testing.T) {
 			ready, err := workflow.Create(ctx, session)
 			require.NoError(t, err)
 			if test.supersede {
-				_, err = workflow.Suspend(ctx, ready)
+				_, err = workflow.Delete(ctx, ready)
 				require.NoError(t, err)
 			}
 			close(release)

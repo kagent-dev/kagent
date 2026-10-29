@@ -63,8 +63,8 @@ func TestSandboxAgentMCP(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "scratch-caller-", Namespace: f.template.Namespace},
 		Spec: v1alpha3.AgentTemplateSpec{
-			Description: "Scratch sandbox MCP caller", SystemPrompt: "Use create_sandbox to create the requested workspace.", ModelConfig: &corev1.LocalObjectReference{Name: model.Name},
-			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"create_sandbox"}}}},
+			Description: "Scratch sandbox MCP caller", SystemPrompt: "Use create_sandbox to create the requested workspace.", ModelConfig: &v1alpha3.ObjectReference{Name: model.Name},
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"create_sandbox"}}}},
 		},
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)

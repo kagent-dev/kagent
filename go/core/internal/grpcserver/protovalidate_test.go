@@ -88,8 +88,6 @@ func TestInvalidSessionAndCheckpointIDsNeverReachHandlers(t *testing.T) {
 	requests := []proto.Message{
 		&apiv1.GetSessionRequest{SessionId: "invalid"},
 		&apiv1.UpdateSessionNameRequest{SessionId: "invalid"},
-		&apiv1.SuspendSessionRequest{SessionId: "invalid"},
-		&apiv1.ResumeSessionRequest{SessionId: "invalid"},
 		&apiv1.DeleteSessionRequest{SessionId: "invalid"},
 		&apiv1.CreateSessionShareRequest{SessionId: "invalid"},
 		&apiv1.ListSessionSharesRequest{SessionId: "invalid"},

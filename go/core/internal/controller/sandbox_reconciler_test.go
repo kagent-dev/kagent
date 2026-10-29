@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -124,13 +124,13 @@ func sandboxTestTemplate() *kagentv1alpha3.SandboxTemplate {
 	}}
 }
 
-func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconciler, krt.StaticCollection[*kagentv1alpha3.SandboxTemplate], krt.StaticCollection[*atev1alpha1.WorkerPool]) {
+func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconciler, krt.StaticCollection[*kagentv1alpha3.SandboxTemplate], krt.StaticCollection[*atev1.WorkerPool]) {
 	t.Helper()
 	opts := krt.NewOptionsBuilder(t.Context().Done(), "test-sandbox", nil)
 	template := sandboxTestTemplate()
-	pool := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "default"}}
+	pool := &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "default"}}
 	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.SandboxTemplate{template}, opts.WithName("SandboxTemplates")...)
-	pools := krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{pool}, opts.WithName("WorkerPools")...)
+	pools := krt.NewStaticCollection(nil, []*atev1.WorkerPool{pool}, opts.WithName("WorkerPools")...)
 	store := &sandboxTestStore{}
 	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}}
 	reconciler := &SandboxReconciler{
@@ -212,7 +212,7 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).ObservedActorTemplate != nil })
 
 	pool := (*pools.GetKey("team-a/default")).DeepCopy()
-	pool.Spec.SandboxClasses = []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}
+	pool.Spec.SandboxClasses = []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}
 	pools.UpdateObject(pool)
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).RevisionID != original.RevisionID })
 	changed := s.collections.states.GetKey(key)

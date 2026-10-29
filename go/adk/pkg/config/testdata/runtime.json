@@ -20,7 +20,8 @@
   "builtin_tools": {
     "bash_venv_path": "/opt/venv",
     "disable_file_search": false,
-    "disable_bash": true
+    "disable_bash": true,
+    "disable_ask_user": true
   },
   "telemetry": {
     "capture_content": false,

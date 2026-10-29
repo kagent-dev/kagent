@@ -23,7 +23,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "ruff>=0.17.1",
+    "ruff>=0.17.2",
 ]
 
 [tool.uv.sources]
@@ -32,7 +32,7 @@ kagent-proto = {workspace = true}
 kagent-tools = {workspace = true}
 
 [build-system]
-requires = ["setuptools>=84.0.0", "wheel>=0.48.0"]
+requires = ["setuptools>=84.2.1", "wheel>=0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.hatch.build.targets.wheel]

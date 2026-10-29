@@ -1089,7 +1089,7 @@ export function SubstratePage() {
   return (
     <PageFrame
       title="Substrate"
-      description="Kubernetes worker pools, plus actor templates, live actors, and worker assignments from Substrate."
+      description="Visible worker pools, actor templates, actors, and workers. Counts include only resources you can view."
       actions={
         <Space size={8}>
           <Tooltip
@@ -1256,7 +1256,7 @@ export function SubstratePage() {
             type="warning"
             showIcon
             title="Runtime actor state is incomplete"
-            description={`Worker pools come from Kubernetes and are complete. Everything else on this page — the actor templates as well as the actors and workers below — comes from ate-api, which answered with an error, so those may be short: ${inventory.ateApiError}`}
+            description={`Visible worker pools come from Kubernetes. Substrate returned an error, so visible actor templates, actors, and workers may be incomplete: ${inventory.ateApiError}`}
             data-testid="substrate-partial"
           />
         ) : null}
@@ -1312,12 +1312,12 @@ export function SubstratePage() {
             hint={unread}
           />
           <StatTile
-            label="Scope"
+            label="Requested filters"
             testId="substrate-stat-scope"
             // Not read from the response — it is what this page asked for, which is
             // known even when the read failed, and is the thing that explains an empty
             // table.
-            value={!namespace && !atespace ? "all" : `K8s: ${namespace || "all"}; ATE: ${atespace || "all"}`}
+            value={!namespace && !atespace ? "none" : `K8s: ${namespace || "any"}; ATE: ${atespace || "any"}`}
           />
         </div>
 
@@ -1351,8 +1351,8 @@ export function SubstratePage() {
             size="small"
             locale={{
               emptyText: poolQuery.trim()
-                ? "No worker pools match your search."
-                : "No worker pools in this scope. Create one in the cluster, or install one with the Helm chart.",
+                ? "No visible worker pools match your search."
+                : "No worker pools visible in this scope.",
             }}
           />
         </Card>
@@ -1387,8 +1387,8 @@ export function SubstratePage() {
             size="small"
             locale={{
               emptyText: templateQuery.trim()
-                ? "No actor templates match your search."
-                : "No actor templates yet. One appears when you create a harness and an agent template.",
+                ? "No visible actor templates match your search."
+                : "No actor templates visible in this scope.",
             }}
           />
         </Card>
@@ -1430,7 +1430,7 @@ export function SubstratePage() {
             noun="Actors"
             unread={Boolean(summary.error)}
             counts={inventory?.actorStatusCounts ?? []}
-            emptyText="No actors in this scope."
+            emptyText="No actors visible in this scope."
           />
 
           {/* Summary counts cover every worker: more running actors than busy workers means sharing. */}
@@ -1465,7 +1465,7 @@ export function SubstratePage() {
                 ? " "
                 : actors.data?.ateApiError
                   ? "This read could not reach ate-api, so there may be actors it did not see."
-                  : "No actors on this page.",
+                  : "No actors visible in this scope.",
             }}
           />
 
@@ -1543,7 +1543,7 @@ export function SubstratePage() {
                 ? " "
                 : workers.data?.ateApiError
                   ? "This read could not reach ate-api, so there may be workers it did not see."
-                  : "No worker assignments in this namespace scope on this page.",
+                  : "No workers visible in this scope.",
             }}
           />
 

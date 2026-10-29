@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -200,7 +201,8 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			{name: "missing Agent", ctx: serviceTestContext("visitor"), want: a2atype.ErrInvalidRequest},
 			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
 			{name: "missing session", ctx: serviceTestContext("visitor"), agent: agent, getErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
-			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent, denied: true},
+			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent},
+			{name: "denied share recipient", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
 			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, denied: true, want: a2atype.ErrUnauthorized},
 		} {
 			t.Run(operation.name+"/"+test.name, func(t *testing.T) {
@@ -252,5 +254,31 @@ func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
 		if !errors.Is(err, a2atype.ErrInvalidRequest) {
 			t.Fatalf("ListTasks(%v) = %v, want invalid Agent before storage", agent, err)
 		}
+	}
+}
+
+func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
+	for _, denySession := range []bool{false, true} {
+		t.Run(fmt.Sprintf("session-denied=%v", denySession), func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
+			policy := &recordingAuthorizer{deniedTypes: map[string]bool{"Agent": true, "Session": denySession}}
+			sessions := NewService(&serviceTestStore{getResult: stored}, policy, serviceTestWorkflow{})
+			ctx := serviceTestContext("alice")
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
+			message.ContextID = id
+			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(ctx, agent, message)
+			if denySession {
+				if !errors.Is(err, a2atype.ErrUnauthorized) {
+					t.Fatalf("error = %v, want Session denial", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if len(policy.resources) != 1 || policy.resources[0] != (auth.Resource{Type: "Session", Name: id}) {
+				t.Fatalf("unexpected authorization: %+v", policy.resources)
+			}
+		})
 	}
 }

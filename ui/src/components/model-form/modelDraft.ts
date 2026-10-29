@@ -28,7 +28,7 @@ import {
  *  - `passthrough` — the caller's own credential is forwarded; nothing is stored
  *  - `none`        — no credential (a local or unauthenticated endpoint)
  */
-export type ModelAuthType = "apiKey" | "secret" | "passthrough" | "none";
+export type ModelAuthType = "apiKey" | "secret" | "passthrough" | "actorJwt" | "none";
 
 /** One editable default-header row; `id` keeps rows stable across edits. */
 export interface HeaderRow {
@@ -43,6 +43,7 @@ export interface ModelTls {
 }
 
 export interface ModelDraft {
+  allowedNamespaces?: ModelConfigSpec["allowedNamespaces"];
   namespace: string;
   name: string;
   /** The provider's `type` (its enum), e.g. `"OpenAI"`. */
@@ -57,6 +58,8 @@ export interface ModelDraft {
   /** An existing Secret's name and key (auth `secret`). */
   apiKeySecret: string;
   apiKeySecretKey: string;
+  actorAudiences: string[];
+  actorExpirationSeconds: number;
   /** Provider parameter values, keyed by the parameter name the provider reports. */
   params: Record<string, string>;
   /** Headers injected into every request to the provider (advanced). */
@@ -88,6 +91,8 @@ export function emptyModelDraft(): ModelDraft {
     apiKey: "",
     apiKeySecret: "",
     apiKeySecretKey: "",
+    actorAudiences: [],
+    actorExpirationSeconds: 900,
     params: {},
     defaultHeaders: [],
     tls: emptyTls(),
@@ -174,6 +179,7 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
 
   return {
     namespace: namespace || DEFAULT_NAMESPACE,
+    allowedNamespaces: config.spec.allowedNamespaces,
     name,
     provider,
     model,
@@ -182,6 +188,8 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
     apiKey: "",
     apiKeySecret: config.spec.apiKeySecret ?? "",
     apiKeySecretKey: config.spec.apiKeySecretKey ?? "",
+    actorAudiences: config.spec.actorJwt?.audiences ?? [],
+    actorExpirationSeconds: config.spec.actorJwt?.expirationSeconds ?? 900,
     params: paramsFromSpec(config.spec),
     defaultHeaders: Object.entries(config.spec.defaultHeaders ?? {}).map(
       ([key, value]) => ({ ...newHeaderRow(), key, value }),
@@ -199,6 +207,7 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
  * "none".
  */
 function authTypeFrom(spec: ModelConfigSpec): ModelAuthType {
+  if (spec.actorJwt) return "actorJwt";
   if (spec.provider === OLLAMA_PROVIDER) {
     return spec.apiKeySecret ? "secret" : "none";
   }
@@ -220,6 +229,7 @@ export function authTypeForProvider(
   provider: string | undefined,
   current: ModelAuthType,
 ): ModelAuthType {
+  if (current === "actorJwt") return supportsActorJWT(provider) ? current : "none";
   if (provider === OLLAMA_PROVIDER) {
     return current === "secret" || current === "none" ? current : "none";
   }
@@ -264,6 +274,7 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
       : draft.model;
 
   const spec: ModelConfigSpec = { model, provider: draft.provider };
+  if (draft.allowedNamespaces) spec.allowedNamespaces = draft.allowedNamespaces;
 
   const blockKey = PROVIDER_SPEC_KEY[draft.provider];
   const block = coerceParams(draft.params);
@@ -277,7 +288,9 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
   // credential — but a cloud model reaches api.ollama.com with one, so a Secret
   // named here is carried through. Every other provider lets the mode decide.
   let inlineKey = "";
-  if (!isOllama) {
+  if (draft.authType === "actorJwt") {
+    spec.actorJwt = { audiences: draft.actorAudiences, expirationSeconds: draft.actorExpirationSeconds };
+  } else if (!isOllama) {
     if (draft.authType === "apiKey") {
       inlineKey = draft.apiKey.trim();
     } else if (draft.authType === "secret") {
@@ -390,10 +403,21 @@ export function modelDraftIssues(
     }
   }
 
+  if (draft.authType === "actorJwt") {
+    if (!supportsActorJWT(draft.provider)) issues.push("This provider does not support Actor JWT authentication.");
+    if (draft.actorAudiences.length < 1 || draft.actorAudiences.length > 16 || draft.actorAudiences.some(a => !a || a.length > 512 || a === "kagent-runtime") || new Set(draft.actorAudiences).size !== draft.actorAudiences.length) {
+      issues.push("Specify 1–16 unique audiences; kagent-runtime is reserved.");
+    }
+    if (!Number.isInteger(draft.actorExpirationSeconds) || draft.actorExpirationSeconds < 300 || draft.actorExpirationSeconds > 3600) issues.push("Token lifetime must be 300–3600 seconds.");
+  }
   return issues;
 }
 
 function splitRef(ref: string): [string, string] {
   const at = ref.indexOf("/");
   return at === -1 ? ["", ref] : [ref.slice(0, at), ref.slice(at + 1)];
+}
+
+export function supportsActorJWT(provider?: string): boolean {
+  return !!provider && !["Bedrock", "Gemini", "Ollama", "GeminiVertexAI", "AnthropicVertexAI", "SAPAICore"].includes(provider);
 }

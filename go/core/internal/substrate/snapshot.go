@@ -1,6 +1,6 @@
 package substrate
 
-import "go.ate.dev/substrate/pkg/proto/ateapipb"
+import ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
 // LatestActorSnapshot returns the newest generation, including an incomplete
 // one. Falling back to an older durable snapshot would checkpoint stale state.

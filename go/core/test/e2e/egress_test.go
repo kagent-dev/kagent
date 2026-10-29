@@ -23,7 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -82,7 +82,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 		modelURL, model, runs := startEgressSkillMock(t, harness.skillsRoot(), destination, "live", "checkpoint", "fresh", "resumed", "fork")
 		config := harness.createModel(t, kube, modelURL, nil)
 		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "live-egress-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: config.Name}, SystemPrompt: "Load the egress skill and run its probe.",
+			ModelConfig: &v1alpha3.ObjectReference{Name: config.Name}, SystemPrompt: "Load the egress skill and run its probe.",
 			Skills: []v1alpha3.AgentTemplateSkill{{Name: "egress", Source: v1alpha3.ArtifactSource{OCI: image, Path: "egress"}}},
 		}}
 		createAndWaitInteractionTemplate(t, harness, kube, template)

@@ -34,7 +34,7 @@ func TestHTTPActorA2AUsesSessionAuthorization(t *testing.T) {
 	binding := actorBinding{session: session}
 	store := &gatewayTestStore{session: session, task: &a2atype.Task{ID: "runtime-task", ContextID: session.Id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, binding, issuer.URL)
 	policy := runtimeauth.NewAuthorizer(auth.NoopAuthorizer{}, binding)

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -67,7 +67,7 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			}
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
-				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}, SystemPrompt: "help"},
 			}
 			original := harness.DeepCopy()
 			result, err := compiler(t, modelConfig(), harness).CompileAgent(t.Context(), inlineAgent(harness, template))
@@ -120,7 +120,7 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
 			Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
-				ModelConfigRef: corev1.LocalObjectReference{Name: embeddingModel.Name}, TTLDays: 7,
+				ModelConfigRef: v1alpha3.ObjectReference{Name: embeddingModel.Name}, TTLDays: 7,
 			}},
 
 			Workload: v1alpha3.HarnessWorkload{
@@ -135,7 +135,7 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"},
+			ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"},
 			Skills: []v1alpha3.AgentTemplateSkill{
 				{Name: "review", Source: v1alpha3.ArtifactSource{
 					OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -220,21 +220,22 @@ func compilerWithImages(t *testing.T, images *configv1.HarnessImagesConfig, obje
 	}, images, testRuntimeDefaults())
 }
 
-func defaultWorkerPool() *atev1alpha1.WorkerPool {
-	return &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "default"}}
+func defaultWorkerPool() *atev1.WorkerPool {
+	return &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "default"}}
 }
 
 func mockCollections(t *testing.T, objects ...any) translator.Collections {
 	t.Helper()
 	mock := krttest.NewMock(t, objects)
 	collections := translator.Collections{
+		Namespaces:       krttest.GetMockCollection[translator.NamespaceObservation](mock),
 		EgressPolicies:   krttest.GetMockCollection[*v1alpha3.EgressPolicy](mock),
 		AgentTemplates:   krttest.GetMockCollection[*v1alpha3.AgentTemplate](mock),
 		Harnesses:        krttest.GetMockCollection[*v1alpha3.Harness](mock),
 		RemoteMCPServers: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](mock),
 		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
-		WorkerPools:      krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+		WorkerPools:      krttest.GetMockCollection[*atev1.WorkerPool](mock),
 	}
 	models := krttest.GetMockCollection[*v1alpha3.ModelConfig](mock)
 	resolved := make([]any, 0, len(models.List()))
@@ -265,7 +266,7 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 			}
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant"},
-				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}, SystemPrompt: "help"},
 			}
 			model := modelConfig()
 			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
@@ -290,28 +291,28 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 			var defaultDigest translator.RevisionID
 			for _, tt := range []struct {
 				name    string
-				class   atev1alpha1.SandboxClass
+				class   atev1.SandboxClass
 				missing bool
 			}{
 				{name: "default"},
-				{name: "explicit gvisor", class: atev1alpha1.SandboxClassGvisor},
-				{name: "microvm", class: atev1alpha1.SandboxClassMicroVM},
-				{name: "back to gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "explicit gvisor", class: atev1.SandboxClassGvisor},
+				{name: "microvm", class: atev1.SandboxClassMicroVM},
+				{name: "back to gvisor", class: atev1.SandboxClassGvisor},
 				{name: "unsupported", class: "unsupported"},
 				{name: "missing", missing: true},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
-					pool := &atev1alpha1.WorkerPool{
+					pool := &atev1.WorkerPool{
 						ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "selected"},
-						Spec:       atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: tt.class}}},
+						Spec:       atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: tt.class}}},
 					}
 					originalPool := pool.DeepCopy()
 					objects := []any{
 						model,
 						harness,
 						&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
-						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "selected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}}},
-						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "unselected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}}},
+						&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "selected"}, Spec: atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}}},
+						&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "unselected"}, Spec: atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}}},
 					}
 					if !tt.missing {
 						objects = append(objects, pool)
@@ -344,7 +345,7 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 					if baseline == nil {
 						baseline, defaultDigest = result, digest
 					}
-					if tt.class == atev1alpha1.SandboxClassMicroVM {
+					if tt.class == atev1.SandboxClassMicroVM {
 						require.NotEqual(t, defaultDigest, digest)
 					} else {
 						require.Equal(t, defaultDigest, digest)
@@ -363,7 +364,7 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
 			Kagent: &v1alpha3.KagentHarness{
-				Memory:     &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: "default-model"}, TTLDays: 7},
+				Memory:     &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ObjectReference{Name: "default-model"}, TTLDays: 7},
 				Compaction: &v1alpha3.KagentHarnessCompaction{CompactionInterval: new(5)},
 			},
 			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
@@ -377,7 +378,7 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"},
+			ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"},
 			// A child contract is intentionally not resolved while this template is nested.
 			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(`{"type":"object","oneOf":[]}`)},
 		},
@@ -385,7 +386,7 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "root", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:      &corev1.LocalObjectReference{Name: "default-model"},
+			ModelConfig:      &v1alpha3.ObjectReference{Name: "default-model"},
 			OutputSchemaFrom: &v1alpha3.ConfigMapKeyReference{Name: configMap.Name, Key: "answer.json"},
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
@@ -430,7 +431,7 @@ func TestCompileAgentOutputSchemaFromStringFormat(t *testing.T) {
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "root", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:      &corev1.LocalObjectReference{Name: "default-model"},
+			ModelConfig:      &v1alpha3.ObjectReference{Name: "default-model"},
 			OutputSchemaFrom: &v1alpha3.ConfigMapKeyReference{Name: "schemas", Key: "ticket.json"},
 		},
 	}
@@ -505,7 +506,7 @@ func TestCompileAgentOutputSchemaStrict(t *testing.T) {
 			root := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Name: "root", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 				Spec: v1alpha3.AgentTemplateSpec{
-					ModelConfig:        &corev1.LocalObjectReference{Name: "default-model"},
+					ModelConfig:        &v1alpha3.ObjectReference{Name: "default-model"},
 					OutputSchema:       &apiextensionsv1.JSON{Raw: []byte(tt.schema)},
 					OutputSchemaStrict: tt.strict,
 				},
@@ -590,7 +591,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
 		},
 	}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}}}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}}}
 	collections := mockCollections(t, modelConfig(), defaultWorkerPool(), harness)
 
 	revision, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
@@ -616,7 +617,7 @@ func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: "default-model"},
 			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(`{"type":"object"}`)},
 		},
 	}
@@ -637,13 +638,13 @@ func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
 		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}},
 	}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}}}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}}}
 	collections := mockCollections(t, model, harness)
 
 	_, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
 	}, testHarnessImages, testRuntimeDefaults()).CompileAgent(context.Background(), inlineAgent(harness, template))
-	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)
+	require.ErrorContains(t, err, `resolve ModelConfig "test/default-model": secret missing not found`)
 	require.Nil(t, adapter.input)
 }
 
@@ -701,13 +702,13 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: "default-model"},
 			SystemPrompt: "help",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 				Tools:  []string{"lookup"},
 			}}, {MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: secondServer.Name},
+				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: secondServer.Name},
 				Tools:  []string{"search"},
 			}}},
 		},
@@ -768,9 +769,9 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "researcher", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, Description: "template description", SystemPrompt: "research carefully",
+			ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}, Description: "template description", SystemPrompt: "research carefully",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: "search"}, Tools: []string{"lookup"},
+				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: "search"}, Tools: []string{"lookup"},
 			}}},
 			Skills: []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{
 				OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -780,7 +781,7 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "coordinator", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "coordinate",
+			ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}, SystemPrompt: "coordinate",
 			Skills: child.Spec.Skills,
 			Plugins: []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
 				URL: "https://github.com/acme/plugin", Commit: "cccccccccccccccccccccccccccccccccccccccc",
@@ -848,7 +849,7 @@ func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
 		return v1alpha3.ToolBinding{SubAgent: &v1alpha3.SubAgentToolBinding{Name: name, Description: name, TemplateRef: &corev1.LocalObjectReference{Name: target}}}
 	}
 	template := func(name string, tools ...v1alpha3.ToolBinding) *v1alpha3.AgentTemplate {
-		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, Tools: tools}}
+		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}, Tools: tools}}
 	}
 
 	t.Run("shared DAG", func(t *testing.T) {
@@ -956,10 +957,10 @@ func TestCompileAgentRejectsInvalidSources(t *testing.T) {
 
 func TestCompileAgentInlineAndReferencedTemplates(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
-		ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review code",
+		ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}, SystemPrompt: "review code",
 		Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "reviewer", Description: "delegate review", TemplateRef: &corev1.LocalObjectReference{Name: "child"}}}},
 	}}
-	child := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "child"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review security"}}
+	child := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "child"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "default-model"}, SystemPrompt: "review security"}}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "runtime", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
 		Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
@@ -1036,7 +1037,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("test-key")}}
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "shared-context"},
-				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "help"},
 			}
 			harness := &v1alpha3.Harness{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "shared-runtime"},
@@ -1047,7 +1048,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 			}
 			switch kind {
 			case translator.HarnessTypeKagent:
-				harness.Spec.Kagent = &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: model.Name}}}
+				harness.Spec.Kagent = &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ObjectReference{Name: model.Name}}}
 			case translator.HarnessTypeCodex:
 				harness.Spec.Codex = &v1alpha3.CodexHarness{}
 				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}

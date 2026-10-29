@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,8 +18,9 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -97,27 +99,33 @@ func TestPushPageTokenIsTaskScoped(t *testing.T) {
 }
 
 type pushTestStore struct {
-	deliveries []database.PushDelivery
-	finished   []bool
-	claimErr   error
-	finishErr  error
-	stale      bool
-	currentErr error
-	expired    int
+	deliveries    []database.PushDelivery
+	finished      []bool
+	finishMu      sync.Mutex
+	claimErr      error
+	finishErr     error
+	stale         bool
+	currentErr    error
+	expired       atomic.Int32
+	claimCalls    atomic.Int32
+	pendingChecks atomic.Int32
+	released      atomic.Int32
 }
 
 var _ pushStore = (*pushTestStore)(nil)
 
 func (p *pushTestStore) HasPendingPushDelivery(context.Context) (bool, error) {
+	p.pendingChecks.Add(1)
 	return len(p.deliveries) != 0, nil
 }
 
 func (p *pushTestStore) ExpireUnboundPushRegistrations(context.Context) error {
-	p.expired++
+	p.expired.Add(1)
 	return nil
 }
 
-func (p *pushTestStore) ClaimDuePushDelivery(context.Context) (*database.PushDelivery, error) {
+func (p *pushTestStore) ClaimDuePushDelivery(context.Context, time.Duration) (*database.PushDelivery, error) {
+	p.claimCalls.Add(1)
 	if p.claimErr != nil {
 		return nil, p.claimErr
 	}
@@ -132,20 +140,39 @@ func (p *pushTestStore) IsPushDeliveryCurrent(context.Context, database.PushDeli
 	return !p.stale, p.currentErr
 }
 
-func (p *pushTestStore) FinishPushDelivery(_ context.Context, _ database.PushDelivery, delivered bool) error {
+func (p *pushTestStore) FinishPushDelivery(ctx context.Context, _ database.PushDelivery, delivered bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	p.finishMu.Lock()
+	defer p.finishMu.Unlock()
 	p.finished = append(p.finished, delivered)
 	return p.finishErr
 }
 
+func (p *pushTestStore) ReleasePushDelivery(ctx context.Context, _ database.PushDelivery) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	p.released.Add(1)
+	return p.finishErr
+}
+
+func (p *pushTestStore) outcomes() []bool {
+	p.finishMu.Lock()
+	defer p.finishMu.Unlock()
+	return slices.Clone(p.finished)
+}
+
 type pushTestSender struct {
-	calls int
+	calls atomic.Int32
 	err   error
 }
 
 var _ pushSender = (*pushTestSender)(nil)
 
 func (p *pushTestSender) SendPush(context.Context, *a2a.PushConfig, a2a.Event) error {
-	p.calls++
+	p.calls.Add(1)
 	return p.err
 }
 
@@ -154,6 +181,21 @@ func testPushSigner(t *testing.T) *PushJWTSigner {
 	signer, err := NewPushJWTSigner(testPushPrivateKeyPEM, "https://kagent.example")
 	require.NoError(t, err)
 	return signer
+}
+
+func testPushWorkerConfig(recoveryInterval time.Duration) PushWorkerConfig {
+	return PushWorkerConfig{RecoveryInterval: recoveryInterval, MaxConcurrency: 2, SendTimeout: time.Minute}
+}
+
+// Drive one synchronous pass for publication and retry assertions. Start tests
+// below exercise concurrent scheduling and shutdown.
+func pollPushWorker(t *testing.T, worker *PushWorker) (bool, error) {
+	t.Helper()
+	return worker.poll(t.Context(), 100, func(delivery database.PushDelivery) {
+		if err := worker.send(t.Context(), delivery); err != nil {
+			t.Logf("push attempt: %v", err)
+		}
+	})
 }
 
 func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
@@ -168,13 +210,13 @@ func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
 		store.deliveries[i].Payload = payload
 	}
 	sender := &pushTestSender{}
-	worker := NewPushWorker(store, sender, testPushSigner(t), nil, time.Minute)
-	full, err := worker.poll(t.Context())
+	worker := NewPushWorker(store, sender, testPushSigner(t), nil, testPushWorkerConfig(time.Minute))
+	full, err := pollPushWorker(t, worker)
 	require.NoError(t, err)
 	require.True(t, full)
-	require.Equal(t, 100, sender.calls)
+	require.EqualValues(t, 100, sender.calls.Load())
 
-	full, err = worker.poll(t.Context())
+	full, err = pollPushWorker(t, worker)
 	require.NoError(t, err)
 	require.False(t, full)
 }
@@ -195,14 +237,15 @@ func TestPushWorkerChecksClaimBeforeSending(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := &pushTestStore{stale: test.stale, currentErr: test.err}
 			sender := &pushTestSender{}
-			err := NewPushWorker(store, sender, nil, nil, time.Minute).send(t.Context(), database.PushDelivery{Payload: payload})
+			err := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(time.Minute)).send(t.Context(), database.PushDelivery{Payload: payload})
 			if test.err != nil {
 				require.ErrorIs(t, err, test.err)
+				require.Equal(t, []bool{false}, store.outcomes(), "failed preparation enters the normal retry schedule")
 			} else {
 				require.NoError(t, err)
+				require.Empty(t, store.outcomes(), "skipping a stale claim must not acknowledge newer work")
 			}
-			require.Zero(t, sender.calls)
-			require.Empty(t, store.finished, "skipping a stale claim must not acknowledge newer work")
+			require.Zero(t, sender.calls.Load())
 		})
 	}
 }
@@ -242,10 +285,10 @@ func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
 	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-	worker := NewPushWorker(store, NewHTTPPushSender(5*time.Second, true, true), nil, nil, time.Minute)
+	worker := NewPushWorker(store, NewHTTPPushSender(5*time.Second, true, true), nil, nil, testPushWorkerConfig(time.Minute))
 	done := make(chan error, 1)
 	go func() {
-		_, err := worker.poll(t.Context())
+		_, err := pollPushWorker(t, worker)
 		done <- err
 	}()
 	select {
@@ -309,18 +352,18 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 			version, err := store.CreateRuntimeTask(t.Context(), session.Id, digest[:], task, "")
 			require.NoError(t, err)
 			sender := NewHTTPPushSender(time.Second, true, true)
-			_, err = NewPushWorker(store, sender, signer, nil, time.Minute).poll(t.Context())
+			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
 			require.NoError(t, err)
 			require.Empty(t, events)
 			task.Status.State = a2a.TaskStateCompleted
 			digest = sha256.Sum256([]byte("complete"))
 			version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 			require.NoError(t, err)
-			_, err = NewPushWorker(store, sender, signer, nil, time.Minute).poll(t.Context())
+			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
 			require.NoError(t, err)
 			require.Empty(t, events, "staged completion must not be notified")
 			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-			_, err = NewPushWorker(store, sender, signer, nil, time.Minute).poll(t.Context())
+			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
 			require.NoError(t, err)
 			require.Len(t, events, 1)
 			var envelope struct {
@@ -330,7 +373,7 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 			require.NotNil(t, envelope.StatusUpdate)
 			require.Equal(t, a2a.TaskStateCompleted, envelope.StatusUpdate.Status.State)
 			require.Empty(t, envelope.StatusUpdate.Metadata)
-			_, err = NewPushWorker(store, sender, signer, nil, time.Minute).poll(t.Context())
+			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
 			require.NoError(t, err)
 			require.Empty(t, events, "failed attempt must wait for retry delay")
 		})
@@ -348,7 +391,7 @@ type pushWakeStore struct {
 
 var _ pushStore = (*pushWakeStore)(nil)
 
-func (p *pushWakeStore) ClaimDuePushDelivery(ctx context.Context) (*database.PushDelivery, error) {
+func (p *pushWakeStore) ClaimDuePushDelivery(ctx context.Context, timeout time.Duration) (*database.PushDelivery, error) {
 	p.scans.Add(1)
 	if p.claimGate != nil {
 		select {
@@ -359,7 +402,7 @@ func (p *pushWakeStore) ClaimDuePushDelivery(ctx context.Context) (*database.Pus
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.pushTestStore.ClaimDuePushDelivery(ctx)
+	return p.pushTestStore.ClaimDuePushDelivery(ctx, timeout)
 }
 
 func (p *pushWakeStore) HasPendingPushDelivery(context.Context) (bool, error) {
@@ -383,7 +426,7 @@ func TestPushWorkerWakeAndRecovery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := &pushWakeStore{}
 		wake := make(chan struct{}, 1)
-		worker := NewPushWorker(store, &pushTestSender{}, nil, wake, time.Minute)
+		worker := NewPushWorker(store, &pushTestSender{}, nil, wake, testPushWorkerConfig(time.Minute))
 		require.False(t, worker.NeedLeaderElection())
 		startPushWorker(t, worker)
 		synctest.Wait()
@@ -416,7 +459,7 @@ func TestPushWorkerShortRetriesReturnToIdle(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				store := &pushWakeStore{pending: test.pending, pendingErr: test.pendingErr}
 				store.claimErr = test.claimErr
-				startPushWorker(t, NewPushWorker(store, &pushTestSender{}, nil, nil, time.Minute))
+				startPushWorker(t, NewPushWorker(store, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Minute)))
 				synctest.Wait()
 				require.Equal(t, 1, int(store.scans.Load()))
 				store.mu.Lock()
@@ -441,7 +484,7 @@ func TestPushWorkerRetainsHintDuringEmptyScan(t *testing.T) {
 		gate := make(chan struct{})
 		store := &pushWakeStore{claimGate: gate}
 		wake := make(chan struct{}, 1)
-		startPushWorker(t, NewPushWorker(store, &pushTestSender{}, nil, wake, time.Hour))
+		startPushWorker(t, NewPushWorker(store, &pushTestSender{}, nil, wake, testPushWorkerConfig(time.Hour)))
 		synctest.Wait()
 		require.Equal(t, 1, int(store.scans.Load()))
 		// Settlement races with the last empty claim. The hint must survive
@@ -483,6 +526,349 @@ func (p *gatedPushSender) SendPush(ctx context.Context, _ *a2a.PushConfig, event
 	}
 }
 
+type pushSenderFunc func(context.Context, *a2a.PushConfig, a2a.Event) error
+
+var _ pushSender = pushSenderFunc(nil)
+
+func (p pushSenderFunc) SendPush(ctx context.Context, config *a2a.PushConfig, event a2a.Event) error {
+	return p(ctx, config, event)
+}
+
+func pushTestDelivery(t *testing.T, taskID a2a.TaskID) database.PushDelivery {
+	t.Helper()
+	wire, err := pbconv.ToProtoStreamResponse(&a2a.TaskStatusUpdateEvent{TaskID: taskID, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}})
+	require.NoError(t, err)
+	payload, err := proto.Marshal(wire)
+	require.NoError(t, err)
+	return database.PushDelivery{Payload: payload}
+}
+
+func TestPushWorkerConcurrentDelivery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &pushTestStore{deliveries: []database.PushDelivery{pushTestDelivery(t, "slow")}}
+		// Cross multiple maintenance batches while the first request is blocked.
+		for range 205 {
+			store.deliveries = append(store.deliveries, pushTestDelivery(t, "fast"))
+		}
+		fastGate := make(chan struct{})
+		started := make(chan a2a.TaskID, len(store.deliveries)+1)
+		sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, event a2a.Event) error {
+			id := event.TaskInfo().TaskID
+			started <- id
+			if id == "slow" {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			select {
+			case <-fastGate:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+		wake := make(chan struct{}, 1)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan error, 1)
+		worker := NewPushWorker(store, sender, nil, wake, testPushWorkerConfig(time.Hour))
+		go func() { done <- worker.Start(ctx) }()
+		synctest.Wait()
+		require.Len(t, started, 2, "enforce the configured in-flight limit")
+		require.Len(t, store.deliveries, 204, "do not lease work before a slot is available")
+		close(fastGate)
+		synctest.Wait()
+		require.Len(t, store.outcomes(), 205, "a blocked receiver must not hold up subsequent batches")
+		require.Empty(t, store.deliveries)
+		require.EqualValues(t, 1, store.expired.Load(), "delivery completions must not repeat registration maintenance")
+
+		// A new settlement must also use spare capacity while another send is busy.
+		store.deliveries = append(store.deliveries, pushTestDelivery(t, "new"))
+		wake <- struct{}{}
+		synctest.Wait()
+		require.Len(t, store.outcomes(), 206)
+		cancel()
+		synctest.Wait()
+		require.NoError(t, <-done)
+		require.Len(t, store.outcomes(), 206)
+		require.EqualValues(t, 1, store.released.Load(), "shutdown waits for the interrupted attempt to be released")
+	})
+}
+
+func TestPushWorkerSendTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &pushTestStore{deliveries: []database.PushDelivery{pushTestDelivery(t, "slow"), pushTestDelivery(t, "fast")}}
+		sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, event a2a.Event) error {
+			if event.TaskInfo().TaskID == "slow" {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return nil
+		})
+		worker := NewPushWorker(store, sender, nil, nil, PushWorkerConfig{
+			RecoveryInterval: time.Hour, MaxConcurrency: 1, SendTimeout: 2 * time.Second,
+		})
+		startPushWorker(t, worker)
+		synctest.Wait()
+		require.Len(t, store.deliveries, 1, "concurrency one preserves serial delivery")
+		time.Sleep(1999 * time.Millisecond)
+		synctest.Wait()
+		require.Empty(t, store.outcomes())
+		time.Sleep(time.Millisecond)
+		synctest.Wait()
+		require.Equal(t, []bool{false, true}, store.outcomes(), "timeout records failure and releases capacity immediately")
+	})
+}
+
+type pushPendingGateStore struct {
+	pushTestStore
+	gate <-chan struct{}
+}
+
+var _ pushStore = (*pushPendingGateStore)(nil)
+
+func (p *pushPendingGateStore) HasPendingPushDelivery(ctx context.Context) (bool, error) {
+	pending, err := p.pushTestStore.HasPendingPushDelivery(ctx)
+	select {
+	case <-p.gate:
+		return pending, err
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
+func TestPushWorkerRefillsAfterQueuedCompletions(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		pendingGate := make(chan struct{})
+		initialGate := make(chan struct{})
+		store := &pushPendingGateStore{gate: pendingGate}
+		for range 2 {
+			store.deliveries = append(store.deliveries, pushTestDelivery(t, "initial"))
+		}
+		var started atomic.Int32
+		sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, event a2a.Event) error {
+			started.Add(1)
+			if event.TaskInfo().TaskID == "initial" {
+				<-initialGate
+				return nil
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		config := testPushWorkerConfig(time.Hour)
+		config.MaxConcurrency = 4
+		startPushWorker(t, NewPushWorker(store, sender, nil, nil, config))
+		synctest.Wait()
+		require.EqualValues(t, 1, store.pendingChecks.Load())
+		// Both completions queue while the worker is blocked in the pending query.
+		close(initialGate)
+		synctest.Wait()
+		for range 4 {
+			store.deliveries = append(store.deliveries, pushTestDelivery(t, "next"))
+		}
+		close(pendingGate)
+		synctest.Wait()
+		require.EqualValues(t, 6, started.Load(), "queued completions must free every slot")
+		require.EqualValues(t, 1, store.pendingChecks.Load(), "refilling capacity needs no pending-work query")
+		require.EqualValues(t, 1, store.expired.Load(), "completion bursts must not cause maintenance bursts")
+	})
+}
+
+func TestPushWorkerSaturationKeepsOnlyPeriodicCleanup(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &pushTestStore{deliveries: []database.PushDelivery{pushTestDelivery(t, "slow")}}
+		sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, _ a2a.Event) error {
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		wake := make(chan struct{}, 1)
+		startPushWorker(t, NewPushWorker(store, sender, nil, wake, PushWorkerConfig{
+			RecoveryInterval: time.Minute, MaxConcurrency: 1, SendTimeout: time.Hour,
+		}))
+		synctest.Wait()
+		wake <- struct{}{}
+		synctest.Wait()
+		require.Zero(t, store.pendingChecks.Load())
+		require.EqualValues(t, 1, store.expired.Load())
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		require.EqualValues(t, 2, store.expired.Load(), "cleanup must continue while all slots are occupied")
+		require.Zero(t, store.pendingChecks.Load())
+		require.EqualValues(t, 1, store.claimCalls.Load(), "saturation must not poll for more deliveries")
+	})
+}
+
+type pushCheckTimeoutStore struct{ pushTestStore }
+
+var _ pushStore = (*pushCheckTimeoutStore)(nil)
+
+func (p *pushCheckTimeoutStore) IsPushDeliveryCurrent(ctx context.Context, _ database.PushDelivery) (bool, error) {
+	<-ctx.Done()
+	return false, ctx.Err()
+}
+
+func TestPushWorkerCheckTimeoutRecordsFailure(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &pushCheckTimeoutStore{}
+		sender := &pushTestSender{}
+		config := testPushWorkerConfig(time.Minute)
+		config.SendTimeout = 2 * time.Second
+		worker := NewPushWorker(store, sender, nil, nil, config)
+		started := time.Now()
+		err := worker.send(t.Context(), pushTestDelivery(t, "task"))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Equal(t, 2*time.Second, time.Since(started))
+		require.Zero(t, sender.calls.Load())
+		require.Equal(t, []bool{false}, store.outcomes())
+		require.Zero(t, store.released.Load(), "a send timeout still consumes an attempt")
+	})
+}
+
+type pushFinishTimeoutStore struct{ pushTestStore }
+
+var _ pushStore = (*pushFinishTimeoutStore)(nil)
+
+func (p *pushFinishTimeoutStore) FinishPushDelivery(ctx context.Context, _ database.PushDelivery, _ bool) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestPushWorkerFinalizationIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		sender := pushSenderFunc(func(context.Context, *a2a.PushConfig, a2a.Event) error {
+			cancel() // Shutdown races with a successful response.
+			return nil
+		})
+		worker := NewPushWorker(&pushFinishTimeoutStore{}, sender, nil, nil, testPushWorkerConfig(time.Minute))
+		started := time.Now()
+		err := worker.send(ctx, pushTestDelivery(t, "task"))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Equal(t, 5*time.Second, time.Since(started), "finalization survives cancellation but cannot hang shutdown")
+	})
+}
+
+func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
+	for _, delivered := range []bool{false, true} {
+		name := "interrupted"
+		if delivered {
+			name = "acknowledged"
+		}
+		t.Run(name, func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+			require.NoError(t, err)
+			request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
+			require.NoError(t, store.SaveTaskPushConfig(t.Context(), session.Id, request.TaskId, &a2a.PushConfig{ID: "callback", URL: "http://receiver"}))
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+			started := make(chan struct{}, 1)
+			sender := pushSenderFunc(func(ctx context.Context, _ *a2a.PushConfig, _ a2a.Event) error {
+				started <- struct{}{}
+				<-ctx.Done()
+				if delivered {
+					return nil // The HTTP response succeeded as shutdown began.
+				}
+				return ctx.Err()
+			})
+			restarts := 12 // Exceed the durable ten-attempt limit.
+			if delivered {
+				restarts = 1
+			}
+			for range restarts {
+				ctx, cancel := context.WithCancel(t.Context())
+				done := make(chan error, 1)
+				// Recover transient empty claims well before the assertion deadline.
+				worker := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(10*time.Millisecond))
+				go func() { done <- worker.Start(ctx) }()
+				select {
+				case <-started:
+				case <-time.After(5 * time.Second):
+					cancel()
+					require.NoError(t, <-done)
+					t.Fatal("shutdown lost a pending notification or left its claim leased")
+				}
+				cancel()
+				require.NoError(t, <-done)
+			}
+			if delivered {
+				next, err := store.ClaimDuePushDelivery(t.Context(), time.Second)
+				require.NoError(t, err)
+				require.Nil(t, next, "successful delivery must remain acknowledged after shutdown")
+				pending, err := store.HasPendingPushDelivery(t.Context())
+				require.NoError(t, err)
+				require.False(t, pending)
+			} else {
+				// SKIP LOCKED can return no claim while a canceled transaction unwinds.
+				require.EventuallyWithT(t, func(collect *assert.CollectT) {
+					next, err := store.ClaimDuePushDelivery(t.Context(), time.Second)
+					require.NoError(collect, err)
+					require.NotNil(collect, next, "repeated shutdowns must not exhaust the delivery budget")
+				}, 5*time.Second, 10*time.Millisecond)
+			}
+		})
+	}
+}
+
+func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second)
+	session, err := creator.Create(t.Context(), session)
+	require.NoError(t, err)
+	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
+	slowStarted := make(chan struct{}, 1)
+	fastFinished := make(chan struct{}, 1)
+	release := make(chan struct{})
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			slowStarted <- struct{}{}
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		} else {
+			fastFinished <- struct{}{}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer receiver.Close()
+	defer close(release)
+	require.NoError(t, store.SaveTaskPushConfig(t.Context(), session.Id, request.TaskId, &a2a.PushConfig{
+		ID: "slow", URL: receiver.URL + "/slow",
+	}))
+	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	wake := make(chan struct{}, 1)
+	worker := NewPushWorker(store, NewHTTPPushSender(time.Minute, true, true), nil, wake, testPushWorkerConfig(time.Minute))
+	go func() { done <- worker.Start(ctx) }()
+	defer func() {
+		cancel()
+		require.NoError(t, <-done)
+	}()
+	select {
+	case <-slowStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("slow HTTP delivery did not start")
+	}
+	// Publish another task only after the slow request is in flight.
+	fastSession, _, err := store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: session.Agent}, uuid.NewString())
+	require.NoError(t, err)
+	fastSession, err = creator.Create(t.Context(), fastSession)
+	require.NoError(t, err)
+	fastRequest := stageQuiescenceTask(t, store.Client, fastSession, a2a.TaskStateCompleted)
+	require.NoError(t, store.SaveTaskPushConfig(t.Context(), fastSession.Id, fastRequest.TaskId, &a2a.PushConfig{
+		ID: "fast", URL: receiver.URL + "/fast",
+	}))
+	_, err = taskstore.NewService(store, nil, wake).SettleTask(settlementContext(t, fastSession), fastRequest)
+	require.NoError(t, err)
+	select {
+	case <-fastFinished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("slow receiver blocked another HTTP delivery")
+	}
+}
+
 // Replicas share PostgreSQL, but have independent wake channels. A settlement
 // burst during HTTP sends must remain durable and drain without recovery scans.
 func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
@@ -514,7 +900,7 @@ func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
 	var services []*taskstore.Service
 	for range 2 {
 		wake := make(chan struct{}, 1)
-		startPushWorker(t, NewPushWorker(writes, &gatedPushSender{entered: entered, release: release}, nil, wake, time.Hour))
+		startPushWorker(t, NewPushWorker(writes, &gatedPushSender{entered: entered, release: release}, nil, wake, testPushWorkerConfig(time.Hour)))
 		services = append(services, taskstore.NewService(store, nil, wake))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 2 }, 5*time.Second, time.Millisecond)

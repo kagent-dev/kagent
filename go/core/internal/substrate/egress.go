@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"slices"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 // CheckActorEgressPolicy compiles the revision's policy without applying it, so
@@ -74,7 +76,7 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		if err != nil {
 			return fmt.Errorf("reload intended actor egress: %w", err)
 		}
-		if slices.Equal(access.Destinations, latest.Destinations) && slices.Equal(access.Credentials, latest.Credentials) {
+		if slices.Equal(access.Destinations, latest.Destinations) && slices.EqualFunc(access.Credentials, latest.Credentials, egress.Credential.Equal) {
 			return nil
 		}
 	}

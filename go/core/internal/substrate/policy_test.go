@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
@@ -137,7 +137,7 @@ func TestActorPolicyInjectsRuntimeJWTOnlyAtControlPlane(t *testing.T) {
 	require.Equal(t, "authorization", headers[0].Header)
 	require.Equal(t, "Bearer ", headers[0].Prefix)
 	require.Empty(t, headers[0].CredentialUri)
-	require.Equal(t, []string{runtimeJWTAudience}, headers[0].ActorJwt.Audiences)
+	require.Equal(t, []string{RuntimeJWTAudience}, headers[0].ActorJwt.Audiences)
 	require.EqualValues(t, 300, headers[0].ActorJwt.ExpirationSeconds)
 	require.Empty(t, policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders())
 	policy, err = ActorEgressPolicy("team", nil, nil, controlPlane)
@@ -147,4 +147,24 @@ func TestActorPolicyInjectsRuntimeJWTOnlyAtControlPlane(t *testing.T) {
 		{Origin: controlPlane, Header: "Authorization", URI: "ate-secret://k8s.io/default/team/auth/token"},
 	}, controlPlane)
 	require.Error(t, err, "a credential binding must not override runtime identity")
+}
+
+func TestActorJWTHeaderUsesGatewayMinting(t *testing.T) {
+	for _, origin := range []string{"http://mcp.example.com:80", "https://mcp.example.com:443"} {
+		t.Run(origin, func(t *testing.T) {
+			credential := egress.Credential{Origin: origin, Header: "Authorization", Prefix: "Bearer ", ActorJWT: &egress.ActorJWT{Audiences: []string{"mcp"}, ExpirationSeconds: 900}}
+			policy, err := ActorEgressPolicy("team", []string{testControlPlaneURL, origin}, []egress.Credential{credential}, testControlPlaneURL)
+			require.NoError(t, err)
+			headers, err := policyHeaders(policy)
+			require.NoError(t, err)
+			outbound := headers[origin+"\x00authorization"]
+			require.NotNil(t, outbound)
+			require.Equal(t, []string{"mcp"}, outbound.ActorJwt.Audiences)
+			require.EqualValues(t, 900, outbound.ActorJwt.ExpirationSeconds)
+			require.Empty(t, outbound.CredentialUri)
+			require.Equal(t, "Bearer ", outbound.Prefix)
+			internal := headers[testControlPlaneURL+"\x00authorization"]
+			require.Equal(t, []string{RuntimeJWTAudience}, internal.ActorJwt.Audiences)
+		})
+	}
 }

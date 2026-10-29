@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -34,7 +34,7 @@ func TestAgentEgressErrorsDoNotBlockCompilation(t *testing.T) {
 	}{
 		{name: "missing policy", condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonNotFound},
 		{name: "invalid origin", destinations: []v1alpha3.EgressDestination{{Origin: "invalid"}}, condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonInvalidEgressPolicy},
-		{name: "missing secret", destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &v1alpha3.EgressAuthentication{Header: "Authorization", SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "token"}}}}, condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonInvalidEgressPolicy},
+		{name: "missing secret", destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &v1alpha3.EgressAuthentication{Header: "Authorization", SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "token"}}}}, condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonInvalidEgressPolicy},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			collections, _ := newPreparationTestCollections(t, "gvisor")
@@ -251,7 +251,7 @@ func TestSandboxGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {
 	templates := krt.NewStaticCollection(nil, []*v1alpha3.SandboxTemplate{template}, opts.WithName("Templates")...)
 	policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "access"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com"}}}}
 	policies := krt.NewStaticCollection(nil, []*v1alpha3.EgressPolicy{policy}, opts.WithName("Policies")...)
-	pools := krt.NewStaticCollection[*atev1alpha1.WorkerPool](nil, nil, opts.WithName("Pools")...)
+	pools := krt.NewStaticCollection[*atev1.WorkerPool](nil, nil, opts.WithName("Pools")...)
 	store := &sandboxTestStore{}
 	s := &SandboxReconciler{collections: newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools, EgressPolicies: policies}, substrate.SandboxPolicy{}, opts), store: store, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()}
 	waitFor(t, func() bool { return s.collections.states.GetKey("team-a/scratch") != nil })

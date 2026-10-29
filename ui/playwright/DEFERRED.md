@@ -138,25 +138,7 @@ no single surface shows both.
 
 ## What the chat fixes could not be covered against
 
-Three gaps left by the work on the reader's own message, the artifact-append streaming
-and the lifecycle indicator. Each is a *mock* gap: the mock backend cannot produce the
-state the assertion would need, and inventing one would make the fixture the thing being
-tested.
-
-### The suspending stage of the lifecycle indicator
-
-`chat.spec.ts` drives the indicator through its resting reading and through `running`,
-because a turn produces both. It never sees `resuming` or `suspending`: those come from
-`AgentInstance.operation`, which the controller claims and clears as it works, and the
-mock backend serves a static record. Faking one would prove only that a fixture can hold
-a string.
-
-The reading itself is covered exhaustively in `src/components/chat/lifecycleReading.test.ts`
-— including the case worth guarding hardest, that **no stage is claimed when a turn ends**,
-since a substrate agent really does suspend itself then and nothing in the API reports it.
-What is missing is a browser journey that suspends an instance from the agents list while a
-chat page is open on it and watches the indicator follow. That belongs in `playwright/live/`,
-where the operation is real.
+Two gaps remain in streaming and interaction coverage against a live controller.
 
 ### Streaming, end to end, against a controller
 
@@ -173,11 +155,6 @@ artifact path. Teaching the fixture to emit artifact frames would mean it stoppe
 `ChatClient` and started being an A2A server, which is the wrong seam — the transport is
 already covered by unit tests over real bytes. The browser-level gap is a `playwright/live/`
 spec that sends a message and asserts the reply grows on screen before the turn completes.
-
-A related gap worth naming rather than leaving implicit: the mock backend serves one
-instance per conversation and never *changes* an instance's `operation`, so the lifecycle
-indicator's `resuming` and `suspending` stages have no browser coverage either. Both
-belong in the same live spec.
 
 ### Tool approval, and a question asked without the extension
 

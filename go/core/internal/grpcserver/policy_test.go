@@ -38,8 +38,6 @@ func TestSessionServicePoliciesMatchTheirEffect(t *testing.T) {
 		{name: "get", method: apiv1.SessionService_GetSession_FullMethodName, want: pkgauth.AccessRead},
 		{name: "list", method: apiv1.SessionService_ListSessions_FullMethodName, want: pkgauth.AccessRead},
 		{name: "rename is a write", method: apiv1.SessionService_UpdateSessionName_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "suspend", method: apiv1.SessionService_SuspendSession_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "resume", method: apiv1.SessionService_ResumeSession_FullMethodName, want: pkgauth.AccessUpdate},
 		{name: "delete", method: apiv1.SessionService_DeleteSession_FullMethodName, want: pkgauth.AccessDelete},
 		{name: "create share", method: apiv1.SessionService_CreateSessionShare_FullMethodName, want: pkgauth.AccessCreate},
 		{name: "list shares", method: apiv1.SessionService_ListSessionShares_FullMethodName, want: pkgauth.AccessRead},
@@ -62,7 +60,7 @@ func TestSessionServicePoliciesMatchTheirEffect(t *testing.T) {
 // read-only share link may open a conversation and must not be able to retitle
 // it for everyone who holds the link.
 func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
-	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
+	session := &testSession{principal: pkgauth.Principal{ID: "visitor"}}
 	for _, test := range []struct {
 		name     string
 		method   string
@@ -82,12 +80,20 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 				sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
-			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies())
+			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies(), nil)
 			if got := status.Code(err); got != test.wantCode {
 				t.Fatalf("authenticate(%s) code = %v (%v), want %v", test.method, got, err, test.wantCode)
 			}
 		})
 	}
+}
+
+func TestAgentIdentityRequiresItsOwnAuthenticator(t *testing.T) {
+	method := apiv1.AgentIdentityService_ResolveAgentIdentity_FullMethodName
+	policies := DefaultMethodPolicies()
+	require.Equal(t, pkgauth.AccessRead, policies[method])
+	_, err := authenticate(t.Context(), method, &authimpl.InsecureAuthenticator{}, nil, policies, nil)
+	require.Equal(t, codes.Unauthenticated, status.Code(err), "missing lookup authentication cannot fall back to user authentication")
 }
 
 func TestSandboxGuestPoliciesMatchTheirEffect(t *testing.T) {
@@ -110,10 +116,10 @@ func TestSandboxGuestPoliciesMatchTheirEffect(t *testing.T) {
 
 func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	sessionID := uuid.NewString()
-	store := &userMemoryStore{session: &apiv1.Session{Id: sessionID, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(sessionID), "")}}
+	store := &memoryRPCStore{session: &apiv1.Session{Id: sessionID, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(sessionID), "")}}
 	claims := issuer.Claims("team-a", "session-"+sessionID, "actor-uid")
 	actor := "Bearer " + issuer.Token(t, claims)
 	claims["exp"] = time.Now().Add(-time.Minute).Unix()
@@ -163,18 +169,18 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 						md.Set("authorization", test.token)
 					}
 					ctx := metadata.NewIncomingContext(t.Context(), md)
-					result, err := authenticate(ctx, test.method, users, nil, policies)
+					result, err := authenticate(ctx, test.method, users, nil, policies, nil)
 					require.Equal(t, test.want, status.Code(err), "%v", err)
 					if test.want == codes.OK && test.token == actor {
 						identity, ok := pkgauth.AuthSessionFrom(result)
 						require.True(t, ok)
-						require.Equal(t, "owner", identity.Principal().User.ID)
-						require.Equal(t, sessionID, identity.Principal().Actor.SessionID)
+						require.Equal(t, pkgauth.PrincipalID("substrate-actor", "team-a/actor-uid"), identity.Principal().ID)
+						require.Equal(t, sessionID, identity.Principal().RuntimeBinding.SessionID)
 					}
 				})
 			}
 			shared := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", actor, "x-share-token", "share"))
-			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, nil, policies)
+			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, nil, policies, nil)
 			require.Equal(t, codes.Unauthenticated, status.Code(err))
 		})
 	}
