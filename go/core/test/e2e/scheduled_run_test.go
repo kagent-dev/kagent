@@ -220,13 +220,8 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 5*time.Minute)
 	t.Cleanup(cancel)
 	f := &scheduledFixture{ctx: ctx, schedules: apiv1.NewScheduledRunServiceClient(conn), sessions: apiv1.NewSessionServiceClient(conn), checkpoints: apiv1.NewCheckpointServiceClient(conn), system: apiv1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn), kube: interactionKubeClient(t)}
-	pods := &corev1.PodList{}
-	require.NoError(t, f.kube.List(ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
-	require.NotEmpty(t, pods.Items)
-	account := &corev1.ServiceAccount{}
-	require.NoError(t, f.kube.Get(ctx, ctrlclient.ObjectKey{Namespace: pods.Items[0].Namespace, Name: pods.Items[0].Spec.ServiceAccountName}, account))
-	// The E2E installation uses the chart's default Kubernetes authority.
-	f.creator = auth.PrincipalID("kubernetes:kubernetes", string(account.UID))
+	// The scheduler's identity is scoped to the controller's installation namespace.
+	f.creator = auth.NewSchedulerSession("kagent", nil).Principal().ID
 	model := harness.createModel(t, f.kube, modelURL, nil)
 	f.agent = &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "scheduled-agent-" + uuid.NewString()}, Spec: v1alpha3.AgentSpec{HarnessRef: corev1.LocalObjectReference{Name: harness.name}, Template: v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, Description: "Scheduled agent E2E fixture", SystemPrompt: "Reply briefly."}}}}
 	require.NoError(t, f.kube.Create(ctx, f.agent))
