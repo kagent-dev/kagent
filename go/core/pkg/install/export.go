@@ -97,8 +97,8 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 	if err := writeValuesChart(valuesChart); err != nil {
 		return "", err
 	}
-	// Snapshot caller overrides before rendering the controller. Preserve the
-	// separate defaults layer so Helm still owns nested-map merge semantics.
+	// Snapshot caller files before planning, but retain --set inputs: folding
+	// those into files would let generated --set defaults override them.
 	charts := []struct {
 		release string
 		chart   *Chart
@@ -115,7 +115,9 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 			}
 			item.chart.Repository = repository
 		}
-		values, err := mergeValues(ctx, runner, *item.chart, valuesChart)
+		files := *item.chart
+		files.Values = nil
+		values, err := mergeValues(ctx, runner, files, valuesChart)
 		if err != nil {
 			return "", err
 		}
@@ -126,7 +128,7 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 		if err := writeValues(path, values); err != nil {
 			return "", err
 		}
-		item.chart.Values, item.chart.inlineValues = nil, ""
+		item.chart.inlineValues = ""
 		item.chart.ValuesFiles = []string{path}
 	}
 	plan, err := planInstall(ctx, runner, cfg)

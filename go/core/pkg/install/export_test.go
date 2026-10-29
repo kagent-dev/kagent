@@ -245,12 +245,20 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("Helm is required for export integration")
 	}
-	for _, skip := range []bool{false, true} {
-		t.Run(fmt.Sprintf("skip_database=%t", skip), func(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		skipDatabase, overrides bool
+	}{
+		{"bundled database", false, false},
+		{"external database", true, false},
+		{"bundled database with caller overrides", false, true},
+		{"external database with caller overrides", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			t.Chdir(root)
 			cfg := testConfig()
-			cfg.SkipDatabaseSetup = skip
+			cfg.SkipDatabaseSetup = tc.skipDatabase
 			for _, chart := range []*Chart{&cfg.Kagent, &cfg.KagentCRDs, &cfg.Substrate, &cfg.SubstrateCRDs, &cfg.PodCertificate} {
 				chart.Repository, chart.Version = ".", "0.0.0"
 				chart.ValuesFiles = nil
@@ -258,17 +266,25 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Join(dir, "templates"), 0o700))
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v2\nname: "+chart.Name+"\nversion: 0.0.0\n"), 0o600))
 			}
-			require.NoError(t, os.WriteFile(filepath.Join(root, cfg.Kagent.Name, "templates", "controller-deployment.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: controller}\nspec: {template: {spec: {serviceAccountName: custom-controller}}}\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(root, cfg.Kagent.Name, "templates", "controller-deployment.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: controller}\nspec: {template: {spec: {serviceAccountName: {{ .Values.providers.default | lower }}-controller}}}\n"), 0o600))
 			file := filepath.Join(root, "operator.yaml")
 			require.NoError(t, os.WriteFile(file, []byte("controller: {replicas: 2}\nconfig: {logging: {level: debug}}\nuserValue: retained\n"), 0o600))
 			profile := filepath.Join(root, "profile.yaml")
 			require.NoError(t, os.WriteFile(profile, []byte("agents: {enabled: false}\n"), 0o600))
 			cfg.Kagent.ValuesFiles = []string{profile, file}
+			refs := exportReferences()
+			const token = "owned-token-must-not-be-exported"
+			if tc.overrides {
+				cfg.Kagent.Values = []string{"providers.default=ollama", "auth.token=" + token}
+				refs = append(refs, SecretReference{Release: "kagent", Path: []string{"auth", "token"}, Environment: "KAGENT_TEST_TOKEN"})
+				cfg.PodCertificate.Values = []string{"postgresClients[0]=team/operator=operator_user"}
+				cfg.Substrate.Values = []string{"postgres.clientCertificates.enabled=false"}
+			}
 			runner := CommandRunner{}
 			plan, err := planInstall(t.Context(), runner, cfg)
 			require.NoError(t, err)
 			output := filepath.Join(root, "export")
-			_, err = Export(t.Context(), runner, cfg, ExportOptions{Directory: output, Secrets: exportReferences()})
+			_, err = Export(t.Context(), runner, cfg, ExportOptions{Directory: output, Secrets: refs})
 			require.NoError(t, err)
 			script, err := os.ReadFile(filepath.Join(output, "install.sh"))
 			require.NoError(t, err)
@@ -285,10 +301,14 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 				require.NoError(t, err)
 				path := filepath.Join(output, "values", release.Release+".yaml")
 				args := []string{"template", "replay", mergeChart, "-f", path}
-				if release.Release == "kagent" {
-					secret := filepath.Join(root, "runtime-key")
-					require.NoError(t, os.WriteFile(secret, []byte(cfg.APIKey), 0o600))
-					args = append(args, "--set-file", "providers.openAI.apiKey="+secret)
+				for _, ref := range refs {
+					if ref.Release != release.Release {
+						continue
+					}
+					value := map[string]string{"OPENAI_API_KEY": cfg.APIKey, "KAGENT_TEST_TOKEN": token}[ref.Environment]
+					secret := filepath.Join(root, ref.Environment)
+					require.NoError(t, os.WriteFile(secret, []byte(value), 0o600))
+					args = append(args, "--set-file", helmMapPath(ref.Path)+"="+secret)
 				}
 				out, err := runner.Run(t.Context(), Command{Program: "helm", Args: args})
 				require.NoError(t, err)
@@ -302,6 +322,8 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 			require.NoError(t, os.WriteFile(file, []byte("userValue: changed\n"), 0o600))
 			data, err := os.ReadFile(filepath.Join(output, "values", "kagent.yaml"))
 			require.NoError(t, err)
+			require.NotContains(t, string(data), token)
+			require.NotContains(t, string(script), token)
 			require.Contains(t, string(data), "userValue: retained")
 			require.NotContains(t, string(data), "userValue: changed")
 		})
