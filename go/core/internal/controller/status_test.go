@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -179,7 +179,7 @@ func TestReconcilerWritesHarnessStatus(t *testing.T) {
 	}
 	mock := krttest.NewMock(t, []any{
 		harness,
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}},
 		harnessAgentState("assistant", booted),
 		harnessAgentState("elsewhere", func(s *AgentReconciliation) {
 			s.Agent.Spec.HarnessRef.Name = "codex"
@@ -191,7 +191,7 @@ func TestReconcilerWritesHarnessStatus(t *testing.T) {
 	collections := Collections{
 		Harnesses:           harnesses,
 		Reconciliations:     krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("NoReconciliations")...),
-		HarnessStatuses:     newHarnessStatuses(harnesses, krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock), states, &configv1.HarnessImagesConfig{Claude: testHarnessImage}, opts),
+		HarnessStatuses:     newHarnessStatuses(harnesses, krttest.GetMockCollection[*atev1.WorkerPool](mock), states, &configv1.HarnessImagesConfig{Claude: testHarnessImage}, opts),
 		AgentStatuses:       krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]](mock),
 		ModelConfigStatuses: krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
 	}

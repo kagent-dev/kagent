@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -120,7 +120,7 @@ func egressPoliciesCondition(conditionType string, generation int64, issues []tr
 
 func newHarnessStatuses(
 	harnesses krt.Collection[*kagentv1alpha3.Harness],
-	workerPools krt.Collection[*atev1alpha1.WorkerPool],
+	workerPools krt.Collection[*atev1.WorkerPool],
 	states krt.Collection[AgentReconciliation],
 	images *configv1.HarnessImagesConfig,
 	opts krt.OptionsBuilder,
