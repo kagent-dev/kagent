@@ -3,8 +3,10 @@ package substrate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
@@ -193,4 +195,30 @@ func TestActorPolicyBindsWorkloadIdentityToDestination(t *testing.T) {
 	}
 	_, err = ActorEgressPolicy("team", []string{"https://mcp.example"}, []egress.Credential{{Origin: "https://mcp.example", Header: "X-Substrate-Actor-Token", URI: "ate-secret://k8s.io/default/team/auth/token"}}, testControlPlaneURL)
 	require.Error(t, err)
+}
+
+func TestActorPolicyReservesIdentityHeaderCapacity(t *testing.T) {
+	for _, origin := range []string{"http://mcp.example.com:80", "https://mcp.example.com:443", testControlPlaneURL} {
+		for _, count := range []int{15, 16} {
+			t.Run(fmt.Sprintf("%s/%d", origin, count), func(t *testing.T) {
+				var credentials []egress.Credential
+				for i := range count {
+					credentials = append(credentials, egress.Credential{
+						Origin: origin, Header: fmt.Sprintf("x-provider-%d", i), URI: "ate-secret://k8s.io/default/team/auth/token",
+					})
+				}
+				policy, err := ActorEgressPolicy("team", []string{origin}, credentials, testControlPlaneURL)
+				if count == 16 {
+					require.ErrorContains(t, err, "at most 15 headers per origin")
+					require.Nil(t, policy)
+					return
+				}
+				require.NoError(t, err)
+				headers, err := policyHeaders(policy)
+				require.NoError(t, err)
+				require.Len(t, headers, 16)
+				require.NoError(t, protovalidate.Validate(policy))
+			})
+		}
+	}
 }

@@ -114,8 +114,9 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 	counts := map[string]int{}
 	for _, c := range result {
 		counts[c.Origin]++
-		if counts[c.Origin] > 16 {
-			return nil, fmt.Errorf("credential injection supports at most 16 headers per origin")
+		// Actor identity occupies one of Substrate's 16 replacement headers.
+		if counts[c.Origin] > 15 {
+			return nil, fmt.Errorf("credential injection supports at most 15 headers per origin, reserving one for Actor identity")
 		}
 	}
 	return result, nil
