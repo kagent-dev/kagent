@@ -26,7 +26,6 @@ cp "$root/helm/kagent/values.yaml" "$source_dir/kagent/values.yaml"
 cp "$root/helm/kagent/templates/"*.tpl "$root/helm/kagent/templates/controller-configmap.yaml" \
   "$root/helm/kagent/templates/example-agents.yaml" "$source_dir/kagent/templates/"
 printf 'stale catalog\n' > "$source_dir/kagent/files/builtin-harness-images.json"
-printf 'stale tools image\n' > "$source_dir/kagent/files/kagent-tools-image.json"
 cp -R "$source_dir" "$scratch/source-before"
 for image in golang-adk claude-harness codex-harness; do
   jq -n --arg digest "$digest" --arg config "$config_digest" \
@@ -166,8 +165,6 @@ expect_failure kagent/Chart-template.yaml helm-release
 mv "$scratch/Chart-template.yaml" "$source_dir/kagent/Chart-template.yaml"
 diff -r "$scratch/source-before" "$source_dir"
 
-# The stale source file would fail to parse, so the message also proves that
-# packaging dropped it.
 check="release without kagent-tools metadata requires an explicit skills image"
 mv "$metadata_dir/kagent-tools.json" "$scratch/kagent-tools.json"
 release helm-release

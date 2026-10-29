@@ -209,7 +209,6 @@ file::memory:*
 
 ## Helm
 /helm/kagent/files/builtin-harness-images.json
-/helm/kagent/files/kagent-tools-image.json
 *.tgz
 /tmp/
 /reports/*.csv

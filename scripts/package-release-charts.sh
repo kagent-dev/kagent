@@ -41,7 +41,6 @@ fi
 cp -R "$source_dir" "$staging/helm"
 mkdir -p "$staging/helm/kagent/files"
 mv "$staging/builtin-harness-images.json" "$staging/helm/kagent/files/builtin-harness-images.json"
-rm -f "$staging/helm/kagent/files/kagent-tools-image.json"
 if [[ -f "$staging/kagent-tools-image.json" ]]; then
   mv "$staging/kagent-tools-image.json" "$staging/helm/kagent/files/kagent-tools-image.json"
 fi
