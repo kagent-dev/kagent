@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -90,6 +91,11 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, err
 	}
 
+	access, err := egress.CanonicalAccess(spec.EgressDestinations, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("compile golden actor egress: %w", err)
+	}
+
 	template := &ateapipb.ActorTemplate{
 		Metadata:  &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
 		Resources: resources,
@@ -142,6 +148,12 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
+	if len(access.Destinations) > 0 {
+		template.GoldenEgressPolicy = &ateapipb.EgressPolicyTemplate{}
+		for _, origin := range access.Destinations {
+			template.GoldenEgressPolicy.Rules = append(template.GoldenEgressPolicy.Rules, originEgressRule(origin, nil))
+		}
+	}
 	return template, nil
 }
 
@@ -160,11 +172,12 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector: template.GetWorkerSelector(),
-		Containers:     template.GetContainers(),
-		Volumes:        template.GetVolumes(),
-		SnapshotConfig: template.GetSnapshotConfig(),
-		Resources:      template.GetResources(),
+		WorkerSelector:     template.GetWorkerSelector(),
+		Containers:         template.GetContainers(),
+		Volumes:            template.GetVolumes(),
+		SnapshotConfig:     template.GetSnapshotConfig(),
+		Resources:          template.GetResources(),
+		GoldenEgressPolicy: template.GetGoldenEgressPolicy(),
 	}
 }
 

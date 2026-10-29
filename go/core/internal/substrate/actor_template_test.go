@@ -245,3 +245,42 @@ func TestActorResources(t *testing.T) {
 		})
 	}
 }
+
+func TestActorTemplateGoldenEgress(t *testing.T) {
+	spec := &translator.Revision{
+		CPU: "1", Memory: "1Gi", Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
+		AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+			DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+		EgressDestinations: []string{
+			"http://skills.agents.svc.cluster.local:8080", "https://models.example.com", "http://kagent-controller.kagent.svc:8083",
+		},
+	}
+	id, err := spec.Digest()
+	require.NoError(t, err)
+	template, err := ActorTemplateForRevision(spec, id)
+	require.NoError(t, err)
+	require.Len(t, template.GoldenEgressPolicy.GetRules(), 3)
+	require.Equal(t, []string{"kagent-controller.kagent.svc"}, template.GoldenEgressPolicy.Rules[0].GetHttp().GetHostnames())
+	rule := template.GoldenEgressPolicy.Rules[1].GetHttp()
+	require.Equal(t, []string{"skills.agents.svc.cluster.local"}, rule.GetHostnames())
+	require.Equal(t, []int32{8080}, rule.GetPorts().GetNumbers())
+	require.Empty(t, rule.GetEffects().GetReplaceHeaders())
+	require.Equal(t, []string{"models.example.com"}, template.GoldenEgressPolicy.Rules[2].GetHttps().GetHostnames())
+	for _, rule := range template.GoldenEgressPolicy.Rules {
+		require.Nil(t, rule.GetHttp().GetEffects())
+		require.Nil(t, rule.GetHttps().GetEffects())
+	}
+	changed := proto.CloneOf(template)
+	changed.GoldenEgressPolicy = nil
+	require.False(t, ActorTemplateSpecEqual(template, changed))
+	spec.EgressDestinations = nil
+	id, err = spec.Digest()
+	require.NoError(t, err)
+	empty, err := ActorTemplateForRevision(spec, id)
+	require.NoError(t, err)
+	require.Nil(t, empty.GoldenEgressPolicy)
+	spec.EgressDestinations = []string{"invalid"}
+	_, err = ActorTemplateForRevision(spec, id)
+	require.ErrorContains(t, err, "compile golden actor egress")
+}
