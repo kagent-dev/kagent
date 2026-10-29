@@ -14,26 +14,6 @@
 {{- end -}}
 
 {{/*
-Digest-pinned kagent-tools image whose skills the example Agents mount. Release
-packaging resolves the digest of the kagent-tools version this chart pins.
-*/}}
-{{- define "kagent.exampleAgentsSkillsImage" -}}
-{{- $image := .Values.exampleAgents.skillsImage -}}
-{{- if not $image -}}
-  {{- with .Files.Get "files/kagent-tools-image.json" -}}
-    {{- $image = get (mustFromJson .) "image" -}}
-  {{- end -}}
-{{- end -}}
-{{- if not $image -}}
-  {{- fail "exampleAgents.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills; otherwise set exampleAgents.skillsImage to <repository>@sha256:<digest>." -}}
-{{- end -}}
-{{- if not (regexMatch "^[^[:space:]@]+@sha256:[0-9a-f]{64}$" $image) -}}
-  {{- fail (printf "exampleAgents.skillsImage must be pinned by sha256 digest: %q" $image) -}}
-{{- end -}}
-{{- include "kagent.mirroredImage" (dict "root" . "image" $image) -}}
-{{- end -}}
-
-{{/*
 Create a default fully qualified app name.
 */}}
 {{- define "kagent.fullname" -}}
