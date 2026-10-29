@@ -96,6 +96,10 @@ type ReconciliationFailure struct {
 	Retryable bool
 }
 
+// reasonActorTemplateFailed marks a golden boot that Substrate reported as
+// failed, the only preparation failure a Harness's Booted condition counts.
+const reasonActorTemplateFailed = "ActorTemplateFailed"
+
 func newAgentReconciliations(
 	agents krt.Collection[*kagentv1alpha3.Agent],
 	collections translator.Collections,
@@ -144,7 +148,7 @@ func newAgentReconciliations(
 				Message:   "existing immutable ActorTemplate differs from the compiled revision",
 			}
 		} else if message := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateFailed", Message: message}
+			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: reasonActorTemplateFailed, Message: message}
 		}
 		return state
 	}, opts.WithName("AgentReconciliations")...)
@@ -219,9 +223,11 @@ type Reconciler struct {
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
 	modelConfigStatuses      controllers.Queue
+	harnessStatuses          controllers.Queue
 	agentHandler             krt.HandlerRegistration
 	agentStatusHandler       krt.HandlerRegistration
 	modelConfigStatusHandler krt.HandlerRegistration
+	harnessStatusHandler     krt.HandlerRegistration
 }
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
@@ -255,6 +261,9 @@ func newReconciler(
 	r.modelConfigStatuses = newReconciliationQueue("model-config-status", func(item any) error {
 		return r.reconcileModelConfigStatus(context.Background(), item.(string))
 	})
+	r.harnessStatuses = newReconciliationQueue("harness-status", func(item any) error {
+		return r.reconcileHarnessStatus(context.Background(), item.(string))
+	})
 
 	r.agentHandler = collections.Reconciliations.Register(func(event krt.Event[AgentReconciliation]) {
 		// Desired inputs and cleanup changes bypass failure backoff; observations
@@ -282,6 +291,13 @@ func newReconciler(
 		}
 		r.modelConfigStatuses.Add(status.ResourceName())
 	})
+	r.harnessStatusHandler = collections.HarnessStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.Harness, kagentv1alpha3.HarnessStatus]]) {
+		status := event.Latest()
+		if apiequality.Semantic.DeepEqual(harnessStatusWithTransitionTimes(status.Status, status.Obj.Status), status.Obj.Status) {
+			return
+		}
+		r.harnessStatuses.Add(status.ResourceName())
+	})
 	return r
 }
 
@@ -299,23 +315,28 @@ func newReconciliationQueue(name string, reconcile func(any) error) controllers.
 // processes Agent preparation and status writes until cancellation.
 func (r *Reconciler) Start(ctx context.Context) error {
 	stop := ctx.Done()
-	if !r.agentHandler.WaitUntilSynced(stop) || !r.agentStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) {
-		r.agents.ShutDownEarly()
-		r.agentStatuses.ShutDownEarly()
-		r.modelConfigStatuses.ShutDownEarly()
+	if !r.agentHandler.WaitUntilSynced(stop) || !r.agentStatusHandler.WaitUntilSynced(stop) ||
+		!r.modelConfigStatusHandler.WaitUntilSynced(stop) || !r.harnessStatusHandler.WaitUntilSynced(stop) {
+		r.shutDownEarly()
 		return nil
 	}
 	if err := r.enqueueDeletedAgents(ctx); err != nil {
-		r.agents.ShutDownEarly()
-		r.agentStatuses.ShutDownEarly()
-		r.modelConfigStatuses.ShutDownEarly()
+		r.shutDownEarly()
 		return err
 	}
 	go r.pollPendingTemplates(stop)
 	go r.agentStatuses.Run(stop)
 	go r.modelConfigStatuses.Run(stop)
+	go r.harnessStatuses.Run(stop)
 	r.agents.Run(stop)
 	return nil
+}
+
+func (r *Reconciler) shutDownEarly() {
+	r.agents.ShutDownEarly()
+	r.agentStatuses.ShutDownEarly()
+	r.modelConfigStatuses.ShutDownEarly()
+	r.harnessStatuses.ShutDownEarly()
 }
 
 func (r *Reconciler) enqueueDeletedAgents(ctx context.Context) error {
@@ -528,27 +549,50 @@ func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string)
 	return nil
 }
 
-func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentStatus) kagentv1alpha3.AgentStatus {
-	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
-	for i := range desired.Conditions {
-		condition := &desired.Conditions[i]
-		previous := apimeta.FindStatusCondition(current.Conditions, condition.Type)
-		if previous != nil && previous.Status == condition.Status {
-			condition.LastTransitionTime = previous.LastTransitionTime
-		} else {
-			condition.LastTransitionTime = metav1.Now()
-		}
+func (r *Reconciler) reconcileHarnessStatus(ctx context.Context, key string) error {
+	desired := r.collections.HarnessStatuses.GetKey(key)
+	harness := r.collections.Harnesses.GetKey(key)
+	if desired == nil || harness == nil {
+		return nil
 	}
+	updated := (*harness).DeepCopy()
+	updated.Status = harnessStatusWithTransitionTimes(desired.Status, updated.Status)
+	if apiequality.Semantic.DeepEqual(updated.Status, (*harness).Status) {
+		return nil
+	}
+	if _, err := r.status.Harnesses(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update Harness %s status: %w", key, err)
+	}
+	return nil
+}
+
+func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentStatus) kagentv1alpha3.AgentStatus {
+	desired.Conditions = conditionsWithTransitionTimes(desired.Conditions, current.Conditions)
 	return desired
 }
 
 func modelConfigStatusWithTransitionTimes(desired, current kagentv1alpha3.ModelConfigStatus) kagentv1alpha3.ModelConfigStatus {
-	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
-	for conditionIndex := range desired.Conditions {
-		condition := &desired.Conditions[conditionIndex]
-		if previous := apimeta.FindStatusCondition(current.Conditions, condition.Type); previous != nil &&
-			previous.Status == condition.Status && previous.Reason == condition.Reason &&
-			previous.Message == condition.Message && previous.ObservedGeneration == condition.ObservedGeneration {
+	desired.Conditions = conditionsWithTransitionTimes(desired.Conditions, current.Conditions)
+	return desired
+}
+
+// harnessStatusWithTransitionTimes keeps the capabilities the Harness already
+// carries: the controller derives only observedGeneration and conditions.
+func harnessStatusWithTransitionTimes(desired, current kagentv1alpha3.HarnessStatus) kagentv1alpha3.HarnessStatus {
+	desired.Capabilities = current.Capabilities
+	desired.Conditions = conditionsWithTransitionTimes(desired.Conditions, current.Conditions)
+	return desired
+}
+
+// conditionsWithTransitionTimes keeps a condition's transition time while its
+// status holds and stamps the current time when the status changes, as
+// apimeta.SetStatusCondition does; a new reason or message alone is no
+// transition.
+func conditionsWithTransitionTimes(desired, current []metav1.Condition) []metav1.Condition {
+	desired = append([]metav1.Condition(nil), desired...)
+	for conditionIndex := range desired {
+		condition := &desired[conditionIndex]
+		if previous := apimeta.FindStatusCondition(current, condition.Type); previous != nil && previous.Status == condition.Status {
 			condition.LastTransitionTime = previous.LastTransitionTime
 			continue
 		}

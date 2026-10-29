@@ -2,11 +2,15 @@ package controller
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -112,4 +116,86 @@ func egressPoliciesCondition(conditionType string, generation int64, issues []tr
 		condition.Message = strings.ToValidUTF8(condition.Message[:maxMessage-3], "") + "..."
 	}
 	return condition
+}
+
+func newHarnessStatuses(
+	harnesses krt.Collection[*kagentv1alpha3.Harness],
+	workerPools krt.Collection[*atev1.WorkerPool],
+	states krt.Collection[AgentReconciliation],
+	images *configv1.HarnessImagesConfig,
+	opts krt.OptionsBuilder,
+) krt.StatusCollection[*kagentv1alpha3.Harness, kagentv1alpha3.HarnessStatus] {
+	byHarness := krt.NewIndex(states, "harness", func(state AgentReconciliation) []string {
+		return []string{state.Agent.Namespace + "/" + state.Agent.Spec.HarnessRef.Name}
+	})
+	statuses, _ := krt.NewStatusManyCollection(harnesses, func(ctx krt.HandlerContext, harness *kagentv1alpha3.Harness) (*kagentv1alpha3.HarnessStatus, []AgentReconciliation) {
+		pool := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
+		poolFound := krt.FetchOne(ctx, workerPools, krt.FilterObjectName(pool)) != nil
+		_, imageErr := translator.HarnessImage(harness, images)
+		agents := krt.Fetch(ctx, states, krt.FilterIndex(byHarness, harness.Namespace+"/"+harness.Name))
+		return &kagentv1alpha3.HarnessStatus{
+			ObservedGeneration: harness.Generation,
+			Conditions: []metav1.Condition{
+				harnessReadyCondition(harness.Generation, pool, poolFound, imageErr),
+				harnessBootedCondition(harness.Generation, agents),
+			},
+		}, nil
+	}, opts.WithName("HarnessStatuses")...)
+	return statuses
+}
+
+// harnessReadyCondition states the Harness's own invariants: it is Ready once
+// the WorkerPool it references exists and its workload image resolves. What
+// the Agents on it observed is the Booted condition's, so one Agent's broken
+// configuration never flips a Harness that other Agents share.
+func harnessReadyCondition(generation int64, pool types.NamespacedName, poolFound bool, imageErr error) metav1.Condition {
+	if !poolFound {
+		return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionFalse, "WorkerPoolNotFound", (&translator.WorkerPoolNotFoundError{WorkerPool: pool}).Error())
+	}
+	if imageErr != nil {
+		return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionFalse, "UnsupportedConfiguration", imageErr.Error())
+	}
+	return harnessCondition(kagentv1alpha3.HarnessConditionTypeReady, generation, metav1.ConditionTrue, "Resolved", fmt.Sprintf("WorkerPool %q and the workload image resolve", pool.String()))
+}
+
+// harnessBootedCondition reads the golden boots of the Agents that run on the
+// Harness. Every Agent revision boots the Harness's workload, so one
+// successful boot proves it boots; a failed boot counts only while no Agent
+// booted, since an Agent's own configuration can fail its boot too. Any other
+// failure (an unresolved reference, a rejected ActorTemplate, a backend error)
+// never reached a boot and says nothing about the Harness.
+func harnessBootedCondition(generation int64, agents []AgentReconciliation) metav1.Condition {
+	slices.SortFunc(agents, func(a, b AgentReconciliation) int { return strings.Compare(a.ResourceName(), b.ResourceName()) })
+	var failed *metav1.Condition
+	var pending string
+	for _, state := range agents {
+		if state.Target == nil || state.CompilationFailure != nil {
+			continue
+		}
+		agent := state.ResourceName()
+		switch failure := state.PreparationFailure; {
+		case failure == nil && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil:
+			return harnessCondition(kagentv1alpha3.HarnessConditionTypeBooted, generation, metav1.ConditionTrue, "Booted", fmt.Sprintf("golden boot of Agent %s succeeded", agent))
+		case failure == nil:
+			if pending == "" {
+				pending = agent
+			}
+		case failure.Reason == reasonActorTemplateFailed:
+			if failed == nil {
+				c := harnessCondition(kagentv1alpha3.HarnessConditionTypeBooted, generation, metav1.ConditionFalse, failure.Reason, fmt.Sprintf("Agent %s: %s", agent, failure.Message))
+				failed = &c
+			}
+		}
+	}
+	if failed != nil {
+		return *failed
+	}
+	if pending != "" {
+		return harnessCondition(kagentv1alpha3.HarnessConditionTypeBooted, generation, metav1.ConditionUnknown, "BootPending", fmt.Sprintf("waiting for the golden boot of Agent %s", pending))
+	}
+	return harnessCondition(kagentv1alpha3.HarnessConditionTypeBooted, generation, metav1.ConditionUnknown, "NoAgents", "no Agent runs on this Harness yet")
+}
+
+func harnessCondition(conditionType string, generation int64, status metav1.ConditionStatus, reason, message string) metav1.Condition {
+	return metav1.Condition{Type: conditionType, Status: status, Reason: reason, Message: message, ObservedGeneration: generation}
 }
