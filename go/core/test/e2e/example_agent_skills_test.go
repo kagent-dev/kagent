@@ -34,8 +34,9 @@ type exampleAgent struct {
 }
 
 var (
-	exampleAgentPattern = regexp.MustCompile(`"name" "([^"]+)"\s+"description" "([^"]+)"\s+"skills" \(list ([^)]*)\)`)
-	quotedPattern       = regexp.MustCompile(`"([^"]+)"`)
+	exampleAgentNamePattern        = regexp.MustCompile(`(?m)^  name: \{\{ printf "%s-([a-z-]+)" \$prefix`)
+	exampleAgentDescriptionPattern = regexp.MustCompile(`(?m)^      description: "([^"]+)"$`)
+	exampleAgentSkillsPattern      = regexp.MustCompile(`(?m)^          skills:\n((?:            - \S+(?:\n|\z))+)`)
 )
 
 // readExampleAgents reads each example Agent's name, description and skills
@@ -45,10 +46,17 @@ func readExampleAgents(t *testing.T) []exampleAgent {
 	data, err := os.ReadFile(exampleAgentsTemplate)
 	require.NoError(t, err)
 	var agents []exampleAgent
-	for _, match := range exampleAgentPattern.FindAllStringSubmatch(string(data), -1) {
-		agent := exampleAgent{name: match[1], description: match[2]}
-		for _, skill := range quotedPattern.FindAllStringSubmatch(match[3], -1) {
-			agent.skills = append(agent.skills, skill[1])
+	for doc := range strings.SplitSeq(string(data), "\n---\n") {
+		if !strings.Contains(doc, "\nkind: Agent\n") {
+			continue
+		}
+		name := exampleAgentNamePattern.FindStringSubmatch(doc)
+		description := exampleAgentDescriptionPattern.FindStringSubmatch(doc)
+		skills := exampleAgentSkillsPattern.FindStringSubmatch(doc)
+		require.True(t, name != nil && description != nil && skills != nil, "cannot read an example Agent in %s:\n%s", exampleAgentsTemplate, doc)
+		agent := exampleAgent{name: name[1], description: description[1]}
+		for line := range strings.SplitSeq(strings.TrimSpace(skills[1]), "\n") {
+			agent.skills = append(agent.skills, strings.TrimPrefix(strings.TrimSpace(line), "- "))
 		}
 		agents = append(agents, agent)
 	}

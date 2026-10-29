@@ -26,46 +26,6 @@ Each Agent binds only the tools its skills name, in one binding. Claude and
 Codex accept each MCP server once, one binding lists at most 50 tools, and
 OpenAI and Azure OpenAI accept at most 128 tools in one request.
 */}}
-{{- $agents := list
-  (dict
-    "name" "cluster-ops"
-    "description" "Kubernetes workload, Helm release, Argo Rollouts, and Prometheus metrics assistant."
-    "skills" (list "k8s-troubleshooting" "helm-release-management" "argo-rollouts-progressive-delivery" "prometheus-observability")
-    "tools" (list
-      "k8s_apply_manifest" "k8s_check_service_connectivity" "k8s_delete_resource" "k8s_describe_resource"
-      "k8s_get_events" "k8s_get_pod_logs" "k8s_get_resource_yaml" "k8s_get_resources" "k8s_patch_resource"
-      "k8s_rollout" "k8s_scale"
-      "helm_get_release" "helm_list_releases" "helm_repo_add" "helm_repo_update" "helm_uninstall" "helm_upgrade"
-      "argo_pause_rollout" "argo_promote_rollout" "argo_rollouts_list" "argo_set_rollout_image"
-      "argo_verify_argo_rollouts_controller_install" "argo_verify_gateway_plugin" "argo_verify_kubectl_plugin_install"
-      "prometheus_label_names_tool" "prometheus_promql_tool" "prometheus_query_range_tool" "prometheus_query_tool"
-      "prometheus_targets_tool"))
-  (dict
-    "name" "networking"
-    "description" "Istio service mesh and Cilium networking assistant."
-    "skills" (list "istio-traffic-debugging" "cilium-network-debugging")
-    "tools" (list
-      "k8s_apply_manifest" "k8s_describe_resource" "k8s_get_events" "k8s_get_pod_logs" "k8s_get_resource_yaml"
-      "k8s_get_resources"
-      "istio_analyze_cluster_configuration" "istio_apply_waypoint" "istio_delete_waypoint" "istio_list_waypoints"
-      "istio_proxy_config" "istio_proxy_status" "istio_version" "istio_waypoint_status" "istio_ztunnel_config"
-      "cilium_display_policy_node_information" "cilium_display_selectors" "cilium_flush_ipsec_state"
-      "cilium_get_daemon_status" "cilium_get_endpoint_details" "cilium_get_endpoints_list"
-      "cilium_get_identity_details" "cilium_get_service_information" "cilium_list_bgp_peers"
-      "cilium_list_bgp_routes" "cilium_list_cluster_nodes" "cilium_list_services"
-      "cilium_show_cluster_mesh_status" "cilium_status_and_version" "cilium_uninstall_cilium"
-      "cilium_validate_cilium_network_policies"))
-  (dict
-    "name" "security"
-    "description" "Kubescape security posture assistant."
-    "skills" (list "kubescape-security-posture")
-    "tools" (list
-      "kubescape_check_health" "kubescape_get_application_profile" "kubescape_get_configuration_scan"
-      "kubescape_get_network_neighborhood" "kubescape_get_vulnerability_details"
-      "kubescape_list_application_profiles" "kubescape_list_configuration_scans"
-      "kubescape_list_network_neighborhoods" "kubescape_list_vulnerabilities"
-      "kubescape_list_vulnerability_manifests"))
-}}
 apiVersion: api.kagent.dev/v1alpha3
 kind: Harness
 metadata:
@@ -80,23 +40,22 @@ spec:
       name: {{ .Values.substrateWorkerPool.name | quote }}
     snapshotPolicy:
       location: {{ .Values.exampleAgents.snapshotLocation | quote }}
-{{- range $agents }}
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
-  name: {{ printf "%s-%s" $prefix .name | quote }}
-  namespace: {{ include "kagent.namespace" $ }}
+  name: {{ printf "%s-cluster-ops" $prefix | quote }}
+  namespace: {{ include "kagent.namespace" . }}
   labels:
-    {{- include "kagent.labels" $ | nindent 4 }}
+    {{- include "kagent.labels" . | nindent 4 }}
 spec:
   harnessRef:
     name: {{ printf "%s-example" $prefix | quote }}
   template:
     inline:
-      description: {{ .description | quote }}
+      description: "Kubernetes workload, Helm release, Argo Rollouts, and Prometheus metrics assistant."
       modelConfig:
-        name: {{ include "kagent.defaultModelConfigName" $ }}
+        name: {{ include "kagent.defaultModelConfigName" . }}
       promptTemplate:
         dataSources:
           - name: kagent-builtin-prompts
@@ -119,12 +78,172 @@ spec:
               kind: RemoteMCPServer
               name: {{ $toolServer }}
             tools:
-              {{- toYaml .tools | nindent 14 }}
+              - k8s_apply_manifest
+              - k8s_check_service_connectivity
+              - k8s_delete_resource
+              - k8s_describe_resource
+              - k8s_get_events
+              - k8s_get_pod_logs
+              - k8s_get_resource_yaml
+              - k8s_get_resources
+              - k8s_patch_resource
+              - k8s_rollout
+              - k8s_scale
+              - helm_get_release
+              - helm_list_releases
+              - helm_repo_add
+              - helm_repo_update
+              - helm_uninstall
+              - helm_upgrade
+              - argo_pause_rollout
+              - argo_promote_rollout
+              - argo_rollouts_list
+              - argo_set_rollout_image
+              - argo_verify_argo_rollouts_controller_install
+              - argo_verify_gateway_plugin
+              - argo_verify_kubectl_plugin_install
+              - prometheus_label_names_tool
+              - prometheus_promql_tool
+              - prometheus_query_range_tool
+              - prometheus_query_tool
+              - prometheus_targets_tool
       plugins:
         - source:
             oci: {{ $skillsImage | quote }}
             path: opt/kagent-tools-skills
           skills:
-            {{- toYaml .skills | nindent 12 }}
-{{- end }}
+            - k8s-troubleshooting
+            - helm-release-management
+            - argo-rollouts-progressive-delivery
+            - prometheus-observability
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: {{ printf "%s-networking" $prefix | quote }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  harnessRef:
+    name: {{ printf "%s-example" $prefix | quote }}
+  template:
+    inline:
+      description: "Istio service mesh and Cilium networking assistant."
+      modelConfig:
+        name: {{ include "kagent.defaultModelConfigName" . }}
+      promptTemplate:
+        dataSources:
+          - name: kagent-builtin-prompts
+            alias: builtin
+      systemPrompt: |
+        Answer questions about the Kubernetes cluster where kagent runs. When a
+        question matches one of your skills, load that skill and follow it. Each
+        skill names the kagent-tools MCP tools it uses.
+
+        {{`{{include "builtin/skills-usage"}}`}}
+
+        {{`{{include "builtin/kubernetes-context"}}`}}
+
+        {{`{{include "builtin/tool-usage-best-practices"}}`}}
+
+        {{`{{include "builtin/safety-guardrails"}}`}}
+      tools:
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: {{ $toolServer }}
+            tools:
+              - k8s_apply_manifest
+              - k8s_describe_resource
+              - k8s_get_events
+              - k8s_get_pod_logs
+              - k8s_get_resource_yaml
+              - k8s_get_resources
+              - istio_analyze_cluster_configuration
+              - istio_apply_waypoint
+              - istio_delete_waypoint
+              - istio_list_waypoints
+              - istio_proxy_config
+              - istio_proxy_status
+              - istio_version
+              - istio_waypoint_status
+              - istio_ztunnel_config
+              - cilium_display_policy_node_information
+              - cilium_display_selectors
+              - cilium_flush_ipsec_state
+              - cilium_get_daemon_status
+              - cilium_get_endpoint_details
+              - cilium_get_endpoints_list
+              - cilium_get_identity_details
+              - cilium_get_service_information
+              - cilium_list_bgp_peers
+              - cilium_list_bgp_routes
+              - cilium_list_cluster_nodes
+              - cilium_list_services
+              - cilium_show_cluster_mesh_status
+              - cilium_status_and_version
+              - cilium_uninstall_cilium
+              - cilium_validate_cilium_network_policies
+      plugins:
+        - source:
+            oci: {{ $skillsImage | quote }}
+            path: opt/kagent-tools-skills
+          skills:
+            - istio-traffic-debugging
+            - cilium-network-debugging
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: {{ printf "%s-security" $prefix | quote }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  harnessRef:
+    name: {{ printf "%s-example" $prefix | quote }}
+  template:
+    inline:
+      description: "Kubescape security posture assistant."
+      modelConfig:
+        name: {{ include "kagent.defaultModelConfigName" . }}
+      promptTemplate:
+        dataSources:
+          - name: kagent-builtin-prompts
+            alias: builtin
+      systemPrompt: |
+        Answer questions about the Kubernetes cluster where kagent runs. When a
+        question matches one of your skills, load that skill and follow it. Each
+        skill names the kagent-tools MCP tools it uses.
+
+        {{`{{include "builtin/skills-usage"}}`}}
+
+        {{`{{include "builtin/kubernetes-context"}}`}}
+
+        {{`{{include "builtin/tool-usage-best-practices"}}`}}
+
+        {{`{{include "builtin/safety-guardrails"}}`}}
+      tools:
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: {{ $toolServer }}
+            tools:
+              - kubescape_check_health
+              - kubescape_get_application_profile
+              - kubescape_get_configuration_scan
+              - kubescape_get_network_neighborhood
+              - kubescape_get_vulnerability_details
+              - kubescape_list_application_profiles
+              - kubescape_list_configuration_scans
+              - kubescape_list_network_neighborhoods
+              - kubescape_list_vulnerabilities
+              - kubescape_list_vulnerability_manifests
+      plugins:
+        - source:
+            oci: {{ $skillsImage | quote }}
+            path: opt/kagent-tools-skills
+          skills:
+            - kubescape-security-posture
 {{- end }}
