@@ -17,6 +17,9 @@ import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { clickableRow, useExpandedRows } from "@/components/table/rowClick";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { linkStyles } from "@/components/common/linkStyles";
+import { scheduleStatus } from "@/components/scheduled-runs/scheduleStatus";
+import { ScheduleStatusTag } from "@/components/scheduled-runs/ScheduleStatusTag";
+import { agentPageUrl, scheduleUrl } from "@/components/agent/agentUrl";
 import { buildPath, paths } from "@/router/routes";
 import { useUrlStateWriter } from "@/router/useUrlState";
 import { ScheduledRunExecutionState, type ScheduledRunExecution } from "@/generated/kagent/api/v1/scheduled_runs_pb";
@@ -52,11 +55,11 @@ export function ScheduledRunsPage() {
           ? <span data-testid="schedules-unavailable">Schedules unavailable</span>
           : <span data-testid="schedules-empty">No schedules were found.</span> }} columns={[
           { title: "Name", key: "name", render: (_, row) => <Link data-testid={`schedule-link-${row.metadata.name}`}
-            to={buildPath(paths.scheduledRun, { id: scheduleRouteID(row) })}>{row.metadata.name}</Link> },
-          { title: "Agent", key: "agent", render: (_, row) => <Link to={`/agents/${encodeURIComponent(row.metadata.namespace ?? "")}/${encodeURIComponent(row.spec.agentRef.name)}`}>{row.spec.agentRef.name}</Link> },
+            to={scheduleUrl(row)}>{row.metadata.name}</Link> },
+          { title: "Agent", key: "agent", render: (_, row) => <AgentLink schedule={row} /> },
           { title: "Schedule", key: "schedule", render: (_, row) => row.spec ? scheduleDescription(row.spec.schedule) : "—" },
           { title: "Time zone", key: "zone", render: (_, row) => row.spec?.timeZone || "UTC" },
-          { title: "Status", key: "status", render: (_, row) => scheduleStatusTag(row) },
+          { title: "Status", key: "status", render: (_, row) => <ScheduleStatusTag schedule={row} /> },
           // Last and untitled, as on every other list: a row's actions belong at the
           // end of it, past the data they act on.
           { title: "", key: "actions", width: 76, render: (_, row) => {
@@ -75,7 +78,7 @@ export function ScheduledRunsPage() {
         ]}
         // The Name cell stays a link, so the row is reachable by keyboard; the guard
         // sees that link — and the row's edit and delete — and leaves them alone.
-        onRow={(row) => clickableRow(() => void navigate(buildPath(paths.scheduledRun, { id: scheduleRouteID(row) })))} />
+        onRow={(row) => clickableRow(() => void navigate(scheduleUrl(row)))} />
       <PageControls testId="schedules-pages" page={page} hasNext={Boolean(runs.data?.page?.nextPageToken)}
         onNext={() => page.next(runs.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={runs.isLoading} />
     </Space>
@@ -114,7 +117,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
   const history = useApiResource(["scheduledRuns.executions", id, page.current, schedule?.metadata.resourceVersion],
     () => invoke("scheduledRuns.executions", { scheduledRunId: route.uid, page: { limit: 25, pageToken: page.current } }), { refreshInterval: 5000 });
   const config = schedule?.spec;
-  const disabled = !schedule || !!busy || !!run.error || !!schedule.metadata.deletionTimestamp;
+  const disabled = !schedule || !!busy || !!run.error;
+  const status = schedule && scheduleStatus(schedule);
 
   const executions = useMemo(() => history.data?.executions ?? [], [history.data]);
   const { rows, revealed } = useMemo(() => searchExecutions(executions, query), [executions, query]);
@@ -182,7 +186,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
         {/* What the schedule is, in one line under its name: whether it is running,
             how often, and in whose clock. The rest is in the list below. */}
         {schedule && config && <Space size={8} wrap data-testid="schedule-meta" css={{ marginTop: theme.space(2) }}>
-          {scheduleStatusTag(schedule)}
+          <ScheduleStatusTag schedule={schedule} />
           <Tag icon={<CalendarClock size={12} />}>{scheduleDescription(config.schedule)}</Tag>
           <Tag icon={<Globe size={12} />}>{config.timeZone || "UTC"}</Tag>
         </Space>}
@@ -193,9 +197,11 @@ function ScheduledRunDetails({ id }: { id: string }) {
       {run.error && <Alert type="error" showIcon title="Could not load schedule" description={run.error.message} />}
       {actionError && <Alert type="error" showIcon title="Schedule action failed" description={actionError} />}
       {notice && <Alert type="success" showIcon title={notice} />}
-      {schedule?.metadata.deletionTimestamp && <Alert data-testid="schedule-deleted-note" type="info" showIcon title="This schedule was deleted. Its execution history is retained." />}
+      {/* The tag says so in a word; this is where the reader learns why it will not fire. */}
+      {status?.kind === "notReady" && <Alert data-testid="schedule-not-ready-note" type="warning" showIcon
+        title="This schedule will not run until the controller reports it ready" description={status.message ?? status.reason} />}
       {schedule && config && <Descriptions data-testid="schedule-detail" bordered column={{ xs: 1, sm: 2 }} items={[
-        { key: "agent", label: "Agent", children: <Link to={`/agents/${encodeURIComponent(schedule.metadata.namespace ?? "")}/${encodeURIComponent(schedule.spec.agentRef.name)}`}>{schedule.spec.agentRef.name}</Link> },
+        { key: "agent", label: "Agent", children: <AgentLink schedule={schedule} /> },
         { key: "created", label: "Created", children: time(schedule.metadata.creationTimestamp) },
         { key: "timeout", label: "Execution timeout", span: "filled", children: config.executionTimeout ?? "15m" },
         { key: "prompt", label: "Prompt", span: "filled", children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
@@ -262,9 +268,11 @@ function ScheduledRunDetails({ id }: { id: string }) {
   </PageFrame>;
 }
 
-function scheduleStatusTag(schedule: ScheduledRun) {
-  if (schedule.metadata.deletionTimestamp) return <Tag>Deleted</Tag>;
-  return schedule.spec.paused ? <Tag color="warning">Paused</Tag> : <Tag color="success">Active</Tag>;
+/* An Agent is referenced by name in the schedule's own namespace. */
+function AgentLink({ schedule }: { schedule: ScheduledRun }) {
+  const name = schedule.spec.agentRef.name;
+  const href = agentPageUrl({ namespace: schedule.metadata.namespace, name });
+  return href ? <Link to={href}>{name}</Link> : name;
 }
 
 function triggerLabel(execution: ScheduledRunExecution) {

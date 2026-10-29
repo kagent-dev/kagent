@@ -3,6 +3,7 @@ package scheduledrun_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -86,13 +87,9 @@ func TestConfigurationAuthorizationAndInvalidSchedule(t *testing.T) {
 			_, err := svc.Create(caller(t), resource())
 			objects := &v1alpha3.ScheduledRunList{}
 			require.NoError(t, kube.List(t.Context(), objects))
-			if kind == "ScheduledRun" {
-				require.Error(t, err)
-				require.Empty(t, objects.Items)
-			} else {
-				require.NoError(t, err, "embedded schedules require no Agent or Session creation authority")
-				require.Len(t, objects.Items, 1)
-			}
+			require.Error(t, err, "scheduling an Agent requires authority to invoke it")
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+			require.Empty(t, objects.Items)
 			require.Equal(t, "team", p.checked[len(p.checked)-1].Namespace)
 		})
 	}
@@ -150,12 +147,11 @@ func TestRetainedHistoryHasIndependentAuthorizationBeforePaging(t *testing.T) {
 	_, err := svc.GetExecution(caller(t), uuid.New())
 	require.Error(t, err)
 	require.Equal(t, auth.Resource{Type: "ScheduledRunHistory", Namespace: "team", Name: "daily"}, p.checked[0])
-	rows, _, err := svc.ListExecutions(caller(t), uuid.New(), nil)
-	require.NoError(t, err)
-	require.Empty(t, rows)
+	_, _, err = svc.ListExecutions(caller(t), uuid.New(), nil)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound), "unreadable history is indistinguishable from a missing schedule")
 	require.False(t, store.listed)
 	p.deny, p.none = "", false
-	rows, _, err = svc.ListExecutions(caller(t), uuid.New(), nil)
+	rows, _, err := svc.ListExecutions(caller(t), uuid.New(), nil)
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "history does not require a live CRD")
 }
@@ -167,4 +163,54 @@ func TestTriggerRejectsUnwatchedNamespace(t *testing.T) {
 	_, err := svc.Trigger(caller(t), uuid.MustParse(string(object.UID)), "manual")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
 	require.Empty(t, store.initiator)
+}
+
+func TestUpdateRequiresInvocationAuthorityForTarget(t *testing.T) {
+	object := resource()
+	kube := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(object).Build()
+	stored := &v1alpha3.ScheduledRun{}
+	require.NoError(t, kube.Get(t.Context(), types.NamespacedName{Namespace: object.Namespace, Name: object.Name}, stored))
+	p := &policy{deny: "Agent"}
+	svc := scheduledrun.NewService(nil, kube, p, nil)
+	retarget := stored.DeepCopy()
+	retarget.Spec.AgentRef.Name = "privileged"
+	_, err := svc.Update(caller(t), retarget)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	require.Equal(t, auth.Resource{Type: "Agent", Namespace: "team", Name: "privileged"}, p.checked[len(p.checked)-1])
+	require.NoError(t, kube.Get(t.Context(), types.NamespacedName{Namespace: object.Namespace, Name: object.Name}, stored))
+	require.Equal(t, "assistant", stored.Spec.AgentRef.Name)
+}
+
+func TestTriggerAuthorization(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		deny []string
+		want serviceerrors.Code
+	}{
+		{name: "target Agent", deny: []string{"Agent"}, want: serviceerrors.CodePermissionDenied},
+		{name: "Session creation", deny: []string{"Session"}, want: serviceerrors.CodePermissionDenied},
+		{name: "invocation on visible schedule", deny: []string{"ScheduledRunInvocation"}, want: serviceerrors.CodePermissionDenied},
+		{name: "invisible schedule", deny: []string{"ScheduledRunInvocation", "ScheduledRun", "ScheduledRunHistory"}, want: serviceerrors.CodeNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			object := resource()
+			store := &executionStore{schedule: &database.ScheduledRun{ID: string(object.UID), Ref: types.NamespacedName{Namespace: object.Namespace, Name: object.Name}, Spec: object.Spec, Generation: 1, AgentUID: "agent-uid"}}
+			svc := scheduledrun.NewService(store, fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(object).Build(), &denySet{deny: test.deny}, nil)
+			_, err := svc.Trigger(caller(t), uuid.MustParse(string(object.UID)), "manual")
+			require.True(t, serviceerrors.IsCode(err, test.want), "got %v", err)
+			require.Empty(t, store.initiator)
+		})
+	}
+}
+
+type denySet struct {
+	auth.NoopAuthorizer
+	deny []string
+}
+
+func (p *denySet) Check(_ context.Context, _ auth.Principal, _ auth.Verb, resource auth.Resource) error {
+	if slices.Contains(p.deny, resource.Type) {
+		return errors.New("denied")
+	}
+	return nil
 }

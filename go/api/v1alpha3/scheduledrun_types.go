@@ -60,7 +60,7 @@ type ScheduledRunSpec struct {
 	// ExecutionTimeout includes queueing and provisioning.
 	// +optional
 	// +kubebuilder:default="15m"
-	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1us') && duration(self) <= duration('2562047h')",message="executionTimeout must be between one microsecond and 2562047 hours"
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s') && duration(self) <= duration('2562047h')",message="executionTimeout must be between one second and 2562047 hours"
 	ExecutionTimeout *metav1.Duration `json:"executionTimeout,omitempty"`
 }
 
@@ -84,8 +84,10 @@ type ScheduledRunStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=sr
+// +kubebuilder:printcolumn:name="Agent",type=string,JSONPath=`.spec.agentRef.name`
 // +kubebuilder:printcolumn:name="Schedule",type=string,JSONPath=`.spec.schedule`
 // +kubebuilder:printcolumn:name="Paused",type=boolean,JSONPath=`.spec.paused`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=='Ready')].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type ScheduledRun struct {
 	metav1.TypeMeta `json:",inline"`

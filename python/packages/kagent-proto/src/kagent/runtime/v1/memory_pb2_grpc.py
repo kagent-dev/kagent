@@ -6,7 +6,7 @@ from kagent.runtime.v1 import memory_pb2 as kagent_dot_runtime_dot_v1_dot_memory
 
 
 class MemoryServiceStub:
-    """Memory is scoped to a definition source and a user. Actor calls derive both from the
+    """Memory is scoped to an Agent and a user. Actor calls derive both from the
     persisted session bound to the verified Actor JWT. List and Delete also
     accept user authentication and use the authenticated user's identity.
     """
@@ -45,7 +45,7 @@ class MemoryServiceStub:
 
 
 class MemoryServiceServicer:
-    """Memory is scoped to a definition source and a user. Actor calls derive both from the
+    """Memory is scoped to an Agent and a user. Actor calls derive both from the
     persisted session bound to the verified Actor JWT. List and Delete also
     accept user authentication and use the authenticated user's identity.
     """
@@ -122,7 +122,7 @@ def add_MemoryServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class MemoryService:
-    """Memory is scoped to a definition source and a user. Actor calls derive both from the
+    """Memory is scoped to an Agent and a user. Actor calls derive both from the
     persisted session bound to the verified Actor JWT. List and Delete also
     accept user authentication and use the authenticated user's identity.
     """

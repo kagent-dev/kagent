@@ -17,12 +17,18 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.agentRef.name
+      name: Agent
+      type: string
     - jsonPath: .spec.schedule
       name: Schedule
       type: string
     - jsonPath: .spec.paused
       name: Paused
       type: boolean
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -79,9 +85,9 @@ spec:
                 description: ExecutionTimeout includes queueing and provisioning.
                 type: string
                 x-kubernetes-validations:
-                - message: executionTimeout must be between one microsecond and 2562047
+                - message: executionTimeout must be between one second and 2562047
                     hours
-                  rule: duration(self) >= duration('1us') && duration(self) <= duration('2562047h')
+                  rule: duration(self) >= duration('1s') && duration(self) <= duration('2562047h')
               paused:
                 default: false
                 description: Paused stops new cron reservations. Manual triggers remain

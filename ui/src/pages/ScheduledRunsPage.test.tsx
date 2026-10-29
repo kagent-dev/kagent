@@ -231,3 +231,16 @@ it("preserves the Agent reference when editing a schedule", async () => {
   expect(updated?.spec).not.toHaveProperty("agent");
   expect(updated?.spec.prompt).toBe("Inspect every incident.");
 });
+
+it("shows a schedule the controller rejected as not ready, with its reason", async () => {
+  const rejected: ScheduledRun = { ...schedule, status: { observedGeneration: 1, conditions: [{ type: "Ready", status: "False", reason: "AgentNotFound", message: "Agent does not exist" }] } };
+  setApiTransport(createRouterTransport(({ service }) => service(ScheduledRunService, {
+    getScheduledRun: () => ({ scheduledRun: { ref: scheduleRef(rejected), resource: wrap("ScheduledRun", rejected) } }),
+    listScheduledRunExecutions: () => ({}),
+  })));
+  renderSchedule();
+  const meta = await screen.findByTestId("schedule-meta");
+  expect(meta).toHaveTextContent("Not ready");
+  expect(meta).not.toHaveTextContent("Active");
+  expect(screen.getByTestId("schedule-not-ready-note")).toHaveTextContent("Agent does not exist");
+});

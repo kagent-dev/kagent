@@ -51,7 +51,7 @@ func (c *Client) StoreAgentMemories(ctx context.Context, memories ...*Memory) er
 }
 
 // SearchAgentMemory returns up to limit memories for the user and agent, ranked by cosine
-// similarity, matching the source key exactly. Expired rows remain searchable until
+// similarity, matching the Agent key exactly. Expired rows remain searchable until
 // pruned; access-count updates are best-effort and cannot fail a successful search.
 func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
 	results, err := queryMany(ctx, c.db, fmt.Sprintf(`
@@ -110,7 +110,7 @@ func (c *Client) ListAgentMemories(ctx context.Context, agentName, userID string
 	return rows, nil
 }
 
-// DeleteAgentMemory atomically deletes a user's memories matching the source key
+// DeleteAgentMemory atomically deletes a user's memories matching the Agent key
 // exactly. Missing rows are a no-op.
 func (c *Client) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
 	if err := execSQL(ctx, c.db, `

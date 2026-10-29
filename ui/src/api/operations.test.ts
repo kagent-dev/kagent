@@ -815,7 +815,6 @@ describe("agent instances", () => {
     expect(ready?.state).toBe("ready");
     expect(ready?.operation).toBe("unspecified");
     expect(ready?.agent).toBe("kagent/k8s-agent-7f3a91c");
-    expect(ready?.agentUid).toBe("agent-uid");
     expect(ready?.createdAt).toBe("2026-01-01T00:00:00.000Z");
 
     expect(suspended?.state).toBe("suspended");

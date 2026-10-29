@@ -15,7 +15,7 @@ import {
 } from "@/components/agent-instances/instanceLabels";
 import { paths } from "@/router/routes";
 import { AgentRail } from "@/components/agent/AgentRail";
-import { agentPageUrl } from "@/components/agent/agentUrl";
+import { agentPageUrl, scheduleUrl } from "@/components/agent/agentUrl";
 import { bareName, isNotFound, useAgentInstance, useAgentInstances } from "@/api";
 
 const { Paragraph, Text } = Typography;
@@ -119,20 +119,27 @@ export function AgentDetailsPage() {
             <ValueOrNotReported value={undefined} />
           ),
         },
-        ...(data.scheduledRun ? [{
-    key: "scheduledRun",
-    label: "Scheduled run",
-    span: 2,
-    children: <Link to={`/schedules/${encodeURIComponent(`${data.scheduledRun.namespace}:${data.scheduledRun.name}:${data.scheduledRun.uid}`)}`}>
-      {`${data.scheduledRun.namespace}/${data.scheduledRun.name}`}
-    </Link>,
-  }, {
-    key: "scheduledExecution",
-    label: "Execution ID",
-    span: 2,
-    children: <ValueOrNotReported value={data.scheduledRun.executionId} mono />,
-  }] : []),
-  {
+        ...(data.scheduledRun
+          ? [
+              {
+                key: "scheduledRun",
+                label: "Scheduled run",
+                span: 2,
+                children: (
+                  <Link to={scheduleUrl(data.scheduledRun)}>
+                    {`${data.scheduledRun.namespace}/${data.scheduledRun.name}`}
+                  </Link>
+                ),
+              },
+              {
+                key: "scheduledExecution",
+                label: "Execution ID",
+                span: 2,
+                children: <ValueOrNotReported value={data.scheduledRun.executionId} mono />,
+              },
+            ]
+          : []),
+        {
           key: "preparedRevision",
           label: "Prepared revision",
           children: <ValueOrNotReported value={data.preparedRevision} mono />,

@@ -65,11 +65,12 @@ func (c *Client) SyncScheduledRun(ctx context.Context, request *ScheduledRun) (*
 		}
 		var previous *ScheduledRun
 		if inserted.RowsAffected() == 0 {
-			previous, err = toScheduledRun(result)
-			if err != nil {
-				return err
+			// Kubernetes owns the configuration, so a damaged projection is replaced
+			// rather than failing every reconcile; history columns are untouched.
+			if previous, err = toScheduledRun(result); err != nil {
+				previous = nil
 			}
-			if !result.Disabled && result.Generation == request.Generation && reflect.DeepEqual(previous.Spec, spec) && previous.Creator == request.Creator && previous.AgentUID == request.AgentUID && (result.NextExecutionTime != nil || *spec.Paused) {
+			if previous != nil && !result.Disabled && result.Generation == request.Generation && reflect.DeepEqual(previous.Spec, spec) && previous.Creator == request.Creator && previous.AgentUID == request.AgentUID && (result.NextExecutionTime != nil || *spec.Paused) {
 				return nil
 			}
 		}

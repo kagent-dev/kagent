@@ -55,6 +55,9 @@ func (s *Service) Create(ctx context.Context, resource *v1alpha3.ScheduledRun) (
 	if err := s.resources.Authorize(ctx, auth.VerbCreate, client.ObjectKeyFromObject(resource)); err != nil {
 		return nil, err
 	}
+	if err := s.authorizeAgentInvocation(ctx, resource.Namespace, resource.Spec.AgentRef.Name); err != nil {
+		return nil, err
+	}
 	resource = resource.DeepCopy()
 	resource.Status = v1alpha3.ScheduledRunStatus{}
 	resource.Finalizers = nil
@@ -94,6 +97,11 @@ func (s *Service) Update(ctx context.Context, incoming *v1alpha3.ScheduledRun) (
 	}
 	ref := client.ObjectKeyFromObject(incoming)
 	if err := s.resources.Authorize(ctx, auth.VerbUpdate, ref); err != nil {
+		return nil, err
+	}
+	// Any spec edit changes what the controller principal will send to the
+	// target, so the editor must be able to invoke it directly.
+	if err := s.authorizeAgentInvocation(ctx, ref.Namespace, incoming.Spec.AgentRef.Name); err != nil {
 		return nil, err
 	}
 	existing := &v1alpha3.ScheduledRun{}
@@ -136,7 +144,12 @@ func (s *Service) Trigger(ctx context.Context, id uuid.UUID, requestID string) (
 	if err != nil {
 		return nil, storeError(err)
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, "ScheduledRunInvocation", schedule.Ref); err != nil {
+	if err := s.authorizeVisible(ctx, auth.VerbCreate, "ScheduledRunInvocation", schedule.Ref); err != nil {
+		return nil, err
+	}
+	// The generation fence below only accepts this projection, so its target is
+	// the Agent that will run.
+	if err := s.authorizeAgentInvocation(ctx, schedule.Ref.Namespace, schedule.Spec.AgentRef.Name); err != nil {
 		return nil, err
 	}
 	if len(s.namespaces) != 0 && !slices.Contains(s.namespaces, schedule.Ref.Namespace) {
@@ -167,7 +180,7 @@ func (s *Service) GetExecution(ctx context.Context, id uuid.UUID) (*apiv1.Schedu
 	if err != nil {
 		return nil, storeError(err)
 	}
-	if err := s.authorize(ctx, auth.VerbGet, "ScheduledRunHistory", types.NamespacedName{Namespace: result.GetScheduledRun().GetNamespace(), Name: result.GetScheduledRun().GetName()}); err != nil {
+	if err := s.authorizeVisible(ctx, auth.VerbGet, "ScheduledRunHistory", types.NamespacedName{Namespace: result.GetScheduledRun().GetNamespace(), Name: result.GetScheduledRun().GetName()}); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -185,15 +198,16 @@ func (s *Service) ListExecutions(ctx context.Context, id uuid.UUID, page *apiv1.
 	if err != nil {
 		return nil, "", err
 	}
+	// Unknown and unreadable schedules are indistinguishable to the caller.
 	if matcher.Empty() {
-		return []*apiv1.ScheduledRunExecution{}, "", nil
+		return nil, "", storeError(database.ErrNotFound)
 	}
 	schedule, err := s.store.GetScheduledRun(ctx, id, "")
 	if err != nil {
 		return nil, "", storeError(err)
 	}
 	if !matcher.Matches(&metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: schedule.Ref.Namespace, Name: schedule.Ref.Name}}) {
-		return []*apiv1.ScheduledRunExecution{}, "", nil
+		return nil, "", storeError(database.ErrNotFound)
 	}
 	rows, err := s.store.ListScheduledRunExecutions(ctx, database.ScheduledRunExecutionQuery{ScheduledRunQuery: query, ScheduledRunID: id})
 	if err != nil {
@@ -224,6 +238,34 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, kind string, re
 	}
 	if err := s.authorizer.Check(ctx, caller, verb, auth.Resource{Type: kind, Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return serviceerrors.NewPermissionDenied("Not authorized", err)
+	}
+	return nil
+}
+
+// authorizeVisible reports schedules found by ID as missing unless the caller
+// can at least read the schedule or its history, so IDs are not an oracle.
+func (s *Service) authorizeVisible(ctx context.Context, verb auth.Verb, kind string, ref types.NamespacedName) error {
+	err := s.authorize(ctx, verb, kind, ref)
+	if err == nil {
+		return nil
+	}
+	for _, visible := range []string{v1alpha3.ScheduledRunKind, "ScheduledRunHistory"} {
+		if s.authorize(ctx, auth.VerbGet, visible, ref) == nil {
+			return err
+		}
+	}
+	return storeError(database.ErrNotFound)
+}
+
+// authorizeAgentInvocation requires the same authority as creating a Session
+// for the target directly. Scheduled Sessions run as the controller principal,
+// so without this a ScheduledRun writer could invoke Agents they cannot use.
+func (s *Service) authorizeAgentInvocation(ctx context.Context, namespace, agent string) error {
+	if err := s.authorize(ctx, auth.VerbCreate, "Session", types.NamespacedName{Namespace: namespace}); err != nil {
+		return serviceerrors.NewPermissionDenied("Not authorized to create Sessions for the target Agent", err)
+	}
+	if err := s.authorize(ctx, auth.VerbGet, "Agent", types.NamespacedName{Namespace: namespace, Name: agent}); err != nil {
+		return serviceerrors.NewPermissionDenied("Not authorized to access target Agent", err)
 	}
 	return nil
 }

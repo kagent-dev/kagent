@@ -175,7 +175,7 @@ func TestScheduledRunSQLTimestamps(t *testing.T) {
 	require.Equal(t, schedule, loaded)
 
 	config := *schedule.Spec.DeepCopy()
-	config.ExecutionTimeout = &metav1.Duration{Duration: 1500 * time.Nanosecond}
+	config.ExecutionTimeout = &metav1.Duration{Duration: time.Second + 1500*time.Nanosecond}
 	config.Schedule = "*/5 * * * *"
 	updated, err := updateTestSchedule(t, c, schedule, config)
 	require.NoError(t, err)
@@ -194,7 +194,7 @@ func TestScheduledRunSQLTimestamps(t *testing.T) {
 	require.Equal(t, updated, loaded, "failed cron calculation must roll back the update")
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.ID), "alice", "fractional-microsecond", schedule.Generation)
 	require.NoError(t, err)
-	require.Equal(t, 2*time.Microsecond, execution.Deadline.AsTime().Sub(execution.CreatedAt.AsTime()))
+	require.Equal(t, time.Second+2*time.Microsecond, execution.Deadline.AsTime().Sub(execution.CreatedAt.AsTime()))
 	require.NoError(t, c.RetireScheduledRun(t.Context(), uuid.MustParse(schedule.ID)))
 	deleted, err := c.GetScheduledRun(t.Context(), uuid.MustParse(schedule.ID), "alice")
 	require.NoError(t, err)
@@ -577,6 +577,23 @@ func TestRetireMalformedScheduledRun(t *testing.T) {
 	require.NoError(t, c.RetireScheduledRun(t.Context(), uuid.MustParse(schedule.ID)))
 	_, err = c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.ID), "operator", "new", 1)
 	require.ErrorIs(t, err, ErrFailedPrecondition)
+}
+
+func TestSyncRepairsMalformedScheduledRun(t *testing.T) {
+	db := setupTestDB(t)
+	c := NewClient(db, "public")
+	schedule := createTestSchedule(t, c)
+	_, err := db.Exec(t.Context(), `UPDATE scheduled_run SET data=$1, next_execution_time=NULL WHERE id=$2`, []byte{0xff}, schedule.ID)
+	require.NoError(t, err)
+	_, err = c.GetScheduledRun(t.Context(), uuid.MustParse(schedule.ID), "")
+	require.Error(t, err)
+	repaired, err := c.SyncScheduledRun(t.Context(), cloneTestSchedule(schedule))
+	require.NoError(t, err)
+	require.Equal(t, schedule.Spec, repaired.Spec)
+	require.NotNil(t, repaired.NextExecutionTime, "repair restores the due queue entry")
+	loaded, err := c.GetScheduledRun(t.Context(), uuid.MustParse(schedule.ID), "")
+	require.NoError(t, err)
+	require.Equal(t, repaired.ResourceVersion, loaded.ResourceVersion)
 }
 
 func TestScheduledDispatchClaimSurvivesLeaseReplacement(t *testing.T) {

@@ -24,6 +24,7 @@ import (
 
 type memoryStore struct {
 	bindingErr   error
+	scheduled    bool
 	stored       []*database.Memory
 	searchResult []database.AgentMemorySearchResult
 	searchLimit  int
@@ -148,7 +149,11 @@ func (store *memoryStore) GetSessionForRuntime(_ context.Context, id, _ string) 
 	if store.bindingErr != nil {
 		return nil, store.bindingErr
 	}
-	return &apiv1.Session{Id: id, Creator: "user", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, Uid: "agent-uid"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
+	session := &apiv1.Session{Id: id, Creator: "user", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, Uid: "agent-uid"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}
+	if store.scheduled {
+		session.ScheduledRun = &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "daily"}}
+	}
+	return session, nil
 }
 
 type testActorVerifier struct{}
@@ -197,12 +202,14 @@ func TestMemoryRejectsUnboundActors(t *testing.T) {
 		name          string
 		authenticated bool
 		bindingErr    error
+		scheduled     bool
 	}{
 		{name: "missing identity"},
 		{name: "deleted or replaced actor", authenticated: true, bindingErr: database.ErrNotFound},
+		{name: "scheduled Session shares the controller principal", authenticated: true, scheduled: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store := &memoryStore{bindingErr: test.bindingErr}
+			store := &memoryStore{bindingErr: test.bindingErr, scheduled: test.scheduled}
 			service := NewService(store, auth.NoopAuthorizer{})
 			ctx := t.Context()
 			if test.authenticated {
@@ -210,19 +217,25 @@ func TestMemoryRejectsUnboundActors(t *testing.T) {
 			}
 			input := Input{Vector: vector(VectorDimension, 1)}
 			_, err := service.Add(ctx, input)
-			require.Equal(t, codes.PermissionDenied, status.Code(err))
+			requireDenied(t, err)
 			_, err = service.AddBatch(ctx, []Input{input})
-			require.Equal(t, codes.PermissionDenied, status.Code(err))
+			requireDenied(t, err)
 			_, err = service.Search(ctx, SearchRequest{Vector: input.Vector})
-			require.Equal(t, codes.PermissionDenied, status.Code(err))
+			requireDenied(t, err)
 			_, err = service.List(ctx, "other/agent")
-			require.Equal(t, codes.PermissionDenied, status.Code(err))
+			requireDenied(t, err)
 			err = service.Delete(ctx, "other/agent")
-			require.Equal(t, codes.PermissionDenied, status.Code(err))
+			requireDenied(t, err)
 			require.Empty(t, store.stored)
 			require.Empty(t, store.deletedAgent)
 		})
 	}
+}
+
+// requireDenied accepts runtime-binding gRPC errors and service errors alike.
+func requireDenied(t *testing.T, err error) {
+	t.Helper()
+	require.True(t, status.Code(err) == codes.PermissionDenied || serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "got %v", err)
 }
 
 func TestUserMemoryManagementDoesNotRequireRuntime(t *testing.T) {

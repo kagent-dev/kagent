@@ -1,4 +1,5 @@
-import { paths } from "@/router/routes";
+import { type ScheduledRun, type ScheduleIdentity, scheduleRouteID } from "@/api/domain/scheduledRuns";
+import { buildPath, paths } from "@/router/routes";
 
 /** A conversation identified by UUID. */
 export interface AgentInstanceRef { id: string; }
@@ -32,4 +33,9 @@ export function agentPageUrl(ref: Partial<AgentRef>): string | undefined {
 export function agentNewChatUrl(ref: Partial<AgentRef>): string | undefined {
  const base = agentPageUrl(ref);
  return base ? `${base}/new` : undefined;
+}
+
+/** One schedule's page, from the resource or from a conversation's record of it. */
+export function scheduleUrl(schedule: ScheduledRun | ScheduleIdentity): string {
+  return buildPath(paths.scheduledRun, { id: scheduleRouteID(schedule) });
 }

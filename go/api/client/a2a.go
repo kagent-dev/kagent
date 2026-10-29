@@ -30,7 +30,7 @@ func (c *A2AClient) ForAgent(ctx context.Context, agent *apiv1.ResourceReference
 	return c.forAgent(ctx, agent, "")
 }
 
-// ForSession routes to the persisted source and supplies the conversation context on sends.
+// ForSession routes to the Session's Agent and supplies the conversation context on sends.
 func (c *A2AClient) ForSession(ctx context.Context, id string) (*a2aclient.Client, error) {
 	response, err := newSessionClient(c.client).GetSession(ctx, &apiv1.GetSessionRequest{SessionId: id})
 	if err != nil {

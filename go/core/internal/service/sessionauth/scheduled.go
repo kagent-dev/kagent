@@ -25,12 +25,34 @@ func CheckScheduled(ctx context.Context, authorizer auth.Authorizer, verb auth.V
 	if ref.GetNamespace() == "" || ref.GetName() == "" {
 		return serviceerrors.NewInternal("Session has invalid ScheduledRun provenance", nil)
 	}
-	kind := "ScheduledRunHistory"
-	if verb != auth.VerbGet {
-		kind = "ScheduledRunInvocation"
-	}
-	if err := authorizer.Check(ctx, caller.Principal(), verb, auth.Resource{Type: kind, Namespace: ref.Namespace, Name: ref.Name}); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized to access scheduled Session", err)
+	kind, verb := scheduledResource(verb)
+	resource := auth.Resource{Type: kind, Namespace: ref.Namespace, Name: ref.Name}
+	if err := authorizer.Check(ctx, caller.Principal(), verb, resource); err != nil {
+		// Without history access the Session is indistinguishable from a missing one.
+		if kind != scheduledRunHistory && authorizer.Check(ctx, caller.Principal(), auth.VerbGet, auth.Resource{Type: scheduledRunHistory, Namespace: ref.Namespace, Name: ref.Name}) == nil {
+			return serviceerrors.NewPermissionDenied("Not authorized to access scheduled Session", err)
+		}
+		return serviceerrors.NewNotFound("Session not found", err)
 	}
 	return nil
+}
+
+const (
+	scheduledRunHistory    = "ScheduledRunHistory"
+	scheduledRunInvocation = "ScheduledRunInvocation"
+)
+
+// scheduledResource maps a Session operation to the schedule permission that
+// governs it. Reads need history. Anything that starts or steers work, whether
+// a new turn, a task reply, a cancellation, or a rename, is an invocation;
+// removing retained data is an invocation delete.
+func scheduledResource(verb auth.Verb) (string, auth.Verb) {
+	switch verb {
+	case auth.VerbGet, auth.VerbList:
+		return scheduledRunHistory, auth.VerbGet
+	case auth.VerbDelete:
+		return scheduledRunInvocation, auth.VerbDelete
+	default:
+		return scheduledRunInvocation, auth.VerbCreate
+	}
 }

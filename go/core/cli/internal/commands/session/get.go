@@ -118,7 +118,7 @@ func get(
 
 func writeSessionsTable(w io.Writer, sessions []*apiv1.Session, nextPageToken string) error {
 	tw := table.NewWriter()
-	tw.AppendHeader(table.Row{"ID", "SOURCE", "STATE", "CREATED"})
+	tw.AppendHeader(table.Row{"ID", "AGENT", "STATE", "CREATED"})
 	for _, session := range sessions {
 		if session == nil {
 			continue

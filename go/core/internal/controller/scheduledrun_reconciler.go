@@ -25,7 +25,14 @@ import (
 type ScheduledRunReconciliation struct {
 	Resource *v1alpha3.ScheduledRun
 	AgentUID string
-	Failure  string
+	// FailureReason is the Ready condition reason when Failure is set.
+	FailureReason string
+	Failure       string
+}
+
+func (s *ScheduledRunReconciliation) fail(reason, message string) *ScheduledRunReconciliation {
+	s.FailureReason, s.Failure = reason, message
+	return s
 }
 
 func (s ScheduledRunReconciliation) ResourceName() string {
@@ -35,27 +42,39 @@ func (s ScheduledRunReconciliation) Equals(other ScheduledRunReconciliation) boo
 	return s.Resource.UID == other.Resource.UID && s.Resource.Generation == other.Resource.Generation &&
 		s.Resource.DeletionTimestamp.Equal(other.Resource.DeletionTimestamp) &&
 		reflect.DeepEqual(s.Resource.Spec, other.Resource.Spec) &&
-		s.AgentUID == other.AgentUID && s.Failure == other.Failure
+		s.AgentUID == other.AgentUID && s.FailureReason == other.FailureReason && s.Failure == other.Failure
 }
 
-func newScheduledRunReconciliations(resources krt.Collection[*v1alpha3.ScheduledRun], agents krt.Collection[*v1alpha3.Agent], opts krt.OptionsBuilder) krt.Collection[ScheduledRunReconciliation] {
+// Ready condition reasons for ScheduledRuns that cannot be scheduled.
+const (
+	ScheduledRunReasonInvalidConfiguration = "InvalidConfiguration"
+	ScheduledRunReasonAgentNotFound        = "AgentNotFound"
+	ScheduledRunReasonAgentNotReady        = "AgentNotReady"
+	ScheduledRunReasonMemoryNotSupported   = "MemoryNotSupported"
+)
+
+func newScheduledRunReconciliations(resources krt.Collection[*v1alpha3.ScheduledRun], agents krt.Collection[*v1alpha3.Agent], harnesses krt.Collection[*v1alpha3.Harness], opts krt.OptionsBuilder) krt.Collection[ScheduledRunReconciliation] {
 	return krt.NewCollection(resources, func(ctx krt.HandlerContext, resource *v1alpha3.ScheduledRun) *ScheduledRunReconciliation {
 		state := &ScheduledRunReconciliation{Resource: resource}
 		if !resource.DeletionTimestamp.IsZero() {
 			return state
 		}
 		if err := scheduling.Validate(resource.Spec); err != nil {
-			state.Failure = err.Error()
-			return state
+			return state.fail(ScheduledRunReasonInvalidConfiguration, err.Error())
 		}
 		agent := krt.FetchOne(ctx, agents, krt.FilterKey(resource.Namespace+"/"+resource.Spec.AgentRef.Name))
 		if agent == nil || !(*agent).DeletionTimestamp.IsZero() {
-			state.Failure = "Agent does not exist"
-			return state
+			return state.fail(ScheduledRunReasonAgentNotFound, "Agent does not exist")
 		}
 		state.AgentUID = string((*agent).UID)
+		// Every scheduled Session is created by the shared controller principal, so
+		// memory would be one partition across schedules and their continuers.
+		harness := krt.FetchOne(ctx, harnesses, krt.FilterKey(resource.Namespace+"/"+(*agent).Spec.HarnessRef.Name))
+		if harness != nil && (*harness).Spec.Kagent != nil && (*harness).Spec.Kagent.Memory != nil {
+			return state.fail(ScheduledRunReasonMemoryNotSupported, "Scheduled runs do not support Agents whose Harness enables memory")
+		}
 		if (*agent).Status.LatestSuccessfulRevision == "" {
-			state.Failure = "Agent has no successful runtime revision yet"
+			return state.fail(ScheduledRunReasonAgentNotReady, "Agent has no successful runtime revision yet")
 		}
 		return state
 	}, opts.WithName("ScheduledRunReconciliations")...)
@@ -148,7 +167,7 @@ func (r *ScheduledRunReconciler) reconcile(ctx context.Context, key string) erro
 	condition := metav1.Condition{Type: v1alpha3.ScheduledRunConditionReady, Status: metav1.ConditionTrue, Reason: "Reconciled", Message: "Schedule configuration is synchronized", ObservedGeneration: resource.Generation}
 	failure := state.Failure
 	if failure != "" {
-		condition.Reason = "InvalidConfiguration"
+		condition.Reason = state.FailureReason
 	}
 	if r.caller == nil {
 		condition.Reason = "SchedulerNotConfigured"

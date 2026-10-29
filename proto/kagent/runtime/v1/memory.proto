@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1";
 
-// Memory is scoped to a definition source and a user. Actor calls derive both from the
+// Memory is scoped to an Agent and a user. Actor calls derive both from the
 // persisted session bound to the verified Actor JWT. List and Delete also
 // accept user authentication and use the authenticated user's identity.
 service MemoryService {

@@ -122,15 +122,15 @@ type sessionItem struct {
 	*apiv1.Session
 }
 
-// sessionSourceName returns the Agent name used by the picker.
-func sessionSourceName(session *apiv1.Session) string {
+// sessionAgentName returns the Agent name used by the picker.
+func sessionAgentName(session *apiv1.Session) string {
 	return session.GetAgent().GetRef().GetName()
 }
 
 // FilterValue lets `/` match on template, ID prefix, or state.
 func (i sessionItem) FilterValue() string {
 	return strings.Join([]string{
-		sessionSourceName(i.Session),
+		sessionAgentName(i.Session),
 		i.GetId(),
 		sessionview.StateLabel(i.GetState()),
 	}, " ")
@@ -209,7 +209,7 @@ func sessionRow(item list.Item, width int) string {
 	}
 	glyph, colour := stateGlyph(row.GetState())
 	shortID := sessionview.ShortID(row.GetId())
-	name := truncate(sessionSourceName(row.Session), max(width-len(shortID)-4, 1))
+	name := truncate(sessionAgentName(row.Session), max(width-len(shortID)-4, 1))
 	return fmt.Sprintf("%s %s %s",
 		lipgloss.NewStyle().Foreground(colour).Render(glyph),
 		pad(name, max(width-len(shortID)-4, 1)),

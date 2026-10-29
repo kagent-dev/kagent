@@ -58,11 +58,13 @@ func TestValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{"defaults", func(*v1alpha3.ScheduledRunSpec) {}, false},
-		{"minimum timeout", func(s *v1alpha3.ScheduledRunSpec) { s.ExecutionTimeout = &metav1.Duration{Duration: time.Microsecond} }, false},
+		{"minimum timeout", func(s *v1alpha3.ScheduledRunSpec) { s.ExecutionTimeout = &metav1.Duration{Duration: time.Second} }, false},
 		{"maximum timeout", func(s *v1alpha3.ScheduledRunSpec) {
 			s.ExecutionTimeout = &metav1.Duration{Duration: 2562047 * time.Hour}
 		}, false},
-		{"timeout below precision", func(s *v1alpha3.ScheduledRunSpec) { s.ExecutionTimeout = &metav1.Duration{Duration: time.Nanosecond} }, true},
+		{"timeout below minimum", func(s *v1alpha3.ScheduledRunSpec) {
+			s.ExecutionTimeout = &metav1.Duration{Duration: time.Second - time.Nanosecond}
+		}, true},
 		{"timeout over maximum", func(s *v1alpha3.ScheduledRunSpec) {
 			s.ExecutionTimeout = &metav1.Duration{Duration: 2562047*time.Hour + time.Second}
 		}, true},

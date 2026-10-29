@@ -38,30 +38,39 @@ func TestScheduledSessionAccessUsesResourcePermissions(t *testing.T) {
 	id := uuid.NewString()
 	value := &apiv1.Session{Id: id, Creator: "scheduler", ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "daily"}, Uid: "schedule-uid", ExecutionId: uuid.NewString()}}
 	for _, tc := range []struct {
-		name   string
-		verb   auth.Verb
-		denied string
-		want   serviceerrors.Code
+		name     string
+		verb     auth.Verb
+		denied   []string
+		want     serviceerrors.Code
+		checked  string
+		checkedV auth.Verb
 	}{
-		{"human reads history", auth.VerbGet, "", ""},
-		{"human continues", auth.VerbUpdate, "", ""},
-		{"history denied", auth.VerbGet, "ScheduledRunHistory", serviceerrors.CodePermissionDenied},
-		{"invocation denied", auth.VerbUpdate, "ScheduledRunInvocation", serviceerrors.CodePermissionDenied},
+		{"human reads history", auth.VerbGet, nil, "", "ScheduledRunHistory", auth.VerbGet},
+		{"human lists history", auth.VerbList, nil, "", "ScheduledRunHistory", auth.VerbGet},
+		{"task reply invokes", auth.VerbUpdate, nil, "", "ScheduledRunInvocation", auth.VerbCreate},
+		{"context continuation invokes", auth.VerbCreate, nil, "", "ScheduledRunInvocation", auth.VerbCreate},
+		{"delete removes retained data", auth.VerbDelete, nil, "", "ScheduledRunInvocation", auth.VerbDelete},
+		{"history denied hides the Session", auth.VerbGet, []string{"ScheduledRunHistory"}, serviceerrors.CodeNotFound, "", ""},
+		{"invocation denied with history", auth.VerbUpdate, []string{"ScheduledRunInvocation"}, serviceerrors.CodePermissionDenied, "", ""},
+		{"invocation denied without history", auth.VerbUpdate, []string{"ScheduledRunInvocation", "ScheduledRunHistory"}, serviceerrors.CodeNotFound, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &scheduledSessionStore{serviceTestStore: serviceTestStore{getErr: database.ErrNotFound}, value: value}
-			policy := &recordingAuthorizer{deniedTypes: map[string]bool{tc.denied: true}}
+			policy := &recordingAuthorizer{deniedTypes: map[string]bool{}}
+			for _, denied := range tc.denied {
+				policy.deniedTypes[denied] = true
+			}
 			service := NewService(store, policy, nil)
 			result, err := service.getAuthorized(serviceTestContext("human"), id, tc.verb)
 			if tc.want != "" {
-				require.True(t, serviceerrors.IsCode(err, tc.want))
+				require.True(t, serviceerrors.IsCode(err, tc.want), "got %v", err)
 				return
 			}
 			require.NoError(t, err)
 			require.Equal(t, "scheduler", result.Creator)
 			require.Equal(t, "human", policy.principal.ID)
-			require.Equal(t, "team", policy.resource.Namespace)
-			require.Equal(t, "daily", policy.resource.Name)
+			require.Equal(t, auth.Resource{Type: tc.checked, Namespace: "team", Name: "daily"}, policy.resource)
+			require.Equal(t, tc.checkedV, policy.verb)
 		})
 	}
 	store := &scheduledSessionStore{serviceTestStore: serviceTestStore{getErr: database.ErrNotFound}, lookupErr: errors.New("database unavailable")}

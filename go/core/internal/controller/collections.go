@@ -78,7 +78,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 
 	return Collections{
 		ScheduledRuns:               scheduledRuns,
-		ScheduledRunReconciliations: newScheduledRunReconciliations(scheduledRuns, agents, opts),
+		ScheduledRunReconciliations: newScheduledRunReconciliations(scheduledRuns, agents, harnesses, opts),
 		watchNamespaces:             slices.Clone(watchNamespaces),
 		EgressPolicies:              egressPolicies,
 		SandboxTemplates:            sandboxTemplates,

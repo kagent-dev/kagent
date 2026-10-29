@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -17,6 +18,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -325,6 +327,14 @@ func (s *InteractionService) messageSession(ctx context.Context, agent types.Nam
 	}
 	if message.ContextID != "" && message.ContextID != session.ContextId {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match task")
+	}
+	// Scheduler recovery adopts the task holding its execution message, so a
+	// continuer must not be able to plant that ID first.
+	if strings.HasPrefix(string(message.ID), scheduling.MessageIDPrefix) {
+		caller, _ := auth.AuthSessionFrom(ctx)
+		if session.GetScheduledRun() == nil || caller == nil || caller.Principal().ID != session.Creator {
+			return nil, a2atype.NewError(a2atype.ErrInvalidParams, "message ID prefix is reserved for scheduled runs")
+		}
 	}
 	return session, nil
 }

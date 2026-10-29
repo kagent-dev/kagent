@@ -21,6 +21,13 @@ configuration schema. Trigger and execution-history RPCs use the schedule UID,
 so deleting and recreating a resource under the same name does not transfer its
 history to the replacement.
 
+A schedule makes the controller invoke its Agent, so creating or updating a
+ScheduledRun through ScheduledRunService, or triggering one, also requires `get`
+on the target Agent and `create` on Sessions in its namespace. Kubernetes RBAC
+cannot express that check: a principal allowed to write ScheduledRuns directly
+through the Kubernetes API can invoke any Agent in that namespace as the scheduler.
+Grant ScheduledRun write access accordingly.
+
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
 kind: ScheduledRun
@@ -47,7 +54,9 @@ Agent status reports compilation and runtime preparation.
 1. Reconciliation resolves the referenced Agent and records its UID in the
    scheduling projection. A missing or deleting Agent, invalid schedule, or Agent
    without a successful revision disables new reservations. A pending or failed
-   Agent replacement keeps its last successful revision available.
+   Agent replacement keeps its last successful revision available. The Ready
+   condition reports `InvalidConfiguration`, `AgentNotFound`, `AgentNotReady`, or
+   `MemoryNotSupported` when reservations are disabled.
 2. The scheduler reserves due occurrences. Manual triggers authorize schedule
    invocation and reserve the checked generation. Acceptance atomically creates
    the execution and its Session, selecting and pinning the Agent's latest successful revision under the
@@ -67,7 +76,9 @@ with the same name cannot adopt executions bound to the old resource UID.
 
 The dispatch claim prevents a controller retry from sending the prompt twice.
 If a response is lost, reconciliation finds the task through the original A2A
-message ID. A claimed dispatch with no recorded task remains uncertain until
+message ID, `scheduled-run/<execution ID>`. Only the scheduler may send messages
+with that prefix, and only to the Session it created for the execution, so another
+caller cannot plant a task that recovery would adopt. A claimed dispatch with no recorded task remains uncertain until
 history appears or the deadline expires; it is not automatically sent again.
 
 Pausing a valid schedule stops cron reservations while leaving manual triggers
@@ -212,10 +223,20 @@ destination grants, transport behavior, and credential expiry.
 
 Authorization distinguishes schedule configuration (`ScheduledRun`), invocation
 (`ScheduledRunInvocation`), and history (`ScheduledRunHistory`). Services combine
-these checks with Session permissions. Session reads require schedule history
-access; continuation and lifecycle mutations require the corresponding schedule
-invocation permission. Listings filter unauthorized Sessions before pagination.
-Stored schedule references preserve these checks after the CRD is deleted.
+these checks with Session permissions:
+
+| Session operation | Schedule permission |
+| --- | --- |
+| Get, list, and read history | `get` on `ScheduledRunHistory` |
+| Send, continue, cancel, and rename | `create` on `ScheduledRunInvocation` |
+| Delete | `delete` on `ScheduledRunInvocation` |
+
+A caller without history access receives `NotFound`, so scheduled Sessions and
+executions do not reveal that they exist. A caller who can read the history but
+lacks the invocation permission receives `PermissionDenied`. Execution reads and
+manual triggers follow the same rule. Listings filter unauthorized Sessions before
+pagination. Stored schedule references preserve these checks after the CRD is
+deleted.
 
 Checkpoints retain the source Session's creator and scheduled provenance. Reads,
 creation, and forks require source Session read access and schedule history
@@ -229,10 +250,11 @@ are managed by their recorded creator. Runtime access remains limited to the
 Actor's verified Session binding.
 
 Memory is partitioned by Agent key (`namespace/name`) and creator principal ID.
-Scheduled executions targeting the same Agent share the scheduler's memory
-partition, even when they come from different schedules. Human conversations use
-the human creator's partition. Recreating an Agent under the same name retains
-that principal's memory.
+Every scheduled execution would share the scheduler's partition with every other
+schedule targeting the same Agent, so scheduled runs do not support memory. Reconciliation
+marks a schedule whose Agent's Harness enables memory as not Ready with
+`MemoryNotSupported`, and the memory service rejects calls from scheduled
+Sessions.
 
 ## A2A routing
 

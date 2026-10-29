@@ -9,11 +9,13 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -276,6 +278,37 @@ func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
 			}
 			if len(policy.resources) != 1 || policy.resources[0] != (auth.Resource{Type: "Session", Name: id}) {
 				t.Fatalf("unexpected authorization: %+v", policy.resources)
+			}
+		})
+	}
+}
+
+func TestScheduledMessageIDPrefixIsReservedForTheScheduler(t *testing.T) {
+	id := uuid.NewString()
+	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+	stored := &apiv1.Session{
+		Id: id, ContextId: id, Creator: "scheduler", State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Agent:        &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}},
+		ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: "daily"}, ExecutionId: uuid.NewString()},
+	}
+	for _, test := range []struct {
+		caller string
+		id     string
+		wantOK bool
+	}{
+		{caller: "scheduler", id: scheduling.ExecutionMessageID(stored.ScheduledRun.ExecutionId), wantOK: true},
+		{caller: "alice", id: scheduling.ExecutionMessageID(stored.ScheduledRun.ExecutionId)},
+		{caller: "alice", id: "ordinary", wantOK: true},
+	} {
+		t.Run(test.caller+"/"+test.id, func(t *testing.T) {
+			sessions := NewService(&serviceTestStore{getResult: stored}, &recordingAuthorizer{}, serviceTestWorkflow{})
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
+			message.ID, message.ContextID = test.id, id
+			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(serviceTestContext(test.caller), agent, message)
+			if test.wantOK {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, a2atype.ErrInvalidParams)
 			}
 		})
 	}

@@ -62,7 +62,7 @@ The repository [style guide](../../../../STYLE.md) also applies.
 ## Atomicity and performance
 
 - Prefer one statement for one logical change, such as deleting a user's memories
-  for one source. Use a transaction for coordinated writes.
+  for one Agent. Use a transaction for coordinated writes.
 - Preserve ownership predicates, idempotency checks, lock ordering, and lifecycle
   conditions when simplifying SQL. Never hold a transaction across a network call.
 - Use `RETURNING` for values the caller needs from the database. If the validated

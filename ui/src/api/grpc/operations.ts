@@ -578,7 +578,6 @@ function toAgentInstance(instance: PbSession): AgentInstance {
     name: instance.name,
     creator: instance.creator,
     agent: orUndefined(refToString(instance.agent?.ref)),
-    agentUid: orUndefined(instance.agent?.uid ?? ""),
     scheduledRun: instance.scheduledRun ? {
       namespace: instance.scheduledRun.ref?.namespace ?? "",
       name: instance.scheduledRun.ref?.name ?? "",

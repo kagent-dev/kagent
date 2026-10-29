@@ -10,6 +10,7 @@ import {
 } from "@/components/agent-instances/instanceLabels";
 import { NotReported } from "@/components/agent-instances/InstanceTags";
 import type { AgentInstance } from "@/api";
+import { scheduleUrl } from "@/components/agent/agentUrl";
 
 const { Text } = Typography;
 
@@ -109,7 +110,7 @@ export function instanceFields(
     key: "scheduledRun",
     label: "Scheduled run",
     span: 2,
-    children: <Link to={`/schedules/${encodeURIComponent(`${data.scheduledRun.namespace}:${data.scheduledRun.name}:${data.scheduledRun.uid}`)}`}>
+    children: <Link to={scheduleUrl(data.scheduledRun)}>
       {`${data.scheduledRun.namespace}/${data.scheduledRun.name}`}
     </Link>,
   }, {

@@ -20,7 +20,6 @@
   resources:
   - harnesses/finalizers
   - agents/finalizers
-  - scheduledruns/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers

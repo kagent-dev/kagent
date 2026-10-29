@@ -400,10 +400,10 @@ Template behavior may be inline or referenced. The Harness is always referenced;
 no synthetic Kubernetes object is created for an inline template.
 
 Create a session with `kagent agent session create --agent assistant -n kagent`.
-The gRPC create request and ScheduledRun target one `agent` resource reference.
-The store selects that Agent's latest successful revision, including while an
-edit is pending or failed. Deleting an Agent
-retires its definition; sessions and checkpoints retain their pinned revisions.
+The gRPC create request names one `agent` resource reference; a ScheduledRun
+names its Agent with `spec.agentRef`. The store selects that Agent's latest
+successful revision, including while an edit is pending or failed. Deleting an
+Agent retires its definition; sessions and checkpoints retain their pinned revisions.
 Recreating the same name creates a new identity and cannot inherit the old
 Agent's last successful revision.
 

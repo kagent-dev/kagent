@@ -407,7 +407,7 @@ export const mockAgentInstances: AgentInstance[] = [
     // proves a list of conversations can read as a list of things somebody chose.
     name: "Tuesday cluster review",
     creator: MOCK_INSTANCE_CREATOR,
-    agent: "kagent/k8s-agent-7f3a91c", agentUid: "mock-agent-kagent/k8s-agent-7f3a91c",
+    agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-6f1c9d20.kagent.svc.cluster.local:8080",
     state: "ready",
@@ -422,7 +422,7 @@ export const mockAgentInstances: AgentInstance[] = [
     // and a page that rendered a bare UUID as a name would be obvious.
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
-    agent: "kagent/k8s-agent-7f3a91c", agentUid: "mock-agent-kagent/k8s-agent-7f3a91c",
+    agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-b28e4f13.kagent.svc.cluster.local:8080",
     state: "ready",
@@ -443,7 +443,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
-    agent: "kagent/support-triage-2b91d0e", agentUid: "mock-agent-kagent/support-triage-2b91d0e",
+    agent: "kagent/support-triage-2b91d0e",
     preparedRevision: "rev-2b91d0e",
     // Not yet reachable: the controller fills the authority once the actor is
     // running, so an instance still being created has none. A page that printed an
@@ -459,7 +459,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "Escalation from the weekend",
     creator: MOCK_INSTANCE_CREATOR,
-    agent: "kagent/support-triage-2b91d0e", agentUid: "mock-agent-kagent/support-triage-2b91d0e",
+    agent: "kagent/support-triage-2b91d0e",
     preparedRevision: "rev-2b91d0e",
     a2aAuthority: undefined,
     state: "failed",
@@ -477,7 +477,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "",
     creator: "bob@example.com",
-    agent: "kagent/k8s-agent-7f3a91c", agentUid: "mock-agent-kagent/k8s-agent-7f3a91c",
+    agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-3c9a1e64.kagent.svc.cluster.local:8080",
     state: "deleting",
@@ -492,7 +492,7 @@ export const mockAgentInstances: AgentInstance[] = [
     // conversation rather than as a blank.
     name: "Search relevance spike",
     creator: "bob@example.com",
-    agent: "kagent/k8s-agent-7f3a91c", agentUid: "mock-agent-kagent/k8s-agent-7f3a91c",
+    agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-8e5f2b09.kagent.svc.cluster.local:8080",
     state: "ready",
@@ -509,7 +509,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "",
     creator: "",
-    agent: "kagent/deleted-agent", agentUid: "mock-agent-kagent/deleted-agent",
+    agent: "kagent/deleted-agent",
     preparedRevision: undefined,
     a2aAuthority: undefined,
     state: "unspecified",
@@ -522,7 +522,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "Weekly numbers",
     creator: MOCK_INSTANCE_CREATOR,
-    agent: "analytics/reporting-agent-9d4e2f1", agentUid: "mock-agent-analytics/reporting-agent-9d4e2f1",
+    agent: "analytics/reporting-agent-9d4e2f1",
     preparedRevision: "rev-9d4e2f1",
     a2aAuthority: "reporting-agent-5a3c8e17.analytics.svc.cluster.local:8080",
     state: "ready",
@@ -541,7 +541,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "Drafting the runbook",
     creator: MOCK_INSTANCE_CREATOR,
-    agent: "kagent/shared-brain", agentUid: "mock-agent-kagent/shared-brain",
+    agent: "kagent/shared-brain",
     preparedRevision: "rev-shared-k8s",
     a2aAuthority: "shared-brain-1d4f7a92.kagent.svc.cluster.local:8080",
     state: "ready",
@@ -564,7 +564,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "Scratch conversation",
     creator: MOCK_INSTANCE_CREATOR,
-    agent: "kagent/support-triage-2b91d0e", agentUid: "mock-agent-kagent/support-triage-2b91d0e",
+    agent: "kagent/support-triage-2b91d0e",
     preparedRevision: "rev-2b91d0e",
     a2aAuthority: undefined,
     state: "ready",
@@ -577,7 +577,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
-    agent: "kagent/shared-brain-fast", agentUid: "mock-agent-kagent/shared-brain-fast",
+    agent: "kagent/shared-brain-fast",
     preparedRevision: "rev-shared-fast",
     a2aAuthority: "shared-brain-2b6e0c45.kagent.svc.cluster.local:8080",
     state: "ready",

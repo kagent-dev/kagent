@@ -600,7 +600,7 @@ func (m *workspaceModel) rebuildPanels() {
 // rebuildAgents also rebuilds the sessions below it, since SetItems resets this panel's cursor.
 func (m *workspaceModel) rebuildAgents() {
 	m.agents.SetItems(countedNames(m.catalogAgents, m.all, func(i *apiv1.Session) string {
-		return sessionSourceName(i)
+		return sessionAgentName(i)
 	}))
 	m.agent = ""
 	m.rebuildSessions()
@@ -697,7 +697,7 @@ func countedNames(catalogNames []string, sessions []*apiv1.Session, name func(*a
 func (m *workspaceModel) visibleSessions() []*apiv1.Session {
 	var kept []*apiv1.Session
 	for _, session := range m.all {
-		if m.agent == "" || sessionSourceName(session) == m.agent {
+		if m.agent == "" || sessionAgentName(session) == m.agent {
 			kept = append(kept, session)
 		}
 	}
@@ -740,7 +740,7 @@ func (m *workspaceModel) selectSession(session *apiv1.Session) tea.Cmd {
 	send := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
-	m.chat = newChatModel(m.ctx, sessionSourceName(session), session.GetId(), send, m.verbose)
+	m.chat = newChatModel(m.ctx, sessionAgentName(session), session.GetId(), send, m.verbose)
 	m.chat.setHeaderMeta(stateBadge(session.GetState()), session.GetUpdatedAt().AsTime())
 	if !m.sidebar {
 		m.focus = panelChat // the sidebar hides once a chat opens, so the chat is the only panel left

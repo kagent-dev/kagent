@@ -238,7 +238,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(rows.filter({ hasText: "Manual" })).toContainText("Pending");
   });
 
-  await test.step("10. the create form requires a namespace and harness", async () => {
+  await test.step("10. the create form requires a namespace and an agent", async () => {
     await page.getByTestId("schedule-back").click();
     await page.getByTestId("schedules-new").click();
     await expect(page).toHaveURL("/schedules/new");

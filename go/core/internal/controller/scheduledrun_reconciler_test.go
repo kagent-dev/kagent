@@ -54,10 +54,12 @@ func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 		ctx := t.Context()
 		opts := krt.NewOptionsBuilder(ctx.Done(), "schedule-test", nil)
 		resource := &v1alpha3.ScheduledRun{ObjectMeta: metav1.ObjectMeta{Name: "daily", Namespace: "team", UID: types.UID(uuid.NewString()), Generation: 1}, Spec: v1alpha3.ScheduledRunSpec{AgentRef: corev1.LocalObjectReference{Name: "assistant"}, Schedule: "0 9 * * *", Prompt: "hello"}}
-		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: resource.Namespace, Name: resource.Spec.AgentRef.Name, UID: types.UID(uuid.NewString())}, Status: v1alpha3.AgentStatus{LatestSuccessfulRevision: "last-successful"}}
+		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: resource.Namespace, Name: resource.Spec.AgentRef.Name, UID: types.UID(uuid.NewString())}, Spec: v1alpha3.AgentSpec{HarnessRef: corev1.LocalObjectReference{Name: "kagent"}}, Status: v1alpha3.AgentStatus{LatestSuccessfulRevision: "last-successful"}}
+		harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: resource.Namespace, Name: "kagent"}, Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
 		resources := krt.NewStaticCollection(nil, []*v1alpha3.ScheduledRun{resource}, opts.WithName("resources")...)
 		agents := krt.NewStaticCollection(nil, []*v1alpha3.Agent{agent}, opts.WithName("agents")...)
-		states := newScheduledRunReconciliations(resources, agents, opts)
+		harnesses := krt.NewStaticCollection(nil, []*v1alpha3.Harness{harness}, opts.WithName("harnesses")...)
+		states := newScheduledRunReconciliations(resources, agents, harnesses, opts)
 		synctest.Wait()
 		scheme := runtime.NewScheme()
 		require.NoError(t, v1alpha3.AddToScheme(scheme))
@@ -85,6 +87,20 @@ func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 		require.False(t, store.disabled)
 		require.True(t, meta.IsStatusConditionTrue(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady))
 		require.Equal(t, string(agent.UID), store.projected.AgentUID)
+		// Scheduled Sessions share the controller principal, so memory is refused.
+		harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ObjectReference{Name: "embeddings"}}
+		harnesses.UpdateObject(harness.DeepCopy())
+		synctest.Wait()
+		require.NoError(t, reconciler.reconcile(ctx, "team/daily"))
+		refresh()
+		require.True(t, store.disabled)
+		require.Equal(t, ScheduledRunReasonMemoryNotSupported, meta.FindStatusCondition(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady).Reason)
+		harness.Spec.Kagent.Memory = nil
+		harnesses.UpdateObject(harness.DeepCopy())
+		synctest.Wait()
+		require.NoError(t, reconciler.reconcile(ctx, "team/daily"))
+		refresh()
+		require.True(t, meta.IsStatusConditionTrue(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady))
 		// A recreated Agent cannot borrow the previous identity's successful revision.
 		agent.UID = types.UID(uuid.NewString())
 		agent.Status.LatestSuccessfulRevision = ""
@@ -93,7 +109,7 @@ func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 		require.NoError(t, reconciler.reconcile(ctx, "team/daily"))
 		refresh()
 		require.True(t, store.disabled)
-		require.Equal(t, "InvalidConfiguration", meta.FindStatusCondition(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady).Reason)
+		require.Equal(t, ScheduledRunReasonAgentNotReady, meta.FindStatusCondition(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady).Reason)
 		agent.Status.LatestSuccessfulRevision = "replacement"
 		agents.UpdateObject(agent.DeepCopy())
 		synctest.Wait()
@@ -106,6 +122,7 @@ func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 		require.NoError(t, reconciler.reconcile(ctx, "team/daily"))
 		refresh()
 		require.True(t, store.disabled)
+		require.Equal(t, ScheduledRunReasonAgentNotFound, meta.FindStatusCondition(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady).Reason)
 		require.Contains(t, meta.FindStatusCondition(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady).Message, "Agent does not exist")
 		require.NoError(t, kube.Delete(ctx, resource))
 		store.failure = errors.New("database unavailable")

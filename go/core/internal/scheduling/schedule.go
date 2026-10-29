@@ -16,6 +16,13 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
+// MessageIDPrefix marks the prompt message the scheduler sends for an
+// execution. Recovery finds that message by ID, so only the scheduler may use it.
+const MessageIDPrefix = "scheduled-run/"
+
+// ExecutionMessageID is the ID of the prompt message for an execution.
+func ExecutionMessageID(executionID string) string { return MessageIDPrefix + executionID }
+
 // Normalize supplies defaults without mutating a caller's request.
 func Normalize(spec v1alpha3.ScheduledRunSpec) v1alpha3.ScheduledRunSpec {
 	result := spec.DeepCopy()
@@ -47,8 +54,8 @@ func Validate(spec v1alpha3.ScheduledRunSpec) error {
 	if zone := ptr.Deref(spec.TimeZone, "UTC"); len(zone) == 0 || len(zone) > 253 {
 		return fmt.Errorf("timeZone must contain between 1 and 253 characters")
 	}
-	if spec.ExecutionTimeout != nil && (spec.ExecutionTimeout.Duration < time.Microsecond || spec.ExecutionTimeout.Duration > 2562047*time.Hour) {
-		return fmt.Errorf("executionTimeout must be between one microsecond and 2562047 hours")
+	if spec.ExecutionTimeout != nil && (spec.ExecutionTimeout.Duration < time.Second || spec.ExecutionTimeout.Duration > 2562047*time.Hour) {
+		return fmt.Errorf("executionTimeout must be between one second and 2562047 hours")
 	}
 	_, err := Next(spec, time.Now())
 	return err

@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Skeleton, Tag, Typography } from "antd";
+import { Alert, Button, Card, Skeleton, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
@@ -7,7 +7,9 @@ import { useApiResource } from "@/api/hooks/useApiResource";
 import { linkInk } from "@/components/common/linkStyles";
 import { rowClickHandler } from "@/components/table/rowClick";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
-import { buildPath, paths } from "@/router/routes";
+import { ScheduleStatusTag } from "@/components/scheduled-runs/ScheduleStatusTag";
+import { scheduleUrl } from "@/components/agent/agentUrl";
+import { paths } from "@/router/routes";
 import { scheduleRouteID } from "@/api/domain/scheduledRuns";
 
 const { Text } = Typography;
@@ -71,7 +73,7 @@ export function AgentSchedules({ agent }: { agent: { namespace: string; name: st
               key={scheduleRouteID(schedule)}
               data-testid={`agent-schedule-${scheduleRouteID(schedule)}`}
               onClick={rowClickHandler(() =>
-                void navigate(buildPath(paths.scheduledRun, { id: scheduleRouteID(schedule) })),
+                void navigate(scheduleUrl(schedule)),
               )}
               css={{
                 display: "flex",
@@ -96,7 +98,7 @@ export function AgentSchedules({ agent }: { agent: { namespace: string; name: st
               }}
             >
               <Link
-                to={buildPath(paths.scheduledRun, { id: scheduleRouteID(schedule) })}
+                to={scheduleUrl(schedule)}
                 data-testid={`agent-schedule-link-${scheduleRouteID(schedule)}`}
                 css={linkInk(theme)}
               >
@@ -105,11 +107,7 @@ export function AgentSchedules({ agent }: { agent: { namespace: string; name: st
               <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
                 {scheduleDescription(schedule.spec.schedule)}
               </Text>
-              {schedule.spec.paused ? (
-                <Tag color="warning">Paused</Tag>
-              ) : (
-                <Tag color="success">Active</Tag>
-              )}
+              <ScheduleStatusTag schedule={schedule} />
             </li>
           ))}
         </ul>

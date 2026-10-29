@@ -13,6 +13,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -172,7 +173,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	}
 	execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(execution.GetPrompt()))
-	message.ID = "scheduled-run/" + execution.GetId()
+	message.ID = scheduling.ExecutionMessageID(execution.GetId())
 	message.ContextID = session.GetId()
 	events := c.gateway.SendStreamingMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message})
 	// The runtime assigns the task ID. Return after its first event; a lost
@@ -210,7 +211,7 @@ func (c *Controller) executionTask(ctx context.Context, execution *apiv1.Schedul
 		}
 		for _, task := range page.Tasks {
 			for _, message := range task.History {
-				if message.ID == "scheduled-run/"+execution.GetId() {
+				if message.ID == scheduling.ExecutionMessageID(execution.GetId()) {
 					return task, nil
 				}
 			}

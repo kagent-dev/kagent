@@ -27,7 +27,6 @@
   resources:
   - harnesses/finalizers
   - agents/finalizers
-  - scheduledruns/finalizers
   - sandboxtemplates/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers

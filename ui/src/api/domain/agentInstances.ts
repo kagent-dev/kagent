@@ -96,8 +96,6 @@ export interface AgentInstance {
   creator: string;
   /** `namespace/name` of the Agent it was created from, when recorded. */
   agent?: string;
-  /** Immutable Kubernetes UID of the Agent used to prepare this conversation. */
-  agentUid?: string;
   /** Present when this conversation was accepted from a schedule. */
   scheduledRun?: {
     namespace: string;

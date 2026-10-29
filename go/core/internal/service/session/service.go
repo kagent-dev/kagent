@@ -269,7 +269,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		for _, session := range sessions {
 			query.AfterID = session.Id
 			if err := s.authorizeScheduled(ctx, auth.VerbGet, session); err != nil {
-				if serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+				if serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
 					continue
 				}
 				return ListResult{}, err

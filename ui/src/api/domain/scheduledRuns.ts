@@ -3,7 +3,7 @@ import type { ResourceMetadata } from "./common";
 export interface ScheduledRun {
   apiVersion?: string;
   kind?: "ScheduledRun";
-  metadata: ResourceMetadata & { uid?: string; deletionTimestamp?: string };
+  metadata: ResourceMetadata & { uid?: string };
   spec: {
     agentRef: { name: string };
     schedule: string;
@@ -20,8 +20,13 @@ export interface ScheduledRun {
 
 // A held history URL carries both the resource reference and its original UID.
 // Kubernetes names exclude colons, so a recreated name cannot replace that UID.
-export function scheduleRouteID(schedule: ScheduledRun): string {
-  return `${schedule.metadata.namespace}:${schedule.metadata.name}:${schedule.metadata.uid}`;
+// Takes the resource, or the provenance a conversation records for the schedule that
+// started it.
+export interface ScheduleIdentity { namespace: string; name: string; uid: string }
+
+export function scheduleRouteID(schedule: ScheduledRun | ScheduleIdentity): string {
+  const { namespace, name, uid } = "metadata" in schedule ? schedule.metadata : schedule;
+  return `${namespace}:${name}:${uid}`;
 }
 
 export function scheduleRoute(id: string) {
