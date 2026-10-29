@@ -151,6 +151,7 @@ func (store *memoryStore) GetSessionForRuntime(_ context.Context, id, _ string) 
 	}
 	session := &apiv1.Session{Id: id, Creator: "user", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, Uid: "agent-uid"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}
 	if store.scheduled {
+		session.Creator = "scheduler"
 		session.ScheduledRun = &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "daily"}}
 	}
 	return session, nil
@@ -171,30 +172,40 @@ func memoryContext(t *testing.T) context.Context {
 }
 
 func TestActorMemoryUsesSessionScope(t *testing.T) {
-	store := &memoryStore{}
-	service := NewService(store, auth.NoopAuthorizer{})
-	ctx := memoryContext(t)
-	input := Input{Content: "scoped", Vector: vector(VectorDimension, 1)}
-	_, err := service.Add(ctx, input)
-	require.NoError(t, err)
-	_, err = service.AddBatch(ctx, []Input{input})
-	require.NoError(t, err)
-	require.Len(t, store.stored, 2)
-	for _, memory := range store.stored {
-		require.Equal(t, "team-a/agent", memory.AgentName)
-		require.Equal(t, "user", memory.UserID)
+	for _, tc := range []struct {
+		name, creator string
+		scheduled     bool
+	}{
+		{name: "user Session", creator: "user"},
+		{name: "scheduled Session", creator: "scheduler", scheduled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &memoryStore{scheduled: tc.scheduled}
+			service := NewService(store, auth.NoopAuthorizer{})
+			ctx := memoryContext(t)
+			input := Input{Content: "scoped", Vector: vector(VectorDimension, 1)}
+			_, err := service.Add(ctx, input)
+			require.NoError(t, err)
+			_, err = service.AddBatch(ctx, []Input{input})
+			require.NoError(t, err)
+			require.Len(t, store.stored, 2)
+			for _, memory := range store.stored {
+				require.Equal(t, "team-a/agent", memory.AgentName)
+				require.Equal(t, tc.creator, memory.UserID)
+			}
+			require.NoError(t, service.Delete(ctx, "other/agent"))
+			require.Equal(t, "team-a/agent", store.deletedAgent)
+			require.Equal(t, tc.creator, store.deletedUser)
+			_, err = service.List(ctx, "other/agent")
+			require.NoError(t, err)
+			require.Equal(t, "team-a/agent", store.readAgent)
+			require.Equal(t, tc.creator, store.readUser)
+			_, err = service.Search(ctx, SearchRequest{Vector: input.Vector})
+			require.NoError(t, err)
+			require.Equal(t, "team-a/agent", store.readAgent)
+			require.Equal(t, tc.creator, store.readUser)
+		})
 	}
-	require.NoError(t, service.Delete(ctx, "other/agent"))
-	require.Equal(t, "team-a/agent", store.deletedAgent)
-	require.Equal(t, "user", store.deletedUser)
-	_, err = service.List(ctx, "other/agent")
-	require.NoError(t, err)
-	require.Equal(t, "team-a/agent", store.readAgent)
-	require.Equal(t, "user", store.readUser)
-	_, err = service.Search(ctx, SearchRequest{Vector: input.Vector})
-	require.NoError(t, err)
-	require.Equal(t, "team-a/agent", store.readAgent)
-	require.Equal(t, "user", store.readUser)
 }
 
 func TestMemoryRejectsUnboundActors(t *testing.T) {
@@ -202,14 +213,12 @@ func TestMemoryRejectsUnboundActors(t *testing.T) {
 		name          string
 		authenticated bool
 		bindingErr    error
-		scheduled     bool
 	}{
 		{name: "missing identity"},
 		{name: "deleted or replaced actor", authenticated: true, bindingErr: database.ErrNotFound},
-		{name: "scheduled Session shares the controller principal", authenticated: true, scheduled: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store := &memoryStore{bindingErr: test.bindingErr, scheduled: test.scheduled}
+			store := &memoryStore{bindingErr: test.bindingErr}
 			service := NewService(store, auth.NoopAuthorizer{})
 			ctx := t.Context()
 			if test.authenticated {

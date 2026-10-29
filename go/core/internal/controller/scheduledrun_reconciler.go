@@ -25,8 +25,6 @@ import (
 type ScheduledRunReconciliation struct {
 	Resource *v1alpha3.ScheduledRun
 	AgentUID string
-	// Revision is the Agent's latest successful revision, which new executions pin.
-	Revision string
 	// FailureReason is the Ready condition reason when Failure is set.
 	FailureReason string
 	Failure       string
@@ -44,7 +42,7 @@ func (s ScheduledRunReconciliation) Equals(other ScheduledRunReconciliation) boo
 	return s.Resource.UID == other.Resource.UID && s.Resource.Generation == other.Resource.Generation &&
 		s.Resource.DeletionTimestamp.Equal(other.Resource.DeletionTimestamp) &&
 		reflect.DeepEqual(s.Resource.Spec, other.Resource.Spec) &&
-		s.AgentUID == other.AgentUID && s.Revision == other.Revision && s.FailureReason == other.FailureReason && s.Failure == other.Failure
+		s.AgentUID == other.AgentUID && s.FailureReason == other.FailureReason && s.Failure == other.Failure
 }
 
 // Ready condition reasons for ScheduledRuns that cannot be scheduled.
@@ -52,7 +50,6 @@ const (
 	ScheduledRunReasonInvalidConfiguration = "InvalidConfiguration"
 	ScheduledRunReasonAgentNotFound        = "AgentNotFound"
 	ScheduledRunReasonAgentNotReady        = "AgentNotReady"
-	ScheduledRunReasonMemoryNotSupported   = "MemoryNotSupported"
 )
 
 func newScheduledRunReconciliations(resources krt.Collection[*v1alpha3.ScheduledRun], agents krt.Collection[*v1alpha3.Agent], opts krt.OptionsBuilder) krt.Collection[ScheduledRunReconciliation] {
@@ -69,8 +66,7 @@ func newScheduledRunReconciliations(resources krt.Collection[*v1alpha3.Scheduled
 			return state.fail(ScheduledRunReasonAgentNotFound, "Agent does not exist")
 		}
 		state.AgentUID = string((*agent).UID)
-		state.Revision = (*agent).Status.LatestSuccessfulRevision
-		if state.Revision == "" {
+		if (*agent).Status.LatestSuccessfulRevision == "" {
 			return state.fail(ScheduledRunReasonAgentNotReady, "Agent has no successful runtime revision yet")
 		}
 		return state
@@ -82,7 +78,6 @@ type scheduleProjectionStore interface {
 	GetActiveScheduledRunID(context.Context, types.NamespacedName) (uuid.UUID, error)
 	RetireScheduledRun(context.Context, uuid.UUID) error
 	DisableScheduledRun(context.Context, uuid.UUID, int64) error
-	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 }
 
 // ScheduledRunReconciler is the sole writer of desired scheduling projections.
@@ -164,18 +159,6 @@ func (r *ScheduledRunReconciler) reconcile(ctx context.Context, key string) erro
 
 	condition := metav1.Condition{Type: v1alpha3.ScheduledRunConditionReady, Status: metav1.ConditionTrue, Reason: "Reconciled", Message: "Schedule configuration is synchronized", ObservedGeneration: resource.Generation}
 	reason, failure := state.FailureReason, state.Failure
-	if failure == "" {
-		// Revision capabilities are immutable, so the Agent's latest successful
-		// revision decides support rather than its live Harness. Acceptance repeats
-		// this check against the revision it pins.
-		revision, err := r.store.GetRuntimeRevision(ctx, state.Revision)
-		if err != nil {
-			return err
-		}
-		if revision.MemoryEnabled {
-			reason, failure = ScheduledRunReasonMemoryNotSupported, "Scheduled runs do not support Agent revisions that enable memory"
-		}
-	}
 	if failure != "" {
 		condition.Reason = reason
 	}

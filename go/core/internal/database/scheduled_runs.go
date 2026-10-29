@@ -306,17 +306,12 @@ func reserveScheduledRunExecution(ctx context.Context, db pgx.Tx, schedule *Sche
 	if err != nil {
 		return scheduledRunExecutionRow{}, err
 	}
-	// Every scheduled Session shares the controller principal, so memory would
-	// be one partition across schedules and their continuers.
-	if revision.MemoryEnabled {
-		return scheduledRunExecutionRow{}, fmt.Errorf("schedule's Agent revision enables memory: %w", ErrFailedPrecondition)
-	}
 	session, err := insertPinnedSession(ctx, db, &apiv1.Session{
 		Id: sessionID.String(), Creator: schedule.Creator, Agent: agent,
 		ScheduledRun: &apiv1.ScheduledRunProvenance{
 			Ref: proto.CloneOf(execution.ScheduledRun), Uid: schedule.ID, ExecutionId: id.String(),
 		},
-	}, "scheduled-run/"+id.String(), revision.Revision)
+	}, "scheduled-run/"+id.String(), revision)
 	if err != nil {
 		return scheduledRunExecutionRow{}, fmt.Errorf("reserve scheduled Session: %w", err)
 	}

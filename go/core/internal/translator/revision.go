@@ -72,9 +72,6 @@ type Revision struct {
 	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
-	// MemoryEnabled records that ConfigJSON enables runtime memory. It is derived
-	// from ConfigJSON, so it does not separately enter the revision's identity.
-	MemoryEnabled bool
 }
 
 // Equals compares the Agent Card's contents without inspecting protobuf caches.

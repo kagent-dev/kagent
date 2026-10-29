@@ -56,7 +56,7 @@ Agent status reports compilation and runtime preparation.
    without a successful revision disables new reservations. A pending or failed
    Agent replacement keeps its last successful revision available. The Ready
    condition reports `InvalidConfiguration`, `AgentNotFound`, `AgentNotReady`, or
-   `MemoryNotSupported` when reservations are disabled.
+   `SchedulerNotConfigured` when reservations are disabled.
 2. The scheduler reserves due occurrences. Manual triggers authorize schedule
    invocation and reserve the checked generation. Acceptance atomically creates
    the execution and its Session, selecting and pinning the Agent's latest successful revision under the
@@ -267,15 +267,8 @@ are managed by their recorded creator. Runtime access remains limited to the
 Actor's verified Session binding.
 
 Memory is partitioned by Agent key (`namespace/name`) and creator principal ID.
-Every scheduled execution would share the scheduler's partition with every other
-schedule targeting the same Agent, so scheduled runs do not support memory. Each
-Agent revision records whether its compiled runtime enables memory. Support
-follows the latest successful revision, the one executions pin, rather than the
-live Harness: a Harness edit that has not compiled cannot change it. Reconciliation
-marks a schedule whose Agent's latest successful revision enables memory as not
-Ready with `MemoryNotSupported`. Acceptance refuses such a revision in the same
-transaction that would pin it, and the memory service rejects calls from
-scheduled Sessions.
+Scheduled Sessions use the scheduler's partition for their Agent, following the
+same memory rules as other Sessions.
 
 ## A2A routing
 

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -690,30 +689,6 @@ func TestScheduleReservationsUseLatestSuccessfulDefinition(t *testing.T) {
 	retained, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.ID), "operator", "failed-compile", schedule.Generation)
 	require.NoError(t, err)
 	require.Equal(t, "new-revision", retained.RuntimeRevision)
-}
-
-func TestScheduleReservationsRejectMemoryRevisions(t *testing.T) {
-	c := NewClient(setupTestDB(t), "public")
-	schedule := createTestSchedule(t, c)
-	namespace, name := schedule.Ref.Namespace, schedule.Spec.AgentRef.Name
-	require.NoError(t, c.UpsertAgentDefinition(t.Context(), AgentDefinition{Namespace: namespace, AgentName: name, AgentUID: schedule.AgentUID, DesiredRevision: "memory-revision"}))
-	require.NoError(t, recordErr(c.RecordRuntimeRevision(t.Context(), RuntimeRevision{Namespace: namespace, AgentName: name, AgentUID: schedule.AgentUID, Revision: "memory-revision",
-		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{}, MemoryEnabled: true,
-		ActorTemplateAtespace: namespace, ActorTemplateName: "memory-revision-actor-template", ActorTemplateUID: "memory-revision-actor-uid",
-	}, RecordRevisionOptions{Ready: true})))
-	revision, err := c.GetRuntimeRevision(t.Context(), "memory-revision")
-	require.NoError(t, err)
-	require.True(t, revision.MemoryEnabled)
-	_, err = c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.ID), "operator", "memory", schedule.Generation)
-	require.ErrorIs(t, err, ErrFailedPrecondition)
-	sessions, err := c.ListSessions(t.Context(), SessionQuery{AllUsers: true, Limit: 10})
-	require.NoError(t, err)
-	require.Empty(t, sessions, "a refused execution must not reserve a Session")
-	// A later successful revision without memory restores scheduling.
-	agentRevisionFixture(t, c, t.Context(), namespace, name, schedule.AgentUID, "plain-revision")
-	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.ID), "operator", "plain", schedule.Generation)
-	require.NoError(t, err)
-	require.Equal(t, "plain-revision", execution.RuntimeRevision)
 }
 
 func TestManualScheduleRequestsAreScopedToInitiator(t *testing.T) {

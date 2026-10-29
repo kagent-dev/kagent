@@ -27,8 +27,6 @@ type scheduleProjectionRecorder struct {
 	disabled  bool
 	retired   bool
 	failure   error
-	// memoryRevisions names revisions whose compiled runtime enables memory.
-	memoryRevisions map[string]bool
 }
 
 func (s *scheduleProjectionRecorder) SyncScheduledRun(_ context.Context, run *database.ScheduledRun) (*database.ScheduledRun, error) {
@@ -50,9 +48,6 @@ func (s *scheduleProjectionRecorder) RetireScheduledRun(context.Context, uuid.UU
 	s.retired = true
 	return s.failure
 }
-func (s *scheduleProjectionRecorder) GetRuntimeRevision(_ context.Context, revision string) (*database.RuntimeRevision, error) {
-	return &database.RuntimeRevision{Revision: revision, MemoryEnabled: s.memoryRevisions[revision]}, nil
-}
 
 func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
@@ -67,7 +62,7 @@ func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 		scheme := runtime.NewScheme()
 		require.NoError(t, v1alpha3.AddToScheme(scheme))
 		kube := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha3.ScheduledRun{}).WithObjects(resource).Build()
-		store := &scheduleProjectionRecorder{memoryRevisions: map[string]bool{"with-memory": true}}
+		store := &scheduleProjectionRecorder{}
 		reconciler := &ScheduledRunReconciler{states: states, store: store, kube: kube, reader: kube, caller: auth.NewCredentialSession(auth.Principal{ID: "scheduler"}, nil)}
 		key := client.ObjectKeyFromObject(resource)
 		refresh := func() {
@@ -90,22 +85,6 @@ func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 		require.False(t, store.disabled)
 		require.True(t, meta.IsStatusConditionTrue(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady))
 		require.Equal(t, string(agent.UID), store.projected.AgentUID)
-		// Scheduled Sessions share the controller principal, so a successful
-		// revision that enables memory is refused. Support follows the revision
-		// executions pin, not Harness edits that have not compiled successfully.
-		agent.Status.LatestSuccessfulRevision = "with-memory"
-		agents.UpdateObject(agent.DeepCopy())
-		synctest.Wait()
-		require.NoError(t, reconciler.reconcile(ctx, "team/daily"))
-		refresh()
-		require.True(t, store.disabled)
-		require.Equal(t, ScheduledRunReasonMemoryNotSupported, meta.FindStatusCondition(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady).Reason)
-		agent.Status.LatestSuccessfulRevision = "last-successful"
-		agents.UpdateObject(agent.DeepCopy())
-		synctest.Wait()
-		require.NoError(t, reconciler.reconcile(ctx, "team/daily"))
-		refresh()
-		require.True(t, meta.IsStatusConditionTrue(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady))
 		// A recreated Agent cannot borrow the previous identity's successful revision.
 		agent.UID = types.UID(uuid.NewString())
 		agent.Status.LatestSuccessfulRevision = ""
@@ -178,7 +157,4 @@ func TestScheduledRunEqualityIgnoresStatusWrites(t *testing.T) {
 	require.True(t, before.Equals(after))
 	after.Resource.Spec.Paused = new(true)
 	require.False(t, before.Equals(after))
-	after = before
-	after.Revision = "replacement"
-	require.False(t, before.Equals(after), "a new successful revision can change schedule support")
 }

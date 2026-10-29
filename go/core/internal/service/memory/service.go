@@ -232,12 +232,6 @@ func (s *Service) scope(ctx context.Context, verb auth.Verb) (string, string, er
 	if session.GetAgent().GetRef().GetNamespace() == "" || session.GetAgent().GetRef().GetName() == "" || session.Creator == "" {
 		return "", "", serviceerrors.NewPermissionDenied("actor has no memory scope", nil)
 	}
-	// Scheduled Sessions are all created by the controller principal, so their
-	// creator does not identify a private partition. ScheduledRun reconciliation
-	// rejects memory-enabled Harnesses; this covers a Harness changed afterwards.
-	if session.GetScheduledRun() != nil {
-		return "", "", serviceerrors.NewPermissionDenied("scheduled Sessions do not have memory", nil)
-	}
 	agentName := session.Agent.Ref.Namespace + "/" + session.Agent.Ref.Name
 	return agentName, session.Creator, s.authorize(ctx, verb, agentName)
 }

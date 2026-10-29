@@ -74,7 +74,7 @@ func TestScheduledRunReconcilerRetiresOrphanedProjections(t *testing.T) {
 				}
 				projection.ID = string(resource.UID)
 				recordScheduleRevision(t, store, projection)
-				state = []ScheduledRunReconciliation{{Resource: observed, AgentUID: projection.AgentUID, Revision: projection.ID}}
+				state = []ScheduledRunReconciliation{{Resource: observed, AgentUID: projection.AgentUID}}
 			}
 			kube := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha3.ScheduledRun{}).WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(ctx context.Context, reader client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -101,7 +101,7 @@ func TestScheduledRunReconcilerRetiresOrphanedProjections(t *testing.T) {
 				require.ErrorIs(t, err, database.ErrNotFound, "a stale watch must not recreate the removed UID")
 				projection.ID = string(resource.UID)
 				recordScheduleRevision(t, store, projection)
-				states.UpdateObject(ScheduledRunReconciliation{Resource: resource, AgentUID: projection.AgentUID, Revision: projection.ID})
+				states.UpdateObject(ScheduledRunReconciliation{Resource: resource, AgentUID: projection.AgentUID})
 				require.NoError(t, reconciler.reconcile(ctx, ref.String()))
 			}
 			activeID, err := store.GetActiveScheduledRunID(ctx, ref)

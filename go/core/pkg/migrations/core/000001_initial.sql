@@ -55,8 +55,6 @@ CREATE TABLE agent_revision (
     agent_name TEXT NOT NULL,
     agent_uid TEXT NOT NULL,
     agent_card BYTEA NOT NULL,
-    -- Scheduled runs reject revisions whose compiled runtime uses memory.
-    memory_enabled BOOLEAN NOT NULL,
     FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
 );
 CREATE INDEX agent_revision_source_idx ON agent_revision (agent_name, revision);
@@ -320,7 +318,7 @@ CREATE INDEX scheduled_run_execution_pending_idx ON scheduled_run_execution (nex
     WHERE state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING');
 
 CREATE VIEW agent_runtime_revision AS
-    SELECT r.*, a.agent_name, a.agent_uid, a.agent_card, a.memory_enabled
+    SELECT r.*, a.agent_name, a.agent_uid, a.agent_card
     FROM runtime_revision r JOIN agent_revision a USING (revision) WHERE r.kind = 'agent';
 
 CREATE VIEW session_record AS

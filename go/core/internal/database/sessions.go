@@ -110,26 +110,21 @@ func insertSession(ctx context.Context, db pgx.Tx, request *apiv1.Session, reque
 	if err != nil {
 		return sessionRow{}, err
 	}
-	return insertPinnedSession(ctx, db, request, requestID, revision.Revision)
-}
-
-type latestSuccessfulRevision struct {
-	Revision      string
-	MemoryEnabled bool
+	return insertPinnedSession(ctx, db, request, requestID, revision)
 }
 
 // getLatestSuccessfulRevisionForUpdate locks the active Agent definition so the
 // selected revision stays latest until the caller's transaction ends.
-func getLatestSuccessfulRevisionForUpdate(ctx context.Context, db pgx.Tx, agent *apiv1.AgentProvenance) (latestSuccessfulRevision, error) {
+func getLatestSuccessfulRevisionForUpdate(ctx context.Context, db pgx.Tx, agent *apiv1.AgentProvenance) (string, error) {
 	revision, err := queryOne(ctx, db, `
-		SELECT p.latest_successful_revision AS revision, a.memory_enabled
-		FROM agent_definition p JOIN agent_revision a ON a.revision = p.latest_successful_revision
+		SELECT p.latest_successful_revision FROM agent_definition p
 		WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
 		    AND ($3::text = '' OR p.agent_uid = $3)
+		    AND p.latest_successful_revision IS NOT NULL
 		FOR UPDATE OF p
-	`, pgx.RowToStructByName[latestSuccessfulRevision], agent.GetRef().GetNamespace(), agent.GetRef().GetName(), agent.GetUid())
+	`, pgx.RowTo[string], agent.GetRef().GetNamespace(), agent.GetRef().GetName(), agent.GetUid())
 	if err != nil {
-		return latestSuccessfulRevision{}, fmt.Errorf("get latest prepared runtime revision: %w", notFoundOr(err))
+		return "", fmt.Errorf("get latest prepared runtime revision: %w", notFoundOr(err))
 	}
 	return revision, nil
 }
