@@ -149,8 +149,9 @@ func (c *Client) GetActorTemplate(ctx context.Context, atespace, name string) (*
 func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	// Substrate requires request opt-in as well as the server's
-	// PerTemplateSnapshotLocation gate to honor the configured snapshot location.
+	// Substrate requires request opt-in as well as the server's preview gates:
+	// PerTemplateSnapshotLocation for the snapshot location and
+	// GoldenEgressPolicy for the golden actor's egress policy.
 	ctx = metadata.AppendToOutgoingContext(ctx, "ate-preview-allowed", "true")
 	return c.ControlClient.CreateActorTemplate(ctx, &ateapipb.CreateActorTemplateRequest{ActorTemplate: template})
 }

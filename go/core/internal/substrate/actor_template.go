@@ -91,6 +91,10 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if err != nil {
 		return nil, err
 	}
+	goldenEgress, err := GoldenEgressPolicy(spec.GoldenEgressDestinations)
+	if err != nil {
+		return nil, fmt.Errorf("compile golden egress policy: %w", err)
+	}
 
 	template := &ateapipb.ActorTemplate{
 		Metadata:  &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
@@ -118,6 +122,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			// Pin the server default so immutable comparison survives creation.
 			GoldenSnapshotConfig: &ateapipb.GoldenSnapshotConfig{Mode: ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED},
 		},
+		GoldenEgressPolicy: goldenEgress,
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
 			// Substrate regenerates this projection on Run and Restore. A fork
@@ -173,11 +178,12 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector: template.GetWorkerSelector(),
-		Containers:     template.GetContainers(),
-		Volumes:        template.GetVolumes(),
-		SnapshotConfig: template.GetSnapshotConfig(),
-		Resources:      template.GetResources(),
+		WorkerSelector:     template.GetWorkerSelector(),
+		Containers:         template.GetContainers(),
+		Volumes:            template.GetVolumes(),
+		SnapshotConfig:     template.GetSnapshotConfig(),
+		Resources:          template.GetResources(),
+		GoldenEgressPolicy: template.GetGoldenEgressPolicy(),
 	}
 }
 

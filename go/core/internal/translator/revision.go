@@ -74,7 +74,8 @@ type Revision struct {
 	EgressDestinations []string
 	// GoldenEgressDestinations are the sorted git and S3 origins the runtime
 	// fetches skill sources from at startup, before the golden snapshot.
-	// Sessions restore those sources from the snapshot and do not inherit them.
+	// They feed the golden actor's own policy. Sessions reach the same origins
+	// through EgressDestinations.
 	GoldenEgressDestinations []string
 }
 
@@ -116,7 +117,9 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Credentials             []egress.Credential          `json:"credentials,omitempty"`
 		TokenPassthroughTargets []egresspolicy.GatewayTarget `json:"tokenPassthroughTargets,omitempty"`
 		EgressDestinations      []string                     `json:"egressDestinations"`
-		SandboxClass            atev1.SandboxClass           `json:"sandboxClass"`
+		// Omitted when empty so revisions without git or S3 sources keep their IDs.
+		GoldenEgressDestinations []string           `json:"goldenEgressDestinations,omitempty"`
+		SandboxClass             atev1.SandboxClass `json:"sandboxClass"`
 
 		// Placement now matches the pool's namespace as well as its name.
 		// Hash it explicitly so existing immutable templates do not conflict after upgrades.
@@ -128,7 +131,8 @@ func (r *Revision) Digest() (RevisionID, error) {
 		SkillImages:    r.SkillImages,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
 		TokenPassthroughTargets: r.TokenPassthroughTargets, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
-		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
+		GoldenEgressDestinations: r.GoldenEgressDestinations,
+		SandboxClass:             sandboxClass, WorkerPoolNamespace: r.Namespace,
 	})
 	if err != nil {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision inputs: %w", err)

@@ -52,18 +52,40 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{RuntimeJWTAudience}, ExpirationSeconds: 300},
 			})
 		}
-		target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess
-		port, _ := strconv.ParseInt(target.Port(), 10, 32)
-		ports := &ateapipb.Ports{Numbers: []int32{int32(port)}}
-		// One rule per origin: exact matches win over wildcard rules, keeping
-		// credentials on their exact origin even when a wildcard also grants access.
-		if target.Scheme == "https" {
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Https: &ateapipb.HttpsRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
-		} else {
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Http: &ateapipb.HttpRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
-		}
+		policy.Rules = append(policy.Rules, originRule(origin, effects[origin]))
 	}
 	return policy, nil
+}
+
+// GoldenEgressPolicy allows the golden actor to reach only the given origins
+// while it starts. Actors restored from its snapshot use their own egress policy.
+func GoldenEgressPolicy(destinations []string) (*ateapipb.EgressPolicyTemplate, error) {
+	if len(destinations) == 0 {
+		return nil, nil
+	}
+	access, err := egress.CanonicalAccess(destinations, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	policy := &ateapipb.EgressPolicyTemplate{}
+	for _, origin := range access.Destinations {
+		policy.Rules = append(policy.Rules, originRule(origin, nil))
+	}
+	return policy, nil
+}
+
+// originRule allows one origin. The origin must come from CanonicalAccess,
+// which already rejected anything ParseOrigin cannot parse. One rule per
+// origin: exact matches win over wildcard rules, keeping credentials on their
+// exact origin even when a wildcard also grants access.
+func originRule(origin string, effects *ateapipb.HttpRuleEffects) *ateapipb.EgressRule {
+	target, _ := egress.ParseOrigin(origin)
+	port, _ := strconv.ParseInt(target.Port(), 10, 32)
+	ports := &ateapipb.Ports{Numbers: []int32{int32(port)}}
+	if target.Scheme == "https" {
+		return &ateapipb.EgressRule{Https: &ateapipb.HttpsRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects}}
+	}
+	return &ateapipb.EgressRule{Http: &ateapipb.HttpRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects}}
 }
 
 // defaultEgressPolicyCompiler adds the allowlist, Secret credentials, and Actor JWTs. It runs first.
