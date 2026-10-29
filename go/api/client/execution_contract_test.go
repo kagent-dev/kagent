@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -36,6 +37,10 @@ func TestExecutionContractValidation(t *testing.T) {
 		{"scopes", &apiv1.ScopeCeiling{Scopes: []string{"read", "write"}}, true},
 		{"duplicate scopes", &apiv1.ScopeCeiling{Scopes: []string{"read", "read"}}, false},
 		{"whitespace scope", &apiv1.ScopeCeiling{Scopes: []string{"read write"}}, false},
+		{"inherited ceiling", &apiv1.SessionAuthority{}, true},
+		{"empty authority ceiling", &apiv1.SessionAuthority{ScopeCeiling: &apiv1.ScopeCeiling{}}, true},
+		{"bounded authority", &apiv1.SessionAuthority{ScopeCeiling: &apiv1.ScopeCeiling{Scopes: []string{"read"}}}, true},
+		{"invalid authority ceiling", &apiv1.SessionAuthority{ScopeCeiling: &apiv1.ScopeCeiling{Scopes: []string{"read", "read"}}}, false},
 		{"refresh credential", &apiv1.RegisterDelegationCredentialRequest{RefreshToken: "refresh"}, true},
 		{"missing credential", &apiv1.RegisterDelegationCredentialRequest{}, false},
 		{"oversized credential", &apiv1.RegisterDelegationCredentialRequest{RefreshToken: strings.Repeat("x", 16385)}, false},
@@ -47,6 +52,43 @@ func TestExecutionContractValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if err := validator.Validate(test.message); (err == nil) != test.valid {
 				t.Fatalf("Validate() = %v, valid = %t", err, test.valid)
+			}
+		})
+	}
+}
+
+func TestSessionAuthorityPreservesScopeCeilingPresence(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		ceiling *apiv1.ScopeCeiling
+	}{
+		{name: "inherit"},
+		{name: "deny all", ceiling: &apiv1.ScopeCeiling{}},
+		{name: "bounded", ceiling: &apiv1.ScopeCeiling{Scopes: []string{"read"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			original := &apiv1.SessionAuthority{ScopeCeiling: test.ceiling}
+			for _, codec := range []struct {
+				name      string
+				marshal   func(proto.Message) ([]byte, error)
+				unmarshal func([]byte, proto.Message) error
+			}{
+				{name: "protobuf", marshal: proto.Marshal, unmarshal: proto.Unmarshal},
+				{name: "JSON", marshal: protojson.Marshal, unmarshal: protojson.Unmarshal},
+			} {
+				t.Run(codec.name, func(t *testing.T) {
+					encoded, err := codec.marshal(original)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var decoded apiv1.SessionAuthority
+					if err := codec.unmarshal(encoded, &decoded); err != nil {
+						t.Fatal(err)
+					}
+					if !proto.Equal(original, &decoded) {
+						t.Fatalf("round trip = %v, want %v", &decoded, original)
+					}
+				})
 			}
 		})
 	}

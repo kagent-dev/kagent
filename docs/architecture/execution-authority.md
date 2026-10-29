@@ -15,8 +15,9 @@ dispatch and are persisted atomically with task admission. Native cancellation
 uses those relationships.
 
 Session authority separates the initiating principal, storage owner, and
-Substrate Actor. The effective scope set is the intersection of the initiator's
-current scopes and every inherited ceiling. A present empty ceiling represents
+Substrate Actor. `SessionAuthority.scope_ceiling` carries the immutable upper
+bound. The effective scope set is the intersection of the initiator's current
+scopes and every inherited ceiling. A present empty ceiling represents
 an empty grant; an absent ceiling inherits its parent. Parent revocation and
 expiry apply throughout the delegation tree.
 

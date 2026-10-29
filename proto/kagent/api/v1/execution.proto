@@ -44,12 +44,15 @@ message ScopeCeiling {
 // SessionAuthority separates the initiator from the Actor and storage owner.
 // Parent and root identities are derived by the controller, never caller input.
 message SessionAuthority {
+  reserved 5;
+  reserved "scopes";
+
   string session_id = 1;
   string initiator_id = 2;
   string parent_session_id = 3;
   string root_session_id = 4;
-  repeated string scopes = 5;
   google.protobuf.Timestamp expires_at = 6;
+  ScopeCeiling scope_ceiling = 7;
 }
 
 message GetSessionAuthorityRequest {

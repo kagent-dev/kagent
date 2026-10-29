@@ -130,8 +130,8 @@ type SessionAuthority struct {
 	InitiatorId     string                 `protobuf:"bytes,2,opt,name=initiator_id,json=initiatorId,proto3" json:"initiator_id,omitempty"`
 	ParentSessionId string                 `protobuf:"bytes,3,opt,name=parent_session_id,json=parentSessionId,proto3" json:"parent_session_id,omitempty"`
 	RootSessionId   string                 `protobuf:"bytes,4,opt,name=root_session_id,json=rootSessionId,proto3" json:"root_session_id,omitempty"`
-	Scopes          []string               `protobuf:"bytes,5,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	ExpiresAt       *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	ScopeCeiling    *ScopeCeiling          `protobuf:"bytes,7,opt,name=scope_ceiling,json=scopeCeiling,proto3" json:"scope_ceiling,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -194,16 +194,16 @@ func (x *SessionAuthority) GetRootSessionId() string {
 	return ""
 }
 
-func (x *SessionAuthority) GetScopes() []string {
+func (x *SessionAuthority) GetExpiresAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.Scopes
+		return x.ExpiresAt
 	}
 	return nil
 }
 
-func (x *SessionAuthority) GetExpiresAt() *timestamppb.Timestamp {
+func (x *SessionAuthority) GetScopeCeiling() *ScopeCeiling {
 	if x != nil {
-		return x.ExpiresAt
+		return x.ScopeCeiling
 	}
 	return nil
 }
@@ -1146,16 +1146,16 @@ const file_kagent_api_v1_execution_proto_rawDesc = "" +
 	"\n" +
 	"\x1dkagent/api/v1/execution.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\"C\n" +
 	"\fScopeCeiling\x123\n" +
-	"\x06scopes\x18\x01 \x03(\tB\x1b\xbaH\x18\x92\x01\x15\x10\x80\x02\x18\x01\"\x0er\f\x10\x01\x18\x80\x022\x05^\\S+$R\x06scopes\"\xfb\x01\n" +
+	"\x06scopes\x18\x01 \x03(\tB\x1b\xbaH\x18\x92\x01\x15\x10\x80\x02\x18\x01\"\x0er\f\x10\x01\x18\x80\x022\x05^\\S+$R\x06scopes\"\xb3\x02\n" +
 	"\x10SessionAuthority\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12!\n" +
 	"\finitiator_id\x18\x02 \x01(\tR\vinitiatorId\x12*\n" +
 	"\x11parent_session_id\x18\x03 \x01(\tR\x0fparentSessionId\x12&\n" +
-	"\x0froot_session_id\x18\x04 \x01(\tR\rrootSessionId\x12\x16\n" +
-	"\x06scopes\x18\x05 \x03(\tR\x06scopes\x129\n" +
+	"\x0froot_session_id\x18\x04 \x01(\tR\rrootSessionId\x129\n" +
 	"\n" +
-	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"E\n" +
+	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12@\n" +
+	"\rscope_ceiling\x18\a \x01(\v2\x1b.kagent.api.v1.ScopeCeilingR\fscopeCeilingJ\x04\b\x05\x10\x06R\x06scopes\"E\n" +
 	"\x1aGetSessionAuthorityRequest\x12'\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\"v\n" +
@@ -1278,42 +1278,43 @@ var file_kagent_api_v1_execution_proto_goTypes = []any{
 }
 var file_kagent_api_v1_execution_proto_depIdxs = []int32{
 	23, // 0: kagent.api.v1.SessionAuthority.expires_at:type_name -> google.protobuf.Timestamp
-	2,  // 1: kagent.api.v1.GetSessionAuthorityResponse.authority:type_name -> kagent.api.v1.SessionAuthority
-	2,  // 2: kagent.api.v1.GetRuntimeAuthorityResponse.authority:type_name -> kagent.api.v1.SessionAuthority
-	24, // 3: kagent.api.v1.IssueSessionCredentialRequest.ttl:type_name -> google.protobuf.Duration
-	23, // 4: kagent.api.v1.IssueSessionCredentialResponse.expires_at:type_name -> google.protobuf.Timestamp
-	17, // 5: kagent.api.v1.TaskExecution.task:type_name -> kagent.api.v1.TaskReference
-	17, // 6: kagent.api.v1.TaskExecution.parent:type_name -> kagent.api.v1.TaskReference
-	17, // 7: kagent.api.v1.TaskExecution.root:type_name -> kagent.api.v1.TaskReference
-	0,  // 8: kagent.api.v1.TaskExecution.relation:type_name -> kagent.api.v1.TaskRelation
-	17, // 9: kagent.api.v1.TaskExecution.resumed_task:type_name -> kagent.api.v1.TaskReference
-	18, // 10: kagent.api.v1.GetTaskExecutionResponse.execution:type_name -> kagent.api.v1.TaskExecution
-	25, // 11: kagent.api.v1.ListTaskExecutionsRequest.page:type_name -> kagent.api.v1.PageRequest
-	18, // 12: kagent.api.v1.ListTaskExecutionsResponse.executions:type_name -> kagent.api.v1.TaskExecution
-	26, // 13: kagent.api.v1.ListTaskExecutionsResponse.page:type_name -> kagent.api.v1.PageResponse
-	19, // 14: kagent.api.v1.ExecutionService.GetTaskExecution:input_type -> kagent.api.v1.GetTaskExecutionRequest
-	21, // 15: kagent.api.v1.ExecutionService.ListTaskExecutions:input_type -> kagent.api.v1.ListTaskExecutionsRequest
-	3,  // 16: kagent.api.v1.ExecutionService.GetSessionAuthority:input_type -> kagent.api.v1.GetSessionAuthorityRequest
-	5,  // 17: kagent.api.v1.ExecutionService.RevokeSessionAuthority:input_type -> kagent.api.v1.RevokeSessionAuthorityRequest
-	7,  // 18: kagent.api.v1.ExecutionService.GetRuntimeAuthority:input_type -> kagent.api.v1.GetRuntimeAuthorityRequest
-	9,  // 19: kagent.api.v1.ExecutionService.RegisterDelegationCredential:input_type -> kagent.api.v1.RegisterDelegationCredentialRequest
-	11, // 20: kagent.api.v1.ExecutionService.RevokeDelegationCredential:input_type -> kagent.api.v1.RevokeDelegationCredentialRequest
-	13, // 21: kagent.api.v1.ExecutionService.GetDelegationCredentialStatus:input_type -> kagent.api.v1.GetDelegationCredentialStatusRequest
-	15, // 22: kagent.api.v1.ExecutionService.IssueSessionCredential:input_type -> kagent.api.v1.IssueSessionCredentialRequest
-	20, // 23: kagent.api.v1.ExecutionService.GetTaskExecution:output_type -> kagent.api.v1.GetTaskExecutionResponse
-	22, // 24: kagent.api.v1.ExecutionService.ListTaskExecutions:output_type -> kagent.api.v1.ListTaskExecutionsResponse
-	4,  // 25: kagent.api.v1.ExecutionService.GetSessionAuthority:output_type -> kagent.api.v1.GetSessionAuthorityResponse
-	6,  // 26: kagent.api.v1.ExecutionService.RevokeSessionAuthority:output_type -> kagent.api.v1.RevokeSessionAuthorityResponse
-	8,  // 27: kagent.api.v1.ExecutionService.GetRuntimeAuthority:output_type -> kagent.api.v1.GetRuntimeAuthorityResponse
-	10, // 28: kagent.api.v1.ExecutionService.RegisterDelegationCredential:output_type -> kagent.api.v1.RegisterDelegationCredentialResponse
-	12, // 29: kagent.api.v1.ExecutionService.RevokeDelegationCredential:output_type -> kagent.api.v1.RevokeDelegationCredentialResponse
-	14, // 30: kagent.api.v1.ExecutionService.GetDelegationCredentialStatus:output_type -> kagent.api.v1.GetDelegationCredentialStatusResponse
-	16, // 31: kagent.api.v1.ExecutionService.IssueSessionCredential:output_type -> kagent.api.v1.IssueSessionCredentialResponse
-	23, // [23:32] is the sub-list for method output_type
-	14, // [14:23] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	1,  // 1: kagent.api.v1.SessionAuthority.scope_ceiling:type_name -> kagent.api.v1.ScopeCeiling
+	2,  // 2: kagent.api.v1.GetSessionAuthorityResponse.authority:type_name -> kagent.api.v1.SessionAuthority
+	2,  // 3: kagent.api.v1.GetRuntimeAuthorityResponse.authority:type_name -> kagent.api.v1.SessionAuthority
+	24, // 4: kagent.api.v1.IssueSessionCredentialRequest.ttl:type_name -> google.protobuf.Duration
+	23, // 5: kagent.api.v1.IssueSessionCredentialResponse.expires_at:type_name -> google.protobuf.Timestamp
+	17, // 6: kagent.api.v1.TaskExecution.task:type_name -> kagent.api.v1.TaskReference
+	17, // 7: kagent.api.v1.TaskExecution.parent:type_name -> kagent.api.v1.TaskReference
+	17, // 8: kagent.api.v1.TaskExecution.root:type_name -> kagent.api.v1.TaskReference
+	0,  // 9: kagent.api.v1.TaskExecution.relation:type_name -> kagent.api.v1.TaskRelation
+	17, // 10: kagent.api.v1.TaskExecution.resumed_task:type_name -> kagent.api.v1.TaskReference
+	18, // 11: kagent.api.v1.GetTaskExecutionResponse.execution:type_name -> kagent.api.v1.TaskExecution
+	25, // 12: kagent.api.v1.ListTaskExecutionsRequest.page:type_name -> kagent.api.v1.PageRequest
+	18, // 13: kagent.api.v1.ListTaskExecutionsResponse.executions:type_name -> kagent.api.v1.TaskExecution
+	26, // 14: kagent.api.v1.ListTaskExecutionsResponse.page:type_name -> kagent.api.v1.PageResponse
+	19, // 15: kagent.api.v1.ExecutionService.GetTaskExecution:input_type -> kagent.api.v1.GetTaskExecutionRequest
+	21, // 16: kagent.api.v1.ExecutionService.ListTaskExecutions:input_type -> kagent.api.v1.ListTaskExecutionsRequest
+	3,  // 17: kagent.api.v1.ExecutionService.GetSessionAuthority:input_type -> kagent.api.v1.GetSessionAuthorityRequest
+	5,  // 18: kagent.api.v1.ExecutionService.RevokeSessionAuthority:input_type -> kagent.api.v1.RevokeSessionAuthorityRequest
+	7,  // 19: kagent.api.v1.ExecutionService.GetRuntimeAuthority:input_type -> kagent.api.v1.GetRuntimeAuthorityRequest
+	9,  // 20: kagent.api.v1.ExecutionService.RegisterDelegationCredential:input_type -> kagent.api.v1.RegisterDelegationCredentialRequest
+	11, // 21: kagent.api.v1.ExecutionService.RevokeDelegationCredential:input_type -> kagent.api.v1.RevokeDelegationCredentialRequest
+	13, // 22: kagent.api.v1.ExecutionService.GetDelegationCredentialStatus:input_type -> kagent.api.v1.GetDelegationCredentialStatusRequest
+	15, // 23: kagent.api.v1.ExecutionService.IssueSessionCredential:input_type -> kagent.api.v1.IssueSessionCredentialRequest
+	20, // 24: kagent.api.v1.ExecutionService.GetTaskExecution:output_type -> kagent.api.v1.GetTaskExecutionResponse
+	22, // 25: kagent.api.v1.ExecutionService.ListTaskExecutions:output_type -> kagent.api.v1.ListTaskExecutionsResponse
+	4,  // 26: kagent.api.v1.ExecutionService.GetSessionAuthority:output_type -> kagent.api.v1.GetSessionAuthorityResponse
+	6,  // 27: kagent.api.v1.ExecutionService.RevokeSessionAuthority:output_type -> kagent.api.v1.RevokeSessionAuthorityResponse
+	8,  // 28: kagent.api.v1.ExecutionService.GetRuntimeAuthority:output_type -> kagent.api.v1.GetRuntimeAuthorityResponse
+	10, // 29: kagent.api.v1.ExecutionService.RegisterDelegationCredential:output_type -> kagent.api.v1.RegisterDelegationCredentialResponse
+	12, // 30: kagent.api.v1.ExecutionService.RevokeDelegationCredential:output_type -> kagent.api.v1.RevokeDelegationCredentialResponse
+	14, // 31: kagent.api.v1.ExecutionService.GetDelegationCredentialStatus:output_type -> kagent.api.v1.GetDelegationCredentialStatusResponse
+	16, // 32: kagent.api.v1.ExecutionService.IssueSessionCredential:output_type -> kagent.api.v1.IssueSessionCredentialResponse
+	24, // [24:33] is the sub-list for method output_type
+	15, // [15:24] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1_execution_proto_init() }
