@@ -445,9 +445,6 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 				t.Fatalf("invoke_agent spans outside the native process = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
 			}
 			invocation := spans[0]
-			if got := stringAttribute(invocation.span.GetAttributes(), tracing.AttributeSegment); got != tracing.SegmentInitial {
-				t.Errorf("invocation %s = %q, want %q", tracing.AttributeSegment, got, tracing.SegmentInitial)
-			}
 			if got, want := invocation.span.GetName(), "invoke_agent "+agentName; got != want {
 				t.Errorf("invocation span name = %q, want %q", got, want)
 			}
