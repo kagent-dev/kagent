@@ -91,7 +91,7 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 				require.NoError(t, err)
 				require.NotEqual(t, defaultID, revisionID, "workload overrides must affect revision identity")
 			}
-			actorTemplate, err := substrate.ActorTemplateForRevision(&result.Revision, revisionID, "http://kagent-controller.kagent.svc:8083")
+			actorTemplate, err := substrate.ActorTemplateForRevision(&result.Revision, revisionID)
 			require.NoError(t, err)
 			require.Len(t, actorTemplate.Containers, 1)
 			container := actorTemplate.Containers[0]
