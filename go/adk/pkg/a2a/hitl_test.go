@@ -310,6 +310,7 @@ func TestBuildResumeHITLMessageAskUser(t *testing.T) {
 		State: a2atype.TaskStateInputRequired,
 		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &apia2a.AskUserRequest{
 			Type: HITLTypeAskUserRequest, Id: "confirm-1",
+			Questions: []*apia2a.HITLQuestion{{Question: "Which database?"}},
 		}),
 	}}
 	resume, err := BuildResumeHITLMessage(stored, incoming)
