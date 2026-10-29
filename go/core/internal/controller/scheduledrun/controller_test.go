@@ -14,8 +14,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -93,7 +95,7 @@ func TestControllerRecoversCleanupWithoutReplacingSession(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deadline := time.Now().Add(-time.Minute)
-			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner", SessionId: "original", TaskId: "original-task", State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(deadline)}
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: schedulerID, SessionId: "original", TaskId: "original-task", State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(deadline)}
 			store := controllerTestStore{session: &apiv1.Session{Id: "original", State: tc.state}}
 			cleanup := &controllerTestCleanup{err: errors.New("Substrate unavailable")}
 			controller := NewController(store, cleanup, cleanup, machineSession(), time.Second)
@@ -108,7 +110,7 @@ func TestControllerRecoversCleanupWithoutReplacingSession(t *testing.T) {
 	}
 	// No reserve method is supplied: a missing historical session must never
 	// call it, even when the execution was still PENDING when deletion happened.
-	execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner", SessionId: "deleted", Deadline: timestamppb.New(time.Now().Add(time.Minute))}
+	execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: schedulerID, SessionId: "deleted", Deadline: timestamppb.New(time.Now().Add(time.Minute))}
 	require.NoError(t, NewController(controllerTestStore{}, nil, nil, machineSession(), time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, execution.State)
 	require.Equal(t, "deleted", execution.SessionId)
@@ -116,7 +118,7 @@ func TestControllerRecoversCleanupWithoutReplacingSession(t *testing.T) {
 
 func TestControllerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
 	completedAt := time.Now().Add(-2 * time.Minute)
-	execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner", SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(completedAt.Add(time.Minute))}
+	execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: schedulerID, SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(completedAt.Add(time.Minute))}
 	store := controllerTestStore{session: &apiv1.Session{Id: "original"}}
 	gateway := &controllerTestCleanup{task: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &completedAt}}}
 	require.NoError(t, NewController(store, nil, gateway, machineSession(), time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
@@ -141,7 +143,7 @@ func TestControllerDeadlineCancellationOutcome(t *testing.T) {
 		{"completed after deadline", a2atype.TaskStateCompleted, &after, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner", SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(deadline)}
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: schedulerID, SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(deadline)}
 			store := controllerTestStore{session: &apiv1.Session{Id: "original"}}
 			gateway := &controllerTestCleanup{
 				task:         &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}},
@@ -192,7 +194,7 @@ func TestExecutionTaskUsesLinkedIdentity(t *testing.T) {
 			}}
 			// ListTasks is deliberately absent: linked tasks, including missing
 			// ones, must never fall back to scanning for a different identity.
-			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner", TaskId: string(task.ID)}
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: schedulerID, TaskId: string(task.ID)}
 			got, err := NewController(nil, nil, gateway, machineSession(), time.Second).executionTask(t.Context(), execution)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.task, got)
@@ -237,7 +239,7 @@ func TestExecutionTaskRecoversUnlinkedIdentity(t *testing.T) {
 				}
 				return page, nil
 			}}
-			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner"}
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: schedulerID}
 			got, err := NewController(nil, nil, gateway, machineSession(), time.Second).executionTask(t.Context(), execution)
 			require.ErrorIs(t, err, tc.err)
 			require.Equal(t, tc.task, got)
@@ -248,7 +250,7 @@ func TestExecutionTaskRecoversUnlinkedIdentity(t *testing.T) {
 
 func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
 	execution := &apiv1.ScheduledRunExecution{
-		Creator: "owner", Id: "execution", SessionId: "session",
+		Creator: schedulerID, Id: "execution", SessionId: "session",
 		State:    apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING,
 		Deadline: timestamppb.New(time.Now().Add(time.Minute)),
 	}
@@ -270,16 +272,17 @@ func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
 	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, execution.State)
 }
 
-// This policy grants only the Session operations exercised by durable dispatch.
-// It recognizes the in-process session type, never a human claim or stored owner.
+// This user policy denies everything. Scheduled dispatch must not consult it:
+// accepting the schedule was the authorization decision.
 type controllerSessionPolicy struct{ calls []auth.Verb }
 
-func (p *controllerSessionPolicy) Check(ctx context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if principal.ID != "owner" || principal.Claims["username"] != "system:serviceaccount:kagent:controller" || resource.Type != "Session" || (verb != auth.VerbGet && verb != auth.VerbCreate && verb != auth.VerbUpdate) {
-		return errors.New("operation denied")
-	}
+func (p *controllerSessionPolicy) Check(_ context.Context, _ auth.Principal, verb auth.Verb, _ auth.Resource) error {
 	p.calls = append(p.calls, verb)
-	return nil
+	return errors.New("operation denied")
+}
+
+func (p *controllerSessionPolicy) Scope(context.Context, auth.Principal, auth.Verb, string) (authorization.AuthorizationScope, error) {
+	return authorization.AuthorizationScope{Kind: authorization.ScopeNone}, nil
 }
 
 type scopedControllerStore struct {
@@ -294,10 +297,10 @@ func (s *scopedControllerStore) LeaseScheduledRunExecutions(context.Context, int
 		return nil, nil
 	}
 	s.leased = true
-	return []database.LeasedScheduledRunExecution{{Execution: &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner", SessionId: s.session.Id, Deadline: timestamppb.New(time.Now().Add(time.Minute))}}}, nil
+	return []database.LeasedScheduledRunExecution{{Execution: &apiv1.ScheduledRunExecution{Id: "execution", Creator: schedulerID, SessionId: s.session.Id, Deadline: timestamppb.New(time.Now().Add(time.Minute))}}}, nil
 }
 func (s *scopedControllerStore) GetSession(_ context.Context, id, owner string) (*apiv1.Session, error) {
-	if id != s.session.Id || owner != "owner" {
+	if id != s.session.Id || owner != schedulerID {
 		return nil, database.ErrNotFound
 	}
 	return s.session, nil
@@ -341,9 +344,9 @@ func (g scopedControllerGateway) SendStreamingMessage(ctx context.Context, reque
 }
 func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
-	store := &scopedControllerStore{session: &apiv1.Session{Id: id, ContextId: id, Creator: "owner", State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}}, ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "daily"}}}}
+	store := &scopedControllerStore{session: &apiv1.Session{Id: id, ContextId: id, Creator: schedulerID, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}}, ScheduledRun: &apiv1.ScheduledRunProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "daily"}}}}
 	policy := &controllerSessionPolicy{}
-	sessions := sessionsvc.NewService(store, policy, nil)
+	sessions := sessionsvc.NewService(store, runtimeauth.NewAuthorizer(policy, nil), nil)
 	interactions := sessionsvc.NewInteractionService(store, nil, sessions, false)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
@@ -351,7 +354,7 @@ func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 	controller := NewController(store, nil, gateway, machineSession(), time.Millisecond)
 	require.NoError(t, controller.Start(ctx))
 	require.True(t, store.reserved)
-	require.Equal(t, []auth.Verb{auth.VerbGet, auth.VerbCreate}, policy.calls)
+	require.Empty(t, policy.calls, "scheduled dispatch must bypass user policy")
 	// Human principals cannot acquire internal authority by copying the creator ID.
 	forged := auth.AuthSessionTo(t.Context(), controllerHumanSession{})
 	_, err := sessions.Get(forged, id)
@@ -361,12 +364,18 @@ func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 type controllerHumanSession struct{}
 
 func (controllerHumanSession) Principal() auth.Principal {
-	return auth.Principal{ID: "owner", Claims: map[string]any{"control_plane": true}}
+	return auth.Principal{ID: schedulerID, Claims: map[string]any{"control_plane": true}}
 }
 
+var schedulerID = auth.NewSchedulerSession("kagent", nil).Principal().ID
+
 func machineSession() auth.Session {
-	return auth.NewCredentialSession(auth.Principal{ID: "owner", Claims: map[string]any{"username": "system:serviceaccount:kagent:controller"}}, nil)
+	return auth.NewSchedulerSession("kagent", staticToken("outbound"))
 }
+
+type staticToken string
+
+func (t staticToken) Token(context.Context) (string, error) { return string(t), nil }
 
 func (c *controllerTestCleanup) ListTasks(ctx context.Context, _ *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
 	if c.checkContext != nil {
@@ -436,7 +445,7 @@ func TestControllerStartWithoutCredentialsReconcilesAcceptedExecutions(t *testin
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: "owner", SessionId: "session", State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(time.Now().Add(time.Hour))}
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", Creator: schedulerID, SessionId: "session", State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(time.Now().Add(time.Hour))}
 			cleanup := &controllerTestCleanup{checkContext: func(ctx context.Context) {
 				caller, ok := auth.AuthSessionFrom(ctx)
 				require.True(t, ok)

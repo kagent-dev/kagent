@@ -22,7 +22,7 @@ func NewSchedulerSession(ctx context.Context, namespace, credentialPath, credent
 	if _, err := source.Token(ctx); err != nil {
 		return nil, err
 	}
-	return auth.NewCredentialSession(auth.Principal{ID: auth.PrincipalID("kagent:scheduler", namespace)}, source), nil
+	return auth.NewSchedulerSession(namespace, source), nil
 }
 
 type projectedTokenSource struct {

@@ -123,7 +123,11 @@ executions and retained history survive schedule deletion.
 runtime, and internal scheduler callers. External authentication normalizes the
 source identity and supplies verified claims. Authorization uses the principal
 and trusted resource references; consumers compare principal IDs without parsing
-them. `Session.creator` stores
+them. The scheduler is the exception: accepting a schedule is the authorization
+decision, so its in-process `SchedulerSession` bypasses configured user policy
+when dispatching. No authentication provider issues that session, and a caller
+presenting the same principal ID through another session receives normal
+authorization. `Session.creator` stores
 the creating principal's ID. It does not select a credential for subsequent calls.
 
 External ServiceAccount callers authenticate through Kubernetes TokenReview,
@@ -236,7 +240,8 @@ destination grants, transport behavior, and credential expiry.
 
 Authorization distinguishes schedule configuration (`ScheduledRun`), invocation
 (`ScheduledRunInvocation`), and history (`ScheduledRunHistory`). Services combine
-these checks with Session permissions:
+these checks with Session permissions for external callers; the scheduler's own
+dispatch is not checked against them:
 
 | Session operation | Schedule permission |
 | --- | --- |

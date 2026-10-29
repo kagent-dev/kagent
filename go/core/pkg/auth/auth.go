@@ -55,6 +55,30 @@ var _ Session = ControlPlaneSession{}
 
 func (ControlPlaneSession) Principal() Principal { return Principal{} }
 
+// SchedulerSession identifies the in-process ScheduledRun dispatcher. Only the
+// controller constructs it; no AuthProvider issues it. Accepting a schedule is
+// the authorization decision, so dispatch bypasses configured user policy.
+// Its source supplies the downstream passthrough credential.
+type SchedulerSession struct {
+	principal Principal
+	source    TokenSource
+}
+
+var _ Session = (*SchedulerSession)(nil)
+var _ TokenSource = (*SchedulerSession)(nil)
+
+// NewSchedulerSession scopes the scheduler's principal to its installation
+// namespace, independently of the credential source.
+func NewSchedulerSession(namespace string, source TokenSource) *SchedulerSession {
+	return &SchedulerSession{principal: Principal{ID: PrincipalID("kagent:scheduler", namespace)}, source: source}
+}
+
+func (s *SchedulerSession) Principal() Principal { return s.principal }
+
+func (s *SchedulerSession) Token(ctx context.Context) (string, error) {
+	return s.source.Token(ctx)
+}
+
 // Responsibilities:
 // - Authenticate:
 //   - a2a requests from ui/cli (human users)

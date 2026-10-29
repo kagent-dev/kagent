@@ -149,3 +149,22 @@ func TestActorCanListOnlyItsScheduledSession(t *testing.T) {
 	_, err = service.List(ctx, sessionsvc.ListRequest{AllCreators: true})
 	require.Error(t, err)
 }
+
+func TestSchedulerBypassesUserPolicy(t *testing.T) {
+	policy := runtimeauth.NewAuthorizer(denyUsers{}, nil)
+	scheduler := auth.NewSchedulerSession("kagent", nil)
+	resource := auth.Resource{Type: "ScheduledRunInvocation", Namespace: "team", Name: "daily"}
+
+	ctx := auth.AuthSessionTo(t.Context(), scheduler)
+	require.NoError(t, policy.Check(ctx, scheduler.Principal(), auth.VerbCreate, resource))
+	scope, err := policy.Scope(ctx, scheduler.Principal(), auth.VerbList, "Session")
+	require.NoError(t, err)
+	require.Equal(t, authorization.ScopeAll, scope.Kind)
+
+	// Only the in-process session type confers the bypass, and only for itself.
+	require.Error(t, policy.Check(ctx, auth.Principal{ID: "other"}, auth.VerbCreate, resource))
+	forged := auth.AuthSessionTo(t.Context(), auth.NewCredentialSession(scheduler.Principal(), nil))
+	require.Error(t, policy.Check(forged, scheduler.Principal(), auth.VerbCreate, resource))
+	other := auth.NewSchedulerSession("other-installation", nil)
+	require.Error(t, policy.Check(auth.AuthSessionTo(t.Context(), other), scheduler.Principal(), auth.VerbCreate, resource))
+}

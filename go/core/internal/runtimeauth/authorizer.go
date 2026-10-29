@@ -22,6 +22,9 @@ func NewAuthorizer(users auth.CollectionAuthorizer, store SessionStore) *Authori
 }
 
 func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if isScheduler(ctx, principal) {
+		return nil
+	}
 	if principal.RuntimeBinding == nil {
 		return a.users.Check(ctx, principal, verb, resource)
 	}
@@ -53,6 +56,9 @@ func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb a
 }
 
 func (a *Authorizer) Scope(ctx context.Context, principal auth.Principal, verb auth.Verb, resourceType string) (authorization.AuthorizationScope, error) {
+	if isScheduler(ctx, principal) {
+		return authorization.AuthorizationScope{Kind: authorization.ScopeAll}, nil
+	}
 	if principal.RuntimeBinding == nil {
 		return a.users.Scope(ctx, principal, verb, resourceType)
 	}
@@ -67,4 +73,12 @@ func (a *Authorizer) Scope(ctx context.Context, principal auth.Principal, verb a
 		{Attribute: authorization.AttributeNamespace, Operator: authorization.ScopeIn, Values: []string{session.GetAgent().GetRef().GetNamespace()}},
 		{Attribute: authorization.AttributeName, Operator: authorization.ScopeIn, Values: []string{session.GetAgent().GetRef().GetName()}},
 	}}}}, nil
+}
+
+// isScheduler recognizes the in-process scheduler by its session type, which
+// external callers cannot present. The principal must be the one being checked.
+func isScheduler(ctx context.Context, principal auth.Principal) bool {
+	caller, _ := auth.AuthSessionFrom(ctx)
+	scheduler, ok := caller.(*auth.SchedulerSession)
+	return ok && principal.ID == scheduler.Principal().ID
 }

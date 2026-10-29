@@ -28,8 +28,8 @@ type credentialSession struct {
 var _ Session = (*credentialSession)(nil)
 var _ TokenSource = (*credentialSession)(nil)
 
-// NewCredentialSession binds a trusted principal to its renewable credential.
-// The caller establishes the principal; credentials need not grant Kagent access.
+// NewCredentialSession binds a verified principal to its renewable credential.
+// The authenticator is responsible for ensuring the source retains this identity.
 func NewCredentialSession(principal Principal, source TokenSource) Session {
 	return &credentialSession{principal: principal, source: source}
 }
