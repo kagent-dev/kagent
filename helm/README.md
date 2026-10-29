@@ -279,10 +279,9 @@ exampleAgents:
 Without a digest, the chart fails to render. `global.imageRegistry` rewrites
 the registry of both the packaged image and `exampleAgents.skillsImage`.
 
-The skills folder ships in kagent-tools releases that include
-[kagent-dev/tools#91](https://github.com/kagent-dev/tools/pull/91). Until the
-chart depends on such a release, set `exampleAgents.skillsImage` to an image
-built from #91.
+kagent-tools 0.3.0 and earlier have no `opt/kagent-tools-skills` folder, so
+release packaging records no digest for them. While the chart depends on such a
+version, set `exampleAgents.skillsImage` to an image that has the folder.
 
 The Harness saves snapshots to `exampleAgents.snapshotLocation`, by default
 `gs://ate-snapshots/kagent/`. The Substrate chart's built-in rustfs store
