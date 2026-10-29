@@ -233,14 +233,14 @@ workers. kagent does not install these prerequisites.
 
 #### Example Agents
 
-Set `exampleAgents.enabled: true` and `exampleAgents.snapshotLocation` to
-install three example Agents. They are off by default. The chart then creates:
+Set `exampleAgents.enabled: true` to install three example Agents. They are off
+by default. The chart then creates:
 
-- a Harness named `<namePrefix>-example` (default `kagent-tools-example`) that
-  runs the Go ADK runtime from the release's Harness image catalog, on the
-  `substrateWorkerPool.name` WorkerPool;
-- three Agents on that Harness, each with skills from the kagent-tools image at
-  `opt/kagent-tools-skills`:
+- A Harness named `<namePrefix>-example` (default `kagent-tools-example`). It
+  runs the Go ADK image from the release's Harness image catalog on the
+  `substrateWorkerPool.name` WorkerPool.
+- Three Agents on that Harness. Each Agent loads its skills from
+  `opt/kagent-tools-skills` in the kagent-tools image:
 
   | Agent | Skills | Tools |
   |---|---|---|
@@ -251,41 +251,47 @@ install three example Agents. They are off by default. The chart then creates:
 Each Agent uses `default-model-config` and includes the `skills-usage`,
 `kubernetes-context`, `tool-usage-best-practices`, and `safety-guardrails`
 prompts from the `kagent-builtin-prompts` ConfigMap. Each skill names the
-kagent-tools MCP tools it uses, and each Agent binds only those tools from the
-chart's `<fullname>-tool-server` RemoteMCPServer, in one binding. The Agents need
+kagent-tools MCP tools it uses. Each Agent binds only those tools, in one
+binding to the chart's `<fullname>-tool-server` RemoteMCPServer. The Agents need
 `kagent-tools.enabled: true`.
 
-The skills are split over three Agents to keep every Agent within three limits:
-one binding lists at most 50 tools, the Claude and Codex harnesses accept each
-MCP server only once, and OpenAI and Azure OpenAI accept at most 128 tools in
-one request. The seven skills together name 64 tools, and the whole tool server
-has more than 128.
+The chart splits the skills over three Agents because one Agent cannot hold all
+seven. The seven skills name 64 tools, and three limits apply:
+
+- One binding lists at most 50 tools.
+- The Claude and Codex harnesses accept each MCP server only once.
+- OpenAI and Azure OpenAI accept at most 128 tools in one request. The whole
+  tool server has more than 128.
 
 The skills come from the kagent-tools image, pinned by digest. `make
-helm-publish` resolves the digest of the kagent-tools version in the chart's
-dependencies (`make tools-image-metadata`) and packages it in
-`files/kagent-tools-image.json`. A source chart has no packaged digest. With a
-source chart, or to use another image, set `exampleAgents.skillsImage`:
+helm-publish` runs `make tools-image-metadata`, which resolves the digest of the
+kagent-tools version in the chart's dependencies. It then packages that digest
+in `files/kagent-tools-image.json`. A source chart has no packaged digest. To
+install from a source chart, or to use another image, set
+`exampleAgents.skillsImage`:
 
 ```yaml
 exampleAgents:
   enabled: true
-  snapshotLocation: gs://<bucket>/kagent/
   skillsImage: ghcr.io/kagent-dev/kagent/tools@sha256:<digest>
 ```
 
 Without a digest, the chart fails to render. `global.imageRegistry` rewrites
-the packaged digest and the override.
+the registry of both the packaged image and `exampleAgents.skillsImage`.
 
 The skills folder ships in kagent-tools releases that include
 [kagent-dev/tools#91](https://github.com/kagent-dev/tools/pull/91). Until the
 chart depends on such a release, set `exampleAgents.skillsImage` to an image
-built from it.
+built from #91.
 
-Notes:
+The Harness saves snapshots to `exampleAgents.snapshotLocation`, by default
+`gs://ate-snapshots/kagent/`. The Substrate chart's built-in rustfs store
+creates that bucket. If you turned off rustfs, set your own bucket.
 
-- The example uses an OCI source only. Git sources currently fail to load in
-  the agent runtime, and S3 sources are untested.
+Two limits apply:
+
+- The example uses an OCI source only. Git sources fail to load in the agent
+  runtime today, and nobody has tested S3 sources.
 - Skill selection is not a security boundary. Substrate mounts the whole image
   read-only, so the agent can still read the files of skills it did not
   select.

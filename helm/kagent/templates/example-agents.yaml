@@ -13,7 +13,7 @@
 {{- end }}
 {{- end }}
 {{- if not $skillsImage }}
-{{- fail "exampleAgents.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills; otherwise set exampleAgents.skillsImage to <repository>@sha256:<digest>." }}
+{{- fail "exampleAgents.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills. Otherwise, set exampleAgents.skillsImage to <repository>@sha256:<digest>." }}
 {{- end }}
 {{- if not (regexMatch "^[^[:space:]@]+@sha256:[0-9a-f]{64}$" $skillsImage) }}
 {{- fail (printf "exampleAgents.skillsImage must be pinned by sha256 digest: %q" $skillsImage) }}

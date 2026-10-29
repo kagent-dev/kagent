@@ -776,7 +776,7 @@ kagent-tools:
 # ==============================================================================
 # Three Agents (cluster-ops, networking, security) on one Go ADK Harness. They
 # use the default ModelConfig, the kagent-tools MCP server, and the seven skills
-# packaged in the kagent-tools image under opt/kagent-tools-skills. Requires
+# packaged in the kagent-tools image under opt/kagent-tools-skills. They need
 # kagent-tools.enabled.
 exampleAgents:
   # -- Install the example Agents and their Harness.
@@ -787,12 +787,14 @@ exampleAgents:
   # -- Digest-pinned kagent-tools image that holds the skills, for example
   # ghcr.io/kagent-dev/kagent/tools@sha256:<digest>. Empty uses the digest that
   # release packaging resolved for the kagent-tools version this chart pins.
-  # Source charts have no packaged digest, so set this value to use them.
+  # A source chart has no packaged digest, so set this value when you install
+  # from source.
   # global.imageRegistry rewrites both the packaged default and this override.
   skillsImage: ""
-  # -- Snapshot storage location for the example Harness, for example
-  # gs://<bucket>/kagent/. Required when enabled.
-  snapshotLocation: ""
+  # -- Snapshot storage location for the example Harness. The default is the
+  # ate-snapshots bucket that the Substrate chart's built-in rustfs store
+  # creates. If you turned off rustfs, set your own bucket.
+  snapshotLocation: gs://ate-snapshots/kagent/
 
 # ==============================================================================
 # PROXY CONFIGURATION
