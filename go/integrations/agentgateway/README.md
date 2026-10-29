@@ -16,6 +16,7 @@ template functions preserve application settings, discovery authentication and
 credential references. MCPPolicy accepts an agentgateway traffic policy; the caller
 owns its identity and authorization configuration. Consumer templates supply
 public model/connection settings and Secret references.
+Model templates select the gateway's OpenAI or Anthropic frontend.
 
 The component sets owner references, refuses to adopt existing unowned consumers,
 watches credential changes, and reports KagentReady. Model readiness appears in
@@ -25,8 +26,9 @@ garbage collection handles source deletion.
 
 Install kagent, agentgateway and Gateway API CRDs before registration. The host
 manager controls watched namespaces and leader election. Its ServiceAccount needs
-get/list/watch on gateway sources and Secrets; create/update/patch/delete on native
-consumers and routes/policies; and update/patch on source status.
+get/list/watch on gateway sources and Secrets;
+get/list/watch/create/update/patch/delete on native consumers and routes/policies;
+and update/patch on source status.
 
 Register it in a controller host after installing the CRDs:
 

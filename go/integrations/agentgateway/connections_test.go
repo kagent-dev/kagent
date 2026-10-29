@@ -85,6 +85,37 @@ func TestModelUsesGatewayAndNativeTemplate(t *testing.T) {
 	require.ErrorContains(t, err, "configured Gateway")
 }
 
+func TestModelTemplateProvider(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		provider kagentv1alpha3.ModelProvider
+		want     kagentv1alpha3.ModelProvider
+		wantErr  bool
+	}{
+		{name: "default", want: kagentv1alpha3.ModelProviderOpenAI},
+		{name: "OpenAI", provider: kagentv1alpha3.ModelProviderOpenAI, want: kagentv1alpha3.ModelProviderOpenAI},
+		{name: "Anthropic", provider: kagentv1alpha3.ModelProviderAnthropic, want: kagentv1alpha3.ModelProviderAnthropic},
+		{name: "Gemini", provider: kagentv1alpha3.ModelProviderGemini, wantErr: true},
+		{name: "Ollama", provider: kagentv1alpha3.ModelProviderOllama, wantErr: true},
+		{name: "AzureOpenAI", provider: kagentv1alpha3.ModelProviderAzureOpenAI, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			template := &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Provider: test.provider}}
+			config := testConfig()
+			config.ModelTemplate = func(*agw.AgentgatewayModel) (*kagentv1alpha3.ModelConfig, error) { return template, nil }
+			model, err := config.Model(testModel("model"))
+			if test.wantErr {
+				require.ErrorContains(t, err, "unsupported model template provider")
+				require.Nil(t, model)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, test.want, model.Spec.Provider)
+			}
+			require.Equal(t, test.provider, template.Spec.Provider)
+		})
+	}
+}
+
 func TestMCPKeepsApplicationPolicyAndDiscoverySettings(t *testing.T) {
 	config := testConfig()
 	config.MCPPolicy = &agw.Traffic{Authorization: &agw.Authorization{
