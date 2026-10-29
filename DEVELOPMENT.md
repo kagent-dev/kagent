@@ -8,9 +8,7 @@ for file locations, precedence, and examples.
 
 Standard `OTEL_*` settings override the receiving process's telemetry defaults.
 Provider credentials, SDK trust, `KUBECONFIG`, UI settings, and test inputs remain
-environment interfaces. Register supported public variables in `go/core/pkg/env`,
-then run `make env-docs` and `make env-docs-check`. Generated runtime payloads,
-credentials, and private bootstrap paths are excluded from this reference.
+environment interfaces. Register supported public variables in `go/core/pkg/env`.
 
 To understand how to develop for kagent, it's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
 

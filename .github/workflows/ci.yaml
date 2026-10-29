@@ -681,9 +681,6 @@ jobs:
           cache: true
           cache-dependency-path: go/go.sum
 
-      - name: Check environment documentation
-        run: make env-docs-check
-
       - name: Generate controller manifests
         run: make controller-manifests
 
