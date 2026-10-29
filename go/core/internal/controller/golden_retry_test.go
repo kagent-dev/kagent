@@ -242,7 +242,11 @@ func TestPreparationPublishesStartedGoldenRetry(t *testing.T) {
 			require.Equal(t, []string{"uid-1"}, templates.deletedUIDs, "every golden error retries by deleting the failed template")
 			var ready *metav1.Condition
 			waitFor(t, func() bool {
-				ready = apimeta.FindStatusCondition(collections.AgentStatuses.List()[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
+				statuses := collections.AgentStatuses.List()
+				if len(statuses) != 1 {
+					return false
+				}
+				ready = apimeta.FindStatusCondition(statuses[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
 				return ready != nil && ready.Reason == "ActorTemplateRetrying"
 			})
 			require.Equal(t, metav1.ConditionFalse, ready.Status)
