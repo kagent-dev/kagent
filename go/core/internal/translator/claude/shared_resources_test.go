@@ -17,13 +17,26 @@ import (
 )
 
 func TestCompileSharedResources(t *testing.T) {
+	for _, namespace := range []string{"test", "shared"} {
+		t.Run(namespace, func(t *testing.T) { testCompileSharedResources(t, namespace) })
+	}
+}
+
+func testCompileSharedResources(t *testing.T, serverNamespace string) {
+	t.Helper()
 	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-root", APIKeySecret: "model-auth", APIKeySecretKey: "api-key"}
 	input, _ := testInput(t, model, nil)
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: map[string][]byte{"api-key": []byte("never-serialize-model-key"), "token": []byte("never-serialize-mcp-key")}}
-	headers := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "headers", Namespace: "test", UID: "headers-uid"}, Data: map[string]string{"tenant": "team-a"}}
-	mock := krttest.NewMock(t, []any{secret, headers})
+	headers := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "headers", Namespace: serverNamespace, UID: "headers-uid"}, Data: map[string]string{"tenant": "team-a"}}
+	objects := []any{secret, headers}
+	if serverNamespace != secret.Namespace {
+		mcpSecret := secret.DeepCopy()
+		mcpSecret.Namespace = serverNamespace
+		objects = append(objects, mcpSecret)
+	}
+	mock := krttest.NewMock(t, objects)
 	collections := translator.Collections{Secrets: krttest.GetMockCollection[*corev1.Secret](mock), ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock)}
-	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "child.tools", Namespace: "test", UID: "child-server"}, Spec: v1alpha3.RemoteMCPServerSpec{
+	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "child.tools", Namespace: serverNamespace, UID: "child-server"}, Spec: v1alpha3.RemoteMCPServerSpec{
 		URL: "https://child.example.com/mcp", HeadersFrom: []v1alpha3.ValueRef{
 			{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: secret.Name, Key: "token"}},
 			{Name: "X-Tenant", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.ConfigMapValueSource, Name: headers.Name, Key: "tenant"}},
@@ -50,20 +63,26 @@ func TestCompileSharedResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, cfg.MCPServers, "child servers must not be installed on root")
 	agent := cfg.Agents["reviewer"]
+	runtimeName := translator.MCPRuntimeName(child.Template.Namespace, server)
 	require.Equal(t, []string{"review"}, agent.Skills)
-	require.Contains(t, agent.Tools, "mcp__child_tools__read")
-	require.NotContains(t, agent.Tools, "mcp__child_tools__*")
-	require.Equal(t, []string{"mcp__child_tools__write"}, agent.DisallowedTools)
+	require.Contains(t, agent.Tools, "mcp__"+runtimeName+"__read")
+	require.NotContains(t, agent.Tools, "mcp__"+runtimeName+"__*")
+	require.Equal(t, []string{"mcp__" + runtimeName + "__write"}, agent.DisallowedTools)
 	require.Contains(t, agent.Tools, "Skill")
-	require.True(t, agent.MCPServers["child_tools"].RequireApproval)
-	require.Equal(t, "team-a", agent.MCPServers["child_tools"].Headers["X-Tenant"])
+	require.True(t, agent.MCPServers[runtimeName].RequireApproval)
+	require.Equal(t, "team-a", agent.MCPServers[runtimeName].Headers["X-Tenant"])
 	require.Len(t, cfg.SkillResources.Skills, 1)
 	require.Contains(t, result.EgressDestinations, "https://child.example.com:443")
 	require.Contains(t, result.EgressDestinations, "https://skills.example.com:443")
 	require.Empty(t, result.Warnings, "child tool selection is enforced")
-	require.Contains(t, string(result.Provenance), `"name":"headers"`)
-	require.Contains(t, string(result.Provenance), `"name":"child.tools"`)
+	require.Contains(t, string(result.Provenance), `"name":"`+serverNamespace+`/headers"`)
+	require.Contains(t, string(result.Provenance), `"name":"`+serverNamespace+`/child.tools"`)
 	require.Len(t, result.Credentials, 2)
+	for _, credential := range result.Credentials {
+		if credential.Header == "authorization" {
+			require.Equal(t, "ate-secret://k8s.io/default/"+serverNamespace+"/model-auth/token", credential.URI)
+		}
+	}
 	for _, variable := range result.Environment {
 		require.Nil(t, variable.ValueFrom)
 	}
@@ -98,9 +117,9 @@ func TestCompileSharedResources(t *testing.T) {
 	require.NoError(t, err)
 	wholeConfig, err := claudeconfig.Parse(whole.ConfigJSON)
 	require.NoError(t, err)
-	require.Contains(t, wholeConfig.Agents["reviewer"].Tools, "mcp__child_tools__*")
+	require.Contains(t, wholeConfig.Agents["reviewer"].Tools, "mcp__"+runtimeName+"__*")
 	require.Empty(t, wholeConfig.Agents["reviewer"].DisallowedTools)
-	server.Spec.TokenPassthrough = true
+	server.Spec.TokenPassthrough = new(true)
 	_, err = compiler.Compile(t.Context(), input)
 	require.ErrorContains(t, err, "tokenPassthrough")
 }

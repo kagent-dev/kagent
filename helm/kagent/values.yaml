@@ -156,6 +156,9 @@ config:
   server:
     auth:
       mode: insecure
+      # Opt in to Kubernetes TokenReview authentication independently of the mode.
+      # serviceAccount:
+      #   authority: kubernetes
     grpcReflection: false
   database:
     # Role each login assumes after connecting. Set distinct roles for each install sharing a database.

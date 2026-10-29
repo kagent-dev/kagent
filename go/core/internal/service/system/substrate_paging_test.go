@@ -31,7 +31,7 @@ import (
 )
 
 func pagingContext(t *testing.T) context.Context {
-	return pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	return pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 }
 
 func pagingATEClient() *fakeATEClient {
@@ -444,7 +444,7 @@ func TestInventoryScanFollowsEmptyBackendPages(t *testing.T) {
 }
 
 func TestListSubstrateActors(t *testing.T) {
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 
 	newService := func(client system.ATEClient) *system.Service {
 		return system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, client)
@@ -521,7 +521,7 @@ func TestListSubstrateActors(t *testing.T) {
 }
 
 func TestListSubstrateWorkers(t *testing.T) {
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "user"}})
 
 	ateClient := &fakeATEClient{pageSize: 2, workers: []*ateapipb.Worker{
 		{Metadata: &ateapipb.ResourceMetadata{Name: "worker-identity-0"}, WorkerNamespace: "team", WorkerPool: "pool", WorkerPod: "worker-0", Status: &ateapipb.WorkerStatus{Allocated: &ateapipb.WorkerResources{Actors: 2}}},
@@ -545,7 +545,7 @@ func TestListSubstrateWorkers(t *testing.T) {
 }
 
 func TestInventoryFiltersBeforePaging(t *testing.T) {
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "reader"}})
 	ate := &fakeATEClient{pageSize: 1, actors: []*ateapipb.Actor{substrateActor("hidden", "team", 0, "", ""), substrateActor("visible", "team", 0, "", "")}, workers: []*ateapipb.Worker{{Metadata: &ateapipb.ResourceMetadata{Name: "hidden"}, WorkerNamespace: "workers"}, {Metadata: &ateapipb.ResourceMetadata{Name: "visible"}, WorkerNamespace: "workers"}}}
 	policy := inventoryAuthorizer{scopes: map[string]apiauthorization.AuthorizationScope{
 		"SubstrateActor":  inventoryScope(apiauthorization.AttributeAtespace, "team", "visible"),

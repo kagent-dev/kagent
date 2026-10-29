@@ -64,7 +64,7 @@ func (a collectionAuthorizer) Scope(context.Context, auth.Principal, auth.Verb, 
 }
 
 func TestCollectionMatcherUsesKubernetesValidation(t *testing.T) {
-	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "reader"}}})
+	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{ID: "reader"}})
 	matcher, err := kubeauth.CollectionMatcher(ctx, collectionAuthorizer{location: authorization.AttributeNamespace}, "WorkerPool")
 	require.NoError(t, err)
 	require.True(t, matcher.Matches(&metav1.ObjectMeta{Namespace: "team", Name: "pool"}))

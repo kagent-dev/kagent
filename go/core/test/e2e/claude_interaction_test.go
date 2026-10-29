@@ -111,7 +111,7 @@ func createClaudeTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, des
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: modelConfig},
+			ModelConfig: &v1alpha3.ObjectReference{Name: modelConfig},
 			Description: description, SystemPrompt: "Reply concisely and follow the requested output format exactly.",
 		},
 	}
@@ -121,7 +121,7 @@ func createClaudeTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, des
 
 func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model *v1alpha3.ModelConfig, childSpec v1alpha3.AgentTemplateSpec) (string, string) {
 	t.Helper()
-	childSpec.ModelConfig = &corev1.LocalObjectReference{Name: model.Name}
+	childSpec.ModelConfig = &v1alpha3.ObjectReference{Name: model.Name}
 	childSpec.Description = "Claude local specialist"
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
@@ -137,7 +137,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "Claude local-subagent E2E fixture",
 			SystemPrompt: "Always delegate the request to the specialist subagent, then return its answer.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
@@ -164,7 +164,7 @@ func TestE2EClaudeSharedSkillsAndMCP(t *testing.T) {
 		SystemPrompt: "CLAUDE_LOCAL_SPECIALIST_INSTRUCTION",
 		Skills:       []v1alpha3.AgentTemplateSkill{{Name: "standalone", Source: v1alpha3.ArtifactSource{OCI: image, Path: "standalone"}}},
 		Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-			Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"add_numbers"},
+			Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"add_numbers"},
 		}}},
 	})
 	fixture := newInteractionFixtureForHarnessTemplate(t, target, claudeE2EHarness, root)
@@ -273,11 +273,11 @@ func createClaudeMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, 
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: modelConfig},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: modelConfig},
 			Description:  "Claude direct whole-server MCP E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				Server:          corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
 				RequireApproval: requireApproval,
 			}}},
 		},

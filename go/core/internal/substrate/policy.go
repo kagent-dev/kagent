@@ -35,7 +35,11 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		if effects[binding.Origin] == nil {
 			effects[binding.Origin] = &ateapipb.HttpRuleEffects{}
 		}
-		effects[binding.Origin].ReplaceHeaders = append(effects[binding.Origin].ReplaceHeaders, &ateapipb.CredentialHeader{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI})
+		header := &ateapipb.CredentialHeader{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI}
+		if token := binding.ActorJWT; token != nil {
+			header.ActorJwt = &ateapipb.ActorJwtSource{Audiences: slices.Clone(token.Audiences), ExpirationSeconds: token.ExpirationSeconds}
+		}
+		effects[binding.Origin].ReplaceHeaders = append(effects[binding.Origin].ReplaceHeaders, header)
 	}
 	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
 	for _, origin := range access.Destinations {
@@ -45,7 +49,7 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 			}
 			effects[origin].ReplaceHeaders = append(effects[origin].ReplaceHeaders, &ateapipb.CredentialHeader{
 				Header: "authorization", Prefix: "Bearer ",
-				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{runtimeJWTAudience}, ExpirationSeconds: 300},
+				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{RuntimeJWTAudience}, ExpirationSeconds: 300},
 			})
 		}
 		target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess

@@ -74,7 +74,10 @@ can trigger minutes of native retries.
 
 Alpha3 enables API authorization by default. `kagent install` grants its default
 controller pod-certificate identity (`spiffe://cluster.local/ns/<namespace>/sa/kagent-controller`)
-global owner access, which is required to create atespaces. Direct Helm installs
+global owner access, which is required to create atespaces. It also grants
+`system:serviceaccount:ate-system:ate-client` global owner access so `kubectl ate`
+works with its default credentials. Anyone allowed to mint tokens for that shared
+ServiceAccount receives its access. Direct Helm installs
 must grant their controller access through Substrate's access policy API or
 `ateApi.authorization.bootstrapOwners`. If you customize the controller's
 ServiceAccount, chart fullname, or certificate trust domain, set the matching

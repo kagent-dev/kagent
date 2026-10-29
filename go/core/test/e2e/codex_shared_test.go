@@ -119,13 +119,13 @@ func createCodexSharedTemplates(t *testing.T, modelURL string, rootSkills, child
 	model := createCodexMockModel(t, kube, modelURL)
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "codex-shared-child-", Namespace: "kagent"},
-		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, Description: "Shared specialist", SystemPrompt: codexSharedInstruction, Skills: childSkills},
+		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, Description: "Shared specialist", SystemPrompt: codexSharedInstruction, Skills: childSkills},
 	}
 	createSharedTemplate(t, kube, child)
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "codex-shared-root-", Namespace: "kagent", Labels: (testHarness{name: codexE2EHarness, runtimeLabel: "codex"}).labels()},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Delegate every request to the specialist.", Skills: rootSkills,
+			ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Delegate every request to the specialist.", Skills: rootSkills,
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "specialist", Description: "Handles specialist requests", TemplateRef: &corev1.LocalObjectReference{Name: child.Name}}}},
 		},
 	}

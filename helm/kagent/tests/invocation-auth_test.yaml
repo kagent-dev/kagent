@@ -1,0 +1,69 @@
+suite: invocation service-account authentication
+templates:
+  - controller-deployment.yaml
+  - controller-configmap.yaml
+  - rbac/invocation-auth.yaml
+tests:
+  - it: does not grant TokenReview by default
+    template: rbac/invocation-auth.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: scopes cluster authentication RBAC to the first release namespace
+    template: rbac/invocation-auth.yaml
+    set:
+      config.server.auth.serviceAccount.authority: kubernetes
+    release:
+      name: same-release
+      namespace: team-a
+    asserts:
+      - equal:
+          path: metadata.name
+          value: team-a-same-release-invocation-auth
+      - equal:
+          path: roleRef.name
+          value: team-a-same-release-invocation-auth
+        documentIndex: 1
+      - equal:
+          path: subjects[0].namespace
+          value: team-a
+        documentIndex: 1
+  - it: scopes cluster authentication RBAC to the second release namespace
+    template: rbac/invocation-auth.yaml
+    set:
+      config.server.auth.serviceAccount.authority: kubernetes
+    release:
+      name: same-release
+      namespace: team-b
+    asserts:
+      - equal:
+          path: metadata.name
+          value: team-b-same-release-invocation-auth
+      - equal:
+          path: roleRef.name
+          value: team-b-same-release-invocation-auth
+        documentIndex: 1
+      - equal:
+          path: subjects[0].namespace
+          value: team-b
+        documentIndex: 1
+  - it: grants TokenReview independently of secure metrics
+    template: rbac/invocation-auth.yaml
+    set:
+      config.server.auth.serviceAccount.authority: kubernetes
+      controller.metrics.enabled: false
+      controller.serviceAccount.name: scheduler
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [authentication.k8s.io]
+              resources: [tokenreviews]
+              verbs: [create]
+        documentIndex: 0
+      - equal:
+          path: subjects[0].name
+          value: scheduler
+        documentIndex: 1

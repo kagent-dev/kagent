@@ -36,6 +36,14 @@ func TestCompileProviderCredentials(t *testing.T) {
 		wantErr    string
 	}{
 		{
+			name: "Actor JWT Anthropic", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", ActorJWT: &v1alpha3.ActorJWT{Audiences: []string{"model"}}},
+			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: translator.CredentialPlaceholder}, wantEgress: []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443"},
+		},
+		{
+			name: "Actor JWT Bedrock", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", ActorJWT: &v1alpha3.ActorJWT{Audiences: []string{"model"}}, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+			wantErr: "Bedrock requires AWS credentials and does not support actorJwt",
+		},
+		{
 			name: "Anthropic",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
@@ -138,7 +146,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		model v1alpha3.ModelConfigSpec
 	}{
 		{name: "provider", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt"}},
-		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: true}},
+		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: new(true)}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
 		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
@@ -274,7 +282,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 		}},
 	}
 	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-		Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+		Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 		Tools:  []string{"get_time", "echo", "add_numbers"},
 	}}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
@@ -328,7 +336,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 			{Name: "one"}, {Name: "two"},
 		}},
 	}
-	binding := v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}
+	binding := v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: binding, Server: server}}
 	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
 	if err != nil {
@@ -415,7 +423,7 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 		Template: &translator.TemplateConfiguration{
 			Name: "specialist-template", Namespace: "test", Source: &metav1.ObjectMeta{Name: "specialist-template", Namespace: "test", UID: "child-template-uid"},
 			Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig: &corev1.LocalObjectReference{Name: "child-model"},
+				ModelConfig: &v1alpha3.ObjectReference{Name: "child-model"},
 				Description: "template description", SystemPrompt: "specialize",
 			},
 		},
@@ -447,7 +455,7 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 	if !reflect.DeepEqual(cfg.Agents, map[string]claudeconfig.Agent{"specialist": want}) {
 		t.Fatalf("compiled agents = %#v, want specialist %#v", cfg.Agents, want)
 	}
-	for _, identity := range []string{`"name":"specialist-template"`, `"name":"child-model"`} {
+	for _, identity := range []string{`"name":"specialist-template"`, `"name":"test/child-model"`} {
 		if !bytes.Contains(revision.Provenance, []byte(identity)) {
 			t.Fatalf("provenance %s does not contain %s", revision.Provenance, identity)
 		}
@@ -487,7 +495,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 				Agent: &translator.AgentInput{
 					Template: &translator.TemplateConfiguration{
 						Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"},
-						Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}},
+						Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "child-model"}},
 					},
 					ResolvedModelConfig: &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childSpec}},
 					Instruction:         "specialize",
@@ -510,7 +518,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
-		ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",
+		ModelConfig: &v1alpha3.ObjectReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",
 	}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model-uid"}, Spec: modelSpec}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret-uid"}, Data: secretData}
@@ -600,7 +608,7 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 		Status: v1alpha3.RemoteMCPServerStatus{ObservedGeneration: 1, DiscoveredTools: []*v1alpha3.MCPTool{{Name: "echo"}}},
 	}
 	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-		Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"echo"},
+		Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"echo"},
 	}}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
 
@@ -627,7 +635,7 @@ func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 
 func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+		URL: "https://mcp.example.com/mcp", TokenPassthrough: new(true),
 	}}
 	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}}, false)
 	if want := "Claude does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {

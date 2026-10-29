@@ -403,6 +403,9 @@ retires its definition; sessions and checkpoints retain their pinned revisions.
 Recreating the same name creates a new identity and cannot inherit the old
 Agent's last successful revision.
 
+Namespace reference policies constrain compilation. Failed resolution preserves
+the last successful revision for new sessions; existing sessions remain pinned.
+
 This replaces implicit label selection and the old template/Harness inputs as a
 breaking API change. SandboxTemplate hosting configuration is not part of this
 change.

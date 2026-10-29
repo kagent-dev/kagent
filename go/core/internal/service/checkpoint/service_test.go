@@ -26,7 +26,7 @@ import (
 
 type testSession struct{ userID string }
 
-func (s testSession) Principal() auth.Principal { return auth.Principal{User: auth.User{ID: s.userID}} }
+func (s testSession) Principal() auth.Principal { return auth.Principal{ID: s.userID} }
 
 type testAuthorizer struct{}
 

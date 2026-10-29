@@ -44,7 +44,7 @@ async function chooseTemplateSource(page: Page, source: Source) {
 
 async function fillInlineTemplate(page: Page, description: string) {
   await chooseTemplateSource(page, "inline");
-  await pick(page, "template-form-model", MODEL);
+  await pick(page, "template-form-model", `${NAMESPACE}/${MODEL}`);
   await page.getByTestId("template-form-description").fill(description);
   await page.getByTestId("template-form-prompt").fill("You are a concise assistant. Answer in one sentence.");
 }

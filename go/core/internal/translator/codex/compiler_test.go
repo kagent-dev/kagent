@@ -38,6 +38,14 @@ func TestCompileProviderCredentials(t *testing.T) {
 		wantErr     string
 	}{
 		{
+			name: "Actor JWT OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2", ActorJWT: &v1alpha3.ActorJWT{Audiences: []string{"model"}}, OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
+			provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
+		},
+		{
+			name: "Actor JWT Bedrock", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", ActorJWT: &v1alpha3.ActorJWT{Audiences: []string{"model"}}, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+			wantErr: "Bedrock requires AWS credentials and does not support actorJwt",
+		},
+		{
 			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
 			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
 		},
@@ -170,7 +178,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	childModel.Model = "gpt-child"
 	input.Root.Shared = []translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &translator.AgentInput{
 		Template: &translator.TemplateConfiguration{Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "child-model"},
+			ModelConfig: &v1alpha3.ObjectReference{Name: "child-model"},
 			Skills:      []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{OCI: "example.com/review@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path: "review"}}},
 		}},
 		ResolvedModelConfig: &translator.ResolvedModelConfig{
@@ -260,7 +268,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		Codex: &v1alpha3.CodexHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/codex@sha256:" + strings.Repeat("a", 64))},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
-	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant"}}
+	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "model"}, Description: "assistant"}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model"}, Spec: modelSpec}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret"}, Data: secretData}
 	mock := krttest.NewMock(t, []any{secret})
@@ -347,7 +355,7 @@ func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 
 func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
-		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+		URL: "https://mcp.example.com/mcp", TokenPassthrough: new(true),
 	}}
 	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
 	if want := "Codex does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {

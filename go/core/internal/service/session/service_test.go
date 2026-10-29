@@ -24,7 +24,7 @@ import (
 type serviceTestSession struct{ userID string }
 
 func (s serviceTestSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: s.userID}}
+	return auth.Principal{ID: s.userID}
 }
 
 type serviceTestAuthorizer struct{ err error }
@@ -129,14 +129,6 @@ func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (
 	return session, w.err
 }
 
-func (w serviceTestWorkflow) Suspend(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return session, w.err
-}
-
-func (w serviceTestWorkflow) Resume(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return session, w.err
-}
-
 func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, w.err
 }
@@ -209,34 +201,23 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
-func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		call func(*Service, context.Context, string) (*apiv1.Session, error)
+func TestServiceDeletePreservesContentionErrors(t *testing.T) {
+	for _, failure := range []struct {
+		cause error
+		code  serviceerrors.Code
 	}{
-		{name: "suspend", call: (*Service).Suspend},
-		{name: "resume", call: (*Service).Resume},
-		{name: "delete", call: (*Service).Delete},
+		{database.ErrConflict, serviceerrors.CodeAborted},
+		{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			for _, failure := range []struct {
-				cause error
-				code  serviceerrors.Code
-			}{
-				{database.ErrConflict, serviceerrors.CodeAborted},
-				{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
-			} {
-				conflict := fmt.Errorf("Session is already suspending: %w", failure.cause)
-				service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
-				_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
-				if !serviceerrors.IsCode(err, failure.code) {
-					t.Fatalf("error = %v, want code %s", err, failure.code)
-				}
-				if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
-					t.Fatalf("error = %v, want preserved contention reason", err)
-				}
-			}
-		})
+		conflict := fmt.Errorf("Session has an operation in progress: %w", failure.cause)
+		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
+		_, err := service.Delete(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+		if !serviceerrors.IsCode(err, failure.code) {
+			t.Fatalf("error = %v, want code %s", err, failure.code)
+		}
+		if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
+			t.Fatalf("error = %v, want preserved contention reason", err)
+		}
 	}
 }
 
@@ -530,7 +511,7 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 				t.Fatalf("Get() = %v, owner = %q, unscoped = %v", err, store.getCreator, store.unscoped)
 			}
 			caller, _ := auth.AuthSessionFrom(ctx)
-			if authorizer.verb != auth.VerbGet || authorizer.resource.Type != "Session" || authorizer.resource.Name != id || authorizer.principal.User.ID != caller.Principal().User.ID {
+			if authorizer.verb != auth.VerbGet || authorizer.resource.Type != "Session" || authorizer.resource.Name != id || authorizer.principal.ID != caller.Principal().ID {
 				t.Fatalf("unexpected authorization: %+v", authorizer)
 			}
 		})
@@ -572,8 +553,6 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{name: "suspend", call: func() error { _, err := service.Suspend(ctx, id); return err }},
-		{name: "resume", call: func() error { _, err := service.Resume(ctx, id); return err }},
 		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},
 		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
 		{name: "share listing", call: func() error { _, err := service.ListShares(ctx, id, 0, ""); return err }},
@@ -603,7 +582,7 @@ func TestServiceShareCannotCreateSession(t *testing.T) {
 func TestActorCannotUseShareAuthorityWithoutTransport(t *testing.T) {
 	id := uuid.NewString()
 	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{
-		User: auth.User{ID: "owner"}, Actor: &auth.Actor{SessionID: uuid.NewString()},
+		ID: "owner", RuntimeBinding: &auth.RuntimeBinding{SessionID: uuid.NewString()},
 	}})
 	if _, err := ResolveShare(ctx, nil, "share-token"); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
 		t.Fatalf("ResolveShare() = %v, want permission denied before reading the share", err)
@@ -715,7 +694,7 @@ func TestServiceCreateRequiresTargetAgentBeforeReservation(t *testing.T) {
 			}
 			if deniedType != "Session" {
 				want := auth.Resource{Type: "Agent", Namespace: agent.Namespace, Name: agent.Name}
-				if authorizer.resource != want || authorizer.verb != auth.VerbGet || authorizer.principal.User.ID != "alice" {
+				if authorizer.resource != want || authorizer.verb != auth.VerbGet || authorizer.principal.ID != "alice" {
 					t.Fatalf("unexpected target authorization: %+v", authorizer)
 				}
 			}
@@ -760,7 +739,7 @@ func TestServiceListRequiresIndependentCategoryPermissions(t *testing.T) {
 type sessionCreateNamespacePolicy struct{ namespace string }
 
 func (s sessionCreateNamespacePolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if verb == auth.VerbCreate && resource.Type == "Session" && (resource.Namespace != s.namespace || resource.Name != "" || principal.User.ID != "alice") {
+	if verb == auth.VerbCreate && resource.Type == "Session" && (resource.Namespace != s.namespace || resource.Name != "" || principal.ID != "alice") {
 		return errors.New("Session creation denied in target namespace")
 	}
 	return nil

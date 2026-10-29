@@ -126,6 +126,9 @@ func (c *RuntimeMCPClient) connect(ctx context.Context, ref MCPServerRef) (*mcp.
 	if err != nil {
 		return nil, nil, err
 	}
+	if server.Spec.ActorJWT != nil {
+		return nil, nil, fmt.Errorf("actorJwt requires an executing Actor; control-plane MCP calls cannot supply it")
+	}
 	timeout := 30 * time.Second
 	if server.Spec.Timeout != nil && server.Spec.Timeout.Duration > 0 {
 		timeout = server.Spec.Timeout.Duration

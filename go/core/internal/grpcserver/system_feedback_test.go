@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -16,9 +17,12 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	kubetesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -27,6 +31,61 @@ import (
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
+
+func TestCurrentUserServiceAccountGeneratedClient(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		groups []string
+		want   []any
+	}{
+		{name: "populated", groups: []string{"system:serviceaccounts", "system:authenticated"}, want: []any{"system:serviceaccounts", "system:authenticated"}},
+		{name: "empty", groups: []string{}, want: []any{}},
+		{name: "nil", want: []any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+				"sub": "system:serviceaccount:ns:caller", "groups": []string{"unverified"},
+			}).SignedString([]byte("test-key"))
+			require.NoError(t, err)
+			kube := kubefake.NewClientset()
+			kube.PrependReactor("create", "tokenreviews", func(action kubetesting.Action) (bool, runtime.Object, error) {
+				request := action.(kubetesting.CreateAction).GetObject().(*authenticationv1.TokenReview)
+				return true, &authenticationv1.TokenReview{Status: authenticationv1.TokenReviewStatus{
+					Authenticated: true, Audiences: request.Spec.Audiences,
+					User: authenticationv1.UserInfo{Username: "system:serviceaccount:ns:caller", UID: "sa-uid", Groups: tc.groups},
+				}}, nil
+			})
+			listener := bufconn.Listen(DefaultMaxMessageSize)
+			server, err := New(Config{
+				Listener:      listener,
+				Authenticator: authimpl.NewServiceAccountProvider(&authimpl.InsecureAuthenticator{}, kube.AuthenticationV1().TokenReviews(), "cluster"),
+				SystemService: systemservice.NewService(nil, nil, pkgauth.NoopAuthorizer{}, nil),
+			})
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- server.Start(ctx) }()
+			t.Cleanup(func() {
+				cancel()
+				require.NoError(t, <-done)
+			})
+			connection, err := grpc.NewClient("passthrough:///bufnet",
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = connection.Close() })
+			client := apiv1.NewSystemServiceClient(connection)
+			requestCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", "Bearer "+token))
+			for range 2 {
+				current, err := client.GetCurrentUser(requestCtx, &apiv1.GetCurrentUserRequest{})
+				require.NoError(t, err)
+				require.Equal(t, map[string]any{"username": "system:serviceaccount:ns:caller", "groups": tc.want}, current.GetClaims().AsMap())
+			}
+			require.Len(t, kube.Actions(), 1, "both fresh and cached identities must serialize")
+		})
+	}
+}
 
 func TestSystemGeneratedClient(t *testing.T) {
 	scheme := runtime.NewScheme()

@@ -28,7 +28,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: "model"},
+			ModelConfig:  &kagentv1alpha3.ObjectReference{Name: "model"},
 			SystemPrompt: "help",
 		},
 	}
@@ -139,7 +139,7 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 			runtimeHarness.Spec.Substrate.SnapshotPolicy.Location = "snapshots"
 			if harnessType == translator.HarnessTypeKagent {
 				runtimeHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
-				template.Spec.ModelConfig = &corev1.LocalObjectReference{Name: "model"}
+				template.Spec.ModelConfig = &kagentv1alpha3.ObjectReference{Name: "model"}
 			} else {
 				runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
 				runtimeHarness.Spec.Workload.Command = []string{"/agent"}
@@ -183,7 +183,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			opts := krt.NewOptionsBuilder(stop, "test-sandbox", nil)
 			template := &kagentv1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"},
-				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 			}
 			runtimeHarness := harness("team-a", string(harnessType), nil)
 			runtimeHarness.UID = "harness-uid"
@@ -336,7 +336,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "claude"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	claudeHarness := harness("team-a", "claude", map[string]string{"runtime": "claude"})
 	claudeHarness.UID = "harness-uid"
@@ -391,7 +391,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	responses := kagentv1alpha3.OpenAIAPIFormatResponses
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "codex"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	codexHarness := harness("team-a", "codex", map[string]string{"runtime": "codex"})
 	codexHarness.UID = "harness-uid"
@@ -446,12 +446,12 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	child := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "child", Labels: map[string]string{"runtime": "python"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "before"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "before"},
 	}
 	root := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "root", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "model"},
+			ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"},
 			Tools: []kagentv1alpha3.ToolBinding{{SubAgent: &kagentv1alpha3.SubAgentToolBinding{
 				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
