@@ -162,9 +162,11 @@ Go adapter retries each call within a time budget, not a fixed attempt count:
 
 - `KAGENT_TASKSTORE_OPERATION_BUDGET`, 90 seconds by default, covers every attempt
   and wait of one call and never resets. An earlier caller deadline still applies.
-- `KAGENT_TASKSTORE_ATTEMPT_TIMEOUT`, 5 seconds by default, caps each attempt.
-  What remains of the budget and the controller client's 30-second call timeout
-  also cap it. A call slower than this fails even when the controller is healthy.
+- `KAGENT_TASKSTORE_ATTEMPT_TIMEOUT`, 30 seconds by default, caps each attempt
+  within what remains of the budget. The default matches the controller client's
+  call timeout, so a healthy call keeps the time it had before the budget. A
+  lower value notices a hung connection sooner, but fails a healthy call that
+  takes longer, and a slow controller then receives the same request again.
 - Only `Unavailable` and `DeadlineExceeded` retry. Every other status reaches the
   SDK at once.
 - Waits start at 200 ms and double to 2 s, each randomized between half and all
