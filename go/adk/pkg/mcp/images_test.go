@@ -34,7 +34,7 @@ func TestCaptureImages(t *testing.T) {
 	require.Equal(t, []mcpsdk.Content{text, image}, result.Content, "a call without a sink is passed through")
 
 	result.IsError = true
-	sink := &imageSink{}
+	sink := &imageSink{store: &toolImages{}}
 	_, err = handler(withSink(sink), "tools/call", nil)
 	require.NoError(t, err)
 	require.Equal(t, []mcpsdk.Content{text, image}, result.Content, "an error result keeps its content")
@@ -98,13 +98,18 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 		}
 		return out
 	}
+	// A task's context outlives its first case, so it derives from the test's.
+	runCtx := t.Context()
+	tasks := map[string]context.Context{}
 	for _, tc := range []struct {
 		name string
-		// invocation defaults to the case name.
-		invocation string
-		content    []mcpsdk.Content
-		output     string
-		images     []ToolImage
+		// task defaults to the case name.
+		task string
+		// spent is the image bytes earlier executions added to the task.
+		spent   int
+		content []mcpsdk.Content
+		output  string
+		images  []ToolImage
 	}{
 		{name: "image between text", content: []mcpsdk.Content{text("chart"), png, text("https://example.test/panel")}, output: "chart\nhttps://example.test/panel", images: captured},
 		{name: "image first", content: []mcpsdk.Content{png, text("https://example.test/panel")}, output: "https://example.test/panel", images: captured},
@@ -147,31 +152,42 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 			output:  "chart\n" + placeholder(0),
 		},
 		{
-			name:       "first call of an invocation",
-			invocation: "invocation-budget",
-			content:    []mcpsdk.Content{image(half), image(half)},
-			output:     "",
-			images:     []ToolImage{encoded(half), encoded(half)},
-		},
-		{
-			name:       "images over the invocation cap keep their placeholder",
-			invocation: "invocation-budget",
-			content:    []mcpsdk.Content{image(half), image(half)},
-			output:     placeholder(half),
-			images:     []ToolImage{encoded(half)},
-		},
-		{
-			name:    "another invocation has its own cap",
+			name:    "first call of a task",
+			task:    "task-budget",
 			content: []mcpsdk.Content{image(half), image(half)},
 			output:  "",
 			images:  []ToolImage{encoded(half), encoded(half)},
 		},
+		{
+			name:    "images over the task cap keep their placeholder",
+			task:    "task-budget",
+			content: []mcpsdk.Content{image(half), image(half)},
+			output:  placeholder(half),
+			images:  []ToolImage{encoded(half)},
+		},
+		{
+			name:    "another task has its own cap",
+			content: []mcpsdk.Content{image(half), image(half)},
+			output:  "",
+			images:  []ToolImage{encoded(half), encoded(half)},
+		},
+		{
+			name:    "a resumed task counts the images it already carries",
+			spent:   maxTaskImageBytes - maxToolCallImageBytes/2,
+			content: []mcpsdk.Content{image(half), image(half)},
+			output:  placeholder(half),
+			images:  []ToolImage{encoded(half)},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			content = tc.content
-			callID := "call-" + tc.name
-			invocation := cmp.Or(tc.invocation, tc.name)
-			result, err := wrapped.Run(runContext{ContextMock: &adkagent.ContextMock{}, Context: t.Context(), invocationID: invocation, callID: callID}, map[string]any{})
+			call := ToolCallKey{InvocationID: tc.name, CallID: "call_0"}
+			task := cmp.Or(tc.task, tc.name)
+			if tasks[task] == nil {
+				tasks[task] = WithToolImages(runCtx, tc.spent)
+			}
+			ctx := tasks[task]
+			result, err := wrapped.Run(runContext{ContextMock: &adkagent.ContextMock{}, Context: ctx, invocationID: call.InvocationID, callID: call.CallID}, map[string]any{})
 			require.NoError(t, err)
 			require.Equal(t, tc.output, result["output"])
 			// The result keeps only a note; the images wait for the A2A conversion.
@@ -180,52 +196,23 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 			} else {
 				require.Equal(t, fmt.Sprintf("%d image(s) returned for display; you cannot see their contents", len(tc.images)), result[ToolResultImagesKey])
 			}
-			require.Equal(t, tc.images, TakeToolImages(ToolCallKey{InvocationID: invocation, CallID: callID}))
-			require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: invocation, CallID: callID}), "images are taken once")
+			require.Equal(t, tc.images, TakeToolImages(ctx, call))
+			require.Nil(t, TakeToolImages(ctx, call), "images are taken once")
 		})
 	}
 }
 
-func TestStashToolImagesEvicts(t *testing.T) {
-	images := []ToolImage{{MIMEType: "image/png", Data: "cG5n"}}
-	backdate := func(callID string, age time.Duration) {
-		imageStash.Lock()
-		defer imageStash.Unlock()
-		imageStash.calls[ToolCallKey{InvocationID: "invocation", CallID: callID}] = stashedImages{images: images, at: time.Now().Add(-age)}
-	}
-	backdate("expired", stashedImagesTTL+time.Second)
-	imageStash.Lock()
-	imageStash.invocations["spent"] = invocationImages{bytes: maxInvocationImageBytes, at: time.Now().Add(-stashedImagesTTL - time.Second)}
-	imageStash.Unlock()
-	for i := range maxStashedImageCalls {
-		StashToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", i)}, images)
-	}
-	backdate("call-0", time.Second)
-	StashToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", maxStashedImageCalls)}, images)
-	require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: "expired"}), "expired images are dropped")
-	require.True(t, reserveInvocationImageBytes("spent", 1), "an expired invocation budget is dropped")
-	require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: "call-0"}), "the oldest call is dropped when the stash is full")
-	for i := 1; i <= maxStashedImageCalls; i++ {
-		require.Equal(t, images, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", i)}))
-	}
-}
-
-func TestStashToolImagesScopesCallIDsByInvocation(t *testing.T) {
+func TestTakeToolImages(t *testing.T) {
 	first := []ToolImage{{MIMEType: "image/png", Data: "Zmlyc3Q="}}
 	second := []ToolImage{{MIMEType: "image/png", Data: "c2Vjb25k"}}
-	StashToolImages(ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}, first)
-	StashToolImages(ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}, second)
-	require.Equal(t, second, TakeToolImages(ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}))
-	require.Equal(t, first, TakeToolImages(ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}))
-}
-
-func TestStashToolImagesAddsToStashedCall(t *testing.T) {
-	call := ToolCallKey{InvocationID: "invocation", CallID: "call_0"}
-	first := []ToolImage{{MIMEType: "image/png", Data: "Zmlyc3Q="}}
-	second := []ToolImage{{MIMEType: "image/png", Data: "c2Vjb25k"}}
-	StashToolImages(call, first)
-	StashToolImages(call, second)
-	require.Equal(t, append(first, second...), TakeToolImages(call))
+	ctx := WithToolImages(t.Context(), 0)
+	StashToolImages(ctx, ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}, first)
+	StashToolImages(ctx, ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}, second)
+	StashToolImages(ctx, ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}, first)
+	require.Nil(t, TakeToolImages(WithToolImages(t.Context(), 0), ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}), "another execution's images are not taken")
+	require.Nil(t, TakeToolImages(t.Context(), ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}), "a context without a store has no images")
+	require.Equal(t, append(slices.Clone(second), first...), TakeToolImages(ctx, ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}), "images of a call are added to")
+	require.Equal(t, first, TakeToolImages(ctx, ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}), "call IDs are scoped by invocation")
 }
 
 // runContext is an ADK tool context backed by a Go context, enough for ADK's

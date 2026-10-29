@@ -21,6 +21,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -248,6 +249,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		sessionID := reqCtx.ContextID
 
 		ctx = context.WithValue(ctx, publicContextIDKey{}, reqCtx.ContextID)
+		// MCP tool images wait here for their function responses to be converted,
+		// and count toward the task's cap with those earlier executions added.
+		ctx = mcp.WithToolImages(ctx, storedToolImageBytes(reqCtx.StoredTask))
 		ctx = withBearerToken(ctx)
 		// The synthetic ADK user ID is only a native session lookup key. Memory
 		// and outgoing credentials must receive only the passed-through caller.

@@ -233,13 +233,14 @@ func TestGenAIPartConverter_PreservesLongRunningMetadata(t *testing.T) {
 
 func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
 	note := map[string]any{"output": "chart", mcp.ToolResultImagesKey: "1 image(s) returned for display; you cannot see their contents"}
-	mcp.StashToolImages(mcp.ToolCallKey{InvocationID: "invocation-1", CallID: "call-images"}, []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
+	ctx := mcp.WithToolImages(context.Background(), 0)
+	mcp.StashToolImages(ctx, mcp.ToolCallKey{InvocationID: "invocation-1", CallID: "call-images"}, []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
 
 	convert := func(invocationID, callID string) map[string]any {
 		t.Helper()
 		response := genai.NewPartFromFunctionResponse("render_chart", maps.Clone(note))
 		response.FunctionResponse.ID = callID
-		part, err := genAIPartConverter(context.Background(), &adksession.Event{InvocationID: invocationID}, response)
+		part, err := genAIPartConverter(ctx, &adksession.Event{InvocationID: invocationID}, response)
 		if err != nil {
 			t.Fatalf("genAIPartConverter() error = %v", err)
 		}
@@ -263,6 +264,27 @@ func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
 	}
 	if got := convert("invocation-1", "call-other"); !reflect.DeepEqual(got, note) {
 		t.Fatalf("response without stashed images changed: %#v", got)
+	}
+}
+
+func TestStoredToolImageBytes(t *testing.T) {
+	response := func(images ...any) *a2atype.Part {
+		return a2atype.NewDataPart(map[string]any{PartKeyResponse: map[string]any{mcp.ToolResultImagesKey: images}})
+	}
+	image := map[string]any{"mimeType": "image/png", "data": "cG5n"}
+	task := &a2atype.Task{
+		Status:    a2atype.TaskStatus{Message: &a2atype.Message{Parts: a2atype.ContentParts{response(image)}}},
+		Artifacts: []*a2atype.Artifact{{Parts: a2atype.ContentParts{response(image, image), a2atype.NewTextPart("text")}}},
+		History: []*a2atype.Message{{Parts: a2atype.ContentParts{
+			response(image),
+			a2atype.NewDataPart(map[string]any{PartKeyResponse: map[string]any{mcp.ToolResultImagesKey: "1 image(s) returned for display; you cannot see their contents"}}),
+		}}},
+	}
+	if got, want := storedToolImageBytes(task), 4*mcp.ToolImageCost("cG5n"); got != want {
+		t.Fatalf("storedToolImageBytes() = %d, want %d", got, want)
+	}
+	if got := storedToolImageBytes(nil); got != 0 {
+		t.Fatalf("storedToolImageBytes(nil) = %d, want 0", got)
 	}
 }
 
