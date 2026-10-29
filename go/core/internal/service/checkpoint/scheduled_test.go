@@ -3,6 +3,7 @@ package checkpoint
 import (
 	"context"
 	"crypto/sha256"
+	"slices"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestScheduledCheckpointAccessSurvivesSourceDeletion(t *testing.T) {
 				policy.resource, policy.verb = "ScheduledRunHistory", auth.VerbGet
 				switch operation {
 				case "rename":
-					policy.resource, policy.verb = "ScheduledRunInvocation", auth.VerbUpdate
+					policy.resource, policy.verb = "ScheduledRunInvocation", auth.VerbCreate
 				case "delete":
 					policy.resource, policy.verb = "ScheduledRunInvocation", auth.VerbDelete
 				}
@@ -68,9 +69,17 @@ func TestScheduledCheckpointAccessSurvivesSourceDeletion(t *testing.T) {
 				case "delete":
 					err = svc.Delete(human, checkpoint.Id)
 				}
-				require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "%s: %v", operation, err)
-				last := policy.calls[len(policy.calls)-1]
-				require.Equal(t, auth.Resource{Type: policy.resource, Namespace: "team-a", Name: "daily"}, last.resource)
+				// Without history access a scheduled checkpoint is indistinguishable
+				// from a missing one; with it, a denied mutation is reported as such.
+				want := serviceerrors.CodeNotFound
+				if policy.resource == "ScheduledRunInvocation" {
+					want = serviceerrors.CodePermissionDenied
+				}
+				require.True(t, serviceerrors.IsCode(err, want), "%s: %v", operation, err)
+				require.True(t, slices.ContainsFunc(policy.calls, func(call checkpointAuthorization) bool {
+					return call.verb == policy.verb && call.resource == auth.Resource{Type: policy.resource, Namespace: "team-a", Name: "daily"}
+				}), "%s must check %s %s", operation, policy.verb, policy.resource)
+				policy.calls = nil
 			}
 			policy.resource = ""
 			replayed, err := svc.Create(human, source.Id, "checkpoint", "task-1")
@@ -143,10 +152,11 @@ func scheduledCheckpointFixture(t *testing.T) (*database.Client, *apiv1.Session)
 	store := database.NewClient(pool, "public")
 	def := database.AgentDefinition{Namespace: "team-a", AgentName: "daily", AgentUID: uuid.NewString(), DesiredRevision: "revision"}
 	require.NoError(t, store.UpsertAgentDefinition(ctx, def))
-	require.NoError(t, store.RecordRuntimeRevision(ctx, database.RuntimeRevision{Namespace: def.Namespace, AgentName: def.AgentName, AgentUID: def.AgentUID, Revision: def.DesiredRevision,
+	_, err = store.RecordRuntimeRevision(ctx, database.RuntimeRevision{Namespace: def.Namespace, AgentName: def.AgentName, AgentUID: def.AgentUID, Revision: def.DesiredRevision,
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", ActorTemplateUID: "template-uid",
-	}, database.RecordRevisionOptions{Ready: true}))
+	}, database.RecordRevisionOptions{Ready: true})
+	require.NoError(t, err)
 	schedule, err := store.SyncScheduledRun(ctx, &database.ScheduledRun{
 		ID: def.AgentUID, Creator: "scheduler", Ref: types.NamespacedName{Namespace: "team-a", Name: "daily"}, Generation: 1, ResourceVersion: "1",
 		Spec: v1alpha3.ScheduledRunSpec{AgentRef: corev1.LocalObjectReference{Name: def.AgentName}, Schedule: "0 9 * * *", Prompt: "report", Paused: new(true)}, AgentUID: def.AgentUID,

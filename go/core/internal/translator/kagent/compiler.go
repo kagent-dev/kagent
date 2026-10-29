@@ -78,6 +78,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
+		MemoryEnabled: compiled.Config.GetMemory() != nil,
 	}}, nil
 }
 

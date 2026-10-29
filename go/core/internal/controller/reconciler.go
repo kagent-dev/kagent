@@ -441,6 +441,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		EgressDestinations:      target.Revision.EgressDestinations,
 		Credentials:             target.Revision.Credentials,
 		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
+		MemoryEnabled:           target.Revision.MemoryEnabled,
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 		ActorTemplateSpecDigest: digest,
 	}

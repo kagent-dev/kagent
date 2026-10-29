@@ -313,3 +313,16 @@ func TestScheduledMessageIDPrefixIsReservedForTheScheduler(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduledMessageIDPrefixCannotStartAConversation(t *testing.T) {
+	store := &serviceTestStore{}
+	sessions := NewService(store, &recordingAuthorizer{}, serviceTestWorkflow{})
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+	message.ID = scheduling.ExecutionMessageID(uuid.NewString())
+	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+	// The scheduler always sends into its reserved Session, so a new
+	// conversation is rejected before a Session or dispatch is created.
+	_, err := NewInteractionService(nil, nil, sessions, false).PrepareSend(serviceTestContext("scheduler"), agent, &a2atype.SendMessageRequest{Message: message})
+	require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+	require.Nil(t, store.createInput)
+}

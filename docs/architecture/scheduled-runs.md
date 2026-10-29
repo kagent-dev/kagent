@@ -251,10 +251,14 @@ Actor's verified Session binding.
 
 Memory is partitioned by Agent key (`namespace/name`) and creator principal ID.
 Every scheduled execution would share the scheduler's partition with every other
-schedule targeting the same Agent, so scheduled runs do not support memory. Reconciliation
-marks a schedule whose Agent's Harness enables memory as not Ready with
-`MemoryNotSupported`, and the memory service rejects calls from scheduled
-Sessions.
+schedule targeting the same Agent, so scheduled runs do not support memory. Each
+Agent revision records whether its compiled runtime enables memory. Support
+follows the latest successful revision, the one executions pin, rather than the
+live Harness: a Harness edit that has not compiled cannot change it. Reconciliation
+marks a schedule whose Agent's latest successful revision enables memory as not
+Ready with `MemoryNotSupported`. Acceptance refuses such a revision in the same
+transaction that would pin it, and the memory service rejects calls from
+scheduled Sessions.
 
 ## A2A routing
 

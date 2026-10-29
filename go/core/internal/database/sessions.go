@@ -106,21 +106,32 @@ func (c *Client) CreateSession(ctx context.Context, request *apiv1.Session, requ
 // returns ErrNotFound; a duplicate creator/requestID returns pgx.ErrNoRows for the caller
 // to resolve.
 func insertSession(ctx context.Context, db pgx.Tx, request *apiv1.Session, requestID string) (sessionRow, error) {
-	agent := request.GetAgent()
-	type preparedRevision struct {
-		Revision string
-	}
-	revision, err := queryOne(ctx, db, `
-		SELECT p.latest_successful_revision AS revision
-		FROM agent_definition p
-		WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
-		    AND p.latest_successful_revision IS NOT NULL AND ($3::text = '' OR p.agent_uid = $3)
-		FOR UPDATE OF p
-	`, pgx.RowToStructByName[preparedRevision], agent.GetRef().GetNamespace(), agent.GetRef().GetName(), agent.GetUid())
+	revision, err := getLatestSuccessfulRevisionForUpdate(ctx, db, request.GetAgent())
 	if err != nil {
-		return sessionRow{}, fmt.Errorf("get latest prepared runtime revision: %w", notFoundOr(err))
+		return sessionRow{}, err
 	}
 	return insertPinnedSession(ctx, db, request, requestID, revision.Revision)
+}
+
+type latestSuccessfulRevision struct {
+	Revision      string
+	MemoryEnabled bool
+}
+
+// getLatestSuccessfulRevisionForUpdate locks the active Agent definition so the
+// selected revision stays latest until the caller's transaction ends.
+func getLatestSuccessfulRevisionForUpdate(ctx context.Context, db pgx.Tx, agent *apiv1.AgentProvenance) (latestSuccessfulRevision, error) {
+	revision, err := queryOne(ctx, db, `
+		SELECT p.latest_successful_revision AS revision, a.memory_enabled
+		FROM agent_definition p JOIN agent_revision a ON a.revision = p.latest_successful_revision
+		WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
+		    AND ($3::text = '' OR p.agent_uid = $3)
+		FOR UPDATE OF p
+	`, pgx.RowToStructByName[latestSuccessfulRevision], agent.GetRef().GetNamespace(), agent.GetRef().GetName(), agent.GetUid())
+	if err != nil {
+		return latestSuccessfulRevision{}, fmt.Errorf("get latest prepared runtime revision: %w", notFoundOr(err))
+	}
+	return revision, nil
 }
 
 // insertPinnedSession reserves the conversation and its revision reference in

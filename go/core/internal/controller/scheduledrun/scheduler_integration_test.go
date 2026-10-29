@@ -187,8 +187,9 @@ func recordScheduleRevision(t *testing.T, store *database.Client, schedule *data
 	t.Helper()
 	agent := &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: schedule.Ref.Namespace, Name: schedule.Spec.AgentRef.Name}, Uid: schedule.AgentUID}
 	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: agent.Ref.Namespace, AgentName: agent.Ref.Name, AgentUID: agent.Uid, DesiredRevision: schedule.ID}))
-	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{Namespace: agent.Ref.Namespace, AgentName: agent.Ref.Name, AgentUID: agent.Uid, Revision: schedule.ID,
+	_, err := store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{Namespace: agent.Ref.Namespace, AgentName: agent.Ref.Name, AgentUID: agent.Uid, Revision: schedule.ID,
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: agent.Ref.Namespace, ActorTemplateName: schedule.ID + "-runtime", ActorTemplateUID: schedule.ID + "-runtime-uid",
-	}, database.RecordRevisionOptions{Ready: true}))
+	}, database.RecordRevisionOptions{Ready: true})
+	require.NoError(t, err)
 }

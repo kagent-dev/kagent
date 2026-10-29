@@ -74,6 +74,8 @@ type RuntimeRevision struct {
 	ActorTemplateName       string
 	ActorTemplateUID        string
 	ActorTemplateSpecDigest string
+	// MemoryEnabled records whether the compiled runtime uses memory.
+	MemoryEnabled bool
 }
 
 // SessionQuery narrows a page of sessions to an optional Agent.

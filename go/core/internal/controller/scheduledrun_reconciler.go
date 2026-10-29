@@ -25,6 +25,8 @@ import (
 type ScheduledRunReconciliation struct {
 	Resource *v1alpha3.ScheduledRun
 	AgentUID string
+	// Revision is the Agent's latest successful revision, which new executions pin.
+	Revision string
 	// FailureReason is the Ready condition reason when Failure is set.
 	FailureReason string
 	Failure       string
@@ -42,7 +44,7 @@ func (s ScheduledRunReconciliation) Equals(other ScheduledRunReconciliation) boo
 	return s.Resource.UID == other.Resource.UID && s.Resource.Generation == other.Resource.Generation &&
 		s.Resource.DeletionTimestamp.Equal(other.Resource.DeletionTimestamp) &&
 		reflect.DeepEqual(s.Resource.Spec, other.Resource.Spec) &&
-		s.AgentUID == other.AgentUID && s.FailureReason == other.FailureReason && s.Failure == other.Failure
+		s.AgentUID == other.AgentUID && s.Revision == other.Revision && s.FailureReason == other.FailureReason && s.Failure == other.Failure
 }
 
 // Ready condition reasons for ScheduledRuns that cannot be scheduled.
@@ -53,7 +55,7 @@ const (
 	ScheduledRunReasonMemoryNotSupported   = "MemoryNotSupported"
 )
 
-func newScheduledRunReconciliations(resources krt.Collection[*v1alpha3.ScheduledRun], agents krt.Collection[*v1alpha3.Agent], harnesses krt.Collection[*v1alpha3.Harness], opts krt.OptionsBuilder) krt.Collection[ScheduledRunReconciliation] {
+func newScheduledRunReconciliations(resources krt.Collection[*v1alpha3.ScheduledRun], agents krt.Collection[*v1alpha3.Agent], opts krt.OptionsBuilder) krt.Collection[ScheduledRunReconciliation] {
 	return krt.NewCollection(resources, func(ctx krt.HandlerContext, resource *v1alpha3.ScheduledRun) *ScheduledRunReconciliation {
 		state := &ScheduledRunReconciliation{Resource: resource}
 		if !resource.DeletionTimestamp.IsZero() {
@@ -67,13 +69,8 @@ func newScheduledRunReconciliations(resources krt.Collection[*v1alpha3.Scheduled
 			return state.fail(ScheduledRunReasonAgentNotFound, "Agent does not exist")
 		}
 		state.AgentUID = string((*agent).UID)
-		// Every scheduled Session is created by the shared controller principal, so
-		// memory would be one partition across schedules and their continuers.
-		harness := krt.FetchOne(ctx, harnesses, krt.FilterKey(resource.Namespace+"/"+(*agent).Spec.HarnessRef.Name))
-		if harness != nil && (*harness).Spec.Kagent != nil && (*harness).Spec.Kagent.Memory != nil {
-			return state.fail(ScheduledRunReasonMemoryNotSupported, "Scheduled runs do not support Agents whose Harness enables memory")
-		}
-		if (*agent).Status.LatestSuccessfulRevision == "" {
+		state.Revision = (*agent).Status.LatestSuccessfulRevision
+		if state.Revision == "" {
 			return state.fail(ScheduledRunReasonAgentNotReady, "Agent has no successful runtime revision yet")
 		}
 		return state
@@ -85,6 +82,7 @@ type scheduleProjectionStore interface {
 	GetActiveScheduledRunID(context.Context, types.NamespacedName) (uuid.UUID, error)
 	RetireScheduledRun(context.Context, uuid.UUID) error
 	DisableScheduledRun(context.Context, uuid.UUID, int64) error
+	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 }
 
 // ScheduledRunReconciler is the sole writer of desired scheduling projections.
@@ -165,9 +163,21 @@ func (r *ScheduledRunReconciler) reconcile(ctx context.Context, key string) erro
 	}
 
 	condition := metav1.Condition{Type: v1alpha3.ScheduledRunConditionReady, Status: metav1.ConditionTrue, Reason: "Reconciled", Message: "Schedule configuration is synchronized", ObservedGeneration: resource.Generation}
-	failure := state.Failure
+	reason, failure := state.FailureReason, state.Failure
+	if failure == "" {
+		// Revision capabilities are immutable, so the Agent's latest successful
+		// revision decides support rather than its live Harness. Acceptance repeats
+		// this check against the revision it pins.
+		revision, err := r.store.GetRuntimeRevision(ctx, state.Revision)
+		if err != nil {
+			return err
+		}
+		if revision.MemoryEnabled {
+			reason, failure = ScheduledRunReasonMemoryNotSupported, "Scheduled runs do not support Agent revisions that enable memory"
+		}
+	}
 	if failure != "" {
-		condition.Reason = state.FailureReason
+		condition.Reason = reason
 	}
 	if r.caller == nil {
 		condition.Reason = "SchedulerNotConfigured"

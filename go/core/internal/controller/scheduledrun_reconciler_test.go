@@ -27,6 +27,8 @@ type scheduleProjectionRecorder struct {
 	disabled  bool
 	retired   bool
 	failure   error
+	// memoryRevisions names revisions whose compiled runtime enables memory.
+	memoryRevisions map[string]bool
 }
 
 func (s *scheduleProjectionRecorder) SyncScheduledRun(_ context.Context, run *database.ScheduledRun) (*database.ScheduledRun, error) {
@@ -48,6 +50,9 @@ func (s *scheduleProjectionRecorder) RetireScheduledRun(context.Context, uuid.UU
 	s.retired = true
 	return s.failure
 }
+func (s *scheduleProjectionRecorder) GetRuntimeRevision(_ context.Context, revision string) (*database.RuntimeRevision, error) {
+	return &database.RuntimeRevision{Revision: revision, MemoryEnabled: s.memoryRevisions[revision]}, nil
+}
 
 func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
@@ -55,16 +60,14 @@ func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 		opts := krt.NewOptionsBuilder(ctx.Done(), "schedule-test", nil)
 		resource := &v1alpha3.ScheduledRun{ObjectMeta: metav1.ObjectMeta{Name: "daily", Namespace: "team", UID: types.UID(uuid.NewString()), Generation: 1}, Spec: v1alpha3.ScheduledRunSpec{AgentRef: corev1.LocalObjectReference{Name: "assistant"}, Schedule: "0 9 * * *", Prompt: "hello"}}
 		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: resource.Namespace, Name: resource.Spec.AgentRef.Name, UID: types.UID(uuid.NewString())}, Spec: v1alpha3.AgentSpec{HarnessRef: corev1.LocalObjectReference{Name: "kagent"}}, Status: v1alpha3.AgentStatus{LatestSuccessfulRevision: "last-successful"}}
-		harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: resource.Namespace, Name: "kagent"}, Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
 		resources := krt.NewStaticCollection(nil, []*v1alpha3.ScheduledRun{resource}, opts.WithName("resources")...)
 		agents := krt.NewStaticCollection(nil, []*v1alpha3.Agent{agent}, opts.WithName("agents")...)
-		harnesses := krt.NewStaticCollection(nil, []*v1alpha3.Harness{harness}, opts.WithName("harnesses")...)
-		states := newScheduledRunReconciliations(resources, agents, harnesses, opts)
+		states := newScheduledRunReconciliations(resources, agents, opts)
 		synctest.Wait()
 		scheme := runtime.NewScheme()
 		require.NoError(t, v1alpha3.AddToScheme(scheme))
 		kube := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha3.ScheduledRun{}).WithObjects(resource).Build()
-		store := &scheduleProjectionRecorder{}
+		store := &scheduleProjectionRecorder{memoryRevisions: map[string]bool{"with-memory": true}}
 		reconciler := &ScheduledRunReconciler{states: states, store: store, kube: kube, reader: kube, caller: auth.NewCredentialSession(auth.Principal{ID: "scheduler"}, nil)}
 		key := client.ObjectKeyFromObject(resource)
 		refresh := func() {
@@ -87,16 +90,18 @@ func TestScheduledRunReconciliationLifecycle(t *testing.T) {
 		require.False(t, store.disabled)
 		require.True(t, meta.IsStatusConditionTrue(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady))
 		require.Equal(t, string(agent.UID), store.projected.AgentUID)
-		// Scheduled Sessions share the controller principal, so memory is refused.
-		harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ObjectReference{Name: "embeddings"}}
-		harnesses.UpdateObject(harness.DeepCopy())
+		// Scheduled Sessions share the controller principal, so a successful
+		// revision that enables memory is refused. Support follows the revision
+		// executions pin, not Harness edits that have not compiled successfully.
+		agent.Status.LatestSuccessfulRevision = "with-memory"
+		agents.UpdateObject(agent.DeepCopy())
 		synctest.Wait()
 		require.NoError(t, reconciler.reconcile(ctx, "team/daily"))
 		refresh()
 		require.True(t, store.disabled)
 		require.Equal(t, ScheduledRunReasonMemoryNotSupported, meta.FindStatusCondition(resource.Status.Conditions, v1alpha3.ScheduledRunConditionReady).Reason)
-		harness.Spec.Kagent.Memory = nil
-		harnesses.UpdateObject(harness.DeepCopy())
+		agent.Status.LatestSuccessfulRevision = "last-successful"
+		agents.UpdateObject(agent.DeepCopy())
 		synctest.Wait()
 		require.NoError(t, reconciler.reconcile(ctx, "team/daily"))
 		refresh()
@@ -173,4 +178,7 @@ func TestScheduledRunEqualityIgnoresStatusWrites(t *testing.T) {
 	require.True(t, before.Equals(after))
 	after.Resource.Spec.Paused = new(true)
 	require.False(t, before.Equals(after))
+	after = before
+	after.Revision = "replacement"
+	require.False(t, before.Equals(after), "a new successful revision can change schedule support")
 }

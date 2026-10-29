@@ -328,15 +328,25 @@ func (s *InteractionService) messageSession(ctx context.Context, agent types.Nam
 	if message.ContextID != "" && message.ContextID != session.ContextId {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match task")
 	}
-	// Scheduler recovery adopts the task holding its execution message, so a
-	// continuer must not be able to plant that ID first.
-	if strings.HasPrefix(string(message.ID), scheduling.MessageIDPrefix) {
-		caller, _ := auth.AuthSessionFrom(ctx)
-		if session.GetScheduledRun() == nil || caller == nil || caller.Principal().ID != session.Creator {
-			return nil, a2atype.NewError(a2atype.ErrInvalidParams, "message ID prefix is reserved for scheduled runs")
-		}
+	if err := checkReservedMessageID(ctx, session, message); err != nil {
+		return nil, err
 	}
 	return session, nil
+}
+
+// checkReservedMessageID rejects scheduler execution message IDs unless the
+// scheduler is sending into the scheduled Session it created. Recovery adopts
+// the task holding that ID, so no other caller may plant it. A nil session is a
+// new conversation, which the scheduler never starts.
+func checkReservedMessageID(ctx context.Context, session *apiv1.Session, message *a2atype.Message) error {
+	if !strings.HasPrefix(string(message.ID), scheduling.MessageIDPrefix) {
+		return nil
+	}
+	caller, _ := auth.AuthSessionFrom(ctx)
+	if session.GetScheduledRun() == nil || caller == nil || caller.Principal().ID != session.GetCreator() {
+		return a2atype.NewError(a2atype.ErrInvalidParams, "message ID prefix is reserved for scheduled runs")
+	}
+	return nil
 }
 
 func (s *InteractionService) awaitBoundary(ctx context.Context, sessionID string, taskID a2atype.TaskID, historyLength *int) (*a2atype.Task, error) {
@@ -406,6 +416,9 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 	case req.Message.TaskID != "" || req.Message.ContextID != "":
 		session, err = s.messageSession(ctx, agent, req.Message)
 	default:
+		if err = checkReservedMessageID(ctx, nil, req.Message); err != nil {
+			return nil, err
+		}
 		if _, err = s.agents.Get(ctx, agent); err != nil {
 			return nil, interactionError(ctx, err)
 		}
