@@ -625,10 +625,7 @@ helm-release: ## Package release charts from RUNTIME_IMAGE_METADATA_DIR without 
 .PHONY: tools-image-metadata
 tools-image-metadata: ## Record the digest of the kagent-tools image the chart pins in RUNTIME_IMAGE_METADATA_DIR
 	@test -n "$(RUNTIME_IMAGE_METADATA_DIR)" || { echo "RUNTIME_IMAGE_METADATA_DIR is required for release chart packaging" >&2; exit 1; }
-	mkdir -p "$(RUNTIME_IMAGE_METADATA_DIR)"
-	rm -f "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json" "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp"
-	bash scripts/tools-image-metadata.sh "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" "$(TOOLS_IMAGE_REPOSITORY)" > "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp" || { rm -f "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp"; exit 1; }
-	if [ -s "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp" ]; then mv "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp" "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json"; else rm -f "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json.tmp"; fi
+	bash scripts/tools-image-metadata.sh "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" "$(TOOLS_IMAGE_REPOSITORY)" "$(RUNTIME_IMAGE_METADATA_DIR)/kagent-tools.json"
 
 .PHONY: helm-publish
 helm-publish: ## Package and push all Helm charts to the OCI registry
