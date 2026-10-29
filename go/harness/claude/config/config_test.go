@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +9,23 @@ import (
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
+
+func TestProductionVersionMatchesImage(t *testing.T) {
+	dockerfile, err := os.ReadFile("../Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imageVersion string
+	for line := range strings.SplitSeq(string(dockerfile), "\n") {
+		if version, ok := strings.CutPrefix(line, "ARG CLAUDE_CODE_VERSION="); ok {
+			imageVersion = strings.TrimSpace(version)
+		}
+	}
+	cfg := Production("claude-test", "help")
+	if imageVersion == "" || cfg.ExpectedClaudeVersion != imageVersion || !cfg.StrictVersion {
+		t.Fatalf("production version = %q (strict=%t), image version = %q", cfg.ExpectedClaudeVersion, cfg.StrictVersion, imageVersion)
+	}
+}
 
 func TestOwnsEnvironment(t *testing.T) {
 	for _, name := range []string{
