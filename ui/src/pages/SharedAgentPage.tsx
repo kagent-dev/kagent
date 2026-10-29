@@ -92,7 +92,7 @@ export function SharedAgentPage() {
             height: `calc(100vh - ${theme.layout.headerHeight}px - ${theme.space(48)})`,
           }}
         >
-          <ChatTranscript chat={chat} sessionId={id} readOnly />
+          <ChatTranscript chat={chat} sessionId={id} recovery={instance.data?.recovery} readOnly />
         </div>
       )}
 
