@@ -17,6 +17,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const testReadmeTemplate = "Skip database: {{.SkipDatabaseSetup}}\n{{if .Secrets}}## Environment references\n{{range .Secrets}}{{.Release}} {{.Path}} {{.Environment}}\n{{end}}{{end}}"
+
 func valuesManifest(values map[string]any) string {
 	data, err := json.Marshal(values)
 	if err != nil {
@@ -50,7 +52,7 @@ func TestExportOnlyWritesHelmArtifacts(t *testing.T) {
 			cfg.SkipDatabaseSetup = skip
 			dir := filepath.Join(t.TempDir(), "export")
 			runner := exportRunner()
-			path, err := Export(t.Context(), runner, cfg, ExportOptions{Directory: dir, Secrets: exportReferences()})
+			path, err := Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: dir, Secrets: exportReferences()})
 			require.NoError(t, err)
 			require.Equal(t, dir, path)
 			files, err := os.ReadDir(dir)
@@ -80,10 +82,8 @@ func TestExportOnlyWritesHelmArtifacts(t *testing.T) {
 			}))
 			readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
 			require.NoError(t, err)
-			require.Contains(t, string(readme), "arbitrary secrets are not automatically detected")
-			if skip {
-				require.Contains(t, string(readme), "Generated with `--skip-database-setup`")
-			}
+			require.Contains(t, string(readme), fmt.Sprintf("Skip database: %t", skip))
+			require.Contains(t, string(readme), "kagent providers.openAI.apiKey OPENAI_API_KEY")
 		})
 	}
 }
@@ -93,7 +93,7 @@ func TestExportDoesNotOverwriteExistingDestination(t *testing.T) {
 	file := filepath.Join(dir, "keep")
 	require.NoError(t, os.WriteFile(file, []byte("original"), 0o600))
 	runner := exportRunner()
-	_, err := Export(t.Context(), runner, testConfig(), ExportOptions{Directory: dir})
+	_, err := Export(t.Context(), runner, testConfig(), ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: dir})
 	require.ErrorContains(t, err, "already exists")
 	require.Empty(t, runner.commands)
 	data, err := os.ReadFile(file)
@@ -101,7 +101,7 @@ func TestExportDoesNotOverwriteExistingDestination(t *testing.T) {
 	require.Equal(t, "original", string(data))
 	link := filepath.Join(t.TempDir(), "link")
 	require.NoError(t, os.Symlink(dir, link))
-	_, err = Export(t.Context(), runner, testConfig(), ExportOptions{Directory: link})
+	_, err = Export(t.Context(), runner, testConfig(), ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: link})
 	require.ErrorContains(t, err, "already exists")
 }
 
@@ -120,7 +120,7 @@ func TestExportFailuresLeaveNoPartialDirectory(t *testing.T) {
 				}
 				return run(cmd)
 			}
-			_, err := Export(t.Context(), runner, testConfig(), ExportOptions{Directory: filepath.Join(parent, "export"), Secrets: exportReferences()})
+			_, err := Export(t.Context(), runner, testConfig(), ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(parent, "export"), Secrets: exportReferences()})
 			require.ErrorIs(t, err, cause)
 			require.NotContains(t, err.Error(), "secret-from-a-diagnostic")
 			files, err := os.ReadDir(parent)
@@ -131,7 +131,7 @@ func TestExportFailuresLeaveNoPartialDirectory(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	runner := exportRunner()
-	_, err := Export(ctx, runner, testConfig(), ExportOptions{Directory: filepath.Join(t.TempDir(), "export")})
+	_, err := Export(ctx, runner, testConfig(), ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(t.TempDir(), "export")})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Empty(t, runner.commands)
 }
@@ -156,7 +156,7 @@ func TestExportRejectsInvalidSecretReferences(t *testing.T) {
 		append(exportReferences(), exportReferences()...),
 	} {
 		runner := exportRunner()
-		_, err := Export(t.Context(), runner, testConfig(), ExportOptions{Directory: filepath.Join(t.TempDir(), "export"), Secrets: refs})
+		_, err := Export(t.Context(), runner, testConfig(), ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(t.TempDir(), "export"), Secrets: refs})
 		require.Error(t, err)
 		require.Empty(t, runner.commands)
 	}
@@ -170,7 +170,7 @@ func TestExportValidatesConfigBeforeRendering(t *testing.T) {
 		cfg := testConfig()
 		edit(&cfg)
 		runner := exportRunner()
-		_, err := Export(t.Context(), runner, cfg, ExportOptions{Directory: filepath.Join(t.TempDir(), "export"), Secrets: exportReferences()})
+		_, err := Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: filepath.Join(t.TempDir(), "export"), Secrets: exportReferences()})
 		require.Error(t, err)
 		require.Empty(t, runner.commands)
 	}
@@ -180,12 +180,15 @@ func TestExportWithoutCredentialReferences(t *testing.T) {
 	cfg := testConfig()
 	cfg.ModelProvider, cfg.APIKey = "Bedrock", ""
 	dir := filepath.Join(t.TempDir(), "export")
-	_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{Directory: dir})
+	_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: dir})
 	require.NoError(t, err)
 	script, err := os.ReadFile(filepath.Join(dir, "install.sh"))
 	require.NoError(t, err)
 	require.NotContains(t, string(script), "secret_dir")
 	require.NotContains(t, string(script), "--set-file")
+	readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	require.NoError(t, err)
+	require.NotContains(t, string(readme), "## Environment references")
 }
 
 func TestExportScriptBindsRawSecretsAndCleansTemporaryFiles(t *testing.T) {
@@ -212,7 +215,7 @@ done
 	cfg := testConfig()
 	marker := filepath.Join(dir, "must-not-exist")
 	cfg.Kagent.Repository = filepath.Join(dir, "repo'$(touch "+marker+")")
-	_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{Directory: output, Secrets: exportReferences()})
+	_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: output, Secrets: exportReferences()})
 	require.NoError(t, err)
 	secret := "key,with=punctuation'\"\\$()\nsecond line"
 	cmd := exec.CommandContext(t.Context(), "sh", filepath.Join(output, "install.sh"))
@@ -284,7 +287,7 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 			plan, err := planInstall(t.Context(), runner, cfg)
 			require.NoError(t, err)
 			output := filepath.Join(root, "export")
-			_, err = Export(t.Context(), runner, cfg, ExportOptions{Directory: output, Secrets: refs})
+			_, err = Export(t.Context(), runner, cfg, ExportOptions{ReadmeTemplate: testReadmeTemplate, Directory: output, Secrets: refs})
 			require.NoError(t, err)
 			script, err := os.ReadFile(filepath.Join(output, "install.sh"))
 			require.NoError(t, err)
@@ -358,4 +361,64 @@ func TestExportScriptCleansCredentialsAfterHelmFailure(t *testing.T) {
 	files, err := os.ReadDir(temporary)
 	require.NoError(t, err)
 	require.Empty(t, files)
+}
+
+func TestExportReadmeTemplate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data any
+	}{
+		{"struct", struct {
+			DocsURL           string
+			SkipDatabaseSetup bool
+		}{DocsURL: "https://docs.example.test/helm?a=1&b=2"}},
+		{"map", map[string]any{"DocsURL": "https://docs.example.test/helm?a=1&b=2", "SkipDatabaseSetup": false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.SkipDatabaseSetup = true
+			directory := filepath.Join(t.TempDir(), "export")
+			_, err := Export(t.Context(), exportRunner(), cfg, ExportOptions{
+				Directory:      directory,
+				Secrets:        exportReferences(),
+				ReadmeTemplate: "# Installation\n\nFollow {{.Data.DocsURL}}.\nSkip database: {{.SkipDatabaseSetup}}\nCaller mode: {{.Data.SkipDatabaseSetup}}\n{{range .Secrets}}{{.Release}} {{.Path}} {{.Environment}}\n{{end}}",
+				ReadmeData:     tc.data,
+			})
+			require.NoError(t, err)
+			readme, err := os.ReadFile(filepath.Join(directory, "README.md"))
+			require.NoError(t, err)
+			require.Equal(t, "# Installation\n\nFollow https://docs.example.test/helm?a=1&b=2.\nSkip database: true\nCaller mode: false\nkagent providers.openAI.apiKey OPENAI_API_KEY\n", string(readme))
+			require.NotContains(t, string(readme), cfg.APIKey)
+			require.FileExists(t, filepath.Join(directory, "install.sh"))
+		})
+	}
+}
+
+func TestExportReadmeTemplateErrorsLeaveNoOutput(t *testing.T) {
+	for _, tc := range []struct{ name, source, wantErr string }{
+		{"empty", "", "README template is required"},
+		{"whitespace", " \n\t", "README template is required"},
+		{"syntax", "{{", "failed to parse export README template"},
+		{"missing field", "{{.Unknown}}", "failed to render export README"},
+		{"missing caller data key", "{{.Data.Unknown}}", "failed to render export README"},
+		{"credential values unavailable", "{{.APIKey}}", "failed to render export README"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := t.TempDir()
+			runner := exportRunner()
+			cfg := testConfig()
+			_, err := Export(t.Context(), runner, cfg, ExportOptions{
+				Directory:      filepath.Join(parent, "export"),
+				Secrets:        exportReferences(),
+				ReadmeTemplate: tc.source,
+				ReadmeData:     map[string]any{},
+			})
+			require.ErrorContains(t, err, tc.wantErr)
+			require.NotContains(t, err.Error(), cfg.APIKey)
+			require.Empty(t, runner.commands, "invalid templates must fail before Helm runs")
+			files, err := os.ReadDir(parent)
+			require.NoError(t, err)
+			require.Empty(t, files)
+		})
+	}
 }

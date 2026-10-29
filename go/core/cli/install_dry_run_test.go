@@ -46,9 +46,17 @@ func TestInstallDryRunWithoutClusterOrAPIKey(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("Helm is required for dry-run integration")
 	}
-	for _, apiKey := range []string{"", "secret-that-must-not-be-exported"} {
-		t.Run(fmt.Sprintf("key_set=%t", apiKey != ""), func(t *testing.T) {
-			t.Setenv("OPENAI_API_KEY", apiKey)
+	for _, tc := range []struct {
+		apiKey       string
+		skipDatabase bool
+	}{
+		{"", false},
+		{"secret-that-must-not-be-exported", false},
+		{"", true},
+		{"secret-that-must-not-be-exported", true},
+	} {
+		t.Run(fmt.Sprintf("key_set=%t/skip_database=%t", tc.apiKey != "", tc.skipDatabase), func(t *testing.T) {
+			t.Setenv("OPENAI_API_KEY", tc.apiKey)
 			t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "missing-kubeconfig"))
 			config := installConfigWithLocalCharts(t)
 			destination := filepath.Join(t.TempDir(), "export")
@@ -56,7 +64,11 @@ func TestInstallDryRunWithoutClusterOrAPIKey(t *testing.T) {
 			var out, stderr bytes.Buffer
 			root.SetOut(&out)
 			root.SetErr(&stderr)
-			root.SetArgs([]string{"--config", config, "install", "--dry-run", "--profile", "minimal", "--skip-database-setup", "--output-dir", destination})
+			args := []string{"--config", config, "install", "--dry-run", "--profile", "minimal", "--output-dir", destination}
+			if tc.skipDatabase {
+				args = append(args, "--skip-database-setup")
+			}
+			root.SetArgs(args)
 			require.NoError(t, root.ExecuteContext(t.Context()))
 			require.Equal(t, "Wrote Helm commands and values to "+destination+"\n", out.String())
 			require.Empty(t, stderr.String())
@@ -69,7 +81,18 @@ func TestInstallDryRunWithoutClusterOrAPIKey(t *testing.T) {
 			require.NotContains(t, string(values), "secret-that-must-not-be-exported")
 			podcert, err := os.ReadFile(filepath.Join(destination, "values", "substrate-podcert.yaml"))
 			require.NoError(t, err)
-			require.NotContains(t, string(podcert), "postgresClients")
+			readme, err := os.ReadFile(filepath.Join(destination, "README.md"))
+			require.NoError(t, err)
+			require.Contains(t, string(readme), "Follow the Helm installation documentation to complete the prerequisite steps.")
+			require.Contains(t, string(readme), "`OPENAI_API_KEY`: release `kagent`, value `providers.openAI.apiKey`.")
+			require.NotContains(t, string(readme), "secret-that-must-not-be-exported")
+			if tc.skipDatabase {
+				require.NotContains(t, string(podcert), "postgresClients")
+				require.Contains(t, string(readme), "Generated with `--skip-database-setup`")
+			} else {
+				require.Contains(t, string(podcert), "postgresClients")
+				require.Contains(t, string(readme), "The values include the bundled database's certificate authentication settings.")
+			}
 		})
 	}
 }

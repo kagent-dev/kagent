@@ -1,0 +1,31 @@
+# Helm installation export
+
+This directory contains Helm commands and the complete installer-supplied overrides for each chart. Chart defaults are not included.
+
+Review every values file before committing this directory. User-provided values are included as supplied; arbitrary secrets are not automatically detected or sanitized. Only the explicit environment references below replace credential values.
+
+## Before running
+
+Follow the Helm installation documentation to complete the prerequisite steps. This export contains only Helm commands and values files; it does not perform prerequisite setup.
+
+{{if .SkipDatabaseSetup -}}
+Generated with `--skip-database-setup`: the values expect your configured database.
+{{else -}}
+The values include the bundled database's certificate authentication settings. This export does not provision the database.
+{{end}}
+{{if .Secrets -}}
+## Environment references
+
+Supply these variables before running `install.sh`. The script binds them with Helm `--set-file` using temporary private files; Helm does not expand placeholders in YAML.
+
+{{range .Secrets -}}
+- `{{.Environment}}`: release `{{.Release}}`, value `{{.Path}}`.
+{{end}}
+{{end -}}
+## Apply
+
+```sh
+sh ./install.sh
+```
+
+Commands run in installation order and use the current Helm/Kubernetes context. Re-running them upgrades the same releases. Previewing this directory did not check the cluster or calculate a resource diff.

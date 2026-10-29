@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"text/template"
 
 	"sigs.k8s.io/yaml"
 )
@@ -24,6 +25,11 @@ type SecretReference struct {
 type ExportOptions struct {
 	Directory string
 	Secrets   []SecretReference
+	// ReadmeTemplate contains the required Go text/template source for README.md.
+	// Templates expose SkipDatabaseSetup, Secrets (Release, Path, Environment), and Data.
+	ReadmeTemplate string
+	// ReadmeData is optional caller-provided data exposed as .Data in ReadmeTemplate.
+	ReadmeData any
 }
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -38,6 +44,9 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 	}
 	if options.Directory == "" {
 		return "", fmt.Errorf("export directory is required")
+	}
+	if strings.TrimSpace(options.ReadmeTemplate) == "" {
+		return "", fmt.Errorf("README template is required")
 	}
 	destination, err := filepath.Abs(options.Directory)
 	if err != nil {
@@ -78,6 +87,10 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 		if !found {
 			return "", fmt.Errorf("model API key requires an explicit environment reference for export")
 		}
+	}
+	readme, err := exportReadme(cfg.SkipDatabaseSetup, options.Secrets, options.ReadmeTemplate, options.ReadmeData)
+	if err != nil {
+		return "", err
 	}
 	work, err := os.MkdirTemp("", "kagent-install-export-")
 	if err != nil {
@@ -172,7 +185,7 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 	if err := os.WriteFile(filepath.Join(staging, "install.sh"), []byte(exportScript(releases, options.Secrets)), 0o755); err != nil {
 		return "", fmt.Errorf("failed to write Helm script: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(staging, "README.md"), []byte(exportReadme(cfg, options.Secrets)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(staging, "README.md"), []byte(readme), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write export instructions: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -276,21 +289,30 @@ func helmMapPath(keys []string) string {
 	return strings.Join(parts, ".")
 }
 
-func exportReadme(cfg Config, refs []SecretReference) string {
+type readmeData struct {
+	SkipDatabaseSetup bool
+	Secrets           []readmeSecret
+	Data              any
+}
+
+type readmeSecret struct {
+	Release     string
+	Path        string
+	Environment string
+}
+
+func exportReadme(skipDatabaseSetup bool, refs []SecretReference, source string, callerData any) (string, error) {
+	tmpl, err := template.New("README.md").Option("missingkey=error").Parse(source)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse export README template: %w", err)
+	}
+	data := readmeData{SkipDatabaseSetup: skipDatabaseSetup, Data: callerData}
+	for _, ref := range refs {
+		data.Secrets = append(data.Secrets, readmeSecret{Release: ref.Release, Path: helmMapPath(ref.Path), Environment: ref.Environment})
+	}
 	var readme strings.Builder
-	readme.WriteString("# Helm installation export\n\nThis directory contains Helm commands and the complete installer-supplied overrides for each chart. Chart defaults are not included.\n\nReview every values file before committing this directory. User-provided values are included as supplied; arbitrary secrets are not automatically detected or sanitized. Only the explicit environment references below replace credential values.\n\n## Before running\n\nFollow the Helm installation documentation to complete the prerequisite steps. This export contains only Helm commands and values files; it does not perform prerequisite setup.\n\n")
-	if cfg.SkipDatabaseSetup {
-		readme.WriteString("Generated with `--skip-database-setup`: the values expect your configured database.\n\n")
-	} else {
-		readme.WriteString("The values include the bundled database's certificate authentication settings. This export does not provision the database.\n\n")
+	if err := tmpl.Execute(&readme, data); err != nil {
+		return "", fmt.Errorf("failed to render export README: %w", err)
 	}
-	if len(refs) > 0 {
-		readme.WriteString("## Environment references\n\nSupply these variables before running `install.sh`. The script binds them with Helm `--set-file` using temporary private files; Helm does not expand placeholders in YAML.\n\n")
-		for _, ref := range refs {
-			fmt.Fprintf(&readme, "- `%s`: release `%s`, value `%s`.\n", ref.Environment, ref.Release, helmMapPath(ref.Path))
-		}
-		readme.WriteByte('\n')
-	}
-	readme.WriteString("## Apply\n\n```sh\nsh ./install.sh\n```\n\nCommands run in installation order and use the current Helm/Kubernetes context. Re-running them upgrades the same releases. Previewing this directory did not check the cluster or calculate a resource diff.\n")
-	return readme.String()
+	return readme.String(), nil
 }

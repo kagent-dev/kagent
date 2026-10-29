@@ -1,6 +1,7 @@
 package commands
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -26,6 +27,9 @@ import (
 )
 
 const kagentChartName = "kagent"
+
+//go:embed install_readme.md.tmpl
+var installReadmeTemplate string
 
 type InstallCfg struct {
 	Profile           string
@@ -112,7 +116,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		if _, err := exec.LookPath("helm"); err != nil {
 			return fmt.Errorf("helm not found in PATH; install it first")
 		}
-		directory, err := installer.Export(cmd.Context(), installer.CommandRunner{}, input, installer.ExportOptions{Directory: cfg.OutputDir, Secrets: references})
+		directory, err := installer.Export(cmd.Context(), installer.CommandRunner{}, input, installer.ExportOptions{Directory: cfg.OutputDir, Secrets: references, ReadmeTemplate: installReadmeTemplate})
 		if err != nil {
 			return err
 		}
