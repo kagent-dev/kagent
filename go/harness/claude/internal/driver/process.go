@@ -119,12 +119,8 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		"--dangerously-skip-permissions",
 	}
 	if d.config.ApprovalBroker != nil {
-		settingSources := ""
-		if len(d.config.PluginDirs) != 0 {
-			settingSources = "project"
-		}
 		args = append(args,
-			"--setting-sources", settingSources,
+			"--setting-sources", "",
 			"--settings", d.config.SettingsPath,
 			"--permission-prompt-tool", d.config.PermissionPromptTool,
 		)
