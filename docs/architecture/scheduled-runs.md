@@ -95,11 +95,15 @@ cannot start an invocation.
 Before reserving cron work, the scheduler reads the live CRD through an uncached
 Kubernetes reader and checks its UID, generation, deletion state, and watched
 namespace. The store rechecks projection eligibility and generation in the
-reservation transaction. A concurrent edit cannot reserve work against a stale
-projection.
+reservation transaction, so reconciliation that updates the projection before
+reservation prevents acceptance of the old generation. The Kubernetes read and
+database reservation are not atomic together: an edit or deletion after the
+read can still allow a reservation using the previously observed configuration
+if reconciliation has not updated the projection yet.
 
 ScheduledRuns do not use a finalizer. Reconciliation retires deleted projections;
-uncached live-source checks also stop new reservations after offline deletion.
+uncached live-source checks also stop new reservations when they observe offline
+deletion.
 Cron ignores namespaces outside the watch scope, and manual triggers return a
 failed-precondition error for them. Changing watch scope does not retire a
 resource. A transient Kubernetes
@@ -122,13 +126,16 @@ and trusted resource references; consumers compare principal IDs without parsing
 them. `Session.creator` stores
 the creating principal's ID. It does not select a credential for subsequent calls.
 
-Kubernetes authentication uses TokenReview and maps the verified service-account
-UID under a configured cluster authority. Rotation preserves the principal ID;
-deleting and recreating the service account changes it. The authority must remain
-stable across restarts and distinct from other Kubernetes authentication sources
-sharing the store. Trusted-proxy authentication scopes its identity claim by the
-authenticated issuer; the proxy owns token verification. Insecure development
-mode permits caller-selected IDs without identity assurance.
+External ServiceAccount callers authenticate through Kubernetes TokenReview,
+which maps the verified service-account UID under a configured cluster authority.
+Rotation preserves their principal ID; deleting and recreating the service account
+changes it. The authority must remain stable across restarts and distinct from
+other Kubernetes authentication sources sharing the store. This authentication
+path is independent of the internal scheduler, which does not use TokenReview.
+
+Trusted-proxy authentication scopes its identity claim by the authenticated issuer;
+the proxy owns token verification. Insecure development mode permits caller-selected
+IDs without identity assurance.
 
 Runtime principals use the verified Actor's atespace and UID. Their
 `RuntimeBinding` identifies the Session and its creator for data scoping. The
@@ -237,12 +244,16 @@ these checks with Session permissions:
 | Send, continue, cancel, and rename | `create` on `ScheduledRunInvocation` |
 | Delete | `delete` on `ScheduledRunInvocation` |
 
-A caller without history access receives `NotFound`, so scheduled Sessions and
-executions do not reveal that they exist. A caller who can read the history but
-lacks the invocation permission receives `PermissionDenied`. Execution reads and
-manual triggers follow the same rule. Listings filter unauthorized Sessions before
-pagination. Stored schedule references preserve these checks after the CRD is
-deleted.
+For Session operations, a failed schedule-permission check returns
+`PermissionDenied` if the caller can read the schedule's history, and `NotFound`
+otherwise. Listings filter unauthorized Sessions before pagination. Stored
+schedule references preserve these checks after the CRD is deleted.
+
+`GetExecution` and `Trigger` use a broader visibility check when their required
+schedule permission is denied: a caller who can read either the schedule's
+configuration or its history receives `PermissionDenied`; a caller who can read
+neither receives `NotFound`. An otherwise authorized trigger does not require
+history access.
 
 Checkpoints retain the source Session's creator and scheduled provenance. Reads,
 creation, and forks require source Session read access and schedule history
