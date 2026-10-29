@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -45,7 +46,7 @@ var egressTrustEnvironment = map[string]struct{}{
 // ActorTemplateForRevision constructs the immutable ate-api resource for a
 // compiled revision. It performs no reads or writes, which makes it safe to use
 // inside a KRT transformation.
-func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID, controlPlaneURL string) (*ateapipb.ActorTemplate, error) {
+func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID) (*ateapipb.ActorTemplate, error) {
 	if revisionID.IsZero() {
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
@@ -90,7 +91,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, err
 	}
 
-	policy, err := ActorEgressPolicy(spec.Namespace, spec.EgressDestinations, nil, controlPlaneURL)
+	access, err := egress.CanonicalAccess(spec.EgressDestinations, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("compile golden actor egress: %w", err)
 	}
@@ -147,8 +148,11 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
-	if len(policy.Rules) > 0 {
-		template.GoldenEgressPolicy = &ateapipb.EgressPolicyTemplate{Rules: policy.Rules}
+	if len(access.Destinations) > 0 {
+		template.GoldenEgressPolicy = &ateapipb.EgressPolicyTemplate{}
+		for _, origin := range access.Destinations {
+			template.GoldenEgressPolicy.Rules = append(template.GoldenEgressPolicy.Rules, originEgressRule(origin, nil))
+		}
 	}
 	return template, nil
 }
