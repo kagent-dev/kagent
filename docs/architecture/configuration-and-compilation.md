@@ -95,6 +95,16 @@ Local installations can override individual defaults with
 `config.harnessImages`; `global.imageRegistry` rewrites both packaged defaults
 and explicit overrides.
 
+The chart's optional example Agents mount skills from the kagent-tools image.
+kagent-tools releases from its own repository, so no build in this repository
+records the image digest. Before packaging, `make helm-publish` runs `make
+tools-image-metadata`. That target looks up the digest of the kagent-tools
+version in the chart's dependencies and writes it to
+`RUNTIME_IMAGE_METADATA_DIR/kagent-tools.json`. If that file exists, `make
+helm-release` validates it and packages it as `files/kagent-tools-image.json`.
+If the file is missing, the example Agents render only with an explicit
+`exampleAgents.skillsImage`.
+
 The outer compiler sets the selected image on the compiled revision before hashing
 it. Adapters receive the requested Harness spec; provenance records that spec
 without injected defaults. A missing or invalid

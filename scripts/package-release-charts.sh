@@ -17,9 +17,28 @@ bash "$root/scripts/harness-image-catalog.sh" "$version" "$metadata_dir" \
   "$repository/golang-adk" "$repository/claude-harness" "$repository/codex-harness" \
   > "$staging/builtin-harness-images.json"
 
+# make tools-image-metadata records the kagent-tools image digest for the
+# example Agents. Without it, the chart can enable those Agents only with an
+# explicit exampleAgents.skillsImage.
+tools_metadata="$metadata_dir/kagent-tools.json"
+if [[ -e "$tools_metadata" ]]; then
+  # The version must be the kagent-tools version the chart depends on, so a
+  # stale metadata file cannot pin another release's skills.
+  tools_version="$(yq '(.dependencies // [])[] | select(.name == "kagent-tools") | .version' "$source_dir/kagent/Chart-template.yaml")"
+  jq -e --arg tools_version "$tools_version" '
+    (.image | type) == "string" and (.image | test("^[^[:space:]@]+@sha256:[a-f0-9]{64}$")) and
+    ($tools_version == "" or .version == $tools_version)' "$tools_metadata" >/dev/null || {
+    echo "Invalid kagent-tools image metadata, or it is not for kagent-tools $tools_version: $tools_metadata. Run make tools-image-metadata." >&2
+    exit 1
+  }
+fi
+
 cp -R "$source_dir" "$staging/helm"
 mkdir -p "$staging/helm/kagent/files"
 mv "$staging/builtin-harness-images.json" "$staging/helm/kagent/files/builtin-harness-images.json"
+if [[ -e "$tools_metadata" ]]; then
+  cp "$tools_metadata" "$staging/helm/kagent/files/kagent-tools-image.json"
+fi
 
 # Reuse local chart preparation, keeping generated files and intermediate archives isolated.
 make --no-print-directory -j1 -C "$root" helm-version VERSION="$version" \

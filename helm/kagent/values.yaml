@@ -23,8 +23,9 @@ global:
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
-  # substrateWorkerPool.workerImage, and built-in Harness images
-  # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
+  # substrateWorkerPool.workerImage, built-in Harness images
+  # (both packaged defaults and config.harnessImages overrides), and the example
+  # Agent skills image (packaged default and exampleAgents.skillsImage). The vendored subcharts
   # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
@@ -769,6 +770,31 @@ kagent-tools:
     loglevel: "debug"
     metrics:
       port: 8085 # Use a different port than the controller service port to avoid duplicate port definitions
+
+# ==============================================================================
+# EXAMPLE AGENTS
+# ==============================================================================
+# Three Agents (cluster-ops, networking, security) on one Go ADK Harness. They
+# use the default ModelConfig, the kagent-tools MCP server, and the seven skills
+# packaged in the kagent-tools image under opt/kagent-tools-skills. They need
+# kagent-tools.enabled.
+exampleAgents:
+  # -- Install the example Agents and their Harness.
+  enabled: false
+  # -- Name prefix: the Harness is <prefix>-example and the Agents are
+  # <prefix>-cluster-ops, <prefix>-networking, and <prefix>-security.
+  namePrefix: kagent-tools
+  # -- Digest-pinned kagent-tools image that holds the skills, for example
+  # ghcr.io/kagent-dev/kagent/tools@sha256:<digest>. Empty uses the digest that
+  # release packaging resolved for the kagent-tools version this chart pins.
+  # A source chart has no packaged digest, so set this value when you install
+  # from source.
+  # global.imageRegistry rewrites both the packaged default and this override.
+  skillsImage: ""
+  # -- Snapshot storage location for the example Harness. The default is the
+  # ate-snapshots bucket that the Substrate chart's built-in rustfs store
+  # creates. If you turned off rustfs, set your own bucket.
+  snapshotLocation: gs://ate-snapshots/kagent/
 
 # ==============================================================================
 # PROXY CONFIGURATION

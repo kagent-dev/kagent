@@ -231,6 +231,70 @@ release namespace.
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 
+#### Example Agents
+
+Set `exampleAgents.enabled: true` to install three example Agents. They are off
+by default. The chart then creates:
+
+- A Harness named `<namePrefix>-example` (default `kagent-tools-example`). It
+  runs the Go ADK image from the release's Harness image catalog on the
+  `substrateWorkerPool.name` WorkerPool.
+- Three Agents on that Harness. Each Agent loads its skills from
+  `opt/kagent-tools-skills` in the kagent-tools image:
+
+  | Agent | Skills | Tools |
+  |---|---|---|
+  | `<namePrefix>-cluster-ops` | `k8s-troubleshooting`, `helm-release-management`, `argo-rollouts-progressive-delivery`, `prometheus-observability` | 29 |
+  | `<namePrefix>-networking` | `istio-traffic-debugging`, `cilium-network-debugging` | 31 |
+  | `<namePrefix>-security` | `kubescape-security-posture` | 10 |
+
+Each Agent uses `default-model-config` and includes the `skills-usage`,
+`kubernetes-context`, `tool-usage-best-practices`, and `safety-guardrails`
+prompts from the `kagent-builtin-prompts` ConfigMap. Each skill names the
+kagent-tools MCP tools it uses. Each Agent binds only those tools, in one
+binding to the chart's `<fullname>-tool-server` RemoteMCPServer. The Agents need
+`kagent-tools.enabled: true`.
+
+The chart splits the skills over three Agents because one Agent cannot hold all
+seven. The seven skills name 64 tools, and three limits apply:
+
+- One binding lists at most 50 tools.
+- The Claude and Codex harnesses accept each MCP server only once.
+- OpenAI and Azure OpenAI accept at most 128 tools in one request. The whole
+  tool server has more than 128.
+
+The skills come from the kagent-tools image, pinned by digest. `make
+helm-publish` runs `make tools-image-metadata`, which resolves the digest of the
+kagent-tools version in the chart's dependencies. It then packages that digest
+in `files/kagent-tools-image.json`. A source chart has no packaged digest. To
+install from a source chart, or to use another image, set
+`exampleAgents.skillsImage`:
+
+```yaml
+exampleAgents:
+  enabled: true
+  skillsImage: ghcr.io/kagent-dev/kagent/tools@sha256:<digest>
+```
+
+Without a digest, the chart fails to render. `global.imageRegistry` rewrites
+the registry of both the packaged image and `exampleAgents.skillsImage`.
+
+kagent-tools 0.3.0 and earlier have no `opt/kagent-tools-skills` folder, so
+release packaging records no digest for them. While the chart depends on such a
+version, set `exampleAgents.skillsImage` to an image that has the folder.
+
+The Harness saves snapshots to `exampleAgents.snapshotLocation`, by default
+`gs://ate-snapshots/kagent/`. The Substrate chart's built-in rustfs store
+creates that bucket. If you turned off rustfs, set your own bucket.
+
+Two limits apply:
+
+- The example uses an OCI source only. Git sources fail to load in the agent
+  runtime today, and nobody has tested S3 sources.
+- Skill selection is not a security boundary. Substrate mounts the whole image
+  read-only, so the agent can still read the files of skills it did not
+  select.
+
 ### Using Make
 
 ```bash

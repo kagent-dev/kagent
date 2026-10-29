@@ -7,6 +7,15 @@ the three `config.harnessImages` defaults matching the explicit Harness
 fixtures. The test checks runtime readiness, effective-image status, and that
 the controller leaves the user spec unchanged.
 
+`TestExampleAgentToolsSkills` runs each of the chart's three example Agents
+on every harness with a mock model. It reads each Agent's name, description,
+and skills from `helm/kagent/templates/example-agents.yaml`. It needs
+`KAGENT_E2E_TOOLS_SKILLS_IMAGE`: a digest-pinned kagent-tools image in the local
+test registry that contains the `opt/kagent-tools-skills` Agent Plugin. Without
+that variable, the test skips. For each Agent, the test checks that the model
+sees only the Agent's own skills and that one of them loads. The test leaves
+out the tool server binding because the test install does not run kagent-tools.
+
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
 Set `config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference

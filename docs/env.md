@@ -180,6 +180,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_E2E_RUN_UPGRADE_TESTS` | String | `false` | Run upgrade integration tests when exactly true. |
 | `KAGENT_E2E_SANDBOX_NAMESPACE` | String | `kagent` | Namespace for sandbox E2E resources. |
 | `KAGENT_E2E_SANDBOX_WORKER_POOL` | String | `kagent-default` | Worker pool used by sandbox E2E resources. |
+| `KAGENT_E2E_TOOLS_SKILLS_IMAGE` | String | `(none)` | Digest-pinned kagent-tools image with the opt/kagent-tools-skills Agent Plugin for the example Agents E2E test. When unset, that test skips. |
 | `KAGENT_E2E_UI_LOOP_EXTENSION_PORT` | String | `(none)` | Example-extension browser-test port. Defaults to KAGENT_E2E_UI_LOOP_PORT plus 50. |
 | `KAGENT_E2E_UI_LOOP_LIVE` | Boolean | `false` | Run UI browser tests against a real cluster when exactly true. |
 | `KAGENT_E2E_UI_LOOP_LIVE_PORT` | String | `8301` | Live-cluster UI browser-test port. |
