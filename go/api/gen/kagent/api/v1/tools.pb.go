@@ -7,6 +7,7 @@
 package apiv1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -146,9 +147,12 @@ func (x *ListToolsResponse) GetTools() []*Tool {
 }
 
 type ListToolServersRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// When set, return only RemoteMCPServers whose allowedNamespaces policy permits
+	// references from this namespace. Empty returns the management catalog.
+	ReferenceNamespace string `protobuf:"bytes,1,opt,name=reference_namespace,json=referenceNamespace,proto3" json:"reference_namespace,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ListToolServersRequest) Reset() {
@@ -179,6 +183,13 @@ func (x *ListToolServersRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListToolServersRequest.ProtoReflect.Descriptor instead.
 func (*ListToolServersRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1_tools_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListToolServersRequest) GetReferenceNamespace() string {
+	if x != nil {
+		return x.ReferenceNamespace
+	}
+	return ""
 }
 
 type DiscoveredTool struct {
@@ -1029,13 +1040,14 @@ var File_kagent_api_v1_tools_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_tools_proto_rawDesc = "" +
 	"\n" +
-	"\x19kagent/api/v1/tools.proto\x12\rkagent.api.v1\x1a\x1akagent/api/v1/common.proto\x1a\x1akagent/api/v1/models.proto\"\x12\n" +
+	"\x19kagent/api/v1/tools.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1akagent/api/v1/common.proto\x1a\x1akagent/api/v1/models.proto\"\x12\n" +
 	"\x10ListToolsRequest\"C\n" +
 	"\x04Tool\x12;\n" +
 	"\bresource\x18\x01 \x01(\v2\x1f.kagent.api.v1.StructuredObjectR\bresource\">\n" +
 	"\x11ListToolsResponse\x12)\n" +
-	"\x05tools\x18\x01 \x03(\v2\x13.kagent.api.v1.ToolR\x05tools\"\x18\n" +
-	"\x16ListToolServersRequest\"F\n" +
+	"\x05tools\x18\x01 \x03(\v2\x13.kagent.api.v1.ToolR\x05tools\"v\n" +
+	"\x16ListToolServersRequest\x12\\\n" +
+	"\x13reference_namespace\x18\x01 \x01(\tB+\xbaH(\xd8\x01\x01r#\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\x12referenceNamespace\"F\n" +
 	"\x0eDiscoveredTool\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\"\x87\x01\n" +

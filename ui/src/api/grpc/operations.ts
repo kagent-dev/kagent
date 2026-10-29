@@ -346,9 +346,9 @@ const toolServers: Pick<
   ApiOperations,
   "mcpServers.list" | "mcpServers.create" | "mcpServers.delete" | "tools.list"
 > = {
-  "mcpServers.list": async (_input, options) => {
+  "mcpServers.list": async (input, options) => {
     const response = await rpc("ToolService/ListToolServers", options.signal, () =>
-      serviceClient(ToolService).listToolServers({}, call("mcpServers.list", options)),
+      serviceClient(ToolService).listToolServers({ referenceNamespace: input.referenceNamespace }, call("mcpServers.list", options)),
     );
     return list(response.toolServers).map(toToolServerRow);
   },

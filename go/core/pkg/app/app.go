@@ -339,7 +339,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
-	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
+	tools := toolservice.NewService(manager.GetClient(), manager.GetAPIReader(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store, authorizer)
