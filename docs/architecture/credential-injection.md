@@ -90,9 +90,10 @@ an origin with static gateway credentials, which would override the caller's
 authentication. A passthrough RemoteMCPServer cannot set `Authorization` in
 `headersFrom`.
 
-Scheduled executions use the controller's verified service-account principal and
-its separately audience-scoped outgoing token. Kagent does not accept that
-outgoing audience for login. See [Scheduled runs](scheduled-runs.md).
+Scheduled executions use an internal scheduler principal and the controller's
+projected service-account token for downstream passthrough. Kagent does not accept
+that outgoing audience for login. The scheduler trusts the local projection;
+downstream services authenticate the token. See [Scheduled runs](scheduled-runs.md).
 
 Compilation records each passthrough client as a target {origin, header,
 prefix} in the revision. It rejects a client with no credential target (SAP AI

@@ -29,36 +29,36 @@ func TestTokenReviewCacheLifetime(t *testing.T) {
 		}}
 		p := NewServiceAccountProvider(&InsecureAuthenticator{}, reviewer, "cluster")
 		token := reviewToken(t, jwt.MapClaims{}) // Legacy tokens may have no expiry.
-		first, err := p.verify(t.Context(), token, serviceAccountAudience)
+		first, err := p.verify(t.Context(), token)
 		require.NoError(t, err)
 		// Cached identity must not be writable through a caller's claims.
 		first.Claims["username"] = "forged"
 		first.Claims["groups"].([]any)[0] = "forged"
 		time.Sleep(20 * time.Second)
 		denied = true
-		second, err := p.verify(t.Context(), token, serviceAccountAudience)
+		second, err := p.verify(t.Context(), token)
 		require.NoError(t, err, "revocation is observed after the cache TTL")
 		require.Equal(t, "system:serviceaccount:ns:caller", second.Claims["username"])
 		require.Equal(t, []any{"system:serviceaccounts"}, second.Claims["groups"])
 		require.EqualValues(t, 1, reviewer.calls.Load())
 		time.Sleep(10 * time.Second)
-		_, err = p.verify(t.Context(), token, serviceAccountAudience)
+		_, err = p.verify(t.Context(), token)
 		require.ErrorIs(t, err, ErrUnauthenticated, "hits must not extend the 30-second TTL")
 		require.EqualValues(t, 2, reviewer.calls.Load())
 		denied = false
-		_, err = p.verify(t.Context(), token, serviceAccountAudience)
+		_, err = p.verify(t.Context(), token)
 		require.NoError(t, err, "denials must not be cached")
 		require.EqualValues(t, 3, reviewer.calls.Load())
 		time.Sleep(30 * time.Second)
 		unavailable = true
 		for range 2 {
-			_, err = p.verify(t.Context(), token, serviceAccountAudience)
+			_, err = p.verify(t.Context(), token)
 			require.ErrorContains(t, err, "verification unavailable")
 			require.NotContains(t, err.Error(), "sensitive")
 		}
 		require.EqualValues(t, 5, reviewer.calls.Load(), "API errors must neither be cached nor revive stale success")
 		unavailable = false
-		_, err = p.verify(t.Context(), token, serviceAccountAudience)
+		_, err = p.verify(t.Context(), token)
 		require.NoError(t, err)
 		require.EqualValues(t, 6, reviewer.calls.Load())
 	})
@@ -86,11 +86,11 @@ func TestTokenReviewCacheExpiry(t *testing.T) {
 					exp = time.Now().Add(ttl).Unix()
 				}
 				token := reviewToken(t, jwt.MapClaims{"exp": exp})
-				_, err := p.verify(t.Context(), token, serviceAccountAudience)
+				_, err := p.verify(t.Context(), token)
 				if tc.name == "expires while cached" {
 					require.NoError(t, err)
 					time.Sleep(5 * time.Second)
-					_, err = p.verify(t.Context(), token, serviceAccountAudience)
+					_, err = p.verify(t.Context(), token)
 				}
 				require.ErrorIs(t, err, ErrUnauthenticated)
 				if tc.name == "malformed expiry" {
@@ -103,7 +103,7 @@ func TestTokenReviewCacheExpiry(t *testing.T) {
 	}
 }
 
-func TestTokenReviewCacheAudienceAndRotation(t *testing.T) {
+func TestTokenReviewCacheRotation(t *testing.T) {
 	reviewer := &tokenReviewer{create: func(_ context.Context, req *authenticationv1.TokenReview) (*authenticationv1.TokenReview, error) {
 		result := acceptedReview(req)
 		result.Status.Authenticated = req.Spec.Audiences[0] == serviceAccountAudience
@@ -111,16 +111,13 @@ func TestTokenReviewCacheAudienceAndRotation(t *testing.T) {
 	}}
 	p := NewServiceAccountProvider(&InsecureAuthenticator{}, reviewer, "cluster")
 	token := reviewToken(t, jwt.MapClaims{"generation": 1})
-	first, err := p.verify(t.Context(), token, serviceAccountAudience)
+	first, err := p.verify(t.Context(), token)
 	require.NoError(t, err)
-	_, err = p.verify(t.Context(), token, "downstream")
-	require.ErrorIs(t, err, ErrUnauthenticated, "a cached inbound review must not authorize a different audience")
-	require.EqualValues(t, 2, reviewer.calls.Load())
 	rotated := reviewToken(t, jwt.MapClaims{"generation": 2})
-	second, err := p.verify(t.Context(), rotated, serviceAccountAudience)
+	second, err := p.verify(t.Context(), rotated)
 	require.NoError(t, err)
 	require.Equal(t, first.ID, second.ID)
-	require.EqualValues(t, 3, reviewer.calls.Load(), "rotation must verify the new token immediately")
+	require.EqualValues(t, 2, reviewer.calls.Load(), "rotation must verify the new token immediately")
 }
 
 func TestTokenReviewCacheConcurrentCancellation(t *testing.T) {
@@ -140,7 +137,7 @@ func TestTokenReviewCacheConcurrentCancellation(t *testing.T) {
 		defer cancel()
 		first := make(chan error, 1)
 		go func() {
-			_, err := p.verify(ctx, token, serviceAccountAudience)
+			_, err := p.verify(ctx, token)
 			first <- err
 		}()
 		synctest.Wait() // The first caller owns the pending lookup.
@@ -148,7 +145,7 @@ func TestTokenReviewCacheConcurrentCancellation(t *testing.T) {
 		results := make(chan error, waiters)
 		for range waiters {
 			go func() {
-				_, err := p.verify(t.Context(), token, serviceAccountAudience)
+				_, err := p.verify(t.Context(), token)
 				results <- err
 			}()
 		}
@@ -171,7 +168,7 @@ func TestTokenReviewLookupTimeout(t *testing.T) {
 		}}
 		p := NewServiceAccountProvider(&InsecureAuthenticator{}, reviewer, "cluster")
 		started := time.Now()
-		_, err := p.verify(t.Context(), reviewToken(t, jwt.MapClaims{}), serviceAccountAudience)
+		_, err := p.verify(t.Context(), reviewToken(t, jwt.MapClaims{}))
 		require.ErrorContains(t, err, "verification unavailable")
 		require.Equal(t, 10*time.Second, time.Since(started))
 		require.Zero(t, p.verified.Len())
@@ -185,11 +182,11 @@ func TestTokenReviewCacheEviction(t *testing.T) {
 	p := NewServiceAccountProvider(&InsecureAuthenticator{}, reviewer, "cluster")
 	first := reviewToken(t, jwt.MapClaims{"jti": "0"})
 	for i := range tokenReviewCacheSize + 1 {
-		_, err := p.verify(t.Context(), reviewToken(t, jwt.MapClaims{"jti": fmt.Sprint(i)}), serviceAccountAudience)
+		_, err := p.verify(t.Context(), reviewToken(t, jwt.MapClaims{"jti": fmt.Sprint(i)}))
 		require.NoError(t, err, "a full cache must evict instead of rejecting callers")
 	}
 	require.Equal(t, tokenReviewCacheSize, p.verified.Len())
-	_, err := p.verify(t.Context(), first, serviceAccountAudience)
+	_, err := p.verify(t.Context(), first)
 	require.NoError(t, err)
 	require.EqualValues(t, tokenReviewCacheSize+2, reviewer.calls.Load(), "the oldest entry must be reviewed again")
 }

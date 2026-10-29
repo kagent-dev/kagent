@@ -156,13 +156,13 @@ config:
   server:
     auth:
       mode: insecure
-      # Kubernetes TokenReview authentication, also used by ScheduledRuns.
+      # Kubernetes TokenReview authentication for external machine callers.
       serviceAccount:
         authority: kubernetes
     grpcReflection: false
   scheduledRuns:
     outboundCredential:
-      # Audience accepted by downstream services; must differ from server authentication.
+      # Downstream audience; must differ from Kagent and Kubernetes API audiences.
       audience: kagent-egress
       # Requested TTL; each invocation is limited by the issued token's remaining lifetime.
       expirationSeconds: 3600

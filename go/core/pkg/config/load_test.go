@@ -212,14 +212,15 @@ func TestYAMLConfigReadsOnlyFirstDocument(t *testing.T) {
 	require.Equal(t, "debug", cfg.GetLogging().GetLevel())
 }
 
-func TestSchedulerAuthenticationConfiguration(t *testing.T) {
+func TestSchedulerCredentialConfiguration(t *testing.T) {
 	for _, tc := range []struct {
 		name, input string
 		valid       bool
 	}{
-		{"outbound without identity", "scheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound}}", false},
-		{"identity without requested TTL", "server: {auth: {serviceAccount: {authority: cluster, tokenFile: /inbound}}}\nscheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound}}", true},
-		{"invalid requested TTL", "server: {auth: {serviceAccount: {authority: cluster, tokenFile: /inbound}}}\nscheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound, expirationSeconds: 1}}", false},
+		{"outbound without machine authentication", "scheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound}}", true},
+		{"outbound with requested TTL", "scheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound, expirationSeconds: 7200}}", true},
+		{"invalid requested TTL", "scheduledRuns: {outboundCredential: {audience: downstream, tokenFile: /outbound, expirationSeconds: 1}}", false},
+		{"inbound audience", "scheduledRuns: {outboundCredential: {audience: kagent-invocation, tokenFile: /outbound}}", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &configv1.ControllerConfig{}

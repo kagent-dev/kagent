@@ -122,21 +122,26 @@ passthrough destinations must be trusted with it. An embedding application's
 `UpstreamAuth` hook may replace or suppress the credential. Forwarding within a
 request reuses its verified credential and checks expiry locally.
 
-Each controller caches up to 1,024 successful TokenReviews by token hash and
-requested audience for 30 seconds, capped by the token's expiry when present.
+Each controller caches up to 1,024 successful TokenReviews by token hash for
+30 seconds, capped by the token's expiry when present. Reviews always require
+the `kagent-invocation` audience.
 Cache hits do not extend that lifetime. Concurrent lookups for the same credential
 share one review; failed reviews are not cached, and an unavailable Kubernetes API
 never extends an expired entry. Revocation can therefore take up to 30 additional
 seconds to become visible. Token rotation uses a new cache key immediately.
 
-ScheduledRuns use separate projected credentials: `kagent-invocation` establishes
-scheduler identity, while `kagent-egress` (configurable) authorizes downstream
-calls. The outbound credential cannot authenticate to Kagent. Each outbound call
-reads the current projected file and checks its identity through the same bounded
-TokenReview cache, so rotation takes effect immediately. The chart owns both token
-paths and mounts; `tokenFile` values cannot change them. Set `config.scheduledRuns.outboundCredential` to `null` to
-disable scheduling and both projections. Service-account authentication can remain
-enabled for direct machine callers without projecting scheduler credentials.
+ScheduledRuns call the invocation workflow in-process under an internal scheduler
+principal scoped to the controller's installation namespace. They do not log in
+or perform TokenReviews. One projected token with the configurable `kagent-egress`
+audience supplies downstream passthrough credentials. The scheduler trusts the
+projected file and checks its expiry and audience locally; downstream services
+authenticate the token. Its audience must differ from `kagent-invocation` and
+the cluster's Kubernetes API audiences. Each dispatch reads the current file;
+already running invocations retain their captured token until it expires.
+The chart owns the token path and mount; `tokenFile` values cannot change them.
+Set `config.scheduledRuns.outboundCredential` to `null` to disable scheduling and
+its projection. Scheduling and authentication of external machine callers can be
+enabled independently.
 
 `GetCurrentUser.claims` returns provider-specific attributes, not a normalized
 profile: proxy claims for OIDC, `username` and `groups` for service accounts, or

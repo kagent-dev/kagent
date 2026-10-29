@@ -15,9 +15,6 @@
   "runtimeDefaults" (dict "controlPlaneUrl" $apiURL "gatewayUrl" $apiURL)
 -}}
 {{- $config := mergeOverwrite $base (deepCopy .Values.config) -}}
-{{- with $config.server.auth.serviceAccount -}}
-{{- $_ := set . "tokenFile" (include "kagent.invocationTokenFile" $) -}}
-{{- end -}}
 {{- with $config.scheduledRuns.outboundCredential -}}
 {{- $_ := set . "tokenFile" (include "kagent.outboundTokenFile" $) -}}
 {{- end -}}

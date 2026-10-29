@@ -328,24 +328,23 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 
 	authenticator, authorizer := opts.resolve()
-	var schedulerCaller auth.Session
 	if machine := cfg.GetServer().GetAuth().GetServiceAccount(); machine != nil {
 		reviewer, err := typedauth.NewForConfig(kubeConfig)
 		if err != nil {
 			return fmt.Errorf("create service-account verifier: %w", err)
 		}
-		machineProvider := authimpl.NewServiceAccountProvider(authenticator, reviewer.TokenReviews(), machine.GetAuthority())
-		authenticator = machineProvider
-		if outbound := cfg.GetScheduledRuns().GetOutboundCredential(); outbound != nil {
-			schedulerCaller, err = machineProvider.ProjectedSession(ctx, machine.GetTokenFile(), outbound.GetTokenFile(), outbound.GetAudience())
-			if err != nil {
-				return fmt.Errorf("configure scheduler identity and outbound credential: %w", err)
-			}
-		}
+		authenticator = authimpl.NewServiceAccountProvider(authenticator, reviewer.TokenReviews(), machine.GetAuthority())
 	}
 	authenticator = runtimeauth.NewProvider(authenticator, actorVerifier, store, cfg.GetSubstrate().GetActorJwtIssuer())
 	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
+	var schedulerCaller auth.Session
+	if outbound := cfg.GetScheduledRuns().GetOutboundCredential(); outbound != nil {
+		schedulerCaller, err = authimpl.NewSchedulerSession(ctx, resourceNamespace, outbound.GetTokenFile(), outbound.GetAudience())
+		if err != nil {
+			return fmt.Errorf("configure scheduler outbound credential: %w", err)
+		}
+	}
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)

@@ -36,7 +36,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          ScheduledRun configures invocations using the scheduler's authenticated
+          ScheduledRun configures invocations using the scheduler's internal
           identity. Deletion stops reservations once reconciled; accepted executions
           and their history survive deletion. A recreated name has a new UID.
         properties:

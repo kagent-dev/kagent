@@ -181,7 +181,7 @@ func (r *ScheduledRunReconciler) reconcile(ctx context.Context, key string) erro
 	}
 	if r.caller == nil {
 		condition.Reason = "SchedulerNotConfigured"
-		failure = "Scheduler service-account authentication is not configured"
+		failure = "Scheduler outbound credential is not configured"
 	}
 	if failure != "" {
 		if err := r.store.DisableScheduledRun(ctx, id, resource.Generation); err != nil {

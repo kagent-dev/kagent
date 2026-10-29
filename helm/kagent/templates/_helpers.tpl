@@ -441,10 +441,6 @@ tag wins over the component tag.
 {{- end -}}
 
 {{/* The chart owns scheduler credential paths and their projected mounts. */}}
-{{- define "kagent.invocationTokenFile" -}}
-/run/kagent-invocation/token
-{{- end -}}
-
 {{- define "kagent.outboundTokenFile" -}}
 /run/kagent-egress/token
 {{- end -}}

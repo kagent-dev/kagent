@@ -897,12 +897,11 @@ func (x *AuthenticationConfig) GetServiceAccount() *ServiceAccountAuthentication
 	return nil
 }
 
-// Platform-owned invocation authentication for the fixed kagent-invocation audience,
-// independent of the Kubernetes API token.
+// Authentication for external service-account callers using the fixed
+// kagent-invocation audience.
 type ServiceAccountAuthentication struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Authority     string                 `protobuf:"bytes,1,opt,name=authority,proto3" json:"authority,omitempty"`
-	TokenFile     string                 `protobuf:"bytes,2,opt,name=token_file,json=tokenFile,proto3" json:"token_file,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -940,13 +939,6 @@ func (*ServiceAccountAuthentication) Descriptor() ([]byte, []int) {
 func (x *ServiceAccountAuthentication) GetAuthority() string {
 	if x != nil {
 		return x.Authority
-	}
-	return ""
-}
-
-func (x *ServiceAccountAuthentication) GetTokenFile() string {
-	if x != nil {
-		return x.TokenFile
 	}
 	return ""
 }
@@ -2233,7 +2225,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\fvalues_files\x18\x03 \x03(\tB\f\xbaH\t\x92\x01\x06\"\x04r\x02\x10\x01R\vvaluesFilesB\r\n" +
 	"\v_repositoryB\n" +
 	"\n" +
-	"\b_version\"\xac\r\n" +
+	"\b_version\"\xe3\v\n" +
 	"\x10ControllerConfig\x12B\n" +
 	"\n" +
 	"kubernetes\x18\x01 \x01(\v2\".kagent.config.v1.KubernetesConfigR\n" +
@@ -2252,8 +2244,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\ttelemetry\x18\f \x01(\v2!.kagent.config.v1.TelemetryConfigR\ttelemetry\x12R\n" +
 	"\x10runtime_defaults\x18\r \x01(\v2'.kagent.config.v1.RuntimeDefaultsConfigR\x0fruntimeDefaults\x12L\n" +
 	"\x0eharness_images\x18\x0e \x01(\v2%.kagent.config.v1.HarnessImagesConfigR\rharnessImages\x120\n" +
-	"\x04push\x18\x0f \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04push:\xa2\x05\xbaH\x9e\x05\x1a\xc6\x01\n" +
-	"#controller.scheduler_authentication\x12Gscheduled_runs.outbound_credential requires server.auth.service_account\x1aV!has(this.scheduled_runs.outbound_credential) || has(this.server.auth.service_account)\x1a\xce\x01\n" +
+	"\x04push\x18\x0f \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04push:\xd9\x03\xbaH\xd5\x03\x1a\xce\x01\n" +
 	"\x1econtroller.database_read_write\x12Fdatabase.read_write.url_file and database.read_write.role are required\x1adhas(this.database) && this.database.read_write.url_file != '' && this.database.read_write.role != ''\x1a\x81\x02\n" +
 	"\x19controller.database_owner\x12ddatabase.owner.url_file and database.owner.role are required unless database.skip_migrations is true\x1a~!has(this.database) || this.database.skip_migrations || (this.database.owner.url_file != '' && this.database.owner.role != '')\"\xf0\x01\n" +
 	"\x13HarnessImagesConfig\x12\x18\n" +
@@ -2277,11 +2268,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x04mode\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19R\binsecureR\rtrusted-proxyH\x00R\x04mode\x88\x01\x01\x12\"\n" +
 	"\ruser_id_claim\x18\x02 \x01(\tR\vuserIdClaim\x12W\n" +
 	"\x0fservice_account\x18\x03 \x01(\v2..kagent.config.v1.ServiceAccountAuthenticationR\x0eserviceAccountB\a\n" +
-	"\x05_mode\"d\n" +
+	"\x05_mode\"E\n" +
 	"\x1cServiceAccountAuthentication\x12%\n" +
-	"\tauthority\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tauthority\x12\x1d\n" +
-	"\n" +
-	"token_file\x18\x02 \x01(\tR\ttokenFile\"\xc7\x03\n" +
+	"\tauthority\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tauthority\"\xc7\x03\n" +
 	"\x0eDatabaseConfig\x12;\n" +
 	"\x05owner\x18\x01 \x01(\v2%.kagent.config.v1.DatabaseLoginConfigR\x05owner\x12D\n" +
 	"\n" +
@@ -2356,9 +2345,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x12expirationInterval:\x92\x01\xbaH\x8e\x01\x1a\x8b\x01\n" +
 	"\x12sandbox.ttl_bounds\x12#default_ttl must not exceed max_ttl\x1aP!has(this.default_ttl) || !has(this.max_ttl) || this.default_ttl <= this.max_ttlB\x06\n" +
 	"\x04_cpuB\t\n" +
-	"\a_memory\"\xac\x01\n" +
-	"!ProjectedServiceAccountCredential\x12#\n" +
-	"\baudience\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\baudience\x12&\n" +
+	"\a_memory\"\xbf\x01\n" +
+	"!ProjectedServiceAccountCredential\x126\n" +
+	"\baudience\x18\x01 \x01(\tB\x1a\xbaH\x17r\x15\x10\x01Z\x11kagent-invocationR\baudience\x12&\n" +
 	"\n" +
 	"token_file\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\ttokenFile\x12:\n" +
 	"\x12expiration_seconds\x18\x03 \x01(\x03B\v\xbaH\b\xd8\x01\x01\"\x03(\xd8\x04R\x11expirationSeconds\"\xa9\x02\n" +

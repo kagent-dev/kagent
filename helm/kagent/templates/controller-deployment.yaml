@@ -69,14 +69,6 @@ spec:
               - key: private-key.pem
                 path: push-private-key.pem
           {{- end }}
-      {{- if and .Values.config.server.auth.serviceAccount .Values.config.scheduledRuns.outboundCredential }}
-      - name: invocation-token
-        projected:
-          sources:
-          - serviceAccountToken:
-              audience: kagent-invocation
-              expirationSeconds: 3600
-              path: {{ include "kagent.invocationTokenFile" . | base | quote }}
       {{- with .Values.config.scheduledRuns.outboundCredential }}
       - name: outbound-invocation-token
         projected:
@@ -85,7 +77,6 @@ spec:
               audience: {{ .audience | quote }}
               expirationSeconds: {{ .expirationSeconds }}
               path: {{ include "kagent.outboundTokenFile" $ | base | quote }}
-      {{- end }}
       {{- end }}
       {{- if .Values.database.postgres.clientCertificate.enabled }}
       - name: postgres-client-certificate
@@ -212,10 +203,7 @@ spec:
             periodSeconds: 30
           {{- end }}
           volumeMounts:
-            {{- if and .Values.config.server.auth.serviceAccount .Values.config.scheduledRuns.outboundCredential }}
-            - name: invocation-token
-              mountPath: {{ include "kagent.invocationTokenFile" . | dir | quote }}
-              readOnly: true
+            {{- if .Values.config.scheduledRuns.outboundCredential }}
             - name: outbound-invocation-token
               mountPath: {{ include "kagent.outboundTokenFile" . | dir | quote }}
               readOnly: true

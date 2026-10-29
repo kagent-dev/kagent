@@ -102,12 +102,6 @@ message ChartConfig {
 // compiled into the ADK protobuf contract or native Harness configuration.
 message ControllerConfig {
   option (buf.validate.message).cel = {
-    id: "controller.scheduler_authentication"
-    message: "scheduled_runs.outbound_credential requires server.auth.service_account"
-    expression: "!has(this.scheduled_runs.outbound_credential) || has(this.server.auth.service_account)"
-  };
-
-  option (buf.validate.message).cel = {
     id: "controller.database_read_write"
     message: "database.read_write.url_file and database.read_write.role are required"
     expression: "has(this.database) && this.database.read_write.url_file != '' && this.database.read_write.role != ''"
@@ -167,11 +161,10 @@ message AuthenticationConfig {
   ServiceAccountAuthentication service_account = 3;
 }
 
-// Platform-owned invocation authentication for the fixed kagent-invocation audience,
-// independent of the Kubernetes API token.
+// Authentication for external service-account callers using the fixed
+// kagent-invocation audience.
 message ServiceAccountAuthentication {
   string authority = 1 [(buf.validate.field).string.min_len = 1];
-  string token_file = 2;
 }
 
 // DatabaseConfig names two PostgreSQL logins. The owner applies migrations; the
@@ -313,7 +306,10 @@ message SandboxConfig {
 
 // Downstream credential, independently scoped from server authentication.
 message ProjectedServiceAccountCredential {
-  string audience = 1 [(buf.validate.field).string.min_len = 1];
+  string audience = 1 [(buf.validate.field).string = {
+    min_len: 1
+    not_in: ["kagent-invocation"]
+  }];
   string token_file = 2 [(buf.validate.field).string.min_len = 1];
   // Requested Kubernetes projection TTL. The issued token's expiry is authoritative.
   int64 expiration_seconds = 3 [

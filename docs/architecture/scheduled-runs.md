@@ -3,7 +3,7 @@
 `ScheduledRun` is a namespaced Kubernetes resource that invokes an Agent on a
 cron schedule or through a manual trigger. Kubernetes owns its configuration;
 PostgreSQL stores accepted executions and their Session links. Each execution
-runs through the A2A gateway as the controller's service-account principal.
+runs through the A2A gateway as an internal scheduler principal.
 
 ## Ownership and APIs
 
@@ -110,15 +110,16 @@ executions and retained history survive schedule deletion.
 
 | Identity | Role in a scheduled execution |
 | --- | --- |
-| Invocation principal | The controller service account that calls the Agent |
+| Invocation principal | The internal scheduler, scoped to the controller's installation namespace |
 | Session creator | The principal recorded when the execution's Session is created |
 | Runtime principal | The verified Substrate Actor bound to that Session |
 | Manual-trigger initiator | The caller recorded for attribution when a trigger is accepted |
 
-`Principal.ID` is a stable, opaque identifier shared by human, service-account,
-and runtime callers. Authentication normalizes the source identity and supplies
-verified claims. Authorization uses those claims and trusted resource references;
-consumers compare principal IDs without parsing them. `Session.creator` stores
+`Principal.ID` is a stable, opaque identifier used by human, service-account,
+runtime, and internal scheduler callers. External authentication normalizes the
+source identity and supplies verified claims. Authorization uses the principal
+and trusted resource references; consumers compare principal IDs without parsing
+them. `Session.creator` stores
 the creating principal's ID. It does not select a credential for subsequent calls.
 
 Kubernetes authentication uses TokenReview and maps the verified service-account
@@ -135,10 +136,11 @@ runtime authorizer restricts them to that Session and its source resource; the c
 binding does not grant the creator's permissions. Human and service-account
 principals have no runtime binding.
 
-All schedules using the controller service account share its principal and
-downstream permissions. Anyone trusted to run schedule code must therefore be
-trusted with that shared downstream authority. Kubernetes namespace boundaries
-do not make this token namespace-specific. Grant the shared principal only
+All schedules in an installation share its internal scheduler principal. They
+also share the controller service account's downstream credential and permissions.
+Anyone trusted to run schedule code must therefore be trusted with that shared
+downstream authority. Kubernetes namespace boundaries do not make this token
+namespace-specific. Grant the downstream service account only
 permissions appropriate for every schedule using it. Services requiring
 per-Agent or per-namespace authorization should use `actorJwt` and
 [identity lookup](agent-identity-lookup.md), and must not grant the shared
@@ -174,23 +176,28 @@ its new creator; schedule history permission does not expose that private conver
 
 ## Scheduler credentials
 
-The controller uses separate projected service-account tokens for incoming Kagent
-authentication and downstream token passthrough:
+The scheduler calls the invocation workflow inside the controller process. It
+does not log in to Kagent or authenticate its own service account. Its principal
+ID uses the `kagent:scheduler` authority and the controller's installation
+namespace, independently of tokens and service-account recreation. This identity
+is assigned internally; secure external authentication providers do not issue it.
+
+The controller projects one service-account token for downstream passthrough,
+separately from its normal Kubernetes API credential:
 
 | Credential | Audience | Use |
 | --- | --- | --- |
-| Inbound token | `kagent-invocation` | Establish the scheduler's Kagent principal |
 | Outbound token | `kagent-egress` | Supply a scheduled invocation's passthrough credential |
 | Kubernetes API token | Kubernetes API audience | Access the Kubernetes API |
 
-The inbound audience is fixed at `kagent-invocation`. The outbound audience
-defaults to `kagent-egress` and is configured for the receiving service.
-
-Inbound and outbound tokens must identify the same service-account UID. Kagent
-rejects equal audiences and outbound tokens that also carry the inbound audience.
-The outbound token therefore cannot be replayed as a Kagent login credential.
-Downstream services verify its issuer and audience and assign its downstream
-permissions.
+The outbound audience defaults to `kagent-egress` and is configured for the
+receiving service. It must differ from `kagent-invocation`, which authenticates
+external machine callers, and from the cluster's Kubernetes API audiences.
+The scheduler trusts the kubelet-managed file and makes no TokenReview requests.
+It checks expiry and requires exactly the configured downstream audience locally.
+The operator must choose an audience that the Kubernetes API does not accept;
+Kagent no longer probes API acceptance. Downstream services verify the token's
+signature, issuer, and audience and assign its downstream permissions.
 
 Helm configures the requested outbound lifetime:
 
@@ -203,12 +210,11 @@ config:
 ```
 
 Kubernetes requires at least 600 seconds and may issue a different lifetime.
-Kubelet rotates the projected tokens. Each invocation captures the current
-verified outbound token, so its remaining lifetime may be shorter than the
+Kubelet rotates the projected token. Each invocation captures the current
+outbound token, so its remaining lifetime may be shorter than the
 requested TTL. Further credential-dependent requests fail after expiry; a
-running invocation does not adopt a rotated token. Changing the scheduler's
-service-account UID prevents it from continuing executions attributed to the
-previous principal.
+running invocation does not adopt a rotated token. Token rotation and service-account
+replacement do not change the internal scheduler's ownership of accepted runs.
 
 Caller-token passthrough retains the existing runtime behavior and supported
 providers described in [credential injection](credential-injection.md). Scheduled

@@ -49,7 +49,7 @@ func (p *ServiceAccountProvider) Authenticate(ctx context.Context, headers http.
 	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
 		return nil, ErrUnauthenticated
 	}
-	principal, err := p.verify(ctx, token, serviceAccountAudience)
+	principal, err := p.verify(ctx, token)
 	if err != nil {
 		return nil, err
 	}

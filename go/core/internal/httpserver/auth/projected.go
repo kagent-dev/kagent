@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -12,66 +11,48 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
-// ProjectedSession authenticates the scheduler with its inbound token, then binds
-// a separately audience-scoped outbound credential to that verified principal.
-// Neither the runtime nor downstream services receive the inbound token.
-func (p *ServiceAccountProvider) ProjectedSession(ctx context.Context, identityPath, credentialPath, credentialAudience string) (auth.Session, error) {
-	if identityPath == "" || credentialPath == "" || credentialAudience == "" || credentialAudience == serviceAccountAudience {
-		return nil, errors.New("scheduler requires separate inbound and outbound credentials and audiences")
+// NewSchedulerSession identifies the in-process scheduler independently of its
+// outbound credential. The projected file is trusted pod configuration; only
+// downstream receivers authenticate its token.
+func NewSchedulerSession(ctx context.Context, namespace, credentialPath, credentialAudience string) (auth.Session, error) {
+	if namespace == "" || credentialPath == "" || credentialAudience == "" || credentialAudience == serviceAccountAudience {
+		return nil, errors.New("scheduler requires a namespace and a downstream credential with a separate audience")
 	}
-	token, err := readProjectedToken(identityPath)
-	if err != nil {
-		return nil, err
-	}
-	principal, err := p.verify(ctx, token, serviceAccountAudience)
-	if err != nil {
-		return nil, err
-	}
-	source := &projectedTokenSource{provider: p, path: credentialPath, principalID: principal.ID, audience: credentialAudience}
+	source := &projectedTokenSource{path: credentialPath, audience: credentialAudience}
 	if _, err := source.Token(ctx); err != nil {
 		return nil, err
 	}
-	return auth.NewCredentialSession(principal, source), nil
+	return auth.NewCredentialSession(auth.Principal{ID: auth.PrincipalID("kagent:scheduler", namespace)}, source), nil
 }
 
 type projectedTokenSource struct {
-	provider    *ServiceAccountProvider
-	path        string
-	principalID string
-	audience    string
+	path     string
+	audience string
 }
 
 var _ auth.TokenSource = (*projectedTokenSource)(nil)
 
-func readProjectedToken(path string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil || len(strings.TrimSpace(string(b))) == 0 {
-		return "", errors.New("projected invocation credential unavailable")
-	}
-	return strings.TrimSpace(string(b)), nil
-}
-
 func (s *projectedTokenSource) Token(ctx context.Context) (string, error) {
-	token, err := readProjectedToken(s.path)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	principal, err := s.provider.verify(ctx, token, s.audience)
-	if err != nil {
-		return "", err
+	b, err := os.ReadFile(s.path)
+	if err != nil || len(strings.TrimSpace(string(b))) == 0 {
+		return "", errors.New("projected outbound credential unavailable")
 	}
-	if principal.ID != s.principalID {
-		return "", errors.New("projected invocation credential identity changed")
-	}
-	// TokenReview verified this exact token. Reject multi-audience credentials
-	// that would also be usable for inbound Kagent access.
+	token := strings.TrimSpace(string(b))
+	// This local check catches misconfigured projections and expired credentials.
+	// It does not authenticate the scheduler or verify the token's signature.
 	claims, err := parseJWTPayload(token)
 	if err != nil {
 		return "", errors.New("invalid outbound credential")
 	}
 	audiences, err := jwt.MapClaims(claims).GetAudience()
-	if err != nil || slices.Contains(audiences, serviceAccountAudience) {
-		return "", errors.New("outbound credential grants inbound Kagent access")
+	if err != nil || len(audiences) != 1 || audiences[0] != s.audience {
+		return "", errors.New("outbound credential must have only the configured downstream audience")
+	}
+	if err := jwt.NewValidator(jwt.WithExpirationRequired()).Validate(jwt.MapClaims(claims)); err != nil {
+		return "", ErrUnauthenticated
 	}
 	return token, nil
 }

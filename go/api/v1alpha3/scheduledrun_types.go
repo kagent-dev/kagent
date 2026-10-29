@@ -77,7 +77,7 @@ type ScheduledRunStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// ScheduledRun configures invocations using the scheduler's authenticated
+// ScheduledRun configures invocations using the scheduler's internal
 // identity. Deletion stops reservations once reconciled; accepted executions
 // and their history survive deletion. A recreated name has a new UID.
 // +genclient

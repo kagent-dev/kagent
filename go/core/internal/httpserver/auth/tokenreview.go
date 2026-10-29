@@ -26,12 +26,12 @@ type verifiedServiceAccount struct {
 	validUntil time.Time
 }
 
-func (p *ServiceAccountProvider) verify(ctx context.Context, token, audience string) (auth.Principal, error) {
+func (p *ServiceAccountProvider) verify(ctx context.Context, token string) (auth.Principal, error) {
 	if err := ctx.Err(); err != nil {
 		return auth.Principal{}, err
 	}
 	digest := sha256.Sum256([]byte(token))
-	key := audience + ":" + hex.EncodeToString(digest[:])
+	key := hex.EncodeToString(digest[:])
 	entry, ok := p.cachedReview(key)
 	if !ok {
 		result := p.lookups.DoChan(key, func() (any, error) {
@@ -41,7 +41,7 @@ func (p *ServiceAccountProvider) verify(ctx context.Context, token, audience str
 			// Callers cancel their own wait, not verification shared with others.
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tokenReviewTimeout)
 			defer cancel()
-			entry, err := p.review(ctx, token, audience)
+			entry, err := p.review(ctx, token)
 			if err == nil {
 				p.verified.Add(key, entry)
 			}
@@ -85,7 +85,7 @@ func (p *ServiceAccountProvider) cachedReview(key string) (*verifiedServiceAccou
 	return nil, false
 }
 
-func (p *ServiceAccountProvider) review(ctx context.Context, token, audience string) (*verifiedServiceAccount, error) {
+func (p *ServiceAccountProvider) review(ctx context.Context, token string) (*verifiedServiceAccount, error) {
 	claims, err := parseJWTPayload(token)
 	if err != nil {
 		return nil, ErrUnauthenticated
@@ -99,25 +99,14 @@ func (p *ServiceAccountProvider) review(ctx context.Context, token, audience str
 	if !expiresAt.IsZero() && expiresAt.Before(validUntil) {
 		validUntil = expiresAt
 	}
-	review, err := p.reviews.Create(ctx, &authenticationv1.TokenReview{Spec: authenticationv1.TokenReviewSpec{Token: token, Audiences: []string{audience}}}, metav1.CreateOptions{})
+	review, err := p.reviews.Create(ctx, &authenticationv1.TokenReview{Spec: authenticationv1.TokenReviewSpec{Token: token, Audiences: []string{serviceAccountAudience}}}, metav1.CreateOptions{})
 	// Do not return the API response/error: it may contain credential material.
 	if err != nil || review == nil {
 		return nil, errors.New("service-account credential verification unavailable")
 	}
 	s := review.Status
-	if !s.Authenticated || s.Error != "" || s.User.UID == "" || !strings.HasPrefix(s.User.Username, "system:serviceaccount:") || !slices.Contains(s.Audiences, audience) || !time.Now().Before(validUntil) {
+	if !s.Authenticated || s.Error != "" || s.User.UID == "" || !strings.HasPrefix(s.User.Username, "system:serviceaccount:") || !slices.Contains(s.Audiences, serviceAccountAudience) || !time.Now().Before(validUntil) {
 		return nil, ErrUnauthenticated
-	}
-	if audience != serviceAccountAudience {
-		// Omitting audiences asks Kubernetes whether this token authenticates to
-		// its own API. Never export that authority to a scheduled runtime.
-		apiReview, err := p.reviews.Create(ctx, &authenticationv1.TokenReview{Spec: authenticationv1.TokenReviewSpec{Token: token}}, metav1.CreateOptions{})
-		if err != nil || apiReview == nil {
-			return nil, errors.New("outbound credential isolation verification unavailable")
-		}
-		if apiReview.Status.Authenticated {
-			return nil, errors.New("outbound credential grants Kubernetes API access")
-		}
 	}
 	return &verifiedServiceAccount{user: s.User, validUntil: validUntil}, nil
 }
