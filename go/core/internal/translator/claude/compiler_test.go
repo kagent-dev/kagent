@@ -368,9 +368,23 @@ func TestCompileMCPToolSelection(t *testing.T) {
 	}
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
 	server.Status.ObservedGeneration = 0
-	_, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
-	if err == nil || !strings.Contains(err.Error(), "requires a current discovered tool set") {
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	if err != nil {
 		t.Fatalf("stale discovery Compile() error = %v", err)
+	}
+	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "denied when called") {
+		t.Fatalf("stale discovery warnings = %v", revision.Warnings)
+	}
+	selection = claudeconfig.Config{}
+	if err := json.Unmarshal(revision.ConfigJSON, &selection); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(selection.MCPServers["tools"].Tools, []string{"one"}) || len(selection.DisallowedTools) != 0 {
+		t.Fatalf("stale discovery selection = %#v, excluded = %v", selection.MCPServers["tools"].Tools, selection.DisallowedTools)
+	}
+	input.Root.MCPTools[0].Binding.Tools = []string{"one two"}
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input); err == nil {
+		t.Fatal("non-literal selected tool was admitted without discovery")
 	}
 
 	server.Status.ObservedGeneration = server.Generation
