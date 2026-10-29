@@ -11,7 +11,6 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -96,7 +95,7 @@ func TestExampleAgentToolsSkills(t *testing.T) {
 				template := &v1alpha3.AgentTemplate{
 					ObjectMeta: metav1.ObjectMeta{GenerateName: "example-" + agent.name + "-", Namespace: "kagent", Labels: harness.labels()},
 					Spec: v1alpha3.AgentTemplateSpec{
-						ModelConfig: &corev1.LocalObjectReference{Name: config.Name},
+						ModelConfig: &v1alpha3.ObjectReference{Name: config.Name},
 						Description: agent.description,
 						PromptTemplate: &v1alpha3.AgentTemplatePromptTemplateSpec{
 							DataSources: []v1alpha3.AgentTemplatePromptSource{{Name: "kagent-builtin-prompts", Alias: "builtin"}},
