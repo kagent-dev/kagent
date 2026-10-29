@@ -560,7 +560,8 @@ func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
 				states := newAgentReconciliations(agents, inputs, observations, opts, testRuntimeDefaults(), nil)
 				reconciler := &Reconciler{store: store, templates: &fakeActorTemplates{}, collections: Collections{Reconciliations: states, AgentRuntimeObservations: observations}}
 				require.NoError(t, store.UpsertAgentDefinition(ctx, database.AgentDefinition{Namespace: agent.Namespace, AgentName: agent.Name, AgentUID: string(agent.UID), DesiredRevision: "r1"}))
-				require.NoError(t, store.RecordRuntimeRevision(ctx, database.RuntimeRevision{Revision: "r1", Namespace: agent.Namespace, AgentName: agent.Name, AgentUID: string(agent.UID), SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: agent.Name}, ActorTemplateAtespace: agent.Namespace, ActorTemplateName: "r1", ActorTemplateUID: "actor-uid"}, database.RecordRevisionOptions{Ready: true}))
+				_, err = store.RecordRuntimeRevision(ctx, database.RuntimeRevision{Revision: "r1", Namespace: agent.Namespace, AgentName: agent.Name, AgentUID: string(agent.UID), SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: agent.Name}, ActorTemplateAtespace: agent.Namespace, ActorTemplateName: "r1", ActorTemplateUID: "actor-uid"}, database.RecordRevisionOptions{Ready: true})
+				require.NoError(t, err)
 				create := func(key string) (*apiv1.Session, bool, error) {
 					return store.CreateSession(ctx, &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}, key)
 				}
