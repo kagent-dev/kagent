@@ -21,33 +21,11 @@ import (
 
 func TestCompileSkillImageVolumes(t *testing.T) {
 	const image = "registry.example.com/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	for _, kind := range []translator.HarnessType{translator.HarnessTypeKagent, translator.HarnessTypeCodex, translator.HarnessTypeClaude, translator.HarnessTypeBYO} {
+	for _, kind := range skillHarnessTypes {
 		t.Run(string(kind), func(t *testing.T) {
-			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
-				Workload:  v1alpha3.HarnessWorkload{Image: new(image), Command: []string{"/agent"}},
-				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
-			}}
-			model := modelConfig()
-			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
-			switch kind {
-			case translator.HarnessTypeKagent:
-				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
-			case translator.HarnessTypeCodex:
-				harness.Spec.Codex = &v1alpha3.CodexHarness{}
-				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
-			case translator.HarnessTypeClaude:
-				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
-				model.Spec.Provider = v1alpha3.ModelProviderAnthropic
-			case translator.HarnessTypeBYO:
-				harness.Spec.BYO = &v1alpha3.BYOHarness{}
-			}
-			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: map[string][]byte{"api-key": []byte("test")}}
-			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "skills", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "help",
-				Skills:  []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{OCI: image, Path: "skills/review"}}},
-				Plugins: []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{OCI: image, Path: "plugin"}, Skills: []string{"deploy"}}},
-			}}
-			c := compiler(t, harness, model, secret)
+			c, harness, template := skillCompiler(t, kind, image)
+			template.Spec.Skills = []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{OCI: image, Path: "skills/review"}}}
+			template.Spec.Plugins = []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{OCI: image, Path: "plugin"}, Skills: []string{"deploy"}}}
 			result, err := c.CompileAgent(t.Context(), inlineAgent(harness, template))
 			require.NoError(t, err)
 			require.Equal(t, []translator.SkillImage{image}, result.SkillImages)
@@ -94,6 +72,69 @@ func TestCompileSkillImageVolumes(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, updated.SkillImages, 2)
 			require.NotEqual(t, updated.SkillImages[0].MountPath(), updated.SkillImages[1].MountPath())
+		})
+	}
+}
+
+var skillHarnessTypes = []translator.HarnessType{translator.HarnessTypeKagent, translator.HarnessTypeCodex, translator.HarnessTypeClaude, translator.HarnessTypeBYO}
+
+// skillCompiler returns a compiler for one Harness type and an AgentTemplate
+// with no skills that the caller fills in.
+func skillCompiler(t *testing.T, kind translator.HarnessType, image string) (*translator.Compiler, *v1alpha3.Harness, *v1alpha3.AgentTemplate) {
+	t.Helper()
+	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+		Workload:  v1alpha3.HarnessWorkload{Image: new(image), Command: []string{"/agent"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+	}}
+	model := modelConfig()
+	model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+	switch kind {
+	case translator.HarnessTypeKagent:
+		harness.Spec.Kagent = &v1alpha3.KagentHarness{}
+	case translator.HarnessTypeCodex:
+		harness.Spec.Codex = &v1alpha3.CodexHarness{}
+		model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
+	case translator.HarnessTypeClaude:
+		harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
+		model.Spec.Provider = v1alpha3.ModelProviderAnthropic
+	case translator.HarnessTypeBYO:
+		harness.Spec.BYO = &v1alpha3.BYOHarness{}
+	}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: map[string][]byte{"api-key": []byte("test")}}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "skills", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+		ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "help",
+	}}
+	return compiler(t, harness, model, secret), harness, template
+}
+
+// The golden actor fetches git and S3 sources before its snapshot, so each
+// Harness must report their origins for the golden actor's egress policy.
+func TestCompileGoldenEgressDestinations(t *testing.T) {
+	const image = "registry.example.com/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	want := []string{"http://git.internal.example:8080", "https://git.example.com:443", "https://objects.example.com:443"}
+	for _, kind := range skillHarnessTypes {
+		t.Run(string(kind), func(t *testing.T) {
+			c, harness, template := skillCompiler(t, kind, image)
+			template.Spec.Skills = []v1alpha3.AgentTemplateSkill{
+				{Name: "review", Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{URL: "https://git.example.com/skills.git", Commit: strings.Repeat("a", 40)}}},
+				{Name: "triage", Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{URL: "https://git.example.com/other.git", Commit: strings.Repeat("b", 40)}}},
+				{Name: "summary", Source: v1alpha3.ArtifactSource{OCI: image}},
+			}
+			template.Spec.Plugins = []v1alpha3.PluginBundle{
+				{Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{URL: "http://git.internal.example:8080/plugin.git", Commit: strings.Repeat("c", 40)}}},
+				{Source: v1alpha3.ArtifactSource{Bucket: &v1alpha3.BucketArtifact{S3: v1alpha3.S3Object{
+					Endpoint: "https://objects.example.com", Bucket: "plugins", Key: "plugin.zip", VersionID: "version-1",
+				}}}},
+			}
+			result, err := c.CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.NoError(t, err)
+			require.Equal(t, want, result.GoldenEgressDestinations)
+			require.Subset(t, result.EgressDestinations, want, "sessions keep access to skill sources")
+
+			template.Spec.Skills, template.Spec.Plugins = template.Spec.Skills[2:], nil
+			result, err = c.CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.NoError(t, err)
+			require.Empty(t, result.GoldenEgressDestinations, "OCI sources are mounted, not fetched")
 		})
 	}
 }

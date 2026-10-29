@@ -25,7 +25,7 @@ func TestSubstrateInstallValues(t *testing.T) {
 				} `json:"credentialProvider"`
 			}
 			require.NoError(t, yaml.Unmarshal([]byte(substrateInstallValues(namespace, "kagent-controller")), &values))
-			require.Contains(t, values.Preview, "PerTemplateSnapshotLocation")
+			require.Subset(t, values.Preview, []string{"PerTemplateSnapshotLocation", "GoldenEgressPolicy"})
 			require.Equal(t, []string{
 				"spiffe://cluster.local/ns/" + namespace + "/sa/kagent-controller",
 				"system:serviceaccount:ate-system:ate-client",

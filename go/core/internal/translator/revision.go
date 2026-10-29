@@ -72,6 +72,10 @@ type Revision struct {
 	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
+	// GoldenEgressDestinations are the sorted git and S3 origins the runtime
+	// fetches skill sources from at startup, before the golden snapshot.
+	// Sessions restore those sources from the snapshot and do not inherit them.
+	GoldenEgressDestinations []string
 }
 
 // Equals compares the Agent Card's contents without inspecting protobuf caches.
