@@ -45,19 +45,22 @@ func (c Config) Model(parent *agw.AgentgatewayModel) (*kagentv1alpha3.ModelConfi
 	if model.Spec.Provider == "" && parent.Spec.Provider != nil && *parent.Spec.Provider == agw.ModelProviderAnthropic {
 		model.Spec.Provider = kagentv1alpha3.ModelProviderAnthropic
 	}
-	if model.Spec.Provider == kagentv1alpha3.ModelProviderAnthropic {
+	switch model.Spec.Provider {
+	case kagentv1alpha3.ModelProviderAnthropic:
 		if model.Spec.Anthropic == nil {
 			model.Spec.Anthropic = &kagentv1alpha3.AnthropicConfig{}
 		}
 		model.Spec.Anthropic.BaseURL = u.String()
 		model.Spec.OpenAI = nil
-	} else {
+	case "", kagentv1alpha3.ModelProviderOpenAI:
 		model.Spec.Provider = kagentv1alpha3.ModelProviderOpenAI
 		if model.Spec.OpenAI == nil {
 			model.Spec.OpenAI = &kagentv1alpha3.OpenAIConfig{}
 		}
 		model.Spec.OpenAI.BaseURL = u.String() + "/v1"
 		model.Spec.Anthropic = nil
+	default:
+		return nil, fmt.Errorf("unsupported model template provider %q: use OpenAI or Anthropic", model.Spec.Provider)
 	}
 	return model, nil
 }
