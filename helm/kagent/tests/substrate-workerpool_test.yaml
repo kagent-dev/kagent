@@ -7,7 +7,7 @@ set:
   controller.substrateClientCertificate.enabled: true
   substrateWorkerPool.create: true
   substrateWorkerPool.name: selected-pool
-  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v0.7.0-alpha1
+  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v0.7.0-alpha2
 tests:
   - it: should default to gvisor and label the selected pool
     asserts:
@@ -40,7 +40,7 @@ tests:
           value: gvisor-default
       - equal:
           path: spec.workerImage
-          value: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v0.7.0-alpha1
+          value: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v0.7.0-alpha2
   - it: should preserve gvisor when the class is empty
     set:
       substrateWorkerPool.sandboxClass: ""
@@ -117,7 +117,7 @@ tests:
   - it: should render microvm with the selected image and worker selector label
     set:
       substrateWorkerPool.sandboxClass: microvm
-      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-microvm:v0.7.0-alpha1
+      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-microvm:v0.7.0-alpha2
     asserts:
       - equal:
           path: spec.sandboxClasses[0].name
@@ -127,7 +127,7 @@ tests:
           value: microvm
       - equal:
           path: spec.workerImage
-          value: ghcr.io/kagent-dev/substrate/ateworker-microvm:v0.7.0-alpha1
+          value: ghcr.io/kagent-dev/substrate/ateworker-microvm:v0.7.0-alpha2
       - equal:
           path: metadata.labels["kagent.dev/worker-pool-name"]
           value: selected-pool

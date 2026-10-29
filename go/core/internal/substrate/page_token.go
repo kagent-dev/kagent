@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 )
 
-// These tokens match Substrate v0.7.0-alpha1's private atepg/pagetoken.go
+// These tokens match Substrate v0.7.0-alpha2's private atepg/pagetoken.go
 // format. Keep this adapter and its contract tests aligned when upgrading.
 // Callers use them to resume after a returned identity rather than expose a
 // backend cursor that can name a filtered-out row.
