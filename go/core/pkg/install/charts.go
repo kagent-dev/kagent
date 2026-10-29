@@ -15,12 +15,13 @@ import (
 // Chart names an artifact and its overrides. Name is independent of the Helm
 // release name, allowing embedding applications to select different chart artifacts.
 type Chart struct {
-	Name         string
-	Repository   string
-	Version      string
-	Values       []string
-	ValuesFiles  []string
-	InlineValues string
+	Name        string
+	Repository  string
+	Version     string
+	Values      []string
+	ValuesFiles []string
+	// Generated defaults stay separate from caller files so Helm merges their maps.
+	inlineValues string
 }
 
 func cloneChart(chart Chart) Chart {
@@ -56,7 +57,7 @@ func (s ChartInstall) Command() Command {
 		"--wait", "--wait-for-jobs", "--history-max", "2", "--timeout", "5m"}
 	args = append(args, chartTransportArgs(s.Chart)...)
 	args = append(args, helmValueArgs(s.Chart)...)
-	return Command{Program: "helm", Args: args, Stdin: s.Chart.InlineValues}
+	return Command{Program: "helm", Args: args, Stdin: s.Chart.inlineValues}
 }
 
 func chartTransportArgs(chart Chart) []string {
@@ -78,7 +79,7 @@ func helmValueArgs(chart Chart) []string {
 			args = append(args, "--set", value)
 		}
 	}
-	if chart.InlineValues != "" {
+	if chart.inlineValues != "" {
 		args = append(args, "-f", "-")
 	}
 	for _, file := range chart.ValuesFiles {
@@ -92,7 +93,7 @@ func (c *Client) controllerServiceAccount(ctx context.Context, namespace string,
 		"--namespace", namespace, "--show-only", "templates/controller-deployment.yaml"}
 	args = append(args, chartTransportArgs(chart)...)
 	args = append(args, helmValueArgs(chart)...)
-	manifest, err := c.runner.Run(ctx, Command{Program: "helm", Args: args, Stdin: chart.InlineValues})
+	manifest, err := c.runner.Run(ctx, Command{Program: "helm", Args: args, Stdin: chart.inlineValues})
 	if err != nil {
 		return "", fmt.Errorf("failed to render controller deployment: %w: %s", err, strings.TrimSpace(manifest))
 	}

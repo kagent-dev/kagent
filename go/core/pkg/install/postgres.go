@@ -92,7 +92,7 @@ func (c *Client) PreparePostgres(ctx context.Context, p Postgres) error {
 func (c *Client) RunSQL(ctx context.Context, namespace, database string, script SQLScript) error {
 	args := []string{"-n", namespace, "exec", "-i", "deployment/kagent-postgresql", "-c", "postgresql", "--",
 		"psql", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--username", "postgres", "--dbname", database}
-	if _, err := c.kubectl(ctx, script.SQL, append(args, script.Args...)...); err != nil {
+	if _, err := c.runner.Run(ctx, Command{Program: "kubectl", Args: append(args, script.Args...), Stdin: script.SQL}); err != nil {
 		return fmt.Errorf("failed to prepare PostgreSQL database %s: %w", database, err)
 	}
 	return nil

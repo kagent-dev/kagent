@@ -3,7 +3,9 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -51,7 +53,7 @@ func chartConfig(chart *configv1.ChartConfig, name string) installer.Chart {
 	return installer.Chart{Name: name, Repository: chart.GetRepository(), Version: chart.GetVersion(), ValuesFiles: slices.Clone(chart.GetValuesFiles())}
 }
 
-func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg) error {
+func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg) (resultErr error) {
 	if version.Version == "dev" {
 		return errors.New("installation requires a released version of kagent")
 	}
@@ -64,12 +66,25 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 			return fmt.Errorf("%s is not set; set it, or choose another provider with install.defaultModelProvider in the CLI config", apiKey.Name())
 		}
 	}
-	profileValues := ""
+	kagent := chartConfig(settings.GetKagent(), kagentChartName)
 	if profile := strings.TrimSpace(cfg.Profile); profile != "" {
 		if !slices.Contains(profiles.Profiles, profile) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Invalid --profile value (%s), defaulting to minimal\n", profile)
 		}
-		profileValues = profiles.MinimalProfileYaml
+		directory, err := os.MkdirTemp("", "kagent-install-profile-")
+		if err != nil {
+			return fmt.Errorf("failed to create installation profile directory: %w", err)
+		}
+		defer func() {
+			if err := os.RemoveAll(directory); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("failed to clean installation profile directory: %w", err))
+			}
+		}()
+		path := filepath.Join(directory, "values.yaml")
+		if err := os.WriteFile(path, []byte(profiles.MinimalProfileYaml), 0o600); err != nil {
+			return fmt.Errorf("failed to write installation profile values: %w", err)
+		}
+		kagent.ValuesFiles = append([]string{path}, kagent.ValuesFiles...)
 	}
 	client, err := newInstallClient()
 	if err != nil {
@@ -77,15 +92,15 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 	}
 	plan, err := client.Plan(cmd.Context(), installer.Config{
 		Namespace:      options.Namespace,
-		Kagent:         chartConfig(settings.GetKagent(), kagentChartName),
+		Kagent:         kagent,
 		KagentCRDs:     chartConfig(settings.GetKagent(), kagentChartName+"-crds"),
 		Substrate:      chartConfig(settings.GetSubstrate(), "substrate"),
 		SubstrateCRDs:  chartConfig(settings.GetSubstrate(), "substrate-crds"),
 		PodCertificate: chartConfig(settings.GetPodCertificate(), "substrate-podcert"),
 		ModelProvider:  string(modelProvider), APIKey: apiKeyValue,
-		WorkerImage:   "ghcr.io/kagent-dev/substrate/ateworker-gvisor:v" + strings.TrimPrefix(settings.GetSubstrate().GetVersion(), "v"),
-		ProfileValues: profileValues, SkipDatabaseSetup: cfg.SkipDatabaseSetup,
-		Database: installer.Postgres{Image: settings.GetBundledPostgresImage()},
+		WorkerImage:       "ghcr.io/kagent-dev/substrate/ateworker-gvisor:v" + strings.TrimPrefix(settings.GetSubstrate().GetVersion(), "v"),
+		SkipDatabaseSetup: cfg.SkipDatabaseSetup,
+		Database:          installer.Postgres{Image: settings.GetBundledPostgresImage()},
 	})
 	if err != nil {
 		return err

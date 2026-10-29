@@ -50,6 +50,24 @@ func TestPostgresRejectsInvalidInputBeforeExecution(t *testing.T) {
 	require.Empty(t, runner.commands)
 }
 
+func TestRunSQLFailureDoesNotIncludeArguments(t *testing.T) {
+	failure := errors.New("psql failed")
+	runner := &recordingRunner{run: func(Command) (string, error) {
+		return "command output", failure
+	}}
+	client := NewClient(runner, fake.NewSimpleClientset())
+	password := "private-test-password"
+	script := SQLScript{SQL: "SELECT 1;", Args: []string{"--set=setup_password=" + password}}
+	err := client.RunSQL(t.Context(), "demo", "audit", script)
+	require.ErrorIs(t, err, failure)
+	require.ErrorContains(t, err, "failed to prepare PostgreSQL database audit")
+	require.NotContains(t, err.Error(), password)
+	require.NotContains(t, err.Error(), "command output")
+	require.Len(t, runner.commands, 1)
+	require.Contains(t, runner.commands[0].Args, "--set=setup_password="+password)
+	require.Equal(t, script.SQL, runner.commands[0].Stdin)
+}
+
 func TestPostgresDeleteStopsWhenManifestInvalid(t *testing.T) {
 	runner := &recordingRunner{}
 	client := NewClient(runner, fake.NewSimpleClientset())

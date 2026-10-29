@@ -13,7 +13,7 @@ import (
 )
 
 // Config contains resolved application settings. The caller selects chart names,
-// repositories, credentials, profile contents and worker image explicitly.
+// repositories, credentials, values files and worker image explicitly.
 type Config struct {
 	Namespace         string
 	Kagent            Chart
@@ -24,7 +24,6 @@ type Config struct {
 	ModelProvider     string
 	APIKey            string
 	WorkerImage       string
-	ProfileValues     string
 	SkipDatabaseSetup bool
 	Database          Postgres
 }
@@ -88,15 +87,14 @@ func (c *Client) Plan(ctx context.Context, cfg Config) (Plan, error) {
 	provider := strings.ToLower(cfg.ModelProvider[:1]) + cfg.ModelProvider[1:]
 	kagent.Values = append([]string{"providers.default=" + provider,
 		"providers." + provider + ".apiKey=" + cfg.APIKey}, kagent.Values...)
-	kagent.InlineValues = `controller:
+	kagent.inlineValues = `controller:
   substrateClientCertificate:
     enabled: true
 config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
     routerUrl: http://atenet-router.ate-system.svc:80
-` + "\n" + kagent.InlineValues + "\n" + cfg.ProfileValues +
-		fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
+` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
 	if !cfg.SkipDatabaseSetup {
 		kagent.Values = append(kagent.Values, "database.postgres.clientCertificate.enabled=true")
 	}
@@ -112,7 +110,7 @@ config:
 		return Plan{}, err
 	}
 	substrate := cloneChart(cfg.Substrate)
-	substrate.InlineValues = substrateInstallValues(cfg.Namespace, serviceAccount) + "\n" + substrate.InlineValues
+	substrate.inlineValues = substrateInstallValues(cfg.Namespace, serviceAccount)
 	podcert := cloneChart(cfg.PodCertificate)
 	podcert.Values = append(postgresClientValues(cfg.Namespace, serviceAccount, !cfg.SkipDatabaseSetup), podcert.Values...)
 	if !cfg.SkipDatabaseSetup {

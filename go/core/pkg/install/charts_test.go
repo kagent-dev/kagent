@@ -12,13 +12,13 @@ func TestChartCommand(t *testing.T) {
 	step := ChartInstall{Release: "kagent", Namespace: "team", Chart: Chart{
 		Name: "custom-kagent", Repository: "./charts/", Version: "v1",
 		Values: []string{"controller.replicas=1"}, ValuesFiles: []string{"operator.yaml", "local.yaml"},
-		InlineValues: "controller:\n  serviceAccount: {create: false}\n",
+		inlineValues: "controller:\n  serviceAccount: {create: false}\n",
 	}}
 	require.Equal(t, Command{Program: "helm", Args: []string{
 		"upgrade", "--install", "kagent", "./charts/custom-kagent", "--version", "v1",
 		"--namespace", "team", "--create-namespace", "--wait", "--wait-for-jobs", "--history-max", "2", "--timeout", "5m",
 		"--set", "controller.replicas=1", "-f", "-", "-f", "operator.yaml", "-f", "local.yaml",
-	}, Stdin: step.Chart.InlineValues}, step.Command())
+	}, Stdin: step.Chart.inlineValues}, step.Command())
 	for _, tc := range []struct {
 		repository string
 		want       []string
@@ -52,7 +52,7 @@ func TestControllerServiceAccount(t *testing.T) {
 				}
 				return tc.manifest, nil
 			}}
-			chart := Chart{Name: "custom-kagent", Repository: "./charts/", Version: "v1", Values: []string{"controller.replicas=1"}, ValuesFiles: []string{"operator.yaml", "local.yaml"}, InlineValues: "controller: {}\n"}
+			chart := Chart{Name: "custom-kagent", Repository: "./charts/", Version: "v1", Values: []string{"controller.replicas=1"}, ValuesFiles: []string{"operator.yaml", "local.yaml"}, inlineValues: "controller: {}\n"}
 			got, err := NewClient(runner, fake.NewSimpleClientset()).controllerServiceAccount(t.Context(), "team", chart)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
@@ -61,7 +61,7 @@ func TestControllerServiceAccount(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 			require.Equal(t, []string{"template", "kagent", "./charts/custom-kagent", "--version", "v1", "--namespace", "team", "--show-only", "templates/controller-deployment.yaml", "--set", "controller.replicas=1", "-f", "-", "-f", "operator.yaml", "-f", "local.yaml"}, runner.commands[0].Args)
-			require.Equal(t, chart.InlineValues, runner.commands[0].Stdin)
+			require.Equal(t, chart.inlineValues, runner.commands[0].Stdin)
 		})
 	}
 }

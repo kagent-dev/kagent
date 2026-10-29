@@ -1,12 +1,19 @@
 package commands
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	"github.com/kagent-dev/kagent/go/core/internal/version"
 )
 
 func TestInstallFlagsAndChartConfig(t *testing.T) {
@@ -35,4 +42,28 @@ func TestProviderAPIKeySelection(t *testing.T) {
 	require.Empty(t, key.Get(), "an explicitly empty Google key must not fall back")
 	_, ok = providerAPIKey(v1alpha3.ModelProviderBedrock)
 	require.False(t, ok)
+}
+
+func TestInstallProfileCleansTemporaryValuesOnFailure(t *testing.T) {
+	temporary, tools, configDir := t.TempDir(), t.TempDir(), t.TempDir()
+	path := filepath.Join(configDir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("install:\n  defaultModelProvider: OpenAI\n"), 0o600))
+	t.Setenv("TMPDIR", temporary)
+	t.Setenv("PATH", tools)
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	previousVersion := version.Version
+	version.Version = "v1.0.0"
+	t.Cleanup(func() { version.Version = previousVersion })
+	root := &cobra.Command{Use: "kagent"}
+	cliconfig.Register(root)
+	connection.RegisterFlags(root.PersistentFlags())
+	root.AddCommand(NewInstallCmd())
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"--config", path, "install", "--profile", "minimal"})
+	require.ErrorContains(t, root.ExecuteContext(t.Context()), "helm not found")
+	entries, err := os.ReadDir(temporary)
+	require.NoError(t, err)
+	require.Empty(t, entries, "the temporary profile must not outlive the install attempt")
 }

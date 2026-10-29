@@ -2,8 +2,12 @@ package install
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
+	"sigs.k8s.io/yaml"
 )
 
 type recordingRunner struct {
@@ -57,7 +62,6 @@ func TestPlanAndApply(t *testing.T) {
 			t.Run(fmt.Sprintf("skip_database=%t/customCharts=%t", skip, customCharts), func(t *testing.T) {
 				cfg := testConfig()
 				cfg.SkipDatabaseSetup = skip
-				cfg.ProfileValues = "agents: {enabled: false}\n"
 				cfg.Substrate.Values = []string{"global.setting=substrate-only", "rustfs.enabled=false"}
 				cfg.PodCertificate.Values = []string{"global.imageRegistry=mirror.example"}
 				if customCharts {
@@ -104,14 +108,13 @@ func TestPlanAndApply(t *testing.T) {
 					require.Contains(t, podcert.Chart.Values, "postgresClients[1]=team/existing-controller=kagent_readwrite_user")
 				}
 				substrate := steps[len(steps)-2].(ChartInstall)
-				require.Contains(t, substrate.Chart.InlineValues, "spiffe://cluster.local/ns/team/sa/existing-controller")
-				require.Contains(t, substrate.Chart.InlineValues, "system:serviceaccount:ate-system:ate-client")
+				require.Contains(t, substrate.Chart.inlineValues, "spiffe://cluster.local/ns/team/sa/existing-controller")
+				require.Contains(t, substrate.Chart.inlineValues, "system:serviceaccount:ate-system:ate-client")
 				kagent := steps[len(steps)-1].(ChartInstall)
 				require.Equal(t, "kagent", kagent.Release)
 				require.Contains(t, kagent.Chart.Values, "providers.default=openAI")
 				require.Contains(t, kagent.Chart.Values, "providers.openAI.apiKey=secret-provider-key")
-				require.Equal(t, render.Stdin, kagent.Chart.InlineValues)
-				require.Contains(t, kagent.Chart.InlineValues, "agents: {enabled: false}")
+				require.Equal(t, render.Stdin, kagent.Chart.inlineValues)
 				require.Equal(t, []string{"operator.yaml", "local.yaml"}, kagent.Chart.ValuesFiles)
 				if customCharts {
 					require.Contains(t, kagent.Chart.Values, "controller.replicas=2")
@@ -239,4 +242,61 @@ func TestApplyCancellationAndEmptyPlan(t *testing.T) {
 	cancel()
 	require.ErrorIs(t, client.Apply(ctx, plan, nil), context.Canceled)
 	require.Len(t, runner.commands, 1)
+}
+
+func TestPlanValuesFilesMergeWithGeneratedDefaults(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("Helm is required for values integration")
+	}
+	root := t.TempDir()
+	for _, name := range []string{"kagent", "substrate"} {
+		dir := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "templates"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v2\nname: "+name+"\nversion: 1.0.0\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "templates", "values.yaml"), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: values}\ndata:\n  values: {{ .Values | toJson | quote }}\n"), 0o600))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "kagent", "templates", "controller-deployment.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: controller}\nspec: {template: {spec: {serviceAccountName: {{ .Values.controller.serviceAccount.name }}}}}\n"), 0o600))
+	profile, operator, substrate := filepath.Join(root, "profile.yaml"), filepath.Join(root, "operator.yaml"), filepath.Join(root, "substrate.yaml")
+	require.NoError(t, os.WriteFile(profile, []byte("controller: {replicas: 1}\nk8s-agent: {enabled: false}\n"), 0o600))
+	require.NoError(t, os.WriteFile(operator, []byte("controller: {replicas: 2, serviceAccount: {name: custom-controller}}\nk8s-agent: {enabled: true}\n"), 0o600))
+	require.NoError(t, os.WriteFile(substrate, []byte("ateApi: {replicas: 3}\n"), 0o600))
+	cfg := testConfig()
+	cfg.SkipDatabaseSetup = true
+	cfg.Kagent.Repository, cfg.Substrate.Repository = root, root
+	cfg.Kagent.ValuesFiles = []string{profile, operator}
+	cfg.Kagent.Values = []string{"controller.replicas=4"}
+	cfg.Substrate.ValuesFiles = []string{substrate}
+	runner := CommandRunner{}
+	plan, err := NewClient(runner, fake.NewSimpleClientset()).Plan(t.Context(), cfg)
+	require.NoError(t, err)
+	for _, step := range plan.Steps() {
+		release, ok := step.(ChartInstall)
+		if !ok || (release.Release != "kagent" && release.Release != "substrate") {
+			continue
+		}
+		command := Command{Program: "helm", Args: []string{"template", release.Release, chartReference(release.Chart), "--namespace", release.Namespace, "--show-only", "templates/values.yaml"}, Stdin: release.Chart.inlineValues}
+		command.Args = append(command.Args, helmValueArgs(release.Chart)...)
+		out, err := runner.Run(t.Context(), command)
+		require.NoError(t, err)
+		var manifest struct{ Data map[string]string }
+		require.NoError(t, yaml.Unmarshal([]byte(out), &manifest))
+		var values map[string]any
+		require.NoError(t, json.Unmarshal([]byte(manifest.Data["values"]), &values))
+		if release.Release == "kagent" {
+			require.Equal(t, map[string]any{
+				"replicas":                   float64(4),
+				"serviceAccount":             map[string]any{"name": "custom-controller"},
+				"substrateClientCertificate": map[string]any{"enabled": true},
+			}, values["controller"])
+			require.Equal(t, map[string]any{"enabled": true}, values["k8s-agent"])
+		} else {
+			require.Equal(t, map[string]any{
+				"replicas": float64(3),
+				"authorization": map[string]any{"bootstrapOwners": []any{
+					"spiffe://cluster.local/ns/team/sa/custom-controller",
+					"system:serviceaccount:ate-system:ate-client",
+				}},
+			}, values["ateApi"])
+		}
+	}
 }
