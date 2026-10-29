@@ -5,7 +5,20 @@
 {{- if not .Values.exampleAgents.snapshotLocation }}
 {{- fail "exampleAgents.snapshotLocation is required: set the snapshot storage location for the example Harness" }}
 {{- end }}
-{{- $skillsImage := include "kagent.exampleAgentsSkillsImage" . }}
+{{- /* Release packaging resolves the digest of the kagent-tools version this chart pins. */}}
+{{- $skillsImage := .Values.exampleAgents.skillsImage }}
+{{- if not $skillsImage }}
+{{- with .Files.Get "files/kagent-tools-image.json" }}
+{{- $skillsImage = get (mustFromJson .) "image" }}
+{{- end }}
+{{- end }}
+{{- if not $skillsImage }}
+{{- fail "exampleAgents.enabled requires the kagent-tools image digest. Release charts package it when their kagent-tools version ships the skills; otherwise set exampleAgents.skillsImage to <repository>@sha256:<digest>." }}
+{{- end }}
+{{- if not (regexMatch "^[^[:space:]@]+@sha256:[0-9a-f]{64}$" $skillsImage) }}
+{{- fail (printf "exampleAgents.skillsImage must be pinned by sha256 digest: %q" $skillsImage) }}
+{{- end }}
+{{- $skillsImage = include "kagent.mirroredImage" (dict "root" . "image" $skillsImage) }}
 {{- $prefix := .Values.exampleAgents.namePrefix }}
 {{- $toolServer := printf "%s-tool-server" (include "kagent.fullname" .) }}
 {{- /*
