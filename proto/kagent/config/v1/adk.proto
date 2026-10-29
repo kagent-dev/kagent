@@ -434,4 +434,6 @@ message ADKRuntimeConfig {
     expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
   }];
   BuiltinToolsConfig builtin_tools = 11;
+  // Absent selects the runtime's TaskStore retry defaults.
+  TaskStoreConfig task_store = 12;
 }

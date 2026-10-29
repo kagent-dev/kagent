@@ -1857,8 +1857,11 @@ type RuntimeDefaultsConfig struct {
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,6,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
 	BuiltinTools     *BuiltinToolsConfig     `protobuf:"bytes,7,opt,name=builtin_tools,json=builtinTools,proto3" json:"builtin_tools,omitempty"`
 	// Per-agent runtime limits, in Kubernetes quantity notation.
-	Cpu           *string `protobuf:"bytes,8,opt,name=cpu,proto3,oneof" json:"cpu,omitempty"`
-	Memory        *string `protobuf:"bytes,9,opt,name=memory,proto3,oneof" json:"memory,omitempty"`
+	Cpu    *string `protobuf:"bytes,8,opt,name=cpu,proto3,oneof" json:"cpu,omitempty"`
+	Memory *string `protobuf:"bytes,9,opt,name=memory,proto3,oneof" json:"memory,omitempty"`
+	// Compiled into a Go ADK runtime only when set, so a runtime image that
+	// predates the field still loads its configuration while this stays unset.
+	TaskStore     *TaskStoreConfig `protobuf:"bytes,10,opt,name=task_store,json=taskStore,proto3" json:"task_store,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1954,6 +1957,13 @@ func (x *RuntimeDefaultsConfig) GetMemory() string {
 		return *x.Memory
 	}
 	return ""
+}
+
+func (x *RuntimeDefaultsConfig) GetTaskStore() *TaskStoreConfig {
+	if x != nil {
+		return x.TaskStore
+	}
+	return nil
 }
 
 // BuiltinToolsConfig configures built-in tools independently of skills.
@@ -2090,6 +2100,63 @@ func (x *TokenPropagationConfig) GetResources() []string {
 func (x *TokenPropagationConfig) GetAudiences() []string {
 	if x != nil {
 		return x.Audiences
+	}
+	return nil
+}
+
+// TaskStoreConfig bounds how long a runtime retries the controller's TaskStore
+// while the controller is unreachable. Absent fields select the runtime defaults.
+type TaskStoreConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Every attempt and wait of one call. Absent selects 90 seconds.
+	OperationBudget *durationpb.Duration `protobuf:"bytes,1,opt,name=operation_budget,json=operationBudget,proto3" json:"operation_budget,omitempty"`
+	// One attempt, within what remains of the budget. Absent selects 30 seconds,
+	// the runtime's limit on any one controller call.
+	AttemptTimeout *durationpb.Duration `protobuf:"bytes,2,opt,name=attempt_timeout,json=attemptTimeout,proto3" json:"attempt_timeout,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TaskStoreConfig) Reset() {
+	*x = TaskStoreConfig{}
+	mi := &file_kagent_config_v1_config_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskStoreConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskStoreConfig) ProtoMessage() {}
+
+func (x *TaskStoreConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_config_v1_config_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskStoreConfig.ProtoReflect.Descriptor instead.
+func (*TaskStoreConfig) Descriptor() ([]byte, []int) {
+	return file_kagent_config_v1_config_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *TaskStoreConfig) GetOperationBudget() *durationpb.Duration {
+	if x != nil {
+		return x.OperationBudget
+	}
+	return nil
+}
+
+func (x *TaskStoreConfig) GetAttemptTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.AttemptTimeout
 	}
 	return nil
 }
@@ -2307,7 +2374,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\bendpoint\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01R\bendpoint\x12;\n" +
 	"\bprotocol\x18\x02 \x01(\tB\x1a\xbaH\x17r\x15R\x04grpcR\rhttp/protobufH\x00R\bprotocol\x88\x01\x01\x12G\n" +
 	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x12\xbaH\x0f\xaa\x01\f\"\x04\b\x80\xa3\x052\x04\x10\xc0\x84=R\atimeoutB\v\n" +
-	"\t_protocol\"\x9a\a\n" +
+	"\t_protocol\"\xdc\a\n" +
 	"\x15RuntimeDefaultsConfig\x12L\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fcontrolPlaneUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +
@@ -2319,7 +2386,10 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12I\n" +
 	"\rbuiltin_tools\x18\a \x01(\v2$.kagent.config.v1.BuiltinToolsConfigR\fbuiltinTools\x12\x1e\n" +
 	"\x03cpu\x18\b \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x03R\x03cpu\x88\x01\x01\x12$\n" +
-	"\x06memory\x18\t \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x04R\x06memory\x88\x01\x01B\x14\n" +
+	"\x06memory\x18\t \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x04R\x06memory\x88\x01\x01\x12@\n" +
+	"\n" +
+	"task_store\x18\n" +
+	" \x01(\v2!.kagent.config.v1.TaskStoreConfigR\ttaskStoreB\x14\n" +
 	"\x12_control_plane_urlB\x0e\n" +
 	"\f_gateway_urlB\x15\n" +
 	"\x13_max_content_lengthB\x06\n" +
@@ -2335,7 +2405,12 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x12sts_well_known_uri\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fstsWellKnownUri\x88\x01\x01\x129\n" +
 	"\tresources\x18\x03 \x03(\tB\x1b\xbaH\x18\x92\x01\x15\"\x13r\x11\x10\x012\r^\\S(?:.*\\S)?$R\tresources\x129\n" +
 	"\taudiences\x18\x04 \x03(\tB\x1b\xbaH\x18\x92\x01\x15\"\x13r\x11\x10\x012\r^\\S(?:.*\\S)?$R\taudiencesB\x15\n" +
-	"\x13_sts_well_known_uriBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
+	"\x13_sts_well_known_uri\"\x8a\x03\n" +
+	"\x0fTaskStoreConfig\x12W\n" +
+	"\x10operation_budget\x18\x01 \x01(\v2\x19.google.protobuf.DurationB\x11\xbaH\x0e\xaa\x01\v\"\x03\b\xd8\x042\x04\x10\xc0\x84=R\x0foperationBudget\x12T\n" +
+	"\x0fattempt_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x02\b\x1e2\x04\x10\xc0\x84=R\x0eattemptTimeout:\xc7\x01\xbaH\xc3\x01\x1a\xc0\x01\n" +
+	" task_store.attempt_within_budget\x120attempt_timeout must not exceed operation_budget\x1aj!has(this.attempt_timeout) || !has(this.operation_budget) || this.attempt_timeout <= this.operation_budgetBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
 
 var (
 	file_kagent_config_v1_config_proto_rawDescOnce sync.Once
@@ -2349,7 +2424,7 @@ func file_kagent_config_v1_config_proto_rawDescGZIP() []byte {
 	return file_kagent_config_v1_config_proto_rawDescData
 }
 
-var file_kagent_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_kagent_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_kagent_config_v1_config_proto_goTypes = []any{
 	(*CLIConfig)(nil),                    // 0: kagent.config.v1.CLIConfig
 	(*TUIConfig)(nil),                    // 1: kagent.config.v1.TUIConfig
@@ -2380,8 +2455,9 @@ var file_kagent_config_v1_config_proto_goTypes = []any{
 	(*RuntimeDefaultsConfig)(nil),        // 26: kagent.config.v1.RuntimeDefaultsConfig
 	(*BuiltinToolsConfig)(nil),           // 27: kagent.config.v1.BuiltinToolsConfig
 	(*TokenPropagationConfig)(nil),       // 28: kagent.config.v1.TokenPropagationConfig
-	nil,                                  // 29: kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	(*durationpb.Duration)(nil),          // 30: google.protobuf.Duration
+	(*TaskStoreConfig)(nil),              // 29: kagent.config.v1.TaskStoreConfig
+	nil,                                  // 30: kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	(*durationpb.Duration)(nil),          // 31: google.protobuf.Duration
 }
 var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	2,  // 0: kagent.config.v1.CLIConfig.connection:type_name -> kagent.config.v1.ConnectionConfig
@@ -2390,7 +2466,7 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	5,  // 3: kagent.config.v1.CLIConfig.install:type_name -> kagent.config.v1.InstallConfig
 	13, // 4: kagent.config.v1.CLIConfig.database:type_name -> kagent.config.v1.DatabaseConfig
 	1,  // 5: kagent.config.v1.CLIConfig.tui:type_name -> kagent.config.v1.TUIConfig
-	30, // 6: kagent.config.v1.ConnectionConfig.timeout:type_name -> google.protobuf.Duration
+	31, // 6: kagent.config.v1.ConnectionConfig.timeout:type_name -> google.protobuf.Duration
 	6,  // 7: kagent.config.v1.InstallConfig.kagent:type_name -> kagent.config.v1.ChartConfig
 	6,  // 8: kagent.config.v1.InstallConfig.substrate:type_name -> kagent.config.v1.ChartConfig
 	6,  // 9: kagent.config.v1.InstallConfig.pod_certificate:type_name -> kagent.config.v1.ChartConfig
@@ -2414,34 +2490,37 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	14, // 27: kagent.config.v1.DatabaseConfig.owner:type_name -> kagent.config.v1.DatabaseLoginConfig
 	14, // 28: kagent.config.v1.DatabaseConfig.read_write:type_name -> kagent.config.v1.DatabaseLoginConfig
 	15, // 29: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
-	30, // 30: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
-	30, // 31: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
-	30, // 32: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
-	30, // 33: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
-	30, // 34: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 35: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
-	30, // 36: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
-	30, // 37: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
-	30, // 38: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	30, // 39: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	30, // 40: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 41: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	30, // 42: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	30, // 43: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	31, // 30: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
+	31, // 31: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
+	31, // 32: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
+	31, // 33: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
+	31, // 34: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
+	31, // 35: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
+	31, // 36: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
+	31, // 37: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
+	31, // 38: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	31, // 39: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	31, // 40: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	31, // 41: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	31, // 42: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	31, // 43: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
 	25, // 44: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
 	25, // 45: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
 	25, // 46: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
-	29, // 47: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	30, // 48: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	30, // 47: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	31, // 48: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
 	4,  // 49: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
 	24, // 50: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
 	28, // 51: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
 	27, // 52: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
-	53, // [53:53] is the sub-list for method output_type
-	53, // [53:53] is the sub-list for method input_type
-	53, // [53:53] is the sub-list for extension type_name
-	53, // [53:53] is the sub-list for extension extendee
-	0,  // [0:53] is the sub-list for field type_name
+	29, // 53: kagent.config.v1.RuntimeDefaultsConfig.task_store:type_name -> kagent.config.v1.TaskStoreConfig
+	31, // 54: kagent.config.v1.TaskStoreConfig.operation_budget:type_name -> google.protobuf.Duration
+	31, // 55: kagent.config.v1.TaskStoreConfig.attempt_timeout:type_name -> google.protobuf.Duration
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }
@@ -2475,7 +2554,7 @@ func file_kagent_config_v1_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_config_v1_config_proto_rawDesc), len(file_kagent_config_v1_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   30,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

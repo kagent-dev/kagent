@@ -18,8 +18,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 type Store struct {
@@ -30,13 +30,13 @@ type Store struct {
 
 var _ sdktaskstore.Store = (*Store)(nil)
 
-// New reads its retry limits from KAGENT_TASKSTORE_OPERATION_BUDGET and
-// KAGENT_TASKSTORE_ATTEMPT_TIMEOUT.
-func New(client *controllerclient.Client, identityPath string) *Store {
+// New takes its retry limits from the runtime configuration's task_store
+// block. Nil, or an unset field, selects the defaults.
+func New(client *controllerclient.Client, identityPath string, settings *configv1.TaskStoreConfig) *Store {
 	return &Store{
 		client: client, identityPath: identityPath,
-		operationBudget: positiveOrDefault(env.TaskStoreOperationBudget),
-		attemptTimeout:  positiveOrDefault(env.TaskStoreAttemptTimeout),
+		operationBudget: durationOr(settings.GetOperationBudget(), DefaultOperationBudget),
+		attemptTimeout:  durationOr(settings.GetAttemptTimeout(), DefaultAttemptTimeout),
 	}
 }
 

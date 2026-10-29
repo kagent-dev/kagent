@@ -220,6 +220,7 @@ func run(logLevel, host, port, configDir string) error {
 		Agent:            runnerConfig.Agent,
 		Telemetry:        runtimeTelemetry,
 		Flush:            providers.ForceFlush,
+		TaskStore:        runtime.GetTaskStore(),
 	}, executor)
 	if err != nil {
 		return fmt.Errorf("create app: %w", err)

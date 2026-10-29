@@ -18,9 +18,11 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
@@ -29,7 +31,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // A save made while the controller restarts must wait for it on the same
@@ -93,9 +94,9 @@ func TestRuntimeTaskStoreSaveOutlastsAControllerRestart(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, controller.Close()) })
 	identityPath := filepath.Join(t.TempDir(), "name")
 	require.NoError(t, os.WriteFile(identityPath, []byte("session-"+session.Id), 0o600))
-	t.Setenv(kagentenv.TaskStoreOperationBudget.Name(), "30s")
-	t.Setenv(kagentenv.TaskStoreAttemptTimeout.Name(), "1s")
-	runtime := runtimetaskstore.New(controller, identityPath)
+	runtime := runtimetaskstore.New(controller, identityPath, &configv1.TaskStoreConfig{
+		OperationBudget: durationpb.New(30 * time.Second), AttemptTimeout: durationpb.New(time.Second),
+	})
 
 	task := &a2a.Task{ID: a2a.TaskID(uuid.NewString()), ContextID: session.ContextId, Status: a2a.TaskStatus{State: a2a.TaskStateWorking}}
 	created, err := runtime.Create(t.Context(), task)

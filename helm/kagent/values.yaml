@@ -216,6 +216,15 @@ config:
     logging:
       level: info
     telemetry: {}
+    # How long a Go ADK runtime retries the controller's task store, which saves
+    # its task state, while the controller is unreachable. Unset fields keep the
+    # runtime defaults. A runtime image older than this chart rejects a
+    # configuration that sets either value.
+    # taskStore:
+    #   # Every try and wait of one call: 0.001s to 600s; default 90s.
+    #   operationBudget: 90s
+    #   # One try, no longer than the budget: 0.001s to 30s; default 30s.
+    #   attemptTimeout: 30s
 
 # ==============================================================================
 # CONTROLLER DEPLOYMENT

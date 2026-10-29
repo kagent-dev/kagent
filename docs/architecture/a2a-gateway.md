@@ -160,13 +160,13 @@ cancellation, continuation, disconnects, and slow subscribers.
 A controller restart leaves the TaskStore unreachable for tens of seconds, so the
 Go adapter retries each call within a time budget, not a fixed attempt count:
 
-- `KAGENT_TASKSTORE_OPERATION_BUDGET`, 90 seconds by default, covers every attempt
-  and wait of one call and never resets. An earlier caller deadline still applies.
-- `KAGENT_TASKSTORE_ATTEMPT_TIMEOUT`, 30 seconds by default, caps each attempt
-  within what remains of the budget. The default matches the controller client's
-  call timeout, so a healthy call keeps the time it had before the budget. A
-  lower value notices a hung connection sooner, but fails a healthy call that
-  takes longer, and a slow controller then receives the same request again.
+- `operation_budget`, 90 seconds by default, covers every attempt and wait of one
+  call and never resets. An earlier caller deadline still applies.
+- `attempt_timeout`, 30 seconds by default, caps each attempt within what remains
+  of the budget. The default matches the controller client's call timeout, so a
+  healthy call keeps the time it had before the budget. A lower value notices a
+  hung connection sooner, but fails a healthy call that takes longer, and a slow
+  controller then receives the same request again.
 - Only `Unavailable` and `DeadlineExceeded` retry. Every other status reaches the
   SDK at once.
 - Waits start at 200 ms and double to 2 s, each randomized between half and all
@@ -176,8 +176,11 @@ Go adapter retries each call within a time budget, not a fixed attempt count:
 - Settlement retries on its own budget after the caller disconnects. Each
   telemetry flush around it has its own 3-second cap.
 
-A Harness sets both variables in `spec.env`. The Python adapter keeps its fixed
-four attempts.
+Both come from `runtimeDefaults.taskStore` (Helm: `config.runtimeDefaults.taskStore`),
+which the controller compiles into the Go ADK runtime's `runtime.task_store` only
+when one is set. A BYO Go runtime honors them when its `main` passes
+`runtime.GetTaskStore()` as `app.AppConfig.TaskStore`. The Claude and Codex
+runtimes use the defaults, and the Python adapter keeps its fixed four attempts.
 
 When the budget runs out, the runtime logs the operation, session, task,
 attempts, elapsed time and final status code, and the task stays `WORKING` until

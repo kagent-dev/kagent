@@ -234,7 +234,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtimeController.Close()) })
-	runtimeStore := runtimetaskstore.New(runtimeController, identityPath)
+	runtimeStore := runtimetaskstore.New(runtimeController, identityPath, nil)
 	release := make(chan struct{})
 	var executions atomic.Int32
 	executor := a2asrv.AgentExecutorFunc(func(ctx context.Context, exec *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {

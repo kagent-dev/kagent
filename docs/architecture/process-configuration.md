@@ -245,6 +245,13 @@ defaults to `false`; for controller-managed runtimes, use
 See [Configuring built-in questions](human-in-the-loop.md#configuring-built-in-questions)
 for scope and limitations.
 
+`runtime.task_store` carries the TaskStore retry settings, `operation_budget` and
+`attempt_timeout`, from `runtimeDefaults.taskStore` (Helm:
+`config.runtimeDefaults.taskStore`). The controller emits the block only when one is
+set; an absent field selects the runtime default of 90 or 30 seconds. [TaskStore
+retries through a controller outage](a2a-gateway.md#taskstore-retries-through-a-controller-outage)
+describes the retry contract.
+
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
 `parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private

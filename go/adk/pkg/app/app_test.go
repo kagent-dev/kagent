@@ -233,7 +233,7 @@ func TestSettledTaskAdmitsNextSend(t *testing.T) {
 	for field, value := range map[string]string{"name": "session-" + uuid.NewString(), "atespace": "team-a", "uid": "actor-uid"} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, field), []byte(value), 0o600))
 	}
-	store := runtimetaskstore.New(client, filepath.Join(dir, "name"))
+	store := runtimetaskstore.New(client, filepath.Join(dir, "name"), nil)
 	started, release := make(chan struct{}), make(chan struct{})
 	var executions atomic.Int32
 	wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(func(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {

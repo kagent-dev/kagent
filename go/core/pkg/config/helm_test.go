@@ -117,6 +117,16 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, tools.GetRuntimeDefaults().GetBuiltinTools().GetDisableAskUser())
 	require.NotEqual(t, checksum, toolsChecksum)
+	// The TaskStore retry settings reach the runtime defaults only when set,
+	// and the controller refuses an attempt longer than the budget.
+	require.Nil(t, base.GetRuntimeDefaults().GetTaskStore())
+	retry, retryChecksum, err := render("config:\n  runtimeDefaults:\n    taskStore: {operationBudget: 120s, attemptTimeout: 10s}\n")
+	require.NoError(t, err)
+	require.Equal(t, 120*time.Second, retry.GetRuntimeDefaults().GetTaskStore().GetOperationBudget().AsDuration())
+	require.Equal(t, 10*time.Second, retry.GetRuntimeDefaults().GetTaskStore().GetAttemptTimeout().AsDuration())
+	require.NotEqual(t, checksum, retryChecksum)
+	_, _, err = render("config:\n  runtimeDefaults:\n    taskStore: {operationBudget: 5s, attemptTimeout: 10s}\n")
+	require.ErrorContains(t, err, "attempt_timeout must not exceed operation_budget")
 	_, _, err = render("config:\n  loging: {level: debug}\n")
 	require.ErrorContains(t, err, "unknown field")
 }

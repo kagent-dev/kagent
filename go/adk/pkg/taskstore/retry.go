@@ -7,21 +7,26 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (
+	DefaultOperationBudget = 90 * time.Second
+	// DefaultAttemptTimeout matches the controller client's own call timeout,
+	// so a healthy call keeps the time it had before the budget existed.
+	DefaultAttemptTimeout = 30 * time.Second
+
 	firstRetryWait = 200 * time.Millisecond
 	maxRetryWait   = 2 * time.Second
 )
 
-func positiveOrDefault(setting env.DurationVar) time.Duration {
-	if value := setting.Get(); value > 0 {
+func durationOr(d *durationpb.Duration, fallback time.Duration) time.Duration {
+	if value := d.AsDuration(); value > 0 {
 		return value
 	}
-	return setting.DefaultValue()
+	return fallback
 }
 
 // retryWait doubles in a loop rather than shifting, so a long outage cannot

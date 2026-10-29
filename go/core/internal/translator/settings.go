@@ -40,5 +40,17 @@ func RuntimeConfig(cfg *configv1.RuntimeDefaultsConfig, name, namespace string) 
 		BuiltinTools:     proto.CloneOf(cfg.GetBuiltinTools()),
 		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
 		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
+		TaskStore:        taskStoreSettings(cfg.GetTaskStore()),
 	}
+}
+
+// taskStoreSettings drops an empty block rather than copying it: protojson
+// still emits a present empty message, which a runtime image that predates the
+// field rejects, and the compiled config would no longer match a controller
+// without the setting.
+func taskStoreSettings(cfg *configv1.TaskStoreConfig) *configv1.TaskStoreConfig {
+	if cfg.GetOperationBudget() == nil && cfg.GetAttemptTimeout() == nil {
+		return nil
+	}
+	return proto.CloneOf(cfg)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -71,6 +72,10 @@ type AppConfig struct {
 	// leaves invocation spans without a runtime or agent identity.
 	Telemetry tracing.RuntimeTelemetry
 	Flush     func(context.Context) error
+
+	// TaskStore bounds how long TaskStore calls retry while the controller is
+	// unreachable. Nil selects the defaults.
+	TaskStore *configv1.TaskStoreConfig
 }
 
 // KAgentApp wires an AgentExecutor with kagent's A2A server.
@@ -112,7 +117,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		}
 		app.ownedController = controller
 	}
-	tasks := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath)
+	tasks := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath, cfg.TaskStore)
 	runtimeExecutor := tasks.WrapExecutor(executor, cfg.Telemetry.Runtime, cfg.Flush)
 	executor = runtimeExecutor
 	// Append any caller-supplied handler options.

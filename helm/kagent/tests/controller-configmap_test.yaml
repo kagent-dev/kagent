@@ -29,6 +29,25 @@ tests:
           path: data["controller.yaml"]
           pattern: 'disableFileSearch: true'
 
+  - it: forwards the TaskStore retry settings to runtime defaults
+    template: controller-configmap.yaml
+    set:
+      config.runtimeDefaults.taskStore.operationBudget: 120s
+      config.runtimeDefaults.taskStore.attemptTimeout: 10s
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  taskStore:\n    attemptTimeout: 10s\n    operationBudget: 120s\n'
+
+  # Runtimes keep their built-in defaults, and an image that predates the
+  # setting still loads its configuration, only while nothing is written.
+  - it: writes no TaskStore retry settings by default
+    template: controller-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["controller.yaml"]
+          pattern: taskStore
+
   - it: uses full service DNS names for runtime egress
     template: controller-configmap.yaml
     set:

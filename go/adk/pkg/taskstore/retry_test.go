@@ -25,10 +25,11 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
@@ -100,8 +101,6 @@ func (s *scriptedTaskStore) SettleTask(ctx context.Context, request *runtimev1.T
 
 func newScriptedStore(t *testing.T, respond func(context.Context, string, int) error, budget, attempt time.Duration) (*Store, *scriptedTaskStore) {
 	t.Helper()
-	t.Setenv(env.TaskStoreOperationBudget.Name(), budget.String())
-	t.Setenv(env.TaskStoreAttemptTimeout.Name(), attempt.String())
 	api := &scriptedTaskStore{requests: map[string][]proto.Message{}}
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
@@ -123,7 +122,7 @@ func newScriptedStore(t *testing.T, respond func(context.Context, string, int) e
 	api.mu.Unlock()
 	identity := filepath.Join(t.TempDir(), "name")
 	require.NoError(t, os.WriteFile(identity, []byte("session-"+uuid.NewString()), 0o600))
-	return New(client, identity), api
+	return New(client, identity, &configv1.TaskStoreConfig{OperationBudget: durationpb.New(budget), AttemptTimeout: durationpb.New(attempt)}), api
 }
 
 func workingTask() *a2a.Task {
@@ -381,21 +380,21 @@ func TestRetryWaitDoublesToTheCeiling(t *testing.T) {
 	}
 }
 
-func TestNewReadsRetryLimitsFromTheEnvironment(t *testing.T) {
-	defaults := [2]time.Duration{env.TaskStoreOperationBudget.DefaultValue(), env.TaskStoreAttemptTimeout.DefaultValue()}
+func TestNewAppliesTaskStoreSettings(t *testing.T) {
+	defaults := [2]time.Duration{DefaultOperationBudget, DefaultAttemptTimeout}
 	for _, test := range []struct {
-		name, budget, attempt string
-		want                  [2]time.Duration
+		name     string
+		settings *configv1.TaskStoreConfig
+		want     [2]time.Duration
 	}{
-		{name: "empty", want: defaults},
-		{name: "set", budget: "2m", attempt: "500ms", want: [2]time.Duration{2 * time.Minute, 500 * time.Millisecond}},
-		{name: "malformed", budget: "90", attempt: "soon", want: defaults},
-		{name: "not positive", budget: "0s", attempt: "-1s", want: defaults},
+		{name: "absent", want: defaults},
+		{name: "empty", settings: &configv1.TaskStoreConfig{}, want: defaults},
+		{name: "set", settings: &configv1.TaskStoreConfig{OperationBudget: durationpb.New(2 * time.Minute), AttemptTimeout: durationpb.New(500 * time.Millisecond)}, want: [2]time.Duration{2 * time.Minute, 500 * time.Millisecond}},
+		{name: "budget only", settings: &configv1.TaskStoreConfig{OperationBudget: durationpb.New(45 * time.Second)}, want: [2]time.Duration{45 * time.Second, DefaultAttemptTimeout}},
+		{name: "not positive", settings: &configv1.TaskStoreConfig{OperationBudget: durationpb.New(0), AttemptTimeout: durationpb.New(-time.Second)}, want: defaults},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv(env.TaskStoreOperationBudget.Name(), test.budget)
-			t.Setenv(env.TaskStoreAttemptTimeout.Name(), test.attempt)
-			store := New(nil, "")
+			store := New(nil, "", test.settings)
 			require.Equal(t, test.want, [2]time.Duration{store.operationBudget, store.attemptTimeout})
 		})
 	}
