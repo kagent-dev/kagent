@@ -32,7 +32,7 @@ for image in golang-adk claude-harness codex-harness; do
     '{"containerimage.digest": $digest, "containerimage.config.digest": $config}' > "$metadata_dir/$image.json"
 done
 jq -n --arg digest "$tools_digest" \
-  '{"image.name": "ghcr.io/kagent-dev/kagent/tools:0.3.0", "containerimage.digest": $digest}' > "$metadata_dir/kagent-tools.json"
+  '{image: ("ghcr.io/kagent-dev/kagent/tools@" + $digest), version: "0.3.0"}' > "$metadata_dir/kagent-tools.json"
 
 release() {
   make --no-print-directory -C "$root" VERSION="$version" AWK=awk \
@@ -145,8 +145,8 @@ expect_failure codex-harness helm-release
 cp "$scratch/codex-valid.json" "$metadata_dir/codex-harness.json"
 
 cp "$metadata_dir/kagent-tools.json" "$scratch/kagent-tools-valid.json"
-for invalid in '{}' '{"image.name":"ghcr.io/kagent-dev/kagent/tools:0.3.0","containerimage.digest":"sha256:bad"}' \
-  '{"containerimage.digest":"'"$tools_digest"'"}' '{broken'; do
+for invalid in '{}' '{"image":"ghcr.io/kagent-dev/kagent/tools@sha256:bad","version":"0.3.0"}' \
+  '{"image":"ghcr.io/kagent-dev/kagent/tools:0.3.0","version":"0.3.0"}' '{broken'; do
   check="invalid kagent-tools metadata: $invalid"
   printf '%s\n' "$invalid" > "$metadata_dir/kagent-tools.json"
   expect_failure kagent-tools helm-release
@@ -156,7 +156,7 @@ cp "$scratch/kagent-tools-valid.json" "$metadata_dir/kagent-tools.json"
 check="kagent-tools metadata for another kagent-tools version"
 cp "$source_dir/kagent/Chart-template.yaml" "$scratch/kagent-chart-template.yaml"
 printf 'dependencies:\n  - name: kagent-tools\n    version: 0.3.1\n' >> "$source_dir/kagent/Chart-template.yaml"
-expect_failure 'its tag is not kagent-tools 0.3.1' helm-release
+expect_failure 'it is not for kagent-tools 0.3.1' helm-release
 cp "$scratch/kagent-chart-template.yaml" "$source_dir/kagent/Chart-template.yaml"
 
 check="packaging failure preserves previous archives"
@@ -197,7 +197,7 @@ check="tools-image-metadata resolves the pinned kagent-tools version"
 TOOLS_FIXTURE_DIGEST="$tools_digest" resolve_tools TOOLS_IMAGE_REPOSITORY=registry.example/team/tools
 grep -qx 'docker buildx imagetools inspect registry.example/team/tools:0.3.1' "$scratch/tools.log"
 jq -e --arg digest "$tools_digest" \
-  '. == {"image.name": "registry.example/team/tools:0.3.1", "containerimage.digest": $digest}' \
+  '. == {image: ("registry.example/team/tools@" + $digest), version: "0.3.1"}' \
   "$scratch/tools-metadata/kagent-tools.json" >/dev/null
 
 check="tools-image-metadata records no digest for kagent-tools without skills"
@@ -211,8 +211,8 @@ printf 'apiVersion: v2\nname: kagent\nversion: ${VERSION}\ndependencies:\n  - na
   0.3.1 > "$scratch/tools-source/kagent/Chart-template.yaml"
 TOOLS_FIXTURE_DIGEST="$tools_digest" resolve_tools
 
-check="tools-image-metadata requires a resolved digest"
-rm "$scratch/tools-metadata/kagent-tools.json"
+check="tools-image-metadata requires a resolved digest and drops the old file"
+test -e "$scratch/tools-metadata/kagent-tools.json"
 if TOOLS_FIXTURE_DIGEST= resolve_tools; then
   exit 1
 fi

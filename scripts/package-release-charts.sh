@@ -22,18 +22,13 @@ bash "$root/scripts/harness-image-catalog.sh" "$version" "$metadata_dir" \
 # explicit exampleAgents.skillsImage.
 tools_metadata="$metadata_dir/kagent-tools.json"
 if [[ -e "$tools_metadata" ]]; then
-  # The image tag must be the kagent-tools version the chart depends on, so a
+  # The version must be the kagent-tools version the chart depends on, so a
   # stale metadata file cannot pin another release's skills.
   tools_version="$(yq '(.dependencies // [])[] | select(.name == "kagent-tools") | .version' "$source_dir/kagent/Chart-template.yaml")"
   jq -e --arg tools_version "$tools_version" '
-    .["containerimage.digest"] as $digest | .["image.name"] as $name |
-    if ($digest | type) == "string" and ($digest | test("^sha256:[a-f0-9]{64}$")) and
-       ($name | type) == "string" and $name != "" and
-       ($tools_version == "" or ($name | split("@")[0] | capture(":(?<t>[^/:]+)$").t) == $tools_version)
-    then {image: (($name | split("@")[0] | sub(":[^/:]+$"; "")) + "@" + $digest)}
-    else error("missing or invalid final image digest for kagent-tools")
-    end' "$tools_metadata" > "$staging/kagent-tools-image.json" || {
-    echo "Invalid kagent-tools image metadata, or its tag is not kagent-tools $tools_version: $tools_metadata. Run make tools-image-metadata." >&2
+    (.image | type) == "string" and (.image | test("^[^[:space:]@]+@sha256:[a-f0-9]{64}$")) and
+    ($tools_version == "" or .version == $tools_version)' "$tools_metadata" >/dev/null || {
+    echo "Invalid kagent-tools image metadata, or it is not for kagent-tools $tools_version: $tools_metadata. Run make tools-image-metadata." >&2
     exit 1
   }
 fi
@@ -41,8 +36,8 @@ fi
 cp -R "$source_dir" "$staging/helm"
 mkdir -p "$staging/helm/kagent/files"
 mv "$staging/builtin-harness-images.json" "$staging/helm/kagent/files/builtin-harness-images.json"
-if [[ -f "$staging/kagent-tools-image.json" ]]; then
-  mv "$staging/kagent-tools-image.json" "$staging/helm/kagent/files/kagent-tools-image.json"
+if [[ -e "$tools_metadata" ]]; then
+  cp "$tools_metadata" "$staging/helm/kagent/files/kagent-tools-image.json"
 fi
 
 # Reuse local chart preparation, keeping generated files and intermediate archives isolated.

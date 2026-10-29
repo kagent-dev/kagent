@@ -3,11 +3,13 @@ set -euo pipefail
 
 # Called by make tools-image-metadata. kagent-tools is released from its own
 # repository, so no build here records its digest; resolve it from the registry.
-# The output uses the Buildx metadata keys that release packaging validates.
 chart_template="${1:?kagent Chart-template.yaml is required}"
 repository="${2:?kagent-tools image repository is required}"
+output="${3:?output file is required}"
 
 command -v yq >/dev/null || { echo "tools-image-metadata.sh needs yq (mikefarah yq v4)" >&2; exit 1; }
+mkdir -p "$(dirname "$output")"
+rm -f "$output"
 version="$(yq -e '.dependencies[] | select(.name == "kagent-tools") | .version' "$chart_template")"
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   echo "The kagent-tools dependency in $chart_template must pin an exact version, got: $version" >&2
@@ -25,8 +27,8 @@ image="$repository:$version"
 
 # Read all output so Docker does not get a broken pipe under pipefail.
 digest="$(docker buildx imagetools inspect "$image" | awk '$1 == "Digest:" { print $2 }')"
-jq -en --arg image "$image" --arg digest "$digest" '
-  if $digest | test("^sha256:[a-f0-9]{64}$")
-  then {"image.name": $image, "containerimage.digest": $digest}
-  else error("could not resolve the digest of " + $image)
-  end'
+if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+  echo "could not resolve the digest of $image" >&2
+  exit 1
+fi
+jq -n --arg image "$repository@$digest" --arg version "$version" '{image: $image, version: $version}' > "$output"
