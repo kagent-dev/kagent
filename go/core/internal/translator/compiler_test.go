@@ -776,6 +776,9 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 			Skills: []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{
 				OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			}}},
+			Plugins: []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+				URL: "https://git.research.example/plugin", Commit: "dddddddddddddddddddddddddddddddddddddddd",
+			}}}},
 		},
 	}
 	root := &v1alpha3.AgentTemplate{
@@ -817,6 +820,7 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 			require.NotContains(t, revision.EgressDestinations, "https://tickets.example.com:443")
 			require.Contains(t, revision.EgressDestinations, "https://search.example.com:443")
 			require.NotContains(t, revision.EgressDestinations, "https://ghcr.io:443")
+			require.Equal(t, []string{"https://git.research.example:443", "https://github.com:443"}, revision.GoldenEgressDestinations, "shared agents fetch their sources in the same golden actor")
 			require.Equal(t, []translator.SkillImage{translator.SkillImage(child.Spec.Skills[0].Source.OCI)}, revision.SkillImages)
 			require.Equal(t, revision.SkillImages[0].MountPath(), config.Agent.SubAgents[0].AgentPlugins.Skills[0].Source.GetDirectory())
 			require.Equal(t, config.Agent.AgentPlugins.Skills[0].Source.GetDirectory(), config.Agent.SubAgents[0].AgentPlugins.Skills[0].Source.GetDirectory())

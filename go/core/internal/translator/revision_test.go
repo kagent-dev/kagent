@@ -49,6 +49,18 @@ func TestRevisionDigestReplacesNameOnlyWorkerPoolTemplate(t *testing.T) {
 	require.Equal(t, id, repeated)
 }
 
+func TestRevisionDigestIncludesGoldenEgressDestinations(t *testing.T) {
+	digest := func(destinations []string) RevisionID {
+		revision := &Revision{Namespace: "agents", AgentName: "helper", EgressDestinations: []string{"https://git.example.com:443"}, GoldenEgressDestinations: destinations}
+		id, err := revision.Digest()
+		require.NoError(t, err)
+		return id
+	}
+	unset := digest(nil)
+	require.Equal(t, unset, digest([]string{}), "revisions without golden egress keep their existing ActorTemplates")
+	require.NotEqual(t, unset, digest([]string{"https://git.example.com:443"}), "the golden egress policy is part of the immutable ActorTemplate")
+}
+
 func TestRevisionDigestExcludesProvenance(t *testing.T) {
 	revision := &Revision{Namespace: "agents", AgentName: "helper", Provenance: []byte(`[{"kind":"ConfigMap","hash":"first"}]`)}
 	first, err := revision.Digest()

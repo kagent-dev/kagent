@@ -197,6 +197,7 @@ func postgresClientValues(namespace, serviceAccount string, includeBundledPostgr
 func substrateInstallValues(namespace, serviceAccount string) string {
 	return fmt.Sprintf(`preview:
   - PerTemplateSnapshotLocation
+  - GoldenEgressPolicy
 ateApi:
   authorization:
     bootstrapOwners:

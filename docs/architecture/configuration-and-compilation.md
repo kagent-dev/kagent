@@ -216,9 +216,14 @@ millicores and memory bytes for every harness, rounding positive fractions up
 to the next unit. Standalone sandbox limits remain under `sandboxes` configuration.
 
 Harness and SandboxTemplate snapshot locations require Substrate's
-`PerTemplateSnapshotLocation` preview gate. The CLI installer enables it; direct
-Substrate installations must include it in their Helm `preview` list. The
+`PerTemplateSnapshotLocation` preview gate, and the golden actor's egress policy
+requires `GoldenEgressPolicy`. The CLI installer enables both; direct Substrate
+installations must include them in their Helm `preview` list. The
 Substrate client opts ActorTemplate creation requests into preview features.
+Without `GoldenEgressPolicy`, Substrate rejects ActorTemplates for Agents with
+git or S3 skill sources. The Agent reports `ActorTemplateRejected` with a message
+that names the gate. The controller retries with backoff, so the Agent becomes
+Ready after the gate is turned on.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates
@@ -308,9 +313,12 @@ download cache or fall back to an in-runtime OCI pull.
 
 Package limits and path/symlink validation still apply. Build skill images from
 scratch with just package contents; arbitrary ORAS artifact layouts are not
-supported. Existing Git and S3 fetches remain runtime operations and retain
-their golden-runtime networking limitations. The Python ADK does not yet consume
-the `agent_plugins` runtime contract. BYO images must consume that contract to
+supported. The runtime fetches git and S3 sources when the golden actor starts.
+The ActorTemplate's golden egress policy allows only the origins (scheme, host,
+and port) of those sources, for the root agent and its shared agents. Sessions
+restore the fetched sources from the golden snapshot and reach those origins
+through their own egress policy. The Python ADK does not yet consume the
+`agent_plugins` runtime contract. BYO images must consume that contract to
 load these skills; the Go ADK BYO fixture does so.
 
 ### Runtime configuration

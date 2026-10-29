@@ -181,6 +181,58 @@ func mustSpecDigest(t *testing.T, template *ateapipb.ActorTemplate) string {
 	return digest
 }
 
+// The golden actor fetches git and S3 skill sources before its snapshot.
+// Its policy must allow exactly those origins and nothing else.
+func TestActorTemplateGoldenEgressPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		destinations []string
+		want         *ateapipb.EgressPolicyTemplate
+	}{
+		{name: "OCI only", want: nil},
+		{
+			name:         "git and S3 origins",
+			destinations: []string{"http://git.internal.example:8080", "https://git.example.com:443", "https://objects.example.com:9000"},
+			want: &ateapipb.EgressPolicyTemplate{Rules: []*ateapipb.EgressRule{
+				{Http: &ateapipb.HttpRule{Hostnames: []string{"git.internal.example"}, Ports: &ateapipb.Ports{Numbers: []int32{8080}}}},
+				{Https: &ateapipb.HttpsRule{Hostnames: []string{"git.example.com"}, Ports: &ateapipb.Ports{Numbers: []int32{443}}}},
+				{Https: &ateapipb.HttpsRule{Hostnames: []string{"objects.example.com"}, Ports: &ateapipb.Ports{Numbers: []int32{9000}}}},
+			}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec := &translator.Revision{CPU: "1", Memory: "1Gi", Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
+				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+				EgressDestinations:       []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
+				GoldenEgressDestinations: test.destinations,
+			}
+			revisionID, err := spec.Digest()
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, revisionID)
+			require.NoError(t, err)
+			require.True(t, proto.Equal(test.want, template.GetGoldenEgressPolicy()), "golden egress policy = %v", template.GetGoldenEgressPolicy())
+		})
+	}
+}
+
+func TestActorTemplateSpecEqualComparesGoldenEgressPolicy(t *testing.T) {
+	left := &ateapipb.ActorTemplate{
+		Metadata:   &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "template"},
+		Containers: []*ateapipb.Container{{Name: "agent", Image: "agent:v1"}},
+		GoldenEgressPolicy: &ateapipb.EgressPolicyTemplate{Rules: []*ateapipb.EgressRule{
+			{Https: &ateapipb.HttpsRule{Hostnames: []string{"git.example.com"}, Ports: &ateapipb.Ports{Numbers: []int32{443}}}},
+		}},
+	}
+	right := proto.CloneOf(left)
+	require.True(t, ActorTemplateSpecEqual(left, right))
+	right.GoldenEgressPolicy.Rules[0].Https.Hostnames = []string{"objects.example.com"}
+	require.False(t, ActorTemplateSpecEqual(left, right), "a changed golden egress policy was accepted")
+	right.GoldenEgressPolicy = nil
+	require.False(t, ActorTemplateSpecEqual(left, right), "a removed golden egress policy was accepted")
+}
+
 func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 	const configOverhead = len(`{"instruction":""}`)
 	for _, test := range []struct {

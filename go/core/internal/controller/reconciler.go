@@ -19,6 +19,7 @@ import (
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/workqueue"
 
@@ -404,6 +405,16 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 			return r.observePreparationError(*state, fmt.Errorf("ensure Atespace %s: %w", desiredRef.GetAtespace(), err))
 		}
 		observed, err = r.templates.CreateActorTemplate(ctx, target.ActorTemplate)
+		if status.Code(err) == codes.InvalidArgument && strings.Contains(status.Convert(err).Message(), goldenEgressGateOff) {
+			// The operator can enable the preview gate, so keep retrying with backoff.
+			r.observePreparation(*state, goldenProgress{}, &ReconciliationFailure{
+				Condition: kagentv1alpha3.AgentConditionReady,
+				Reason:    "ActorTemplateRejected",
+				Message:   "Substrate rejected the ActorTemplate. Git and S3 skill sources need Substrate's GoldenEgressPolicy preview gate. Add GoldenEgressPolicy to the preview list in Substrate's Helm values.",
+				Retryable: true,
+			})
+			return fmt.Errorf("create ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err)
+		}
 		if status.Code(err) == codes.InvalidArgument {
 			// Validation rejects the immutable request, so retries cannot repair
 			// it. Backend messages may quote configuration; keep status safe.
@@ -460,6 +471,10 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	r.observePreparation(*state, golden, nil)
 	return nil
 }
+
+// goldenEgressGateOff is how Substrate reports a golden egress policy while its
+// GoldenEgressPolicy preview gate is off. Other validation errors are terminal.
+var goldenEgressGateOff = field.Forbidden(field.NewPath("actor_template", "golden_egress_policy"), "").Error()
 
 func (r *Reconciler) observePreparationError(state AgentReconciliation, err error) error {
 	if state.Target == nil {

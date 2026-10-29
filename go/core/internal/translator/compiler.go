@@ -181,7 +181,30 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	// Normalize once after the complete harness configuration has been compiled.
 	slices.Sort(result.SkillImages)
 	result.SkillImages = slices.Compact(result.SkillImages)
+	origins, err := goldenEgressOrigins(tree.Root)
+	if err != nil {
+		return nil, err
+	}
+	result.GoldenEgressDestinations = slices.Compact(slices.Sorted(slices.Values(origins)))
 	return result, nil
+}
+
+// goldenEgressOrigins returns the git and S3 origins of every skill source in
+// the tree. The golden actor fetches them for the root and its shared agents.
+func goldenEgressOrigins(agent *resolvedTemplate) ([]string, error) {
+	skills, err := CompileSkillResources(agent.Template)
+	if err != nil {
+		return nil, err
+	}
+	origins := skills.Egress
+	for _, shared := range agent.Shared {
+		child, err := goldenEgressOrigins(shared.Agent)
+		if err != nil {
+			return nil, err
+		}
+		origins = append(origins, child...)
+	}
+	return origins, nil
 }
 
 func harnessType(harness *HarnessConfiguration) HarnessType {
