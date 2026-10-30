@@ -62,7 +62,7 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 					pushWakes <- struct{}{}
 				}
 				before := len(wakes)
-				service := NewService(store, wakes, pushWakes)
+				service := NewService(store, auth.NoopAuthorizer{}, wakes, pushWakes)
 				ctx, cancel := context.WithCancel(runtimeContext(t))
 				cancel() // A disconnected caller must not suppress the post-commit hint.
 				done := make(chan error, 1)

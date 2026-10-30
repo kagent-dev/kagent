@@ -91,6 +91,18 @@ type runtimeMemoryStore struct {
 	agentName, userID string
 }
 
+type runtimeTaskPolicy struct {
+	auth.NoopAuthorizer
+	revoked atomic.Bool
+}
+
+func (p *runtimeTaskPolicy) Check(_ context.Context, principal auth.Principal, _ auth.Verb, resource auth.Resource) error {
+	if principal.RuntimeBinding != nil && resource.Type == "TaskStore" && p.revoked.Load() {
+		return fmt.Errorf("runtime task persistence revoked")
+	}
+	return nil
+}
+
 func (s *runtimeMemoryStore) ListAgentMemories(_ context.Context, agentName, userID string) ([]database.Memory, error) {
 	s.agentName, s.userID = agentName, userID
 	return nil, nil
@@ -139,13 +151,14 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	id := session.Id
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	pushWake := make(chan struct{}, 1)
-	tasks := taskstore.NewService(store, nil, pushWake)
 	issuer := jwttest.New(t)
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	runtimeToken := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(id), "actor-uid"))
 	memories := &runtimeMemoryStore{Client: store.Client}
-	policy := runtimeauth.NewAuthorizer(auth.NoopAuthorizer{}, store)
+	configuredPolicy := &runtimeTaskPolicy{}
+	policy := runtimeauth.NewAuthorizer(configuredPolicy, store)
+	tasks := taskstore.NewService(store, policy, nil, pushWake)
 	server, err := New(Config{
 		Listener: listener, SystemService: testSystemService(),
 		Authenticator:    runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL),
@@ -180,6 +193,14 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	_, err = private.GetTask(unsigned, read)
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	authenticated := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", runtimeToken))
+	_, err = private.GetTask(authenticated, read)
+	require.Equal(t, codes.NotFound, status.Code(err))
+	configuredPolicy.revoked.Store(true)
+	_, err = private.GetTask(authenticated, read)
+	require.Equal(t, codes.PermissionDenied, status.Code(err), "the same Actor credential must observe policy revocation")
+	configuredPolicy.revoked.Store(false)
+	_, err = private.GetTask(authenticated, read)
+	require.Equal(t, codes.NotFound, status.Code(err))
 	publicConn, err := grpc.NewClient("passthrough:///sessions", grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
 	require.NoError(t, err)

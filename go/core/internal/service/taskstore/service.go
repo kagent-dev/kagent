@@ -20,6 +20,7 @@ import (
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type Store interface {
@@ -35,15 +36,16 @@ var _ Store = (*database.Client)(nil)
 
 type Service struct {
 	store          Store
+	authorizer     auth.Authorizer
 	quiescenceWake chan<- struct{}
 	pushWake       chan<- struct{}
 }
 
-func NewService(store Store, quiescenceWake, pushWake chan<- struct{}) *Service {
-	return &Service{store: store, quiescenceWake: quiescenceWake, pushWake: pushWake}
+func NewService(store Store, authorizer auth.Authorizer, quiescenceWake, pushWake chan<- struct{}) *Service {
+	return &Service{store: store, authorizer: authorizer, quiescenceWake: quiescenceWake, pushWake: pushWake}
 }
 
-func (s *Service) session(ctx context.Context, sessionID string) (*apiv1.Session, error) {
+func (s *Service) session(ctx context.Context, sessionID string, verb auth.Verb) (*apiv1.Session, error) {
 	session, err := runtimeauth.Session(ctx, s.store)
 	if err != nil {
 		return nil, storageError(err)
@@ -51,13 +53,19 @@ func (s *Service) session(ctx context.Context, sessionID string) (*apiv1.Session
 	if session.Id != sessionID {
 		return nil, status.Error(codes.PermissionDenied, "actor does not belong to this session")
 	}
+	identity, _ := auth.AuthSessionFrom(ctx)
+	if err := s.authorizer.Check(ctx, identity.Principal(), verb, auth.Resource{
+		Type: "TaskStore", Namespace: session.GetAgent().GetNamespace(), Name: session.Id,
+	}); err != nil {
+		return nil, status.Error(codes.PermissionDenied, "not authorized for runtime task persistence")
+	}
 	return session, nil
 }
 
 // CreateTask persists the SDK's first task snapshot. Runtime execution and
 // request serialization remain owned by the agent's SDK.
 func (s *Service) CreateTask(ctx context.Context, input *runtimev1.TaskStoreServiceCreateTaskRequest) (*runtimev1.TaskStoreServiceCreateTaskResponse, error) {
-	if _, err := s.session(ctx, input.SessionId); err != nil {
+	if _, err := s.session(ctx, input.SessionId, auth.VerbCreate); err != nil {
 		return nil, err
 	}
 	task, err := pbconv.FromProtoTask(input.Task)
@@ -74,7 +82,7 @@ func (s *Service) CreateTask(ctx context.Context, input *runtimev1.TaskStoreServ
 }
 
 func (s *Service) GetTask(ctx context.Context, input *runtimev1.TaskStoreServiceGetTaskRequest) (*runtimev1.TaskStoreServiceGetTaskResponse, error) {
-	if _, err := s.session(ctx, input.SessionId); err != nil {
+	if _, err := s.session(ctx, input.SessionId, auth.VerbGet); err != nil {
 		return nil, err
 	}
 	stored, err := s.getTask(ctx, input.SessionId, input.TaskId)
@@ -91,7 +99,7 @@ func (s *Service) getTask(ctx context.Context, sessionID, taskID string) (*runti
 }
 
 func (s *Service) UpdateTask(ctx context.Context, input *runtimev1.TaskStoreServiceUpdateTaskRequest) (*runtimev1.TaskStoreServiceUpdateTaskResponse, error) {
-	if _, err := s.session(ctx, input.SessionId); err != nil {
+	if _, err := s.session(ctx, input.SessionId, auth.VerbUpdate); err != nil {
 		return nil, err
 	}
 	task, err := pbconv.FromProtoTask(input.Task)
@@ -115,7 +123,7 @@ func (s *Service) UpdateTask(ctx context.Context, input *runtimev1.TaskStoreServ
 }
 
 func (s *Service) ListTasks(ctx context.Context, input *runtimev1.TaskStoreServiceListTasksRequest) (*runtimev1.TaskStoreServiceListTasksResponse, error) {
-	session, err := s.session(ctx, input.SessionId)
+	session, err := s.session(ctx, input.SessionId, auth.VerbList)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +167,7 @@ func (s *Service) ListTasks(ctx context.Context, input *runtimev1.TaskStoreServi
 }
 
 func (s *Service) SettleTask(ctx context.Context, input *runtimev1.TaskStoreServiceSettleTaskRequest) (*runtimev1.TaskStoreServiceSettleTaskResponse, error) {
-	if _, err := s.session(ctx, input.SessionId); err != nil {
+	if _, err := s.session(ctx, input.SessionId, auth.VerbUpdate); err != nil {
 		return nil, err
 	}
 	if err := s.store.SettleSessionTask(ctx, input.SessionId, input.TaskId, input.Version); err != nil {
