@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation"
+	"sigs.k8s.io/yaml"
 
 	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 )
@@ -96,8 +97,13 @@ func planInstall(ctx context.Context, runner Runner, cfg Config) (Plan, error) {
 	}
 	kagent := cloneChart(cfg.Kagent)
 	provider := modelProviderKey(cfg.ModelProvider)
-	kagent.Values = append([]string{"providers.default=" + provider,
-		"providers." + provider + ".apiKey=" + cfg.APIKey}, kagent.Values...)
+	kagent.Values = append([]string{"providers.default=" + provider}, kagent.Values...)
+	credentials, err := yaml.Marshal(map[string]any{"providers": map[string]any{provider: map[string]string{"apiKey": cfg.APIKey}}})
+	if err != nil {
+		return Plan{}, fmt.Errorf("failed to encode model credential values: %w", err)
+	}
+	// A final values file preserves --set precedence without putting the key in argv.
+	kagent.secretValues = string(credentials)
 	kagent.inlineValues = `controller:
   substrateClientCertificate:
     enabled: true

@@ -254,7 +254,7 @@ func exportScript(releases []ChartInstall, refs []SecretReference) string {
 		}
 	}
 	for _, release := range releases {
-		release.Chart.Values, release.Chart.ValuesFiles, release.Chart.inlineValues = nil, nil, ""
+		release.Chart.Values, release.Chart.ValuesFiles, release.Chart.inlineValues, release.Chart.secretValues = nil, nil, "", ""
 		command := release.Command()
 		script.WriteString("\n" + shellQuote(command.Program))
 		for _, arg := range command.Args {
