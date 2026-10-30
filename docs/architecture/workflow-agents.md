@@ -150,7 +150,8 @@ program resolve the other kinds.
 
 `mcp_servers` declares streamable HTTP MCP servers: `name`, exactly one of
 `url` or `url_from` (`{env: VAR}`), optional `headers` (`value` or
-`value_from`), and an optional `tools` allowlist. A server is used two ways:
+`value_from: {env: VAR}`), and an optional `tools` allowlist. Both sourced
+fields read from the BYO runtime process environment. A server is used two ways:
 
 - a `tool` node with `server:` calls one of its tools as a function node; the
   predecessor output is the arguments and the node output is the tool result,

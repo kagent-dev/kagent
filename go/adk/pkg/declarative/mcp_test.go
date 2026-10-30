@@ -294,6 +294,23 @@ agents:
 	require.ErrorContains(t, err, `prompt environment variable "MISSING_PROMPT_VAR" is not set`)
 }
 
+func TestMCPSourceValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, want string
+	}{
+		{"URL ConfigMap", "url_from: { config_map: { name: endpoints, key: crm } }", "mcp_servers[0].url_from: must use env"},
+		{"header ConfigMap", "url: http://crm, headers: [{ name: Authorization, value_from: { config_map: { name: credentials, key: token } } }]", "mcp_servers[0].headers[0].value_from: must use env"},
+		{"header Secret", "url: http://crm, headers: [{ name: Authorization, value_from: { secret: { name: credentials, key: token } } }]", "mcp_servers[0].headers[0].value_from: must use env"},
+		{"invalid env name", "url: http://crm, headers: [{ name: Authorization, value_from: { env: BAD-NAME } }]", "mcp_servers[0].headers[0].value_from.env"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := head + "mcp_servers: [{ name: crm, " + tc.source + " }]\nagents: [{ name: a, agent_class: LlmAgent, model: stub, instruction: hi }]\n"
+			_, err := Parse([]byte(doc))
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
 func TestMCPAndHookValidation(t *testing.T) {
 	reg := NewRegistry()
 	for _, tc := range []struct{ body, want string }{

@@ -855,6 +855,19 @@ func (v *validator) textSource(path string, src *TextSource) {
 	}
 }
 
+func (v *validator) mcpEnvSource(path string, src *TextSource) {
+	if src == nil {
+		return
+	}
+	if src.Env == "" || src.ConfigMap != nil || src.Secret != nil {
+		v.addf(path, "must use env; config_map and secret are not supported for MCP sources")
+		return
+	}
+	if !envName.MatchString(src.Env) {
+		v.addf(path+".env", "%q must match %s", src.Env, envName)
+	}
+}
+
 func (v *validator) callbacks(path string, cb *CallbacksSpec) {
 	if cb == nil {
 		return
@@ -997,7 +1010,7 @@ func (v *validator) mcpServers(servers []MCPServerSpec) {
 				v.addf(path+".url", "%q must be an absolute http or https URL", s.URL)
 			}
 		}
-		v.textSource(path+".url_from", s.URLFrom)
+		v.mcpEnvSource(path+".url_from", s.URLFrom)
 		seen := map[string]bool{}
 		for j, h := range s.Headers {
 			p := fmt.Sprintf("%s.headers[%d]", path, j)
@@ -1012,7 +1025,7 @@ func (v *validator) mcpServers(servers []MCPServerSpec) {
 			if (h.Value == "") == (h.ValueFrom == nil) {
 				v.addf(p, "must set exactly one of value, value_from")
 			}
-			v.textSource(p+".value_from", h.ValueFrom)
+			v.mcpEnvSource(p+".value_from", h.ValueFrom)
 		}
 		tools := map[string]bool{}
 		for j, t := range s.Tools {

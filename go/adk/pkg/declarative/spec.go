@@ -118,7 +118,7 @@ type MCPServerSpec struct {
 }
 
 // HeaderSpec is one HTTP header of an MCP server. Exactly one of Value and
-// ValueFrom is set; credentials belong in ValueFrom.
+// ValueFrom is set; ValueFrom reads from the runtime environment.
 type HeaderSpec struct {
 	Name      string      `json:"name"`
 	Value     string      `json:"value,omitempty"`
@@ -151,14 +151,12 @@ type LLMSpec struct {
 	Callbacks *CallbacksSpec `json:"callbacks,omitempty"`
 }
 
-// TextSource names where prompt text comes from. Exactly one field is set.
+// TextSource names where sourced text comes from. Exactly one field is set.
 //
-// ConfigMap and Secret are Kubernetes references that the kagent controller
-// resolves in the document's namespace before the runtime starts: ConfigMap
-// text is inlined, and Secret text is delivered through a Secret-backed
-// environment variable so it never enters the serialized runtime config. Env
-// is resolved by the runtime when the agent is built; the controller only
-// accepts the Env sources it generated itself.
+// ConfigMap and Secret references require an embedding resolver before the
+// runtime starts. The kagent controller inlines ConfigMap prompt sources.
+// Env is resolved by the runtime when the agent is built; MCP URL and header
+// sources use Env only.
 type TextSource struct {
 	ConfigMap *KeyRef `json:"config_map,omitempty"`
 	Secret    *KeyRef `json:"secret,omitempty"`

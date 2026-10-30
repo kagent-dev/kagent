@@ -210,6 +210,29 @@ func TestCompileAgentInlinesWorkflowPromptsFromConfigMaps(t *testing.T) {
 	require.False(t, errors.As(err, &validation), "a prompt ConfigMap that may appear later must be retried")
 }
 
+func TestCompileAgentRejectsMCPConfigMapSources(t *testing.T) {
+	harness := byoHarness()
+	document := `
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+mcp_servers:
+  - name: crm
+    url: http://crm
+    headers:
+      - name: Authorization
+        value_from: { config_map: { name: credentials, key: token } }
+agents:
+  - name: support
+    agent_class: LlmAgent
+    model: stub
+    instruction: hi
+`
+	_, err := compiler(t, workflowConfigMap(document), harness).CompileAgent(t.Context(), inlineAgent(harness, workflowTemplate(nil)))
+	var validation *translator.ValidationError
+	require.ErrorAs(t, err, &validation)
+	require.ErrorContains(t, err, "mcp_servers[0].headers[0].value_from: must use env")
+}
+
 func TestCompileAgentRejectsWorkflowPromptsFromSecrets(t *testing.T) {
 	harness := byoHarness()
 	_, err := compiler(t, workflowConfigMap(fmt.Sprintf(promptWorkflowYAML, "secret")), harness).CompileAgent(t.Context(), inlineAgent(harness, workflowTemplate(nil)))
