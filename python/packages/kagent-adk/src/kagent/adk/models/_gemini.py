@@ -77,6 +77,12 @@ class KAgentGeminiLlm(KAgentTLSMixin, _GeminiGenerationConfigMixin, GeminiLLM):
 
     model_config = {"arbitrary_types_allowed": True}
 
+    @cached_property
+    def _base_url_and_api_version(self) -> tuple[str | None, str | None]:
+        # ModelConfig supplies the complete API prefix. Prevent ADK from
+        # extracting a Google URL's version and adding it again per request.
+        return self.base_url, None
+
     async def generate_content_async(self, llm_request, stream: bool = False):
         if self.base_url:
             # Custom endpoints treat the model ID as one URL path segment,

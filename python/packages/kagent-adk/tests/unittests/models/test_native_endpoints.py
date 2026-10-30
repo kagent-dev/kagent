@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 from urllib.parse import urlparse
 
+import httpx
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -137,6 +138,47 @@ def test_gemini_direct_keeps_provider_credentials(monkeypatch):
     assert client.call_args.kwargs["api_key"] == "direct-provider-key"
     assert client.call_args.kwargs["http_options"].api_version is None
     assert client.call_args.kwargs["http_options"].base_url is None
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://generativelanguage.googleapis.com/v1",
+        "https://generativelanguage.googleapis.com/v1beta",
+        "https://models.example.com/team/v1",
+    ],
+)
+@pytest.mark.parametrize("trailing_slash", ["", "/"])
+@pytest.mark.parametrize("stream", [False, True])
+async def test_gemini_complete_api_prefix(monkeypatch, base_url, trailing_slash, stream):
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    requests = []
+
+    async def send(_client, request, **_kwargs):
+        requests.append(request)
+        body = json.dumps(
+            {"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}
+        )
+        return httpx.Response(
+            200,
+            request=request,
+            headers={"content-type": "text/event-stream" if stream else "application/json"},
+            content=f"data: {body}\n\n" if stream else body,
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", send)
+    llm = _create_llm_from_model_config(
+        ModelConfig(model="gemini-test", gemini=Gemini(base_url=base_url + trailing_slash))
+    )
+    try:
+        request = LlmRequest(model=llm.model, contents=[types.Content(role="user", parts=[types.Part(text="hello")])])
+        responses = [r async for r in llm.generate_content_async(request, stream=stream)]
+        assert any(part.text == "ok" for r in responses if r.content for part in r.content.parts or [])
+        operation = "streamGenerateContent?alt=sse" if stream else "generateContent"
+        assert [str(r.url) for r in requests] == [f"{base_url}/models/gemini-test:{operation}"]
+    finally:
+        await llm.api_client.aio.aclose()
+        llm.api_client.close()
 
 
 @pytest.mark.parametrize("stream", [False, True])
