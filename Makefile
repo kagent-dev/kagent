@@ -165,14 +165,10 @@ proto-lint: ## Lint repository-owned protobuf schemas
 	cd proto && $(BUF) lint
 
 .PHONY: proto-breaking
-proto-breaking: ## Check protobuf compatibility against the target branch (default: main)
-	@if git cat-file -e "$(PROTO_BREAKING_BRANCH):proto/buf.yaml" 2>/dev/null; then \
-		$(BUF) breaking proto --against ".git#branch=$(PROTO_BREAKING_BRANCH),subdir=proto"; \
-	else \
-		echo "No protobuf module on $(PROTO_BREAKING_BRANCH); skipping first-release breaking check"; \
-	fi
+proto-breaking: ## Check protobuf compatibility against the target Git ref (default: origin/main)
+	$(BUF) breaking proto --against ".git#ref=$(PROTO_BREAKING_BRANCH),subdir=proto"
 
-PROTO_BREAKING_BRANCH ?= main
+PROTO_BREAKING_BRANCH ?= origin/main
 PROTO_GENERATED_PATHS := go/api/gen ui/src/generated python/packages/kagent-proto/src/kagent python/packages/kagent-proto/src/buf
 
 .PHONY: proto-check
