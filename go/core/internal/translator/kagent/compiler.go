@@ -7,12 +7,10 @@ import (
 	"slices"
 
 	"buf.build/go/protovalidate"
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
@@ -51,7 +49,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		}
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(agentCard(input.AgentName, template))
+	card, err := pbconv.ToProtoAgentCard(translator.ManagedAgentCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
@@ -79,12 +77,4 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
-}
-
-// agentCard is the managed card plus the capabilities only the kagent ADK
-// runtimes implement.
-func agentCard(agentName string, template *translator.TemplateConfiguration) *a2atype.AgentCard {
-	card := translator.ManagedAgentCard(agentName, template)
-	card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.UsageExtension())
-	return card
 }

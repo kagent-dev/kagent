@@ -10,9 +10,9 @@ The extension URI is:
 https://kagent.dev/extensions/usage/v1
 ```
 
-The kagent ADK runtimes (Go and Python) advertise that URI on their Agent Card
-with `required: false`. Other harnesses do not emit usage and do not advertise
-it.
+The kagent ADK runtimes (Go and Python) and the Claude and Codex harnesses
+advertise that URI on their Agent Card with `required: false`. BYO agents do not
+advertise it.
 
 ## Activation
 
@@ -94,8 +94,48 @@ the latest one; they never sum values across status updates.
   makes that update the task's final event and discards the interrupted
   execution's own, so the runtime reads the running execution's usage when it
   handles the cancel request. A task with no running execution, such as one
-  waiting for input, repeats its persisted total. A call cut off before its
-  final response was never reported by the provider and is not counted.
+  waiting for input, repeats the total its `input-required` status carries. A
+  call cut off before its final response was never reported by the provider and
+  is not counted.
+
+## Claude and Codex harnesses
+
+The Claude and Codex harnesses report the same payload from the shared A2A
+executor in `go/harness/runtime/a2a`. It counts every model call the runtime
+reports to the executor, which are the calls the runtime's chat spans and token
+metrics record. Paused, resumed and canceled executions follow the rules above.
+
+- **Reasoning:** Claude Code and Codex count reasoning tokens inside their output
+  tokens. The executor sums the counters as reported and splits the reasoning
+  tokens out of the output once, on the stamped payload, so `outputTokens`
+  excludes them as it does for the ADK runtimes. A session remainder that names
+  reasoning tokens after the output holding them was counted moves them from
+  `outputTokens` to `reasoningTokens` instead of counting them twice.
+- **Cancel while waiting for input:** the `canceled` status carries the tally the
+  execution left when it parked, which is what its `input-required` status
+  carries, plus the calls the cancel reaps. A cancel that arrives before that
+  status is persisted loses nothing. After a restart, the restored task starts
+  from the persisted total.
+- **Claude session totals:** each turn runs a Claude Code process that resumes the
+  session, and its result reports the session's totals, not the turn's. The
+  Claude harness reads the totals the session saved before the turn and reports
+  what they grew by beyond the calls it already reported, such as the final
+  output of subagent calls. A turn that Claude Code ends at one of its own limits
+  (an `error_max_*` result) fails, and its status carries those tokens too. When
+  the saved totals cannot be read, the turn counts only the calls it reported.
+- **Models:** a call that names no response model counts under the model the
+  harness requested. A Codex call never names one, so a Codex task's entries
+  carry the configured model name, such as `gpt-5-codex`. Claude's calls name
+  the dated model, such as `claude-sonnet-4-5-20250929`, and its session
+  remainder names the undated name the session totals use, such as
+  `claude-sonnet-4-5`. A model's family is the undated name and the name
+  followed by a date; `claude-sonnet-4` is another family. The remainder counts
+  in the family's one entry, or in a new entry under the undated name when the
+  family has none. A family with several entries is folded into one entry under
+  the undated name first, so the reasoning the remainder identifies is split
+  out of the output that holds it instead of being counted beside it, and the
+  model entries never add up to more than the task.
+- **Cost:** v1 has no cost field. Claude Code's `total_cost_usd` is not reported.
 
 ## Out of scope for v1
 
