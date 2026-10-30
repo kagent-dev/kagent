@@ -42,23 +42,22 @@ func (p *Provider) Authenticate(ctx context.Context, headers http.Header, query 
 	if err != nil {
 		return nil, err
 	}
-	if session.Creator == "" || session.GetAgent().GetNamespace() == "" || session.GetAgent().GetName() == "" {
+	if session.Creator == "" || session.GetAgent().GetRef().GetNamespace() == "" || session.GetAgent().GetRef().GetName() == "" {
 		return nil, fmt.Errorf("actor session has no owner or agent")
 	}
 	bound := identity.(runtimeSession)
 	bound.owner = session.Creator
-	bound.agent = session.Agent.Namespace + "/" + session.Agent.Name
 	return bound, nil
 }
 
-func (p *Provider) UpstreamAuth(request *http.Request, session auth.Session, target auth.Principal) error {
-	if session != nil && session.Principal().Actor != nil {
+func (p *Provider) UpstreamAuth(request *http.Request, session auth.Session, destinationSessionID string) error {
+	if session != nil && session.Principal().RuntimeBinding != nil {
 		if _, err := Session(auth.AuthSessionTo(request.Context(), session), p.store); err != nil {
 			return err
 		}
-		return p.actors.UpstreamAuth(request, session, target)
+		return p.actors.UpstreamAuth(request, session, destinationSessionID)
 	}
-	return p.users.UpstreamAuth(request, session, target)
+	return p.users.UpstreamAuth(request, session, destinationSessionID)
 }
 
 func actorCredentials(headers http.Header, actorIssuer string) bool {

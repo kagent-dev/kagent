@@ -1,42 +1,20 @@
 ### STAGE 1: Dependencies
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-ARG WOLFI_BASE_DIGEST=sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
 ARG NGINX_DIGEST=sha256:8a42fb9468e353a6c2501d2657866333b7a2a075912f4a7e4fa73298aafd46d6
 ARG GO_IMAGE=golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c
-ARG TOOLS_NODE_VERSION=24
+ARG NODE_IMAGE=node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
 ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@${WOLFI_BASE_DIGEST} AS deps
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-# This is used to print the build platform in the logs
-ARG BUILDPLATFORM
-ARG TOOLS_NODE_VERSION
-
-# Tools hold a major version so the bundle always builds with Node 24, and old revisions can't break the build.
-RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache \
-        "curl~8" \
-        "bash~5" \
-        "openssl~3" \
-        "unzip~6" \
-        ca-certificates \
-        "nodejs-${TOOLS_NODE_VERSION}" \
-        npm-12 \
-        "node-gyp~13" \
-    && update-ca-certificates
+FROM --platform=$BUILDPLATFORM $NODE_IMAGE AS deps
 
 ENV DO_NOT_TRACK=1
 
 WORKDIR /app/ui
 
 # Yarn 4, pinned to package.json's "packageManager" so the image and a developer
-# machine resolve the lockfile identically. Corepack is the supported way to get
-# it, but wolfi's nodejs package does not bundle corepack, so it comes from npm
-# first. `--immutable` fails the build if yarn.lock would have to change.
+# machine resolve the lockfile identically. Corepack, bundled with the Node image,
+# fetches it. `--immutable` fails the build if yarn.lock would have to change.
 COPY package.json yarn.lock .yarnrc.yml ./
-RUN --mount=type=cache,target=/root/.npm,rw \
-    YARN_VERSION="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"yarn@\([0-9.]*\)".*/\1/p' package.json)" \
-    && npm install -g corepack@0.36.0 \
+RUN YARN_VERSION="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"yarn@\([0-9.]*\)".*/\1/p' package.json)" \
     && corepack enable \
     && corepack prepare "yarn@${YARN_VERSION}" --activate \
     && yarn install --immutable

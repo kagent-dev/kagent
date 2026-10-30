@@ -49,7 +49,7 @@ func marshalSession(session *apiv1.Session) ([]byte, error) {
 
 // sameSessionRequest reports whether two creation requests target the same Agent. Names and other mutable fields do not affect retry identity.
 func sameSessionRequest(session, request *apiv1.Session) bool {
-	return proto.Equal(session.GetAgent(), request.GetAgent())
+	return proto.Equal(session.GetAgent().GetRef(), request.GetAgent().GetRef())
 }
 
 // CreateSession atomically reserves a session, its conversation history, and the
@@ -101,36 +101,58 @@ func (c *Client) CreateSession(ctx context.Context, request *apiv1.Session, requ
 }
 
 // insertSession reserves a new conversation in CREATING/CREATE and pins the active
-// Agent's latest successful revision, locking the revision against cleanup. Callers must supply
+// Agent's latest successful revision, locking the definition and revision against cleanup. Callers must supply
 // a transaction so the history and session commit together. A missing prepared target
 // returns ErrNotFound; a duplicate creator/requestID returns pgx.ErrNoRows for the caller
 // to resolve.
 func insertSession(ctx context.Context, db pgx.Tx, request *apiv1.Session, requestID string) (sessionRow, error) {
-	type preparedRevision struct {
-		Revision string
-		DBTime   time.Time
-	}
-	revision, err := queryOne(ctx, db, `
-		SELECT p.latest_successful_revision AS revision, clock_timestamp() AS db_time
-		FROM agent_definition p
-		WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
-		    AND p.latest_successful_revision IS NOT NULL
-	`, pgx.RowToStructByName[preparedRevision], request.GetAgent().GetNamespace(), request.GetAgent().GetName())
+	revision, err := getLatestSuccessfulRevisionForUpdate(ctx, db, request.GetAgent())
 	if err != nil {
-		return sessionRow{}, fmt.Errorf("get latest prepared runtime revision: %w", notFoundOr(err))
+		return sessionRow{}, err
 	}
-	if _, err := getAvailableRuntimeRevisionForUpdate(ctx, db, revision.Revision); err != nil {
+	return insertPinnedSession(ctx, db, request, requestID, revision)
+}
+
+// getLatestSuccessfulRevisionForUpdate locks the active Agent definition so the
+// selected revision stays latest until the caller's transaction ends.
+func getLatestSuccessfulRevisionForUpdate(ctx context.Context, db pgx.Tx, agent *apiv1.AgentProvenance) (string, error) {
+	revision, err := queryOne(ctx, db, `
+		SELECT p.latest_successful_revision FROM agent_definition p
+		WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
+		    AND ($3::text = '' OR p.agent_uid = $3)
+		    AND p.latest_successful_revision IS NOT NULL
+		FOR UPDATE OF p
+	`, pgx.RowTo[string], agent.GetRef().GetNamespace(), agent.GetRef().GetName(), agent.GetUid())
+	if err != nil {
+		return "", fmt.Errorf("get latest prepared runtime revision: %w", notFoundOr(err))
+	}
+	return revision, nil
+}
+
+// insertPinnedSession reserves the conversation and its revision reference in
+// one transaction. Source deletion cannot change these accepted inputs.
+func insertPinnedSession(ctx context.Context, db pgx.Tx, request *apiv1.Session, requestID, revisionID string) (sessionRow, error) {
+	pinned, err := getAvailableRuntimeRevisionForUpdate(ctx, db, revisionID)
+	if err != nil {
+		return sessionRow{}, err
+	}
+	agent := request.GetAgent()
+	if agent.GetRef().GetNamespace() != pinned.Namespace || agent.GetRef().GetName() != pinned.AgentName || (agent.GetUid() != "" && agent.GetUid() != pinned.AgentUID) {
+		return sessionRow{}, fmt.Errorf("revision does not belong to the requested Agent: %w", ErrConflict)
+	}
+	now, err := queryOne(ctx, db, `SELECT statement_timestamp()::timestamptz`, pgx.RowTo[time.Time])
+	if err != nil {
 		return sessionRow{}, err
 	}
 	session := proto.CloneOf(request)
-	historyID := uuid.New()
+	session.Agent.Uid = pinned.AgentUID
 	session.ContextId = session.Id
-	session.PreparedRevision = revision.Revision
+	session.PreparedRevision = revisionID
 	session.State = apiv1.RuntimeState_RUNTIME_STATE_CREATING
 	session.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE
-	session.CreatedAt = timestamppb.New(revision.DBTime)
-	session.UpdatedAt = timestamppb.New(revision.DBTime)
-	return insertSessionRecords(ctx, db, session, requestID, historyID, nil)
+	session.CreatedAt = timestamppb.New(now)
+	session.UpdatedAt = timestamppb.New(now)
+	return insertSessionRecords(ctx, db, session, requestID, uuid.New(), nil)
 }
 
 // GetSessionByID returns a session without filtering by owner, or ErrNotFound if
@@ -180,6 +202,7 @@ func (c *Client) GetSession(ctx context.Context, id, userID string) (*apiv1.Sess
 // filtered by optional Agent reference. It restricts results to
 // UserID unless AllUsers is set; callers must authorize that broader access.
 func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1.Session, error) {
+	agent := query.Agent
 	rows, err := queryMany(ctx, c.db, `
 		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation,
 		    i.context_id, i.source_checkpoint_id, i.history_id, i.operation_id, i.executor_id FROM session_record i
@@ -191,7 +214,7 @@ func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1
 		LIMIT $6
 	`,
 		pgx.RowToStructByName[sessionRow], query.AllUsers, query.UserID, query.AfterID,
-		query.Agent.GetName(), query.Agent.GetNamespace(), int32(query.Limit),
+		agent.GetName(), agent.GetNamespace(), int32(query.Limit),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list Sessions: %w", err)

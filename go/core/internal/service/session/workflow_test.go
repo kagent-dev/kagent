@@ -53,26 +53,19 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 		t.Fatalf("quiesced session = %+v, boundary = %+v", created, boundary)
 	}
 
-	suspended, err := workflow.Suspend(context.Background(), created)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if suspended.GetState() != apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED || suspended.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
-		t.Fatalf("suspended session = %+v", suspended)
-	}
-	if actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
-		t.Fatalf("suspended Actor status = %s", actor.GetStatus().GetState())
-	}
+	actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
+	stored, err := store.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, stored.State)
 
-	resumed, err := workflow.Resume(context.Background(), suspended)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resumed.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY || resumed.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
-		t.Fatalf("resumed session = %+v", resumed)
-	}
+	// Controller-owned deadline cleanup can suspend a Session with no accepted task.
+	suspended, err := workflow.Suspend(t.Context(), created)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
+	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, suspended.Operation)
 
-	deleted, err := workflow.Delete(context.Background(), resumed)
+	deleted, err := workflow.Delete(context.Background(), suspended)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,8 +144,9 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	}
 	upsertErr := client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision})
 	require.NoError(t, upsertErr)
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, database.RecordRevisionOptions{Ready: true}))
-	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
+	_, err = client.RecordRuntimeRevision(t.Context(), *revision, database.RecordRevisionOptions{Ready: true})
+	require.NoError(t, err)
+	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, uuid.NewString())
 	require.NoError(t, err)
 	return &lifecycleTestStore{Client: client, revision: revision}, session
 }
@@ -454,28 +448,27 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
 	service := NewService(store, serviceTestAuthorizer{}, NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second))
 	ctx := serviceTestContext("alice")
-	session, err := service.Create(ctx, fixture.Agent, "retry-request", "conversation")
+	session, err := service.Create(ctx, fixture.Agent.Ref, "retry-request", "conversation")
 	require.NoError(t, err)
-	suspended, err := service.Suspend(ctx, session.Id)
+	renamed, err := service.Rename(ctx, session.Id, "renamed conversation")
 	require.NoError(t, err)
 	mutations := actors.mutations.Load()
-	retried, err := service.Create(ctx, fixture.Agent, "retry-request", "ignored retry name")
+	retried, err := service.Create(ctx, fixture.Agent.Ref, "retry-request", "ignored retry name")
 	require.NoError(t, err)
-	require.Equal(t, suspended.Id, retried.Id)
-	require.Equal(t, suspended.State, retried.State)
+	require.Equal(t, renamed.Id, retried.Id)
+	require.Equal(t, renamed.Name, retried.Name)
+	require.Equal(t, renamed.State, retried.State)
 	require.Equal(t, mutations, actors.mutations.Load(), "creation retry cannot reissue runtime work")
 	deleted, err := service.Delete(ctx, session.Id)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
 	mutations = actors.mutations.Load()
-	_, err = service.Create(ctx, fixture.Agent, "retry-request", "")
+	_, err = service.Create(ctx, fixture.Agent.Ref, "retry-request", "")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
 	_, err = service.Get(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	_, err = service.Delete(ctx, session.Id)
-	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
-	_, err = service.Resume(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
 }

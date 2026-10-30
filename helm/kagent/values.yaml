@@ -156,6 +156,9 @@ config:
   server:
     auth:
       mode: insecure
+      # Opt in to Kubernetes TokenReview authentication independently of the mode.
+      # serviceAccount:
+      #   authority: kubernetes
     grpcReflection: false
   database:
     # Role each login assumes after connecting. Set distinct roles for each install sharing a database.
@@ -174,6 +177,10 @@ config:
   push:
     allowHttp: false
     allowPrivateNetworks: false
+    # Maximum concurrent callback deliveries per controller replica.
+    maxConcurrency: 10
+    # Timeout for each callback attempt.
+    sendTimeout: 5s
     # Recovery scans for missed wake-ups and unbound registration cleanup.
     recoveryInterval: 60s
   sessions:
@@ -402,6 +409,9 @@ substrateWorkerPool:
   # the corresponding SandboxConfig installed (gvisor-default or microvm);
   # microvm also requires runtime assets and KVM-capable nodes with atelet's device plugin.
   sandboxClass: gvisor
+  # Optional override for the SandboxConfig referenced by the selected class.
+  # Defaults to "microvm" for sandboxClass=microvm and "gvisor-default" otherwise.
+  sandboxConfigRef: ""
   # Extra labels merged onto the WorkerPool metadata. The placement labels
   # kagent.dev/worker-pool-name and kagent.dev/worker-pool-namespace always use this
   # pool's name and namespace, so ActorTemplates generated for other namespaces

@@ -2,7 +2,9 @@
 
 Session and Sandbox lifecycle mutations run within the API request. The server
 records the intended operation before calling the runtime and records completion
-before returning success. A failed request can have changed the runtime: a timeout
+before returning success. Sessions expose Create, Fork, and Delete; explicit Suspend
+and Resume are available only for Sandboxes. Session runtime suspension and resumption
+are platform-managed. A failed request can have changed the runtime: a timeout
 does not mean that nothing happened, and canceling a request does not undo it.
 
 ## Client contract
@@ -10,11 +12,12 @@ does not mean that nothing happened, and canceling a request does not undo it.
 - Retry Create with the **same request ID and identical input**. Keep that ID
   across client restarts. A new request ID creates a different resource. Fork
   creation follows the same rule, including its source checkpoint reference.
-- Retry Suspend, Resume, or Delete against the same resource ID. Successful
-  Suspend/Resume calls leave the resource at the requested state. A repeated
-  Create returns the current resource and does not reset its lifetime or state.
+- Retry Delete against the same resource ID. For Sandboxes, retry Suspend and
+  Resume the same way; successful calls leave the Sandbox at the requested state.
+  A repeated Create returns the current resource and does not reset its lifetime
+  or state.
 - Serialize lifecycle mutations for each resource. Finish retrying an operation
-  before issuing its opposite. These APIs do not provide ordered, exactly-once
+  before issuing another. These APIs do not provide ordered, exactly-once
   commands across concurrent clients or arbitrarily delayed requests.
 - Get and List only observe state. Polling them does **not** resume pending work.
   Repeat the mutation to make progress. Check both `state` and `operation` when

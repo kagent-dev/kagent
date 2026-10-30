@@ -119,13 +119,6 @@ class TestContextConfigParsing:
         assert parsed.compaction.overlap_size == 2
         assert parsed.compaction.token_threshold == 1000
 
-    def test_network_config(self):
-        data = json.loads(_make_agent_config_json())
-        data["agent"]["network"] = {"allowed_domains": ["api.example.com", "*.example.org"]}
-        config = parse_config(data).agent
-        assert config.network is not None
-        assert config.network.allowed_domains == ["api.example.com", "*.example.org"]
-
     def test_model_accepts_legacy_tls_insecure_skip_verify_field(self):
         data = json.loads(_make_agent_config_json())
         data["agent"]["model"]["tls_insecure_skip_verify"] = True

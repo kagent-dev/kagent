@@ -23,16 +23,16 @@ type sandboxCollections struct {
 }
 
 type sandboxReconciliation struct {
-	Template              *kagentv1alpha3.SandboxTemplate
-	RevisionID            string
-	SourceSnapshot        json.RawMessage
-	EgressGrant           egress.Access // Requested union, including conflicting grants.
-	EgressIssues          []translator.EgressGrantIssue
-	EgressConflict        string
-	DesiredActorTemplate  *ateapipb.ActorTemplate
-	ObservedActorTemplate *ateapipb.ActorTemplate
-	CompilationError      string
-	Failure               *ReconciliationFailure
+	Template             *kagentv1alpha3.SandboxTemplate
+	RevisionID           string
+	SourceSnapshot       json.RawMessage
+	EgressGrant          egress.Access // Requested union, including conflicting grants.
+	EgressIssues         []translator.EgressGrantIssue
+	EgressConflict       string
+	DesiredActorTemplate *ateapipb.ActorTemplate
+	CompilationError     string
+	Golden               goldenProgress
+	Failure              *ReconciliationFailure
 }
 
 func (s sandboxReconciliation) ResourceName() string {
@@ -42,11 +42,10 @@ func (s sandboxReconciliation) ResourceName() string {
 var _ krt.Equaler[sandboxReconciliation] = sandboxReconciliation{}
 
 func (s sandboxReconciliation) Equals(other sandboxReconciliation) bool {
-	if !proto.Equal(s.DesiredActorTemplate, other.DesiredActorTemplate) || !proto.Equal(s.ObservedActorTemplate, other.ObservedActorTemplate) {
+	if !proto.Equal(s.DesiredActorTemplate, other.DesiredActorTemplate) {
 		return false
 	}
 	s.DesiredActorTemplate, other.DesiredActorTemplate = nil, nil
-	s.ObservedActorTemplate, other.ObservedActorTemplate = nil, nil
 	return reflect.DeepEqual(s, other)
 }
 
@@ -66,21 +65,11 @@ func (s sandboxReconciliation) canPrepare() bool {
 type sandboxRuntimeObservation struct {
 	Key        string
 	RevisionID string
-	Template   *ateapipb.ActorTemplate
+	Golden     goldenProgress
 	Failure    *ReconciliationFailure
 }
 
 func (s sandboxRuntimeObservation) ResourceName() string { return s.Key }
-
-var _ krt.Equaler[sandboxRuntimeObservation] = sandboxRuntimeObservation{}
-
-func (s sandboxRuntimeObservation) Equals(other sandboxRuntimeObservation) bool {
-	if !proto.Equal(s.Template, other.Template) {
-		return false
-	}
-	s.Template, other.Template = nil, nil
-	return reflect.DeepEqual(s, other)
-}
 
 func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, opts krt.OptionsBuilder) sandboxCollections {
 	observations := krt.NewStaticCollection[sandboxRuntimeObservation](nil, nil, opts.WithName("SandboxRuntimeObservations")...)
@@ -111,9 +100,9 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 			return state
 		}
 		if observation.Failure != nil {
-			state.Failure = observation.Failure
+			state.Failure, state.Golden = observation.Failure, observation.Golden
 		} else if state.Failure == nil {
-			state.ObservedActorTemplate = observation.Template
+			state.Golden = observation.Golden
 		}
 		return state
 	}, opts.WithName("SandboxReconciliations")...)

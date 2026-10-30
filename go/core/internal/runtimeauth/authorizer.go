@@ -22,7 +22,7 @@ func NewAuthorizer(users auth.CollectionAuthorizer, store SessionStore) *Authori
 }
 
 func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if principal.Actor == nil {
+	if principal.RuntimeBinding == nil {
 		return a.users.Check(ctx, principal, verb, resource)
 	}
 	session, err := Session(ctx, a.store)
@@ -31,7 +31,7 @@ func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb a
 	}
 	switch resource.Type {
 	case "Agent":
-		if verb == auth.VerbGet && resource.Namespace == session.GetAgent().GetNamespace() && resource.Name == session.GetAgent().GetName() {
+		if verb == auth.VerbGet && resource.Namespace == session.GetAgent().GetRef().GetNamespace() && resource.Name == session.GetAgent().GetRef().GetName() {
 			return nil
 		}
 	case "Session":
@@ -44,7 +44,7 @@ func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb a
 			return nil
 		}
 	case "Memory":
-		if resource.Name == session.GetAgent().GetNamespace()+"/"+session.GetAgent().GetName() &&
+		if resource.Name == session.GetAgent().GetRef().GetNamespace()+"/"+session.GetAgent().GetRef().GetName() &&
 			(verb == auth.VerbGet || verb == auth.VerbList || verb == auth.VerbCreate || verb == auth.VerbDelete) {
 			return nil
 		}
@@ -53,7 +53,7 @@ func (a *Authorizer) Check(ctx context.Context, principal auth.Principal, verb a
 }
 
 func (a *Authorizer) Scope(ctx context.Context, principal auth.Principal, verb auth.Verb, resourceType string) (authorization.AuthorizationScope, error) {
-	if principal.Actor == nil {
+	if principal.RuntimeBinding == nil {
 		return a.users.Scope(ctx, principal, verb, resourceType)
 	}
 	session, err := Session(ctx, a.store)
@@ -64,7 +64,7 @@ func (a *Authorizer) Scope(ctx context.Context, principal auth.Principal, verb a
 		return authorization.AuthorizationScope{Kind: authorization.ScopeNone}, nil
 	}
 	return authorization.AuthorizationScope{Kind: authorization.ScopeAnyOf, AnyOf: []authorization.ScopeClause{{All: []authorization.ScopePredicate{
-		{Attribute: authorization.AttributeNamespace, Operator: authorization.ScopeIn, Values: []string{session.GetAgent().GetNamespace()}},
-		{Attribute: authorization.AttributeName, Operator: authorization.ScopeIn, Values: []string{session.GetAgent().GetName()}},
+		{Attribute: authorization.AttributeNamespace, Operator: authorization.ScopeIn, Values: []string{session.GetAgent().GetRef().GetNamespace()}},
+		{Attribute: authorization.AttributeName, Operator: authorization.ScopeIn, Values: []string{session.GetAgent().GetRef().GetName()}},
 	}}}}, nil
 }

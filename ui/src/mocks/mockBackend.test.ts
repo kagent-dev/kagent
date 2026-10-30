@@ -103,24 +103,10 @@ const INPUTS = {
   },
   "prompts.delete": { namespace: "kagent", name: "swept-prompts" },
 
-  /*
-   * Each of these acts on a different instance, because this sweep runs every
-   * operation concurrently and the controller refuses a second lifecycle operation
-   * on an instance that already has one in flight. Suspending and resuming the same
-   * row here would be a race with itself.
-   */
   "agentInstances.list": {},
   "agentInstances.get": {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-  },
-  "agentInstances.suspend": {
-
-    id: "5a3c8e17-4b92-4d05-9f61-8c2e7a03b4d9",
-  },
-  "agentInstances.resume": {
-
-    id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
   },
   "agentInstances.shares.list": {
 
@@ -338,64 +324,7 @@ describe("the fixture backend", () => {
     expect(all.length).toBeGreaterThan(scoped.length);
   });
 
-  /*
-   * The fixture backend has to refuse a lifecycle operation for the same reasons the
-   * controller does, or the disabled buttons on the instances page are decoration:
-   * a fake that suspended anything from any state would let the page ship with its
-   * preconditions inverted and nothing would object until a cluster did.
-   */
-  describe("agent instance lifecycle", () => {
-    const READY = "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44";
-    const FAILED = "d4b02f87-3a55-4c18-9e6b-1f70c9a8e332";
-    const MID_OPERATION = "0a7d6c58-9e21-4b3c-a05d-4e8f1b6d2277";
-
-    it("records a suspend, so the list and the record agree afterwards", async () => {
-      const before = await invoke("agentInstances.get", {
-
-        id: READY,
-      });
-      expect(before.state).toBe("ready");
-
-      const suspended = await invoke("agentInstances.suspend", {
-
-        id: READY,
-      });
-      expect(suspended.state).toBe("suspended");
-      // Cleared, because the controller's operation completes synchronously — an
-      // instance still claiming to be suspending would refuse the resume that
-      // follows.
-      expect(suspended.operation).toBe("unspecified");
-
-      const listed = await invoke("agentInstances.list", {});
-      expect(listed.find((row) => row.id === READY)?.state).toBe("suspended");
-
-      const resumed = await invoke("agentInstances.resume", {
-
-        id: READY,
-      });
-      expect(resumed.state).toBe("ready");
-    });
-
-    it("refuses a suspend from a state the controller would refuse", async () => {
-      const error = await invoke("agentInstances.suspend", {
-
-        id: FAILED,
-      }).catch((reason: unknown) => reason);
-
-      expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).code).toBe("Aborted");
-    });
-
-    it("refuses a second operation while one is already in flight", async () => {
-      const error = await invoke("agentInstances.resume", {
-
-        id: MID_OPERATION,
-      }).catch((reason: unknown) => reason);
-
-      expect((error as ApiError).code).toBe("Aborted");
-      expect((error as ApiError).message).toMatch(/conflicting lifecycle operation/);
-    });
-
+  describe("agent instance listing", () => {
     it("lists other people's instances only when asked", async () => {
       const mine = await invoke("agentInstances.list", {});
       const everyone = await invoke("agentInstances.list", {

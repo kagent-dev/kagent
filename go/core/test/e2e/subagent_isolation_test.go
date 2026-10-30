@@ -53,7 +53,7 @@ func TestSubAgentIsolationValidation(t *testing.T) {
 				Spec: v1alpha3.AgentTemplateSpec{
 					SystemPrompt: "Review the work.",
 					Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-						Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+						Server:          corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 						RequireApproval: tt.requireApproval,
 					}}},
 				},

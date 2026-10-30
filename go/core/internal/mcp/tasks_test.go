@@ -418,7 +418,7 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 type testSession struct{}
 
 func (testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "user@example.com"}}
+	return auth.Principal{ID: "user@example.com"}
 }
 
 func authContext() context.Context {
@@ -530,7 +530,7 @@ func (*fakeSessionStore) GetSession(_ context.Context, id, _ string) (*apiv1.Ses
 	if id != testSessionID {
 		return nil, database.ErrNotFound
 	}
-	return &apiv1.Session{Id: id, ContextId: id, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
+	return &apiv1.Session{Id: id, ContextId: id, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, nil
 }
 
 func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1.Session, error) {
@@ -540,7 +540,7 @@ func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv
 func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error) {
 	return []*apiv1.Session{{
 		Id: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
-		Agent: &apiv1.ResourceReference{Name: "assistant"},
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "assistant"}},
 	}}, nil
 }
 
@@ -563,14 +563,6 @@ func (*fakeSessionStore) DeleteSessionShare(context.Context, string, string) err
 type fakeSessionWorkflow struct{}
 
 func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return session, nil
-}
-
-func (*fakeSessionWorkflow) Suspend(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return session, nil
-}
-
-func (*fakeSessionWorkflow) Resume(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }
 

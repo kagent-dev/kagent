@@ -42,11 +42,11 @@ func isolationHarness(kind string) *v1alpha3.Harness {
 // isolation the test sets, and a Shared drafter. The reviewer's MCP binding can
 // require approval.
 func isolationTemplates(isolation v1alpha3.SubAgentIsolation, requireApproval bool) (root, reviewer, drafter *v1alpha3.AgentTemplate) {
-	model := &corev1.LocalObjectReference{Name: "default-model"}
+	model := &v1alpha3.ObjectReference{Name: "default-model"}
 	reviewer = &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "reviewer", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: model, SystemPrompt: "review", Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-			Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: "search"}, RequireApproval: requireApproval,
+			Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: "search"}, RequireApproval: requireApproval,
 		}}}},
 	}
 	drafter = &v1alpha3.AgentTemplate{

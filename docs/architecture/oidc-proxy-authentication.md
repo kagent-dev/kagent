@@ -86,28 +86,59 @@ configure refresh according to their identity provider's requirements.
 ## Controller identity
 
 The [ProxyAuthenticator](../../go/core/internal/httpserver/auth/proxy_authn.go)
-implementation decodes bearer JWT payloads without verifying signatures or
-expiry. It assumes an upstream boundary already validated the credential.
+implementation parses bearer JWT claims without verifying signatures. It rejects
+malformed or expired `exp` claims when present, including before forwarding the
+credential. It assumes an upstream boundary already validated the signature,
+issuer, audience, and other required claims.
 The shipped controller selects it in `trusted-proxy` mode.
 
 For a direct user request, identity comes from the configured user-ID claim,
 defaulting to `sub`. A missing custom claim falls back to `sub`; a missing user
-identity rejects the request. The session retains raw claims and the original
-authorization header. `UpstreamAuth` forwards that header and `X-User-Id` to
-downstream requests.
+identity rejects the request. The principal ID combines the issuer and selected
+subject into an opaque identifier. Consumers must not parse it or treat it as a
+display name. The session retains the claims and original bearer credential.
+`UpstreamAuth` forwards that credential and the opaque principal ID in
+`X-User-Id`; this header does not grant authority to callbacks.
 
-For an agent request with `X-Agent-Name`, a parseable bearer JWT is still required.
-The acting user comes from `user_id`, then `X-User-Id`, then the token's `sub`
-claim. Headers alone do not authenticate an agent. This path does not perform a
-Kubernetes TokenReview or otherwise validate a service-account token.
+`X-Agent-Name`, `X-User-Id`, and the `user_id` query parameter do not select an
+acting user in trusted-proxy mode. Actor identity comes from a verified Substrate
+credential and its current Session binding.
+
+Kubernetes service-account authentication can be enabled independently of the
+user authentication mode with `config.server.auth.serviceAccount.authority`.
+It uses the local cluster's TokenReview API with the `kagent-invocation` audience.
+The principal ID combines the configured authority and the verified service-account
+UID, so token rotation preserves identity and recreation changes it. Use distinct
+authorities when identities from multiple clusters share storage.
+
+Tokens with a `kubernetes.io` claim or a `system:serviceaccount:` subject always
+take this verifier when enabled. Verification failure never falls back to the
+trusted proxy, including for federated credentials from another cluster. Unverified
+claims only select the verifier; TokenReview establishes identity and authority.
+
+Direct machine callers intentionally forward their verified inbound token, like
+human callers. That token retains its Kagent authority wherever it is forwarded;
+passthrough destinations must be trusted with it. An embedding application's
+`UpstreamAuth` hook may replace or suppress the credential. Forwarding within a
+request reuses its verified credential and checks expiry locally.
+
+Each controller caches up to 1,024 successful TokenReviews by token hash and
+requested audience for 30 seconds, capped by the token's expiry when present.
+Cache hits do not extend that lifetime. Concurrent lookups for the same credential
+share one review; failed reviews are not cached, and an unavailable Kubernetes API
+never extends an expired entry. Revocation can therefore take up to 30 additional
+seconds to become visible. Token rotation uses a new cache key immediately.
+
+`GetCurrentUser.claims` returns provider-specific attributes, not a normalized
+profile: proxy claims for OIDC, `username` and `groups` for service accounts, or
+an opaque `sub` for sessions without claims. It is not the UI's userinfo source.
 
 The [gRPC interceptors](../../go/core/internal/grpcserver/interceptors.go) pass
 incoming authentication metadata to the configured provider. Actor calls use the
 same listener and shared authentication provider. Actor JWTs are verified and bound
 to their current session, then services enforce the actor resource policy. This
 also applies to HTTP MCP and A2A. Invalid actor credentials cannot fall back to
-user authentication. The proxy's agent-header path does not define authentication
-for runtime methods. See the
+user authentication. See the
 [A2A gateway](a2a-gateway.md) for the runtime boundary.
 
 ## Deployment configuration
@@ -125,6 +156,7 @@ differs.
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
 | `config.server.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
 | `config.server.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
+| `config.server.auth.serviceAccount` | Unset | Opt in to local TokenReview authentication with a configured authority |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
 
 For a release named `kagent`, register
@@ -182,7 +214,7 @@ The [UI nginx configuration](../../helm/kagent/files/nginx.conf) preserves
 `X-Auth-Request-*` and `X-Forwarded-*` identity headers unless explicitly allowed
 by `ui.additionalForwardedHeaders`. In `trusted-proxy` mode it always clears
 `X-Agent-Name` and `X-User-Id` on API, A2A, and MCP requests, even if listed,
-so external callers cannot select the internal agent authentication path.
+as defense in depth; the authenticator does not accept them as Actor identity.
 
 The chart does not install a dedicated NetworkPolicy enforcing this boundary.
 Operators must restrict UI ingress to the proxy and controller ingress to UI
@@ -190,6 +222,6 @@ nginx and explicitly trusted internal workloads, using NetworkPolicy enforced
 by the cluster's network plugin or equivalent isolation. ClusterIP alone does
 not prevent bypass from another pod. Keep native gRPC, runtime methods, and
 the controller's direct HTTP/MCP listener private. Trusted internal callers
-must validate credentials before supplying user/agent identity headers.
-Neither a forged signature nor an expired token is rejected by
-`ProxyAuthenticator` itself.
+must validate user credentials before forwarding them. `ProxyAuthenticator`
+rejects an expired `exp` claim, but it does not verify signatures or require an
+expiry claim. These checks do not replace upstream credential verification.

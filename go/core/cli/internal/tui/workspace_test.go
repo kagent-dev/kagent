@@ -70,7 +70,7 @@ func workspaceSession(id, template string, state apiv1.RuntimeState, created tim
 	return &apiv1.Session{
 		Id: id,
 
-		Agent: &apiv1.ResourceReference{Namespace: "kagent", Name: template},
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "kagent", Name: template}},
 
 		State:     state,
 		CreatedAt: timestamppb.New(created),

@@ -148,7 +148,7 @@ func (store *memoryStore) GetSessionForRuntime(_ context.Context, id, _ string) 
 	if store.bindingErr != nil {
 		return nil, store.bindingErr
 	}
-	return &apiv1.Session{Id: id, Creator: "user", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
+	return &apiv1.Session{Id: id, Creator: "user", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
 }
 
 type testActorVerifier struct{}
@@ -161,7 +161,7 @@ func memoryContext(t *testing.T) context.Context {
 	t.Helper()
 	session, err := runtimeauth.NewAuthenticator(testActorVerifier{}).Authenticate(t.Context(), http.Header{"Authorization": {"Bearer test"}, "X-User-Id": {"forged"}, "X-Agent-Name": {"forged"}}, nil)
 	require.NoError(t, err)
-	require.Empty(t, session.Principal().User.ID)
+	require.Equal(t, auth.PrincipalID("substrate-actor", "team-a/actor"), session.Principal().ID)
 	return auth.AuthSessionTo(t.Context(), session)
 }
 
@@ -228,9 +228,9 @@ func TestMemoryRejectsUnboundActors(t *testing.T) {
 func TestUserMemoryManagementDoesNotRequireRuntime(t *testing.T) {
 	store := &memoryStore{bindingErr: database.ErrNotFound}
 	service := NewService(store, auth.NoopAuthorizer{})
-	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "owner"}}})
+	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{ID: "owner"}})
 
-	for _, agentName := range []string{"team-a/agent", "legacy-display-name"} {
+	for _, agentName := range []string{"team-a/agent", "team-b/other"} {
 		_, err := service.List(ctx, agentName)
 		require.NoError(t, err)
 		require.Equal(t, agentName, store.readAgent)
@@ -254,7 +254,7 @@ func (deniedMemoryAuthorizer) Check(context.Context, auth.Principal, auth.Verb, 
 func TestMemoryManagementHonorsConfiguredAuthorization(t *testing.T) {
 	store := &memoryStore{}
 	service := NewService(store, deniedMemoryAuthorizer{})
-	user := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "user"}}})
+	user := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{ID: "user"}})
 	for _, ctx := range []context.Context{user, memoryContext(t)} {
 		_, err := service.List(ctx, "team-a/agent")
 		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
@@ -266,7 +266,7 @@ func TestMemoryManagementHonorsConfiguredAuthorization(t *testing.T) {
 }
 
 func TestMemorySharesNeverReachPartitionStorage(t *testing.T) {
-	user := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "owner"}}})
+	user := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{ID: "owner"}})
 	for _, ctx := range []context.Context{user, memoryContext(t)} {
 		store := &memoryStore{}
 		service := NewService(store, auth.NoopAuthorizer{})

@@ -50,7 +50,7 @@ func (s *sessionAuthorizationStore) ListSessions(_ context.Context, query databa
 		if session.Id <= query.AfterID || (!query.AllUsers && session.Creator != query.UserID) {
 			continue
 		}
-		if query.Agent != nil && (session.Agent.Namespace != query.Agent.Namespace || session.Agent.Name != query.Agent.Name) {
+		if query.Agent != nil && (session.Agent.Ref.Namespace != query.Agent.Namespace || session.Agent.Ref.Name != query.Agent.Name) {
 			continue
 		}
 		rows = append(rows, session)
@@ -64,20 +64,20 @@ func (s *sessionAuthorizationStore) ListSessions(_ context.Context, query databa
 type sessionAuthorizationPolicy struct{}
 
 func (sessionAuthorizationPolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if principal.User.ID == "blocked" || resource.Type == "Agent" {
+	if principal.ID == "blocked" || resource.Type == "Agent" {
 		return errors.New("denied")
 	}
 	if resource.Type == "SessionAllCreators" {
-		if principal.User.ID == "operator" && verb == auth.VerbList {
+		if principal.ID == "operator" && verb == auth.VerbList {
 			return nil
 		}
 		return errors.New("denied")
 	}
 	if resource.Type == "Session" {
-		if principal.User.ID == "no-share-list" && verb == auth.VerbList && strings.HasSuffix(resource.Name, "/shares") {
+		if principal.ID == "no-share-list" && verb == auth.VerbList && strings.HasSuffix(resource.Name, "/shares") {
 			return errors.New("share listing denied")
 		}
-		if verb == auth.VerbGet || verb == auth.VerbList || principal.User.ID != "viewer" {
+		if verb == auth.VerbGet || verb == auth.VerbList || principal.ID != "viewer" {
 			return nil
 		}
 	}
@@ -89,8 +89,8 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 	bobID := "22222222-2222-4222-8222-222222222222"
 	agent := &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}
 	store := &sessionAuthorizationStore{sessions: []*apiv1.Session{
-		{Id: aliceID, Creator: "alice", Agent: agent},
-		{Id: bobID, Creator: "bob", Agent: agent},
+		{Id: aliceID, Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: agent}},
+		{Id: bobID, Creator: "bob", Agent: &apiv1.AgentProvenance{Ref: agent}},
 	}}
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
 		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, nil)
@@ -171,7 +171,7 @@ type sessionNamespaceRPCPolicy struct {
 }
 
 func (s *sessionNamespaceRPCPolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if principal.User.ID != "alice" {
+	if principal.ID != "alice" {
 		return errors.New("unexpected principal")
 	}
 	if resource.Type == "Session" && verb == auth.VerbCreate {

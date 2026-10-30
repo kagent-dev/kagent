@@ -1,0 +1,32 @@
+# kagent Helm installation export
+
+This directory contains the Helm commands and values that `kagent install` would apply. Each values file contains only the values that the CLI sets for that release. Chart defaults are not included.
+
+Review every values file before you commit or share this directory. User-provided values are copied as supplied, and secrets in them are not detected or removed.{{if .Secrets}} Only the credentials in the Environment references section are replaced.{{end}}
+
+## Before you run the script
+
+Complete the prerequisite steps in the Helm installation guide: {{.Data.DocsURL}}. This export does not set up prerequisites.
+
+{{if .SkipDatabaseSetup -}}
+This export was generated with `--skip-database-setup`, so the values connect to your own database. Create the database and its connection Secrets before you run the script.
+{{else -}}
+The values configure certificate authentication for the bundled database. This export does not provision the database.
+{{end}}
+{{if .Secrets -}}
+## Environment references
+
+Set these environment variables before you run `install.sh`:
+
+{{range .Secrets -}}
+- `{{.Environment}}`: `{{.Path}}` in the `{{.Release}}` release
+{{end}}
+The script passes each value to Helm with `--set-file` through a temporary private file. Always apply the export with the script. Helm does not expand environment variables in YAML, so passing a values file to Helm directly installs the placeholder text as the value.
+{{end}}
+## Run the script
+
+```sh
+sh ./install.sh
+```
+
+The script installs the releases in order in the current kubeconfig context. Running it again upgrades the same releases. The export did not check the cluster or compute a diff.

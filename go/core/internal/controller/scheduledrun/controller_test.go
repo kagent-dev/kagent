@@ -269,7 +269,7 @@ func (p *controllerSessionPolicy) Check(ctx context.Context, principal auth.Prin
 	if _, ok := identity.(auth.ControlPlaneSession); !ok {
 		return errors.New("internal identity required")
 	}
-	if principal.User.ID != "" || len(principal.Claims) != 0 || resource.Type != "Session" || (verb != auth.VerbGet && verb != auth.VerbCreate && verb != auth.VerbUpdate) {
+	if principal.ID != "" || len(principal.Claims) != 0 || resource.Type != "Session" || (verb != auth.VerbGet && verb != auth.VerbCreate && verb != auth.VerbUpdate) {
 		return errors.New("operation denied")
 	}
 	p.calls = append(p.calls, verb)
@@ -335,7 +335,7 @@ func (g scopedControllerGateway) SendStreamingMessage(ctx context.Context, reque
 }
 func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
-	store := &scopedControllerStore{session: &apiv1.Session{Id: id, ContextId: id, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}}
+	store := &scopedControllerStore{session: &apiv1.Session{Id: id, ContextId: id, Creator: "owner", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}}, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}}
 	policy := &controllerSessionPolicy{}
 	sessions := sessionsvc.NewService(store, policy, nil)
 	interactions := sessionsvc.NewInteractionService(store, nil, sessions, false)
@@ -355,5 +355,5 @@ func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 type controllerHumanSession struct{}
 
 func (controllerHumanSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "owner"}, Claims: map[string]any{"control_plane": true}}
+	return auth.Principal{ID: "owner", Claims: map[string]any{"control_plane": true}}
 }

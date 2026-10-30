@@ -12,8 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 func TestRuntimeRevisionGCRejectsInvalidInterval(t *testing.T) {
@@ -39,8 +42,7 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		store := &fakeGCStore{revisions: []database.RuntimeArtifact{
-			{Revision: "failed", ActorTemplateName: "failed"},
-			{Revision: "healthy", ActorTemplateName: "healthy"},
+			gcRevision("failed"), gcRevision("healthy"),
 		}, listErr: errors.New("database unavailable")}
 		templates := &fakeGCTemplates{deleteErr: errors.New("Substrate unavailable")}
 		registry := sdkmetric.NewManualReader()
@@ -115,8 +117,7 @@ func TestRuntimeRevisionGCDeadlineAndCancellation(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		store := &fakeGCStore{revisions: []database.RuntimeArtifact{
-			{Revision: "failed", ActorTemplateName: "failed"},
-			{Revision: "healthy", ActorTemplateName: "healthy"},
+			gcRevision("failed"), gcRevision("healthy"),
 		}}
 		templates := &fakeGCTemplates{block: true}
 		collector, registry := newTestRuntimeRevisionGC(t, store, templates)
@@ -240,12 +241,22 @@ type fakeGCTemplates struct {
 	deleteDelay time.Duration
 }
 
-func (f *fakeGCTemplates) GetActorTemplate(ctx context.Context, atespace, name string) (*ateapipb.ActorTemplate, error) {
-	time.Sleep(f.getDelay)
-	return f.fakeActorTemplates.GetActorTemplate(ctx, atespace, name)
+// gcRevision is a revision whose recorded ActorTemplate fakeGCTemplates serves.
+func gcRevision(name string) database.RuntimeArtifact {
+	return database.RuntimeArtifact{Revision: name, ActorTemplateName: name, ActorTemplateUID: name}
 }
 
-func (f *fakeGCTemplates) DeleteActorTemplate(ctx context.Context, _, name string) error {
+// GetActorTemplate serves a set template, or else a live template for every
+// named revision, with the name as its UID.
+func (f *fakeGCTemplates) GetActorTemplate(ctx context.Context, atespace, name string) (*ateapipb.ActorTemplate, error) {
+	time.Sleep(f.getDelay)
+	if f.template != nil || name == "" {
+		return f.fakeActorTemplates.GetActorTemplate(ctx, atespace, name)
+	}
+	return &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: name}}, nil
+}
+
+func (f *fakeGCTemplates) DeleteActorTemplate(ctx context.Context, _, name, _ string) error {
 	time.Sleep(f.deleteDelay)
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -257,4 +268,43 @@ func (f *fakeGCTemplates) DeleteActorTemplate(ctx context.Context, _, name strin
 		return f.deleteErr
 	}
 	return nil
+}
+
+func TestCollectableTemplate(t *testing.T) {
+	rebuild := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant", Uid: "uid-2"}}
+	digest, err := substrate.ActorTemplateSpecDigest(rebuild)
+	require.NoError(t, err)
+	recorded := database.RuntimeArtifact{ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant", ActorTemplateUID: "uid-1"}
+	failed := recorded
+	failed.GoldenFailureUID, failed.ActorTemplateSpecDigest = "uid-1", digest
+	template := func(uid string) *ateapipb.ActorTemplate {
+		return &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant", Uid: uid}}
+	}
+	for _, test := range []struct {
+		name     string
+		revision database.RuntimeArtifact
+		template *ateapipb.ActorTemplate
+		getErr   error
+		uid      string
+		gone     bool
+		err      string
+	}{
+		{name: "recorded template", revision: recorded, template: template("uid-1"), uid: "uid-1"},
+		{name: "already deleted", revision: recorded, getErr: status.Error(codes.NotFound, "not found"), gone: true},
+		{name: "read failed", revision: recorded, getErr: status.Error(codes.Unavailable, "down"), err: "get unreferenced ActorTemplate team-a/assistant"},
+		{name: "another template under the name", revision: recorded, template: template("uid-2"), err: "UID changed"},
+		{name: "no recorded UID", revision: database.RuntimeArtifact{ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant"}, template: template(""), err: "UID changed"},
+		{name: "unrecorded golden rebuild", revision: failed, template: rebuild, uid: "uid-2"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			uid, gone, err := collectableTemplate(test.revision, test.template, test.getErr)
+			if test.err != "" {
+				require.ErrorContains(t, err, test.err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.uid, uid)
+			require.Equal(t, test.gone, gone)
+		})
+	}
 }

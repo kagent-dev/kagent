@@ -5,6 +5,8 @@
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
 literal environment values, WorkerPool configuration, and snapshot location.
+Harness has no status subresource; compilation and runtime readiness are reported
+on each Agent that selects it.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
 description and prompt, MCP tool bindings, skills, plugins, and Shared
@@ -206,7 +208,7 @@ completion.
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Agent namespace. Substrate v0.7.0-alpha1 chooses the sandbox runtime from
+in the Agent namespace. Substrate v0.7.0-alpha2 chooses the sandbox runtime from
 the selected WorkerPool's `spec.sandboxClasses[]` and `configRef`; ActorTemplates
 no longer specify a SandboxConfig. Operators must install the referenced
 cluster-scoped SandboxConfig and provision compatible workers and runtime assets.
@@ -248,11 +250,15 @@ silently pending. Status includes a safe error code. Raw backend error messages
 are not copied into Kubernetes status. The reconciliation queue owns failure retries,
 with exponential backoff from one second to thirty seconds and no operational
 attempt budget. It clears the failure after the prerequisite or service recovers.
-Periodic polling only checks observed templates whose golden snapshots are still
-pending. Observation and status updates do not bypass backoff; changed desired
-revisions, unresolved inputs, and Agent deletion are reconciled immediately.
-Compilation errors, immutable template conflicts, and golden-snapshot failures
-stop preparation until the desired inputs change.
+Periodic polling checks observed templates whose golden snapshots are still
+pending and wakes golden retries whose retry time has passed. Observation and
+status updates do not bypass backoff; changed desired revisions, unresolved
+inputs, and Agent deletion are reconciled immediately. Compilation errors and
+immutable template conflicts stop preparation until the desired inputs change.
+A golden-snapshot failure is retried instead: the controller deletes the failed
+ActorTemplate and recreates it on the persisted schedule described in
+[Sandboxes](sandboxes.md#configuration-and-preparation), reporting `Ready=False`
+with reason `ActorTemplateRetrying` and only the failure reason in its message.
 
 ActorTemplate construction checks the size of each emitted environment value
 against Substrate's 32,768-character limit, including the serialized config and
@@ -407,6 +413,9 @@ edit is pending or failed. Deleting an Agent
 retires its definition; sessions and checkpoints retain their pinned revisions.
 Recreating the same name creates a new identity and cannot inherit the old
 Agent's last successful revision.
+
+Namespace reference policies constrain compilation. Failed resolution preserves
+the last successful revision for new sessions; existing sessions remain pinned.
 
 This replaces implicit label selection and the old template/Harness inputs as a
 breaking API change. SandboxTemplate hosting configuration is not part of this

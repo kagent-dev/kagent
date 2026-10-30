@@ -1,12 +1,9 @@
 package controller
 
 import (
-	"reflect"
 	"slices"
 
-	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
-	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
@@ -44,23 +41,12 @@ type AgentRuntimeObservation struct {
 	Namespace  string
 	AgentName  string
 	RevisionID translator.RevisionID
-	Template   *ateapipb.ActorTemplate
+	Golden     goldenProgress
 	Failure    *ReconciliationFailure
 }
 
 func (p AgentRuntimeObservation) ResourceName() string {
 	return p.Namespace + "/" + p.AgentName
-}
-
-var _ krt.Equaler[AgentRuntimeObservation] = AgentRuntimeObservation{}
-
-// Equals compares runtime contents rather than protobuf's mutable caches.
-func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
-	if !proto.Equal(p.Template, other.Template) {
-		return false
-	}
-	p.Template, other.Template = nil, nil
-	return reflect.DeepEqual(p, other)
 }
 
 // NewCollections creates the complete read-only input graph. An empty
@@ -83,6 +69,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		Harnesses:      harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
+	compilerCollections.Namespaces = newReferenceNamespaces(client, agents, compilerCollections, opts)
 	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings, images)
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 

@@ -39,7 +39,7 @@ const (
 type gatewayTestAuthSession struct{}
 
 func (gatewayTestAuthSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: "alice"}}
+	return auth.Principal{ID: "alice"}
 }
 
 type gatewayTestStore struct {
@@ -123,7 +123,7 @@ func (s *gatewayTestStore) ListSessions(_ context.Context, query database.Sessio
 	if s.session == nil || s.session.Id <= query.AfterID {
 		return nil, nil
 	}
-	if query.Agent != nil && (query.Agent.Namespace != s.session.GetAgent().GetNamespace() || query.Agent.Name != s.session.GetAgent().GetName()) {
+	if query.Agent != nil && (query.Agent.Namespace != s.session.GetAgent().GetRef().GetNamespace() || query.Agent.Name != s.session.GetAgent().GetRef().GetName()) {
 		return nil, nil
 	}
 	return []*apiv1.Session{s.session}, nil
@@ -302,7 +302,7 @@ func gatewayTestSession() *apiv1.Session {
 	return &apiv1.Session{
 		Id: gatewayTestID, ContextId: gatewayTestContextID, Creator: "alice",
 		PreparedRevision: "revision-1",
-		Agent:            &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Agent:            &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 		A2AAuthority:     "private-runtime-authority",
 		State:            apiv1.RuntimeState_RUNTIME_STATE_READY,
 		Operation:        apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
@@ -604,7 +604,7 @@ func TestGatewayHonoursSessionShare(t *testing.T) {
 	if store.userID != "the-owner" {
 		t.Fatalf("session read as %q, want the share's owner", store.userID)
 	}
-	if authorizer.principal.User.ID != (gatewayTestAuthSession{}).Principal().User.ID {
+	if authorizer.principal.ID != (gatewayTestAuthSession{}).Principal().ID {
 		t.Fatal("policy did not use the authenticated recipient")
 	}
 }

@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	pgvector "github.com/pgvector/pgvector-go"
@@ -52,11 +51,9 @@ func (c *Client) StoreAgentMemories(ctx context.Context, memories ...*Memory) er
 }
 
 // SearchAgentMemory returns up to limit memories for the user and agent, ranked by cosine
-// similarity. It also matches the legacy agent spelling with hyphens replaced by
-// underscores. Expired rows remain searchable until pruned; access-count updates are
-// best-effort and cannot fail a successful search.
+// similarity, matching the Agent key exactly. Expired rows remain searchable until
+// pruned; access-count updates are best-effort and cannot fail a successful search.
 func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
-	normalized := strings.ReplaceAll(agentName, "-", "_")
 	results, err := queryMany(ctx, c.db, fmt.Sprintf(`
 		SELECT id, COALESCE(agent_name, '') AS agent_name, COALESCE(user_id, '') AS user_id,
 		    COALESCE(content, '') AS content, embedding, COALESCE(metadata, '') AS metadata,
@@ -64,10 +61,10 @@ func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string
 		    expires_at, COALESCE(access_count, 0) AS access_count,
 		    COALESCE(1 - (embedding %s $1), 0) AS score
 		FROM memory
-		WHERE (agent_name = $2 OR agent_name = $3) AND user_id = $4
+		WHERE agent_name = $2 AND user_id = $3
 		ORDER BY embedding %s $1 ASC
-		LIMIT $5
-	`, c.vectorCosineOperator, c.vectorCosineOperator), pgx.RowToStructByName[AgentMemorySearchResult], embedding, &agentName, &normalized, &userID, int32(limit))
+		LIMIT $4
+	`, c.vectorCosineOperator, c.vectorCosineOperator), pgx.RowToStructByName[AgentMemorySearchResult], embedding, &agentName, &userID, int32(limit))
 	if err != nil {
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
 	}
@@ -96,32 +93,30 @@ func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string
 	return results, nil
 }
 
-// ListAgentMemories returns a user's memories for the agent and its legacy underscore
-// spelling, ordered by descending access count. Expired rows remain visible until pruned.
+// ListAgentMemories returns a user's memories matching the Agent key exactly,
+// ordered by descending access count. Expired rows remain visible until pruned.
 func (c *Client) ListAgentMemories(ctx context.Context, agentName, userID string) ([]Memory, error) {
-	normalized := strings.ReplaceAll(agentName, "-", "_")
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, COALESCE(agent_name, '') AS agent_name, COALESCE(user_id, '') AS user_id,
 		    COALESCE(content, '') AS content, embedding, COALESCE(metadata, '') AS metadata,
 		    COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
 		    expires_at, COALESCE(access_count, 0) AS access_count FROM memory
-		WHERE (agent_name = $1 OR agent_name = $2) AND user_id = $3
+		WHERE agent_name = $1 AND user_id = $2
 		ORDER BY memory.access_count DESC
-	`, pgx.RowToStructByName[Memory], &agentName, &normalized, &userID)
+	`, pgx.RowToStructByName[Memory], &agentName, &userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent memories: %w", err)
 	}
 	return rows, nil
 }
 
-// DeleteAgentMemory atomically deletes a user's memories for the agent and its legacy
-// underscore spelling. Missing rows are a no-op.
+// DeleteAgentMemory atomically deletes a user's memories matching the Agent key
+// exactly. Missing rows are a no-op.
 func (c *Client) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
-	normalized := strings.ReplaceAll(agentName, "-", "_")
 	if err := execSQL(ctx, c.db, `
 		DELETE FROM memory
-		WHERE (agent_name = $1 OR agent_name = $3) AND user_id = $2
-	`, agentName, userID, normalized); err != nil {
+		WHERE agent_name = $1 AND user_id = $2
+	`, agentName, userID); err != nil {
 		return fmt.Errorf("failed to delete agent memory: %w", err)
 	}
 	return nil

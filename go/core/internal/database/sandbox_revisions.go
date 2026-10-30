@@ -50,7 +50,7 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 		}
 
 		revisions, err := queryMany(ctx, tx, `
-			SELECT r.revision, r.kind, r.namespace, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.deleted_at
+			SELECT r.revision, r.kind, r.namespace, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.actor_template_spec_digest, r.golden_failure_uid, r.deleted_at
 			FROM runtime_revision r JOIN sandbox_template_definition p
 			    ON r.revision IN (p.desired_revision, p.latest_successful_revision)
 			WHERE p.namespace = $1 AND p.sandbox_template_uid = $2 ORDER BY r.revision FOR UPDATE OF r
@@ -96,12 +96,14 @@ func retireSandboxTemplateIdentities(ctx context.Context, db dbExecutor, namespa
 	`, namespace, name, retainedUID)
 }
 
-// RecordSandboxRevision atomically stores immutable inputs and, when Ready,
-// promotes the revision for its active source if still desired. Existing inputs
-// are preserved; actor UID and update time refresh. Stale reports cannot replace
-// the last successful revision. Deleting revisions return ErrObjectDeleting.
-func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision, options RecordRevisionOptions) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
+// RecordSandboxRevision atomically stores immutable inputs and the golden
+// build's retry state and, when Ready, promotes the revision for its active
+// source if still desired. Existing inputs are preserved; actor UID, spec digest
+// and update time refresh. Stale reports cannot replace the last successful
+// revision. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision, options RecordRevisionOptions) (GoldenRetry, error) {
+	var retry GoldenRetry
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		if options.Ready {
 			// Match definition preparation and GC: source before revision.
 			if _, err := queryMany(ctx, tx, `
@@ -121,8 +123,9 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 		`, revision.Revision, revision.SandboxTemplateName, revision.SandboxTemplateUID); err != nil {
 			return err
 		}
-		if !options.Ready {
-			return nil
+		var err error
+		if retry, err = recordGoldenRetry(ctx, tx, revision.Revision, revision.ActorTemplateUID, options); err != nil || !options.Ready {
+			return err
 		}
 		return execSQL(ctx, tx, `
 			UPDATE sandbox_template_definition p SET latest_successful_revision = r.revision, updated_at = NOW()
@@ -133,13 +136,14 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 			    AND p.latest_successful_revision IS DISTINCT FROM r.revision
 		`, revision.Revision, revision.Namespace, revision.SandboxTemplateUID)
 	})
+	return retry, err
 }
 
 // GetSandboxRevision reads immutable sandbox inputs; missing revisions return ErrNotFound.
 func (c *Client) GetSandboxRevision(ctx context.Context, revision string) (*SandboxRevision, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT r.revision, r.kind, r.namespace, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid,
-		    r.deleted_at, r.source_snapshot, s.sandbox_template_name, s.sandbox_template_uid
+		SELECT r.revision, r.kind, r.namespace, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.actor_template_spec_digest,
+		    r.golden_failure_uid, r.deleted_at, r.source_snapshot, s.sandbox_template_name, s.sandbox_template_uid
 		FROM runtime_revision r JOIN sandbox_revision s USING (revision) WHERE r.revision = $1 AND r.kind = 'sandbox'
 	`, pgx.RowToStructByName[SandboxRevision], revision)
 	if err != nil {

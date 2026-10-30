@@ -70,7 +70,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 			AgentName: input.AgentName, AgentNamespace: template.Namespace,
 		}, environment)
 	}
-	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment, input.Workflow.ConfigMapNames()...)
+	provenance, err := c.config.BuildProvenance(ctx, harness, compiled, input.Workflow.ConfigMapNames()...)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}

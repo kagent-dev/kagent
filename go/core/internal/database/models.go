@@ -73,6 +73,7 @@ type RuntimeRevision struct {
 	ActorTemplateAtespace   string
 	ActorTemplateName       string
 	ActorTemplateUID        string
+	ActorTemplateSpecDigest string
 }
 
 // SessionQuery narrows a page of sessions to an optional Agent.
@@ -95,11 +96,19 @@ type SessionTaskSnapshot struct {
 // RuntimeArtifact identifies backend resources retained by either runtime kind.
 // Agent configuration and SandboxTemplate provenance stay in their extensions.
 type RuntimeArtifact struct {
-	Revision              string
-	Kind                  string
-	Namespace             string
-	ActorTemplateAtespace string
-	ActorTemplateName     string
-	ActorTemplateUID      string
-	DeletedAt             *time.Time
+	Revision                string
+	Kind                    string
+	Namespace               string
+	ActorTemplateAtespace   string
+	ActorTemplateName       string
+	ActorTemplateUID        string
+	ActorTemplateSpecDigest string
+	GoldenFailureUID        string
+	DeletedAt               *time.Time
+}
+
+// RecordedTemplateFailed reports whether the recorded ActorTemplate is the one
+// whose golden build failed, meaning a retry may have replaced it in Substrate.
+func (a RuntimeArtifact) RecordedTemplateFailed() bool {
+	return a.ActorTemplateUID != "" && a.GoldenFailureUID == a.ActorTemplateUID
 }

@@ -22,7 +22,7 @@ func ResolveShare(ctx context.Context, store ShareStore, token string) (*auth.Sh
 	if token == "" {
 		return nil, nil
 	}
-	if session, ok := auth.AuthSessionFrom(ctx); ok && session.Principal().Actor != nil {
+	if session, ok := auth.AuthSessionFrom(ctx); ok && session.Principal().RuntimeBinding != nil {
 		return nil, serviceerrors.NewPermissionDenied("Actors cannot use share credentials", nil)
 	}
 	if store == nil {

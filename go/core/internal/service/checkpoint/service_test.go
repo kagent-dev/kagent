@@ -26,7 +26,7 @@ import (
 
 type testSession struct{ userID string }
 
-func (s testSession) Principal() auth.Principal { return auth.Principal{User: auth.User{ID: s.userID}} }
+func (s testSession) Principal() auth.Principal { return auth.Principal{ID: s.userID} }
 
 type testAuthorizer struct{}
 
@@ -56,7 +56,7 @@ func (s *testStore) GetSession(_ context.Context, id, owner string) (*apiv1.Sess
 	if s.sourceErr != nil {
 		return nil, s.sourceErr
 	}
-	return &apiv1.Session{Id: id, Creator: owner, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
+	return &apiv1.Session{Id: id, Creator: owner, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, nil
 }
 
 func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv1.Checkpoint, owner, _ string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error) {

@@ -36,7 +36,7 @@ import (
 type testSession string
 
 func (s testSession) Principal() auth.Principal {
-	return auth.Principal{User: auth.User{ID: string(s)}}
+	return auth.Principal{ID: string(s)}
 }
 
 type testAuth struct{}
@@ -48,8 +48,8 @@ func (testAuth) Authenticate(_ context.Context, headers http.Header, _ url.Value
 	return nil, status.Error(codes.Unauthenticated, "missing test identity")
 }
 
-func (testAuth) UpstreamAuth(request *http.Request, _ auth.Session, principal auth.Principal) error {
-	request.Header.Set("X-User-Id", principal.User.ID)
+func (testAuth) UpstreamAuth(request *http.Request, session auth.Session, destinationSessionID string) error {
+	request.Header.Set("X-User-Id", session.Principal().ID)
 	return nil
 }
 
@@ -132,10 +132,11 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	store := database.NewClient(pool, "public")
 	upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"})
 	require.NoError(t, upsertErr)
-	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
+	_, err = store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
-	}, database.RecordRevisionOptions{Ready: true}))
+	}, database.RecordRevisionOptions{Ready: true})
+	require.NoError(t, err)
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.SandboxTemplate{

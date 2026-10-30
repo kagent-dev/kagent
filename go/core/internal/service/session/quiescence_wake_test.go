@@ -73,7 +73,7 @@ func settlementContext(t *testing.T, session *apiv1.Session) context.Context {
 	t.Helper()
 	headers := http.Header{}
 	i := jwttest.New(t)
-	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	headers.Set("authorization", "Bearer "+i.Token(t, i.Claims("team-a", substrate.ActorName(session.Id), "actor-uid")))
 	identity, err := runtimeauth.NewAuthenticator(v).Authenticate(t.Context(), headers, nil)
@@ -114,7 +114,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		session := first
 		if i != 0 {
 			var err error
-			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.Agent}, uuid.NewString())
+			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.GetAgent()}, uuid.NewString())
 			require.NoError(t, err)
 		}
 		session, err := creator.Create(t.Context(), session)
@@ -250,28 +250,6 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 			require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 3*time.Second, 10*time.Millisecond)
 		})
 	}
-}
-
-func TestQuiescenceResumesPendingWorkAfterExplicitSuspend(t *testing.T) {
-	store, session := lifecycleFixture(t)
-	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	writes := &observedQuiescenceStore{lifecycleTestStore: store}
-	workflow := NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Hour)
-	session, err := workflow.Create(t.Context(), session)
-	require.NoError(t, err)
-	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateInputRequired)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
-	session, err = workflow.Suspend(t.Context(), session)
-	require.NoError(t, err)
-	pending, err := store.HasPendingSessionQuiescence(t.Context())
-	require.NoError(t, err)
-	require.False(t, pending, "suspended actors must not keep fast retries active")
-	startQuiescenceWorker(t, workflow)
-	// Creation's buffered wake-up adds an extra empty scan.
-	require.Eventually(t, func() bool { return writes.idle.Load() >= 5 }, 5*time.Second, 10*time.Millisecond)
-	_, err = workflow.Resume(t.Context(), session)
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 3*time.Second, 10*time.Millisecond)
 }
 
 func TestQuiescenceCancellationRetainsClaim(t *testing.T) {

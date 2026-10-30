@@ -40,7 +40,7 @@ func TestSessionIdleExpiration(t *testing.T) {
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
 		original, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 		require.NoError(t, err)
-		request := &apiv1.CreateSessionRequest{Agent: original.Session.Agent, RequestId: uuid.NewString()}
+		request := &apiv1.CreateSessionRequest{Agent: original.Session.GetAgent().Ref, RequestId: uuid.NewString()}
 		created, err := fixture.sessions.CreateSession(fixture.ctx, request)
 		require.NoError(t, err)
 		id := created.Session.Id

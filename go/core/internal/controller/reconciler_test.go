@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -89,8 +90,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	require.ErrorIs(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()), writeErr)
 	pending := reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName())
 	require.NotNil(t, pending)
-	require.Nil(t, pending.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag(),
-		"Ready must not be published before the database write succeeds")
+	require.False(t, pending.Golden.ready(), "Ready must not be published before the database write succeeds")
 	store.revisionErr = nil
 	if err := reconciler.reconcileAgent(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 	require.Empty(t, store.retired, "active pairs must be replaced atomically by the store")
 	observed := reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName())
-	require.NotNil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag())
+	require.True(t, observed.Golden.ready())
 
 	if err := reconciler.reconcileAgentStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 
 			request := &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 			}
 			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
@@ -263,6 +263,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.ErrorIs(t, err, database.ErrNotFound)
 			restarted.sweep(ctx)
+			require.NotContains(t, templates.deletedUIDs, "", "an empty UID waives Substrate's delete precondition")
 		})
 	}
 }
@@ -287,6 +288,8 @@ type fakeActorTemplates struct {
 	createErr          error
 	deleteErr          error
 	deletedBeforeError bool
+	deletedUIDs        []string
+	queuedUIDs         []string
 }
 
 func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return f.ensureErr }
@@ -307,17 +310,23 @@ func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *at
 	}
 	f.template = proto.CloneOf(template)
 	f.template.Metadata.Uid = "actor-uid"
+	if len(f.queuedUIDs) != 0 {
+		f.template.Metadata.Uid, f.queuedUIDs = f.queuedUIDs[0], f.queuedUIDs[1:]
+	}
 	return f.template, nil
 }
 
-func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string) error {
+func (f *fakeActorTemplates) DeleteActorTemplate(_ context.Context, _, _, uid string) error {
+	f.deletedUIDs = append(f.deletedUIDs, uid)
 	if f.deleteErr != nil {
 		if f.deletedBeforeError {
 			f.template = nil
 		}
 		return f.deleteErr
 	}
-	f.template = nil
+	if uid == "" || f.template.GetMetadata().GetUid() == uid {
+		f.template = nil
+	}
 	return nil
 }
 
@@ -333,6 +342,31 @@ type fakeRuntimeRevisionStore struct {
 	pairCalls         int
 	definitionSources []database.RuntimeEgressSource
 	sourcesErr        error
+	fakeGoldenRetries
+}
+
+// fakeGoldenRetries mirrors the store's golden retry state for one revision.
+type fakeGoldenRetries struct {
+	goldenAttempts   int
+	goldenFailureUID string
+	goldenFailedAt   time.Time
+}
+
+func (f *fakeGoldenRetries) recordGolden(uid string, options database.RecordRevisionOptions) database.GoldenRetry {
+	var retry database.GoldenRetry
+	switch {
+	case options.Ready:
+		f.goldenAttempts, f.goldenFailureUID, f.goldenFailedAt = 0, "", time.Time{}
+	case !options.GoldenFailedAt.IsZero() && f.goldenFailureUID != uid:
+		f.goldenAttempts++
+		f.goldenFailureUID, f.goldenFailedAt = uid, options.GoldenFailedAt
+		retry.New = true
+	}
+	retry.Retries = f.goldenAttempts
+	if f.goldenFailureUID == uid {
+		retry.FailedAt = f.goldenFailedAt
+	}
+	return retry
 }
 
 func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error) {
@@ -345,16 +379,16 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair
 	return s.pairErr
 }
 
-func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
 	s.recordCalls++
 	if s.revisionErr != nil {
-		return s.revisionErr
+		return database.GoldenRetry{}, s.revisionErr
 	}
 	s.revision = &revision
 	if options.Ready {
 		s.markedSuccessful = true
 	}
-	return nil
+	return s.recordGolden(revision.ActorTemplateUID, options), nil
 }
 
 func (s *fakeRuntimeRevisionStore) RetireAgentIdentities(_ context.Context, namespace, template string) error {
@@ -474,4 +508,94 @@ func (s *fakeRuntimeRevisionStore) GetAgentEgressGrant(_ context.Context, namesp
 		return s.pair.EgressGrant, nil
 	}
 	return egress.Access{}, nil
+}
+
+func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	for _, kind := range []string{"ModelConfig", "RemoteMCPServer"} {
+		for _, failure := range []string{"policy", "namespace-labels", "namespace-observation"} {
+			selector := failure != "policy"
+			name := kind + "/" + failure
+			t.Run(name, func(t *testing.T) {
+				ctx := t.Context()
+				dsn := dbtest.StartT(ctx, t)
+				dbtest.MigrateT(t, dsn, false)
+				pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
+				require.NoError(t, err)
+				t.Cleanup(pool.Close)
+				store := database.NewClient(pool, "public")
+				opts := krt.NewOptionsBuilder(ctx.Done(), "prepared-policy", nil)
+				policy := &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromAll}
+				if selector {
+					policy = &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromSelector, Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "engineering"}}}
+				}
+				model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "shared", Name: "old"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "example", AllowedNamespaces: policy}}
+				server := &kagentv1alpha3.RemoteMCPServer{ObjectMeta: model.ObjectMeta, Spec: kagentv1alpha3.RemoteMCPServerSpec{URL: "https://tools.example.com", AllowedNamespaces: policy}}
+				models := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{model}, opts.WithName("Models")...)
+				servers := krt.NewStaticCollection(nil, []*kagentv1alpha3.RemoteMCPServer{server}, opts.WithName("Servers")...)
+				runner := harness("team-a", "runner", nil)
+				runner.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
+				runner.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
+				runner.Spec.Workload.Image = new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+				agent := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent", UID: "agent-uid"}, Spec: kagentv1alpha3.AgentSpec{
+					HarnessRef: corev1.LocalObjectReference{Name: runner.Name},
+					Template:   kagentv1alpha3.AgentTemplateSource{Inline: &kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: model.Name, Namespace: model.Namespace}}},
+				}}
+				if kind == "RemoteMCPServer" {
+					agent.Spec.Template.Inline.Tools = []kagentv1alpha3.ToolBinding{{MCP: &kagentv1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: kind, Name: server.Name, Namespace: new(server.Namespace)}}}}
+					model.Spec.AllowedNamespaces = &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromAll}
+				}
+				agents := krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{agent}, opts.WithName("Agents")...)
+				namespaces := krt.NewStaticCollection(nil, []translator.NamespaceObservation{{Name: "team-a", Namespace: &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team-a", Labels: map[string]string{"team": "engineering"}}}}}, opts.WithName("Namespaces")...)
+				mock := krttest.NewMock(t, []any{runner, &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}})
+				inputs := translator.Collections{
+					Namespaces: namespaces, WorkerPools: krttest.GetMockCollection[*atev1.WorkerPool](mock),
+					Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+					RemoteMCPServers: servers, Secrets: krttest.GetMockCollection[*corev1.Secret](mock), ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
+				}
+				_, inputs.ResolvedModelConfigs = newModelConfigReconciliations(models, inputs.ConfigMaps, inputs.Secrets, opts)
+				observations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("Observations")...)
+				states := newAgentReconciliations(agents, inputs, observations, opts, testRuntimeDefaults(), nil)
+				reconciler := &Reconciler{store: store, templates: &fakeActorTemplates{}, collections: Collections{Reconciliations: states, AgentRuntimeObservations: observations}}
+				require.NoError(t, store.UpsertAgentDefinition(ctx, database.AgentDefinition{Namespace: agent.Namespace, AgentName: agent.Name, AgentUID: string(agent.UID), DesiredRevision: "r1"}))
+				_, err = store.RecordRuntimeRevision(ctx, database.RuntimeRevision{Revision: "r1", Namespace: agent.Namespace, AgentName: agent.Name, AgentUID: string(agent.UID), SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: agent.Name}, ActorTemplateAtespace: agent.Namespace, ActorTemplateName: "r1", ActorTemplateUID: "actor-uid"}, database.RecordRevisionOptions{Ready: true})
+				require.NoError(t, err)
+				create := func(key string) (*apiv1.Session, bool, error) {
+					return store.CreateSession(ctx, &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}, key)
+				}
+				pinned, _, err := create("pinned")
+				require.NoError(t, err)
+				key := agent.Namespace + "/" + agent.Name
+				waitFor(t, func() bool { return states.GetKey(key) != nil })
+				require.Nil(t, states.GetKey(key).CompilationFailure)
+				require.NotNil(t, states.GetKey(key).Target)
+				if failure == "namespace-observation" {
+					namespaces.UpdateObject(translator.NamespaceObservation{Name: "team-a", Error: "forbidden"})
+				} else if selector {
+					namespaces.UpdateObject(translator.NamespaceObservation{Name: "team-a", Namespace: &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team-a"}}})
+				} else if kind == "ModelConfig" {
+					updated := model.DeepCopy()
+					updated.Spec.AllowedNamespaces.From = kagentv1alpha3.NamespacesFromSame
+					models.UpdateObject(updated)
+				} else {
+					updated := server.DeepCopy()
+					updated.Spec.AllowedNamespaces.From = kagentv1alpha3.NamespacesFromSame
+					servers.UpdateObject(updated)
+				}
+				waitFor(t, func() bool { return states.GetKey(key).CompilationFailure != nil })
+				require.Nil(t, states.GetKey(key).Target)
+				require.Equal(t, "ReferenceResolutionFailed", states.GetKey(key).CompilationFailure.Reason)
+				require.NoError(t, reconciler.reconcileAgent(ctx, key))
+				fallback, created, err := create("fallback")
+				require.NoError(t, err)
+				require.True(t, created)
+				require.Equal(t, "r1", fallback.PreparedRevision)
+				existing, err := store.GetSessionByID(ctx, pinned.Id)
+				require.NoError(t, err)
+				require.Equal(t, "r1", existing.PreparedRevision)
+			})
+		}
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
@@ -75,9 +76,10 @@ func (c *Client) HasPendingPushDelivery(ctx context.Context) (bool, error) {
 // ClaimDuePushDelivery claims one due or abandoned registration and captures its
 // current published status. Registration locks serialize replacement and claims;
 // no session/task lock is acquired here and no lock is held across HTTP.
+// The lease covers sendTimeout plus 30 seconds for preparation and persistence.
 // Invalid task data commits a failed attempt before returning an error, allowing
 // other registrations to proceed while this one waits for its retry deadline.
-func (c *Client) ClaimDuePushDelivery(ctx context.Context) (*PushDelivery, error) {
+func (c *Client) ClaimDuePushDelivery(ctx context.Context, sendTimeout time.Duration) (*PushDelivery, error) {
 	var delivery *PushDelivery
 	var preparationErr error
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -126,9 +128,9 @@ func (c *Client) ClaimDuePushDelivery(ctx context.Context) (*PushDelivery, error
 		claimToken := uuid.New()
 		if err := execSQL(ctx, tx, `
             UPDATE session_push_registration SET attempt_count = attempt_count + 1,
-                claim_token = $2, lease_until = clock_timestamp() + interval '30 seconds'
+                claim_token = $2, lease_until = clock_timestamp() + interval '30 seconds' + $3 * interval '1 second'
             WHERE id = $1
-        `, candidate.ID, claimToken); err != nil {
+        `, candidate.ID, claimToken, sendTimeout.Seconds()); err != nil {
 			return err
 		}
 		attempt := PushDelivery{ID: candidate.ID, Sequence: candidate.Sequence, ClaimToken: claimToken,
@@ -201,6 +203,17 @@ func (c *Client) FinishPushDelivery(ctx context.Context, delivery PushDelivery, 
         `, delivery.ID, delivery.Sequence, delivery.ClaimToken)
 	}
 	return retryPushDelivery(ctx, c.db, delivery)
+}
+
+// ReleasePushDelivery makes a shutdown-interrupted attempt immediately retryable
+// without charging its attempt against the retry budget. The generation and claim
+// predicates make release idempotent and prevent it from changing newer work.
+func (c *Client) ReleasePushDelivery(ctx context.Context, delivery PushDelivery) error {
+	return execSQL(ctx, c.db, `
+        UPDATE session_push_registration SET attempt_count = attempt_count - 1,
+            next_attempt_at = clock_timestamp(), claim_token = NULL, lease_until = NULL
+        WHERE id = $1 AND pending_event_sequence = $2 AND claim_token = $3
+    `, delivery.ID, delivery.Sequence, delivery.ClaimToken)
 }
 
 // retryPushDelivery records a matching failed attempt through the pool or the

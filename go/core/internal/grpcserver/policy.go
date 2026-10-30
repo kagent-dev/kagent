@@ -16,6 +16,7 @@ type MethodPolicies map[string]auth.AccessMode
 
 func DefaultMethodPolicies() MethodPolicies {
 	policies := MethodPolicies{
+		apiv1.AgentIdentityService_ResolveAgentIdentity_FullMethodName:   auth.AccessRead,
 		apiv1.SystemService_GetVersion_FullMethodName:                    auth.AccessPublic,
 		apiv1.SystemService_GetCurrentUser_FullMethodName:                auth.AccessRead,
 		apiv1.SystemService_ListNamespaces_FullMethodName:                auth.AccessRead,
@@ -73,8 +74,6 @@ func DefaultMethodPolicies() MethodPolicies {
 	// A rename is the only write on this service that is not a lifecycle
 	// operation, and it must not inherit the read mode its neighbours carry.
 	policies[apiv1.SessionService_UpdateSessionName_FullMethodName] = auth.AccessUpdate
-	policies[apiv1.SessionService_SuspendSession_FullMethodName] = auth.AccessUpdate
-	policies[apiv1.SessionService_ResumeSession_FullMethodName] = auth.AccessUpdate
 	policies[apiv1.SessionService_DeleteSession_FullMethodName] = auth.AccessDelete
 	policies[apiv1.SessionService_CreateSessionShare_FullMethodName] = auth.AccessCreate
 	policies[apiv1.SessionService_ListSessionShares_FullMethodName] = auth.AccessRead

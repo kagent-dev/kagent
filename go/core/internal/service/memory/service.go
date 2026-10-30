@@ -212,8 +212,8 @@ func (s *Service) Delete(ctx context.Context, agentName string) error {
 // exists. Actors remain bound to their current session's agent and owner.
 func (s *Service) managementScope(ctx context.Context, verb auth.Verb, agentName string) (string, string, error) {
 	if session, ok := auth.AuthSessionFrom(ctx); ok && session != nil {
-		if principal := session.Principal(); principal.Actor == nil && principal.User.ID != "" {
-			return agentName, principal.User.ID, s.authorize(ctx, verb, agentName)
+		if principal := session.Principal(); principal.RuntimeBinding == nil && principal.ID != "" {
+			return agentName, principal.ID, s.authorize(ctx, verb, agentName)
 		}
 	}
 	return s.scope(ctx, verb)
@@ -229,10 +229,10 @@ func (s *Service) scope(ctx context.Context, verb auth.Verb) (string, string, er
 	if err != nil {
 		return "", "", err
 	}
-	if session.GetAgent().GetNamespace() == "" || session.GetAgent().GetName() == "" || session.Creator == "" {
+	if session.GetAgent().GetRef().GetNamespace() == "" || session.GetAgent().GetRef().GetName() == "" || session.Creator == "" {
 		return "", "", serviceerrors.NewPermissionDenied("actor has no memory scope", nil)
 	}
-	agentName := session.Agent.Namespace + "/" + session.Agent.Name
+	agentName := session.Agent.Ref.Namespace + "/" + session.Agent.Ref.Name
 	return agentName, session.Creator, s.authorize(ctx, verb, agentName)
 }
 

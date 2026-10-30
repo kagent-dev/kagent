@@ -158,6 +158,13 @@ message AuthenticationConfig {
     ]
   }];
   string user_id_claim = 2;
+  ServiceAccountAuthentication service_account = 3;
+}
+
+// Platform-owned invocation authentication for the fixed kagent-invocation audience,
+// independent of the Kubernetes API token.
+message ServiceAccountAuthentication {
+  string authority = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 // DatabaseConfig names two PostgreSQL logins. The owner applies migrations; the
@@ -262,6 +269,13 @@ message PushConfig {
   bool allow_private_networks = 4;
   // Recovery interval for missed wake-ups and unbound registration cleanup.
   google.protobuf.Duration recovery_interval = 5 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  // Maximum concurrent callback deliveries per controller replica. Defaults to 10.
+  optional int32 max_concurrency = 6 [(buf.validate.field).int32.gt = 0];
+  // Timeout for each callback attempt. Defaults to 5s.
+  google.protobuf.Duration send_timeout = 7 [(buf.validate.field).duration = {
     gt: {}
     lte: {seconds: 9223372036}
   }];

@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha3
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -75,11 +74,11 @@ type KagentHarnessCompaction struct {
 // KagentHarnessSummarizer configures the model that summarizes compacted events.
 // +kubebuilder:validation:XValidation:rule="!has(self.promptTemplate) || self.promptTemplate.contains('{conversation_history}')",message="promptTemplate must contain {conversation_history}"
 type KagentHarnessSummarizer struct {
-	// ModelConfigRef references the ModelConfig in the Harness namespace that
+	// ModelConfigRef references the ModelConfig (defaulting to the Harness namespace) that
 	// writes the summaries. Omitted uses the agent's own model.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +optional
-	ModelConfigRef *corev1.LocalObjectReference `json:"modelConfigRef,omitempty"`
+	ModelConfigRef *ObjectReference `json:"modelConfigRef,omitempty"`
 	// PromptTemplate replaces the runtime's default summarization prompt. It
 	// must contain {conversation_history}, which the runtime replaces with the
 	// rendered events.
@@ -91,9 +90,9 @@ type KagentHarnessSummarizer struct {
 // KagentHarnessMemory configures kagent's long-term memory service.
 // +kubebuilder:validation:XValidation:rule="self.modelConfigRef.name.size() > 0",message="modelConfigRef name must not be empty"
 type KagentHarnessMemory struct {
-	// ModelConfigRef references the embedding ModelConfig in the Harness namespace.
+	// ModelConfigRef references the embedding ModelConfig (defaulting to the Harness namespace).
 	// +required
-	ModelConfigRef corev1.LocalObjectReference `json:"modelConfigRef"`
+	ModelConfigRef ObjectReference `json:"modelConfigRef"`
 
 	// TTLDays controls how many days a stored memory entry remains valid.
 	// +kubebuilder:validation:Minimum=1
@@ -161,82 +160,9 @@ type HarnessSpec struct {
 	Substrate RuntimeSubstratePolicy `json:"substrate"`
 }
 
-// HarnessCapabilities records behavior proven for a pinned adapter and runtime.
-// It is populated by the controller and is not user-authored configuration.
-type HarnessCapabilities struct {
-	// Version identifies the controller capability catalog entry.
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Version string `json:"version"`
-
-	// +required
-	NativeAgentTools bool `json:"nativeAgentTools"`
-
-	// +kubebuilder:validation:Minimum=0
-	// +required
-	MaxNativeAgentDepth int32 `json:"maxNativeAgentDepth"`
-
-	// +required
-	DedicatedAgentTools bool `json:"dedicatedAgentTools"`
-	// +required
-	MCPInjection bool `json:"mcpInjection"`
-	// +required
-	Streaming bool `json:"streaming"`
-	// +required
-	Interruption bool `json:"interruption"`
-	// +required
-	InputRequired bool `json:"inputRequired"`
-	// +required
-	Approvals bool `json:"approvals"`
-	// StructuredOutput reports whether the pinned adapter can enforce a root
-	// JSON output contract and emit it as an A2A DataPart.
-	// +required
-	StructuredOutput bool `json:"structuredOutput"`
-
-	// +kubebuilder:validation:MaxItems=16
-	// +listType=set
-	// +optional
-	InputModalities []string `json:"inputModalities,omitempty"`
-
-	// +kubebuilder:validation:MaxItems=16
-	// +listType=set
-	// +optional
-	OutputModalities []string `json:"outputModalities,omitempty"`
-
-	// +required
-	Resume bool `json:"resume"`
-	// +required
-	Checkpoint bool `json:"checkpoint"`
-}
-
-// HarnessConditionType enumerates the condition types a Harness may report.
-const (
-	HarnessConditionTypeReady = "Ready"
-)
-
-// HarnessStatus reports controller-derived capabilities and current health.
-type HarnessStatus struct {
-	// ObservedGeneration is the latest Harness generation observed by the controller.
-	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-
-	// Capabilities is the single capability record for the selected runtime.
-	// +optional
-	Capabilities *HarnessCapabilities `json:"capabilities,omitempty"`
-
-	// Conditions report adapter and dependency health.
-	// +optional
-	// +kubebuilder:validation:MaxItems=8
-	// +listType=map
-	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=harnesses,singular=harness,categories=kagent
-// +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Harness defines a reusable agent runtime and infrastructure policy.
@@ -247,9 +173,6 @@ type Harness struct {
 
 	// +required
 	Spec HarnessSpec `json:"spec"`
-
-	// +optional
-	Status HarnessStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

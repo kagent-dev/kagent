@@ -40,7 +40,14 @@ const (
 //
 // +kubebuilder:validation:XValidation:message="spec.tls must be unset when spec.url has http:// scheme: a TLS opinion contradicts a plaintext URL. Either drop spec.tls, or use https:// / a scheme-less URL.",rule="!self.url.startsWith('http://') || !has(self.tls)"
 // +kubebuilder:validation:XValidation:message="headersFrom cannot set Authorization when tokenPassthrough is enabled",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == 'authorization')"
+// +kubebuilder:validation:AtMostOneOf=actorJwt;tokenPassthrough
+// +kubebuilder:validation:XValidation:message="headersFrom cannot set Authorization when actorJwt is enabled",rule="!has(self.actorJwt) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == 'authorization')"
 type RemoteMCPServerSpec struct {
+	// ActorJWT authenticates as the executing Actor with Authorization: Bearer.
+	// Substrate injects the token; tool discovery runs inside the Actor.
+	// +optional
+	ActorJWT *ActorJWT `json:"actorJwt,omitempty"`
+
 	// +required
 	Description string `json:"description"`
 	// +kubebuilder:default=STREAMABLE_HTTP
@@ -62,7 +69,7 @@ type RemoteMCPServerSpec struct {
 	// token fail. Controller tool discovery has no caller token, so servers that
 	// require one should disable discovery with the kagent.dev/discovery label.
 	// +optional
-	TokenPassthrough bool `json:"tokenPassthrough,omitempty"`
+	TokenPassthrough *bool `json:"tokenPassthrough,omitempty"`
 	// +optional
 	// +kubebuilder:default="30s"
 	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('9223372036s')",message="timeout must be positive and at most 9223372036s"

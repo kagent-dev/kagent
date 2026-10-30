@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 
@@ -38,15 +39,12 @@ type store interface {
 
 type sessionWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
-	Suspend(context.Context, *apiv1.Session) (*apiv1.Session, error)
-	Resume(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
 }
 
 type ListRequest struct {
 	AllCreators bool
-	// Agent narrows the page to one agent's conversations.
-	// Either may be given alone.
+	// Agent narrows the page to one Agent's conversations.
 	Agent     *apiv1.ResourceReference
 	PageSize  int
 	PageToken string
@@ -113,8 +111,7 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
 	}
 	session, _, err := s.store.CreateSession(ctx, &apiv1.Session{
-		Id: id.String(), Creator: creator, Name: name,
-		Agent: agent,
+		Id: id.String(), Creator: creator, Name: name, Agent: &apiv1.AgentProvenance{Ref: agent},
 	}, requestID)
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different Session", err)
@@ -218,7 +215,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		}
 		result := ListResult{Sessions: []*apiv1.Session{}}
 		if session.Id > afterID && (request.Agent == nil ||
-			(session.GetAgent().GetNamespace() == request.Agent.Namespace && session.GetAgent().GetName() == request.Agent.Name)) {
+			proto.Equal(session.GetAgent().GetRef(), request.Agent)) {
 			result.Sessions = append(result.Sessions, session)
 		}
 		return result, nil
@@ -279,42 +276,6 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1.Session, error)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to delete Session", err)
-	}
-	return session, nil
-}
-
-func (s *Service) Suspend(ctx context.Context, id string) (*apiv1.Session, error) {
-	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
-	if err != nil {
-		return nil, err
-	}
-	session, err = s.workflow.Suspend(ctx, session)
-	if errors.Is(err, database.ErrFailedPrecondition) {
-		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
-	}
-	if errors.Is(err, database.ErrConflict) {
-		return nil, serviceerrors.NewAborted(err.Error(), err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to suspend Session", err)
-	}
-	return session, nil
-}
-
-func (s *Service) Resume(ctx context.Context, id string) (*apiv1.Session, error) {
-	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
-	if err != nil {
-		return nil, err
-	}
-	session, err = s.workflow.Resume(ctx, session)
-	if errors.Is(err, database.ErrFailedPrecondition) {
-		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
-	}
-	if errors.Is(err, database.ErrConflict) {
-		return nil, serviceerrors.NewAborted(err.Error(), err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to resume Session", err)
 	}
 	return session, nil
 }
@@ -422,7 +383,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 	}
 	if share, ok := auth.ShareContextFrom(ctx); ok {
 		session, _ := auth.AuthSessionFrom(ctx)
-		if session.Principal().Actor != nil {
+		if session.Principal().RuntimeBinding != nil {
 			return "", serviceerrors.NewPermissionDenied("Actors cannot use share credentials", nil)
 		}
 		if verb != auth.VerbGet || !share.IsForSession(name) {
@@ -447,7 +408,10 @@ func (s *Service) authorizeResource(ctx context.Context, verb auth.Verb, resourc
 	if err := s.authorizer.Check(ctx, principal, verb, resource); err != nil {
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
-	return principal.User.ID, nil
+	if principal.RuntimeBinding != nil {
+		return principal.RuntimeBinding.CreatorID, nil
+	}
+	return principal.ID, nil
 }
 
 func validateCreate(agent *apiv1.ResourceReference, requestID string) error {

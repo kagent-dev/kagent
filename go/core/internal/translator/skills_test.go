@@ -43,7 +43,7 @@ func TestCompileSkillImageVolumes(t *testing.T) {
 			}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: map[string][]byte{"api-key": []byte("test")}}
 			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "skills", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help",
+				ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "help",
 				Skills:  []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{OCI: image, Path: "skills/review"}}},
 				Plugins: []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{OCI: image, Path: "plugin"}, Skills: []string{"deploy"}}},
 			}}

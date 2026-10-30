@@ -23,7 +23,17 @@ import {
   type OutputSource,
 } from "./agentTemplateDraft";
 
+import { referenceLabel, type ObjectReference } from "@/api/domain/agentTemplates";
+
 const { Text, Paragraph } = Typography;
+
+/** Picker values are strings; keep that representation at the form boundary. */
+function referenceFromPicker(value: string): ObjectReference {
+  const slash = value.indexOf("/");
+  return slash < 0
+    ? { name: value }
+    : { name: value.slice(slash + 1), namespace: value.slice(0, slash) };
+}
 
 /**
  * The agent-template form, shared by every place one can be authored.
@@ -129,9 +139,8 @@ export function AgentTemplateForm({
     : {};
 
   const modelOptions = (models.data ?? [])
-    .filter((model) => model.ref.startsWith(`${namespace}/`))
     .map((model) => {
-      const name = model.ref.slice(namespace.length + 1);
+      const name = model.ref;
       return {
         value: name,
         // `title` carries the label verbatim, which is what a spec
@@ -156,7 +165,7 @@ export function AgentTemplateForm({
     "Model configurations could not be loaded. Bring-your-own (BYO) harnesses do not need one. If you need one, refresh the page."
   ) : !readOnly && !models.isLoading && modelOptions.length === 0 ? (
     <span data-testid="template-form-model-availability">
-      No model configurations found in {namespace}.{" "}
+      No accessible model configurations found.{" "}
       Bring-your-own (BYO) harnesses do not need one.{" "}
       {isCreate
         ? "If you need one, create it or choose another namespace."
@@ -164,7 +173,7 @@ export function AgentTemplateForm({
       one should be listed, check your access.
     </span>
   ) : (
-    "A ModelConfig in this template's own namespace. Every harness needs one except bring-your-own (BYO)."
+    "A local or shared ModelConfig. Shared models must allow this template’s namespace. Every harness needs one except bring-your-own (BYO)."
   );
 
   /** The tools each server exposes, so the tool picker offers real names. */
@@ -226,11 +235,11 @@ export function AgentTemplateForm({
           <div data-testid="template-form-model">
             <Select
               css={{ minWidth: 320 }}
-              value={draft.modelConfig || undefined}
+              value={referenceLabel(draft.modelConfig, namespace) || undefined}
               loading={models.isLoading}
               placeholder={placeholder("Choose a model configuration")}
               popupMatchSelectWidth={false}
-              onChange={(value: string) => set("modelConfig", value)}
+              onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
               options={modelOptions}
               {...readOnlySelect}
             />
@@ -403,7 +412,7 @@ export function AgentTemplateForm({
               <Space key={index} size={8} align="start" data-testid={`template-form-mcp-${index}`}>
                 <Select
                   css={{ minWidth: 220 }}
-                  value={tool.serverRef || undefined}
+                  value={referenceLabel(tool.serverRef, namespace) || undefined}
                   loading={servers.isLoading}
                   placeholder={placeholder("MCP server")}
                   popupMatchSelectWidth={false}
@@ -412,7 +421,7 @@ export function AgentTemplateForm({
                     // The tools belong to the server, so changing it clears them
                     // rather than leaving names the new server does not have.
                     next[index] = {
-                      serverRef: value,
+                      serverRef: referenceFromPicker(value),
                       tools: [],
                       requireApproval: next[index].requireApproval,
                     };
@@ -457,7 +466,7 @@ export function AgentTemplateForm({
                     next[index] = { ...next[index], tools: value };
                     set("mcpTools", next);
                   }}
-                  options={(toolsByServer.get(tool.serverRef) ?? []).map((name) => ({
+                  options={(toolsByServer.get(referenceLabel(tool.serverRef, namespace)) ?? []).map((name) => ({
                     value: name,
                     title: name,
                     label: name,
@@ -504,7 +513,7 @@ export function AgentTemplateForm({
                 icon={<Plus size={13} />}
                 data-testid="template-form-add-mcp"
                 onClick={() =>
-                  set("mcpTools", [...draft.mcpTools, { serverRef: "", tools: [] }])
+                  set("mcpTools", [...draft.mcpTools, { serverRef: { name: "" }, tools: [] }])
                 }
               >
                 Add an MCP server
