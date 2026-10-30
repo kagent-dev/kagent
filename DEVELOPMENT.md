@@ -278,7 +278,12 @@ make semconv-verify     # what CI runs: check, policy tests, generate, drift che
 
 These targets need either Docker or a local `weaver` of exactly the version in
 `telemetry/versions.env`. A different local version is refused, so a green run
-on a laptop means the same as in CI. See
+on a laptop means the same as in CI. The upstream sources of the contract (the
+registries the manifest depends on and the shared Weaver policies) are fetched
+once, at the commits pinned in the same file, into the git-ignored
+`telemetry/deps` (`make semconv-deps`, which `semconv-check`, `semconv-generate`
+and `live-check.sh` run); from then on the targets need no GitHub access, and CI
+runs the check with the Weaver container's network off to prove it. See
 [docs/architecture/telemetry.md](docs/architecture/telemetry.md) for the contract.
 
 `telemetry/live-check.sh start` and `stop` run Weaver live-check around an e2e
