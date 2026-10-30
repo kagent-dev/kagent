@@ -13,12 +13,14 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type Store struct {
@@ -81,7 +83,7 @@ func (s *Store) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVe
 	var response *runtimev1.TaskStoreServiceCreateTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = s.client.TaskStoreService().CreateTask(ctx, request)
+		response, err = s.client.TaskStoreService().CreateTask(ctx, request, grpc.WaitForReady(true))
 		return err
 	})
 	if err != nil {
@@ -115,7 +117,7 @@ func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) 
 	var response *runtimev1.TaskStoreServiceUpdateTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = s.client.TaskStoreService().UpdateTask(ctx, request)
+		response, err = s.client.TaskStoreService().UpdateTask(ctx, request, grpc.WaitForReady(true))
 		return err
 	})
 	if err != nil {
@@ -134,7 +136,7 @@ func (s *Store) Get(ctx context.Context, taskID a2a.TaskID) (*sdktaskstore.Store
 	var response *runtimev1.TaskStoreServiceGetTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = s.client.TaskStoreService().GetTask(ctx, &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: id, TaskId: string(taskID)})
+		response, err = s.client.TaskStoreService().GetTask(ctx, &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: id, TaskId: string(taskID)}, grpc.WaitForReady(true))
 		return err
 	})
 	if err != nil {
@@ -159,7 +161,7 @@ func (s *Store) List(ctx context.Context, request *a2a.ListTasksRequest) (*a2a.L
 	var response *runtimev1.TaskStoreServiceListTasksResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = s.client.TaskStoreService().ListTasks(ctx, &runtimev1.TaskStoreServiceListTasksRequest{SessionId: id, Request: wire})
+		response, err = s.client.TaskStoreService().ListTasks(ctx, &runtimev1.TaskStoreServiceListTasksRequest{SessionId: id, Request: wire}, grpc.WaitForReady(true))
 		return err
 	})
 	if err != nil {
@@ -175,7 +177,11 @@ func (s *Store) retry(ctx context.Context, call func(context.Context) error) err
 		rpcCtx, cancel := s.callContext(ctx)
 		err := call(rpcCtx)
 		cancel()
-		if (status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded) || attempt == 3 {
+		if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
+			return err
+		}
+		if attempt == 3 {
+			logging.FromContext(ctx).ErrorContext(ctx, "taskstore retries exhausted", "attempts", attempt+1, "error", err)
 			return err
 		}
 		timer := time.NewTimer(time.Duration(1<<attempt) * 100 * time.Millisecond)
