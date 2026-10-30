@@ -44,8 +44,13 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, translator.NewValidationError("Claude ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || ptr.Deref(model.Spec.TokenPassthrough, false) {
-		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough yet")
+	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() {
+		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders or TLS yet")
+	}
+	// The harness forwards the caller's token as an Anthropic API key only;
+	// Bedrock and Vertex sign their requests.
+	if ptr.Deref(model.Spec.TokenPassthrough, false) && model.Spec.Provider != v1alpha3.ModelProviderAnthropic {
+		return nil, translator.NewValidationError("Claude supports ModelConfig tokenPassthrough for the Anthropic provider only")
 	}
 	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
 	if err != nil {
@@ -92,6 +97,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()
 	config.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
 	config.LogLevel = c.settings.GetLogging().GetLevel()
+	config.PropagateToken = c.settings.GetTokenPropagation().GetEnabled()
+	config.ModelTokenPassthrough = ptr.Deref(model.Spec.TokenPassthrough, false)
 	if len(skills.Resources.Skills) != 0 || len(skills.Resources.Plugins) != 0 {
 		config.SkillResources = &skills.Resources
 	}
@@ -202,13 +209,17 @@ func (c *Compiler) provider(ctx context.Context, resolved *translator.ResolvedMo
 				return nil, nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
 			}
 		}
-		if model.Spec.ActorJWT == nil {
+		// With tokenPassthrough the harness sets the API key per turn.
+		if model.Spec.ActorJWT == nil && !ptr.Deref(model.Spec.TokenPassthrough, false) {
 			if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
 				return nil, nil, err
 			}
 			credential = secretEnvironment(claudeconfig.AnthropicAPIKeyEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)
 		}
-		environment := []corev1.EnvVar{credential}
+		var environment []corev1.EnvVar
+		if credential.Name != "" {
+			environment = append(environment, credential)
+		}
 		egress := []string{"https://api.anthropic.com:443"}
 		if baseURL != "" {
 			hostname, err := anthropicBaseURLOrigin(baseURL)

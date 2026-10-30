@@ -146,7 +146,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		model v1alpha3.ModelConfigSpec
 	}{
 		{name: "provider", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt"}},
-		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: new(true)}},
+		{name: "Bedrock passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", TokenPassthrough: new(true), Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
 		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
@@ -633,12 +633,86 @@ func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
 
-func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
-	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
+func TestCompileMCPTokenPassthrough(t *testing.T) {
+	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
 		URL: "https://mcp.example.com/mcp", TokenPassthrough: new(true),
 	}}
-	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
-	if want := "Claude does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("expected %q, got %v", want, err)
+	compiled, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled.servers["user"]; !got.TokenPassthrough || got.Type != "http" || got.URL != server.Spec.URL {
+		t.Fatalf("compiled passthrough server = %+v", got)
+	}
+}
+
+func TestCompileRejectsSSEServersThatReceiveTheCallerCredential(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key"}
+	for _, test := range []struct {
+		name                   string
+		propagate, passthrough bool
+	}{
+		{name: "token propagation", propagate: true},
+		{name: "token passthrough", passthrough: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+			server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: "test"}, Spec: v1alpha3.RemoteMCPServerSpec{
+				URL: "https://mcp.example.com/sse", Protocol: v1alpha3.RemoteMCPServerProtocolSse, TokenPassthrough: new(test.passthrough),
+			}}
+			binding := v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}
+			input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: binding, Server: server}}
+			settings := testRuntimeDefaults()
+			settings.TokenPropagation = &configv1.TokenPropagationConfig{Enabled: test.propagate}
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+			var validation *translator.ValidationError
+			if !errors.As(err, &validation) || !strings.Contains(err.Error(), `uses SSE, which cannot carry the caller's credential`) {
+				t.Fatalf("Compile() error = %v, want the SSE validation error", err)
+			}
+		})
+	}
+}
+
+func TestCompilePropagatesTheCallerTokenFromRuntimeDefaults(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key"}
+	for _, enabled := range []bool{false, true} {
+		input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+		settings := testRuntimeDefaults()
+		settings.TokenPropagation = &configv1.TokenPropagationConfig{Enabled: enabled}
+		revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config, err := claudeconfig.Parse(revision.ConfigJSON)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if config.PropagateToken != enabled {
+			t.Fatalf("propagate_token = %v with token propagation enabled = %v", config.PropagateToken, enabled)
+		}
+	}
+}
+
+func TestCompileModelTokenPassthrough(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", TokenPassthrough: new(true)}
+	input, reader := testInput(t, model, nil)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := claudeconfig.Parse(revision.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.ModelTokenPassthrough {
+		t.Fatal("model_token_passthrough is not compiled")
+	}
+	for _, variable := range revision.Environment {
+		if variable.Name == claudeconfig.AnthropicAPIKeyEnvName {
+			t.Fatalf("a passthrough model compiled an API key: %#v", variable)
+		}
+	}
+	if len(revision.TokenPassthroughTargets) != 1 || revision.TokenPassthroughTargets[0].Header != "x-api-key" || !strings.Contains(revision.TokenPassthroughTargets[0].Origin, "api.anthropic.com") {
+		t.Fatalf("token passthrough targets = %#v, want the Anthropic API key header", revision.TokenPassthroughTargets)
 	}
 }

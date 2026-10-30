@@ -59,8 +59,13 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, translator.NewValidationError("Codex ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || ptr.Deref(model.Spec.TokenPassthrough, false) {
-		return nil, translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough")
+	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() {
+		return nil, translator.NewValidationError("Codex does not support ModelConfig defaultHeaders or TLS")
+	}
+	// The harness forwards the caller's token as an OpenAI API key only;
+	// Bedrock signs its requests.
+	if ptr.Deref(model.Spec.TokenPassthrough, false) && model.Spec.Provider != v1alpha3.ModelProviderOpenAI {
+		return nil, translator.NewValidationError("Codex supports ModelConfig tokenPassthrough for the OpenAI provider only")
 	}
 	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
 	if err != nil {
@@ -104,6 +109,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	cfg.ControlPlaneURL = c.settings.GetControlPlaneUrl()
 	cfg.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
 	cfg.LogLevel = c.settings.GetLogging().GetLevel()
+	cfg.PropagateToken = c.settings.GetTokenPropagation().GetEnabled()
 	if traceConfig.Enabled || logConfig.Enabled {
 		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.Runtime.CaptureContent}
 		if traceConfig.Enabled {
@@ -174,13 +180,15 @@ func (c *Compiler) compileProvider(ctx context.Context, resolved *translator.Res
 		if !reflect.DeepEqual(options, v1alpha3.OpenAIConfig{}) {
 			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support OpenAI provider options beyond baseUrl and apiFormat responses")
 		}
-		if model.Spec.ActorJWT == nil {
+		passthrough := ptr.Deref(model.Spec.TokenPassthrough, false)
+		provider := codexconfig.Provider{Name: "openai", BaseURL: baseURL, TokenPassthrough: passthrough}
+		// With tokenPassthrough the harness sets the API key per turn.
+		if model.Spec.ActorJWT == nil && !passthrough {
 			if err := c.requireSecretKey(ctx, model.Namespace, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey); err != nil {
 				return codexconfig.Provider{}, nil, nil, err
 			}
 			credential = secretEnvironment(openAIAPIKeyEnv, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)
 		}
-		provider := codexconfig.Provider{Name: "openai", BaseURL: baseURL}
 		egress := []string{"https://api.openai.com:443"}
 		if baseURL != "" {
 			host, err := absoluteHTTPOrigin(baseURL)
@@ -189,7 +197,11 @@ func (c *Compiler) compileProvider(ctx context.Context, resolved *translator.Res
 			}
 			egress = []string{host}
 		}
-		return provider, []corev1.EnvVar{credential}, egress, nil
+		var environment []corev1.EnvVar
+		if credential.Name != "" {
+			environment = append(environment, credential)
+		}
+		return provider, environment, egress, nil
 	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil || strings.TrimSpace(model.Spec.Bedrock.Region) == "" {
 			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock requires bedrock.region")

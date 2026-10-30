@@ -15,12 +15,17 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
+	"github.com/kagent-dev/kagent/go/harness/internal/forwarder"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	otel "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-const approvalMCPServerName = "kagent_hitl"
+const (
+	approvalMCPServerName = "kagent_hitl"
+	// anthropicAPIURL is the endpoint Claude Code calls without ANTHROPIC_BASE_URL.
+	anthropicAPIURL = "https://api.anthropic.com"
+)
 
 // Input contains compiler output and Actor-owned locations used to construct
 // the Claude driver.
@@ -99,21 +104,36 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
 		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}
+	credentialForwarder, environment, err := routeThroughForwarder(&cfg, environment)
+	if err != nil {
+		return nil, err
+	}
+	closeForwarder := func() {
+		if credentialForwarder != nil {
+			_ = credentialForwarder.Close()
+		}
+	}
 	if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
+		closeForwarder()
 		return nil, fmt.Errorf("prepare ephemeral Claude settings directory: %w", err)
 	}
 	approvalBroker, err := driver.NewApprovalBroker(protectedServers, filepath.Join(input.DurableDir, "adapter"), cfg.MaxEventBytes)
 	if err != nil {
+		closeForwarder()
 		return nil, fmt.Errorf("start Claude approval broker: %w", err)
+	}
+	closeListeners := func() {
+		closeForwarder()
+		_ = approvalBroker.Close()
 	}
 	settingsJSON, settingsErr := approvalBroker.SettingsJSON()
 	if settingsErr != nil {
-		_ = approvalBroker.Close()
+		closeListeners()
 		return nil, settingsErr
 	}
 	settingsPath := filepath.Join(input.EphemeralDir, "settings.json")
 	if err := utils.ReplacePrivateFile(settingsPath, settingsJSON); err != nil {
-		_ = approvalBroker.Close()
+		closeListeners()
 		return nil, fmt.Errorf("materialize Claude approval settings: %w", err)
 	}
 	permissionPromptTool := "mcp__" + approvalMCPServerName + "__" + driver.ApprovalToolName
@@ -125,12 +145,12 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	cfg.MCPServers = mcpServers
 	mcpJSON, err := cfg.MCPConfigJSON()
 	if err != nil {
-		_ = approvalBroker.Close()
+		closeListeners()
 		return nil, err
 	}
 	mcpConfigPath := filepath.Join(input.EphemeralDir, "mcp.json")
 	if err := utils.ReplacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
-		_ = approvalBroker.Close()
+		closeListeners()
 		return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 	}
 
@@ -142,7 +162,71 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
+		Forwarder: credentialForwarder,
 	}), nil
+}
+
+// routeThroughForwarder starts the credential forwarder for the upstreams that
+// receive the caller's credential and points Claude at their loopback routes:
+// every MCP server when token propagation is on, a token passthrough MCP
+// server always, and the model with tokenPassthrough. The written
+// configuration and Claude's environment then carry no upstream URL, no static
+// header and no credential for them. Config validation has already refused an
+// SSE server among them. It returns a nil forwarder when nothing is routed.
+func routeThroughForwarder(cfg *config.Config, environment []string) (*forwarder.Forwarder, []string, error) {
+	routes := forwarder.Routes{MCPServers: make(map[string]forwarder.MCPServer)}
+	for name, server := range cfg.MCPServers {
+		if !cfg.PropagateToken && !server.TokenPassthrough {
+			continue
+		}
+		headers, err := forwarder.ResolveHeaders(server.Headers, environment)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Claude MCP server %q: %w", name, err)
+		}
+		routes.MCPServers[name] = forwarder.MCPServer{URL: server.URL, Headers: headers, TokenPassthrough: server.TokenPassthrough}
+	}
+	if cfg.ModelTokenPassthrough {
+		baseURL := lookupEnvironment(environment, config.AnthropicBaseURLEnvName)
+		if baseURL == "" {
+			baseURL = anthropicAPIURL
+		}
+		routes.Model = &forwarder.Model{URL: baseURL, Header: "X-Api-Key"}
+	}
+	if len(routes.MCPServers) == 0 && routes.Model == nil {
+		return nil, environment, nil
+	}
+	credentialForwarder, err := forwarder.New(routes, cfg.MaxEventBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("start Claude credential forwarder: %w", err)
+	}
+	if routes.Model != nil {
+		environment = setEnvironment(environment, config.AnthropicBaseURLEnvName, credentialForwarder.ModelURL())
+		environment = setEnvironment(environment, config.AnthropicAPIKeyEnvName, credentialForwarder.Token())
+	}
+	fronted := make(map[string]config.MCPServer, len(cfg.MCPServers))
+	for name, server := range cfg.MCPServers {
+		if _, ok := routes.MCPServers[name]; !ok {
+			fronted[name] = server
+			continue
+		}
+		fronted[name] = config.MCPServer{
+			Type: "http", URL: credentialForwarder.MCPURL(name),
+			Headers:         map[string]string{"Authorization": credentialForwarder.Authorization()},
+			RequireApproval: server.RequireApproval,
+		}
+	}
+	cfg.MCPServers = fronted
+	return credentialForwarder, environment, nil
+}
+
+func lookupEnvironment(environment []string, name string) string {
+	var value string
+	for _, entry := range environment {
+		if variable, ok := strings.CutPrefix(entry, name+"="); ok {
+			value = variable
+		}
+	}
+	return value
 }
 
 func approvalServerNames(servers map[string]config.MCPServer) (protected []string) {

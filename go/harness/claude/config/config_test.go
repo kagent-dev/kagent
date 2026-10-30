@@ -65,6 +65,50 @@ func TestMCPConfigJSONAndSkillsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConfigTokenPassthroughStaysOutOfMCPConfig(t *testing.T) {
+	cfg := Production("claude-test", "help")
+	cfg.MCPServers = map[string]MCPServer{"user": {Type: "http", URL: "https://mcp.example.com/mcp", TokenPassthrough: true}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := cfg.MCPConfigJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The flag is the adapter's to act on; Claude's own file never sees it.
+	if strings.Contains(string(raw), "passthrough") {
+		t.Fatalf("MCPConfigJSON() carries the passthrough flag: %s", raw)
+	}
+}
+
+func TestConfigRefusesSSEServersThatReceiveTheCallerCredential(t *testing.T) {
+	for _, test := range []struct {
+		name                   string
+		propagate, passthrough bool
+		wantErr                bool
+	}{
+		{name: "SSE without caller credentials"},
+		{name: "SSE under token propagation", propagate: true, wantErr: true},
+		{name: "SSE with token passthrough", passthrough: true, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := Production("claude-test", "help")
+			cfg.PropagateToken = test.propagate
+			cfg.MCPServers = map[string]MCPServer{"legacy": {Type: "sse", URL: "https://mcp.example.com/sse", TokenPassthrough: test.passthrough}}
+			err := cfg.Validate()
+			if !test.wantErr {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if want := `claude MCP server "legacy" uses SSE, which cannot carry the caller's credential`; err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("Validate() = %v, want %q", err, want)
+			}
+		})
+	}
+}
+
 func TestAgentsJSON(t *testing.T) {
 	cfg := Production("claude-test", "help")
 	cfg.Agents = map[string]Agent{

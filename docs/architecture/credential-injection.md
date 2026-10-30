@@ -95,14 +95,26 @@ prefix} in the revision. It rejects a client with no credential target (SAP AI
 Core), a client that shares its origin with an MCP server or model that did not
 opt in, and an explicit header that matches a target header.
 
-RemoteMCPServer passthrough is implemented only by the Go kagent runtime.
-Codex and Claude reject it at compilation, and the Python runtime fails at
-startup. A request without a caller token fails instead of connecting
-anonymously. The runtime discovers tools on first use, because startup has no
-caller token. Controller discovery also has no caller token, so servers that
-require one should set the `kagent.dev/discovery: disabled` label. The runtime
-shares one MCP session per server. The standalone SSE stream and session
-teardown therefore carry the token of the caller that opened the session.
+RemoteMCPServer passthrough is implemented by the Go kagent runtime and the
+Claude and Codex harnesses. The Python runtime fails at startup. A request
+without a caller token fails instead of connecting anonymously. The Go runtime
+discovers tools on first use, because startup has no caller token. Controller
+discovery also has no caller token, so servers that require one should set the
+`kagent.dev/discovery: disabled` label. The runtime shares one MCP session per
+server. The standalone SSE stream and session teardown therefore carry the
+token of the caller that opened the session.
+
+The Claude and Codex harnesses front these servers, and every MCP server under
+`runtimeDefaults.tokenPropagation.enabled`, on a loopback forwarder in the
+harness process; see the [harness README](../../go/harness/README.md#caller-credentials).
+The A2A executor binds the caller's `authorization` to the forwarder for each
+turn and drops it before the turn's outcome is handled. They start the native
+process per turn, so tool discovery runs with the token. Claude rejects an SSE
+server under token propagation or passthrough, because the upstream host
+announces its message endpoint; compilation fails and the harness does not start. A ModelConfig with
+`tokenPassthrough` is supported for the Anthropic provider on Claude and the
+OpenAI provider on Codex: the native client calls the forwarder's model route,
+which sends the caller's bearer token in the provider's API key header.
 
 ### Gateway token passthrough
 
@@ -119,8 +131,9 @@ before any lifecycle mutation. If a later compile or this validation fails, the
 actor gets no egress until a retry succeeds. Kagent never names a credential provider.
 
 This covers Go ADK MCP servers and models, OpenAI, Azure and Foundry memory
-embeddings, and Python OpenAI and Anthropic models. Python MCP, Claude and
-Codex still do not support passthrough.
+embeddings, Python OpenAI and Anthropic models, and the Claude and Codex
+harnesses, whose forwarder sends the placeholder in the target header. Python
+MCP still does not support passthrough.
 
 ## Actor JWT authentication
 
