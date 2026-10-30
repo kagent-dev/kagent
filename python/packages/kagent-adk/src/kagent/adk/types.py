@@ -621,6 +621,7 @@ def _create_llm_from_model_config(model_config: ModelConfig):
     if provider == "gemini":
         return KAgentGeminiLlm(
             model=model_config.model,
+            base_url=base_url,
             extra_headers=extra_headers,
             max_output_tokens=optional_field(settings, "max_output_tokens"),
             **_transport_kwargs(model_config),
