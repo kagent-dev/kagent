@@ -1,7 +1,7 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
 import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent, AgentResource } from "../domain/agents";
-import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SnapshotStorageStatus } from "@/generated/api/ateapi/v1/ateapi_pb";
+import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SnapshotStorageState } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
@@ -1233,8 +1233,8 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
   const snapshots = [...(actor.status?.snapshots ?? [])].sort((a, b) => b.generation - a.generation);
   const latest = snapshots[0];
   const paused = state === ActorState.SUSPENDED && latest?.locality && !latest.durableSnapshot;
-  const durable = snapshots.find((snapshot) => snapshot.durableSnapshot?.status === SnapshotStorageStatus.COMPLETED);
-  const pending = snapshots.find((snapshot) => snapshot.durableSnapshot?.status === SnapshotStorageStatus.PENDING
+  const durable = snapshots.find((snapshot) => snapshot.durableSnapshot?.state === SnapshotStorageState.COMPLETED);
+  const pending = snapshots.find((snapshot) => snapshot.durableSnapshot?.state === SnapshotStorageState.PENDING
     || (state === ActorState.SUSPENDING && !snapshot.locality && !snapshot.durableSnapshot));
   return {
     actorId: metadata.name,

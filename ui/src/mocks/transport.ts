@@ -2,7 +2,7 @@ import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtim
 import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
-import { ActorState, SnapshotStorageStatus, type WorkerSchema, type ActorSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
+import { ActorState, SnapshotStorageState, type WorkerSchema, type ActorSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
@@ -1310,13 +1310,13 @@ function substrateActorMessage(
       snapshots: [
         ...(actor.latestSnapshot ? [{
           generation: 1,
-          durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: actor.latestSnapshot } },
+          durableSnapshot: { state: SnapshotStorageState.COMPLETED, object: { snapshotUri: actor.latestSnapshot } },
         }] : []),
         ...(actor.status === "Paused" ? [{ generation: 2, locality: "worker-node" }] : []),
         ...(actor.inProgressSnapshot ? [{
           generation: 3,
           uuid: actor.inProgressSnapshot,
-          durableSnapshot: { status: SnapshotStorageStatus.PENDING },
+          durableSnapshot: { state: SnapshotStorageState.PENDING },
         }] : []),
       ],
     },
