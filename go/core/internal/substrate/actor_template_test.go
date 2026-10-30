@@ -260,3 +260,90 @@ func TestActorResources(t *testing.T) {
 		})
 	}
 }
+
+func toolImageRevision(images ...translator.ToolImage) *translator.Revision {
+	return &translator.Revision{CPU: "1", Memory: "1Gi",
+		Namespace: "agents", AgentName: "helper",
+		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		WorkerPoolName: "default", SnapshotLocation: "snapshots",
+		ConfigJSON: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}},
+		ToolImages: images,
+	}
+}
+
+func TestActorTemplateMountsToolImages(t *testing.T) {
+	const kubectlImage = "tools.example/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const helmImage = "tools.example/helm@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	spec := toolImageRevision(translator.ToolImage{Name: "kubectl", Reference: kubectlImage}, translator.ToolImage{Name: "helm", Reference: helmImage})
+	revisionID, err := spec.Digest()
+	require.NoError(t, err)
+	template, err := ActorTemplateForRevision(spec, revisionID)
+	require.NoError(t, err)
+
+	require.Len(t, template.Volumes, 5)
+	require.Equal(t, durableDataVolume, template.Volumes[0].GetName())
+	require.Equal(t, actorIdentityVolume, template.Volumes[1].GetName())
+	require.Equal(t, egressTrustVolume, template.Volumes[2].GetName())
+	require.Equal(t, "tool-kubectl", template.Volumes[3].GetName())
+	require.Equal(t, kubectlImage, template.Volumes[3].GetImage().GetReference())
+	require.Equal(t, "tool-helm", template.Volumes[4].GetName())
+	require.Equal(t, helmImage, template.Volumes[4].GetImage().GetReference())
+
+	container := template.GetContainers()[0]
+	require.Len(t, container.VolumeMounts, 5)
+	require.Equal(t, durableDataMount, container.VolumeMounts[0].GetMountPath())
+	require.Equal(t, "tool-kubectl", container.VolumeMounts[3].GetName())
+	require.Equal(t, "/opt/kagent/tools/kubectl", container.VolumeMounts[3].GetMountPath())
+	require.Equal(t, "tool-helm", container.VolumeMounts[4].GetName())
+	require.Equal(t, "/opt/kagent/tools/helm", container.VolumeMounts[4].GetMountPath())
+
+	environment := map[string]string{}
+	for _, variable := range container.Env {
+		environment[variable.Name] = variable.Value
+	}
+	require.Equal(t, "/opt/kagent/tools/kubectl/bin:/opt/kagent/tools/helm/bin", environment["KAGENT_TOOL_PATHS"])
+}
+
+func TestActorTemplateOmitsToolPathsWithoutToolImages(t *testing.T) {
+	spec := toolImageRevision()
+	revisionID, err := spec.Digest()
+	require.NoError(t, err)
+	template, err := ActorTemplateForRevision(spec, revisionID)
+	require.NoError(t, err)
+	require.Len(t, template.Volumes, 3)
+	require.Len(t, template.GetContainers()[0].VolumeMounts, 3)
+	for _, variable := range template.GetContainers()[0].Env {
+		require.NotEqual(t, "KAGENT_TOOL_PATHS", variable.Name)
+	}
+}
+
+func TestActorTemplateRejectsUserToolPathsEnvironment(t *testing.T) {
+	spec := toolImageRevision()
+	spec.Environment = []corev1.EnvVar{{Name: "KAGENT_TOOL_PATHS", Value: "/x"}}
+	revisionID, err := spec.Digest()
+	require.NoError(t, err)
+	_, err = ActorTemplateForRevision(spec, revisionID)
+	require.ErrorContains(t, err, `"KAGENT_TOOL_PATHS" is reserved for tool images`)
+}
+
+func TestActorTemplateRejectsInvalidToolImages(t *testing.T) {
+	const pinned = "tools.example/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	for _, tt := range []struct {
+		name    string
+		images  []translator.ToolImage
+		wantErr string
+	}{
+		{name: "duplicate name", images: []translator.ToolImage{{Name: "kubectl", Reference: pinned}, {Name: "kubectl", Reference: pinned}}, wantErr: `"kubectl" is listed twice`},
+		{name: "name is not a DNS label", images: []translator.ToolImage{{Name: "Kube_ctl", Reference: pinned}}, wantErr: `tool image name "Kube_ctl"`},
+		{name: "tag-only reference", images: []translator.ToolImage{{Name: "kubectl", Reference: "tools.example/kubectl:latest"}}, wantErr: `"kubectl" must be pinned by sha256 digest`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := toolImageRevision(tt.images...)
+			revisionID, err := spec.Digest()
+			require.NoError(t, err)
+			_, err = ActorTemplateForRevision(spec, revisionID)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}

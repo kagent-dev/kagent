@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	sharedtelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/toolpath"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -327,8 +328,10 @@ func reconcileGeneratedDir(directory string, keep map[string]struct{}) error {
 }
 
 // nativeEnvironment drops OTLP compression: the Codex exporter is built without
-// gzip and refuses to start when asked for it.
+// gzip and refuses to start when asked for it. Tool image binaries follow the
+// image PATH, so the pinned codex binary always wins.
 func nativeEnvironment(environment []string, codexHome string, telemetry tracing.RuntimeTelemetry) []string {
+	environment = toolpath.Extend(environment)
 	environment = tracing.ResourceEnvironment(setEnvironment(sharedtelemetry.Environment(environment, telemetry.ExporterConfig()), codexHomeEnv, codexHome), telemetry.ChildResource())
 	return slices.DeleteFunc(environment, func(item string) bool {
 		return strings.HasPrefix(item, env.OTELExporterOTLPCompression.Name()+"=")
