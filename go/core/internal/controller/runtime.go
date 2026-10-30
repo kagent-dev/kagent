@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/client-go/rest"
 
@@ -16,7 +15,7 @@ import (
 // collections. Collections must be created before Start so their informers are
 // registered before the client starts.
 type Runtime struct {
-	Client      kube.Client
+	Client      apiclient.Client
 	Options     krt.OptionsBuilder
 	Collections Collections
 }

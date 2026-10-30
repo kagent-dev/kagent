@@ -7,6 +7,7 @@
 package apiv1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -20,6 +21,61 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+type DiscoveryState int32
+
+const (
+	DiscoveryState_DISCOVERY_STATE_UNSPECIFIED DiscoveryState = 0
+	DiscoveryState_DISCOVERY_STATE_PENDING     DiscoveryState = 1
+	DiscoveryState_DISCOVERY_STATE_CURRENT     DiscoveryState = 2
+	DiscoveryState_DISCOVERY_STATE_STALE       DiscoveryState = 3
+	DiscoveryState_DISCOVERY_STATE_FAILED      DiscoveryState = 4
+)
+
+// Enum value maps for DiscoveryState.
+var (
+	DiscoveryState_name = map[int32]string{
+		0: "DISCOVERY_STATE_UNSPECIFIED",
+		1: "DISCOVERY_STATE_PENDING",
+		2: "DISCOVERY_STATE_CURRENT",
+		3: "DISCOVERY_STATE_STALE",
+		4: "DISCOVERY_STATE_FAILED",
+	}
+	DiscoveryState_value = map[string]int32{
+		"DISCOVERY_STATE_UNSPECIFIED": 0,
+		"DISCOVERY_STATE_PENDING":     1,
+		"DISCOVERY_STATE_CURRENT":     2,
+		"DISCOVERY_STATE_STALE":       3,
+		"DISCOVERY_STATE_FAILED":      4,
+	}
+)
+
+func (x DiscoveryState) Enum() *DiscoveryState {
+	p := new(DiscoveryState)
+	*p = x
+	return p
+}
+
+func (x DiscoveryState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DiscoveryState) Descriptor() protoreflect.EnumDescriptor {
+	return file_kagent_api_v1_models_proto_enumTypes[0].Descriptor()
+}
+
+func (DiscoveryState) Type() protoreflect.EnumType {
+	return &file_kagent_api_v1_models_proto_enumTypes[0]
+}
+
+func (x DiscoveryState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DiscoveryState.Descriptor instead.
+func (DiscoveryState) EnumDescriptor() ([]byte, []int) {
+	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{0}
+}
 
 type SecretMaterial struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -754,10 +810,16 @@ func (x *ListSupportedModelProvidersResponse) GetProviders() []*ProviderDefiniti
 }
 
 type ConfiguredProvider struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	Endpoint      string                 `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Deprecated: use ref to identify the ModelProviderConfig.
+	//
+	// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
+	Name          string             `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Type          string             `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Endpoint      string             `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	Ref           *ResourceReference `protobuf:"bytes,4,opt,name=ref,proto3" json:"ref,omitempty"`
+	State         DiscoveryState     `protobuf:"varint,5,opt,name=state,proto3,enum=kagent.api.v1.DiscoveryState" json:"state,omitempty"`
+	Error         string             `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -792,6 +854,7 @@ func (*ConfiguredProvider) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{15}
 }
 
+// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
 func (x *ConfiguredProvider) GetName() string {
 	if x != nil {
 		return x.Name
@@ -809,6 +872,27 @@ func (x *ConfiguredProvider) GetType() string {
 func (x *ConfiguredProvider) GetEndpoint() string {
 	if x != nil {
 		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *ConfiguredProvider) GetRef() *ResourceReference {
+	if x != nil {
+		return x.Ref
+	}
+	return nil
+}
+
+func (x *ConfiguredProvider) GetState() DiscoveryState {
+	if x != nil {
+		return x.State
+	}
+	return DiscoveryState_DISCOVERY_STATE_UNSPECIFIED
+}
+
+func (x *ConfiguredProvider) GetError() string {
+	if x != nil {
+		return x.Error
 	}
 	return ""
 }
@@ -894,9 +978,13 @@ func (x *ListConfiguredProvidersResponse) GetProviders() []*ConfiguredProvider {
 }
 
 type ListProviderModelsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProviderName  string                 `protobuf:"bytes,1,opt,name=provider_name,json=providerName,proto3" json:"provider_name,omitempty"`
-	Refresh       bool                   `protobuf:"varint,2,opt,name=refresh,proto3" json:"refresh,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Deprecated: use ref to identify the ModelProviderConfig.
+	//
+	// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
+	ProviderName  string             `protobuf:"bytes,1,opt,name=provider_name,json=providerName,proto3" json:"provider_name,omitempty"`
+	Refresh       bool               `protobuf:"varint,2,opt,name=refresh,proto3" json:"refresh,omitempty"`
+	Ref           *ResourceReference `protobuf:"bytes,3,opt,name=ref,proto3" json:"ref,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -931,6 +1019,7 @@ func (*ListProviderModelsRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{18}
 }
 
+// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
 func (x *ListProviderModelsRequest) GetProviderName() string {
 	if x != nil {
 		return x.ProviderName
@@ -945,12 +1034,29 @@ func (x *ListProviderModelsRequest) GetRefresh() bool {
 	return false
 }
 
+func (x *ListProviderModelsRequest) GetRef() *ResourceReference {
+	if x != nil {
+		return x.Ref
+	}
+	return nil
+}
+
 type ListProviderModelsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
-	Models        []string               `protobuf:"bytes,2,rep,name=models,proto3" json:"models,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Deprecated: the request ref identifies the ModelProviderConfig.
+	//
+	// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
+	Provider string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	// Deprecated: use discovered_models for typed discovery metadata.
+	//
+	// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
+	Models           []string           `protobuf:"bytes,2,rep,name=models,proto3" json:"models,omitempty"`
+	DiscoveredModels []*DiscoveredModel `protobuf:"bytes,4,rep,name=discovered_models,json=discoveredModels,proto3" json:"discovered_models,omitempty"`
+	Endpoint         string             `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	State            DiscoveryState     `protobuf:"varint,6,opt,name=state,proto3,enum=kagent.api.v1.DiscoveryState" json:"state,omitempty"`
+	Error            string             `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ListProviderModelsResponse) Reset() {
@@ -983,6 +1089,7 @@ func (*ListProviderModelsResponse) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{19}
 }
 
+// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
 func (x *ListProviderModelsResponse) GetProvider() string {
 	if x != nil {
 		return x.Provider
@@ -990,11 +1097,293 @@ func (x *ListProviderModelsResponse) GetProvider() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
 func (x *ListProviderModelsResponse) GetModels() []string {
 	if x != nil {
 		return x.Models
 	}
 	return nil
+}
+
+func (x *ListProviderModelsResponse) GetDiscoveredModels() []*DiscoveredModel {
+	if x != nil {
+		return x.DiscoveredModels
+	}
+	return nil
+}
+
+func (x *ListProviderModelsResponse) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *ListProviderModelsResponse) GetState() DiscoveryState {
+	if x != nil {
+		return x.State
+	}
+	return DiscoveryState_DISCOVERY_STATE_UNSPECIFIED
+}
+
+func (x *ListProviderModelsResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// Canonical OpenAI-compatible model entry, including optional Agw enrichment.
+type DiscoveredModel struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Object              string                 `protobuf:"bytes,2,opt,name=object,proto3" json:"object,omitempty"`
+	Created             *uint64                `protobuf:"varint,3,opt,name=created,proto3,oneof" json:"created,omitempty"`
+	OwnedBy             *string                `protobuf:"bytes,4,opt,name=owned_by,json=ownedBy,proto3,oneof" json:"owned_by,omitempty"`
+	Name                *string                `protobuf:"bytes,5,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	ContextWindow       *uint64                `protobuf:"varint,6,opt,name=context_window,json=contextWindow,proto3,oneof" json:"context_window,omitempty"`
+	ContextLength       *uint64                `protobuf:"varint,7,opt,name=context_length,json=contextLength,proto3,oneof" json:"context_length,omitempty"`
+	MaxInputTokens      *uint64                `protobuf:"varint,8,opt,name=max_input_tokens,json=maxInputTokens,proto3,oneof" json:"max_input_tokens,omitempty"`
+	MaxTokens           *uint64                `protobuf:"varint,9,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Architecture        *ModelArchitecture     `protobuf:"bytes,10,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	Capabilities        *ModelCapabilities     `protobuf:"bytes,11,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	SupportedParameters []string               `protobuf:"bytes,12,rep,name=supported_parameters,json=supportedParameters,proto3" json:"supported_parameters,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *DiscoveredModel) Reset() {
+	*x = DiscoveredModel{}
+	mi := &file_kagent_api_v1_models_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiscoveredModel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiscoveredModel) ProtoMessage() {}
+
+func (x *DiscoveredModel) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1_models_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiscoveredModel.ProtoReflect.Descriptor instead.
+func (*DiscoveredModel) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *DiscoveredModel) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DiscoveredModel) GetObject() string {
+	if x != nil {
+		return x.Object
+	}
+	return ""
+}
+
+func (x *DiscoveredModel) GetCreated() uint64 {
+	if x != nil && x.Created != nil {
+		return *x.Created
+	}
+	return 0
+}
+
+func (x *DiscoveredModel) GetOwnedBy() string {
+	if x != nil && x.OwnedBy != nil {
+		return *x.OwnedBy
+	}
+	return ""
+}
+
+func (x *DiscoveredModel) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *DiscoveredModel) GetContextWindow() uint64 {
+	if x != nil && x.ContextWindow != nil {
+		return *x.ContextWindow
+	}
+	return 0
+}
+
+func (x *DiscoveredModel) GetContextLength() uint64 {
+	if x != nil && x.ContextLength != nil {
+		return *x.ContextLength
+	}
+	return 0
+}
+
+func (x *DiscoveredModel) GetMaxInputTokens() uint64 {
+	if x != nil && x.MaxInputTokens != nil {
+		return *x.MaxInputTokens
+	}
+	return 0
+}
+
+func (x *DiscoveredModel) GetMaxTokens() uint64 {
+	if x != nil && x.MaxTokens != nil {
+		return *x.MaxTokens
+	}
+	return 0
+}
+
+func (x *DiscoveredModel) GetArchitecture() *ModelArchitecture {
+	if x != nil {
+		return x.Architecture
+	}
+	return nil
+}
+
+func (x *DiscoveredModel) GetCapabilities() *ModelCapabilities {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *DiscoveredModel) GetSupportedParameters() []string {
+	if x != nil {
+		return x.SupportedParameters
+	}
+	return nil
+}
+
+type ModelArchitecture struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	InputModalities  []string               `protobuf:"bytes,1,rep,name=input_modalities,json=inputModalities,proto3" json:"input_modalities,omitempty"`
+	OutputModalities []string               `protobuf:"bytes,2,rep,name=output_modalities,json=outputModalities,proto3" json:"output_modalities,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ModelArchitecture) Reset() {
+	*x = ModelArchitecture{}
+	mi := &file_kagent_api_v1_models_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelArchitecture) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelArchitecture) ProtoMessage() {}
+
+func (x *ModelArchitecture) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1_models_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelArchitecture.ProtoReflect.Descriptor instead.
+func (*ModelArchitecture) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ModelArchitecture) GetInputModalities() []string {
+	if x != nil {
+		return x.InputModalities
+	}
+	return nil
+}
+
+func (x *ModelArchitecture) GetOutputModalities() []string {
+	if x != nil {
+		return x.OutputModalities
+	}
+	return nil
+}
+
+type ModelCapabilities struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Reasoning         *bool                  `protobuf:"varint,1,opt,name=reasoning,proto3,oneof" json:"reasoning,omitempty"`
+	StructuredOutputs *bool                  `protobuf:"varint,2,opt,name=structured_outputs,json=structuredOutputs,proto3,oneof" json:"structured_outputs,omitempty"`
+	Tools             *bool                  `protobuf:"varint,3,opt,name=tools,proto3,oneof" json:"tools,omitempty"`
+	Temperature       *bool                  `protobuf:"varint,4,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ModelCapabilities) Reset() {
+	*x = ModelCapabilities{}
+	mi := &file_kagent_api_v1_models_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelCapabilities) ProtoMessage() {}
+
+func (x *ModelCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1_models_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelCapabilities.ProtoReflect.Descriptor instead.
+func (*ModelCapabilities) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ModelCapabilities) GetReasoning() bool {
+	if x != nil && x.Reasoning != nil {
+		return *x.Reasoning
+	}
+	return false
+}
+
+func (x *ModelCapabilities) GetStructuredOutputs() bool {
+	if x != nil && x.StructuredOutputs != nil {
+		return *x.StructuredOutputs
+	}
+	return false
+}
+
+func (x *ModelCapabilities) GetTools() bool {
+	if x != nil && x.Tools != nil {
+		return *x.Tools
+	}
+	return false
+}
+
+func (x *ModelCapabilities) GetTemperature() bool {
+	if x != nil && x.Temperature != nil {
+		return *x.Temperature
+	}
+	return false
 }
 
 type ModelInfo struct {
@@ -1007,7 +1396,7 @@ type ModelInfo struct {
 
 func (x *ModelInfo) Reset() {
 	*x = ModelInfo{}
-	mi := &file_kagent_api_v1_models_proto_msgTypes[20]
+	mi := &file_kagent_api_v1_models_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1019,7 +1408,7 @@ func (x *ModelInfo) String() string {
 func (*ModelInfo) ProtoMessage() {}
 
 func (x *ModelInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_models_proto_msgTypes[20]
+	mi := &file_kagent_api_v1_models_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1032,7 +1421,7 @@ func (x *ModelInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelInfo.ProtoReflect.Descriptor instead.
 func (*ModelInfo) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{20}
+	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ModelInfo) GetName() string {
@@ -1059,7 +1448,7 @@ type ProviderModels struct {
 
 func (x *ProviderModels) Reset() {
 	*x = ProviderModels{}
-	mi := &file_kagent_api_v1_models_proto_msgTypes[21]
+	mi := &file_kagent_api_v1_models_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1071,7 +1460,7 @@ func (x *ProviderModels) String() string {
 func (*ProviderModels) ProtoMessage() {}
 
 func (x *ProviderModels) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_models_proto_msgTypes[21]
+	mi := &file_kagent_api_v1_models_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1084,7 +1473,7 @@ func (x *ProviderModels) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderModels.ProtoReflect.Descriptor instead.
 func (*ProviderModels) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{21}
+	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ProviderModels) GetProvider() string {
@@ -1109,7 +1498,7 @@ type ListSupportedModelsRequest struct {
 
 func (x *ListSupportedModelsRequest) Reset() {
 	*x = ListSupportedModelsRequest{}
-	mi := &file_kagent_api_v1_models_proto_msgTypes[22]
+	mi := &file_kagent_api_v1_models_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1121,7 +1510,7 @@ func (x *ListSupportedModelsRequest) String() string {
 func (*ListSupportedModelsRequest) ProtoMessage() {}
 
 func (x *ListSupportedModelsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_models_proto_msgTypes[22]
+	mi := &file_kagent_api_v1_models_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1134,7 +1523,7 @@ func (x *ListSupportedModelsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSupportedModelsRequest.ProtoReflect.Descriptor instead.
 func (*ListSupportedModelsRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{22}
+	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{25}
 }
 
 type ListSupportedModelsResponse struct {
@@ -1146,7 +1535,7 @@ type ListSupportedModelsResponse struct {
 
 func (x *ListSupportedModelsResponse) Reset() {
 	*x = ListSupportedModelsResponse{}
-	mi := &file_kagent_api_v1_models_proto_msgTypes[23]
+	mi := &file_kagent_api_v1_models_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1158,7 +1547,7 @@ func (x *ListSupportedModelsResponse) String() string {
 func (*ListSupportedModelsResponse) ProtoMessage() {}
 
 func (x *ListSupportedModelsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_models_proto_msgTypes[23]
+	mi := &file_kagent_api_v1_models_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1171,7 +1560,7 @@ func (x *ListSupportedModelsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSupportedModelsResponse.ProtoReflect.Descriptor instead.
 func (*ListSupportedModelsResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{23}
+	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListSupportedModelsResponse) GetProviders() []*ProviderModels {
@@ -1185,7 +1574,7 @@ var File_kagent_api_v1_models_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_models_proto_rawDesc = "" +
 	"\n" +
-	"\x1akagent/api/v1/models.proto\x12\rkagent.api.v1\x1a\x1akagent/api/v1/common.proto\"L\n" +
+	"\x1akagent/api/v1/models.proto\x12\rkagent.api.v1\x1a\x1akagent/api/v1/common.proto\x1a\x1bbuf/validate/validate.proto\"L\n" +
 	"\x0eSecretMaterial\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
@@ -1226,20 +1615,64 @@ const file_kagent_api_v1_models_proto_rawDesc = "" +
 	"\x0foptional_params\x18\x04 \x03(\tR\x0eoptionalParams\"$\n" +
 	"\"ListSupportedModelProvidersRequest\"f\n" +
 	"#ListSupportedModelProvidersResponse\x12?\n" +
-	"\tproviders\x18\x01 \x03(\v2!.kagent.api.v1.ProviderDefinitionR\tproviders\"X\n" +
-	"\x12ConfiguredProvider\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\tproviders\x18\x01 \x03(\v2!.kagent.api.v1.ProviderDefinitionR\tproviders\"\xdb\x01\n" +
+	"\x12ConfiguredProvider\x12\x16\n" +
+	"\x04name\x18\x01 \x01(\tB\x02\x18\x01R\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1a\n" +
-	"\bendpoint\x18\x03 \x01(\tR\bendpoint\" \n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x122\n" +
+	"\x03ref\x18\x04 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x03ref\x123\n" +
+	"\x05state\x18\x05 \x01(\x0e2\x1d.kagent.api.v1.DiscoveryStateR\x05state\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\" \n" +
 	"\x1eListConfiguredProvidersRequest\"b\n" +
 	"\x1fListConfiguredProvidersResponse\x12?\n" +
-	"\tproviders\x18\x01 \x03(\v2!.kagent.api.v1.ConfiguredProviderR\tproviders\"Z\n" +
-	"\x19ListProviderModelsRequest\x12#\n" +
-	"\rprovider_name\x18\x01 \x01(\tR\fproviderName\x12\x18\n" +
-	"\arefresh\x18\x02 \x01(\bR\arefresh\"P\n" +
-	"\x1aListProviderModelsResponse\x12\x1a\n" +
-	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x16\n" +
-	"\x06models\x18\x02 \x03(\tR\x06models\"J\n" +
+	"\tproviders\x18\x01 \x03(\v2!.kagent.api.v1.ConfiguredProviderR\tproviders\"\x9a\x01\n" +
+	"\x19ListProviderModelsRequest\x12'\n" +
+	"\rprovider_name\x18\x01 \x01(\tB\x02\x18\x01R\fproviderName\x12\x18\n" +
+	"\arefresh\x18\x02 \x01(\bR\arefresh\x12:\n" +
+	"\x03ref\x18\x03 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x03ref\"\x9c\x02\n" +
+	"\x1aListProviderModelsResponse\x12\x1e\n" +
+	"\bprovider\x18\x01 \x01(\tB\x02\x18\x01R\bprovider\x12\x1a\n" +
+	"\x06models\x18\x02 \x03(\tB\x02\x18\x01R\x06models\x12K\n" +
+	"\x11discovered_models\x18\x04 \x03(\v2\x1e.kagent.api.v1.DiscoveredModelR\x10discoveredModels\x12\x1a\n" +
+	"\bendpoint\x18\x05 \x01(\tR\bendpoint\x123\n" +
+	"\x05state\x18\x06 \x01(\x0e2\x1d.kagent.api.v1.DiscoveryStateR\x05state\x12\x14\n" +
+	"\x05error\x18\a \x01(\tR\x05errorJ\x04\b\x03\x10\x04R\bsnapshot\"\xe7\x04\n" +
+	"\x0fDiscoveredModel\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06object\x18\x02 \x01(\tR\x06object\x12\x1d\n" +
+	"\acreated\x18\x03 \x01(\x04H\x00R\acreated\x88\x01\x01\x12\x1e\n" +
+	"\bowned_by\x18\x04 \x01(\tH\x01R\aownedBy\x88\x01\x01\x12\x17\n" +
+	"\x04name\x18\x05 \x01(\tH\x02R\x04name\x88\x01\x01\x12*\n" +
+	"\x0econtext_window\x18\x06 \x01(\x04H\x03R\rcontextWindow\x88\x01\x01\x12*\n" +
+	"\x0econtext_length\x18\a \x01(\x04H\x04R\rcontextLength\x88\x01\x01\x12-\n" +
+	"\x10max_input_tokens\x18\b \x01(\x04H\x05R\x0emaxInputTokens\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\t \x01(\x04H\x06R\tmaxTokens\x88\x01\x01\x12D\n" +
+	"\farchitecture\x18\n" +
+	" \x01(\v2 .kagent.api.v1.ModelArchitectureR\farchitecture\x12D\n" +
+	"\fcapabilities\x18\v \x01(\v2 .kagent.api.v1.ModelCapabilitiesR\fcapabilities\x121\n" +
+	"\x14supported_parameters\x18\f \x03(\tR\x13supportedParametersB\n" +
+	"\n" +
+	"\b_createdB\v\n" +
+	"\t_owned_byB\a\n" +
+	"\x05_nameB\x11\n" +
+	"\x0f_context_windowB\x11\n" +
+	"\x0f_context_lengthB\x13\n" +
+	"\x11_max_input_tokensB\r\n" +
+	"\v_max_tokens\"k\n" +
+	"\x11ModelArchitecture\x12)\n" +
+	"\x10input_modalities\x18\x01 \x03(\tR\x0finputModalities\x12+\n" +
+	"\x11output_modalities\x18\x02 \x03(\tR\x10outputModalities\"\xeb\x01\n" +
+	"\x11ModelCapabilities\x12!\n" +
+	"\treasoning\x18\x01 \x01(\bH\x00R\treasoning\x88\x01\x01\x122\n" +
+	"\x12structured_outputs\x18\x02 \x01(\bH\x01R\x11structuredOutputs\x88\x01\x01\x12\x19\n" +
+	"\x05tools\x18\x03 \x01(\bH\x02R\x05tools\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x04 \x01(\bH\x03R\vtemperature\x88\x01\x01B\f\n" +
+	"\n" +
+	"_reasoningB\x15\n" +
+	"\x13_structured_outputsB\b\n" +
+	"\x06_toolsB\x0e\n" +
+	"\f_temperature\"J\n" +
 	"\tModelInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x10function_calling\x18\x02 \x01(\bR\x0ffunctionCalling\"^\n" +
@@ -1248,7 +1681,13 @@ const file_kagent_api_v1_models_proto_rawDesc = "" +
 	"\x06models\x18\x02 \x03(\v2\x18.kagent.api.v1.ModelInfoR\x06models\"\x1c\n" +
 	"\x1aListSupportedModelsRequest\"Z\n" +
 	"\x1bListSupportedModelsResponse\x12;\n" +
-	"\tproviders\x18\x01 \x03(\v2\x1d.kagent.api.v1.ProviderModelsR\tproviders2\xe4\a\n" +
+	"\tproviders\x18\x01 \x03(\v2\x1d.kagent.api.v1.ProviderModelsR\tproviders*\xa2\x01\n" +
+	"\x0eDiscoveryState\x12\x1f\n" +
+	"\x1bDISCOVERY_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17DISCOVERY_STATE_PENDING\x10\x01\x12\x1b\n" +
+	"\x17DISCOVERY_STATE_CURRENT\x10\x02\x12\x19\n" +
+	"\x15DISCOVERY_STATE_STALE\x10\x03\x12\x1a\n" +
+	"\x16DISCOVERY_STATE_FAILED\x10\x042\xe4\a\n" +
 	"\fModelService\x12c\n" +
 	"\x10ListModelConfigs\x12&.kagent.api.v1.ListModelConfigsRequest\x1a'.kagent.api.v1.ListModelConfigsResponse\x12]\n" +
 	"\x0eGetModelConfig\x12$.kagent.api.v1.GetModelConfigRequest\x1a%.kagent.api.v1.GetModelConfigResponse\x12f\n" +
@@ -1272,77 +1711,89 @@ func file_kagent_api_v1_models_proto_rawDescGZIP() []byte {
 	return file_kagent_api_v1_models_proto_rawDescData
 }
 
-var file_kagent_api_v1_models_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_kagent_api_v1_models_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_kagent_api_v1_models_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_kagent_api_v1_models_proto_goTypes = []any{
-	(*SecretMaterial)(nil),                      // 0: kagent.api.v1.SecretMaterial
-	(*ListModelConfigsRequest)(nil),             // 1: kagent.api.v1.ListModelConfigsRequest
-	(*ModelConfig)(nil),                         // 2: kagent.api.v1.ModelConfig
-	(*ListModelConfigsResponse)(nil),            // 3: kagent.api.v1.ListModelConfigsResponse
-	(*GetModelConfigRequest)(nil),               // 4: kagent.api.v1.GetModelConfigRequest
-	(*GetModelConfigResponse)(nil),              // 5: kagent.api.v1.GetModelConfigResponse
-	(*CreateModelConfigRequest)(nil),            // 6: kagent.api.v1.CreateModelConfigRequest
-	(*CreateModelConfigResponse)(nil),           // 7: kagent.api.v1.CreateModelConfigResponse
-	(*UpdateModelConfigRequest)(nil),            // 8: kagent.api.v1.UpdateModelConfigRequest
-	(*UpdateModelConfigResponse)(nil),           // 9: kagent.api.v1.UpdateModelConfigResponse
-	(*DeleteModelConfigRequest)(nil),            // 10: kagent.api.v1.DeleteModelConfigRequest
-	(*DeleteModelConfigResponse)(nil),           // 11: kagent.api.v1.DeleteModelConfigResponse
-	(*ProviderDefinition)(nil),                  // 12: kagent.api.v1.ProviderDefinition
-	(*ListSupportedModelProvidersRequest)(nil),  // 13: kagent.api.v1.ListSupportedModelProvidersRequest
-	(*ListSupportedModelProvidersResponse)(nil), // 14: kagent.api.v1.ListSupportedModelProvidersResponse
-	(*ConfiguredProvider)(nil),                  // 15: kagent.api.v1.ConfiguredProvider
-	(*ListConfiguredProvidersRequest)(nil),      // 16: kagent.api.v1.ListConfiguredProvidersRequest
-	(*ListConfiguredProvidersResponse)(nil),     // 17: kagent.api.v1.ListConfiguredProvidersResponse
-	(*ListProviderModelsRequest)(nil),           // 18: kagent.api.v1.ListProviderModelsRequest
-	(*ListProviderModelsResponse)(nil),          // 19: kagent.api.v1.ListProviderModelsResponse
-	(*ModelInfo)(nil),                           // 20: kagent.api.v1.ModelInfo
-	(*ProviderModels)(nil),                      // 21: kagent.api.v1.ProviderModels
-	(*ListSupportedModelsRequest)(nil),          // 22: kagent.api.v1.ListSupportedModelsRequest
-	(*ListSupportedModelsResponse)(nil),         // 23: kagent.api.v1.ListSupportedModelsResponse
-	(*ResourceReference)(nil),                   // 24: kagent.api.v1.ResourceReference
-	(*StructuredObject)(nil),                    // 25: kagent.api.v1.StructuredObject
+	(DiscoveryState)(0),                         // 0: kagent.api.v1.DiscoveryState
+	(*SecretMaterial)(nil),                      // 1: kagent.api.v1.SecretMaterial
+	(*ListModelConfigsRequest)(nil),             // 2: kagent.api.v1.ListModelConfigsRequest
+	(*ModelConfig)(nil),                         // 3: kagent.api.v1.ModelConfig
+	(*ListModelConfigsResponse)(nil),            // 4: kagent.api.v1.ListModelConfigsResponse
+	(*GetModelConfigRequest)(nil),               // 5: kagent.api.v1.GetModelConfigRequest
+	(*GetModelConfigResponse)(nil),              // 6: kagent.api.v1.GetModelConfigResponse
+	(*CreateModelConfigRequest)(nil),            // 7: kagent.api.v1.CreateModelConfigRequest
+	(*CreateModelConfigResponse)(nil),           // 8: kagent.api.v1.CreateModelConfigResponse
+	(*UpdateModelConfigRequest)(nil),            // 9: kagent.api.v1.UpdateModelConfigRequest
+	(*UpdateModelConfigResponse)(nil),           // 10: kagent.api.v1.UpdateModelConfigResponse
+	(*DeleteModelConfigRequest)(nil),            // 11: kagent.api.v1.DeleteModelConfigRequest
+	(*DeleteModelConfigResponse)(nil),           // 12: kagent.api.v1.DeleteModelConfigResponse
+	(*ProviderDefinition)(nil),                  // 13: kagent.api.v1.ProviderDefinition
+	(*ListSupportedModelProvidersRequest)(nil),  // 14: kagent.api.v1.ListSupportedModelProvidersRequest
+	(*ListSupportedModelProvidersResponse)(nil), // 15: kagent.api.v1.ListSupportedModelProvidersResponse
+	(*ConfiguredProvider)(nil),                  // 16: kagent.api.v1.ConfiguredProvider
+	(*ListConfiguredProvidersRequest)(nil),      // 17: kagent.api.v1.ListConfiguredProvidersRequest
+	(*ListConfiguredProvidersResponse)(nil),     // 18: kagent.api.v1.ListConfiguredProvidersResponse
+	(*ListProviderModelsRequest)(nil),           // 19: kagent.api.v1.ListProviderModelsRequest
+	(*ListProviderModelsResponse)(nil),          // 20: kagent.api.v1.ListProviderModelsResponse
+	(*DiscoveredModel)(nil),                     // 21: kagent.api.v1.DiscoveredModel
+	(*ModelArchitecture)(nil),                   // 22: kagent.api.v1.ModelArchitecture
+	(*ModelCapabilities)(nil),                   // 23: kagent.api.v1.ModelCapabilities
+	(*ModelInfo)(nil),                           // 24: kagent.api.v1.ModelInfo
+	(*ProviderModels)(nil),                      // 25: kagent.api.v1.ProviderModels
+	(*ListSupportedModelsRequest)(nil),          // 26: kagent.api.v1.ListSupportedModelsRequest
+	(*ListSupportedModelsResponse)(nil),         // 27: kagent.api.v1.ListSupportedModelsResponse
+	(*ResourceReference)(nil),                   // 28: kagent.api.v1.ResourceReference
+	(*StructuredObject)(nil),                    // 29: kagent.api.v1.StructuredObject
 }
 var file_kagent_api_v1_models_proto_depIdxs = []int32{
-	24, // 0: kagent.api.v1.ModelConfig.ref:type_name -> kagent.api.v1.ResourceReference
-	25, // 1: kagent.api.v1.ModelConfig.resource:type_name -> kagent.api.v1.StructuredObject
-	2,  // 2: kagent.api.v1.ListModelConfigsResponse.model_configs:type_name -> kagent.api.v1.ModelConfig
-	24, // 3: kagent.api.v1.GetModelConfigRequest.ref:type_name -> kagent.api.v1.ResourceReference
-	2,  // 4: kagent.api.v1.GetModelConfigResponse.model_config:type_name -> kagent.api.v1.ModelConfig
-	24, // 5: kagent.api.v1.CreateModelConfigRequest.ref:type_name -> kagent.api.v1.ResourceReference
-	25, // 6: kagent.api.v1.CreateModelConfigRequest.resource:type_name -> kagent.api.v1.StructuredObject
-	0,  // 7: kagent.api.v1.CreateModelConfigRequest.secrets:type_name -> kagent.api.v1.SecretMaterial
-	2,  // 8: kagent.api.v1.CreateModelConfigResponse.model_config:type_name -> kagent.api.v1.ModelConfig
-	24, // 9: kagent.api.v1.UpdateModelConfigRequest.ref:type_name -> kagent.api.v1.ResourceReference
-	25, // 10: kagent.api.v1.UpdateModelConfigRequest.resource:type_name -> kagent.api.v1.StructuredObject
-	0,  // 11: kagent.api.v1.UpdateModelConfigRequest.secrets:type_name -> kagent.api.v1.SecretMaterial
-	2,  // 12: kagent.api.v1.UpdateModelConfigResponse.model_config:type_name -> kagent.api.v1.ModelConfig
-	24, // 13: kagent.api.v1.DeleteModelConfigRequest.ref:type_name -> kagent.api.v1.ResourceReference
-	12, // 14: kagent.api.v1.ListSupportedModelProvidersResponse.providers:type_name -> kagent.api.v1.ProviderDefinition
-	15, // 15: kagent.api.v1.ListConfiguredProvidersResponse.providers:type_name -> kagent.api.v1.ConfiguredProvider
-	20, // 16: kagent.api.v1.ProviderModels.models:type_name -> kagent.api.v1.ModelInfo
-	21, // 17: kagent.api.v1.ListSupportedModelsResponse.providers:type_name -> kagent.api.v1.ProviderModels
-	1,  // 18: kagent.api.v1.ModelService.ListModelConfigs:input_type -> kagent.api.v1.ListModelConfigsRequest
-	4,  // 19: kagent.api.v1.ModelService.GetModelConfig:input_type -> kagent.api.v1.GetModelConfigRequest
-	6,  // 20: kagent.api.v1.ModelService.CreateModelConfig:input_type -> kagent.api.v1.CreateModelConfigRequest
-	8,  // 21: kagent.api.v1.ModelService.UpdateModelConfig:input_type -> kagent.api.v1.UpdateModelConfigRequest
-	10, // 22: kagent.api.v1.ModelService.DeleteModelConfig:input_type -> kagent.api.v1.DeleteModelConfigRequest
-	13, // 23: kagent.api.v1.ModelService.ListSupportedModelProviders:input_type -> kagent.api.v1.ListSupportedModelProvidersRequest
-	16, // 24: kagent.api.v1.ModelService.ListConfiguredProviders:input_type -> kagent.api.v1.ListConfiguredProvidersRequest
-	18, // 25: kagent.api.v1.ModelService.ListProviderModels:input_type -> kagent.api.v1.ListProviderModelsRequest
-	22, // 26: kagent.api.v1.ModelService.ListSupportedModels:input_type -> kagent.api.v1.ListSupportedModelsRequest
-	3,  // 27: kagent.api.v1.ModelService.ListModelConfigs:output_type -> kagent.api.v1.ListModelConfigsResponse
-	5,  // 28: kagent.api.v1.ModelService.GetModelConfig:output_type -> kagent.api.v1.GetModelConfigResponse
-	7,  // 29: kagent.api.v1.ModelService.CreateModelConfig:output_type -> kagent.api.v1.CreateModelConfigResponse
-	9,  // 30: kagent.api.v1.ModelService.UpdateModelConfig:output_type -> kagent.api.v1.UpdateModelConfigResponse
-	11, // 31: kagent.api.v1.ModelService.DeleteModelConfig:output_type -> kagent.api.v1.DeleteModelConfigResponse
-	14, // 32: kagent.api.v1.ModelService.ListSupportedModelProviders:output_type -> kagent.api.v1.ListSupportedModelProvidersResponse
-	17, // 33: kagent.api.v1.ModelService.ListConfiguredProviders:output_type -> kagent.api.v1.ListConfiguredProvidersResponse
-	19, // 34: kagent.api.v1.ModelService.ListProviderModels:output_type -> kagent.api.v1.ListProviderModelsResponse
-	23, // 35: kagent.api.v1.ModelService.ListSupportedModels:output_type -> kagent.api.v1.ListSupportedModelsResponse
-	27, // [27:36] is the sub-list for method output_type
-	18, // [18:27] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	28, // 0: kagent.api.v1.ModelConfig.ref:type_name -> kagent.api.v1.ResourceReference
+	29, // 1: kagent.api.v1.ModelConfig.resource:type_name -> kagent.api.v1.StructuredObject
+	3,  // 2: kagent.api.v1.ListModelConfigsResponse.model_configs:type_name -> kagent.api.v1.ModelConfig
+	28, // 3: kagent.api.v1.GetModelConfigRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	3,  // 4: kagent.api.v1.GetModelConfigResponse.model_config:type_name -> kagent.api.v1.ModelConfig
+	28, // 5: kagent.api.v1.CreateModelConfigRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	29, // 6: kagent.api.v1.CreateModelConfigRequest.resource:type_name -> kagent.api.v1.StructuredObject
+	1,  // 7: kagent.api.v1.CreateModelConfigRequest.secrets:type_name -> kagent.api.v1.SecretMaterial
+	3,  // 8: kagent.api.v1.CreateModelConfigResponse.model_config:type_name -> kagent.api.v1.ModelConfig
+	28, // 9: kagent.api.v1.UpdateModelConfigRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	29, // 10: kagent.api.v1.UpdateModelConfigRequest.resource:type_name -> kagent.api.v1.StructuredObject
+	1,  // 11: kagent.api.v1.UpdateModelConfigRequest.secrets:type_name -> kagent.api.v1.SecretMaterial
+	3,  // 12: kagent.api.v1.UpdateModelConfigResponse.model_config:type_name -> kagent.api.v1.ModelConfig
+	28, // 13: kagent.api.v1.DeleteModelConfigRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	13, // 14: kagent.api.v1.ListSupportedModelProvidersResponse.providers:type_name -> kagent.api.v1.ProviderDefinition
+	28, // 15: kagent.api.v1.ConfiguredProvider.ref:type_name -> kagent.api.v1.ResourceReference
+	0,  // 16: kagent.api.v1.ConfiguredProvider.state:type_name -> kagent.api.v1.DiscoveryState
+	16, // 17: kagent.api.v1.ListConfiguredProvidersResponse.providers:type_name -> kagent.api.v1.ConfiguredProvider
+	28, // 18: kagent.api.v1.ListProviderModelsRequest.ref:type_name -> kagent.api.v1.ResourceReference
+	21, // 19: kagent.api.v1.ListProviderModelsResponse.discovered_models:type_name -> kagent.api.v1.DiscoveredModel
+	0,  // 20: kagent.api.v1.ListProviderModelsResponse.state:type_name -> kagent.api.v1.DiscoveryState
+	22, // 21: kagent.api.v1.DiscoveredModel.architecture:type_name -> kagent.api.v1.ModelArchitecture
+	23, // 22: kagent.api.v1.DiscoveredModel.capabilities:type_name -> kagent.api.v1.ModelCapabilities
+	24, // 23: kagent.api.v1.ProviderModels.models:type_name -> kagent.api.v1.ModelInfo
+	25, // 24: kagent.api.v1.ListSupportedModelsResponse.providers:type_name -> kagent.api.v1.ProviderModels
+	2,  // 25: kagent.api.v1.ModelService.ListModelConfigs:input_type -> kagent.api.v1.ListModelConfigsRequest
+	5,  // 26: kagent.api.v1.ModelService.GetModelConfig:input_type -> kagent.api.v1.GetModelConfigRequest
+	7,  // 27: kagent.api.v1.ModelService.CreateModelConfig:input_type -> kagent.api.v1.CreateModelConfigRequest
+	9,  // 28: kagent.api.v1.ModelService.UpdateModelConfig:input_type -> kagent.api.v1.UpdateModelConfigRequest
+	11, // 29: kagent.api.v1.ModelService.DeleteModelConfig:input_type -> kagent.api.v1.DeleteModelConfigRequest
+	14, // 30: kagent.api.v1.ModelService.ListSupportedModelProviders:input_type -> kagent.api.v1.ListSupportedModelProvidersRequest
+	17, // 31: kagent.api.v1.ModelService.ListConfiguredProviders:input_type -> kagent.api.v1.ListConfiguredProvidersRequest
+	19, // 32: kagent.api.v1.ModelService.ListProviderModels:input_type -> kagent.api.v1.ListProviderModelsRequest
+	26, // 33: kagent.api.v1.ModelService.ListSupportedModels:input_type -> kagent.api.v1.ListSupportedModelsRequest
+	4,  // 34: kagent.api.v1.ModelService.ListModelConfigs:output_type -> kagent.api.v1.ListModelConfigsResponse
+	6,  // 35: kagent.api.v1.ModelService.GetModelConfig:output_type -> kagent.api.v1.GetModelConfigResponse
+	8,  // 36: kagent.api.v1.ModelService.CreateModelConfig:output_type -> kagent.api.v1.CreateModelConfigResponse
+	10, // 37: kagent.api.v1.ModelService.UpdateModelConfig:output_type -> kagent.api.v1.UpdateModelConfigResponse
+	12, // 38: kagent.api.v1.ModelService.DeleteModelConfig:output_type -> kagent.api.v1.DeleteModelConfigResponse
+	15, // 39: kagent.api.v1.ModelService.ListSupportedModelProviders:output_type -> kagent.api.v1.ListSupportedModelProvidersResponse
+	18, // 40: kagent.api.v1.ModelService.ListConfiguredProviders:output_type -> kagent.api.v1.ListConfiguredProvidersResponse
+	20, // 41: kagent.api.v1.ModelService.ListProviderModels:output_type -> kagent.api.v1.ListProviderModelsResponse
+	27, // 42: kagent.api.v1.ModelService.ListSupportedModels:output_type -> kagent.api.v1.ListSupportedModelsResponse
+	34, // [34:43] is the sub-list for method output_type
+	25, // [25:34] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1_models_proto_init() }
@@ -1352,18 +1803,21 @@ func file_kagent_api_v1_models_proto_init() {
 	}
 	file_kagent_api_v1_common_proto_init()
 	file_kagent_api_v1_models_proto_msgTypes[8].OneofWrappers = []any{}
+	file_kagent_api_v1_models_proto_msgTypes[20].OneofWrappers = []any{}
+	file_kagent_api_v1_models_proto_msgTypes[22].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1_models_proto_rawDesc), len(file_kagent_api_v1_models_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   24,
+			NumEnums:      1,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_kagent_api_v1_models_proto_goTypes,
 		DependencyIndexes: file_kagent_api_v1_models_proto_depIdxs,
+		EnumInfos:         file_kagent_api_v1_models_proto_enumTypes,
 		MessageInfos:      file_kagent_api_v1_models_proto_msgTypes,
 	}.Build()
 	File_kagent_api_v1_models_proto = out.File

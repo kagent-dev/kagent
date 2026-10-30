@@ -21,6 +21,8 @@ import type {
   ModelConfig,
   Provider,
   ProviderModelsResponse,
+ ConfiguredModelProvider,
+ ModelDiscoveryResult,
 } from "./domain/models";
 import type {
   ToolServerCreateRequest,
@@ -62,11 +64,14 @@ export interface ReadOptions {
 }
 
 export interface ModelsApi {
+ configuredProviders(options?: ReadOptions): Promise<ConfiguredModelProvider[]>;
+ discovery(namespace: string, name: string, options?: ReadOptions): Promise<ModelDiscoveryResult>;
+ refreshDiscovery(namespace: string, name: string, options?: ReadOptions): Promise<ModelDiscoveryResult>;
   list(options?: ReadOptions): Promise<ModelConfig[]>;
   get(namespace: string, name: string, options?: ReadOptions): Promise<ModelConfig>;
   /** Models on offer, grouped by provider name. */
   providerModels(options?: ReadOptions): Promise<ProviderModelsResponse>;
-  /** Every provider the controller knows: the stock ones and the configured ones. */
+  /** Invocation provider types supported by the controller. */
   providers(options?: ReadOptions): Promise<Provider[]>;
   create(payload: CreateModelConfigRequest): Promise<ModelConfig>;
   /** Replaces a model configuration. */
@@ -278,6 +283,9 @@ export function createApiClient(): KagentApiClient {
       list: (options) => invoke("models.list", {}, options).then(sortedByRef),
       get: (namespace, name, options) =>
         invoke("models.get", { namespace, name }, options),
+      configuredProviders: (options) => invoke("models.configuredProviders", {}, options),
+      discovery: (namespace, name, options) => invoke("models.discovery", {namespace, name}, options),
+      refreshDiscovery: (namespace, name, options) => invoke("models.refreshDiscovery", {namespace, name}, options),
       providerModels: (options) => invoke("models.providerModels", {}, options),
       providers: (options) => invoke("models.providers", {}, options),
       create: (payload) => invoke("models.create", { payload }),

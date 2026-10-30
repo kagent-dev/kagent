@@ -2,17 +2,18 @@
 // @generated from file kagent/api/v1/models.proto (package kagent.api.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { ResourceReference, StructuredObject } from "./common_pb";
 import { file_kagent_api_v1_common } from "./common_pb";
+import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file kagent/api/v1/models.proto.
  */
 export const file_kagent_api_v1_models: GenFile = /*@__PURE__*/
-  fileDesc("ChprYWdlbnQvYXBpL3YxL21vZGVscy5wcm90bxINa2FnZW50LmFwaS52MSI6Cg5TZWNyZXRNYXRlcmlhbBIMCgRuYW1lGAEgASgJEgsKA2tleRgCIAEoCRINCgV2YWx1ZRgDIAEoCSIZChdMaXN0TW9kZWxDb25maWdzUmVxdWVzdCJvCgtNb2RlbENvbmZpZxItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlEjEKCHJlc291cmNlGAIgASgLMh8ua2FnZW50LmFwaS52MS5TdHJ1Y3R1cmVkT2JqZWN0Ik0KGExpc3RNb2RlbENvbmZpZ3NSZXNwb25zZRIxCg1tb2RlbF9jb25maWdzGAEgAygLMhoua2FnZW50LmFwaS52MS5Nb2RlbENvbmZpZyJGChVHZXRNb2RlbENvbmZpZ1JlcXVlc3QSLQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZSJKChZHZXRNb2RlbENvbmZpZ1Jlc3BvbnNlEjAKDG1vZGVsX2NvbmZpZxgBIAEoCzIaLmthZ2VudC5hcGkudjEuTW9kZWxDb25maWcivQEKGENyZWF0ZU1vZGVsQ29uZmlnUmVxdWVzdBItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlEjEKCHJlc291cmNlGAIgASgLMh8ua2FnZW50LmFwaS52MS5TdHJ1Y3R1cmVkT2JqZWN0Eg8KB2FwaV9rZXkYAyABKAkSLgoHc2VjcmV0cxgEIAMoCzIdLmthZ2VudC5hcGkudjEuU2VjcmV0TWF0ZXJpYWwiTQoZQ3JlYXRlTW9kZWxDb25maWdSZXNwb25zZRIwCgxtb2RlbF9jb25maWcYASABKAsyGi5rYWdlbnQuYXBpLnYxLk1vZGVsQ29uZmlnIs4BChhVcGRhdGVNb2RlbENvbmZpZ1JlcXVlc3QSLQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZRIxCghyZXNvdXJjZRgCIAEoCzIfLmthZ2VudC5hcGkudjEuU3RydWN0dXJlZE9iamVjdBIUCgdhcGlfa2V5GAMgASgJSACIAQESLgoHc2VjcmV0cxgEIAMoCzIdLmthZ2VudC5hcGkudjEuU2VjcmV0TWF0ZXJpYWxCCgoIX2FwaV9rZXkiTQoZVXBkYXRlTW9kZWxDb25maWdSZXNwb25zZRIwCgxtb2RlbF9jb25maWcYASABKAsyGi5rYWdlbnQuYXBpLnYxLk1vZGVsQ29uZmlnIkkKGERlbGV0ZU1vZGVsQ29uZmlnUmVxdWVzdBItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlIhsKGURlbGV0ZU1vZGVsQ29uZmlnUmVzcG9uc2UiYgoSUHJvdmlkZXJEZWZpbml0aW9uEgwKBG5hbWUYASABKAkSDAoEdHlwZRgCIAEoCRIXCg9yZXF1aXJlZF9wYXJhbXMYAyADKAkSFwoPb3B0aW9uYWxfcGFyYW1zGAQgAygJIiQKIkxpc3RTdXBwb3J0ZWRNb2RlbFByb3ZpZGVyc1JlcXVlc3QiWwojTGlzdFN1cHBvcnRlZE1vZGVsUHJvdmlkZXJzUmVzcG9uc2USNAoJcHJvdmlkZXJzGAEgAygLMiEua2FnZW50LmFwaS52MS5Qcm92aWRlckRlZmluaXRpb24iQgoSQ29uZmlndXJlZFByb3ZpZGVyEgwKBG5hbWUYASABKAkSDAoEdHlwZRgCIAEoCRIQCghlbmRwb2ludBgDIAEoCSIgCh5MaXN0Q29uZmlndXJlZFByb3ZpZGVyc1JlcXVlc3QiVwofTGlzdENvbmZpZ3VyZWRQcm92aWRlcnNSZXNwb25zZRI0Cglwcm92aWRlcnMYASADKAsyIS5rYWdlbnQuYXBpLnYxLkNvbmZpZ3VyZWRQcm92aWRlciJDChlMaXN0UHJvdmlkZXJNb2RlbHNSZXF1ZXN0EhUKDXByb3ZpZGVyX25hbWUYASABKAkSDwoHcmVmcmVzaBgCIAEoCCI+ChpMaXN0UHJvdmlkZXJNb2RlbHNSZXNwb25zZRIQCghwcm92aWRlchgBIAEoCRIOCgZtb2RlbHMYAiADKAkiMwoJTW9kZWxJbmZvEgwKBG5hbWUYASABKAkSGAoQZnVuY3Rpb25fY2FsbGluZxgCIAEoCCJMCg5Qcm92aWRlck1vZGVscxIQCghwcm92aWRlchgBIAEoCRIoCgZtb2RlbHMYAiADKAsyGC5rYWdlbnQuYXBpLnYxLk1vZGVsSW5mbyIcChpMaXN0U3VwcG9ydGVkTW9kZWxzUmVxdWVzdCJPChtMaXN0U3VwcG9ydGVkTW9kZWxzUmVzcG9uc2USMAoJcHJvdmlkZXJzGAEgAygLMh0ua2FnZW50LmFwaS52MS5Qcm92aWRlck1vZGVsczLkBwoMTW9kZWxTZXJ2aWNlEmMKEExpc3RNb2RlbENvbmZpZ3MSJi5rYWdlbnQuYXBpLnYxLkxpc3RNb2RlbENvbmZpZ3NSZXF1ZXN0Gicua2FnZW50LmFwaS52MS5MaXN0TW9kZWxDb25maWdzUmVzcG9uc2USXQoOR2V0TW9kZWxDb25maWcSJC5rYWdlbnQuYXBpLnYxLkdldE1vZGVsQ29uZmlnUmVxdWVzdBolLmthZ2VudC5hcGkudjEuR2V0TW9kZWxDb25maWdSZXNwb25zZRJmChFDcmVhdGVNb2RlbENvbmZpZxInLmthZ2VudC5hcGkudjEuQ3JlYXRlTW9kZWxDb25maWdSZXF1ZXN0Gigua2FnZW50LmFwaS52MS5DcmVhdGVNb2RlbENvbmZpZ1Jlc3BvbnNlEmYKEVVwZGF0ZU1vZGVsQ29uZmlnEicua2FnZW50LmFwaS52MS5VcGRhdGVNb2RlbENvbmZpZ1JlcXVlc3QaKC5rYWdlbnQuYXBpLnYxLlVwZGF0ZU1vZGVsQ29uZmlnUmVzcG9uc2USZgoRRGVsZXRlTW9kZWxDb25maWcSJy5rYWdlbnQuYXBpLnYxLkRlbGV0ZU1vZGVsQ29uZmlnUmVxdWVzdBooLmthZ2VudC5hcGkudjEuRGVsZXRlTW9kZWxDb25maWdSZXNwb25zZRKEAQobTGlzdFN1cHBvcnRlZE1vZGVsUHJvdmlkZXJzEjEua2FnZW50LmFwaS52MS5MaXN0U3VwcG9ydGVkTW9kZWxQcm92aWRlcnNSZXF1ZXN0GjIua2FnZW50LmFwaS52MS5MaXN0U3VwcG9ydGVkTW9kZWxQcm92aWRlcnNSZXNwb25zZRJ4ChdMaXN0Q29uZmlndXJlZFByb3ZpZGVycxItLmthZ2VudC5hcGkudjEuTGlzdENvbmZpZ3VyZWRQcm92aWRlcnNSZXF1ZXN0Gi4ua2FnZW50LmFwaS52MS5MaXN0Q29uZmlndXJlZFByb3ZpZGVyc1Jlc3BvbnNlEmkKEkxpc3RQcm92aWRlck1vZGVscxIoLmthZ2VudC5hcGkudjEuTGlzdFByb3ZpZGVyTW9kZWxzUmVxdWVzdBopLmthZ2VudC5hcGkudjEuTGlzdFByb3ZpZGVyTW9kZWxzUmVzcG9uc2USbAoTTGlzdFN1cHBvcnRlZE1vZGVscxIpLmthZ2VudC5hcGkudjEuTGlzdFN1cHBvcnRlZE1vZGVsc1JlcXVlc3QaKi5rYWdlbnQuYXBpLnYxLkxpc3RTdXBwb3J0ZWRNb2RlbHNSZXNwb25zZUI9WjtnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MTthcGl2MWIGcHJvdG8z", [file_kagent_api_v1_common]);
+  fileDesc("ChprYWdlbnQvYXBpL3YxL21vZGVscy5wcm90bxINa2FnZW50LmFwaS52MSI6Cg5TZWNyZXRNYXRlcmlhbBIMCgRuYW1lGAEgASgJEgsKA2tleRgCIAEoCRINCgV2YWx1ZRgDIAEoCSIZChdMaXN0TW9kZWxDb25maWdzUmVxdWVzdCJvCgtNb2RlbENvbmZpZxItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlEjEKCHJlc291cmNlGAIgASgLMh8ua2FnZW50LmFwaS52MS5TdHJ1Y3R1cmVkT2JqZWN0Ik0KGExpc3RNb2RlbENvbmZpZ3NSZXNwb25zZRIxCg1tb2RlbF9jb25maWdzGAEgAygLMhoua2FnZW50LmFwaS52MS5Nb2RlbENvbmZpZyJGChVHZXRNb2RlbENvbmZpZ1JlcXVlc3QSLQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZSJKChZHZXRNb2RlbENvbmZpZ1Jlc3BvbnNlEjAKDG1vZGVsX2NvbmZpZxgBIAEoCzIaLmthZ2VudC5hcGkudjEuTW9kZWxDb25maWcivQEKGENyZWF0ZU1vZGVsQ29uZmlnUmVxdWVzdBItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlEjEKCHJlc291cmNlGAIgASgLMh8ua2FnZW50LmFwaS52MS5TdHJ1Y3R1cmVkT2JqZWN0Eg8KB2FwaV9rZXkYAyABKAkSLgoHc2VjcmV0cxgEIAMoCzIdLmthZ2VudC5hcGkudjEuU2VjcmV0TWF0ZXJpYWwiTQoZQ3JlYXRlTW9kZWxDb25maWdSZXNwb25zZRIwCgxtb2RlbF9jb25maWcYASABKAsyGi5rYWdlbnQuYXBpLnYxLk1vZGVsQ29uZmlnIs4BChhVcGRhdGVNb2RlbENvbmZpZ1JlcXVlc3QSLQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZRIxCghyZXNvdXJjZRgCIAEoCzIfLmthZ2VudC5hcGkudjEuU3RydWN0dXJlZE9iamVjdBIUCgdhcGlfa2V5GAMgASgJSACIAQESLgoHc2VjcmV0cxgEIAMoCzIdLmthZ2VudC5hcGkudjEuU2VjcmV0TWF0ZXJpYWxCCgoIX2FwaV9rZXkiTQoZVXBkYXRlTW9kZWxDb25maWdSZXNwb25zZRIwCgxtb2RlbF9jb25maWcYASABKAsyGi5rYWdlbnQuYXBpLnYxLk1vZGVsQ29uZmlnIkkKGERlbGV0ZU1vZGVsQ29uZmlnUmVxdWVzdBItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlIhsKGURlbGV0ZU1vZGVsQ29uZmlnUmVzcG9uc2UiYgoSUHJvdmlkZXJEZWZpbml0aW9uEgwKBG5hbWUYASABKAkSDAoEdHlwZRgCIAEoCRIXCg9yZXF1aXJlZF9wYXJhbXMYAyADKAkSFwoPb3B0aW9uYWxfcGFyYW1zGAQgAygJIiQKIkxpc3RTdXBwb3J0ZWRNb2RlbFByb3ZpZGVyc1JlcXVlc3QiWwojTGlzdFN1cHBvcnRlZE1vZGVsUHJvdmlkZXJzUmVzcG9uc2USNAoJcHJvdmlkZXJzGAEgAygLMiEua2FnZW50LmFwaS52MS5Qcm92aWRlckRlZmluaXRpb24isgEKEkNvbmZpZ3VyZWRQcm92aWRlchIQCgRuYW1lGAEgASgJQgIYARIMCgR0eXBlGAIgASgJEhAKCGVuZHBvaW50GAMgASgJEi0KA3JlZhgEIAEoCzIgLmthZ2VudC5hcGkudjEuUmVzb3VyY2VSZWZlcmVuY2USLAoFc3RhdGUYBSABKA4yHS5rYWdlbnQuYXBpLnYxLkRpc2NvdmVyeVN0YXRlEg0KBWVycm9yGAYgASgJIiAKHkxpc3RDb25maWd1cmVkUHJvdmlkZXJzUmVxdWVzdCJXCh9MaXN0Q29uZmlndXJlZFByb3ZpZGVyc1Jlc3BvbnNlEjQKCXByb3ZpZGVycxgBIAMoCzIhLmthZ2VudC5hcGkudjEuQ29uZmlndXJlZFByb3ZpZGVyIn4KGUxpc3RQcm92aWRlck1vZGVsc1JlcXVlc3QSGQoNcHJvdmlkZXJfbmFtZRgBIAEoCUICGAESDwoHcmVmcmVzaBgCIAEoCBI1CgNyZWYYAyABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlQga6SAPIAQEi4AEKGkxpc3RQcm92aWRlck1vZGVsc1Jlc3BvbnNlEhQKCHByb3ZpZGVyGAEgASgJQgIYARISCgZtb2RlbHMYAiADKAlCAhgBEjkKEWRpc2NvdmVyZWRfbW9kZWxzGAQgAygLMh4ua2FnZW50LmFwaS52MS5EaXNjb3ZlcmVkTW9kZWwSEAoIZW5kcG9pbnQYBSABKAkSLAoFc3RhdGUYBiABKA4yHS5rYWdlbnQuYXBpLnYxLkRpc2NvdmVyeVN0YXRlEg0KBWVycm9yGAcgASgJSgQIAxAEUghzbmFwc2hvdCLZAwoPRGlzY292ZXJlZE1vZGVsEgoKAmlkGAEgASgJEg4KBm9iamVjdBgCIAEoCRIUCgdjcmVhdGVkGAMgASgESACIAQESFQoIb3duZWRfYnkYBCABKAlIAYgBARIRCgRuYW1lGAUgASgJSAKIAQESGwoOY29udGV4dF93aW5kb3cYBiABKARIA4gBARIbCg5jb250ZXh0X2xlbmd0aBgHIAEoBEgEiAEBEh0KEG1heF9pbnB1dF90b2tlbnMYCCABKARIBYgBARIXCgptYXhfdG9rZW5zGAkgASgESAaIAQESNgoMYXJjaGl0ZWN0dXJlGAogASgLMiAua2FnZW50LmFwaS52MS5Nb2RlbEFyY2hpdGVjdHVyZRI2CgxjYXBhYmlsaXRpZXMYCyABKAsyIC5rYWdlbnQuYXBpLnYxLk1vZGVsQ2FwYWJpbGl0aWVzEhwKFHN1cHBvcnRlZF9wYXJhbWV0ZXJzGAwgAygJQgoKCF9jcmVhdGVkQgsKCV9vd25lZF9ieUIHCgVfbmFtZUIRCg9fY29udGV4dF93aW5kb3dCEQoPX2NvbnRleHRfbGVuZ3RoQhMKEV9tYXhfaW5wdXRfdG9rZW5zQg0KC19tYXhfdG9rZW5zIkgKEU1vZGVsQXJjaGl0ZWN0dXJlEhgKEGlucHV0X21vZGFsaXRpZXMYASADKAkSGQoRb3V0cHV0X21vZGFsaXRpZXMYAiADKAkiuQEKEU1vZGVsQ2FwYWJpbGl0aWVzEhYKCXJlYXNvbmluZxgBIAEoCEgAiAEBEh8KEnN0cnVjdHVyZWRfb3V0cHV0cxgCIAEoCEgBiAEBEhIKBXRvb2xzGAMgASgISAKIAQESGAoLdGVtcGVyYXR1cmUYBCABKAhIA4gBAUIMCgpfcmVhc29uaW5nQhUKE19zdHJ1Y3R1cmVkX291dHB1dHNCCAoGX3Rvb2xzQg4KDF90ZW1wZXJhdHVyZSIzCglNb2RlbEluZm8SDAoEbmFtZRgBIAEoCRIYChBmdW5jdGlvbl9jYWxsaW5nGAIgASgIIkwKDlByb3ZpZGVyTW9kZWxzEhAKCHByb3ZpZGVyGAEgASgJEigKBm1vZGVscxgCIAMoCzIYLmthZ2VudC5hcGkudjEuTW9kZWxJbmZvIhwKGkxpc3RTdXBwb3J0ZWRNb2RlbHNSZXF1ZXN0Ik8KG0xpc3RTdXBwb3J0ZWRNb2RlbHNSZXNwb25zZRIwCglwcm92aWRlcnMYASADKAsyHS5rYWdlbnQuYXBpLnYxLlByb3ZpZGVyTW9kZWxzKqIBCg5EaXNjb3ZlcnlTdGF0ZRIfChtESVNDT1ZFUllfU1RBVEVfVU5TUEVDSUZJRUQQABIbChdESVNDT1ZFUllfU1RBVEVfUEVORElORxABEhsKF0RJU0NPVkVSWV9TVEFURV9DVVJSRU5UEAISGQoVRElTQ09WRVJZX1NUQVRFX1NUQUxFEAMSGgoWRElTQ09WRVJZX1NUQVRFX0ZBSUxFRBAEMuQHCgxNb2RlbFNlcnZpY2USYwoQTGlzdE1vZGVsQ29uZmlncxImLmthZ2VudC5hcGkudjEuTGlzdE1vZGVsQ29uZmlnc1JlcXVlc3QaJy5rYWdlbnQuYXBpLnYxLkxpc3RNb2RlbENvbmZpZ3NSZXNwb25zZRJdCg5HZXRNb2RlbENvbmZpZxIkLmthZ2VudC5hcGkudjEuR2V0TW9kZWxDb25maWdSZXF1ZXN0GiUua2FnZW50LmFwaS52MS5HZXRNb2RlbENvbmZpZ1Jlc3BvbnNlEmYKEUNyZWF0ZU1vZGVsQ29uZmlnEicua2FnZW50LmFwaS52MS5DcmVhdGVNb2RlbENvbmZpZ1JlcXVlc3QaKC5rYWdlbnQuYXBpLnYxLkNyZWF0ZU1vZGVsQ29uZmlnUmVzcG9uc2USZgoRVXBkYXRlTW9kZWxDb25maWcSJy5rYWdlbnQuYXBpLnYxLlVwZGF0ZU1vZGVsQ29uZmlnUmVxdWVzdBooLmthZ2VudC5hcGkudjEuVXBkYXRlTW9kZWxDb25maWdSZXNwb25zZRJmChFEZWxldGVNb2RlbENvbmZpZxInLmthZ2VudC5hcGkudjEuRGVsZXRlTW9kZWxDb25maWdSZXF1ZXN0Gigua2FnZW50LmFwaS52MS5EZWxldGVNb2RlbENvbmZpZ1Jlc3BvbnNlEoQBChtMaXN0U3VwcG9ydGVkTW9kZWxQcm92aWRlcnMSMS5rYWdlbnQuYXBpLnYxLkxpc3RTdXBwb3J0ZWRNb2RlbFByb3ZpZGVyc1JlcXVlc3QaMi5rYWdlbnQuYXBpLnYxLkxpc3RTdXBwb3J0ZWRNb2RlbFByb3ZpZGVyc1Jlc3BvbnNlEngKF0xpc3RDb25maWd1cmVkUHJvdmlkZXJzEi0ua2FnZW50LmFwaS52MS5MaXN0Q29uZmlndXJlZFByb3ZpZGVyc1JlcXVlc3QaLi5rYWdlbnQuYXBpLnYxLkxpc3RDb25maWd1cmVkUHJvdmlkZXJzUmVzcG9uc2USaQoSTGlzdFByb3ZpZGVyTW9kZWxzEigua2FnZW50LmFwaS52MS5MaXN0UHJvdmlkZXJNb2RlbHNSZXF1ZXN0Gikua2FnZW50LmFwaS52MS5MaXN0UHJvdmlkZXJNb2RlbHNSZXNwb25zZRJsChNMaXN0U3VwcG9ydGVkTW9kZWxzEikua2FnZW50LmFwaS52MS5MaXN0U3VwcG9ydGVkTW9kZWxzUmVxdWVzdBoqLmthZ2VudC5hcGkudjEuTGlzdFN1cHBvcnRlZE1vZGVsc1Jlc3BvbnNlQj1aO2dpdGh1Yi5jb20va2FnZW50LWRldi9rYWdlbnQvZ28vYXBpL2dlbi9rYWdlbnQvYXBpL3YxO2FwaXYxYgZwcm90bzM", [file_kagent_api_v1_common, file_buf_validate_validate]);
 
 /**
  * @generated from message kagent.api.v1.SecretMaterial
@@ -322,7 +323,10 @@ export const ListSupportedModelProvidersResponseSchema: GenMessage<ListSupported
  */
 export type ConfiguredProvider = Message<"kagent.api.v1.ConfiguredProvider"> & {
   /**
-   * @generated from field: string name = 1;
+   * Deprecated: use ref to identify the ModelProviderConfig.
+   *
+   * @generated from field: string name = 1 [deprecated = true];
+   * @deprecated
    */
   name: string;
 
@@ -335,6 +339,21 @@ export type ConfiguredProvider = Message<"kagent.api.v1.ConfiguredProvider"> & {
    * @generated from field: string endpoint = 3;
    */
   endpoint: string;
+
+  /**
+   * @generated from field: kagent.api.v1.ResourceReference ref = 4;
+   */
+  ref?: ResourceReference | undefined;
+
+  /**
+   * @generated from field: kagent.api.v1.DiscoveryState state = 5;
+   */
+  state: DiscoveryState;
+
+  /**
+   * @generated from field: string error = 6;
+   */
+  error: string;
 };
 
 /**
@@ -379,7 +398,10 @@ export const ListConfiguredProvidersResponseSchema: GenMessage<ListConfiguredPro
  */
 export type ListProviderModelsRequest = Message<"kagent.api.v1.ListProviderModelsRequest"> & {
   /**
-   * @generated from field: string provider_name = 1;
+   * Deprecated: use ref to identify the ModelProviderConfig.
+   *
+   * @generated from field: string provider_name = 1 [deprecated = true];
+   * @deprecated
    */
   providerName: string;
 
@@ -387,6 +409,11 @@ export type ListProviderModelsRequest = Message<"kagent.api.v1.ListProviderModel
    * @generated from field: bool refresh = 2;
    */
   refresh: boolean;
+
+  /**
+   * @generated from field: kagent.api.v1.ResourceReference ref = 3;
+   */
+  ref?: ResourceReference | undefined;
 };
 
 /**
@@ -401,14 +428,40 @@ export const ListProviderModelsRequestSchema: GenMessage<ListProviderModelsReque
  */
 export type ListProviderModelsResponse = Message<"kagent.api.v1.ListProviderModelsResponse"> & {
   /**
-   * @generated from field: string provider = 1;
+   * Deprecated: the request ref identifies the ModelProviderConfig.
+   *
+   * @generated from field: string provider = 1 [deprecated = true];
+   * @deprecated
    */
   provider: string;
 
   /**
-   * @generated from field: repeated string models = 2;
+   * Deprecated: use discovered_models for typed discovery metadata.
+   *
+   * @generated from field: repeated string models = 2 [deprecated = true];
+   * @deprecated
    */
   models: string[];
+
+  /**
+   * @generated from field: repeated kagent.api.v1.DiscoveredModel discovered_models = 4;
+   */
+  discoveredModels: DiscoveredModel[];
+
+  /**
+   * @generated from field: string endpoint = 5;
+   */
+  endpoint: string;
+
+  /**
+   * @generated from field: kagent.api.v1.DiscoveryState state = 6;
+   */
+  state: DiscoveryState;
+
+  /**
+   * @generated from field: string error = 7;
+   */
+  error: string;
 };
 
 /**
@@ -417,6 +470,134 @@ export type ListProviderModelsResponse = Message<"kagent.api.v1.ListProviderMode
  */
 export const ListProviderModelsResponseSchema: GenMessage<ListProviderModelsResponse> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1_models, 19);
+
+/**
+ * Canonical OpenAI-compatible model entry, including optional Agw enrichment.
+ *
+ * @generated from message kagent.api.v1.DiscoveredModel
+ */
+export type DiscoveredModel = Message<"kagent.api.v1.DiscoveredModel"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string object = 2;
+   */
+  object: string;
+
+  /**
+   * @generated from field: optional uint64 created = 3;
+   */
+  created?: bigint | undefined;
+
+  /**
+   * @generated from field: optional string owned_by = 4;
+   */
+  ownedBy?: string | undefined;
+
+  /**
+   * @generated from field: optional string name = 5;
+   */
+  name?: string | undefined;
+
+  /**
+   * @generated from field: optional uint64 context_window = 6;
+   */
+  contextWindow?: bigint | undefined;
+
+  /**
+   * @generated from field: optional uint64 context_length = 7;
+   */
+  contextLength?: bigint | undefined;
+
+  /**
+   * @generated from field: optional uint64 max_input_tokens = 8;
+   */
+  maxInputTokens?: bigint | undefined;
+
+  /**
+   * @generated from field: optional uint64 max_tokens = 9;
+   */
+  maxTokens?: bigint | undefined;
+
+  /**
+   * @generated from field: kagent.api.v1.ModelArchitecture architecture = 10;
+   */
+  architecture?: ModelArchitecture | undefined;
+
+  /**
+   * @generated from field: kagent.api.v1.ModelCapabilities capabilities = 11;
+   */
+  capabilities?: ModelCapabilities | undefined;
+
+  /**
+   * @generated from field: repeated string supported_parameters = 12;
+   */
+  supportedParameters: string[];
+};
+
+/**
+ * Describes the message kagent.api.v1.DiscoveredModel.
+ * Use `create(DiscoveredModelSchema)` to create a new message.
+ */
+export const DiscoveredModelSchema: GenMessage<DiscoveredModel> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1_models, 20);
+
+/**
+ * @generated from message kagent.api.v1.ModelArchitecture
+ */
+export type ModelArchitecture = Message<"kagent.api.v1.ModelArchitecture"> & {
+  /**
+   * @generated from field: repeated string input_modalities = 1;
+   */
+  inputModalities: string[];
+
+  /**
+   * @generated from field: repeated string output_modalities = 2;
+   */
+  outputModalities: string[];
+};
+
+/**
+ * Describes the message kagent.api.v1.ModelArchitecture.
+ * Use `create(ModelArchitectureSchema)` to create a new message.
+ */
+export const ModelArchitectureSchema: GenMessage<ModelArchitecture> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1_models, 21);
+
+/**
+ * @generated from message kagent.api.v1.ModelCapabilities
+ */
+export type ModelCapabilities = Message<"kagent.api.v1.ModelCapabilities"> & {
+  /**
+   * @generated from field: optional bool reasoning = 1;
+   */
+  reasoning?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool structured_outputs = 2;
+   */
+  structuredOutputs?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool tools = 3;
+   */
+  tools?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool temperature = 4;
+   */
+  temperature?: boolean | undefined;
+};
+
+/**
+ * Describes the message kagent.api.v1.ModelCapabilities.
+ * Use `create(ModelCapabilitiesSchema)` to create a new message.
+ */
+export const ModelCapabilitiesSchema: GenMessage<ModelCapabilities> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1_models, 22);
 
 /**
  * @generated from message kagent.api.v1.ModelInfo
@@ -438,7 +619,7 @@ export type ModelInfo = Message<"kagent.api.v1.ModelInfo"> & {
  * Use `create(ModelInfoSchema)` to create a new message.
  */
 export const ModelInfoSchema: GenMessage<ModelInfo> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_models, 20);
+  messageDesc(file_kagent_api_v1_models, 23);
 
 /**
  * @generated from message kagent.api.v1.ProviderModels
@@ -460,7 +641,7 @@ export type ProviderModels = Message<"kagent.api.v1.ProviderModels"> & {
  * Use `create(ProviderModelsSchema)` to create a new message.
  */
 export const ProviderModelsSchema: GenMessage<ProviderModels> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_models, 21);
+  messageDesc(file_kagent_api_v1_models, 24);
 
 /**
  * @generated from message kagent.api.v1.ListSupportedModelsRequest
@@ -473,7 +654,7 @@ export type ListSupportedModelsRequest = Message<"kagent.api.v1.ListSupportedMod
  * Use `create(ListSupportedModelsRequestSchema)` to create a new message.
  */
 export const ListSupportedModelsRequestSchema: GenMessage<ListSupportedModelsRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_models, 22);
+  messageDesc(file_kagent_api_v1_models, 25);
 
 /**
  * @generated from message kagent.api.v1.ListSupportedModelsResponse
@@ -490,7 +671,43 @@ export type ListSupportedModelsResponse = Message<"kagent.api.v1.ListSupportedMo
  * Use `create(ListSupportedModelsResponseSchema)` to create a new message.
  */
 export const ListSupportedModelsResponseSchema: GenMessage<ListSupportedModelsResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_models, 23);
+  messageDesc(file_kagent_api_v1_models, 26);
+
+/**
+ * @generated from enum kagent.api.v1.DiscoveryState
+ */
+export enum DiscoveryState {
+  /**
+   * @generated from enum value: DISCOVERY_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: DISCOVERY_STATE_PENDING = 1;
+   */
+  PENDING = 1,
+
+  /**
+   * @generated from enum value: DISCOVERY_STATE_CURRENT = 2;
+   */
+  CURRENT = 2,
+
+  /**
+   * @generated from enum value: DISCOVERY_STATE_STALE = 3;
+   */
+  STALE = 3,
+
+  /**
+   * @generated from enum value: DISCOVERY_STATE_FAILED = 4;
+   */
+  FAILED = 4,
+}
+
+/**
+ * Describes the enum kagent.api.v1.DiscoveryState.
+ */
+export const DiscoveryStateSchema: GenEnum<DiscoveryState> = /*@__PURE__*/
+  enumDesc(file_kagent_api_v1_models, 0);
 
 /**
  * @generated from service kagent.api.v1.ModelService

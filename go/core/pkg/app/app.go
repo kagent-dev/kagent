@@ -30,6 +30,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -44,10 +45,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	typedv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
+	discoverycontroller "github.com/kagent-dev/kagent/go/core/internal/controller/modeldiscovery"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -73,6 +76,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/modeldiscovery"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
@@ -102,6 +106,11 @@ type Options struct {
 	// alongside core's: two managers means two caches of the same objects and a
 	// second leader election to keep consistent with the first.
 	SetupWithManager func(manager.Manager) error
+	// ModelDiscovery registers inventory consumers before the manager starts.
+	// The collection and API client share the core runtime's existing client.
+	// Consumers must wait for inventory and collection synchronization before reconciling.
+	// The collection follows the configured watch namespaces; the client accesses the API directly.
+	ModelDiscovery func(manager.Manager, modeldiscovery.Reader, krt.Collection[*kagentv1alpha3.ModelConfig], typedv1alpha3.ApiV1alpha3Interface) error
 	// ExtraMigrations are applied after the built-in tracks, in the order
 	// given. A library consumer that owns tables uses this rather than migrating
 	// separately, so that one run leaves the database wholly at one version.
@@ -338,7 +347,26 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	authenticator = runtimeauth.NewProvider(authenticator, actorVerifier, store, cfg.GetSubstrate().GetActorJwtIssuer())
 	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
-	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
+	discovery := discoverycontroller.New(runtime.Collections.ModelProviderConfigs, runtime.Collections.Secrets, runtime.Options)
+	if err := discovery.RegisterMetrics(otel.GetMeterProvider()); err != nil {
+		return err
+	}
+	if err := manager.Add(discovery); err != nil {
+		return fmt.Errorf("register model discovery: %w", err)
+	}
+	statusWriter, err := discoverycontroller.NewStatusWriter(discovery, kubeConfig)
+	if err != nil {
+		return err
+	}
+	if err := manager.Add(statusWriter); err != nil {
+		return fmt.Errorf("register model discovery status: %w", err)
+	}
+	if opts.ModelDiscovery != nil {
+		if err := opts.ModelDiscovery(manager, discovery, runtime.Collections.ModelConfigs, runtime.Client.Kagent().ApiV1alpha3()); err != nil {
+			return fmt.Errorf("register model discovery consumer: %w", err)
+		}
+	}
+	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace, modelservice.WithProviderDiscovery(discovery))
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)

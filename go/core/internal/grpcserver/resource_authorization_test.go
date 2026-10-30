@@ -17,6 +17,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
@@ -26,6 +27,7 @@ import (
 	promptservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/modeldiscovery"
 )
 
 type resourceAuthorizer struct{ denySummary bool }
@@ -44,11 +46,15 @@ func (resourceAuthorizer) Scope(_ context.Context, _ auth.Principal, _ auth.Verb
 	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"allowed"}}}}}}, nil
 }
 
-type deniedProviderRefresher struct{ calls atomic.Int32 }
+type deniedProviderRefresher struct {
+	modeldiscovery.Reader
+	calls atomic.Int32
+}
 
-func (r *deniedProviderRefresher) RefreshModelProviderConfigModels(context.Context, string, string) ([]string, error) {
+func (r *deniedProviderRefresher) Get(types.NamespacedName) *modeldiscovery.Snapshot { return nil }
+func (r *deniedProviderRefresher) Refresh(context.Context, types.NamespacedName) (*modeldiscovery.Snapshot, error) {
 	r.calls.Add(1)
-	return []string{"unexpected"}, nil
+	return nil, nil
 }
 
 func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
@@ -59,7 +65,7 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed", Labels: map[string]string{"kagent.dev/prompt-library": "true"}}, Data: map[string]string{"visible": "prompt"}},
 		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "hidden", Labels: map[string]string{"kagent.dev/prompt-library": "true"}}, Data: map[string]string{"private": "prompt"}},
-		&v1alpha3.ModelProviderConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}, Status: v1alpha3.ModelProviderConfigStatus{Conditions: []metav1.Condition{{Type: v1alpha3.ModelProviderConfigConditionTypeReady, Status: metav1.ConditionTrue}}, DiscoveredModels: []string{"cached"}}},
+		&v1alpha3.ModelProviderConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}, Status: v1alpha3.ModelProviderConfigStatus{Conditions: []metav1.Condition{{Type: v1alpha3.ModelProviderConfigConditionTypeReady, Status: metav1.ConditionTrue}}}},
 		&v1alpha3.ModelProviderConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "hidden"}, Status: v1alpha3.ModelProviderConfigStatus{Conditions: []metav1.Condition{{Type: v1alpha3.ModelProviderConfigConditionTypeReady, Status: metav1.ConditionTrue}}}},
 		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}},
 		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "hidden"}},
@@ -68,7 +74,7 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 	refresher := &deniedProviderRefresher{}
 	connection := newConfigurationConnection(t, kube, func(config *Config) {
 		config.PromptTemplateService = promptservice.NewService(kube, authorizer)
-		config.ModelService = modelservice.NewService(kube, authorizer, "team", modelservice.WithProviderModelRefresher(refresher))
+		config.ModelService = modelservice.NewService(kube, authorizer, "team", modelservice.WithProviderDiscovery(refresher))
 		config.SystemService = systemservice.NewService(kube, []string{"team"}, authorizer, emptySystemATEClient{})
 	})
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
@@ -86,13 +92,13 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 	providers, err := models.ListConfiguredProviders(ctx, &apiv1.ListConfiguredProvidersRequest{})
 	require.NoError(t, err)
 	require.Len(t, providers.GetProviders(), 1)
-	require.Equal(t, "allowed", providers.GetProviders()[0].GetName())
-	cached, err := models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "allowed"})
+	require.Equal(t, "allowed", providers.GetProviders()[0].GetRef().GetName())
+	cached, err := models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "allowed"}})
 	require.NoError(t, err)
-	require.Equal(t, []string{"cached"}, cached.GetModels())
-	_, err = models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "hidden"})
+	require.Equal(t, apiv1.DiscoveryState_DISCOVERY_STATE_PENDING, cached.GetState())
+	_, err = models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "hidden"}})
 	assertGRPCCode(t, err, codes.PermissionDenied)
-	_, err = models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "allowed", Refresh: true})
+	_, err = models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "allowed"}, Refresh: true})
 	assertGRPCCode(t, err, codes.PermissionDenied)
 	require.Zero(t, refresher.calls.Load())
 
@@ -110,7 +116,7 @@ func TestProviderModelRefreshDeniedThroughShareRPC(t *testing.T) {
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&v1alpha3.ModelProviderConfig{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "provider"},
-			Status:     v1alpha3.ModelProviderConfigStatus{DiscoveredModels: []string{"cached"}},
+			Status:     v1alpha3.ModelProviderConfigStatus{},
 		},
 	).Build()
 	refresher := &deniedProviderRefresher{}
@@ -118,14 +124,14 @@ func TestProviderModelRefreshDeniedThroughShareRPC(t *testing.T) {
 		config.ShareStore = &testShareStore{
 			sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 		}
-		config.ModelService = modelservice.NewService(kube, &auth.NoopAuthorizer{}, "team", modelservice.WithProviderModelRefresher(refresher))
+		config.ModelService = modelservice.NewService(kube, &auth.NoopAuthorizer{}, "team", modelservice.WithProviderDiscovery(refresher))
 	})
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "visitor", "x-share-token", "share"))
 	models := apiv1.NewModelServiceClient(connection)
-	cached, err := models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider"})
+	cached, err := models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "provider"}})
 	require.NoError(t, err)
-	require.Equal(t, []string{"cached"}, cached.GetModels())
-	_, err = models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider", Refresh: true})
+	require.Equal(t, apiv1.DiscoveryState_DISCOVERY_STATE_PENDING, cached.GetState())
+	_, err = models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "provider"}, Refresh: true})
 	assertGRPCCode(t, err, codes.PermissionDenied)
 	require.Zero(t, refresher.calls.Load())
 }
