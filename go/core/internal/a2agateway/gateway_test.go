@@ -76,7 +76,7 @@ func (s *gatewayTestStore) RegisterSessionPushNotification(_ context.Context, se
 	return s.pushErr
 }
 
-func (s *gatewayTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialID string) error {
+func (s *gatewayTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialID string, _ *database.TurnSender) error {
 	s.reserveCalls++
 	s.initialID = initialID
 	return s.reserveErr

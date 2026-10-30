@@ -40,7 +40,7 @@ func TestSessionExpirationRetriesDeletion(t *testing.T) {
 			worker, err := NewExpirationWorker(store, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Second), 7*24*time.Hour, time.Minute)
 			require.NoError(t, err)
 			require.Error(t, worker.expire(t.Context(), session.Id, time.Now()))
-			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next turn"), database.ErrConflict)
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next turn", nil), database.ErrConflict)
 
 			actors.readErr, writes.finishErr = nil, nil
 			// A replacement worker discovers the durable expiration even with
@@ -86,7 +86,8 @@ func TestWaitingSessionExpirationDeletesRuntime(t *testing.T) {
 			session, err := workflow.Create(t.Context(), session)
 			require.NoError(t, err)
 			request := stageQuiescenceTask(t, store.Client, session, state)
-			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+			_, err = store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version)
+			require.NoError(t, err)
 			work, err := store.ClaimSessionQuiescence(t.Context())
 			require.NoError(t, err)
 			snapshot, err := workflow.Quiesce(t.Context(), session)
@@ -266,7 +267,7 @@ func TestSessionExpirationSerializesRuntimeAttempts(t *testing.T) {
 		t.Fatal("expiration did not claim runtime execution")
 	}
 	require.ErrorIs(t, second.expire(t.Context(), session.Id, time.Now()), database.ErrConflict)
-	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), database.ErrConflict)
+	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next", nil), database.ErrConflict)
 	close(release)
 	// Cleanup waits for the attempt; check through the public store boundary.
 	require.Eventually(t, func() bool {

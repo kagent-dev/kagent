@@ -26,10 +26,20 @@ var ErrDispatchBusy = errors.New("session temporarily unavailable for dispatch")
 // ErrMessageAccepted means an earlier dispatch already persisted this initial input.
 var ErrMessageAccepted = errors.New("message already accepted")
 
+// TurnSender is the authenticated principal that dispatched an execution.
+// Kind is a kagent.turn.sender value; PrincipalID is the principal charged, and
+// CallerSessionID is set only when a runtime dispatched from its own Session.
+type TurnSender struct {
+	Kind            string `json:"kind"`
+	PrincipalID     string `json:"principalId,omitempty"`
+	CallerSessionID string `json:"callerSessionId,omitempty"`
+}
+
 // ReserveSessionDispatch prevents pause/suspend between routing a request
 // and its first persisted task. The attempt expires after two minutes; a late
 // first save must fail before native execution. This is not a native work lease.
-func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, dispatchID uuid.UUID, initialMessageID string) error {
+// Settlement charges the execution the dispatch starts to sender.
+func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, dispatchID uuid.UUID, initialMessageID string, sender *TurnSender) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		session, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
@@ -68,9 +78,9 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 			return err
 		}
 		return execSQL(ctx, tx, `
-			UPDATE session SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + INTERVAL '2 minutes'
+			UPDATE session SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + INTERVAL '2 minutes', turn_sender = $3
 			WHERE id = $1
-		`, session.ID, dispatchID)
+		`, session.ID, dispatchID, sender)
 	})
 }
 

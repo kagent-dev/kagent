@@ -23,7 +23,7 @@ import (
 )
 
 type Store interface {
-	SettleSessionTask(context.Context, string, string, int64) error
+	SettleSessionTask(context.Context, string, string, int64) (*database.SettledTask, error)
 	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
 	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task, string) (int64, error)
 	GetVersionedSessionTask(context.Context, string, string) (*a2a.Task, int64, error)
@@ -37,10 +37,12 @@ type Service struct {
 	store          Store
 	quiescenceWake chan<- struct{}
 	pushWake       chan<- struct{}
+	usage          *UsageRecorder
 }
 
-func NewService(store Store, quiescenceWake, pushWake chan<- struct{}) *Service {
-	return &Service{store: store, quiescenceWake: quiescenceWake, pushWake: pushWake}
+// NewService serves the runtime task store. A nil usage records no turn usage.
+func NewService(store Store, quiescenceWake, pushWake chan<- struct{}, usage *UsageRecorder) *Service {
+	return &Service{store: store, quiescenceWake: quiescenceWake, pushWake: pushWake, usage: usage}
 }
 
 func (s *Service) session(ctx context.Context, sessionID string) (*apiv1.Session, error) {
@@ -159,12 +161,15 @@ func (s *Service) ListTasks(ctx context.Context, input *runtimev1.TaskStoreServi
 }
 
 func (s *Service) SettleTask(ctx context.Context, input *runtimev1.TaskStoreServiceSettleTaskRequest) (*runtimev1.TaskStoreServiceSettleTaskResponse, error) {
-	if _, err := s.session(ctx, input.SessionId); err != nil {
+	session, err := s.session(ctx, input.SessionId)
+	if err != nil {
 		return nil, err
 	}
-	if err := s.store.SettleSessionTask(ctx, input.SessionId, input.TaskId, input.Version); err != nil {
+	settled, err := s.store.SettleSessionTask(ctx, input.SessionId, input.TaskId, input.Version)
+	if err != nil {
 		return nil, storageError(err)
 	}
+	s.usage.record(ctx, session, settled)
 	// Publication is committed before waking local workers. The durable claim
 	// remains discoverable if this process exits before delivering the hint.
 	select {
