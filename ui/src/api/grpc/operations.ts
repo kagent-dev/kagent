@@ -958,7 +958,6 @@ function toHarness(harness: PbHarness): Harness {
     name: harness.ref?.name ?? "",
     runtime: harness.runtime,
     workloadImage: harness.workloadImage,
-    ready: harness.ready,
     resource: unwrap(
       harness.resource,
       "HarnessService/ListHarnesses",

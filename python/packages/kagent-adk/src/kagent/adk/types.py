@@ -65,9 +65,6 @@ from kagent.config.v1.adk_pb2 import (
     ADKModelConfig as ModelConfig,
 )
 from kagent.config.v1.adk_pb2 import (
-    ADKNetworkConfig as NetworkConfig,
-)
-from kagent.config.v1.adk_pb2 import (
     ADKOllama as Ollama,
 )
 from kagent.config.v1.adk_pb2 import (

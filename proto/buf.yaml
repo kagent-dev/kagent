@@ -15,6 +15,13 @@ breaking:
   use:
     - FILE
   ignore_only:
+    # Pre-RC cleanup removes unused Harness status and ADK configuration fields.
+    # Remove once the cleanup is present on the comparison branch.
+    FIELD_NO_DELETE:
+      - kagent/api/v1/harnesses.proto
+      - kagent/config/v1/adk.proto
+    MESSAGE_NO_DELETE:
+      - kagent/config/v1/adk.proto
     # Pre-release cleanup removes obsolete identity reservations.
     # Remove once the cleanup is present on the comparison branch.
     RESERVED_MESSAGE_NO_DELETE:

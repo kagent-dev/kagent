@@ -29,10 +29,12 @@ message ADKAgentConfig {
   repeated ADKRemoteAgentConfig remote_agents = 8;
   optional bool stream = 9;
   ADKMemoryConfig memory = 10;
-  ADKNetworkConfig network = 11;
+  reserved 11;
+  reserved "network";
   ADKAgentPlugins agent_plugins = 12;
   ADKContextConfig context_config = 13;
-  optional bool share_tools = 14;
+  reserved 14;
+  reserved "share_tools";
   string session_db_url = 15;
   string skills_directory = 16;
   repeated ADKAgentConfig sub_agents = 17;
@@ -326,9 +328,6 @@ message ADKMemoryConfig {
     lte: 106751
   }];
   ADKEmbeddingConfig embedding = 2;
-}
-message ADKNetworkConfig {
-  repeated string allowed_domains = 1;
 }
 message ADKContextConfig {
   ADKCompressionConfig compaction = 1;

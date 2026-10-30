@@ -113,11 +113,6 @@
         "api_version": "2025-04-01-preview"
       }
     },
-    "network": {
-      "allowed_domains": [
-        "*.example.com"
-      ]
-    },
     "agent_plugins": {
       "skills": [
         {
@@ -165,7 +160,6 @@
         }
       }
     },
-    "share_tools": false,
     "session_db_url": "sqlite:////data/sessions.db",
     "skills_directory": "/data/skills",
     "sub_agents": [
