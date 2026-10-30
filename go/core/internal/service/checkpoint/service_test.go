@@ -196,7 +196,7 @@ func (t *testTags) GetActor(_ context.Context, atespace, name string) (*ateapipb
 	return &ateapipb.Actor{
 		Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: actorUID},
 		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: uri}}}}},
+			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: uri}}}}},
 	}, nil
 }
 
@@ -221,7 +221,7 @@ func (t *testTags) CreateTag(_ context.Context, atespace, name, actorName string
 		SourceActor: &ateapipb.ObjectRef{Atespace: atespace, Name: actorName},
 		Scope:       ateapipb.TagScope_TAG_SCOPE_ATESPACE,
 		Status: &ateapipb.TagStatus{ActorTemplateUid: "template-uid",
-			Snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://tags/checkpoint"}}}},
+			Snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://tags/checkpoint"}}}},
 	}
 	if t.mutateTag != nil {
 		t.mutateTag(t.created)
@@ -343,7 +343,7 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 	store := &testStore{prepared: checkpoint, snapshot: &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1"}, tagUID: "tag-uid"}
 	tags := &testTags{created: &ateapipb.Tag{
 		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: tagName(checkpoint.GetId()), Uid: "tag-uid"},
-		Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
+		Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
 	}}
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
@@ -411,7 +411,7 @@ func TestDeleteRejectsUnverifiedTag(t *testing.T) {
 			store := &testStore{prepared: checkpoint, snapshot: snapshot, tagUID: tc.retainedUID}
 			tags := &testTags{created: &ateapipb.Tag{
 				Metadata: &ateapipb.ResourceMetadata{Atespace: snapshot.Atespace, Name: tagName(checkpoint.GetId()), Uid: tc.actualUID},
-				Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: snapshot.URI}}}},
+				Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: snapshot.URI}}}},
 			}}
 			service := NewService(store, testAuthorizer{}, tags, nil)
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
@@ -427,7 +427,7 @@ func TestForkCreatesSessionFromRetainedCheckpointAfterSourceDeletion(t *testing.
 	store := &testStore{sourceErr: database.ErrNotFound, checkpointOwner: "alice", prepared: checkpoint, snapshot: &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}}
 	workflow := &testWorkflow{}
 	store.tagUID = "tag-uid"
-	tags := &testTags{created: &ateapipb.Tag{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: tagName(checkpoint.Id), Uid: store.tagUID}, Status: &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: store.snapshot.URI}}}}}, actorErr: errors.New("source Actor was deleted")}
+	tags := &testTags{created: &ateapipb.Tag{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: tagName(checkpoint.Id), Uid: store.tagUID}, Status: &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: store.snapshot.URI}}}}}, actorErr: errors.New("source Actor was deleted")}
 	service := NewService(store, &restrictiveAuthorizer{resource: "Checkpoint", verb: auth.VerbCreate}, tags, workflow)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
@@ -470,7 +470,7 @@ func TestCreateRejectsInvalidTagAndKeepsCleanupRetryable(t *testing.T) {
 	}{
 		{"incomplete copy", func(tag *ateapipb.Tag) { tag.Status.Snapshot = nil }},
 		{"upload pending", func(tag *ateapipb.Tag) {
-			tag.Status.Snapshot.DurableSnapshot.Status = ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING
+			tag.Status.Snapshot.DurableSnapshot.State = ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING
 		}},
 		{"wrong source", func(tag *ateapipb.Tag) { tag.SourceActor.Name = "other" }},
 		{"wrong template", func(tag *ateapipb.Tag) { tag.Status.ActorTemplateUid = "other" }},
@@ -508,7 +508,7 @@ func TestForkRejectsReplacedTag(t *testing.T) {
 			store := &testStore{prepared: checkpoint, snapshot: snapshot, tagUID: "tag-uid"}
 			tags := &testTags{created: &ateapipb.Tag{
 				Metadata: &ateapipb.ResourceMetadata{Atespace: snapshot.Atespace, Name: tagName(checkpoint.Id), Uid: tc.uid},
-				Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: tc.uri}}}},
+				Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: tc.uri}}}},
 			}}
 			service := NewService(store, testAuthorizer{}, tags, &testWorkflow{})
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
@@ -547,7 +547,7 @@ func TestDeletePreservesTagReplacedAfterLookup(t *testing.T) {
 	store := &testStore{prepared: checkpoint, snapshot: &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1"}, tagUID: "tag-uid"}
 	tags := &testTags{created: &ateapipb.Tag{
 		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: tagName(checkpoint.GetId()), Uid: "tag-uid"},
-		Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: store.snapshot.URI}}}},
+		Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.Snapshot{DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: store.snapshot.URI}}}},
 	}}
 	tags.beforeDelete = func() { tags.created.Metadata.Uid = "replacement-uid" }
 	service := NewService(store, testAuthorizer{}, tags, nil)

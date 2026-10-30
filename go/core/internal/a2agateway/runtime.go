@@ -2,10 +2,8 @@ package a2agateway
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
-	"net/url"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -14,10 +12,10 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -34,27 +32,15 @@ type RuntimeDialer struct {
 
 // NewRuntimeDialer configures private A2A gRPC calls through Substrate's
 // shared Atenet router; ate-target-actor selects the Actor.
-func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*RuntimeDialer, error) {
-	router, err := url.Parse(routerURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse Atenet router URL %q: %w", routerURL, err)
-	}
-	if router.Host == "" {
-		return nil, fmt.Errorf("atenet router URL %q must include a host", routerURL)
-	}
+func NewRuntimeDialer(cfg *configv1.SubstrateConfig, authenticator auth.AuthProvider) (*RuntimeDialer, error) {
 	if authenticator == nil {
 		return nil, fmt.Errorf("atenet runtime authentication is not configured")
 	}
-	var transport credentials.TransportCredentials
-	switch router.Scheme {
-	case "http":
-		transport = insecure.NewCredentials()
-	case "https":
-		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: router.Hostname()})
-	default:
-		return nil, fmt.Errorf("atenet router URL %q must use http or https", routerURL)
+	target, transport, err := substrate.RouterTransport(cfg)
+	if err != nil {
+		return nil, err
 	}
-	return &RuntimeDialer{target: router.Host, transport: transport, authenticator: authenticator}, nil
+	return &RuntimeDialer{target: target, transport: transport, authenticator: authenticator}, nil
 }
 
 func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1.Session) (*a2aclient.Client, error) {

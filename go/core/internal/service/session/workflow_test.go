@@ -203,7 +203,7 @@ func (a *lifecycleTestActors) CreateActorFromTag(_ context.Context, atespace, na
 		SourceTag:     &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
 		Status: &ateapipb.ActorStatus{
 			State:     ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
+			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
 		},
 	}
 	a.actors[actorKey(atespace, name)] = actor
@@ -223,7 +223,7 @@ func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name str
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}}
+	actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}}
 	return proto.CloneOf(actor), nil
 }
 
@@ -277,7 +277,7 @@ func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
 		t.Run(fidelity.String(), func(t *testing.T) {
 			actors.snapshots = []*ateapipb.Snapshot{{Generation: 2, Fidelity: fidelity,
 				DurableSnapshot: &ateapipb.SnapshotStorage{
-					Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED,
+					State:  ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED,
 					Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"},
 				}}}
 			boundary, err := workflow.Quiesce(t.Context(), created)
@@ -292,7 +292,7 @@ func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
 
 			older := proto.CloneOf(actors.snapshots[0])
 			older.Generation = 1
-			actors.snapshots[0].DurableSnapshot.Status = ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING
+			actors.snapshots[0].DurableSnapshot.State = ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING
 			actors.snapshots = append(actors.snapshots, older)
 			_, err = workflow.Quiesce(t.Context(), created)
 			require.ErrorContains(t, err, "returned no snapshot", "a previous durable snapshot cannot cover the current boundary")

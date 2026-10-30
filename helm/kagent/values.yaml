@@ -194,7 +194,7 @@ config:
     maxTtl: 86400s
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
-    routerUrl: http://atenet-router.ate-system.svc:80
+    routerUrl: https://atenet-router.ate-system.svc:443
     # Must match Substrate's ateApi.actorJWTIssuer; discovery uses substrate.caFile.
     actorJwtIssuer: https://idp.ate-system.svc
   logging:
