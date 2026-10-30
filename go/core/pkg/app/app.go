@@ -384,6 +384,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
+	continuations := sessionsvc.NewContinuations(store, gateway, sessions)
+	if err := manager.Add(continuations); err != nil {
+		return fmt.Errorf("register task continuations: %w", err)
+	}
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store, cfg.GetScheduledRuns().GetPollInterval().AsDuration())); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
@@ -422,6 +426,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err != nil {
 		return err
 	}
+	mcpHandler.WithContinuations(continuations)
 	policies, err := mergePolicies(grpcserver.DefaultMethodPolicies(), opts.MethodPolicies)
 	if err != nil {
 		return err

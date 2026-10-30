@@ -67,6 +67,9 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		`, session.HistoryID, taskID, row.ExpectedVersion, version); err != nil {
 			return err
 		}
+		if err := bindTaskContinuations(ctx, tx, sessionID, session.HistoryID, taskID, task.Status.State); err != nil {
+			return err
+		}
 		return publishPushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
 	})
 }

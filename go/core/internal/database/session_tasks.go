@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -45,6 +46,19 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 			}
 			if accepted {
 				return ErrMessageAccepted
+			}
+		}
+		if id, ok := strings.CutPrefix(initialMessageID, "kagent-continuation-"); ok {
+			parsed, err := uuid.Parse(id)
+			if err != nil {
+				return ErrFailedPrecondition
+			}
+			abandoned, err := queryOne(ctx, tx, `SELECT abandoned FROM task_continuation WHERE id = $1 AND parent_session_id = $2`, pgx.RowTo[bool], parsed, session.ID)
+			if err != nil {
+				return notFoundOr(err)
+			}
+			if abandoned {
+				return ErrFailedPrecondition
 			}
 		}
 		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
