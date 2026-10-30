@@ -385,13 +385,15 @@ func TestDeleteTagPassesUIDPrecondition(t *testing.T) {
 
 type suspendActorFake struct {
 	ateapipb.ControlClient
-	actor   *ateapipb.Actor
-	request *ateapipb.SuspendActorRequest
-	get     func(context.Context) (*ateapipb.Actor, error)
+	actor    *ateapipb.Actor
+	request  *ateapipb.SuspendActorRequest
+	deadline time.Time
+	get      func(context.Context) (*ateapipb.Actor, error)
 }
 
-func (f *suspendActorFake) SuspendActor(_ context.Context, request *ateapipb.SuspendActorRequest, _ ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
+func (f *suspendActorFake) SuspendActor(ctx context.Context, request *ateapipb.SuspendActorRequest, _ ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
 	f.request = request
+	f.deadline, _ = ctx.Deadline()
 	return &ateapipb.SuspendActorResponse{Actor: f.actor}, nil
 }
 
@@ -449,4 +451,37 @@ func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
 		require.NoError(t, err)
 		require.Same(t, durable, got)
 	})
+	for _, tc := range []struct {
+		name          string
+		cfg           Config
+		parentTimeout time.Duration
+		want          time.Duration
+	}{
+		{name: "snapshot budget", cfg: Config{CallTimeout: 30 * time.Second, SuspendTimeout: 2 * time.Minute}, want: 2 * time.Minute},
+		{name: "custom snapshot budget", cfg: Config{CallTimeout: 30 * time.Second, SuspendTimeout: 5 * time.Minute}, want: 5 * time.Minute},
+		{name: "fallback to call timeout", cfg: Config{CallTimeout: 30 * time.Second}, want: 30 * time.Second},
+		{name: "shorter caller deadline", cfg: Config{CallTimeout: 30 * time.Second, SuspendTimeout: 2 * time.Minute}, parentTimeout: 5 * time.Second, want: 5 * time.Second},
+		{name: "no configured timeout", cfg: Config{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			durable := proto.CloneOf(actor)
+			durable.Status.Snapshots = []*ateapipb.Snapshot{completed}
+			fake := &suspendActorFake{actor: durable}
+			client := &Client{ControlClient: fake, cfg: tc.cfg}
+			ctx := t.Context()
+			started := time.Now()
+			if tc.parentTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tc.parentTimeout)
+				defer cancel()
+			}
+			_, err := client.SuspendActor(ctx, "team", "actor")
+			require.NoError(t, err)
+			if tc.want == 0 {
+				require.True(t, fake.deadline.IsZero())
+			} else {
+				require.WithinDuration(t, started.Add(tc.want), fake.deadline, time.Second)
+			}
+		})
+	}
 }
