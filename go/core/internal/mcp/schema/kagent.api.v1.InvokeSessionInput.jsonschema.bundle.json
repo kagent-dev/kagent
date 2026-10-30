@@ -1,0 +1,32 @@
+{
+  "$defs": {
+    "kagent.api.v1.InvokeSessionInput.jsonschema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "InvokeSessionInput is shared by synchronous and task-backed invoke_session.",
+      "properties": {
+        "message": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "message_id": {
+          "default": "",
+          "type": "string"
+        },
+        "session_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "message"
+      ],
+      "title": "Invoke Session Input",
+      "type": "object"
+    }
+  },
+  "$id": "kagent.api.v1.InvokeSessionInput.jsonschema.bundle.json",
+  "$ref": "#/$defs/kagent.api.v1.InvokeSessionInput.jsonschema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

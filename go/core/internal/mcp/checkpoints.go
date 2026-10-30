@@ -63,7 +63,7 @@ type ForkSessionInput struct {
 }
 
 type ForkSessionOutput struct {
-	Session SessionSummary `json:"session"`
+	Session *SessionSummary `json:"session"`
 }
 
 func (h *Handler) registerCheckpointTools(server *mcp.Server) {
@@ -132,9 +132,9 @@ func checkpointSummary(value *apiv1.Checkpoint) CheckpointSummary {
 	return result
 }
 
-func sessionSummary(session *apiv1.Session) SessionSummary {
-	return SessionSummary{
-		ID:    session.GetId(),
+func sessionSummary(session *apiv1.Session) *SessionSummary {
+	return &SessionSummary{
+		Id:    session.GetId(),
 		Agent: session.GetAgent().GetName(),
 		State: session.GetState().String(),
 	}

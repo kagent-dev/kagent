@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"slices"
 
+	"buf.build/go/protovalidate"
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 const (
@@ -25,73 +30,39 @@ func HITLExtension() a2atype.AgentExtension {
 	}
 }
 
-// HITLTool describes one tool invocation awaiting a human decision.
-type HITLTool struct {
-	ID     string         `json:"id"`
-	CallID string         `json:"call_id"`
-	Name   string         `json:"name"`
-	Args   map[string]any `json:"args"`
+type HITLTool = apiv1.HitlTool
+
+// NewHITLTool encodes JSON-compatible SDK arguments in the public payload.
+func NewHITLTool(id, callID, name string, args map[string]any) (*HITLTool, error) {
+	if args == nil {
+		args = map[string]any{}
+	}
+	value, err := toolActivityValue(args)
+	if err != nil {
+		return nil, fmt.Errorf("encode tool approval arguments: %w", err)
+	}
+	return &HITLTool{Id: id, CallId: callID, Name: name, Args: value.GetStructValue()}, nil
 }
 
-// NestedHITLRequest identifies tool approvals propagated from a child agent.
-type NestedHITLRequest struct {
-	SubagentName string     `json:"subagent_name,omitempty"`
-	TaskID       string     `json:"task_id,omitempty"`
-	ContextID    string     `json:"context_id,omitempty"`
-	Tools        []HITLTool `json:"tools"`
-}
+type NestedHITLRequest = apiv1.NestedHitlRequest
 
-// ToolApprovalRequest is the public request payload carried by input-required.
-type ToolApprovalRequest struct {
-	Type   string             `json:"type"`
-	Hint   string             `json:"hint,omitempty"`
-	Tools  []HITLTool         `json:"tools"`
-	Nested *NestedHITLRequest `json:"nested,omitempty"`
-}
+type ToolApprovalRequest = apiv1.ToolApprovalRequest
 
-// ToolApproval is one human decision for a requested tool invocation.
-type ToolApproval struct {
-	ID              string `json:"id"`
-	Approved        bool   `json:"approved"`
-	RejectionReason string `json:"rejection_reason,omitempty"`
-}
+type ToolApproval = apiv1.ToolApproval
 
-// ToolApprovalResponse is the public response payload for tool approvals.
-type ToolApprovalResponse struct {
-	Type      string         `json:"type"`
-	Approvals []ToolApproval `json:"approvals"`
-}
+type ToolApprovalResponse = apiv1.ToolApprovalResponse
 
-// HITLQuestion is one question supported by the public HITL extension.
-type HITLQuestion struct {
-	Question string   `json:"question"`
-	Choices  []string `json:"choices"`
-	Multiple bool     `json:"multiple"`
-}
+type HITLQuestion = apiv1.HitlQuestion
 
-// AskUserRequest is the public request payload for one or more questions.
-type AskUserRequest struct {
-	Type      string             `json:"type"`
-	ID        string             `json:"id"`
-	Questions []HITLQuestion     `json:"questions"`
-	Nested    *NestedHITLRequest `json:"nested,omitempty"`
-}
+type AskUserRequest = apiv1.AskUserRequest
 
-// AskUserAnswer contains the selections for one question, in request order.
-type AskUserAnswer struct {
-	Answer []string `json:"answer"`
-}
+type AskUserAnswer = apiv1.AskUserAnswer
 
-// AskUserResponse answers the questions from one correlated request.
-type AskUserResponse struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id"`
-	Answers []AskUserAnswer `json:"answers,omitempty"`
-}
+type AskUserResponse = apiv1.AskUserResponse
 
 // AttachHITL adds a typed HITL payload and extension declaration to a message.
-func AttachHITL(message *a2atype.Message, payload any) error {
-	encoded, err := json.Marshal(payload)
+func AttachHITL(message *a2atype.Message, payload proto.Message) error {
+	encoded, err := (protojson.MarshalOptions{UseProtoNames: true, EmitDefaultValues: true}).Marshal(payload)
 	if err != nil {
 		return err
 	}
@@ -119,21 +90,9 @@ func ParseToolApprovalResponse(message *a2atype.Message) (*ToolApprovalResponse,
 	if !ok {
 		return nil, fmt.Errorf("tool approval response payload is required")
 	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return nil, err
-	}
 	var response ToolApprovalResponse
-	if err := json.Unmarshal(encoded, &response); err != nil {
+	if err := decodeHITLPayload(raw, &response); err != nil {
 		return nil, fmt.Errorf("decode tool approval response: %w", err)
-	}
-	if response.Type != HITLTypeToolApprovalResponse || len(response.Approvals) == 0 {
-		return nil, fmt.Errorf("at least one tool approval decision is required")
-	}
-	for _, approval := range response.Approvals {
-		if approval.ID == "" {
-			return nil, fmt.Errorf("tool approval decision ID is required")
-		}
 	}
 	return &response, nil
 }
@@ -145,15 +104,9 @@ func ParseAskUserResponse(message *a2atype.Message) (*AskUserResponse, error) {
 	if !ok {
 		return nil, fmt.Errorf("ask-user response must declare %s", HITLExtensionURI)
 	}
-	if raw["type"] != HITLTypeAskUserResponse {
-		return nil, fmt.Errorf("ask-user response payload is required")
-	}
 	var response AskUserResponse
 	if err := decodeHITLPayload(raw, &response); err != nil {
 		return nil, fmt.Errorf("decode ask-user response: %w", err)
-	}
-	if response.ID == "" {
-		return nil, fmt.Errorf("ask-user response ID is required")
 	}
 	return &response, nil
 }
@@ -164,16 +117,9 @@ func ParseToolApprovalRequest(message *a2atype.Message) (*ToolApprovalRequest, e
 	if !ok || raw["type"] != HITLTypeToolApprovalRequest {
 		return nil, nil
 	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return nil, err
-	}
 	var request ToolApprovalRequest
-	if err := json.Unmarshal(encoded, &request); err != nil {
+	if err := decodeHITLPayload(raw, &request); err != nil {
 		return nil, fmt.Errorf("decode tool approval request: %w", err)
-	}
-	if len(request.Tools) == 0 {
-		return nil, fmt.Errorf("tool approval request has no tools")
 	}
 	return &request, nil
 }
@@ -187,9 +133,6 @@ func ParseAskUserRequest(message *a2atype.Message) (*AskUserRequest, error) {
 	var request AskUserRequest
 	if err := decodeHITLPayload(raw, &request); err != nil {
 		return nil, fmt.Errorf("decode ask-user request: %w", err)
-	}
-	if request.ID == "" {
-		return nil, fmt.Errorf("ask-user request ID is required")
 	}
 	return &request, nil
 }
@@ -208,19 +151,19 @@ func ValidateToolApprovalResponse(request *ToolApprovalRequest, response *ToolAp
 	}
 	want := make(map[string]struct{}, len(tools))
 	for _, tool := range tools {
-		if tool.ID == "" {
-			return fmt.Errorf("tool approval request contains an empty ID")
+		if err := protovalidate.Validate(tool); err != nil {
+			return fmt.Errorf("invalid requested tool: %w", err)
 		}
-		want[tool.ID] = struct{}{}
+		want[tool.GetId()] = struct{}{}
 	}
 	for _, approval := range response.Approvals {
-		if _, ok := want[approval.ID]; !ok {
-			return fmt.Errorf("tool approval response contains unknown or duplicate ID %q", approval.ID)
+		if _, ok := want[approval.GetId()]; !ok {
+			return fmt.Errorf("tool approval response contains unknown or duplicate ID %q", approval.GetId())
 		}
-		if approval.Approved && approval.RejectionReason != "" {
-			return fmt.Errorf("approved tool %q cannot have a rejection reason", approval.ID)
+		if err := protovalidate.Validate(approval); err != nil {
+			return fmt.Errorf("invalid tool approval: %w", err)
 		}
-		delete(want, approval.ID)
+		delete(want, approval.GetId())
 	}
 	if len(want) != 0 {
 		return fmt.Errorf("tool approval response omits a requested tool")
@@ -230,29 +173,32 @@ func ValidateToolApprovalResponse(request *ToolApprovalRequest, response *ToolAp
 
 // ValidateAskUserResponse verifies correlation and positional completeness.
 func ValidateAskUserResponse(request *AskUserRequest, response *AskUserResponse) error {
-	if request == nil || response == nil || request.ID != response.ID {
+	if request == nil || response == nil || request.Id != response.Id {
 		return fmt.Errorf("ask-user response has invalid correlation")
-	}
-	if len(response.Answers) == 0 {
-		return fmt.Errorf("ask-user response contains no answers")
 	}
 	if len(response.Answers) != len(request.Questions) {
 		return fmt.Errorf("ask-user response must answer every question")
 	}
 	for i, answer := range response.Answers {
-		if len(answer.Answer) == 0 || !request.Questions[i].Multiple && len(answer.Answer) != 1 {
+		if err := protovalidate.Validate(answer); err != nil {
+			return fmt.Errorf("invalid answer for question %d: %w", i, err)
+		}
+		if !request.Questions[i].GetMultiple() && len(answer.GetAnswer()) != 1 {
 			return fmt.Errorf("ask-user response has invalid selection for question %d", i)
 		}
 	}
 	return nil
 }
 
-func decodeHITLPayload(raw map[string]any, target any) error {
+func decodeHITLPayload(raw map[string]any, target proto.Message) error {
 	encoded, err := json.Marshal(raw)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(encoded, target)
+	if err := protojson.Unmarshal(encoded, target); err != nil {
+		return err
+	}
+	return protovalidate.Validate(target)
 }
 
 func hitlPayload(message *a2atype.Message) (map[string]any, bool) {

@@ -7,7 +7,6 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.context import ServerCallContext
 from a2a.types import Message, Part, Role, SendMessageRequest, Task, TaskState, TaskStatus
 from google.adk.a2a.converters.part_converter import (
-    convert_a2a_part_to_genai_part,
     convert_genai_part_to_a2a_part,
 )
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
@@ -35,6 +34,7 @@ from kagent.adk._hitl import (
     build_resume_hitl_message,
     remote_hitl_hint,
 )
+from kagent.adk.converters.part_converter import convert_a2a_part_to_genai_part
 
 
 class MockState(dict):

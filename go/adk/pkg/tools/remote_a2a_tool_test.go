@@ -8,6 +8,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -226,8 +227,8 @@ func TestHandleInputRequiredStoresPublicRemoteHitlState(t *testing.T) {
 				a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")),
 				&apia2a.ToolApprovalRequest{
 					Type: a2a.HITLTypeToolApprovalRequest,
-					Tools: []apia2a.HITLTool{{
-						ID: "child-confirm", CallID: "child-call", Name: "delete_pod", Args: map[string]any{},
+					Tools: []*apia2a.HITLTool{{
+						Id: "child-confirm", CallId: "child-call", Name: "delete_pod", Args: &structpb.Struct{},
 					}},
 				},
 			),

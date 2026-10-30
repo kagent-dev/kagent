@@ -30,6 +30,17 @@ operation.
 
 ## Request forms
 
+The canonical payload definitions live in
+[`interactions.proto`](../../proto/kagent/api/v1/interactions.proto), with
+generated Go, Python, and TypeScript bindings in `kagent.api.v1`. Protobuf JSON
+uses the extension's existing snake_case names, including `call_id` and
+`rejection_reason`. An explicit `approved: false` represents rejection.
+
+The collaboration MCP tool contracts live in
+[`collaboration.proto`](../../proto/kagent/api/v1/collaboration.proto). Their
+input and output JSON Schemas are generated from the same definitions. Invocation
+results use the standard A2A `TaskState` enum and preserve its JSON string form.
+
 Version 1 supports two request kinds:
 
 - **tool approval** identifies one or more pending tool calls. Each decision

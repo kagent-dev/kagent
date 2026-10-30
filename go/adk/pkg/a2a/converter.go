@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // isEmptyDataPart returns true if the part is a DataPart with nil or empty Data.
@@ -68,6 +70,18 @@ func genAIPartConverter(_ context.Context, event *adksession.Event, part *genai.
 	if isEmptyDataPart(converted) {
 		return nil, nil
 	}
+	if response := part.FunctionResponse; response != nil {
+		result, err := adkToolResponse(response.Response)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := kagenta2a.NewToolResultPart(response.ID, response.Name, "", result)
+		if err != nil {
+			return nil, err
+		}
+		canonical.Metadata = converted.Metadata
+		return canonical, nil
+	}
 	return converted, nil
 }
 
@@ -91,6 +105,32 @@ func convertDataPartToGenAI(data map[string]any, metadata map[string]any, typeKe
 	case A2ADataPartMetadataTypeFunctionResponse:
 		name, _ := data[PartKeyName].(string)
 		response, _ := data[PartKeyResponse].(map[string]any)
+		if typeKey == kagenta2a.PartTypeMetadataKey {
+			part := a2atype.NewDataPart(data)
+			part.Metadata = metadata
+			activity, ok := kagenta2a.ParseToolActivity(part)
+			if !ok || activity.Response == nil {
+				return nil, fmt.Errorf("invalid canonical tool response")
+			}
+			switch result := activity.Response.Outcome.(type) {
+			case *apiv1.ToolResponse_Output:
+				value := result.Output.AsInterface()
+				response, ok = value.(map[string]any)
+				if !ok {
+					response = map[string]any{"output": value}
+				}
+			case *apiv1.ToolResponse_Error:
+				response = map[string]any{"error": result.Error.AsInterface()}
+			case *apiv1.ToolResponse_Pending:
+				value := result.Pending.AsInterface()
+				response, ok = value.(map[string]any)
+				if !ok {
+					response = map[string]any{"status": "pending", "value": value}
+				}
+			default:
+				return nil, fmt.Errorf("canonical tool response requires an outcome")
+			}
+		}
 		if name != "" {
 			genaiPart := genai.NewPartFromFunctionResponse(name, response)
 			if id, ok := data[PartKeyID].(string); ok && id != "" {
