@@ -354,14 +354,46 @@ func TestHTTPGatewayRejectsInvalidAccess(t *testing.T) {
 		authzErr   error
 		want       int
 	}{
-		{name: "card needs authentication", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, want: 401},
-		{name: "RPC needs authentication", method: "POST", path: gatewayTestAgent, want: 401},
-		{name: "card needs authorization", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, authzErr: errors.New("denied"), want: 403},
-		{name: "missing Agent", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: database.ErrNotFound, want: 404},
-		{name: "internal errors are hidden", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: errors.New("private connection details"), want: 500},
-		{name: "invalid session ID", method: "GET", path: "invalid!/assistant" + a2asrv.WellKnownAgentCardPath, authorized: true, want: 400},
-		{name: "unknown route", method: "GET", path: gatewayTestAgent + "/unknown", authorized: true, want: 404},
-		{name: "card only supports reads", method: "POST", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, want: 405},
+		{
+			name:   "Given a protected agent card, when an unauthenticated caller requests it, assert that the response is unauthorized",
+			method: http.MethodGet, path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath,
+			want: http.StatusUnauthorized,
+		},
+		{
+			name:   "Given an agent RPC, when an unauthenticated caller posts to it, assert that the response is unauthorized",
+			method: http.MethodPost, path: gatewayTestAgent,
+			want: http.StatusUnauthorized,
+		},
+		{
+			name:   "Given denied agent access, when an authenticated caller requests the card, assert that the response is forbidden",
+			method: http.MethodGet, path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath,
+			authorized: true, authzErr: errors.New("denied"), want: http.StatusForbidden,
+		},
+		{
+			name:   "Given a missing Agent, when an authenticated caller requests its card, assert that the response is not found",
+			method: http.MethodGet, path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath,
+			authorized: true, storeErr: database.ErrNotFound, want: http.StatusNotFound,
+		},
+		{
+			name:   "Given a failed Agent lookup, when an authenticated caller requests a card, assert that the response hides private details",
+			method: http.MethodGet, path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath,
+			authorized: true, storeErr: errors.New("private connection details"), want: http.StatusInternalServerError,
+		},
+		{
+			name:   "Given an invalid Agent path, when an authenticated caller requests the card, assert that the response is bad request",
+			method: http.MethodGet, path: "invalid!/assistant" + a2asrv.WellKnownAgentCardPath,
+			authorized: true, want: http.StatusBadRequest,
+		},
+		{
+			name:   "Given an unknown route, when an authenticated caller requests it, assert that the response is not found",
+			method: http.MethodGet, path: gatewayTestAgent + "/unknown",
+			authorized: true, want: http.StatusNotFound,
+		},
+		{
+			name:   "Given a protected agent card, when an authenticated caller posts to it, assert that the method is not allowed",
+			method: http.MethodPost, path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath,
+			authorized: true, want: http.StatusMethodNotAllowed,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &gatewayTestStore{session: gatewayTestSession(), err: test.storeErr}
