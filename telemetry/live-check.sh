@@ -16,6 +16,8 @@ ADMIN_PORT="${LIVE_CHECK_ADMIN_PORT:-4320}"
 REPORT_DIR=telemetry/conformance/report
 
 start() {
+  # The registry manifest reads its dependencies from the pinned checkouts.
+  telemetry/deps.sh
   rm -rf "${REPORT_DIR}"
   mkdir -p "${REPORT_DIR}"
   WEAVER_CONTAINER_ARGS="${WEAVER_CONTAINER_ARGS:-} -p 127.0.0.1:${GRPC_PORT}:${GRPC_PORT} -p 127.0.0.1:${ADMIN_PORT}:${ADMIN_PORT}" \
