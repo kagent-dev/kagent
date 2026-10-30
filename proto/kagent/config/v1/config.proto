@@ -383,6 +383,9 @@ message RuntimeDefaultsConfig {
   // Per-agent runtime limits, in Kubernetes quantity notation.
   optional string cpu = 8 [(buf.validate.field).string.min_len = 1];
   optional string memory = 9 [(buf.validate.field).string.min_len = 1];
+  // Compiled into a Go ADK runtime only when set, so a runtime image that
+  // predates the field still loads its configuration while this stays unset.
+  TaskStoreConfig task_store = 10;
 }
 
 // BuiltinToolsConfig configures built-in tools independently of skills.
@@ -407,5 +410,26 @@ message TokenPropagationConfig {
   repeated string audiences = 4 [(buf.validate.field).repeated.items.string = {
     min_len: 1
     pattern: "^\\S(?:.*\\S)?$"
+  }];
+}
+
+// TaskStoreConfig bounds how long a runtime retries the controller's TaskStore
+// while the controller is unreachable. Absent fields select the runtime defaults.
+message TaskStoreConfig {
+  option (buf.validate.message).cel = {
+    id: "task_store.attempt_within_budget"
+    message: "attempt_timeout must not exceed operation_budget"
+    expression: "!has(this.attempt_timeout) || !has(this.operation_budget) || this.attempt_timeout <= this.operation_budget"
+  };
+  // Every attempt and wait of one call. Absent selects 90 seconds.
+  google.protobuf.Duration operation_budget = 1 [(buf.validate.field).duration = {
+    gte: {nanos: 1000000}
+    lte: {seconds: 600}
+  }];
+  // One attempt, within what remains of the budget. Absent selects 30 seconds,
+  // the runtime's limit on any one controller call.
+  google.protobuf.Duration attempt_timeout = 2 [(buf.validate.field).duration = {
+    gte: {nanos: 1000000}
+    lte: {seconds: 30}
   }];
 }

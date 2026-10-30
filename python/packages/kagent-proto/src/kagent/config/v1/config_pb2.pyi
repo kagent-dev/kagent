@@ -70,3 +70,11 @@ class TokenPropagationConfig(_message.Message):
     resources: _containers.RepeatedScalarFieldContainer[str]
     audiences: _containers.RepeatedScalarFieldContainer[str]
     def __init__(self, enabled: _Optional[bool] = ..., sts_well_known_uri: _Optional[str] = ..., resources: _Optional[_Iterable[str]] = ..., audiences: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class TaskStoreConfig(_message.Message):
+    __slots__ = ("operation_budget", "attempt_timeout")
+    OPERATION_BUDGET_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_TIMEOUT_FIELD_NUMBER: _ClassVar[int]
+    operation_budget: _duration_pb2.Duration
+    attempt_timeout: _duration_pb2.Duration
+    def __init__(self, operation_budget: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., attempt_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...

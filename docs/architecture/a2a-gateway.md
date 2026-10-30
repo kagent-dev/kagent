@@ -155,6 +155,38 @@ state before cleanup, so `SettleTask` remains until those ordering guarantees ho
 SDK upgrades must run the real gRPC/PostgreSQL fixtures covering failed saves,
 cancellation, continuation, disconnects, and slow subscribers.
 
+### TaskStore retries through a controller outage
+
+A controller restart leaves the TaskStore unreachable for tens of seconds, so the
+Go adapter retries each call within a time budget, not a fixed attempt count:
+
+- `operation_budget`, 90 seconds by default, covers every attempt and wait of one
+  call and never resets. An earlier caller deadline still applies.
+- `attempt_timeout`, 30 seconds by default, caps each attempt within what remains
+  of the budget. The default matches the controller client's call timeout, so a
+  healthy call keeps the time it had before the budget. A lower value notices a
+  hung connection sooner, but fails a healthy call that takes longer, and a slow
+  controller then receives the same request again.
+- Only `Unavailable` and `DeadlineExceeded` retry. Every other status reaches the
+  SDK at once.
+- Waits start at 200 ms and double to 2 s, each randomized between half and all
+  of the delay.
+- Every attempt sends the identical request, so the mutation receipt turns a
+  replay after a lost response into the committed version.
+- Settlement retries on its own budget after the caller disconnects. Each
+  telemetry flush around it has its own 3-second cap.
+
+Both come from `runtimeDefaults.taskStore` (Helm: `config.runtimeDefaults.taskStore`),
+which the controller compiles into the Go ADK runtime's `runtime.task_store` only
+when one is set. A BYO Go runtime honors them when its `main` passes
+`runtime.GetTaskStore()` as `app.AppConfig.TaskStore`. The Claude and Codex
+runtimes use the defaults, and the Python adapter keeps its fixed four attempts.
+
+When the budget runs out, the runtime logs the operation, session, task,
+attempts, elapsed time and final status code, and the task stays `WORKING` until
+it is canceled. The retries reuse the runtime's gRPC channel. If that connection
+drops, gRPC reconnects on its own backoff, which can outlast the budget.
+
 ## Reconnect and client behavior
 
 Get/List serve committed state without waking the runtime. Subscribe returns

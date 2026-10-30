@@ -218,7 +218,7 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 			for field, value := range map[string]string{"name": "session-" + uuid.NewString(), "atespace": "team-a", "uid": "actor-uid"} {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, field), []byte(value), 0o600))
 			}
-			store := New(client, filepath.Join(dir, "name"))
+			store := New(client, filepath.Join(dir, "name"), nil)
 			flushes := 0
 			wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(nil), "", func(ctx context.Context) error {
 				flushes++
