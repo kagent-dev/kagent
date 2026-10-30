@@ -12,7 +12,6 @@ import (
 func TestCompileActorJWTUnsupportedProviders(t *testing.T) {
 	for _, spec := range []v1alpha3.ModelConfigSpec{
 		{Provider: v1alpha3.ModelProviderBedrock, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
-		{Provider: v1alpha3.ModelProviderGemini},
 		{Provider: v1alpha3.ModelProviderOllama, Ollama: &v1alpha3.OllamaConfig{}},
 	} {
 		t.Run(string(spec.Provider), func(t *testing.T) {
@@ -23,6 +22,21 @@ func TestCompileActorJWTUnsupportedProviders(t *testing.T) {
 			require.Empty(t, environment)
 			require.Empty(t, bindings)
 			require.Empty(t, passthrough)
+		})
+	}
+}
+
+func TestCompileGeminiActorJWTHeaderConflict(t *testing.T) {
+	for _, header := range []string{"Authorization", "authorization", "AUTHORIZATION"} {
+		t.Run(header, func(t *testing.T) {
+			input := credentialInput(v1alpha3.ModelConfigSpec{
+				Provider:       v1alpha3.ModelProviderGemini,
+				Gemini:         &v1alpha3.GeminiConfig{BaseURL: new("https://models.example.com/v1")},
+				ActorJWT:       &v1alpha3.ActorJWT{Audiences: []string{"models"}},
+				DefaultHeaders: map[string]string{header: "conflict"},
+			})
+			_, _, _, err := CompileCredentials(input, nil, nil)
+			require.ErrorContains(t, err, "defaultHeaders cannot override the actorJwt credential header")
 		})
 	}
 }

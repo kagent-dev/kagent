@@ -64,7 +64,6 @@ func testActorJWTValidation(t *testing.T, cl ctrlclient.Client, namespace string
 	}
 	token := &ActorJWT{Audiences: []string{"service"}}
 	for _, spec := range []ModelConfigSpec{
-		{Provider: ModelProviderGemini},
 		{Provider: ModelProviderOllama, Ollama: &OllamaConfig{}},
 		{Provider: ModelProviderOllama, Ollama: &OllamaConfig{Host: "https://gateway.example.com"}},
 	} {
