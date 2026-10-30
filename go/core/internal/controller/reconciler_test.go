@@ -187,7 +187,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 
 			request := &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 			}
 			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
@@ -563,7 +563,7 @@ func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
 				_, err = store.RecordRuntimeRevision(ctx, database.RuntimeRevision{Revision: "r1", Namespace: agent.Namespace, AgentName: agent.Name, AgentUID: string(agent.UID), SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: agent.Name}, ActorTemplateAtespace: agent.Namespace, ActorTemplateName: "r1", ActorTemplateUID: "actor-uid"}, database.RecordRevisionOptions{Ready: true})
 				require.NoError(t, err)
 				create := func(key string) (*apiv1.Session, bool, error) {
-					return store.CreateSession(ctx, &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}, key)
+					return store.CreateSession(ctx, &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}, key)
 				}
 				pinned, _, err := create("pinned")
 				require.NoError(t, err)

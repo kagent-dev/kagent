@@ -15,14 +15,19 @@ breaking:
   use:
     - FILE
   ignore_only:
-    # Pre-release memory cleanup removes obsolete identity reservations.
+    # Pre-release cleanup removes obsolete identity reservations.
     # Remove once the cleanup is present on the comparison branch.
     RESERVED_MESSAGE_NO_DELETE:
       - kagent/runtime/v1/memory.proto
+      - kagent/api/v1/sessions.proto
+      - kagent/api/v1/agent_templates.proto
     # Substrate v0.7.0-alpha1 renames the inventory types to substrate.ateapi.v1
     # without changing their wire shape. Remove after the upgrade reaches main.
     FIELD_SAME_TYPE:
       - kagent/api/v1/system.proto
+      # Pre-release Session.agent records immutable Agent provenance.
+      # Remove once the provenance contract is on the comparison branch.
+      - kagent/api/v1/sessions.proto
   # Vendored Substrate APIs follow go.mod, including the v1 schema relocation.
   ignore:
     - ateapi.proto

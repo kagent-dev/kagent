@@ -30,9 +30,6 @@ message AgentTemplate {
   ResourceReference model_config_ref = 3;
 
   string description = 4;
-
-  reserved 5;
-  reserved "admitting_harnesses";
 }
 
 message ListAgentTemplatesRequest {

@@ -778,7 +778,7 @@ describe("agent instances", () => {
       id: INSTANCE_ID,
       contextId: INSTANCE_ID,
       creator: "alice@example.com",
-      agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+      agent: { ref: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, uid: "agent-uid" },
       preparedRevision: "rev-7f3a91c",
       a2aAuthority: "k8s-agent.kagent.svc:8080",
       state: RuntimeState.READY,

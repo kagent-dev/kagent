@@ -85,7 +85,8 @@ func (s *Service) Resolve(ctx context.Context) (*apiv1.ResolveAgentIdentityRespo
 		return nil, serviceerrors.NewInternal("Failed to resolve Agent identity", err)
 	}
 	if revision.AgentUID == "" || revision.Namespace == "" || revision.AgentName == "" ||
-		revision.Namespace != session.GetAgent().GetNamespace() || revision.AgentName != session.GetAgent().GetName() {
+		revision.AgentUID != session.GetAgent().GetUid() ||
+		revision.Namespace != session.GetAgent().GetRef().GetNamespace() || revision.AgentName != session.GetAgent().GetRef().GetName() {
 		return nil, serviceerrors.NewInternal("Session has an invalid Agent identity", nil)
 	}
 	metadata := &metav1.PartialObjectMetadata{}
