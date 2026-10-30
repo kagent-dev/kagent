@@ -363,12 +363,12 @@ var File_kagent_api_v1_harnesses_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_harnesses_proto_rawDesc = "" +
 	"\n" +
-	"\x1dkagent/api/v1/harnesses.proto\x12\rkagent.api.v1\x1a\x1akagent/api/v1/common.proto\"\xc8\x01\n" +
+	"\x1dkagent/api/v1/harnesses.proto\x12\rkagent.api.v1\x1a\x1akagent/api/v1/common.proto\"\xbb\x01\n" +
 	"\aHarness\x122\n" +
 	"\x03ref\x18\x01 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x03ref\x12;\n" +
 	"\bresource\x18\x02 \x01(\v2\x1f.kagent.api.v1.StructuredObjectR\bresource\x12\x18\n" +
 	"\aruntime\x18\x03 \x01(\tR\aruntime\x12%\n" +
-	"\x0eworkload_image\x18\x04 \x01(\tR\rworkloadImageJ\x04\b\x05\x10\x06R\x05ready\"4\n" +
+	"\x0eworkload_image\x18\x04 \x01(\tR\rworkloadImage\"4\n" +
 	"\x14ListHarnessesRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"M\n" +
 	"\x15ListHarnessesResponse\x124\n" +

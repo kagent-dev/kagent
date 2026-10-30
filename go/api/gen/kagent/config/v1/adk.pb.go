@@ -2896,7 +2896,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x1akagent/config/v1/adk.proto\x12\x10kagent.config.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1dkagent/config/v1/config.proto\"\x81\x01\n" +
 	"\tADKConfig\x12<\n" +
 	"\aruntime\x18\x01 \x01(\v2\".kagent.config.v1.ADKRuntimeConfigR\aruntime\x126\n" +
-	"\x05agent\x18\x02 \x01(\v2 .kagent.config.v1.ADKAgentConfigR\x05agent\"\xad\a\n" +
+	"\x05agent\x18\x02 \x01(\v2 .kagent.config.v1.ADKAgentConfigR\x05agent\"\x8b\a\n" +
 	"\x0eADKAgentConfig\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
 	"\x05model\x18\x02 \x01(\v2 .kagent.config.v1.ADKModelConfigR\x05model\x12 \n" +
@@ -2918,7 +2918,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\n" +
 	"sub_agents\x18\x11 \x03(\v2 .kagent.config.v1.ADKAgentConfigR\tsubAgents\x129\n" +
 	"\x06output\x18\x12 \x01(\v2!.kagent.config.v1.ADKOutputConfigR\x06outputB\t\n" +
-	"\a_streamJ\x04\b\v\x10\fJ\x04\b\x0e\x10\x0fR\anetworkR\vshare_tools\"\xa1\t\n" +
+	"\a_stream\"\xa1\t\n" +
 	"\x0eADKModelConfig\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12G\n" +
 	"\aheaders\x18\x02 \x03(\v2-.kagent.config.v1.ADKModelConfig.HeadersEntryR\aheaders\x12<\n" +
