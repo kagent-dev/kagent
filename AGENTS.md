@@ -98,6 +98,9 @@ Preserve unrelated work in a dirty tree. Do not hand-edit generated outputs, add
 
 ## 7. Testing and Validation
 
+- Before writing or changing Go behavior tests anywhere in this repository, use the
+  [`given-when-assert-that`](.agents/skills/given-when-assert-that/SKILL.md) skill.
+  Apply it to feature and bug-fix tests as well as test-only changes.
 - Unit-test new semantic behavior and failure paths.
 - Use table-driven Go tests where they make cases clearer; do not force the pattern onto a single case.
 - Mock external services in unit tests. Use real integration boundaries in E2E tests.
