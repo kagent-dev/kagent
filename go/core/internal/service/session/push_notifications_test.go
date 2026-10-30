@@ -852,7 +852,7 @@ func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 		t.Fatal("slow HTTP delivery did not start")
 	}
 	// Publish another task only after the slow request is in flight.
-	fastSession, _, err := store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: session.Agent}, uuid.NewString())
+	fastSession, _, err := store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: session.GetAgent()}, uuid.NewString())
 	require.NoError(t, err)
 	fastSession, err = creator.Create(t.Context(), fastSession)
 	require.NoError(t, err)
@@ -880,7 +880,7 @@ func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
 		session := first
 		if i != 0 {
 			var err error
-			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.Agent}, uuid.NewString())
+			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.GetAgent()}, uuid.NewString())
 			require.NoError(t, err)
 		}
 		session, err := creator.Create(t.Context(), session)

@@ -31,6 +31,15 @@ func (s *actorSessionStore) GetSessionForRuntime(_ context.Context, id, uid stri
 	return nil, database.ErrNotFound
 }
 
+func (s *actorSessionStore) GetSession(_ context.Context, id, owner string) (*apiv1.Session, error) {
+	for _, session := range s.sessions {
+		if session.Id == id && session.Creator == owner {
+			return session, nil
+		}
+	}
+	return nil, database.ErrNotFound
+}
+
 func (s *actorSessionStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
 	var result []*apiv1.Session
 	for _, session := range s.sessions {
@@ -44,7 +53,7 @@ func (s *actorSessionStore) ListSessions(_ context.Context, query database.Sessi
 func TestMCPActorListsOnlyItsSession(t *testing.T) {
 	store := &actorSessionStore{fakeSessionStore: &fakeSessionStore{}}
 	for range 3 {
-		store.sessions = append(store.sessions, &apiv1.Session{Id: uuid.NewString(), Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, State: apiv1.RuntimeState_RUNTIME_STATE_READY})
+		store.sessions = append(store.sessions, &apiv1.Session{Id: uuid.NewString(), Creator: "owner", State: apiv1.RuntimeState_RUNTIME_STATE_READY, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}}})
 	}
 	own := store.sessions[0]
 	own.A2AAuthority = substrate.ActorHost("team-a", substrate.ActorName(own.Id), "")

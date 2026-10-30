@@ -30,13 +30,13 @@ func (c *A2AClient) ForAgent(ctx context.Context, agent *apiv1.ResourceReference
 	return c.forAgent(ctx, agent, "")
 }
 
-// ForSession resolves its Agent and supplies the conversation context on sends.
+// ForSession routes to the Session's Agent and supplies the conversation context on sends.
 func (c *A2AClient) ForSession(ctx context.Context, id string) (*a2aclient.Client, error) {
 	response, err := newSessionClient(c.client).GetSession(ctx, &apiv1.GetSessionRequest{SessionId: id})
 	if err != nil {
 		return nil, err
 	}
-	return c.forAgent(ctx, response.GetSession().GetAgent(), id)
+	return c.forAgent(ctx, response.GetSession().GetAgent().GetRef(), id)
 }
 
 // ListTaskPushConfigsPage preserves the pagination token that the upstream
@@ -46,7 +46,7 @@ func (c *A2AClient) ListTaskPushConfigsPage(ctx context.Context, sessionID, task
 	if err != nil {
 		return nil, err
 	}
-	agent := response.GetSession().GetAgent()
+	agent := response.GetSession().GetAgent().GetRef()
 	if agent.GetNamespace() == "" || agent.GetName() == "" {
 		return nil, fmt.Errorf("agent namespace and name are required")
 	}

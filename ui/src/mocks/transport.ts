@@ -638,7 +638,7 @@ function agentInstanceMessage(
     // turns it into a title rather than treating it as a gap.
     name: row.name,
     creator: row.creator,
-    agent: row.agent ? splitRef(row.agent) : undefined,
+    agent: row.agent ? { ref: splitRef(row.agent) } : undefined,
     // Proto3 cannot carry an absent string, so an unset field goes back as the
     // empty one the controller would also send — and `orUndefined` on the client
     // turns it back into "not reported".

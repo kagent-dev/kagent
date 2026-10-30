@@ -57,7 +57,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 			t.Helper()
 			session, err := sessions.GetSession(ctx, &apiv1.GetSessionRequest{SessionId: id})
 			require.NoError(t, err)
-			ref := session.GetSession().GetAgent()
+			ref := session.GetSession().GetAgent().GetRef()
 			fixture := &interactionFixture{
 				ctx: ctx, client: a2apb.NewA2AServiceClient(conn), sessionID: id, contextID: id, tenant: ref.GetNamespace() + "/" + ref.GetName(),
 			}

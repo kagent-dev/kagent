@@ -580,7 +580,7 @@ function toAgentInstance(instance: PbSession): AgentInstance {
     // spellings of the same fact.
     name: instance.name,
     creator: instance.creator,
-    agent: orUndefined(refToString(instance.agent)),
+    agent: orUndefined(refToString(instance.agent?.ref)),
     preparedRevision: orUndefined(instance.preparedRevision),
     a2aAuthority: orUndefined(instance.a2aAuthority),
     state: INSTANCE_STATE_BY_ENUM[instance.state] ?? "unknown",

@@ -119,7 +119,7 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	sessionID := uuid.NewString()
-	store := &memoryRPCStore{session: &apiv1.Session{Id: sessionID, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(sessionID), "")}}
+	store := &memoryRPCStore{session: &apiv1.Session{Id: sessionID, Creator: "owner", A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(sessionID), ""), Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}}}}
 	claims := issuer.Claims("team-a", "session-"+sessionID, "actor-uid")
 	actor := "Bearer " + issuer.Token(t, claims)
 	claims["exp"] = time.Now().Add(-time.Minute).Unix()

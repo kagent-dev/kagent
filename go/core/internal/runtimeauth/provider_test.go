@@ -36,8 +36,8 @@ func (s *bindingStore) GetSessionForRuntime(_ context.Context, id, uid string) (
 func newBinding() *bindingStore {
 	id := uuid.NewString()
 	return &bindingStore{actorUID: "actor-uid", session: &apiv1.Session{
-		Id: id, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"},
-		A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), ""),
+		Id: id, Creator: "owner",
+		A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), ""), Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}},
 	}}
 }
 
