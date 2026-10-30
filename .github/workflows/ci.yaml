@@ -453,7 +453,9 @@ jobs:
         with:
           go-version-file: go/go.mod
           cache: true
-          cache-dependency-path: go/go.sum
+          cache-dependency-path: |
+            go/go.sum
+            go/integrations/agentgateway/go.sum
 
       - name: Run Go unit tests
         working-directory: go
@@ -463,6 +465,13 @@ jobs:
           # processes of `go test ./...`, intermittently timing out the Postgres tests.
           TESTCONTAINERS_RYUK_DISABLED: "true"
         run: make test
+
+      - name: Run optional agentgateway integration tests
+        working-directory: go/integrations/agentgateway
+        run: |
+          export KUBEBUILDER_ASSETS="$(make -s -C ../.. envtest-path)"
+          go test -race ./...
+          go vet ./...
 
       - name: Run UI entrypoint tests
         working-directory: ui/entrypoint
@@ -608,10 +617,16 @@ jobs:
         with:
           go-version-file: go/go.mod
           cache: true
-          cache-dependency-path: go/go.sum
+          cache-dependency-path: |
+            go/go.sum
+            go/integrations/agentgateway/go.sum
       - name: golangci-lint
         working-directory: go
         run: make lint
+
+      - name: Lint optional agentgateway integration
+        working-directory: go/integrations/agentgateway
+        run: ../../bin/golangci-lint-custom run --config ../../.golangci.yaml ./...
 
   python-test:
     env:
