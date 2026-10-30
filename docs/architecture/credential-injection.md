@@ -1,6 +1,6 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.7.0-alpha1**. The runtime compiler turns
+Kagent requires Substrate **v0.7.0-alpha2**. The runtime compiler turns
 ModelConfig API keys and Secret-backed RemoteMCPServer headers into pinned
 destination-scoped bindings. Independently, EgressPolicy admission supplies
 additional live bindings. Substrate's gateway fetches the referenced Kubernetes Secret and

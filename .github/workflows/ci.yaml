@@ -48,7 +48,6 @@ jobs:
         sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.7.0-alpha1
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
@@ -73,6 +72,11 @@ jobs:
           key: e2e-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go/go.mod', 'go/go.sum') }}
           restore-keys: |
             e2e-go-${{ runner.os }}-${{ runner.arch }}-
+      - name: Resolve Substrate release
+        working-directory: go
+        run: |
+          version=$(go list -m -f '{{.Replace.Version}}' go.ate.dev/substrate)
+          echo "SUBSTRATE_VERSION=${version#v}" >> "$GITHUB_ENV"
       - name: Allow unprivileged user namespaces
         # Ubuntu 24.04 enables AppArmor-based restrictions on
         # unprivileged user namespaces by default, which causes bubblewrap
