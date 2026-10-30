@@ -36,8 +36,8 @@ ARG TARGETPLATFORM
 RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git && \
     addgroup -S -g 65532 kagent && \
     adduser -S -D -u 65532 -G kagent -h /home/kagent kagent && \
-    mkdir -p /skills /plugins /data/plugins && \
-    chown -R 65532:65532 /skills /plugins /data
+    mkdir -p /config /skills /plugins /data/plugins && \
+    chown -R 65532:65532 /config /skills /plugins /data
 
 WORKDIR /
 COPY --from=builder /app /app
