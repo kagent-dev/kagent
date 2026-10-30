@@ -28,16 +28,29 @@ func (w *ActorWorkflow) wakeQuiescence() {
 	}
 }
 
-// Start suspends idle sessions to VOLUMES independently of task publication.
-// Startup and periodic recovery scans discover work missed by local signals.
-// Workers drain claims with bounded concurrency; task reads never wait for them.
+// Start suspends idle sessions to VOLUMES independently of task publication and
+// retries crash recoveries admitted by explicit requests.
+// Startup and periodic scans discover idle work missed by local signals; crash
+// checks use the same recovery interval. Workers drain claims with bounded concurrency.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
 	var workers sync.WaitGroup
-	for range 4 {
+	for worker := range 4 {
 		workers.Go(func() {
 			timer := time.NewTimer(w.recoveryInterval)
 			defer timer.Stop()
+			var recoveryAfter string
+			nextRecovery := time.Now().Add(w.recoveryInterval)
 			for ctx.Err() == nil {
+				if worker == 0 && !time.Now().Before(nextRecovery) {
+					scanCtx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+					after, err := w.recoverSessionPage(scanCtx, recoveryAfter)
+					cancel()
+					if err != nil && ctx.Err() == nil {
+						logging.FromContext(ctx).ErrorContext(ctx, "scan interrupted sessions", "error", err)
+					}
+					recoveryAfter = after
+					nextRecovery = time.Now().Add(w.recoveryInterval)
+				}
 				work, err := w.store.ClaimSessionQuiescence(ctx)
 				if err == nil {
 					// Hand off a hint before runtime I/O so a single settlement
