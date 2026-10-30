@@ -25,6 +25,21 @@ plugins:
       - kagent.runtime.v1.MemoryService
       - kagent.runtime.v1.TaskStoreService
       - kagent.api.v1.StructuredObject
+      - kagent.api.v1.ToolActivity
+      - kagent.api.v1.HitlTool
+      - kagent.api.v1.NestedHitlRequest
+      - kagent.api.v1.ToolApprovalRequest
+      - kagent.api.v1.ToolApproval
+      - kagent.api.v1.ToolApprovalResponse
+      - kagent.api.v1.HitlQuestion
+      - kagent.api.v1.AskUserRequest
+      - kagent.api.v1.AskUserAnswer
+      - kagent.api.v1.AskUserResponse
+      - kagent.api.v1.ListSessionsInput
+      - kagent.api.v1.SessionSummary
+      - kagent.api.v1.ListSessionsOutput
+      - kagent.api.v1.InvokeSessionInput
+      - kagent.api.v1.InvokeSessionOutput
       - kagent.config.v1.ADKConfig
   - remote: buf.build/protocolbuffers/pyi:v33.5
     out: ../python/packages/kagent-proto/src
@@ -32,6 +47,21 @@ plugins:
       - kagent.runtime.v1.MemoryService
       - kagent.runtime.v1.TaskStoreService
       - kagent.api.v1.StructuredObject
+      - kagent.api.v1.ToolActivity
+      - kagent.api.v1.HitlTool
+      - kagent.api.v1.NestedHitlRequest
+      - kagent.api.v1.ToolApprovalRequest
+      - kagent.api.v1.ToolApproval
+      - kagent.api.v1.ToolApprovalResponse
+      - kagent.api.v1.HitlQuestion
+      - kagent.api.v1.AskUserRequest
+      - kagent.api.v1.AskUserAnswer
+      - kagent.api.v1.AskUserResponse
+      - kagent.api.v1.ListSessionsInput
+      - kagent.api.v1.SessionSummary
+      - kagent.api.v1.ListSessionsOutput
+      - kagent.api.v1.InvokeSessionInput
+      - kagent.api.v1.InvokeSessionOutput
       - kagent.config.v1.ADKConfig
   - remote: buf.build/grpc/python:v1.83.0
     out: ../python/packages/kagent-proto/src
@@ -39,3 +69,11 @@ plugins:
       - kagent.runtime.v1.MemoryService
       - kagent.runtime.v1.TaskStoreService
       - kagent.api.v1.StructuredObject
+  - remote: buf.build/bufbuild/protoschema-jsonschema:v0.6.0
+    out: ../go/core/internal/mcp/schema
+    types:
+      - kagent.api.v1.ListSessionsInput
+      - kagent.api.v1.ListSessionsOutput
+      - kagent.api.v1.InvokeSessionInput
+      - kagent.api.v1.InvokeSessionOutput
+    opt: [target=json-bundle]

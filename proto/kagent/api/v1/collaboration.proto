@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package kagent.api.v1;
+
+import "a2a.proto";
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
+
+// ListSessionsInput is the input of the list_sessions MCP tool.
+message ListSessionsInput {
+  int32 page_size = 1 [
+    json_name = "page_size",
+    (buf.validate.field).int32 = {gte: 0}
+  ];
+  string page_token = 2 [json_name = "page_token"];
+}
+
+message SessionSummary {
+  string id = 1;
+  string agent = 2;
+  string state = 3;
+}
+
+message ListSessionsOutput {
+  repeated SessionSummary sessions = 1;
+  string next_page_token = 2 [json_name = "next_page_token"];
+}
+
+// InvokeSessionInput is shared by synchronous and task-backed invoke_session.
+message InvokeSessionInput {
+  optional string session_id = 1 [
+    json_name = "session_id",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.min_len = 1
+  ];
+  optional string message = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.min_len = 1
+  ];
+  string message_id = 3 [json_name = "message_id"];
+}
+
+message InvokeSessionOutput {
+  string session_id = 1 [json_name = "session_id"];
+  string task_id = 2 [json_name = "task_id"];
+  string context_id = 3 [json_name = "context_id"];
+  lf.a2a.v1.TaskState state = 4;
+  string text = 5;
+}
