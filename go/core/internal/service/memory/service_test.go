@@ -169,7 +169,7 @@ func TestActorMemoryUsesSessionScope(t *testing.T) {
 	store := &memoryStore{}
 	service := NewService(store, auth.NoopAuthorizer{})
 	ctx := memoryContext(t)
-	input := Input{Content: "scoped", Vector: vector(VectorDimension, 1)}
+	input := Input{AgentName: "foreign/agent", Content: "scoped", Vector: vector(VectorDimension, 1)}
 	_, err := service.Add(ctx, input)
 	require.NoError(t, err)
 	_, err = service.AddBatch(ctx, []Input{input})
@@ -275,13 +275,16 @@ func TestMemorySharesNeverReachPartitionStorage(t *testing.T) {
 			name string
 			call func() error
 		}{
-			{"add", func() error { _, err := service.Add(shared, Input{Vector: vector(VectorDimension, 1)}); return err }},
+			{"add", func() error {
+				_, err := service.Add(shared, Input{AgentName: "team-a/agent", Vector: vector(VectorDimension, 1)})
+				return err
+			}},
 			{"batch", func() error {
-				_, err := service.AddBatch(shared, []Input{{Vector: vector(VectorDimension, 1)}})
+				_, err := service.AddBatch(shared, []Input{{AgentName: "team-a/agent", Vector: vector(VectorDimension, 1)}})
 				return err
 			}},
 			{"search", func() error {
-				_, err := service.Search(shared, SearchRequest{Vector: vector(VectorDimension, 1)})
+				_, err := service.Search(shared, SearchRequest{AgentName: "team-a/agent", Vector: vector(VectorDimension, 1)})
 				return err
 			}},
 			{"list", func() error { _, err := service.List(shared, "team-a/agent"); return err }},

@@ -7,6 +7,7 @@
 package runtimev1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
@@ -244,10 +245,13 @@ func (x *MemorySummary) GetExpiresAt() *timestamppb.Timestamp {
 }
 
 type MemoryServiceAddSessionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Memory        *SessionMemoryInput    `protobuf:"bytes,1,opt,name=memory,proto3" json:"memory,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Memory *SessionMemoryInput    `protobuf:"bytes,1,opt,name=memory,proto3" json:"memory,omitempty"`
+	// User-authenticated management calls select their own authorized agent scope.
+	// Actor calls derive scope from their persisted session.
+	ManagementAgent string `protobuf:"bytes,2,opt,name=management_agent,json=managementAgent,proto3" json:"management_agent,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *MemoryServiceAddSessionRequest) Reset() {
@@ -285,6 +289,13 @@ func (x *MemoryServiceAddSessionRequest) GetMemory() *SessionMemoryInput {
 		return x.Memory
 	}
 	return nil
+}
+
+func (x *MemoryServiceAddSessionRequest) GetManagementAgent() string {
+	if x != nil {
+		return x.ManagementAgent
+	}
+	return ""
 }
 
 type MemoryServiceAddSessionResponse struct {
@@ -332,10 +343,11 @@ func (x *MemoryServiceAddSessionResponse) GetId() string {
 }
 
 type MemoryServiceAddSessionBatchRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []*SessionMemoryInput  `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Items           []*SessionMemoryInput  `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	ManagementAgent string                 `protobuf:"bytes,2,opt,name=management_agent,json=managementAgent,proto3" json:"management_agent,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *MemoryServiceAddSessionBatchRequest) Reset() {
@@ -373,6 +385,13 @@ func (x *MemoryServiceAddSessionBatchRequest) GetItems() []*SessionMemoryInput {
 		return x.Items
 	}
 	return nil
+}
+
+func (x *MemoryServiceAddSessionBatchRequest) GetManagementAgent() string {
+	if x != nil {
+		return x.ManagementAgent
+	}
+	return ""
 }
 
 type MemoryServiceAddSessionBatchResponse struct {
@@ -420,12 +439,13 @@ func (x *MemoryServiceAddSessionBatchResponse) GetCount() int32 {
 }
 
 type MemoryServiceSearchRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Vector        []float32              `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"`
-	Limit         *int32                 `protobuf:"varint,4,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
-	MinScore      *float64               `protobuf:"fixed64,5,opt,name=min_score,json=minScore,proto3,oneof" json:"min_score,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Vector          []float32              `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"`
+	Limit           *int32                 `protobuf:"varint,4,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
+	MinScore        *float64               `protobuf:"fixed64,5,opt,name=min_score,json=minScore,proto3,oneof" json:"min_score,omitempty"`
+	ManagementAgent string                 `protobuf:"bytes,6,opt,name=management_agent,json=managementAgent,proto3" json:"management_agent,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *MemoryServiceSearchRequest) Reset() {
@@ -477,6 +497,13 @@ func (x *MemoryServiceSearchRequest) GetMinScore() float64 {
 		return *x.MinScore
 	}
 	return 0
+}
+
+func (x *MemoryServiceSearchRequest) GetManagementAgent() string {
+	if x != nil {
+		return x.ManagementAgent
+	}
+	return ""
 }
 
 type MemoryServiceSearchResponse struct {
@@ -705,11 +732,99 @@ func (x *MemoryServiceDeleteResponse) GetStatus() string {
 	return ""
 }
 
+type MemoryServiceDeleteEntryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentName     string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryServiceDeleteEntryRequest) Reset() {
+	*x = MemoryServiceDeleteEntryRequest{}
+	mi := &file_kagent_runtime_v1_memory_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryServiceDeleteEntryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryServiceDeleteEntryRequest) ProtoMessage() {}
+
+func (x *MemoryServiceDeleteEntryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_runtime_v1_memory_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryServiceDeleteEntryRequest.ProtoReflect.Descriptor instead.
+func (*MemoryServiceDeleteEntryRequest) Descriptor() ([]byte, []int) {
+	return file_kagent_runtime_v1_memory_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *MemoryServiceDeleteEntryRequest) GetAgentName() string {
+	if x != nil {
+		return x.AgentName
+	}
+	return ""
+}
+
+func (x *MemoryServiceDeleteEntryRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type MemoryServiceDeleteEntryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryServiceDeleteEntryResponse) Reset() {
+	*x = MemoryServiceDeleteEntryResponse{}
+	mi := &file_kagent_runtime_v1_memory_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryServiceDeleteEntryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryServiceDeleteEntryResponse) ProtoMessage() {}
+
+func (x *MemoryServiceDeleteEntryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_runtime_v1_memory_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryServiceDeleteEntryResponse.ProtoReflect.Descriptor instead.
+func (*MemoryServiceDeleteEntryResponse) Descriptor() ([]byte, []int) {
+	return file_kagent_runtime_v1_memory_proto_rawDescGZIP(), []int{14}
+}
+
 var File_kagent_runtime_v1_memory_proto protoreflect.FileDescriptor
 
 const file_kagent_runtime_v1_memory_proto_rawDesc = "" +
 	"\n" +
-	"\x1ekagent/runtime/v1/memory.proto\x12\x11kagent.runtime.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa8\x01\n" +
+	"\x1ekagent/runtime/v1/memory.proto\x12\x11kagent.runtime.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bbuf/validate/validate.proto\"\xa8\x01\n" +
 	"\x12SessionMemoryInput\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\tR\acontent\x12\x16\n" +
 	"\x06vector\x18\x04 \x03(\x02R\x06vector\x123\n" +
@@ -730,19 +845,22 @@ const file_kagent_runtime_v1_memory_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"_\n" +
+	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\x8a\x01\n" +
 	"\x1eMemoryServiceAddSessionRequest\x12=\n" +
-	"\x06memory\x18\x01 \x01(\v2%.kagent.runtime.v1.SessionMemoryInputR\x06memory\"1\n" +
+	"\x06memory\x18\x01 \x01(\v2%.kagent.runtime.v1.SessionMemoryInputR\x06memory\x12)\n" +
+	"\x10management_agent\x18\x02 \x01(\tR\x0fmanagementAgent\"1\n" +
 	"\x1fMemoryServiceAddSessionResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"b\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x8d\x01\n" +
 	"#MemoryServiceAddSessionBatchRequest\x12;\n" +
-	"\x05items\x18\x01 \x03(\v2%.kagent.runtime.v1.SessionMemoryInputR\x05items\"<\n" +
+	"\x05items\x18\x01 \x03(\v2%.kagent.runtime.v1.SessionMemoryInputR\x05items\x12)\n" +
+	"\x10management_agent\x18\x02 \x01(\tR\x0fmanagementAgent\"<\n" +
 	"$MemoryServiceAddSessionBatchResponse\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x05R\x05count\"\x89\x01\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count\"\xb4\x01\n" +
 	"\x1aMemoryServiceSearchRequest\x12\x16\n" +
 	"\x06vector\x18\x03 \x03(\x02R\x06vector\x12\x19\n" +
 	"\x05limit\x18\x04 \x01(\x05H\x00R\x05limit\x88\x01\x01\x12 \n" +
-	"\tmin_score\x18\x05 \x01(\x01H\x01R\bminScore\x88\x01\x01B\b\n" +
+	"\tmin_score\x18\x05 \x01(\x01H\x01R\bminScore\x88\x01\x01\x12)\n" +
+	"\x10management_agent\x18\x06 \x01(\tR\x0fmanagementAgentB\b\n" +
 	"\x06_limitB\f\n" +
 	"\n" +
 	"_min_score\"`\n" +
@@ -757,14 +875,21 @@ const file_kagent_runtime_v1_memory_proto_rawDesc = "" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\"5\n" +
 	"\x1bMemoryServiceDeleteResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\tR\x06status2\xbe\x04\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\"\\\n" +
+	"\x1fMemoryServiceDeleteEntryRequest\x12\x1d\n" +
+	"\n" +
+	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1a\n" +
+	"\x02id\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x02id\"\"\n" +
+	" MemoryServiceDeleteEntryResponse2\xb6\x05\n" +
 	"\rMemoryService\x12s\n" +
 	"\n" +
 	"AddSession\x121.kagent.runtime.v1.MemoryServiceAddSessionRequest\x1a2.kagent.runtime.v1.MemoryServiceAddSessionResponse\x12\x82\x01\n" +
 	"\x0fAddSessionBatch\x126.kagent.runtime.v1.MemoryServiceAddSessionBatchRequest\x1a7.kagent.runtime.v1.MemoryServiceAddSessionBatchResponse\x12g\n" +
 	"\x06Search\x12-.kagent.runtime.v1.MemoryServiceSearchRequest\x1a..kagent.runtime.v1.MemoryServiceSearchResponse\x12a\n" +
 	"\x04List\x12+.kagent.runtime.v1.MemoryServiceListRequest\x1a,.kagent.runtime.v1.MemoryServiceListResponse\x12g\n" +
-	"\x06Delete\x12-.kagent.runtime.v1.MemoryServiceDeleteRequest\x1a..kagent.runtime.v1.MemoryServiceDeleteResponseBEZCgithub.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1b\x06proto3"
+	"\x06Delete\x12-.kagent.runtime.v1.MemoryServiceDeleteRequest\x1a..kagent.runtime.v1.MemoryServiceDeleteResponse\x12v\n" +
+	"\vDeleteEntry\x122.kagent.runtime.v1.MemoryServiceDeleteEntryRequest\x1a3.kagent.runtime.v1.MemoryServiceDeleteEntryResponseBEZCgithub.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1b\x06proto3"
 
 var (
 	file_kagent_runtime_v1_memory_proto_rawDescOnce sync.Once
@@ -778,7 +903,7 @@ func file_kagent_runtime_v1_memory_proto_rawDescGZIP() []byte {
 	return file_kagent_runtime_v1_memory_proto_rawDescData
 }
 
-var file_kagent_runtime_v1_memory_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_kagent_runtime_v1_memory_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_kagent_runtime_v1_memory_proto_goTypes = []any{
 	(*SessionMemoryInput)(nil),                   // 0: kagent.runtime.v1.SessionMemoryInput
 	(*MemorySearchResult)(nil),                   // 1: kagent.runtime.v1.MemorySearchResult
@@ -793,15 +918,17 @@ var file_kagent_runtime_v1_memory_proto_goTypes = []any{
 	(*MemoryServiceListResponse)(nil),            // 10: kagent.runtime.v1.MemoryServiceListResponse
 	(*MemoryServiceDeleteRequest)(nil),           // 11: kagent.runtime.v1.MemoryServiceDeleteRequest
 	(*MemoryServiceDeleteResponse)(nil),          // 12: kagent.runtime.v1.MemoryServiceDeleteResponse
-	(*structpb.Struct)(nil),                      // 13: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil),                // 14: google.protobuf.Timestamp
+	(*MemoryServiceDeleteEntryRequest)(nil),      // 13: kagent.runtime.v1.MemoryServiceDeleteEntryRequest
+	(*MemoryServiceDeleteEntryResponse)(nil),     // 14: kagent.runtime.v1.MemoryServiceDeleteEntryResponse
+	(*structpb.Struct)(nil),                      // 15: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),                // 16: google.protobuf.Timestamp
 }
 var file_kagent_runtime_v1_memory_proto_depIdxs = []int32{
-	13, // 0: kagent.runtime.v1.SessionMemoryInput.metadata:type_name -> google.protobuf.Struct
-	13, // 1: kagent.runtime.v1.MemorySearchResult.metadata:type_name -> google.protobuf.Struct
-	14, // 2: kagent.runtime.v1.MemorySearchResult.created_at:type_name -> google.protobuf.Timestamp
-	14, // 3: kagent.runtime.v1.MemorySummary.created_at:type_name -> google.protobuf.Timestamp
-	14, // 4: kagent.runtime.v1.MemorySummary.expires_at:type_name -> google.protobuf.Timestamp
+	15, // 0: kagent.runtime.v1.SessionMemoryInput.metadata:type_name -> google.protobuf.Struct
+	15, // 1: kagent.runtime.v1.MemorySearchResult.metadata:type_name -> google.protobuf.Struct
+	16, // 2: kagent.runtime.v1.MemorySearchResult.created_at:type_name -> google.protobuf.Timestamp
+	16, // 3: kagent.runtime.v1.MemorySummary.created_at:type_name -> google.protobuf.Timestamp
+	16, // 4: kagent.runtime.v1.MemorySummary.expires_at:type_name -> google.protobuf.Timestamp
 	0,  // 5: kagent.runtime.v1.MemoryServiceAddSessionRequest.memory:type_name -> kagent.runtime.v1.SessionMemoryInput
 	0,  // 6: kagent.runtime.v1.MemoryServiceAddSessionBatchRequest.items:type_name -> kagent.runtime.v1.SessionMemoryInput
 	1,  // 7: kagent.runtime.v1.MemoryServiceSearchResponse.memories:type_name -> kagent.runtime.v1.MemorySearchResult
@@ -811,13 +938,15 @@ var file_kagent_runtime_v1_memory_proto_depIdxs = []int32{
 	7,  // 11: kagent.runtime.v1.MemoryService.Search:input_type -> kagent.runtime.v1.MemoryServiceSearchRequest
 	9,  // 12: kagent.runtime.v1.MemoryService.List:input_type -> kagent.runtime.v1.MemoryServiceListRequest
 	11, // 13: kagent.runtime.v1.MemoryService.Delete:input_type -> kagent.runtime.v1.MemoryServiceDeleteRequest
-	4,  // 14: kagent.runtime.v1.MemoryService.AddSession:output_type -> kagent.runtime.v1.MemoryServiceAddSessionResponse
-	6,  // 15: kagent.runtime.v1.MemoryService.AddSessionBatch:output_type -> kagent.runtime.v1.MemoryServiceAddSessionBatchResponse
-	8,  // 16: kagent.runtime.v1.MemoryService.Search:output_type -> kagent.runtime.v1.MemoryServiceSearchResponse
-	10, // 17: kagent.runtime.v1.MemoryService.List:output_type -> kagent.runtime.v1.MemoryServiceListResponse
-	12, // 18: kagent.runtime.v1.MemoryService.Delete:output_type -> kagent.runtime.v1.MemoryServiceDeleteResponse
-	14, // [14:19] is the sub-list for method output_type
-	9,  // [9:14] is the sub-list for method input_type
+	13, // 14: kagent.runtime.v1.MemoryService.DeleteEntry:input_type -> kagent.runtime.v1.MemoryServiceDeleteEntryRequest
+	4,  // 15: kagent.runtime.v1.MemoryService.AddSession:output_type -> kagent.runtime.v1.MemoryServiceAddSessionResponse
+	6,  // 16: kagent.runtime.v1.MemoryService.AddSessionBatch:output_type -> kagent.runtime.v1.MemoryServiceAddSessionBatchResponse
+	8,  // 17: kagent.runtime.v1.MemoryService.Search:output_type -> kagent.runtime.v1.MemoryServiceSearchResponse
+	10, // 18: kagent.runtime.v1.MemoryService.List:output_type -> kagent.runtime.v1.MemoryServiceListResponse
+	12, // 19: kagent.runtime.v1.MemoryService.Delete:output_type -> kagent.runtime.v1.MemoryServiceDeleteResponse
+	14, // 20: kagent.runtime.v1.MemoryService.DeleteEntry:output_type -> kagent.runtime.v1.MemoryServiceDeleteEntryResponse
+	15, // [15:21] is the sub-list for method output_type
+	9,  // [9:15] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -836,7 +965,7 @@ func file_kagent_runtime_v1_memory_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_runtime_v1_memory_proto_rawDesc), len(file_kagent_runtime_v1_memory_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
