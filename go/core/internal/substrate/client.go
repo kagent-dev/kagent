@@ -203,6 +203,16 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
+func (c *Client) RevertActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	resp, err := c.ControlClient.RevertActor(ctx, &ateapipb.RevertActorRequest{Actor: actorRef(atespace, actorID)})
+	if err != nil {
+		return nil, fmt.Errorf("failed to revert Actor %s/%s: %w", atespace, actorID, err)
+	}
+	return resp.GetActor(), nil
+}
+
 // SuspendActor waits for durable storage, including an upload left by an earlier
 // attempt. Substrate's synchronous mode returns already-suspended Actors as-is.
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
