@@ -69,6 +69,7 @@ import (
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/kagent-dev/kagent/go/core/pkg/actorsession"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
@@ -125,6 +126,8 @@ type Options struct {
 	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
 	// all must be bound. Authenticator must not forward the caller token.
 	EgressPolicyCompilers []egresspolicy.Compiler
+	// ActorSessions receives the actor Session reader once, before SetupWithManager.
+	ActorSessions func(actorsession.Reader)
 }
 
 // resolve substitutes core's defaults for whichever components the caller left
@@ -315,6 +318,9 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 	if err := manager.Add(runtimeGC); err != nil {
 		return fmt.Errorf("add runtime revision GC to controller manager: %w", err)
+	}
+	if opts.ActorSessions != nil {
+		opts.ActorSessions(runtimeauth.NewActorSessions(store))
 	}
 	if opts.SetupWithManager != nil {
 		if err := opts.SetupWithManager(manager); err != nil {
