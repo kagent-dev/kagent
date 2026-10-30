@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, Select, Space, Typography } from "antd";
+import { Alert, Button, Card, Form, Input, Select, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import { useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -11,9 +11,6 @@ import {
   harnessSpecFromDraft,
 } from "@/components/harness-form/harnessDraft";
 import { paths } from "@/router/routes";
-
-const { Paragraph } = Typography;
-
 
 export function HarnessNewPage() {
   const theme = useTheme();
@@ -98,11 +95,6 @@ export function HarnessNewPage() {
               css={{ marginBottom: theme.space(4) }}
             />
           ) : null}
-
-          <Paragraph css={{ color: theme.color.textMuted, fontSize: 12 }}>
-            A new harness is not ready straight away: the controller has to observe it
-            first, so it appears as “not ready yet” until it has.
-          </Paragraph>
 
           <Space size={8}>
             <Button

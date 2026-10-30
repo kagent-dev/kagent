@@ -611,7 +611,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "kagent",
     workloadImage:
       "ghcr.io/kagent-dev/kagent/golang-adk@sha256:3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a",
-    ready: true,
     resource: {
       metadata: { name: "k8s-agent", namespace: "kagent" },
       spec: {
@@ -628,10 +627,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "claude",
     workloadImage:
       "ghcr.io/kagent-dev/kagent/claude-adk@sha256:9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e",
-    // Not ready, and still offered: the controller may simply not have observed it
-    // yet, so refusing to let a reader choose it would block a create that would
-    // succeed. The picker says so instead.
-    ready: false,
     resource: {
       metadata: { name: "support-triage", namespace: "kagent" },
       spec: {
@@ -649,7 +644,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "codex",
     workloadImage:
       "ghcr.io/kagent-dev/kagent/codex-adk@sha256:4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b",
-    ready: true,
     resource: {
       metadata: { name: "fast-lane", namespace: "kagent" },
       spec: {
@@ -668,7 +662,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "byo",
     workloadImage:
       "ghcr.io/example/echo-agent@sha256:a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0",
-    ready: true,
     resource: {
       metadata: { name: "byo-echo", namespace: "kagent" },
       spec: {
@@ -691,7 +684,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "kagent",
     workloadImage:
       "ghcr.io/kagent-dev/kagent/golang-adk@sha256:6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f",
-    ready: true,
     resource: {
       metadata: { name: "reporting", namespace: "analytics" },
       spec: {

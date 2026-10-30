@@ -29,10 +29,6 @@ message Harness {
 
   // WorkloadImage is spec.workload.image, the digest-pinned runtime image.
   string workload_image = 4;
-
-  // Ready mirrors the Ready status condition. False also covers a Harness the
-  // controller has not yet observed.
-  bool ready = 5;
 }
 
 message ListHarnessesRequest {

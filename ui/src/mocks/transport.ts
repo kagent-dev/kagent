@@ -1022,7 +1022,6 @@ on(HarnessService.method.listHarnesses, (input, call) => {
         resource: structured("Harness", harness.resource as unknown as JsonObject),
         runtime: harness.runtime,
         workloadImage: harness.workloadImage,
-        ready: harness.ready,
       })),
   };
 });
@@ -1056,14 +1055,8 @@ function templateFor(namespace: string, name: string): AgentTemplate {
 /**
  * A written harness, as this backend will answer it back.
  *
- * The denormalised fields — `runtime`, `workloadImage`, `ready` — are what the
- * controller computes from the spec, so they are computed here too rather than taken
- * from the request: a fixture that echoed whatever it was sent would let a client claim
- * a harness was ready by saying so.
- *
- * `ready` is false on a freshly created harness, which is what a cluster reports too:
- * the controller has not observed it yet. That is a state the tab has to render
- * correctly, and it would be missed entirely if new harnesses arrived ready.
+ * The controller derives `runtime` and `workloadImage` from the spec, so the mock
+ * computes them from the written resource as well.
  */
 function harnessFromResource(namespace: string, name: string, resource: JsonObject): Harness {
   const spec = (resource.spec ?? {}) as {
@@ -1081,7 +1074,6 @@ function harnessFromResource(namespace: string, name: string, resource: JsonObje
     name,
     runtime: runtime ?? "",
     workloadImage: spec.workload?.image ?? "",
-    ready: false,
     resource: {
       ...(resource as unknown as Harness["resource"]),
       metadata: {
@@ -1185,7 +1177,6 @@ on(HarnessService.method.createHarness, (input, call) => {
       resource: structured("Harness", saved.resource as unknown as JsonObject),
       runtime: saved.runtime,
       workloadImage: saved.workloadImage,
-      ready: saved.ready,
     },
   };
 });

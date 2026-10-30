@@ -5,6 +5,8 @@
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
 literal environment values, WorkerPool configuration, and snapshot location.
+Harness has no status subresource; compilation and runtime readiness are reported
+on each Agent that selects it.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
 description and prompt, MCP tool bindings, skills, plugins, and Shared
