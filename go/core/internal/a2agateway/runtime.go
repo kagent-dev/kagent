@@ -2,7 +2,6 @@ package a2agateway
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -33,9 +32,6 @@ type RuntimeDialer struct {
 // NewRuntimeDialer configures private A2A gRPC calls through Substrate's
 // shared Atenet router; ate-target-actor selects the Actor.
 func NewRuntimeDialer(cfg *configv1.SubstrateConfig, authenticator auth.AuthProvider) (*RuntimeDialer, error) {
-	if authenticator == nil {
-		return nil, fmt.Errorf("atenet runtime authentication is not configured")
-	}
 	target, transport, err := substrate.RouterTransport(cfg)
 	if err != nil {
 		return nil, err
