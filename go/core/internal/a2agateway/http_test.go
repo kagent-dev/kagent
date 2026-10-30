@@ -92,7 +92,7 @@ func newGatewayTestTransport(t *testing.T, address string, protocol a2atype.Tran
 
 func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
-		t.Run(string(protocol), func(t *testing.T) {
+		t.Run(fmt.Sprintf("Given %s transport, when an initial message is retried and a new one is sent, assert that only the retry reuses its conversation", protocol), func(t *testing.T) {
 			store := &gatewayTestStore{created: map[string]*apiv1.Session{}}
 			runtime := &gatewayTestRuntime{}
 			authorizer := &gatewayTestAuthorizer{}
@@ -145,12 +145,12 @@ func TestGatewayMissingConversationAcrossTransports(t *testing.T) {
 			authErr  error
 			want     error
 		}{
-			{name: "missing context", storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
-			{name: "expired task", taskErr: database.ErrNotFound, storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
-			{name: "permission denied", authErr: errors.New("denied"), want: a2atype.ErrUnauthorized},
-			{name: "store failure", storeErr: errors.New("private database details"), want: a2atype.ErrInternalError},
+			{name: "Given a missing context over %s, when task methods are called, assert that the task is not found", storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
+			{name: "Given an expired task over %s, when task methods are called, assert that the task is not found", taskErr: database.ErrNotFound, storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
+			{name: "Given denied access over %s, when task methods are called, assert that the caller is unauthorized", authErr: errors.New("denied"), want: a2atype.ErrUnauthorized},
+			{name: "Given a failed store over %s, when task methods are called, assert that an internal error is returned", storeErr: errors.New("private database details"), want: a2atype.ErrInternalError},
 		} {
-			t.Run(string(protocol)+"/"+test.name, func(t *testing.T) {
+			t.Run(fmt.Sprintf(test.name, protocol), func(t *testing.T) {
 				store := &gatewayTestStore{session: gatewayTestSession(), err: test.storeErr, taskErr: test.taskErr}
 				dialer := &gatewayTestDialer{}
 				gateway := newTestGateway(store, &gatewayTestAuthorizer{err: test.authErr}, dialer, "")
@@ -200,12 +200,12 @@ func TestHTTPAgentURLIsAuthoritative(t *testing.T) {
 		name, path, tenant string
 		want               error
 	}{
-		{name: "URL only", path: gatewayTestAgent},
-		{name: "trailing slash", path: gatewayTestAgent + "/"},
-		{name: "matching tenant", path: gatewayTestAgent, tenant: gatewayTestAgent},
-		{name: "conflicting tenant", path: gatewayTestAgent, tenant: "team-a/other", want: a2atype.ErrInvalidRequest},
-		{name: "invalid URL", path: "INVALID/assistant", want: a2atype.ErrInvalidRequest},
-		{name: "Session belongs to another Agent", path: "team-a/other", want: a2atype.ErrUnauthorized},
+		{name: "Given an Agent URL without a tenant, when task methods are called, assert that the URL identifies the Agent", path: gatewayTestAgent},
+		{name: "Given an Agent URL with a trailing slash, when task methods are called, assert that the URL identifies the Agent", path: gatewayTestAgent + "/"},
+		{name: "Given a tenant matching the Agent URL, when task methods are called, assert that routing succeeds", path: gatewayTestAgent, tenant: gatewayTestAgent},
+		{name: "Given a tenant conflicting with the Agent URL, when task methods are called, assert that the request is invalid", path: gatewayTestAgent, tenant: "team-a/other", want: a2atype.ErrInvalidRequest},
+		{name: "Given an invalid Agent URL, when task methods are called, assert that the request is invalid", path: "INVALID/assistant", want: a2atype.ErrInvalidRequest},
+		{name: "Given a URL for another Agent, when task methods are called, assert that the caller is unauthorized", path: "team-a/other", want: a2atype.ErrUnauthorized},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &gatewayTestStore{session: gatewayTestSession()}
@@ -421,11 +421,11 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 				canRead    bool
 				denied     bool
 			}{
-				{name: "read only", sessionID: gatewayTestID, canRead: true},
-				{name: "policy denied", sessionID: gatewayTestID, denied: true},
-				{name: "other session", sessionID: "12345678-1234-4234-8234-123456789abc"},
-				{name: "expired", storeErr: database.ErrNotFound, wantStatus: 403},
-				{name: "store unavailable", storeErr: errors.New("database credentials"), wantStatus: 500},
+				{name: "Given a valid read-only share, when task methods are called, assert that reads work and writes are rejected", sessionID: gatewayTestID, canRead: true},
+				{name: "Given a share denied by policy, when task methods are called, assert that reads and writes are rejected", sessionID: gatewayTestID, denied: true},
+				{name: "Given a share for another session, when task methods are called, assert that reads and writes are rejected", sessionID: "12345678-1234-4234-8234-123456789abc"},
+				{name: "Given an expired share, when task methods are called, assert that reads and writes are rejected", storeErr: database.ErrNotFound, wantStatus: 403},
+				{name: "Given a failed share store, when task methods are called, assert that reads and writes are rejected", storeErr: errors.New("database credentials"), wantStatus: 500},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					store := &gatewayTestStore{session: gatewayTestSession(), task: &a2atype.Task{ID: "task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
@@ -521,7 +521,11 @@ func startCoreTestServer(t *testing.T, gateway a2asrv.RequestHandler, shares ses
 func TestEmbeddedPushAcrossTransports(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
 		for _, streaming := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/stream=%t", protocol, streaming), func(t *testing.T) {
+			action := "a message is sent"
+			if streaming {
+				action = "a message is streamed"
+			}
+			t.Run(fmt.Sprintf("Given %s transport, when %s with a push config and retried, assert that push is registered without redispatch", protocol, action), func(t *testing.T) {
 				store := &gatewayTestStore{created: map[string]*apiv1.Session{}}
 				runtime := &gatewayTestRuntime{}
 				runtime.onStream = func(req *a2atype.SendMessageRequest) {
@@ -597,7 +601,7 @@ func (d *denyAgentGetPolicy) Check(_ context.Context, _ auth.Principal, verb aut
 
 func TestGatewayNewConversationRequiresAgentAccessAcrossTransports(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
-		t.Run(string(protocol), func(t *testing.T) {
+		t.Run(fmt.Sprintf("Given %s transport and denied Agent access, when a conversation is started, assert that no session or runtime work is reserved", protocol), func(t *testing.T) {
 			store := &gatewayTestStore{created: map[string]*apiv1.Session{}}
 			policy := &denyAgentGetPolicy{}
 			dialer := &gatewayTestDialer{}
