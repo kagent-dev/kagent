@@ -327,7 +327,7 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 		// matching allowlist entry CanonicalAccess rejects the credential and
 		// the revision cannot be admitted.
 		if bedrock := modelConfig.Spec.Bedrock; bedrock != nil {
-			destinations = append(destinations, "https://bedrock-runtime."+bedrock.Region+".amazonaws.com:443")
+			destinations = append(destinations, models.BedrockRuntimeOrigin(bedrock.Region)+":443")
 		}
 	case v1alpha3.ModelProviderOllama:
 		// Ollama's endpoint is the provider's own field and is not part of the
