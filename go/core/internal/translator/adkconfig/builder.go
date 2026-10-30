@@ -320,6 +320,15 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
 			destinations = append(destinations, "https://api.mistral.ai:443")
 		}
+	case v1alpha3.ModelProviderBedrock:
+		// Bedrock's endpoint is derived from the region, which is not part of
+		// the serialized model, so the walk above never sees it. The bearer
+		// token is bound to this origin in CompileCredentials; without the
+		// matching allowlist entry CanonicalAccess rejects the credential and
+		// the revision cannot be admitted.
+		if bedrock := modelConfig.Spec.Bedrock; bedrock != nil {
+			destinations = append(destinations, models.BedrockRuntimeOrigin(bedrock.Region)+":443")
+		}
 	case v1alpha3.ModelProviderOllama:
 		// Ollama's endpoint is the provider's own field and is not part of the
 		// serialized model, so the walk above never sees it. Unlike the

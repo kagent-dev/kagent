@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -227,7 +228,7 @@ func (c *Compiler) compileProvider(ctx context.Context, resolved *translator.Res
 				environment = append(environment, secretEnvironment(awsSessionTokenEnv, secret.Name, awsSessionTokenEnv))
 			}
 		}
-		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"https://bedrock-runtime." + region + ".amazonaws.com:443"}, nil
+		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{models.BedrockRuntimeOrigin(region) + ":443"}, nil
 	default:
 		return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support ModelConfig provider %q", model.Spec.Provider)
 	}

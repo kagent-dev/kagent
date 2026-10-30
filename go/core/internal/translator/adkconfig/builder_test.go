@@ -278,6 +278,32 @@ func TestOllamaEgressDestination(t *testing.T) {
 	})
 }
 
+// TestBedrockEgressDestination covers the provider whose endpoint is derived
+// from the region on the ModelConfig's own Bedrock field rather than from the
+// serialized model. CompileCredentials binds the bearer token to that regional
+// runtime origin, so the origin has to be in the allowlist or CanonicalAccess
+// rejects the credential and the revision cannot be admitted.
+func TestBedrockEgressDestination(t *testing.T) {
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "bedrock", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderBedrock, Model: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			APIKeySecret: "bedrock-auth", APIKeySecretKey: env.AWSBearerTokenBedrock.Name(),
+			Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"},
+		},
+	}
+	collections := contextTestCollections(t, model)
+	result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+		&translator.HarnessInput{
+			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+			Root: &translator.AgentInput{
+				Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
+				ResolvedModelConfig: resolvedModel(t, collections, "bedrock"),
+			}})
+	require.NoError(t, err)
+	require.Contains(t, result.Egress, "https://bedrock-runtime.us-east-1.amazonaws.com:443")
+}
+
 func contextTestCollections(t *testing.T, models ...*v1alpha3.ModelConfig) translator.Collections {
 	t.Helper()
 	objects := make([]any, 0, 2*len(models))

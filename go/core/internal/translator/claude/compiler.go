@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -257,7 +258,7 @@ func (c *Compiler) provider(ctx context.Context, resolved *translator.ResolvedMo
 				environment = append(environment, secretEnvironment(claudeconfig.AWSSessionTokenEnvName, secret.Name, claudeconfig.AWSSessionTokenEnvName))
 			}
 		}
-		return environment, []string{"https://bedrock-runtime." + model.Spec.Bedrock.Region + ".amazonaws.com:443"}, nil
+		return environment, []string{models.BedrockRuntimeOrigin(model.Spec.Bedrock.Region) + ":443"}, nil
 
 	case v1alpha3.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil || strings.TrimSpace(model.Spec.AnthropicVertexAI.ProjectID) == "" || strings.TrimSpace(model.Spec.AnthropicVertexAI.Location) == "" {

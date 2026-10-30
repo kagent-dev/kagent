@@ -276,7 +276,7 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 	case v1alpha3.ModelProviderBedrock:
 		name, header, prefix = env.AWSBearerTokenBedrock.Name(), "authorization", "Bearer "
 		if spec.Bedrock != nil {
-			endpoint = fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", spec.Bedrock.Region)
+			endpoint = models.BedrockRuntimeOrigin(spec.Bedrock.Region)
 		}
 	case v1alpha3.ModelProviderOllama:
 		// Ollama Cloud is the only keyed Ollama endpoint, so a binding is
