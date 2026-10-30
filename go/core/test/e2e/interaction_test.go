@@ -22,7 +22,6 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
@@ -196,7 +195,7 @@ func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 			Answers: []kagenta2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 		})
 		reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-		response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Tenant: fixture.tenant, Message: reply})
+		response, err := sendResume(t, fixture, reply)
 		if err != nil {
 			t.Fatalf("resume A2A task: %v", err)
 		}
@@ -205,6 +204,23 @@ func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 			t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", response)
 		}
 	})
+}
+
+// sendResume answers a waiting task after its Actor was suspended. Waking the
+// Actor can fail before the runtime accepts the reply; the server then answers
+// KAGENT_SEND_NOT_ACCEPTED, and a client retries that send as it would any other.
+func sendResume(t *testing.T, fixture *interactionFixture, reply *a2atype.Message) (a2atype.SendMessageResult, error) {
+	t.Helper()
+	request, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatalf("build resume request: %v", err)
+	}
+	request.Tenant = fixture.tenant
+	response, err := sendMessageWithRetry(fixture.ctx, fixture.client, request)
+	if err != nil {
+		return nil, err
+	}
+	return pbconv.FromProtoSendMessageResponse(response)
 }
 
 func sendToolDecision(t *testing.T, fixture *interactionFixture, prompt, wantTool string, approved bool) *a2atype.Task {
@@ -242,7 +258,7 @@ func sendToolDecision(t *testing.T, fixture *interactionFixture, prompt, wantToo
 	}); err != nil {
 		t.Fatalf("attach tool approval response: %v", err)
 	}
-	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Tenant: fixture.tenant, Message: reply})
+	response, err := sendResume(t, fixture, reply)
 	if err != nil {
 		t.Fatalf("resume A2A task after tool approval: %v", err)
 	}
