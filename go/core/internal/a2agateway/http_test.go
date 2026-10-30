@@ -233,7 +233,7 @@ func TestHTTPAgentURLIsAuthoritative(t *testing.T) {
 	}
 }
 
-func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
+func TestGivenAPinnedAgentCardWhenDiscoveredOverHTTPAssertThatItRoutesThroughThePublicURL(t *testing.T) {
 	store := &gatewayTestStore{
 		session: gatewayTestSession(),
 		revision: &database.RuntimeRevision{AgentCard: &a2apb.AgentCard{
@@ -296,7 +296,7 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 	require.Equal(t, gatewayTestID, store.id)
 }
 
-func TestHTTPGatewayStreamingAndCancellation(t *testing.T) {
+func TestGivenHTTPTasksWhenStreamedAndCanceledAssertThatSettledStateIsReadable(t *testing.T) {
 	store := &gatewayTestStore{session: gatewayTestSession()}
 	server, runtime := newHTTPTestServer(t, store, &gatewayTestAuthorizer{}, nil)
 	client, err := a2aclient.NewFromEndpoints(t.Context(), []*a2atype.AgentInterface{
@@ -479,7 +479,7 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 	}
 }
 
-func TestHTTPGatewayMalformedJSONRPC(t *testing.T) {
+func TestGivenMalformedJSONRPCWhenPostedToTheGatewayAssertThatItReturnsAParseErrorWithoutSessionLookup(t *testing.T) {
 	store := &gatewayTestStore{}
 	handler := NewHTTPHandler(newTestGateway(store, &gatewayTestAuthorizer{}, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
 	request := httptest.NewRequest(http.MethodPost, HTTPPathPrefix+gatewayTestAgent, strings.NewReader(`{"jsonrpc":`))
