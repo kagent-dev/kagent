@@ -1,8 +1,10 @@
 import { Tag, Typography } from "antd";
+import { useMemo } from "react";
 import { useTheme } from "@emotion/react";
 import { ChevronRight, Wrench } from "lucide-react";
 import type { ChatDataPart } from "@/api";
 import { stableJson } from "./stableJson";
+import { splitToolImages, type ToolImage } from "./toolImages";
 
 const { Text } = Typography;
 
@@ -19,7 +21,16 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
   const isCall = part.dataKind === "tool_call";
   const wasNotRun = part.dataKind === "tool_not_run";
   const name = typeof part.data.name === "string" ? part.data.name : "tool";
-  const { body, failed } = describe(part);
+  /*
+   * Memoised because an image's `src` is its whole base64 payload, megabytes for a
+   * dashboard panel, and the card re-renders while the chat streams. `part` keeps
+   * its identity across streamed updates to other messages; only a history re-read
+   * (paused while a turn runs) hands over new objects.
+   */
+  const { body, failed, sources } = useMemo(() => {
+    const { images, ...rest } = describe(part);
+    return { ...rest, sources: images.map((image) => `data:${image.mimeType};base64,${image.data}`) };
+  }, [part]);
 
   return (
     <div
@@ -73,17 +84,33 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
       >
         {body}
       </pre>
+      {/* Not through markdown: react-markdown strips `data:` URIs. */}
+      {sources.map((src, index) => (
+        <img
+          key={index}
+          data-testid="chat-tool-image"
+          src={src}
+          alt={`${name} result image ${index + 1}`}
+          css={{
+            display: "block",
+            maxWidth: "100%",
+            maxHeight: 480,
+            borderRadius: theme.radius.sm,
+            border: `1px solid ${theme.color.border}`,
+          }}
+        />
+      ))}
     </div>
   );
 }
 
 /** Pulls the readable payload out of either shape, and notices a failure. */
-function describe(part: ChatDataPart): { body: string; failed: boolean } {
+function describe(part: ChatDataPart): { body: string; failed: boolean; images: ToolImage[] } {
   if (part.dataKind === "tool_call") {
-    return { body: stableJson(part.data.args ?? {}), failed: false };
+    return { body: stableJson(part.data.args ?? {}), failed: false, images: [] };
   }
   if (part.dataKind === "tool_not_run") {
-    return { body: "Permission was denied, so this tool was not run.", failed: false };
+    return { body: "Permission was denied, so this tool was not run.", failed: false, images: [] };
   }
 
   const response = part.data.response;
@@ -93,7 +120,8 @@ function describe(part: ChatDataPart): { body: string; failed: boolean } {
     // whole rather than reduced to `{}` — a tool that returned a page of text
     // should never be rendered as though it returned nothing, which is exactly
     // what happened when only one of these names was read.
-    const { output, result, isError, error } = response as {
+    const { images, rest } = splitToolImages(response as Record<string, unknown>);
+    const { output, result, isError, error } = rest as {
       output?: unknown;
       result?: unknown;
       isError?: unknown;
@@ -102,9 +130,10 @@ function describe(part: ChatDataPart): { body: string; failed: boolean } {
     const payload = output ?? result;
 
     return {
-      body: typeof payload === "string" ? payload : stableJson(payload ?? response),
+      body: typeof payload === "string" ? payload : stableJson(payload ?? rest),
       failed: isError === true || error !== undefined,
+      images,
     };
   }
-  return { body: stableJson(part.data), failed: false };
+  return { body: stableJson(part.data), failed: false, images: [] };
 }

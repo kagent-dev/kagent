@@ -10,6 +10,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
@@ -60,7 +61,7 @@ func keepFileName(p *genai.Part) {
 
 // genAIPartConverter lets the upstream executor own artifact construction
 // while preserving kagent's part filtering and long-running-tool metadata.
-func genAIPartConverter(_ context.Context, event *adksession.Event, part *genai.Part) (*a2atype.Part, error) {
+func genAIPartConverter(ctx context.Context, event *adksession.Event, part *genai.Part) (*a2atype.Part, error) {
 	converted, err := adka2a.ToA2APart(part, event.LongRunningToolIDs)
 	if err != nil {
 		return nil, err
@@ -68,7 +69,55 @@ func genAIPartConverter(_ context.Context, event *adksession.Event, part *genai.
 	if isEmptyDataPart(converted) {
 		return nil, nil
 	}
+	if part.FunctionResponse != nil {
+		addToolImages(ctx, converted, mcp.ToolCallKey{InvocationID: event.InvocationID, CallID: part.FunctionResponse.ID})
+	}
 	return converted, nil
+}
+
+// addToolImages puts the images an MCP tool call returned into its converted
+// function response, in place of the note the session keeps.
+func addToolImages(ctx context.Context, converted *a2atype.Part, call mcp.ToolCallKey) {
+	images := mcp.TakeToolImages(ctx, call)
+	response, ok := asDataPart(converted)[PartKeyResponse].(map[string]any)
+	if len(images) == 0 || !ok {
+		return
+	}
+	list := make([]any, len(images))
+	for i, image := range images {
+		list[i] = map[string]any{"mimeType": image.MIMEType, "data": image.Data}
+	}
+	response[mcp.ToolResultImagesKey] = list
+}
+
+// storedToolImageBytes returns the bytes the tool images already in task count
+// toward its image cap.
+func storedToolImageBytes(task *a2atype.Task) int {
+	if task == nil {
+		return 0
+	}
+	var parts []*a2atype.Part
+	if task.Status.Message != nil {
+		parts = append(parts, task.Status.Message.Parts...)
+	}
+	for _, artifact := range task.Artifacts {
+		parts = append(parts, artifact.Parts...)
+	}
+	for _, message := range task.History {
+		parts = append(parts, message.Parts...)
+	}
+	total := 0
+	for _, part := range parts {
+		response, _ := asDataPart(part)[PartKeyResponse].(map[string]any)
+		images, _ := response[mcp.ToolResultImagesKey].([]any)
+		for _, image := range images {
+			if image, ok := image.(map[string]any); ok {
+				data, _ := image["data"].(string)
+				total += mcp.ToolImageCost(data)
+			}
+		}
+	}
+	return total
 }
 
 // convertDataPartToGenAI converts a typed DataPart back to GenAI.
