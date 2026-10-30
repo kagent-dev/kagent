@@ -330,6 +330,8 @@ jobs:
       - name: Lint and generate protobuf contracts
         run: make proto-check
       - name: Check protobuf compatibility
+        env:
+          PROTO_BREAKING_BRANCH: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || 'origin/main' }}
         run: make proto-breaking
 
   semconv-check:
