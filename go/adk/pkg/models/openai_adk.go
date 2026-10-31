@@ -320,6 +320,11 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			}
 			messages = append(messages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
 			messages = append(messages, toolResponseMessages...)
+		} else if role == openAIRoleModel || role == openAIRoleAssistant {
+			// Chat Completions assistant messages accept only text content.
+			if len(textParts) > 0 {
+				messages = append(messages, openai.AssistantMessage(strings.Join(textParts, "\n")))
+			}
 		} else {
 			if len(imageParts) > 0 {
 				parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(textParts)+len(imageParts))
