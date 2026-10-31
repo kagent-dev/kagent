@@ -62,7 +62,7 @@ else
 endif
 
 KIND_CLUSTER_NAME ?= kagent
-KIND_IMAGE_VERSION ?= 1.35.0
+KIND_IMAGE_VERSION ?= 1.37.0
 # Written by use-kind-cluster. CLI installs use it so they always target the Kind
 # cluster, whatever the current kubectl context is.
 KIND_KUBECONFIG ?= /tmp/kind-config
