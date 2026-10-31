@@ -938,7 +938,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.0" },
     { name = "langgraph", specifier = ">=1.2.16" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.0" },
-    { name = "langsmith", extras = ["otel"], specifier = ">=0.14.11" },
+    { name = "langsmith", extras = ["otel"], specifier = ">=0.14.12" },
 ]
 
 [[package]]
@@ -1480,7 +1480,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.0" },
     { name = "langgraph", specifier = ">=1.2.16" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.0" },
-    { name = "langsmith", extras = ["otel"], specifier = ">=0.14.11" },
+    { name = "langsmith", extras = ["otel"], specifier = ">=0.14.12" },
 ]
 
 [[package]]
@@ -2054,7 +2054,7 @@ requires-dist = [
     { name = "kagent-core", extras = ["langgraph"], editable = "packages/kagent-core" },
     { name = "langchain-core", specifier = ">=0.3.0" },
     { name = "langgraph", specifier = ">=0.6.5" },
-    { name = "langsmith", extras = ["otel"], specifier = ">=0.14.11" },
+    { name = "langsmith", extras = ["otel"], specifier = ">=0.14.12" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
@@ -2369,7 +2369,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.14.11"
+version = "0.14.12"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2387,9 +2387,9 @@ dependencies = [
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/c3/a9a98d7adf573fdd5ea5c92cadbc26d7c597ab36f4dc31c093eb19507808/langsmith-0.14.11.tar.gz", hash = "sha256:d9e7ffe587e12ce51573cab654d02e84feb924d3b1f582274c4b1412ebeabf4c", size = 5020659, upload-time = "2026-10-16T07:16:56.865Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/f7/07a02241b6e6ed3df4e31a64ed09cb522c47227816da3d71097e7cf94657/langsmith-0.14.12.tar.gz", hash = "sha256:b4d6a24ed74333095da476803ad9d22ee35f9dae1052cebf1e366d3889a9b675", size = 5038994, upload-time = "2026-10-21T20:16:22.565Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/1d/b683b3d8777e625e021efeaaf72dc04f709be59e6a5f2d65725cebaedcfb/langsmith-0.14.11-py3-none-any.whl", hash = "sha256:9ecca7633df228ef2c44563f7187e426b8a79e7c5c2351c5dd8c9074c61512e7", size = 869018, upload-time = "2026-10-16T07:16:54.634Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/6c/33e2de8d8d809895263e4f24ef7619e5535e3ece7de863ffbe49c1b7a60d/langsmith-0.14.12-py3-none-any.whl", hash = "sha256:9dafba7f615afa77204dc8afbb9c803e4ba1b55e96249f12c8f9aafb23fae6d0", size = 883644, upload-time = "2026-10-21T20:16:20.039Z" },
 ]
 
 [package.optional-dependencies]
