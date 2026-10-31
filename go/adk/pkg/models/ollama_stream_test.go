@@ -80,3 +80,53 @@ func TestGenerateStreamingAggregatesToolCalls(t *testing.T) {
 		t.Errorf("expected location \"New York\", got %v", got)
 	}
 }
+
+// TestGenerateStreamingStopsWhenConsumerBreaks verifies that the streaming
+// iterator does not call yield again after the caller stops ranging over it.
+// Calling yield after it returned false makes the Go runtime panic.
+func TestGenerateStreamingStopsWhenConsumerBreaks(t *testing.T) {
+	chunks := []string{
+		`{"model":"llama3","message":{"role":"assistant","content":"Hel"},"done":false}`,
+		`{"model":"llama3","message":{"role":"assistant","content":"lo"},"done":false}`,
+		`{"model":"llama3","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}`,
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		for _, c := range chunks {
+			_, _ = w.Write([]byte(c + "\n"))
+		}
+	}))
+	defer srv.Close()
+
+	baseURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	m := &OllamaModel{
+		Config: &OllamaConfig{Model: "llama3"},
+		Client: api.NewClient(baseURL, http.DefaultClient),
+	}
+
+	req := &model.LLMRequest{
+		Contents: []*genai.Content{
+			{Role: "user", Parts: []*genai.Part{{Text: "hi"}}},
+		},
+	}
+
+	var got int
+	for resp, err := range m.GenerateContent(context.Background(), req, true) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Partial {
+			t.Fatalf("expected a partial response first, got %+v", resp)
+		}
+		got++
+		break
+	}
+	if got != 1 {
+		t.Fatalf("expected 1 response before stopping, got %d", got)
+	}
+}
