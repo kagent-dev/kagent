@@ -63,6 +63,7 @@ endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.37.0
+# Digest from the kind release notes for the kind version CI installs; kind requires it to guarantee a matching node image.
 KIND_IMAGE_DIGEST ?= sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
 # Written by use-kind-cluster. CLI installs use it so they always target the Kind
 # cluster, whatever the current kubectl context is.

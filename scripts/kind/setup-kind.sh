@@ -5,6 +5,7 @@ set -o pipefail
 
 KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-kagent}
 KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.37.0}
+# Set KIND_IMAGE_DIGEST to match when overriding KIND_IMAGE_VERSION, or to empty to use the tag alone.
 KIND_IMAGE_DIGEST=${KIND_IMAGE_DIGEST-sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5}
 
 # Auto-detect container runtime: prefer CONTAINER_RUNTIME env var,
