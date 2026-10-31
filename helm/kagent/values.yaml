@@ -659,6 +659,8 @@ ui:
 # https://kagent.dev/docs/getting-started/configuring-providers
 
 providers:
+  # Each provider can set `stream: false` to disable LLM response streaming.
+  # When omitted, ModelConfig uses its API default (true).
   default: openAI
   # -- Annotations added to the metadata of the generated default ModelConfig
   # (the one derived from `providers.default`). Omitted from the resource when empty.

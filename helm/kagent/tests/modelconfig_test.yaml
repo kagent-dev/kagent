@@ -2,6 +2,36 @@ suite: test modelconfig
 templates:
   - modelconfig.yaml
 tests:
+  - it: should preserve the API streaming default when unspecified
+    asserts:
+      - notExists:
+          path: spec.stream
+
+  - it: should preserve an explicit false streaming option
+    set:
+      providers.openAI.stream: false
+    asserts:
+      - equal:
+          path: spec.stream
+          value: false
+
+  - it: should preserve an explicit true streaming option
+    set:
+      providers.openAI.stream: true
+    asserts:
+      - equal:
+          path: spec.stream
+          value: true
+
+  - it: should use the selected provider streaming option
+    set:
+      providers.default: anthropic
+      providers.anthropic.stream: false
+    asserts:
+      - equal:
+          path: spec.stream
+          value: false
+
   - it: should render modelconfig with default provider
     asserts:
       - hasDocuments:
