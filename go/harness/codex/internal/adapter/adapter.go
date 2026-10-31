@@ -119,6 +119,8 @@ type nativeConfig struct {
 	ModelProviders map[string]nativeModelProvider `toml:"model_providers,omitempty"`
 	Agents         map[string]nativeAgent         `toml:"agents,omitempty"`
 	MCPServers     map[string]nativeMCPServer     `toml:"mcp_servers,omitempty"`
+	// Written even when zero, because Codex defaults to a 1s grace.
+	MCPOptionalStartupGraceMs uint64 `toml:"mcp_optional_startup_grace_ms"`
 }
 
 type nativeApprovalPolicy struct {
@@ -206,6 +208,9 @@ func renderConfig(cfg config.Config, codexHome string, disableRetries bool) ([]b
 		Analytics:  nativeAnalytics{Enabled: false},
 		Agents:     make(map[string]nativeAgent, len(cfg.Agents)),
 		MCPServers: make(map[string]nativeMCPServer, len(cfg.MCPServers)),
+		// Each turn starts a new App Server with no cached tool catalog, so any
+		// grace drops MCP servers that take longer than it to connect.
+		MCPOptionalStartupGraceMs: 0,
 	}
 	if cfg.Provider.Name == "openai" {
 		provider := nativeModelProvider{
