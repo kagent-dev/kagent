@@ -220,7 +220,7 @@ Follow the [OIDC deployment configuration](../docs/architecture/oidc-proxy-authe
 for provider credentials, callback URL, proxy ingress, and required network
 isolation. The trusted controller decodes claims without verifying signatures
 or expiry, so all public API, A2A, and MCP traffic must pass through the validating
-proxy and UI nginx.
+proxy and the UI proxy.
 
 #### Selecting a Substrate sandbox
 

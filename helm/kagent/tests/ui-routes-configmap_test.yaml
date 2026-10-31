@@ -1,0 +1,240 @@
+suite: test ui config configmap
+templates:
+  - ui-routes-configmap.yaml
+  - ui-configmap.yaml
+tests:
+  - it: preserves internal identity header forwarding in insecure mode
+    template: ui-routes-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["ui.json"]
+          pattern: '"x-agent-name": ""'
+      - notMatchRegex:
+          path: data["ui.json"]
+          pattern: '"x-user-id": ""'
+
+  - it: routes MCP to the controller without buffering
+    template: ui-routes-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/mcp"'
+
+  - it: serves public JWKS through the controller
+    template: ui-routes-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/\.well-known/jwks\.json"'
+
+  - it: strips internal agent identity headers in trusted proxy mode even if opted in
+    set:
+      config.server.auth.mode: trusted-proxy
+      ui.additionalForwardedHeaders: [X-Agent-Name, X-User-Id]
+    template: ui-routes-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"x-agent-name": ""'
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"x-user-id": ""'
+
+  - it: should render the unified UI ConfigMap
+    template: ui-routes-configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ui-config
+      - exists:
+          path: data["ui.json"]
+      - notExists:
+          path: data["nginx.conf"]
+
+  - it: should no longer ship a supervisord config
+    template: ui-routes-configmap.yaml
+    asserts:
+      - notExists:
+          path: data["supervisord.conf"]
+
+  - it: should only have IPv4 listen by default
+    template: ui-routes-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"listen": "0\.0\.0\.0:8080"'
+
+  - it: should add IPv6 listen when ipv6 is enabled
+    template: ui-routes-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"listen": ":8080"'
+
+  - it: should proxy api upstream to controller Cluster DNS
+    template: ui-routes-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/api/"'
+
+  # ---------------------------------------------------------------------------
+  # Static SPA serving
+  #
+  # The image serves the bundle, the SPA fallback, /health, env-config.js,
+  # index.html and the mock service worker refusal itself (ui/entrypoint/server_test.go).
+  # The route table only proxies, so none of those paths may reach the controller.
+  # ---------------------------------------------------------------------------
+  - it: should leave the bundle and the SPA fallback to the image
+    template: ui-routes-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["ui.json"]
+          pattern: '"path": "/"'
+      - notMatchRegex:
+          path: data["ui.json"]
+          pattern: '"path": "/(assets/|index\.html|env-config\.js|mockServiceWorker\.js|health)"'
+
+  - it: should drop the node upstream now that no server process runs
+    template: ui-routes-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["ui.json"]
+          pattern: '127\.0\.0\.1:8001'
+
+  # ---------------------------------------------------------------------------
+  # Streaming
+  # ---------------------------------------------------------------------------
+  - it: should route a2a to the backend, not the removed node server
+    template: ui-routes-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"backend": "http://RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083",(?s:[^}]*)\},\s+"path": "/a2a/"'
+
+  - it: should pass the stream timeouts to the UI proxy
+    template: ui-routes-configmap.yaml
+    set:
+      ui:
+        proxy:
+          readTimeout: 900s
+          sendTimeout: 800s
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"proxyReadTimeout": "900s"'
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"proxySendTimeout": "800s"'
+
+  # ---------------------------------------------------------------------------
+  # Identity header hygiene
+  #
+  # The UI proxy forwards every header, so auth-proxy identity headers are
+  # cleared unless opted in.
+  # ---------------------------------------------------------------------------
+  - it: should strip spoofable identity headers by default
+    template: ui-routes-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"x-auth-request-email": ""'
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"x-forwarded-email": ""'
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"x-forwarded-user": ""'
+
+  - it: should forward an identity header the operator opted into
+    template: ui-routes-configmap.yaml
+    set:
+      ui:
+        additionalForwardedHeaders:
+          - X-Forwarded-Email
+    asserts:
+      # Opted in, so no longer cleared...
+      - notMatchRegex:
+          path: data["ui.json"]
+          pattern: '"x-forwarded-email": ""'
+      # ...while the rest of the set stays stripped.
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"x-forwarded-user": ""'
+
+  # The entrypoint strips KAGENT_UI_BASE_PATH from every request before routing.
+  - it: should strip ui.basePath so an unstripped proxy still works
+    template: ui-configmap.yaml
+    set:
+      ui:
+        basePath: /my.ui/
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_BASE_PATH
+          value: /my.ui/
+
+  - it: should not rewrite paths without ui.basePath
+    template: ui-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.KAGENT_UI_BASE_PATH
+
+  - it: should not rewrite paths when ui.basePath is the root
+    template: ui-configmap.yaml
+    set:
+      ui:
+        basePath: /
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_BASE_PATH
+          value: /
+
+  - it: should set the body size limit by default
+    template: ui-routes-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"clientMaxBodySize": "20m"'
+
+  - it: should allow overriding the body size limit
+    template: ui-routes-configmap.yaml
+    set:
+      ui:
+        proxy:
+          maxBodySize: 200m
+    asserts:
+      - matchRegex:
+          path: data["ui.json"]
+          pattern: '"clientMaxBodySize": "200m"'
+
+  # Helm ignores a key no template reads, so a renamed value fails rather than going quiet.
+  - it: should name the replacement for ui.nginx.proxyReadTimeout
+    template: ui-routes-configmap.yaml
+    set:
+      ui.nginx.proxyReadTimeout: 900s
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.nginx.proxyReadTimeout has been renamed to ui.proxy.readTimeout.
+
+  - it: should name the replacement for ui.nginx.proxySendTimeout
+    template: ui-routes-configmap.yaml
+    set:
+      ui.nginx.proxySendTimeout: 900s
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.nginx.proxySendTimeout has been renamed to ui.proxy.sendTimeout.
+
+  - it: should name the replacement for ui.nginx.clientMaxBodySize
+    template: ui-routes-configmap.yaml
+    set:
+      ui.nginx.clientMaxBodySize: 50m
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.nginx.clientMaxBodySize has been renamed to ui.proxy.maxBodySize.

@@ -40,11 +40,11 @@ looked like a broken backend rather than a missing forward, since the page loade
 and every read failed with `ECONNREFUSED 127.0.0.1:8083`.
 
 Setting that line is still worth doing when what you want to exercise is the proxy hop
-itself: at `8080` the dev server goes through the UI pod's nginx exactly as a deployed
+itself: at `8080` the dev server goes through the UI pod's proxy exactly as a deployed
 build does, rather than straight to the controller.
 
 Worth knowing which one you are looking at: the dev server does not exercise the
-Dockerfile, nginx, or `ui/entrypoint` rendering settings at start. To see a change
+Dockerfile or the `ui/entrypoint` server and its settings rendering at start. To see a change
 the way it will ship, rebuild the image and swap it in:
 
 ```sh

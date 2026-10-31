@@ -6,7 +6,7 @@
 
 # -- Enable IPv6/dual-stack support.
 # When true, configures all components for dual-stack (IPv4+IPv6) networking:
-#   - nginx listens on both IPv4 and IPv6 (adds `listen [::]:8080`)
+#   - the UI listens on both IPv4 and IPv6
 #   - Next.js binds to `::` instead of `0.0.0.0`
 #   - Agent pods bind to `::` for dual-stack reachability
 # Leave disabled on clusters where IPv6 is disabled at the kernel level.
@@ -474,31 +474,31 @@ ui:
     ssoRedirectPath: "/oauth2/start"
   # -- Client-side chat stream inactivity timeout (seconds). The browser aborts a
   # streaming response if no event is received within this window. Should be >=
-  # ui.nginx.proxyReadTimeout so nginx isn't the silent limit. Default 1800 (30m).
+  # ui.proxy.readTimeout so the UI proxy isn't the silent limit. Default 1800 (30m).
   streamTimeoutSeconds: 1800
-  # -- Nginx configuration for the UI sidecar (timeout values are passed directly
-  # to the corresponding nginx directives, e.g. "1800s").
-  nginx:
-    # -- proxy_read_timeout: max time between two successive reads from the upstream.
-    proxyReadTimeout: 1800s
-    # -- proxy_send_timeout: max time between two successive writes to the upstream.
-    proxySendTimeout: 1800s
-    # -- client_max_body_size: max request body size (0 disables it). Just above the
-    # gateway's 16 MiB gRPC cap, which chat attachments hit first.
-    clientMaxBodySize: 20m
+  # -- UI proxy settings. Times take a unit such as "1800s" or "30m" (a bare
+  # number is seconds); sizes take k, m or g, such as "20m".
+  proxy:
+    # -- Max time between two successive reads from the controller.
+    readTimeout: 1800s
+    # -- Max time between two successive writes to the controller.
+    sendTimeout: 1800s
+    # -- Max request body size (0 disables it). Just above the gateway's 16 MiB
+    # gRPC cap, which chat attachments hit first.
+    maxBodySize: 20m
   # -- Extra environment variables for the UI container, applied after ConfigMap
   # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
   # expansion. An installed app extension's settings go here, named
   # `KAGENT_UI_EXTENSION_*`; the container's entrypoint copies
   # those onto `window.environmentVariables` for the browser to read.
   env: []
-  # -- Identity headers the UI's nginx proxy will forward to the backend on
+  # -- Identity headers the UI proxy will forward to the backend on
   # /api/, /a2a/, and /mcp. Names are case-insensitive. Authorization is always
   # forwarded; the auth-proxy identity headers (x-auth-request-*, x-forwarded-user,
   # x-forwarded-email, x-forwarded-groups, x-forwarded-preferred-username) are
   # stripped from client requests unless listed here, so a caller cannot spoof
   # an identity the backend trusts. Headers outside that set are forwarded by
-  # nginx as normal. In trusted-proxy mode, X-Agent-Name and X-User-Id are
+  # the UI proxy as normal. In trusted-proxy mode, X-Agent-Name and X-User-Id are
   # always stripped, even if listed here.
   additionalForwardedHeaders: []
   # Example:
@@ -509,7 +509,7 @@ ui:
   # runtime as the `apiBaseUrl` key of /config.json, which the app fetches on
   # startup — it is deliberately not baked into the bundle, so changing it here
   # takes effect on pod restart rather than requiring an image rebuild.
-  # The default is a path on the UI's own hostname, which nginx proxies to the
+  # The default is a path on the UI's own hostname, which the UI proxy sends to the
   # controller; set an absolute URL only if the browser must reach the API
   # somewhere other than the UI origin.
   publicBackendUrl: "/api"
@@ -526,8 +526,8 @@ ui:
   #   readOnlyRootFilesystem: true
   # -- EmptyDir volume sizes for the UI workload (typically used when enabling readOnlyRootFilesystem)
   volumes:
-    # -- Size limit for temporary files (/tmp). Holds the nginx temp directories
-    # and the generated config.json. Default 50Mi is ample for both.
+    # -- Size limit for temporary files (/tmp). Holds the generated env-config.js
+    # and index.html. Default 50Mi is ample.
     tmp: 50Mi
   # capabilities:
   #   drop:

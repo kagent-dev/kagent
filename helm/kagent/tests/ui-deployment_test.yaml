@@ -2,7 +2,7 @@ suite: test ui deployment
 templates:
   - ui-configmap.yaml
   - ui-deployment.yaml
-  - ui-nginx-configmap.yaml
+  - ui-routes-configmap.yaml
 tests:
   - it: loads browser settings from the ConfigMap and rolls out on changes
     template: ui-deployment.yaml
@@ -243,7 +243,7 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
 
-  - it: should mount the ui-config ConfigMap for nginx
+  - it: should mount the ui-config ConfigMap for the UI server
     template: ui-deployment.yaml
     asserts:
       - contains:
@@ -256,11 +256,11 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: ui-config
-            mountPath: /etc/nginx/nginx.conf
-            subPath: nginx.conf
+            mountPath: /etc/kagent/ui.json
+            subPath: ui.json
             readOnly: true
 
-  - it: should not mount a supervisord config now that nginx runs as PID 1
+  - it: should not mount a supervisord config now that the entrypoint runs as PID 1
     template: ui-deployment.yaml
     asserts:
       - notContains:
@@ -414,14 +414,14 @@ tests:
       - failedTemplate:
           errorMessage: ui.basePath must be a path like /ui
 
-  - it: should reject a ui.basePath that starts with a path nginx serves
+  - it: should reject a ui.basePath that starts with a path the UI serves
     template: ui-deployment.yaml
     set:
       ui:
         basePath: /assets/ui
     asserts:
       - failedTemplate:
-          errorMessage: ui.basePath cannot start with a path nginx serves, such as /api or /assets
+          errorMessage: ui.basePath cannot start with a path the UI serves, such as /api or /assets
 
   - it: should accept a ui.basePath that only shares a prefix with a served path
     template: ui-configmap.yaml

@@ -8,7 +8,7 @@ templates:
   # resolve the Deployment's checksum includes.
   - ui-deployment.yaml
   - ui-configmap.yaml
-  - ui-nginx-configmap.yaml
+  - ui-routes-configmap.yaml
 tests:
   - it: should override every image registry from global.imageRegistry
     set:

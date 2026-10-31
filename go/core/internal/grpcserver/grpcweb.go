@@ -25,7 +25,7 @@ import (
 func (s *Server) WebHandler() *grpcweb.WrappedGrpcServer {
 	return grpcweb.WrapServer(s.server,
 		// The UI is served from the same origin as this API in every deployment
-		// the chart produces — nginx proxies /api to the controller — so no
+		// the chart produces — the UI proxy sends /api to the controller — so no
 		// cross-origin allowance is granted here. A deployment that genuinely
 		// serves the two from different origins configures that on its ingress,
 		// where the rest of its CORS policy already lives, rather than having
@@ -44,7 +44,7 @@ func (s *Server) WebHandler() *grpcweb.WrappedGrpcServer {
 // Requests are told apart by content type rather than by path, so the service
 // names never have to be restated. And a leading `/api` is stripped, because the
 // wrapper matches the gRPC path a generated client sends —
-// `/<package>.<Service>/<Method>` — while the chart's nginx serves the whole API
+// `/<package>.<Service>/<Method>` — while the UI proxy serves the whole API
 // under /api on the UI's own origin. That prefix is where a same-origin browser
 // has to address it from and nowhere the wrapper can be told about.
 func (s *Server) HandlerOr(next http.Handler) http.Handler {

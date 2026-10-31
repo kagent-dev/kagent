@@ -1,15 +1,15 @@
 // Command entrypoint is the UI image's entrypoint: it renders the browser settings
-// from the environment into env-config.js, sets <base href>, then execs nginx.
+// from the environment into env-config.js, sets <base href>, then serves the UI and proxies the API.
 package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
-	"syscall"
+	"time"
 )
 
 // Keep in sync with the ui.basePath check in helm/kagent/templates/ui-configmap.yaml.
@@ -21,23 +21,23 @@ var (
 )
 
 func main() {
-	// /tmp is an empty volume under a read-only root filesystem, so nginx's temp dirs are made on every start.
-	for _, dir := range []string{"client_temp", "proxy_temp", "fastcgi_temp", "uwsgi_temp", "scgi_temp"} {
-		must(os.MkdirAll("/tmp/nginx/"+dir, 0o755))
-	}
+	// /tmp is an empty volume under a read-only root filesystem.
 	must(os.MkdirAll("/tmp/kagent", 0o755))
 
 	config, basePath := render(os.Environ())
 	must(os.WriteFile("/tmp/kagent/env-config.js", []byte(config), 0o644))
 
-	html, err := os.ReadFile("/usr/share/nginx/html/index.html")
+	html, err := os.ReadFile("/app/html/index.html")
 	must(err)
 	html = setBaseHref(html, basePath)
 	must(os.WriteFile("/tmp/kagent/index.html", html, 0o644))
 
-	nginx, err := exec.LookPath("nginx")
+	cfg, err := loadConfig("/etc/kagent/ui.json")
 	must(err)
-	must(syscall.Exec(nginx, []string{"nginx", "-g", "daemon off;"}, os.Environ()))
+	handler, err := newHandler(cfg, "/app/html", "/tmp/kagent", basePath)
+	must(err)
+	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: time.Minute, IdleTimeout: 75 * time.Second}
+	must(server.ListenAndServe())
 }
 
 // render returns env-config.js for the given environment, and the validated base path.
@@ -62,7 +62,7 @@ func render(environ []string) (string, string) {
 
 	basePath := strings.TrimSuffix(get("KAGENT_UI_BASE_PATH", ""), "/")
 	if !basePathRe.MatchString(basePath) || dotSegmentRe.MatchString(basePath) || reservedPathRe.MatchString(basePath) {
-		fmt.Fprintf(os.Stderr, "entrypoint: KAGENT_UI_BASE_PATH='%s' is not a path like /ui, or starts with a path nginx serves; serving at the root\n", basePath)
+		fmt.Fprintf(os.Stderr, "entrypoint: KAGENT_UI_BASE_PATH='%s' is not a path like /ui, or starts with a path the UI serves; serving at the root\n", basePath)
 		basePath = ""
 	}
 	// A non-numeric timeout would abort every chat stream at once, so fall back instead.
