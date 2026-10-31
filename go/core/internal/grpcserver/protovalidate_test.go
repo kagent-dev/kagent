@@ -129,6 +129,9 @@ func TestAgentRequestValidation(t *testing.T) {
 	}{
 		{"list", &apiv1.ListAgentsRequest{Namespace: "team-a"}, true},
 		{"list every namespace", &apiv1.ListAgentsRequest{}, true},
+		{"tool server catalog", &apiv1.ListToolServersRequest{}, true},
+		{"tool server references", &apiv1.ListToolServersRequest{ReferenceNamespace: "team-a"}, true},
+		{"invalid tool server reference namespace", &apiv1.ListToolServersRequest{ReferenceNamespace: "team/a"}, false},
 		{"list page", &apiv1.ListAgentsRequest{Page: &apiv1.PageRequest{Limit: 100, PageToken: "token"}}, true},
 		{"list page over the limit", &apiv1.ListAgentsRequest{Page: &apiv1.PageRequest{Limit: 101}}, false},
 		{"template list every namespace", &apiv1.ListAgentTemplatesRequest{}, true},

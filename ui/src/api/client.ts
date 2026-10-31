@@ -79,7 +79,7 @@ export interface ModelsApi {
 }
 
 export interface McpServersApi {
-  list(options?: ReadOptions): Promise<ToolServerResponse[]>;
+  list(options?: ReadOptions & { referenceNamespace?: string }): Promise<ToolServerResponse[]>;
   /** Every discovered tool, flattened across servers. */
   tools(options?: ReadOptions): Promise<ToolsResponse[]>;
   create(payload: ToolServerCreateRequest): Promise<ToolServerResponse>;
@@ -287,7 +287,7 @@ export function createApiClient(): KagentApiClient {
     },
 
     mcpServers: {
-      list: (options) => invoke("mcpServers.list", {}, options).then(sortedByRef),
+      list: (options) => invoke("mcpServers.list", { referenceNamespace: options?.referenceNamespace }, options).then(sortedByRef),
       tools: (options) => invoke("tools.list", {}, options),
       create: (payload) => invoke("mcpServers.create", { payload }),
       remove: (namespace, name) => invoke("mcpServers.delete", { namespace, name }),

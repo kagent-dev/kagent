@@ -137,7 +137,7 @@ export interface OperationMap {
   "models.providers": { input: NoInput; output: Provider[] };
   "models.providerModels": { input: NoInput; output: ProviderModelsResponse };
 
-  "mcpServers.list": { input: NoInput; output: ToolServerResponse[] };
+  "mcpServers.list": { input: { referenceNamespace?: string }; output: ToolServerResponse[] };
   "mcpServers.create": {
     input: { payload: ToolServerCreateRequest };
     output: ToolServerResponse;

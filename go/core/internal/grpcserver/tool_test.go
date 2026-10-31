@@ -124,7 +124,7 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	}
 	authorizer := &toolGRPCAuthorizer{}
 	mcpClient := &toolGRPCMCPClient{}
-	service := toolservice.NewService(kubeClient, store, authorizer, "default", mcpClient)
+	service := toolservice.NewService(kubeClient, kubeClient, store, authorizer, "default", mcpClient)
 	toolClient, cleanup := newToolGRPCClient(t, service)
 	defer cleanup()
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "tool-user"))
@@ -202,6 +202,22 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	}
 	if authorizer.lastVerb() != pkgAuth.VerbCreate {
 		t.Fatalf("CreateToolServer() authorization verb = %q, want create", authorizer.lastVerb())
+	}
+
+	for _, test := range []struct {
+		namespace string
+		want      int
+	}{
+		{namespace: "default", want: 1},
+		{namespace: "other", want: 0},
+	} {
+		listed, err := toolClient.ListToolServers(ctx, &apiv1.ListToolServersRequest{ReferenceNamespace: test.namespace})
+		if err != nil {
+			t.Fatalf("ListToolServers(reference_namespace=%q): %v", test.namespace, err)
+		}
+		if len(listed.GetToolServers()) != test.want {
+			t.Fatalf("ListToolServers(reference_namespace=%q) = %+v, want %d servers", test.namespace, listed.GetToolServers(), test.want)
+		}
 	}
 
 	_, err = toolClient.CreateToolServer(ctx, &apiv1.CreateToolServerRequest{

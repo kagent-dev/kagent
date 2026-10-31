@@ -169,7 +169,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
                 setNamespace(value);
                 setTemplateRef(undefined);
                 setHarnessRef(undefined);
-                setTemplateDraft({ ...templateDraft, modelConfig: undefined, subAgentTools: [] });
+                setTemplateDraft({ ...templateDraft, modelConfig: undefined, mcpTools: [], subAgentTools: [] });
               }}
               options={(namespaces.data ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
             />
