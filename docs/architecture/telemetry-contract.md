@@ -353,7 +353,7 @@ Refines `gen_ai.client.inference`, kind `client`. One model request of a harness
 
 ### `kagent.invoke_agent.internal`
 
-Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment of a kagent agent. Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`. Usage and finish reasons are only on inference spans, so they are opt-in here and never set.
+Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment of a kagent agent. Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own, or a native harness whose GenAI spans the kagent harness runtime writes. Claude Code still marks its `claude_code.interaction` span invoke_agent, as a child of this one; the reference collector removes that operation from native spans, and a consumer counts turns by `kagent.invocation.segment` either way. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`. Usage and finish reasons are only on inference spans, so they are opt-in here and never set.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
