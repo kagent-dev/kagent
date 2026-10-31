@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 )
 
 // fakeToolContext is a minimal agent.Context for directly invoking tools in
@@ -382,4 +385,48 @@ func TestBuiltinToolsWithoutSkills(t *testing.T) {
 	if got := runTool(t, byName["read_file"], ctx, map[string]any{"file_path": outside}); !strings.Contains(got, "absolute") {
 		t.Fatal(got)
 	}
+}
+
+func TestBuiltinToolsWorkInTheTurnsDirectory(t *testing.T) {
+	workspace, directory := t.TempDir(), t.TempDir()
+	tools, err := NewBuiltinTools(BuiltinToolsConfig{Workspace: workspace})
+	if err != nil {
+		t.Fatalf("NewBuiltinTools() error = %v", err)
+	}
+	byName := map[string]tool.Tool{}
+	for _, tl := range tools {
+		byName[tl.Name()] = tl
+	}
+	for _, tt := range []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{"a turn with a directory", turn.WithDirectory(t.Context(), directory), directory},
+		{"a turn without one", t.Context(), workspace},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &fakeToolContext{StrictContextMock: adkagent.NewStrictContextMock(tt.ctx), sessionID: "s"}
+			if got := strings.TrimSpace(runTool(t, byName["bash"], ctx, map[string]any{"command": "pwd -P"})); got != mustEvalSymlinks(t, tt.want) {
+				t.Errorf("bash ran in %q, want %q", got, tt.want)
+			}
+			runTool(t, byName["write_file"], ctx, map[string]any{"file_path": "notes.txt", "content": tt.name})
+			content, err := os.ReadFile(filepath.Join(tt.want, "notes.txt"))
+			if err != nil || string(content) != tt.name {
+				t.Errorf("write_file wrote %q, %v in %q; want %q", content, err, tt.want, tt.name)
+			}
+			if got := runTool(t, byName["read_file"], ctx, map[string]any{"file_path": "notes.txt"}); !strings.Contains(got, tt.name) {
+				t.Errorf("read_file = %q, want the file in %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func mustEvalSymlinks(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }

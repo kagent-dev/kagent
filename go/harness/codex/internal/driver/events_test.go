@@ -23,6 +23,7 @@ func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
 	s.sessions = append(s.sessions, event)
 	return nil
 }
+func (*recordingSink) Notice(runtime.Notice) error { return nil }
 func (s *recordingSink) TextDelta(event runtime.TextDelta) error {
 	s.text.WriteString(event.Text)
 	return nil

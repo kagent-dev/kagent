@@ -298,10 +298,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		// Run our own session management before upstream executor runs its prepareSession function.
 		// This ensures that we create a session that contains metadata like x-kagent-source,
 		// and the upstream executor will find this session already exists and skip creation.
-		if err := e.ensureSession(ctx, reqCtx.Message, userID, sessionID); err != nil {
+		returning, err := e.ensureSession(ctx, reqCtx.Message, userID, sessionID)
+		if err != nil {
 			yield(nil, err)
 			return
 		}
+		ctx, notice := e.prepareTurnDirectory(ctx, resumed, returning)
 
 		hitlActivated := HitlActivated(ctx)
 		if hitlActivated && IsHITLResponse(reqCtx.Message) {
@@ -347,6 +349,13 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				update.Status.Message = BuildHITLStatusMessage(update.Status.Message, hitlActivated)
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
+			}
+			// The workspace setup's notice is the turn's first status message.
+			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && notice != "" &&
+				update.Status.State == a2atype.TaskStateWorking && update.Status.Message == nil {
+				update.Status.Message = a2atype.NewMessageForTask(a2atype.MessageRoleAgent, update, a2atype.NewTextPart(notice))
+				update.Status.Message.SetMeta(apia2a.NoticeMetadataKey, apia2a.WorkspaceSetupNotice)
+				notice = ""
 			}
 			// Status messages are outbound timeline items regardless of whether they
 			// represent HITL, validation failures, or another runtime status.
@@ -429,15 +438,17 @@ func (e *KAgentExecutor) flushTurnSpans(ctx context.Context) {
 
 // ensureSession ensures that a session exists for the given user and session ID.
 // If a session does not exist, it creates a new session with the given user and session ID.
-func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Message, userID, sessionID string) error {
+// It reports whether the session is returning: it existed with the events of
+// earlier turns.
+func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Message, userID, sessionID string) (bool, error) {
 	if e.sessionService == nil {
-		return nil
+		return false, nil
 	}
 	resp, err := e.sessionService.Get(ctx, &adksession.GetRequest{
 		AppName: e.appName, UserID: userID, SessionID: sessionID,
 	})
 	if err == nil && resp != nil && resp.Session != nil {
-		return nil
+		return resp.Session.Events().Len() > 0, nil
 	}
 	if err != nil {
 		e.logger.DebugContext(ctx, "session lookup failed, will create", "error", err, "session_id", sessionID)
@@ -457,9 +468,9 @@ func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Mes
 	if _, err := e.sessionService.Create(ctx, &adksession.CreateRequest{
 		AppName: e.appName, UserID: userID, State: state, SessionID: sessionID,
 	}); err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return false, fmt.Errorf("failed to create session: %w", err)
 	}
-	return nil
+	return false, nil
 }
 
 // Cancel delegates cancellation to the upstream executor.
