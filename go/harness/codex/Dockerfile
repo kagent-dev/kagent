@@ -42,7 +42,8 @@ RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc
 COPY --from=builder /kagent-codex /usr/local/bin/kagent-codex
 
 USER 65532:65532
-WORKDIR /data/workspace
+# The adapter creates its workspace after the durable /data volume is mounted.
+WORKDIR /data
 EXPOSE 80 8081
 
 LABEL org.opencontainers.image.source="https://github.com/kagent-dev/kagent"

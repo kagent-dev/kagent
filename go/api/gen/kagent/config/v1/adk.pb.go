@@ -1265,8 +1265,10 @@ func (x *ADKOllama) GetOptions() map[string]string {
 type ADKGemini struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	MaxOutputTokens *int64                 `protobuf:"varint,1,opt,name=max_output_tokens,json=maxOutputTokens,proto3,oneof" json:"max_output_tokens,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Complete API prefix; custom endpoints do not add an SDK API version.
+	BaseUrl       string `protobuf:"bytes,2,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ADKGemini) Reset() {
@@ -1304,6 +1306,13 @@ func (x *ADKGemini) GetMaxOutputTokens() int64 {
 		return *x.MaxOutputTokens
 	}
 	return 0
+}
+
+func (x *ADKGemini) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
 }
 
 type ADKBedrock struct {
@@ -3166,10 +3175,11 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\aoptions\x18\x01 \x03(\v2(.kagent.config.v1.ADKOllama.OptionsEntryR\aoptions\x1a:\n" +
 	"\fOptionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"a\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"|\n" +
 	"\tADKGemini\x12>\n" +
 	"\x11max_output_tokens\x18\x01 \x01(\x03B\r\xbaH\n" +
-	"\"\b\x18\xff\xff\xff\xff\a(\x01H\x00R\x0fmaxOutputTokens\x88\x01\x01B\x14\n" +
+	"\"\b\x18\xff\xff\xff\xff\a(\x01H\x00R\x0fmaxOutputTokens\x88\x01\x01\x12\x19\n" +
+	"\bbase_url\x18\x02 \x01(\tR\abaseUrlB\x14\n" +
 	"\x12_max_output_tokens\"\xab\x03\n" +
 	"\n" +
 	"ADKBedrock\x12\x16\n" +

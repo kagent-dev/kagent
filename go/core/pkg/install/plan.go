@@ -110,7 +110,7 @@ func planInstall(ctx context.Context, runner Runner, cfg Config) (Plan, error) {
 config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
-    routerUrl: http://atenet-router.ate-system.svc:80
+    routerUrl: https://atenet-router.ate-system.svc:443
 ` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
 	if !cfg.SkipDatabaseSetup {
 		kagent.Values = append(kagent.Values, "database.postgres.clientCertificate.enabled=true")
@@ -201,6 +201,7 @@ func postgresClientValues(namespace, serviceAccount string, includeBundledPostgr
 }
 
 func substrateInstallValues(namespace, serviceAccount string) string {
+	controllerIdentity := strconv.Quote("spiffe://cluster.local/ns/" + namespace + "/sa/" + serviceAccount)
 	return fmt.Sprintf(`preview:
   - PerTemplateSnapshotLocation
 ateApi:
@@ -208,11 +209,14 @@ ateApi:
     bootstrapOwners:
       - %s
       - "system:serviceaccount:ate-system:ate-client"
+atenetRouter:
+  ingressAllowedSPIFFEIDs:
+    - %s
 credentialProvider:
   namespacePolicies:
     - atespace: %s
       allowedNamespaces: [%s]
-`, strconv.Quote("spiffe://cluster.local/ns/"+namespace+"/sa/"+serviceAccount), strconv.Quote(namespace), strconv.Quote(namespace))
+`, controllerIdentity, controllerIdentity, strconv.Quote(namespace), strconv.Quote(namespace))
 }
 
 func clonePostgres(p Postgres) Postgres {

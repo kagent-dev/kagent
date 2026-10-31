@@ -209,6 +209,8 @@ message ADKGemini {
     gte: 1
     lte: 2147483647
   }];
+  // Complete API prefix; custom endpoints do not add an SDK API version.
+  string base_url = 2;
 }
 message ADKBedrock {
   string region = 1;

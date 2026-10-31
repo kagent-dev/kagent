@@ -355,20 +355,13 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 		if apiKey == "" {
 			apiKey = env.GeminiAPIKey.Get()
 		}
-		if apiKey == "" {
-			return nil, fmt.Errorf("gemini model requires GOOGLE_API_KEY or GEMINI_API_KEY environment variable")
-		}
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m, nil))
-		if err != nil {
-			return nil, fmt.Errorf("failed to build HTTP client for Gemini: %w", err)
-		}
-		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
-			APIKey:     apiKey,
-			HTTPClient: httpClient,
+		return models.NewGeminiModel(ctx, models.GeminiConfig{
+			TransportConfig: transportConfigFromBase(m, nil),
+			Model:           modelName, APIKey: apiKey, BaseURL: p.Gemini.BaseUrl,
 		})
 
 	case *configv1.ADKModelConfig_GeminiVertexAi:

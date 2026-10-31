@@ -480,6 +480,15 @@ spec:
               gemini:
                 description: Gemini-specific configuration
                 properties:
+                  baseUrl:
+                    description: |-
+                      BaseURL is the complete API prefix for a custom Gemini endpoint, including
+                      any required version (for example, https://gateway.example.com/team/v1).
+                      The client appends /models/{model}:generateContent or its streaming equivalent.
+                      Authentication for custom endpoints uses apiKeySecret or actorJwt, when configured.
+                    minLength: 1
+                    pattern: ^https?://[^/?#@ ]+(/[^?# ]*)?$
+                    type: string
                   maxOutputTokens:
                     description: Maximum output tokens to generate for a single response
                     minimum: 1
@@ -737,8 +746,8 @@ spec:
               rule: '!has(self.actorJwt) || self.provider != ''Bedrock'''
             - message: actorJwt requires a provider with a configurable endpoint and
                 header credentials
-              rule: '!has(self.actorJwt) || !(self.provider in [''Gemini'', ''Ollama'',
-                ''GeminiVertexAI'', ''AnthropicVertexAI'', ''SAPAICore''])'
+              rule: '!has(self.actorJwt) || (!(self.provider in [''Ollama'', ''GeminiVertexAI'',
+                ''AnthropicVertexAI'', ''SAPAICore'']))'
             - message: at most one of the fields in [actorJwt apiKeySecret tokenPassthrough]
                 may be set
               rule: (has(self.actorJwt)?1:0)+(has(self.apiKeySecret)?1:0)+(has(self.tokenPassthrough)?1:0)

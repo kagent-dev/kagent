@@ -370,17 +370,19 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 
 		return ollama, modelDeploymentData, nil
 	case v1alpha3.ModelProviderGemini:
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name: env.GoogleAPIKey.Name(),
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: model.Spec.APIKeySecret,
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.GoogleAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
 					},
-					Key: model.Spec.APIKeySecretKey,
 				},
-			},
-		})
+			})
+		}
 		gemini := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
@@ -388,6 +390,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(gemini, model.Spec.TLS)
+		if model.Spec.Gemini != nil {
+			gemini.GetGemini().BaseUrl = ptr.Deref(model.Spec.Gemini.BaseURL, "")
+		}
+		gemini.Headers = translator.ModelCredentialHeaders(resolved)
 		if model.Spec.Gemini != nil && model.Spec.Gemini.MaxOutputTokens > 0 {
 			gemini.GetGemini().MaxOutputTokens = runtimeInt(&model.Spec.Gemini.MaxOutputTokens)
 		}

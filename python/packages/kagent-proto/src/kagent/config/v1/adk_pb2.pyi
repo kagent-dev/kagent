@@ -238,10 +238,12 @@ class ADKOllama(_message.Message):
     def __init__(self, options: _Optional[_Mapping[str, str]] = ...) -> None: ...
 
 class ADKGemini(_message.Message):
-    __slots__ = ("max_output_tokens",)
+    __slots__ = ("max_output_tokens", "base_url")
     MAX_OUTPUT_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    BASE_URL_FIELD_NUMBER: _ClassVar[int]
     max_output_tokens: int
-    def __init__(self, max_output_tokens: _Optional[int] = ...) -> None: ...
+    base_url: str
+    def __init__(self, max_output_tokens: _Optional[int] = ..., base_url: _Optional[str] = ...) -> None: ...
 
 class ADKBedrock(_message.Message):
     __slots__ = ("region", "additional_model_request_fields", "prompt_caching", "cache_ttl", "guardrail", "read_timeout", "connect_timeout")

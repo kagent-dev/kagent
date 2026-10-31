@@ -353,6 +353,15 @@ type OllamaConfig struct {
 
 // GeminiConfig contains Gemini (AI Studio, API-key) specific configuration options
 type GeminiConfig struct {
+	// BaseURL is the complete API prefix for a custom Gemini endpoint, including
+	// any required version (for example, https://gateway.example.com/team/v1).
+	// The client appends /models/{model}:generateContent or its streaming equivalent.
+	// Authentication for custom endpoints uses apiKeySecret or actorJwt, when configured.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^https?://[^/?#@ ]+(/[^?# ]*)?$`
+	BaseURL *string `json:"baseUrl,omitempty"`
+
 	// Maximum output tokens to generate for a single response
 	// +optional
 	// +kubebuilder:validation:Minimum=1
@@ -574,7 +583,7 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="tokenPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
 // +kubebuilder:validation:AtMostOneOf=actorJwt;apiKeySecret;tokenPassthrough
 // +kubebuilder:validation:XValidation:message="Bedrock requires AWS credentials and does not support actorJwt",rule="!has(self.actorJwt) || self.provider != 'Bedrock'"
-// +kubebuilder:validation:XValidation:message="actorJwt requires a provider with a configurable endpoint and header credentials",rule="!has(self.actorJwt) || !(self.provider in ['Gemini', 'Ollama', 'GeminiVertexAI', 'AnthropicVertexAI', 'SAPAICore'])"
+// +kubebuilder:validation:XValidation:message="actorJwt requires a provider with a configurable endpoint and header credentials",rule="!has(self.actorJwt) || (!(self.provider in ['Ollama', 'GeminiVertexAI', 'AnthropicVertexAI', 'SAPAICore']))"
 type ModelConfigSpec struct {
 	// ActorJWT authenticates as the executing Actor through the provider's credential header.
 	// Substrate mints and injects the token at the egress gateway.
