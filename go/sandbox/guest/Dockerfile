@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
 
 FROM alpine:3.22
 
-RUN apk add --no-cache bash ca-certificates git && \
+RUN apk add --no-cache bash "ca-certificates>=20261020-r0" git && \
     mkdir -p /data/workspace /data/guest-logs && \
     chown -R 65532:65532 /data
 

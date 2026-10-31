@@ -1,6 +1,6 @@
 # Claude Code model-call captures
 
-These are captured with Claude Code `config.PinnedClaudeVersion` (2.1.285). `TestCapturesUseThePinnedClaudeVersion` fails when the pin moves, so recapture on every pin bump.
+These recordings use Claude Code 2.1.285 for parser regression coverage. `TestCapturesUseRecordedClaudeVersion` checks their recorded version. `TestProductionVersionMatchesImage` in the config package checks the production version against the Dockerfile.
 
 ## Setup
 
