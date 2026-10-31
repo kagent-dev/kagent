@@ -629,6 +629,23 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	t.Logf("worst-case Claude actor uses %d of 32 environment variables", len(template.GetContainers()[0].GetEnv()))
 }
 
+func TestCompilePreservesWorkloadOverrides(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Harness.Spec.Workload.Command = []string{"/adapter"}
+	input.Harness.Spec.Workload.Args = []string{"--log-level", "debug"}
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(revision.Command, []string{"/adapter"}) || !reflect.DeepEqual(revision.Args, []string{"--log-level", "debug"}) {
+		t.Fatalf("command = %q, args = %q", revision.Command, revision.Args)
+	}
+}
+
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
