@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from typing import Any, Callable, Optional, Union
 
 import httpx
@@ -164,6 +165,45 @@ def create_header_provider(
     return header_provider
 
 
+_BOOL_TRUE = {"1", "true", "yes", "on"}
+_BOOL_FALSE = {"0", "false", "no", "off"}
+
+
+def _coerce_option_bool(value: str) -> bool:
+    """Parse a CRD string into a bool, accepting the common truthy/falsy spellings.
+
+    The previous implementation treated only the exact string ``"true"`` as True,
+    so ``"1"``, ``"yes"`` or ``"True"`` silently became False. Anything outside the
+    recognized spellings raises ValueError so the caller can fall back and warn.
+    """
+    normalized = value.strip().lower()
+    if normalized in _BOOL_TRUE:
+        return True
+    if normalized in _BOOL_FALSE:
+        return False
+    raise ValueError(f"invalid boolean option value: {value!r}")
+
+
+def _coerce_option_int(value: str) -> int:
+    """Parse a CRD string into an int.
+
+    Accepts a plain integer ("2048") and a float that is finite and exactly
+    integral ("2048.0"), which JSON/YAML tooling can produce for an int-typed
+    option. Rejects a non-integral float ("2048.5") rather than truncating it,
+    and rejects "inf"/"nan", so the caller falls back and warns instead of
+    silently losing precision or raising OverflowError.
+    """
+    stripped = value.strip()
+    try:
+        return int(stripped)
+    except ValueError:
+        pass
+    number = float(stripped)
+    if not math.isfinite(number) or not number.is_integer():
+        raise ValueError(f"not an integer option value: {value!r}")
+    return int(number)
+
+
 def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
     """Convert Ollama options from string values to their correct types.
 
@@ -201,15 +241,27 @@ def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
             else:
                 target_type = annotation
 
-            # Convert based on the target type
-            if target_type is int:
-                converted[key] = int(value)
-            elif target_type is float:
-                converted[key] = float(value)
-            elif target_type is bool:
-                converted[key] = value.lower() == "true"
-            else:
-                # Keep as string for other types (e.g., Sequence[str])
+            # Convert based on the target type. Values come from CRD strings, so
+            # coercion is tolerant: a malformed value is kept as a string and
+            # left for the Ollama SDK to report, rather than raising here and
+            # failing the whole agent build.
+            try:
+                if target_type is bool:
+                    converted[key] = _coerce_option_bool(value)
+                elif target_type is int:
+                    converted[key] = _coerce_option_int(value)
+                elif target_type is float:
+                    converted[key] = float(value)
+                else:
+                    # Keep as string for other types (e.g., Sequence[str])
+                    converted[key] = value
+            except (TypeError, ValueError, OverflowError):
+                logger.warning(
+                    "Could not convert Ollama option %r=%r to %s; forwarding the raw value.",
+                    key,
+                    value,
+                    getattr(target_type, "__name__", target_type),
+                )
                 converted[key] = value
         else:
             # Unknown option - keep as string
