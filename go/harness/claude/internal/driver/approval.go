@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -24,7 +25,7 @@ const ApprovalToolName = "approve"
 // ApprovalBroker hosts the stateless permission fallback and durable PreToolUse
 // decisions. Its address and token are regenerated when the harness restarts.
 type ApprovalBroker struct {
-	protected map[string]struct{}
+	policies  map[string]config.MCPServer
 	directory string
 	maxBody   int64
 	token     string
@@ -64,22 +65,23 @@ type hookOutput struct {
 	} `json:"hookSpecificOutput"`
 }
 
-func NewApprovalBroker(protectedServers []string, directory string, maxBodyBytes int) (*ApprovalBroker, error) {
+func NewApprovalBroker(servers map[string]config.MCPServer, directory string, maxBodyBytes int) (*ApprovalBroker, error) {
 	if directory == "" || maxBodyBytes <= 0 {
 		return nil, fmt.Errorf("durable approval directory and positive body limit are required")
 	}
-	protected := make(map[string]struct{}, len(protectedServers))
-	for _, name := range protectedServers {
+	policies := make(map[string]config.MCPServer, len(servers))
+	for name, policy := range servers {
 		if strings.TrimSpace(name) == "" {
 			return nil, fmt.Errorf("protected Claude MCP server name is required")
 		}
-		protected[name] = struct{}{}
+		policy.Tools = slices.Clone(policy.Tools)
+		policies[name] = policy
 	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("listen for Claude hooks: %w", err)
 	}
-	b := &ApprovalBroker{protected: protected, directory: directory, maxBody: int64(maxBodyBytes), token: uuid.NewString(), listener: listener}
+	b := &ApprovalBroker{policies: policies, directory: directory, maxBody: int64(maxBodyBytes), token: uuid.NewString(), listener: listener}
 	server := mcp.NewServer(&mcp.Implementation{Name: "kagent-deferred-input", Version: "1"}, nil)
 	mcp.AddTool(server, &mcp.Tool{Name: ApprovalToolName, Description: "Permission host for durable kagent input"}, b.handlePermission)
 
@@ -114,6 +116,14 @@ func (b *ApprovalBroker) permissionDecision(input *permissionPromptInput) (permi
 	r, err := loadDeferred(b.directory, int(b.maxBody))
 	if err != nil {
 		return output, err
+	}
+	if input != nil && !b.permits(input.ToolName) {
+		return output, nil
+	}
+	if input != nil {
+		if policy, _, ok := b.toolPolicy(input.ToolName); ok && !policy.RequireApproval && (r == nil || !r.Canceling) {
+			return permissionPromptOutput{Behavior: "allow", UpdatedInput: input.Input}, nil
+		}
 	}
 	if r == nil || r.Phase != phaseExecuting || input == nil || !b.protects(input.ToolName) || input.ToolUseID != r.Tool.ID || input.ToolName != r.Tool.Name {
 		return output, nil
@@ -166,7 +176,10 @@ func (b *ApprovalBroker) SettingsJSON() ([]byte, error) {
 		} `json:"hooks"`
 	}
 	settings.Permissions.Ask = []string{"AskUserQuestion"}
-	for server := range b.protected {
+	for server, policy := range b.policies {
+		if !policy.RequireApproval {
+			continue
+		}
 		settings.Permissions.Ask = append(settings.Permissions.Ask, "mcp__"+server+"__*")
 	}
 	slices.Sort(settings.Permissions.Ask)
@@ -194,7 +207,10 @@ func (b *ApprovalBroker) protects(name string) bool {
 	if name == "AskUserQuestion" {
 		return true
 	}
-	for server := range b.protected {
+	for server, policy := range b.policies {
+		if !policy.RequireApproval {
+			continue
+		}
 		prefix := "mcp__" + server + "__"
 		if strings.HasPrefix(name, prefix) && len(name) > len(prefix) {
 			return true
@@ -239,6 +255,10 @@ func (b *ApprovalBroker) resolveHook(r *http.Request, output *hookOutput) error 
 		output.Continue = &stop
 		output.StopReason = "The task was canceled."
 		output.Specific.Reason = output.StopReason
+		return nil
+	}
+	if !b.permits(input.ToolName) {
+		output.Specific.Reason = "Tool is not selected by this MCP binding."
 		return nil
 	}
 	if !b.protects(input.ToolName) {

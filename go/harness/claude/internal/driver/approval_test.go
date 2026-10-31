@@ -16,13 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 func newTestBroker(t *testing.T) *ApprovalBroker {
 	t.Helper()
-	broker, err := NewApprovalBroker([]string{"protected"}, t.TempDir(), 1<<20)
+	broker, err := NewApprovalBroker(map[string]config.MCPServer{"protected": {RequireApproval: true}}, t.TempDir(), 1<<20)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = broker.Close() })
 	return broker

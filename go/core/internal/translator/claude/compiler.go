@@ -96,6 +96,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		config.SkillResources = &skills.Resources
 	}
 	config.MCPServers = mcp.servers
+	config.DisallowedTools = mcp.disallowedTools
 	if err := config.Validate(); err != nil {
 		return nil, translator.NewValidationError("invalid compiled Claude configuration: %v", err)
 	}

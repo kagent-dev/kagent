@@ -21,10 +21,11 @@ import (
 )
 
 type mcpCompilation struct {
-	servers     map[string]claudeconfig.MCPServer
-	environment []corev1.EnvVar
-	egress      []string
-	warnings    []string
+	servers         map[string]claudeconfig.MCPServer
+	environment     []corev1.EnvVar
+	egress          []string
+	warnings        []string
+	disallowedTools []string
 }
 
 func (c *Compiler) compileMCP(
@@ -35,9 +36,13 @@ func (c *Compiler) compileMCP(
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
 	}
+	names, err := translator.MCPBindingNames(namespace, tools)
+	if err != nil {
+		return mcpCompilation{}, err
+	}
 	result := mcpCompilation{servers: make(map[string]claudeconfig.MCPServer, len(tools))}
 	identities := make(map[string]string, len(tools))
-	for _, tool := range tools {
+	for i, tool := range tools {
 		server := tool.Server
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Claude MCP binding has no server")
@@ -45,7 +50,7 @@ func (c *Compiler) compileMCP(
 		if ptr.Deref(server.Spec.TokenPassthrough, false) {
 			return mcpCompilation{}, translator.NewValidationError("Claude does not support RemoteMCPServer %q tokenPassthrough", server.Name)
 		}
-		name := translator.MCPRuntimeName(namespace, server)
+		name := names[i]
 		if previous, exists := identities[name]; exists {
 			return mcpCompilation{}, translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
 		}
@@ -54,8 +59,15 @@ func (c *Compiler) compileMCP(
 			return mcpCompilation{}, translator.NewValidationError("RemoteMCPServer %q is bound more than once", server.Name)
 		}
 
-		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
+		selected, excluded, warning, err := compileToolSelection(tool.Binding.Tools, server)
+		if err != nil {
+			return mcpCompilation{}, err
+		}
+		if warning != "" {
 			result.warnings = append(result.warnings, warning)
+		}
+		for _, excludedTool := range excluded {
+			result.disallowedTools = append(result.disallowedTools, "mcp__"+name+"__"+excludedTool)
 		}
 		transport, compatibilityWarning, err := claudeMCPTransport(server)
 		if err != nil {
@@ -79,34 +91,52 @@ func (c *Compiler) compileMCP(
 		result.servers[name] = claudeconfig.MCPServer{
 			Type: transport, URL: server.Spec.URL, Headers: headers,
 			RequireApproval: tool.Binding.RequireApproval,
+			Tools:           selected,
 		}
 		result.environment = append(result.environment, headerEnvironment...)
 		result.egress = append(result.egress, hostname)
 	}
+	slices.Sort(result.disallowedTools)
 	return result, nil
 }
 
-func mcpSelectionWarning(selectedTools []string, server *v1alpha3.RemoteMCPServer) string {
+// compileToolSelection returns the selected tools and, when discovery is current,
+// the discovered tools to hide. PreToolUse enforces the selection on every call.
+func compileToolSelection(selectedTools []string, server *v1alpha3.RemoteMCPServer) ([]string, []string, string, error) {
 	if len(selectedTools) == 0 {
-		return ""
+		return nil, nil, "", nil
 	}
 	selected := append([]string(nil), selectedTools...)
 	slices.Sort(selected)
 	selected = slices.Compact(selected)
+	for _, name := range selected {
+		if !claudeconfig.ValidToolName(name) {
+			return nil, nil, "", translator.NewValidationError("Claude RemoteMCPServer %q tool %q cannot be represented as a literal permission rule", server.Name, name)
+		}
+	}
 	discovered, current := currentDiscoveredToolNames(server)
-	if current && slices.Equal(selected, discovered) {
-		return ""
-	}
 	if !current {
-		return fmt.Sprintf(
-			"Claude RemoteMCPServer %q cannot verify selected tools %v because no current discovered tool set is available; exposing the whole server",
-			server.Name, selected,
-		)
+		// actorJwt and discovery-disabled servers have no controller discovery.
+		return selected, nil, fmt.Sprintf(
+			"Claude RemoteMCPServer %q has no current discovered tool set; unselected tools remain listed and are denied when called",
+			server.Name,
+		), nil
 	}
-	return fmt.Sprintf(
-		"Claude RemoteMCPServer %q does not support partial tool selection: selected %v, discovered %v; exposing the whole server",
-		server.Name, selected, discovered,
-	)
+	for _, name := range selected {
+		if _, found := slices.BinarySearch(discovered, name); !found {
+			return nil, nil, "", translator.NewValidationError("Claude RemoteMCPServer %q does not expose selected tool %q", server.Name, name)
+		}
+	}
+	var excluded []string
+	for _, name := range discovered {
+		if !claudeconfig.ValidToolName(name) {
+			return nil, nil, "", translator.NewValidationError("Claude RemoteMCPServer %q tool %q cannot be represented as a literal permission rule", server.Name, name)
+		}
+		if _, found := slices.BinarySearch(selected, name); !found {
+			excluded = append(excluded, name)
+		}
+	}
+	return selected, excluded, "", nil
 }
 
 func currentDiscoveredToolNames(server *v1alpha3.RemoteMCPServer) ([]string, bool) {
