@@ -29,6 +29,9 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 	runtimeOrigin := u.String()
 	effects := map[string]*ateapipb.HttpRuleEffects{}
 	for _, binding := range access.Credentials {
+		if strings.EqualFold(binding.Header, egresspolicy.ActorIdentityHeader) {
+			return nil, fmt.Errorf("actor identity header is reserved")
+		}
 		if binding.Origin == runtimeOrigin && binding.Header == "authorization" {
 			return nil, fmt.Errorf("runtime authorization header is reserved for Actor JWTs")
 		}
@@ -43,6 +46,15 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 	}
 	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
 	for _, origin := range access.Destinations {
+		if origin != runtimeOrigin {
+			if effects[origin] == nil {
+				effects[origin] = &ateapipb.HttpRuleEffects{}
+			}
+			effects[origin].ReplaceHeaders = append(effects[origin].ReplaceHeaders, &ateapipb.CredentialHeader{
+				Header: egresspolicy.ActorIdentityHeader, Prefix: "Bearer ",
+				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{origin}, ExpirationSeconds: 300},
+			})
+		}
 		if origin == runtimeOrigin {
 			if effects[origin] == nil {
 				effects[origin] = &ateapipb.HttpRuleEffects{}
@@ -51,6 +63,9 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 				Header: "authorization", Prefix: "Bearer ",
 				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{RuntimeJWTAudience}, ExpirationSeconds: 300},
 			})
+		}
+		if len(effects[origin].GetReplaceHeaders()) > 16 {
+			return nil, fmt.Errorf("origin exceeds the credential header limit")
 		}
 		target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess
 		port, _ := strconv.ParseInt(target.Port(), 10, 32)
