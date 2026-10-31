@@ -5,6 +5,7 @@ set -o pipefail
 
 KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-kagent}
 KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.37.0}
+KIND_IMAGE_DIGEST=${KIND_IMAGE_DIGEST-sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5}
 
 # Auto-detect container runtime: prefer CONTAINER_RUNTIME env var,
 # fall back to podman if available, then docker.
@@ -61,7 +62,7 @@ else
   export KIND_EXPERIMENTAL_PROVIDER="${CONTAINER_RUNTIME}"
   kind create cluster --name "${KIND_CLUSTER_NAME}" \
     --config "$kind_config" \
-    --image="kindest/node:v${KIND_IMAGE_VERSION}" \
+    --image="kindest/node:v${KIND_IMAGE_VERSION}${KIND_IMAGE_DIGEST:+@${KIND_IMAGE_DIGEST}}" \
     --wait 60s
 fi
 
