@@ -3,6 +3,7 @@ package config_test
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +111,29 @@ func TestSharedNumericValidation(t *testing.T) {
 			} else {
 				require.Error(t, err)
 			}
+		})
+	}
+}
+
+func TestWorkflowConfigRoundTripAndValidation(t *testing.T) {
+	document := []byte(`{"apiVersion":"adk.declarative/v0.2","kind":"AgentSystem","agents":[]}`)
+	digest := strings.Repeat("a", 64)
+	cfg := &configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{Workflow: &configv1.ADKWorkflowConfig{Document: document, Sha256: digest}}}
+	raw, err := runtimeconfig.Marshal(cfg)
+	require.NoError(t, err)
+	parsed := new(configv1.ADKConfig)
+	require.NoError(t, runtimeconfig.Unmarshal(raw, parsed))
+	require.True(t, proto.Equal(cfg, parsed))
+
+	for name, workflow := range map[string]*configv1.ADKWorkflowConfig{
+		"empty document":     {Sha256: digest},
+		"oversized document": {Document: make([]byte, 65537), Sha256: digest},
+		"short digest":       {Document: document, Sha256: "abc"},
+		"uppercase digest":   {Document: document, Sha256: strings.Repeat("A", 64)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := runtimeconfig.Marshal(&configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{Workflow: workflow}})
+			require.Error(t, err)
 		})
 	}
 }

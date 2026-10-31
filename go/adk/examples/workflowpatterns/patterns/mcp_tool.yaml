@@ -1,0 +1,25 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+mcp_servers:
+  - name: crm
+    url_from: { env: PATTERNS_CRM_URL }
+    tools: [lookup_customer]
+agents:
+  - name: mcp_tool
+    agent_class: Workflow
+    nodes:
+      - id: args
+        type: cel
+        output: '{"customer_id": input.trim()}'
+      # A remote MCP tool as a function node: the input is its arguments.
+      - id: lookup
+        type: tool
+        server: crm
+        tool: lookup_customer
+      - id: describe
+        type: cel
+        output: "'customer %s is on plan %s'.format([input.output.id, input.output.plan])"
+    edges:
+      - { from: START, to: args }
+      - { from: args, to: lookup }
+      - { from: lookup, to: describe }

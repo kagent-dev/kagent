@@ -25,6 +25,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-logr/logr v1.4.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/google/cel-go v0.31.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/jsonschema-go v0.4.3
 	// api dependencies
@@ -40,6 +41,7 @@ require (
 	github.com/lestrrat-go/jwx v1.2.31
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/muesli/reflow v0.3.0
+	github.com/muesli/termenv v0.16.0
 	github.com/ollama/ollama v0.40.5
 	github.com/openai/openai-go/v3 v3.78.0
 	github.com/pelletier/go-toml/v2 v2.4.3
@@ -261,7 +263,6 @@ require (
 	github.com/golangci/swaggoswag v0.0.0-20250504205917-77f2aca3143e // indirect
 	github.com/golangci/unconvert v0.0.0-20250410112200-a129a6e6413e // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/google/cel-go v0.31.0 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.10 // indirect
@@ -348,7 +349,6 @@ require (
 	github.com/moricho/tparallel v0.3.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nakabonne/nestif v0.3.1 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect

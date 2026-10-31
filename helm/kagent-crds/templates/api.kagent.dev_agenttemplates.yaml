@@ -390,6 +390,16 @@ spec:
                             work to this binding.
                           minLength: 1
                           type: string
+                        isolation:
+                          description: |-
+                            Isolation selects how the parent runs the subagent. Omitting it is Shared.
+                            Isolated gives every call its own conversation, which a parent needs when
+                            it fans out to the same subagent in parallel. Only the kagent and BYO
+                            Harnesses support Isolated.
+                          enum:
+                          - Shared
+                          - Isolated
+                          type: string
                         name:
                           minLength: 1
                           type: string
@@ -422,8 +432,28 @@ spec:
                     rule: (has(self.mcp)?1:0)+(has(self.subAgent)?1:0) == 1
                 maxItems: 50
                 type: array
+              workflowFrom:
+                description: |-
+                  WorkflowFrom references an adk.declarative/v0.2 AgentSystem document, as
+                  YAML or JSON, in a same-namespace ConfigMap key. The controller validates
+                  the document's structure and delivers it to the runtime; the BYO image
+                  resolves the functions, tools, and models it names. Only a root template
+                  on a BYO Harness may set it.
+                properties:
+                  key:
+                    minLength: 1
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - key
+                - name
+                type: object
             type: object
             x-kubernetes-validations:
+            - message: workflowFrom cannot be combined with systemPrompt or systemPromptFrom
+              rule: '!has(self.workflowFrom) || (!has(self.systemPrompt) && !has(self.systemPromptFrom))'
             - message: outputSchemaStrict requires outputSchema or outputSchemaFrom
               rule: '!has(self.outputSchemaStrict) || !self.outputSchemaStrict ||
                 has(self.outputSchema) || has(self.outputSchemaFrom)'
