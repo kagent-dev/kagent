@@ -259,7 +259,6 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 				Content: toolResultBlocks,
 			})
 		} else {
-			// Regular user message
 			var contentBlocks []anthropic.ContentBlockParamUnion
 
 			// Add images first
@@ -272,9 +271,13 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 				contentBlocks = append(contentBlocks, anthropic.NewTextBlock(strings.Join(textParts, "\n")))
 			}
 
+			msgRole := anthropic.MessageParamRoleUser
+			if role == "model" || role == "assistant" {
+				msgRole = anthropic.MessageParamRoleAssistant
+			}
 			if len(contentBlocks) > 0 {
 				messages = append(messages, anthropic.MessageParam{
-					Role:    anthropic.MessageParamRoleUser,
+					Role:    msgRole,
 					Content: contentBlocks,
 				})
 			}
