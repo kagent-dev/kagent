@@ -31,6 +31,7 @@ func (c *Compiler) compileMCP(
 	ctx context.Context,
 	namespace string,
 	tools []translator.ResolvedMCPTool,
+	selectTools bool,
 ) (mcpCompilation, error) {
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
@@ -54,7 +55,7 @@ func (c *Compiler) compileMCP(
 			return mcpCompilation{}, translator.NewValidationError("RemoteMCPServer %q is bound more than once", server.Name)
 		}
 
-		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
+		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" && !selectTools {
 			result.warnings = append(result.warnings, warning)
 		}
 		transport, compatibilityWarning, err := claudeMCPTransport(server)
@@ -201,4 +202,36 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 		}
 	}
 	return headers, environment, nil
+}
+
+// localAgentTools narrows inline MCP tools to the binding selections. Claude
+// adds every inline server tool after applying tools, so exclusions are needed.
+func localAgentTools(namespace string, bindings []translator.ResolvedMCPTool) ([]string, []string, error) {
+	var tools, disallowed []string
+	for _, binding := range bindings {
+		name := translator.MCPRuntimeName(namespace, binding.Server)
+		prefix := "mcp__" + name + "__"
+		if len(binding.Binding.Tools) == 0 {
+			tools = append(tools, prefix+"*")
+			continue
+		}
+		discovered, current := currentDiscoveredToolNames(binding.Server)
+		if !current {
+			return nil, nil, translator.NewValidationError("Claude requires current tool discovery for RemoteMCPServer %q tool selection", binding.Server.Name)
+		}
+		for _, selected := range binding.Binding.Tools {
+			if !slices.Contains(discovered, selected) {
+				return nil, nil, translator.NewValidationError("Claude selects unknown RemoteMCPServer %q tool %q", binding.Server.Name, selected)
+			}
+			tools = append(tools, prefix+selected)
+		}
+		// The pinned Claude 2.1.285 otherwise advertises unselected tools too.
+		for _, candidate := range discovered {
+			if !slices.Contains(binding.Binding.Tools, candidate) {
+				disallowed = append(disallowed, prefix+candidate)
+			}
+		}
+	}
+	slices.Sort(disallowed)
+	return tools, disallowed, nil
 }

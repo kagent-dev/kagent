@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/url"
+	"reflect"
 
 	"github.com/google/go-containerregistry/pkg/name"
 
@@ -25,6 +26,47 @@ type SkillCompilation struct {
 	Resources agentplugin.Resources
 	Images    []SkillImage
 	Egress    []string
+}
+
+// CompileSharedSkillResources collects the skills installed in a native CLI's
+// shared runtime. Identical selections share one directory; a name must never
+// silently select a different source for another agent.
+func CompileSharedSkillResources(root *AgentInput) (*SkillCompilation, error) {
+	template := *root.Template
+	template.Spec.Skills = append([]v1alpha3.AgentTemplateSkill(nil), template.Spec.Skills...)
+	selected := make(map[string]v1alpha3.ArtifactSource)
+	for _, skill := range template.Spec.Skills {
+		selected[skill.Name] = skill.Source
+	}
+	pluginSkills := make(map[string]bool)
+	for _, plugin := range template.Spec.Plugins {
+		for _, name := range plugin.Skills {
+			pluginSkills[name] = true
+		}
+	}
+	for _, binding := range root.Shared {
+		if binding.Agent == nil || binding.Agent.Template == nil {
+			return nil, fmt.Errorf("shared agent %q is not fully resolved", binding.Name)
+		}
+		// Validate duplicates within each template before merging across agents.
+		if _, err := CompileSkillResources(binding.Agent.Template); err != nil {
+			return nil, fmt.Errorf("compile Shared agent %q skills: %w", binding.Name, err)
+		}
+		for _, skill := range binding.Agent.Template.Spec.Skills {
+			if source, exists := selected[skill.Name]; exists {
+				if !reflect.DeepEqual(source, skill.Source) {
+					return nil, NewValidationError("Shared skill %q has conflicting sources", skill.Name)
+				}
+				continue
+			}
+			if pluginSkills[skill.Name] {
+				return nil, NewValidationError("Shared skill %q conflicts with a root plugin skill", skill.Name)
+			}
+			selected[skill.Name] = skill.Source
+			template.Spec.Skills = append(template.Spec.Skills, skill)
+		}
+	}
+	return CompileSkillResources(&template)
 }
 
 // CompileSkillResources translates portable AgentTemplate skill selections

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,7 +20,7 @@ import (
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version = 5
+	Version = 6
 	// PinnedClaudeVersion is the Claude Code release the image installs. A bump
 	// must recheck the telemetry gate in the driver.
 	PinnedClaudeVersion                 = "2.1.285"
@@ -97,12 +99,30 @@ type MCPServer struct {
 }
 
 // Agent is one compiler-owned local Claude subagent passed through --agents.
-// Permission mode, hooks, memory, isolation, and inline MCP are deliberately
+// Permission mode, hooks, memory, and isolation are deliberately
 // omitted from the supported contract.
 type Agent struct {
-	Description string `json:"description"`
-	Prompt      string `json:"prompt"`
-	Model       string `json:"model,omitempty"`
+	Description     string               `json:"description"`
+	Prompt          string               `json:"prompt"`
+	Model           string               `json:"model,omitempty"`
+	Tools           []string             `json:"tools,omitempty"`
+	DisallowedTools []string             `json:"disallowed_tools,omitempty"`
+	Skills          []string             `json:"skills,omitempty"`
+	MCPServers      map[string]MCPServer `json:"mcp_servers,omitempty"`
+}
+
+type nativeMCPServer struct {
+	Type    string            `json:"type"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+func nativeMCPServers(servers map[string]MCPServer) map[string]nativeMCPServer {
+	result := make(map[string]nativeMCPServer, len(servers))
+	for name, server := range servers {
+		result[name] = nativeMCPServer{Type: server.Type, URL: server.URL, Headers: server.Headers}
+	}
+	return result
 }
 
 // Bounds the memory one stream-json line can take. Tool results carrying
@@ -169,8 +189,15 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(agent.Description) == "" || strings.TrimSpace(agent.Prompt) == "" {
 			return fmt.Errorf("claude agent %q requires a non-empty description and prompt", name)
 		}
+		if err := validateMCPServers(agent.MCPServers); err != nil {
+			return fmt.Errorf("claude agent %q: %w", name, err)
+		}
 	}
-	for name, server := range c.MCPServers {
+	return validateMCPServers(c.MCPServers)
+}
+
+func validateMCPServers(servers map[string]MCPServer) error {
+	for name, server := range servers {
 		if !agentNamePattern.MatchString(name) {
 			return fmt.Errorf("claude MCP server name %q must contain only letters, numbers, underscores, or hyphens", name)
 		}
@@ -193,7 +220,31 @@ func (c Config) AgentsJSON() (string, error) {
 	if len(c.Agents) == 0 {
 		return "", nil
 	}
-	raw, err := json.Marshal(c.Agents)
+	type nativeAgent struct {
+		Description     string                       `json:"description"`
+		Prompt          string                       `json:"prompt"`
+		Model           string                       `json:"model,omitempty"`
+		Tools           []string                     `json:"tools,omitempty"`
+		DisallowedTools []string                     `json:"disallowedTools,omitempty"`
+		Skills          []string                     `json:"skills,omitempty"`
+		MCPServers      []map[string]nativeMCPServer `json:"mcpServers,omitempty"`
+	}
+	agents := make(map[string]nativeAgent, len(c.Agents))
+	for name, agent := range c.Agents {
+		native := nativeAgent{Description: agent.Description, Prompt: agent.Prompt, Model: agent.Model, Tools: agent.Tools, DisallowedTools: agent.DisallowedTools}
+		for _, skill := range agent.Skills {
+			// Selected standalone skills are loaded through this generated plugin.
+			native.Skills = append(native.Skills, "kagent-skills:"+skill)
+		}
+		if len(agent.MCPServers) != 0 {
+			servers := nativeMCPServers(agent.MCPServers)
+			for _, name := range slices.Sorted(maps.Keys(servers)) {
+				native.MCPServers = append(native.MCPServers, map[string]nativeMCPServer{name: servers[name]})
+			}
+		}
+		agents[name] = native
+	}
+	raw, err := json.Marshal(agents)
 	if err != nil {
 		return "", fmt.Errorf("encode Claude agents: %w", err)
 	}
@@ -204,18 +255,9 @@ func (c Config) MCPConfigJSON() ([]byte, error) {
 	if len(c.MCPServers) == 0 {
 		return nil, nil
 	}
-	type nativeMCPServer struct {
-		Type    string            `json:"type"`
-		URL     string            `json:"url"`
-		Headers map[string]string `json:"headers,omitempty"`
-	}
-	servers := make(map[string]nativeMCPServer, len(c.MCPServers))
-	for name, server := range c.MCPServers {
-		servers[name] = nativeMCPServer{Type: server.Type, URL: server.URL, Headers: server.Headers}
-	}
 	raw, err := json.Marshal(struct {
 		Servers map[string]nativeMCPServer `json:"mcpServers"`
-	}{Servers: servers})
+	}{Servers: nativeMCPServers(c.MCPServers)})
 	if err != nil {
 		return nil, fmt.Errorf("encode Claude MCP configuration: %w", err)
 	}

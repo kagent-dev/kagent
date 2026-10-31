@@ -22,7 +22,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
 	runner, err := New(context.Background(), Input{
-		ConfigJSON: []byte(`{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.285","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
+		ConfigJSON: []byte(`{"version":6,"claude_executable":"claude","expected_claude_version":"2.1.285","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
 		Environment: []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/wrong", "DISABLE_UPDATES=0"},
@@ -102,6 +102,10 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
 	}}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {Type: "http", URL: "https://mcp.example.com/mcp"}}
+	cfg.Agents = map[string]config.Agent{"reviewer": {
+		Description: "Reviews", Prompt: "Review", Skills: []string{"review"}, Tools: []string{"mcp__child__read", "Skill"},
+		MCPServers: map[string]config.MCPServer{"child": {Type: "http", URL: "https://child.example.com/mcp", RequireApproval: true}},
+	}}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -139,6 +143,15 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--plugin-dir\n"+skillRoot) {
 		t.Fatalf("arguments do not expose materialized skills: %s", args)
+	}
+	args := runner.Args(runtime.Turn{Prompt: "test"})
+	index := slices.Index(args, "--agents")
+	if index < 0 || !strings.Contains(args[index+1], `"skills":["kagent-skills:review"]`) || !strings.Contains(args[index+1], `"mcpServers":[{"child":`) || strings.Contains(args[index+1], "require_approval") {
+		t.Fatalf("invalid native child configuration: %v", args)
+	}
+	settings, err := os.ReadFile(filepath.Join(ephemeralDir, "settings.json"))
+	if err != nil || !strings.Contains(string(settings), "mcp__child__*") {
+		t.Fatalf("child approval missing: %s, %v", settings, err)
 	}
 }
 
