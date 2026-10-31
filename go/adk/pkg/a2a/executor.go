@@ -344,7 +344,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			// If the event is a task status update event and the status is input required, build the HITL status message
 			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok &&
 				update.Status.State == a2atype.TaskStateInputRequired && update.Status.Message != nil {
-				update.Status.Message = BuildHITLStatusMessage(update.Status.Message, hitlActivated)
+				public, buildErr := BuildHITLStatusMessage(update.Status.Message, hitlActivated)
+				if buildErr != nil {
+					yield(nil, fmt.Errorf("failed to build HITL status message: %w", buildErr))
+					return
+				}
+				update.Status.Message = public
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
 			}

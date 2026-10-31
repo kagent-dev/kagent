@@ -460,10 +460,13 @@ func hitlStatusText(tools []apia2a.HITLTool, hints []string) string {
 	return genericHITLText
 }
 
-// BuildHITLStatusMessage: ADK confirmation DataParts → public HITL Message extension.
-func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.Message {
+// BuildHITLStatusMessage maps ADK pause DataParts to the public HITL Message extension.
+func BuildHITLStatusMessage(message *a2atype.Message, activated bool) (*a2atype.Message, error) {
 	if message == nil {
-		return nil
+		return nil, nil
+	}
+	if public, err := buildWorkflowInputStatus(message, activated); public != nil || err != nil {
+		return public, err
 	}
 	var tools []apia2a.HITLTool
 	var remote *RemoteHitlState
@@ -488,7 +491,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		}
 	}
 	if len(tools) == 0 {
-		return message
+		return message, nil
 	}
 
 	// The text part carries the same information as the typed payload, so a client
@@ -498,7 +501,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(text))
 	public.TaskID, public.ContextID = message.TaskID, message.ContextID
 	if !activated {
-		return public
+		return public, nil
 	}
 
 	var nested *apia2a.NestedHITLRequest
@@ -515,7 +518,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		return AttachHitlExtension(public, &apia2a.AskUserRequest{
 			Type: HITLTypeAskUserRequest, ID: tools[0].ID,
 			Questions: remote.AskUserRequest.Questions, Nested: nested,
-		})
+		}), nil
 	}
 	// An ask_user call with no answerable question becomes an approval: an empty
 	// question list gives a request that no response can satisfy, because resume
@@ -524,11 +527,11 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		return AttachHitlExtension(public, &apia2a.AskUserRequest{
 			Type: HITLTypeAskUserRequest, ID: tools[0].ID,
 			Questions: questions,
-		})
+		}), nil
 	}
 	return AttachHitlExtension(public, &apia2a.ToolApprovalRequest{
 		Type: HITLTypeToolApprovalRequest, Hint: text, Tools: tools, Nested: nested,
-	})
+	}), nil
 }
 
 func publicAskUserQuestions(value any) []apia2a.HITLQuestion {
@@ -587,6 +590,8 @@ func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message)
 	var parts []*a2atype.Part
 	var err error
 	switch {
+	case askReq != nil && isWorkflowInput(storedTask.Status.Message, askReq.ID):
+		parts, err = workflowInputResponse(askReq, incoming)
 	case askReq != nil && askReq.Nested != nil:
 		parts, err = processNestedAskUser(askReq, incoming)
 	case approvalReq != nil && approvalReq.Nested != nil:
