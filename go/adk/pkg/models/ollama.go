@@ -36,11 +36,10 @@ const (
 	ollamaCloudURL = "https://api.ollama.com"
 )
 
-// OllamaCloudModels names the models served by api.ollama.com, as returned by
-// GET https://api.ollama.com/api/tags. This is the single source of truth for
-// cloud membership: the controller's model catalog renders its Ollama cloud
-// entries from it, and isOllamaCloudModel consults it, so the list a user picks
-// from and the rule that routes their choice cannot drift apart.
+// OllamaCloudModels names the recommended models served by api.ollama.com,
+// verified against GET https://api.ollama.com/api/tags. The controller renders
+// its cloud catalog from this list, and isOllamaCloudModel consults it so every
+// suggested model routes to the cloud. Older models remain routable separately.
 //
 // A bare catalog name is a cloud model. The ":cloud" suffix is also accepted
 // (see isOllamaCloudModel) because a signed-in local daemon proxies the same
@@ -53,7 +52,7 @@ var OllamaCloudModels = []string{
 	"glm-5.2",
 	"glm-5.3",
 	"glm-5.3-flash",
-	"minimax-m2.7",
+	"minimax-m3.1-flash",
 	"minimax-m3",
 	"deepseek-v4.1-flash",
 	"deepseek-v4-flash:0731",
@@ -68,9 +67,10 @@ var OllamaCloudModels = []string{
 	"gemma4:31b",
 }
 
-// ollamaCloudModelSet is OllamaCloudModels as a lookup table.
+// ollamaCloudModelSet includes legacy IDs for saved and custom configurations.
+// Removing a suggestion must not reroute an existing cloud model to localhost.
 var ollamaCloudModelSet = func() map[string]bool {
-	set := make(map[string]bool, len(OllamaCloudModels))
+	set := map[string]bool{"minimax-m2.7": true}
 	for _, name := range OllamaCloudModels {
 		set[name] = true
 	}
