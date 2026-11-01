@@ -1,11 +1,26 @@
 package skillsinit
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 )
+
+// Git calls are bounded twice so a silent peer cannot hang them: git aborts a
+// stalled transfer itself, and gitTimeout kills it otherwise. Variables so
+// tests can shorten them.
+var (
+	gitTimeout       = 5 * time.Minute
+	gitLowSpeedLimit = "1000"
+	gitLowSpeedTime  = "60"
+)
+
+const gitSSHCommand = "ssh -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 
 // CloneGit fetches a single git ref into ref.Dest. All user-controlled
 // strings (URL, Ref, SubPath) are passed to git as separate argv entries via
@@ -18,7 +33,13 @@ import (
 //
 // SubPath, if set, rewrites the destination so the final layout matches the
 // requested in-repo subdirectory.
+//
+// An existing ref.Dest is removed first, since the skills volume survives
+// init container restarts.
 func CloneGit(ref GitRef) error {
+	if err := os.RemoveAll(ref.Dest); err != nil {
+		return err
+	}
 	if ref.Full {
 		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
 			return err
@@ -48,14 +69,39 @@ func runGit(args ...string) error {
 }
 
 func runGitIn(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+
+	gitArgs := append([]string{
+		"-c", "http.lowSpeedLimit=" + gitLowSpeedLimit,
+		"-c", "http.lowSpeedTime=" + gitLowSpeedTime,
+	}, args...)
+	cmd := exec.CommandContext(ctx, "git", gitArgs...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
-	return cmd.Run()
+	cmd.Env = gitEnv(os.Environ())
+	// Kill git's helpers (git-remote-https, ssh) along with it.
+	configureGitProcess(cmd)
+	cmd.WaitDelay = 5 * time.Second
+
+	err := cmd.Run()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("git %s timed out after %s: %w", args[0], gitTimeout, err)
+	}
+	return err
+}
+
+// gitEnv keeps a caller-provided GIT_SSH_COMMAND or GIT_SSH.
+func gitEnv(env []string) []string {
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GIT_SSH_COMMAND=") || strings.HasPrefix(kv, "GIT_SSH=") {
+			return env
+		}
+	}
+	return append(env, "GIT_SSH_COMMAND="+gitSSHCommand)
 }
 
 // applySubPath replaces dest with the contents of dest/subPath. The result is
