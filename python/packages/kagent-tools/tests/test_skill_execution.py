@@ -196,6 +196,26 @@ def test_read_file_truncates_a_long_line_without_failing_the_file(tmp_path):
     assert "second line" in lines[1]
 
 
+@pytest.mark.parametrize(
+    ("content", "offset", "want"),
+    [
+        ("a\nb\nc\n", 10, "Offset 10 is past the end of the file, which has 3 lines."),
+        ("x\n" * 2000, None, "  2000|x"),
+        ("x\n" * 2001, None, "[read limited to 2000 lines; continue with offset=2001]"),
+    ],
+    ids=[
+        "offset past the last line",
+        "default page ends exactly at the last line",
+        "default page ends before the last line",
+    ],
+)
+def test_read_file_reports_the_end_of_the_file(tmp_path, content, offset, want):
+    f = tmp_path / "file.txt"
+    f.write_text(content)
+
+    assert read_file_content(f, offset).split("\n")[-1] == want
+
+
 # --- list_dir_content / grep_content tests ---
 
 
