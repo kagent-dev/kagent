@@ -347,7 +347,7 @@ tests:
       - notExists:
           path: spec.template.spec.topologySpreadConstraints
 
-  - it: should pass runtime browser config to init.sh as env
+  - it: should pass runtime browser config to the entrypoint as env
     template: ui-configmap.yaml
     asserts:
       - equal:

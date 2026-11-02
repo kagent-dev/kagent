@@ -37,7 +37,7 @@ func (s *recordingSessionService) CreateSession(ctx context.Context, _ *apiv1.Cr
 
 func (s *recordingSessionService) GetSession(_ context.Context, request *apiv1.GetSessionRequest) (*apiv1.GetSessionResponse, error) {
 	return &apiv1.GetSessionResponse{Session: &apiv1.Session{
-		Id: request.SessionId, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Id: request.SessionId, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}}, nil
 }
 

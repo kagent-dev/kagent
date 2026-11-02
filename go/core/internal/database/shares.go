@@ -31,12 +31,22 @@ func toSessionShare(row sessionShareRow) (*apiv1.SessionShare, error) {
 // hash for a session owned by userID and sets its creation time. A missing or unowned
 // session returns ErrNotFound. Callers authorize sharing and generate the token;
 // the plaintext token is never stored. Insertion locks the live session so
-// concurrent deletion either revokes this share or prevents its creation.
+// concurrent deletion either revokes this share or prevents its creation. IDs are
+// canonicalized before serialization; invalid IDs fail before any write.
 func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1.SessionShare, tokenHash []byte, userID string) (*apiv1.SessionShare, error) {
 	if share == nil {
 		return nil, fmt.Errorf("missing Session share")
 	}
+	id, err := uuid.Parse(share.GetId())
+	if err != nil {
+		return nil, fmt.Errorf("invalid Session share ID: %w", err)
+	}
+	sessionID, err := uuid.Parse(share.GetSessionId())
+	if err != nil {
+		return nil, fmt.Errorf("invalid Session share session ID: %w", err)
+	}
 	value := proto.Clone(share).(*apiv1.SessionShare)
+	value.Id, value.SessionId = id.String(), sessionID.String()
 	value.CreatedAt = timestamppb.Now()
 	var expiresAt *time.Time
 	if value.ExpiresAt != nil {

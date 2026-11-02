@@ -6,9 +6,6 @@ ARG TARGETOS
 
 WORKDIR /workspace
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
-    --mount=type=cache,target=/root/.cache/go-build,rw \
-    go mod download
 COPY api/ api/
 COPY adk/ adk/
 COPY core/ core/
@@ -45,7 +42,8 @@ RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc
 COPY --from=builder /kagent-claude /usr/local/bin/kagent-claude
 
 USER 65532:65532
-WORKDIR /data/workspace
+# The adapter creates its workspace after the durable /data volume is mounted.
+WORKDIR /data
 EXPOSE 80 8081
 
 LABEL org.opencontainers.image.source="https://github.com/kagent-dev/kagent"

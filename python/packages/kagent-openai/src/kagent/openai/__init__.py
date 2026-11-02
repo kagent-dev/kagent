@@ -9,7 +9,6 @@ from kagent.core.telemetry import _defaults as _defaults
 
 # Re-export from agent subpackage for convenience
 from ._a2a import KAgentApp
-from .tools import get_skill_tools
 
-__all__ = ["KAgentApp", "get_skill_tools"]
+__all__ = ["KAgentApp"]
 __version__ = "0.1.0"

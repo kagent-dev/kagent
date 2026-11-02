@@ -5,6 +5,8 @@
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
 literal environment values, WorkerPool configuration, and snapshot location.
+Harness has no status subresource; compilation and runtime readiness are reported
+on each Agent that selects it.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
 description and prompt, MCP tool bindings, skills, plugins, and Shared
@@ -172,9 +174,11 @@ revision. AgentTemplate is shared context with no runtime status. Child template
 references are resolved under the root Agent's Harness; they do not require
 separate Agents or matching Harness references.
 
-A failed compile or apply leaves the previous successful revision available.
-Sessions pin a prepared revision, so later template edits do not mutate a
-running session.
+A failed compile or apply retains the previous successful revision, which
+remains available for fresh Sessions during pending or failed edits. Initial
+creation requires a successful revision. Existing Sessions and creation retries
+keep their pinned revision. Explicit egress grants use current policies
+independently of runtime preparation.
 
 Harness compilers only translate inputs. The controller and Substrate adapter own
 application and readiness. The central entry points are
@@ -199,21 +203,24 @@ completion.
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Agent namespace. The pool's `spec.sandboxClass` selects
-the ActorTemplate's sandbox configuration:
+in the Agent namespace. Substrate v1.0.0-rc1 chooses the sandbox runtime from
+the selected WorkerPool's `spec.sandboxClasses[]` and `configRef`; ActorTemplates
+no longer specify a SandboxConfig. Operators must install the referenced
+cluster-scoped SandboxConfig and provision compatible workers and runtime assets.
+Selecting `microvm` does not install those prerequisites or configure a Kubernetes
+RuntimeClass. The standard configurations are `gvisor-default` and `microvm`.
 
-| WorkerPool class | ActorTemplate sandbox class | SandboxConfig name |
-| --- | --- | --- |
-| Empty or `gvisor` | `SANDBOX_CLASS_GVISOR` | `gvisor-default` |
-| `microvm` | `SANDBOX_CLASS_MICROVM` | `microvm` |
+The central compiler also resolves operator-owned `runtimeDefaults.cpu` and
+`runtimeDefaults.memory` into each agent revision. Both limits are required by
+Substrate, default to 1 CPU and 1 GiB, and participate in the digest. The Substrate
+adapter validates their quantities and emits ActorTemplate limits in CPU
+millicores and memory bytes for every harness, rounding positive fractions up
+to the next unit. Standalone sandbox limits remain under `sandboxes` configuration.
 
-These names follow Substrate v0.4.0-alpha1's standard gVisor installation and
-MicroVM setup/E2E convention. They are not API-level defaults or discovery:
-Substrate requires an explicit name and rejects a missing SandboxConfig or a
-class mismatch. Operators must install the corresponding cluster-scoped
-SandboxConfig and provision compatible workers and runtime assets. Selecting
-`microvm` does not install those prerequisites or configure a Kubernetes
-RuntimeClass.
+Harness and SandboxTemplate snapshot locations require Substrate's
+`PerTemplateSnapshotLocation` preview gate. The CLI installer enables it; direct
+Substrate installations must include it in their Helm `preview` list. The
+Substrate client opts ActorTemplate creation requests into preview features.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates
@@ -221,7 +228,9 @@ are tracked through KRT and recompute the desired revision.
 Empty and explicit `gvisor` hash the explicit `gvisor`
 class; both sandbox classes participate in the digest, so a prepared MicroVM runtime
 cannot be confused with a gVisor revision. Returning to gVisor restores the
-original digest. Existing Sessions remain pinned to their revisions.
+original digest. Existing Sessions remain pinned to their revisions, but the
+WorkerPool owns runtime selection. Use a separate pool when existing revisions
+must keep using the previous runtime.
 
 Generated ActorTemplates select workers with both `kagent.dev/worker-pool-name`
 and `kagent.dev/worker-pool-namespace`. The labels identify the referenced pool's
@@ -232,16 +241,19 @@ namespace only while every pool's labels name the pool's own namespace.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining
-silently pending. Status includes a safe error code; a failed precondition also
-names the expected SandboxConfig and class. Raw backend error messages are not
-copied into Kubernetes status. The reconciliation queue owns failure retries,
+silently pending. Status includes a safe error code. Raw backend error messages
+are not copied into Kubernetes status. The reconciliation queue owns failure retries,
 with exponential backoff from one second to thirty seconds and no operational
 attempt budget. It clears the failure after the prerequisite or service recovers.
-Periodic polling only checks observed templates whose golden snapshots are still
-pending. Observation and status updates do not bypass backoff; changed desired
-revisions, unresolved inputs, and Agent deletion are reconciled immediately.
-Compilation errors, immutable template conflicts, and golden-snapshot failures
-stop preparation until the desired inputs change.
+Periodic polling checks observed templates whose golden snapshots are still
+pending and wakes golden retries whose retry time has passed. Observation and
+status updates do not bypass backoff; changed desired revisions, unresolved
+inputs, and Agent deletion are reconciled immediately. Compilation errors and
+immutable template conflicts stop preparation until the desired inputs change.
+A golden-snapshot failure is retried instead: the controller deletes the failed
+ActorTemplate and recreates it on the persisted schedule described in
+[Sandboxes](sandboxes.md#configuration-and-preparation), reporting `Ready=False`
+with reason `ActorTemplateRetrying` and only the failure reason in its message.
 
 ActorTemplate construction checks the size of each emitted environment value
 against Substrate's 32,768-character limit, including the serialized config and
@@ -391,10 +403,14 @@ no synthetic Kubernetes object is created for an inline template.
 
 Create a session with `kagent agent session create --agent assistant -n kagent`.
 The gRPC create request and ScheduledRun target one `agent` resource reference.
-The controller selects that Agent's latest successful revision. Deleting an Agent
+The store selects that Agent's latest successful revision, including while an
+edit is pending or failed. Deleting an Agent
 retires its definition; sessions and checkpoints retain their pinned revisions.
 Recreating the same name creates a new identity and cannot inherit the old
 Agent's last successful revision.
+
+Namespace reference policies constrain compilation. Failed resolution preserves
+the last successful revision for new sessions; existing sessions remain pinned.
 
 This replaces implicit label selection and the old template/Harness inputs as a
 breaking API change. SandboxTemplate hosting configuration is not part of this

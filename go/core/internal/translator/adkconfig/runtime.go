@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -23,16 +23,10 @@ type modelResult struct {
 }
 
 // buildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
-	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
-	if resolved == nil {
-		return nil, fmt.Errorf("model config %q not found", name)
-	}
-	if failures := resolved.SemanticFailures; len(failures) > 0 {
-		return nil, translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
-	}
-	if failures := resolved.ReferenceFailures; len(failures) > 0 {
-		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
+func (c *Builder) buildModel(namespace string, ref v1alpha3.ObjectReference) (*modelResult, error) {
+	resolved, err := translator.ResolveModelReference(c.ctx, c.collections, namespace, ref)
+	if err != nil {
+		return nil, err
 	}
 	runtime, err := resolveModel(resolved)
 	if err != nil {
@@ -70,8 +64,8 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	}
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
-		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
-			model, err := c.buildModel(harness.Namespace, ref.Name)
+		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.NamespacedName(harness.Namespace)) {
+			model, err := c.buildModel(harness.Namespace, *ref)
 			if err != nil {
 				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
 			}
@@ -85,20 +79,37 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	return nil
 }
 
-func isAgentModel(template *translator.TemplateConfiguration, name string) bool {
-	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
+func isAgentModel(template *translator.TemplateConfiguration, key types.NamespacedName) bool {
+	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.NamespacedName(template.Namespace) == key
 }
 
-// applyOutputSchema verifies the portable schema by performing the same
-// genai.Schema conversion used by the Go runtime, then records the canonical
-// schema for both Go and Python ADK runtimes. This keeps compatibility
-// failures at Harness compilation instead of actor startup.
 func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.ResolvedOutputSchema) error {
 	if output == nil {
 		return nil
 	}
-	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
+	projected, err := adkoutputschema.ToGenAISchema(output.Schema)
+	if err != nil {
 		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
+	}
+	if adkoutputschema.UsesSetModelResponse(config.Model) {
+		if err := adkoutputschema.CheckSetModelResponse(projected); err != nil {
+			return translator.NewValidationError("%v", err)
+		}
+	}
+	if output.Strict {
+		if err := adkoutputschema.CheckStrict(output.Schema); err != nil {
+			return translator.NewValidationError("outputSchemaStrict: %v", err)
+		}
+	}
+	switch p := config.Model.GetProvider().(type) {
+	case *configv1.ADKModelConfig_Openai:
+		p.Openai.StrictOutputSchema = output.Strict
+	case *configv1.ADKModelConfig_AzureOpenai:
+		p.AzureOpenai.StrictOutputSchema = output.Strict
+	case *configv1.ADKModelConfig_Foundry:
+		if p.Foundry.GetApiFormat() != runtimeconfig.FoundryAPIFormatAnthropic {
+			p.Foundry.StrictOutputSchema = output.Strict
+		}
 	}
 	config.Output = &configv1.ADKOutputConfig{
 		JsonSchema: append(json.RawMessage(nil), output.Schema...),
@@ -125,7 +136,7 @@ func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfigu
 		return nil
 	}
 	name := memory.ModelConfigRef.Name
-	model, err := c.buildModel(harness.Namespace, name)
+	model, err := c.buildModel(harness.Namespace, memory.ModelConfigRef)
 	if err != nil {
 		return fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 	}

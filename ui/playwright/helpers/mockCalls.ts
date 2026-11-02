@@ -49,8 +49,6 @@ export const rpc = {
   listAgentTemplates: "kagent.api.v1.AgentTemplateService/ListAgentTemplates",
   listAgentInstances: "kagent.api.v1.SessionService/ListSessions",
   getAgentInstance: "kagent.api.v1.SessionService/GetSession",
-  suspendAgentInstance: "kagent.api.v1.SessionService/SuspendSession",
-  resumeAgentInstance: "kagent.api.v1.SessionService/ResumeSession",
 } as const;
 
 export type WatchedRpc = (typeof rpc)[keyof typeof rpc];

@@ -6,13 +6,13 @@ import (
 	"reflect"
 	"strings"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 // ProviderModelRefresher refreshes the discovered models for one provider config.
@@ -353,13 +353,13 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 }
 
 func (s *Service) ListConfiguredProviders(ctx context.Context) ([]ConfiguredProvider, error) {
-	var modelProviderConfigList v1alpha3.ModelProviderConfigList
-	if err := s.kubeClient.List(ctx, &modelProviderConfigList, client.InNamespace(s.defaultNamespace)); err != nil {
-		return nil, serviceerrors.NewInternal("Failed to list model provider configs", err)
+	providerConfigs, err := s.providerConfigs.List(ctx, s.defaultNamespace)
+	if err != nil {
+		return nil, err
 	}
 
-	var providers []ConfiguredProvider
-	for _, providerConfig := range modelProviderConfigList.Items {
+	providers := make([]ConfiguredProvider, 0, len(providerConfigs))
+	for _, providerConfig := range providerConfigs {
 		if meta.IsStatusConditionTrue(providerConfig.Status.Conditions, v1alpha3.ModelProviderConfigConditionTypeReady) {
 			providers = append(providers, ConfiguredProvider{
 				Name:     providerConfig.Name,
@@ -376,8 +376,17 @@ func (s *Service) GetProviderModels(ctx context.Context, request GetProviderMode
 		return ProviderModelsResult{}, serviceerrors.NewInvalidArgument("Model provider name is required", nil)
 	}
 
+	ref := types.NamespacedName{Namespace: s.defaultNamespace, Name: request.Name}
 	var models []string
 	if request.Refresh {
+		// The RPC also serves cached reads, so its transport read policy cannot
+		// reject this mutation. A share must never trigger provider discovery.
+		if _, shared := auth.ShareContextFrom(ctx); shared {
+			return ProviderModelsResult{}, serviceerrors.NewPermissionDenied("Session shares cannot refresh provider models", nil)
+		}
+		if err := s.providerConfigs.Authorize(ctx, auth.VerbUpdate, ref); err != nil {
+			return ProviderModelsResult{}, err
+		}
 		if s.providerModelRefresher == nil {
 			return ProviderModelsResult{}, serviceerrors.NewInternal(
 				"Failed to refresh models for model provider",
@@ -390,12 +399,9 @@ func (s *Service) GetProviderModels(ctx context.Context, request GetProviderMode
 		}
 		models = refreshedModels
 	} else {
-		providerConfig := &v1alpha3.ModelProviderConfig{}
-		if err := s.kubeClient.Get(ctx, client.ObjectKey{Namespace: s.defaultNamespace, Name: request.Name}, providerConfig); err != nil {
-			if apierrors.IsNotFound(err) {
-				return ProviderModelsResult{}, serviceerrors.NewNotFound(err.Error(), err)
-			}
-			return ProviderModelsResult{}, serviceerrors.NewInternal("Failed to get model provider config", err)
+		providerConfig, err := s.providerConfigs.Get(ctx, ref)
+		if err != nil {
+			return ProviderModelsResult{}, err
 		}
 		if len(providerConfig.Status.DiscoveredModels) == 0 {
 			return ProviderModelsResult{}, serviceerrors.NewNotFound("No models discovered for model provider, try refreshing", nil)

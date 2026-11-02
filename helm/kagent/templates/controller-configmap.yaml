@@ -1,5 +1,5 @@
 {{- $namespace := include "kagent.namespace" . -}}
-{{- $apiURL := printf "http://%s-controller.%s.svc:%v" (include "kagent.fullname" .) $namespace .Values.controller.service.ports.port -}}
+{{- $apiURL := printf "http://%s" (include "kagent.controllerServiceAuthority" .) -}}
 {{- $watch := list -}}
 {{- with include "kagent.watchNamespaces" . -}}{{- $watch = splitList "," . -}}{{- end -}}
 {{- $database := dict "readWrite" (dict "urlFile" "/etc/kagent/secrets/database-readwrite-url") -}}

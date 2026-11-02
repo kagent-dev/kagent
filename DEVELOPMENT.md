@@ -8,9 +8,7 @@ for file locations, precedence, and examples.
 
 Standard `OTEL_*` settings override the receiving process's telemetry defaults.
 Provider credentials, SDK trust, `KUBECONFIG`, UI settings, and test inputs remain
-environment interfaces. Register supported public variables in `go/core/pkg/env`,
-then run `make env-docs` and `make env-docs-check`. Generated runtime payloads,
-credentials, and private bootstrap paths are excluded from this reference.
+environment interfaces. Register supported public variables in `go/core/pkg/env`.
 
 To understand how to develop for kagent, it's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
 
@@ -70,7 +68,7 @@ CLI binaries, checksums, and commit-specific chart archives.
 
 - **Docker** with **Docker Buildx** (v0.23.0+)
 - **Git**
-- **Go** (v1.27.0+)
+- **Go** (v1.27.3+)
 - **Helm**
 - **Kind** (v0.27.0+)
 - **kubectl** (v1.33.4+)
@@ -157,7 +155,7 @@ for local or prerelease testing:
 ```shell
 make kagent-cli-install \
   SUBSTRATE_REPO=oci://example.com/substrate/helm \
-  SUBSTRATE_VERSION=0.5.0-alpha2
+  SUBSTRATE_VERSION=1.0.0-rc1
 ```
 
 The PodCertificate chart inherits those values. Override it independently when

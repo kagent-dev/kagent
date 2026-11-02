@@ -387,8 +387,10 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 				storeErr   error
 				wantStatus int
 				canRead    bool
+				denied     bool
 			}{
 				{name: "read only", sessionID: gatewayTestID, canRead: true},
+				{name: "policy denied", sessionID: gatewayTestID, denied: true},
 				{name: "other session", sessionID: "12345678-1234-4234-8234-123456789abc"},
 				{name: "expired", storeErr: database.ErrNotFound, wantStatus: 403},
 				{name: "store unavailable", storeErr: errors.New("database credentials"), wantStatus: 500},
@@ -397,7 +399,11 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 					store := &gatewayTestStore{session: gatewayTestSession(), task: &a2atype.Task{ID: "task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 					shares := &httpTestShares{sessionID: test.sessionID, err: test.storeErr}
 					runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
-					gateway := newTestGateway(store, &gatewayDenyAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+					authorizer := &gatewayTestAuthorizer{}
+					if test.denied {
+						authorizer.err = errors.New("denied")
+					}
+					gateway := newTestGateway(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 					address := startCoreTestServer(t, gateway, shares)
 					transport := newGatewayTestTransport(t, address, protocol)
 					params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}, "x-share-token": {"share"}}
@@ -408,6 +414,16 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 					} else {
 						require.Error(t, err)
 					}
+					subscriptionEvents := 0
+					for _, err := range transport.SubscribeToTask(t.Context(), params, &a2atype.SubscribeToTaskRequest{Tenant: gatewayTestAgent, ID: "task"}) {
+						subscriptionEvents++
+						if test.canRead {
+							require.NoError(t, err)
+						} else {
+							require.Error(t, err)
+						}
+					}
+					require.Equal(t, 1, subscriptionEvents)
 					digest := sha256.Sum256([]byte("share"))
 					require.Equal(t, digest[:], shares.digest)
 					_, err = transport.CancelTask(t.Context(), params, &a2atype.CancelTaskRequest{Tenant: gatewayTestAgent, ID: "task"})
@@ -530,5 +546,44 @@ func TestEmbeddedPushAcrossTransports(t *testing.T) {
 				require.Nil(t, runtime.sentConfig)
 			})
 		}
+	}
+}
+
+// Session creation is permitted, so only the independent target Agent check can
+// reject this first message. No Session or dispatch may be reserved on denial.
+type denyAgentGetPolicy struct {
+	agents []auth.Resource
+}
+
+func (d *denyAgentGetPolicy) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if verb == auth.VerbGet && resource.Type == "Agent" {
+		d.agents = append(d.agents, resource)
+		return errors.New("target Agent access denied")
+	}
+	return nil
+}
+
+func TestGatewayNewConversationRequiresAgentAccessAcrossTransports(t *testing.T) {
+	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
+		t.Run(string(protocol), func(t *testing.T) {
+			store := &gatewayTestStore{created: map[string]*apiv1.Session{}}
+			policy := &denyAgentGetPolicy{}
+			dialer := &gatewayTestDialer{}
+			gateway := newTestGateway(store, policy, dialer, "")
+			transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
+			tenant := ""
+			if protocol == a2atype.TransportProtocolGRPC {
+				tenant = gatewayTestAgent
+			}
+			_, err := transport.SendMessage(t.Context(), a2aclient.ServiceParams{"authorization": {"Bearer valid"}}, &a2atype.SendMessageRequest{
+				Tenant:  tenant,
+				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
+			})
+			require.ErrorIs(t, err, a2atype.ErrUnauthorized)
+			require.Equal(t, []auth.Resource{{Type: "Agent", Namespace: "team-a", Name: "assistant"}}, policy.agents)
+			require.Empty(t, store.created)
+			require.Zero(t, store.reserveCalls)
+			require.Nil(t, dialer.session)
+		})
 	}
 }

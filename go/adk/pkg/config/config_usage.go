@@ -31,7 +31,7 @@ import (
 //   - Used in create_agent() to add tools to the agent
 //
 // Agent.Spec.A2AConfig.Skills -> Not in config.json, handled separately
-//   - Skills are added via SkillsPlugin in Python
+//   - Python adds skill discovery alongside the built-in tools
 //   - In go-adk, skills are handled via AgentConfig.SkillsDirectory
 
 // ValidateAgentConfigUsage validates that all AgentConfig fields are properly used
@@ -83,7 +83,6 @@ func GetAgentConfigSummary(config *configv1.ADKAgentConfig) string {
 	summary += fmt.Sprintf("  Description: %s\n", config.Description)
 	summary += fmt.Sprintf("  Instruction: %d chars\n", len(config.Instruction))
 	summary += fmt.Sprintf("  Stream: %v\n", config.Stream)
-	summary += fmt.Sprintf("  HasNetworkConfig: %v\n", config.Network != nil)
 	summary += fmt.Sprintf("  HttpTools: %d\n", len(config.HttpTools))
 	summary += fmt.Sprintf("  SseTools: %d\n", len(config.SseTools))
 	summary += fmt.Sprintf("  RemoteAgents: %d\n", len(config.RemoteAgents))

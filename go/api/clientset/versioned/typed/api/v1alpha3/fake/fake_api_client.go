@@ -20,6 +20,10 @@ func (c *FakeApiV1alpha3) AgentTemplates(namespace string) v1alpha3.AgentTemplat
 	return newFakeAgentTemplates(c, namespace)
 }
 
+func (c *FakeApiV1alpha3) EgressPolicies(namespace string) v1alpha3.EgressPolicyInterface {
+	return newFakeEgressPolicies(c, namespace)
+}
+
 func (c *FakeApiV1alpha3) Harnesses(namespace string) v1alpha3.HarnessInterface {
 	return newFakeHarnesses(c, namespace)
 }

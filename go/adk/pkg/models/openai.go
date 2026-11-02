@@ -38,6 +38,9 @@ type OpenAIConfig struct {
 	TopP                *float64
 	// APIFormat selects chatCompletions (default) or responses.
 	APIFormat string
+	// StrictOutputSchema sends strict with this value alongside the structured
+	// output schema. Nil omits strict.
+	StrictOutputSchema *bool
 }
 
 // AzureOpenAIConfig holds Azure OpenAI configuration
@@ -48,6 +51,8 @@ type AzureOpenAIConfig struct {
 	Deployment string
 	APIVersion string
 	APIFormat  string
+
+	StrictOutputSchema *bool
 
 	// credential overrides the Azure credential used for the implicit Workload
 	// Identity auth path. When nil, azureai.NewDefaultCredential is used. It is
@@ -192,9 +197,10 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 	logger.InfoContext(ctx, "initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion, "api_format", config.APIFormat)
 	return &OpenAIModel{
 		Config: &OpenAIConfig{
-			TransportConfig: config.TransportConfig,
-			Model:           deployment,
-			APIFormat:       config.APIFormat,
+			TransportConfig:    config.TransportConfig,
+			Model:              deployment,
+			APIFormat:          config.APIFormat,
+			StrictOutputSchema: config.StrictOutputSchema,
 		},
 		Client:  client,
 		IsAzure: true,

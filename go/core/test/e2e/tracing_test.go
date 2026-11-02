@@ -15,8 +15,8 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/otel"
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -28,7 +28,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -543,7 +542,7 @@ func createTracingTemplate(t *testing.T, harnessName, runtimeLabel, modelName st
 			Labels: map[string]string{"kagent.dev/e2e-runtime": runtimeLabel},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: modelName},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: modelName},
 			Description:  "Completed-chat trace flush E2E fixture",
 			SystemPrompt: "Reply concisely and follow the requested output format exactly.",
 		},
@@ -626,10 +625,10 @@ func assertActorSuspended(t *testing.T, fixture *interactionFixture) {
 		if actor == nil || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 			return false, nil
 		}
-		snapshot := actor.GetStatus().GetExternalSnapshot()
-		return snapshot.GetSnapshotUri() != "" && snapshot.GetContentScope() == ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, nil
+		snapshot := substrate.LatestActorSnapshot(actor)
+		return substrate.SnapshotURI(snapshot) != "" && snapshot.GetFidelity() == ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, nil
 	})
 	if err != nil {
-		t.Fatalf("Actor %s did not reach Suspended with an external DATA snapshot: %v", actorID, err)
+		t.Fatalf("Actor %s did not reach Suspended with an durable VOLUMES snapshot: %v", actorID, err)
 	}
 }

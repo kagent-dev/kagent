@@ -19,8 +19,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 )
 
 type Store interface {
@@ -45,16 +44,11 @@ func NewService(store Store, quiescenceWake, pushWake chan<- struct{}) *Service 
 }
 
 func (s *Service) session(ctx context.Context, sessionID string) (*apiv1.Session, error) {
-	authSession, _ := auth.AuthSessionFrom(ctx)
-	identity, ok := authSession.(runtimeSession)
-	if !ok || identity.sessionID != sessionID {
-		return nil, status.Error(codes.PermissionDenied, "actor does not belong to this session")
-	}
-	session, err := s.store.GetSessionForRuntime(ctx, sessionID, identity.actorUID)
+	session, err := runtimeauth.Session(ctx, s.store)
 	if err != nil {
 		return nil, storageError(err)
 	}
-	if session.A2AAuthority != substrate.ActorHost(identity.atespace, substrate.ActorName(sessionID), "") {
+	if session.Id != sessionID {
 		return nil, status.Error(codes.PermissionDenied, "actor does not belong to this session")
 	}
 	return session, nil

@@ -16,18 +16,21 @@ import (
 	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type runtimeTestAuth struct {
 	auth.AuthProvider
-	methods []string
+	methods               []string
+	destinationSessionIDs []string
 }
 
-func (a *runtimeTestAuth) UpstreamAuth(req *http.Request, _ auth.Session, _ auth.Principal) error {
+func (a *runtimeTestAuth) UpstreamAuth(req *http.Request, _ auth.Session, destinationSessionID string) error {
 	method, _ := auth.UpstreamMethodFrom(req.Context())
 	a.methods = append(a.methods, method)
+	a.destinationSessionIDs = append(a.destinationSessionIDs, destinationSessionID)
 	req.Header.Set("Authorization", "Bearer runtime-test")
 	req.Header.Set("ate-target-actor", "wrong/actor")
 	return nil
@@ -54,7 +57,7 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 	authenticator := &runtimeTestAuth{}
-	dialer, err := NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
+	dialer, err := NewRuntimeDialer(&configv1.SubstrateConfig{RouterUrl: new("http://" + listener.Addr().String())}, authenticator)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -82,6 +85,7 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	_, err = client.CancelTask(ctx, cancelTask)
 	require.Error(t, err)
 	require.Equal(t, []string{"SendMessage", "SendStreamingMessage", "SubscribeToTask", "GetTask", "CancelTask"}, authenticator.methods)
+	require.Equal(t, []string{"session", "session", "session", "session", "session"}, authenticator.destinationSessionIDs)
 	for range 5 {
 		select {
 		case md := <-received:

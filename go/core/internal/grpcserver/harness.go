@@ -3,7 +3,6 @@ package grpcserver
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -56,7 +55,6 @@ func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1.Create
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	incoming.Status = v1alpha3.HarnessStatus{}
 	result, err := s.service.Create(ctx, incoming)
 	if err != nil {
 		return nil, err
@@ -89,7 +87,6 @@ func (s *harnessServer) harness(object *v1alpha3.Harness) (*apiv1.Harness, error
 		Resource:      resource,
 		Runtime:       harnessRuntime(object),
 		WorkloadImage: ptr.Deref(object.Spec.Workload.Image, ""),
-		Ready:         meta.IsStatusConditionTrue(object.Status.Conditions, v1alpha3.HarnessConditionTypeReady),
 	}, nil
 }
 

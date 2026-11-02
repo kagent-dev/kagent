@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   SendMessageInput,
 } from "../chat/types";
+import { LinkFile } from "../chat/attachments";
 import { useChat } from "./useChat";
 
 /**
@@ -88,6 +89,24 @@ describe("useChat and the reader's own message", () => {
     const mine = result.current.messages.filter((message) => message.role === "user");
     expect(mine).toHaveLength(1);
     expect(textOf(mine[0])).toBe(QUESTION);
+  });
+
+  it("shows a chip for an attached file but not for a link from the text", async () => {
+    const seen: SendMessageInput[] = [];
+    setChatClientFactory(() => client({ seen }));
+    const { result } = renderHook(() => useChat(CONVERSATION));
+    await waitFor(() => expect(result.current.isLoadingHistory).toBe(false));
+
+    const link = new LinkFile("https://files.example/a.pdf");
+    const attached = new File(["# hi"], "notes.md", { type: "text/markdown" });
+    await act(async () => {
+      await result.current.send(`read ${link.url}`, [attached, link]);
+    });
+
+    const mine = result.current.messages.filter((message) => message.role === "user");
+    expect(mine[0].parts.filter((part) => part.kind === "file").map((part) => part.name)).toEqual(["notes.md"]);
+    // The link still goes to the agent.
+    expect(seen[0].files).toEqual([attached, link]);
   });
 
   it("sends it under the id it filed it under, which is what lets an echo replace it", async () => {

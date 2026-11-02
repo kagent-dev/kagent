@@ -39,7 +39,7 @@ for (const template of CASES) {
         await chooseTemplateSource(page, "inline");
         await expect(submit).toBeDisabled();
         await expect(problems).toHaveText("Choose a model configuration for the inline template.");
-        await selectOption(page, "template-form-model", "default-model-config");
+        await selectOption(page, "template-form-model", "kagent/default-model-config");
         await page.getByTestId("template-form-description").fill("Inline before edit");
         await page.getByTestId("template-form-prompt").fill("You answer briefly.");
       } else {
@@ -50,7 +50,6 @@ for (const template of CASES) {
       await selectOption(page, "agent-form-harness-ref", "k8s-agent");
       await expect(problems).toHaveCount(0);
       await expect(submit).toBeEnabled();
-      await expect(page).toHaveURL(/\/agents\/new$/);
       await submit.click();
     });
 

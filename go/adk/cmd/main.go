@@ -28,7 +28,6 @@ import (
 
 const (
 	defaultPluginPackagesRoot = "/plugins"
-	defaultSkillsRoot         = "/skills"
 	defaultPluginDataRoot     = "/data/plugins"
 )
 
@@ -73,7 +72,7 @@ func run(logLevel, host, port, configDir string) error {
 		logging.IntoContext(context.Background(), logger), agentConfig,
 		config.AgentPluginPaths{
 			Packages: defaultPluginPackagesRoot,
-			Skills:   defaultSkillsRoot,
+			Skills:   config.DefaultSkillsRoot,
 			Data:     defaultPluginDataRoot,
 		},
 	); err != nil {
@@ -163,7 +162,6 @@ func run(logLevel, host, port, configDir string) error {
 	var memoryService *kagentmemory.KagentMemoryService
 	if agentConfig.Memory != nil {
 		memSvc, err := kagentmemory.New(kagentmemory.Config{
-			AgentName:        appName,
 			ControllerClient: controllerClient,
 			TTLDays:          agentConfig.Memory.TtlDays,
 			EmbeddingConfig:  agentConfig.Memory.Embedding,

@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -211,7 +210,7 @@ func testAgentTemplateMessage(t *testing.T) *apiv1.AgentTemplate {
 	template := &apiv1alpha3.AgentTemplate{
 		TypeMeta:   metav1.TypeMeta{APIVersion: apiv1alpha3.GroupVersion.String(), Kind: agentTemplateKind},
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "researcher"},
-		Spec:       apiv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default"}},
+		Spec:       apiv1alpha3.AgentTemplateSpec{ModelConfig: &apiv1alpha3.ObjectReference{Name: "default"}},
 	}
 	resource, err := structuredobject.FromGo(template, apiv1alpha3.GroupVersion.String(), agentTemplateKind, 0)
 	require.NoError(t, err)

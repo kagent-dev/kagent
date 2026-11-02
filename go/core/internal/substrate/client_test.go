@@ -15,16 +15,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestAteAPITLSConfig(t *testing.T) {
-	cfg, err := ateAPITLSConfig(Config{})
+func TestClientTLSConfig(t *testing.T) {
+	cfg, err := clientTLSConfig("", "")
 	require.NoError(t, err)
 	require.False(t, cfg.InsecureSkipVerify)
 	require.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
@@ -35,7 +37,7 @@ func TestAteAPITLSConfig(t *testing.T) {
 	bundle := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})...)
 	path := filepath.Join(t.TempDir(), "bundle.pem")
 	require.NoError(t, os.WriteFile(path, bundle, 0o600))
-	cfg, err = ateAPITLSConfig(Config{CAFile: path, ClientCertFile: path})
+	cfg, err = clientTLSConfig(path, path)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RootCAs)
 	loaded, err := cfg.GetClientCertificate(&tls.CertificateRequestInfo{})
@@ -70,51 +72,86 @@ func TestDial_verifiedTLSReachesReady(t *testing.T) {
 }
 
 func TestEnsureAtespace(t *testing.T) {
-	t.Run("returns nil when substrate reports AlreadyExists", func(t *testing.T) {
-		fake := &createAtespaceFake{err: status.Error(codes.AlreadyExists, "Atespace kagent already exists")}
-		c := &Client{ControlClient: fake}
-
-		require.NoError(t, c.EnsureAtespace(context.Background(), "kagent"))
-		require.Equal(t, "kagent", fake.lastName)
-	})
-
-	t.Run("returns nil on successful create", func(t *testing.T) {
-		fake := &createAtespaceFake{}
-		c := &Client{ControlClient: fake}
-
-		require.NoError(t, c.EnsureAtespace(context.Background(), "kagent"))
-	})
-
-	t.Run("propagates non-AlreadyExists errors", func(t *testing.T) {
-		fake := &createAtespaceFake{err: status.Error(codes.Internal, "boom")}
-		c := &Client{ControlClient: fake}
-
-		err := c.EnsureAtespace(context.Background(), "kagent")
-		require.Error(t, err)
-		require.Equal(t, codes.Internal, status.Code(err))
-	})
-
-	t.Run("propagates non-gRPC errors", func(t *testing.T) {
-		fake := &createAtespaceFake{err: errors.New("dial failed")}
-		c := &Client{ControlClient: fake}
-
-		err := c.EnsureAtespace(context.Background(), "kagent")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "dial failed")
-	})
+	notFound := status.Error(codes.NotFound, "space missing")
+	denied := status.Error(codes.PermissionDenied, "access denied")
+	internal := status.Error(codes.Internal, "boom")
+	dialError := errors.New("dial failed")
+	for _, tt := range []struct {
+		name       string
+		getErr     error
+		createErr  error
+		wantErr    error
+		wantCreate bool
+	}{
+		{name: "existing space needs no create"},
+		{name: "missing space is created", getErr: notFound, wantCreate: true},
+		{name: "concurrent creation succeeds", getErr: notFound, createErr: status.Error(codes.AlreadyExists, "exists"), wantCreate: true},
+		{name: "denied read does not create", getErr: denied, wantErr: denied},
+		{name: "failed read does not create", getErr: dialError, wantErr: dialError},
+		{name: "create failure propagates", getErr: notFound, createErr: internal, wantErr: internal, wantCreate: true},
+		{name: "non grpc create failure propagates", getErr: notFound, createErr: dialError, wantErr: dialError, wantCreate: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &createAtespaceFake{getErr: tt.getErr, err: tt.createErr}
+			c := &Client{ControlClient: fake}
+			err := c.EnsureAtespace(context.Background(), "kagent")
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+			require.Equal(t, "kagent", fake.getName)
+			if tt.wantCreate {
+				require.Equal(t, "kagent", fake.lastName)
+			} else {
+				require.Empty(t, fake.lastName)
+			}
+		})
+	}
 }
 
-// createAtespaceFake is a partial ControlClient stand-in that captures the last
-// CreateAtespace request and returns a preset error. All other methods panic.
+// createAtespaceFake captures space lookup and creation requests.
 type createAtespaceFake struct {
 	ateapipb.ControlClient
+	getName  string
+	getErr   error
 	lastName string
 	err      error
+}
+
+func (f *createAtespaceFake) GetAtespace(_ context.Context, in *ateapipb.GetAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
+	f.getName = in.GetAtespace().GetName()
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: f.getName}}, nil
 }
 
 type createActorFake struct {
 	ateapipb.ControlClient
 	actor *ateapipb.Actor
+}
+
+type createActorTemplateFake struct {
+	ateapipb.ControlClient
+	metadata metadata.MD
+}
+
+func (f *createActorTemplateFake) CreateActorTemplate(ctx context.Context, request *ateapipb.CreateActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
+	f.metadata, _ = metadata.FromOutgoingContext(ctx)
+	return request.GetActorTemplate(), nil
+}
+
+func TestCreateActorTemplateOptsIntoSnapshotLocationPreview(t *testing.T) {
+	fake := &createActorTemplateFake{}
+	client := &Client{ControlClient: fake}
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "trace-id", "existing")
+	template := &ateapipb.ActorTemplate{SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://snapshots/"}}
+	created, err := client.CreateActorTemplate(ctx, template)
+	require.NoError(t, err)
+	require.Equal(t, template, created)
+	require.Equal(t, []string{"true"}, fake.metadata.Get("ate-preview-allowed"))
+	require.Equal(t, []string{"existing"}, fake.metadata.Get("trace-id"))
 }
 
 type listActorTemplatesFake struct {
@@ -125,6 +162,7 @@ type listActorTemplatesFake struct {
 type deleteActorTemplateFake struct {
 	ateapipb.ControlClient
 	template *ateapipb.ObjectRef
+	options  *ateapipb.DeleteOptions
 	actor    *ateapipb.DeleteActorRequest
 }
 
@@ -142,10 +180,10 @@ func TestCreateActorUsesStableTemplateRef(t *testing.T) {
 }
 
 func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {
-	f.pageTokens = append(f.pageTokens, in.GetPageToken())
+	f.pageTokens = append(f.pageTokens, in.GetOptions().GetPageToken())
 	name := "first"
 	next := "next"
-	if in.GetPageToken() != "" {
+	if in.GetOptions().GetPageToken() != "" {
 		name = "second"
 		next = ""
 	}
@@ -166,6 +204,7 @@ func TestListActorTemplatesFollowsPagination(t *testing.T) {
 
 func (f *deleteActorTemplateFake) DeleteActorTemplate(_ context.Context, in *ateapipb.DeleteActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
 	f.template = in.GetActorTemplate()
+	f.options = in.GetOptions()
 	return nil, status.Error(codes.NotFound, "already deleted")
 }
 
@@ -177,9 +216,18 @@ func (f *deleteActorTemplateFake) DeleteActor(_ context.Context, in *ateapipb.De
 func TestDeleteActorTemplateRetriesNotFound(t *testing.T) {
 	fake := &deleteActorTemplateFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template"))
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", ""))
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
 	require.Nil(t, fake.actor, "Substrate owns golden Actor cleanup")
+	require.Empty(t, fake.options.GetUid(), "an unguarded delete pins no UID")
+}
+
+func TestDeleteActorTemplateSendsUIDPrecondition(t *testing.T) {
+	fake := &deleteActorTemplateFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", "failed-uid"))
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
+	require.Equal(t, "failed-uid", fake.options.GetUid(), "a replacement template under the same name must survive")
 }
 
 func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
@@ -199,7 +247,7 @@ func newTestTLSCert(t *testing.T) tls.Certificate {
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
@@ -215,9 +263,9 @@ type listWorkersFake struct {
 }
 
 func (f *listWorkersFake) ListWorkers(_ context.Context, in *ateapipb.ListWorkersRequest, _ ...grpc.CallOption) (*ateapipb.ListWorkersResponse, error) {
-	f.pageTokens = append(f.pageTokens, in.GetPageToken())
+	f.pageTokens = append(f.pageTokens, in.GetOptions().GetPageToken())
 	name, next := "first", "next"
-	if in.GetPageToken() != "" {
+	if in.GetOptions().GetPageToken() != "" {
 		name = "second"
 		next = ""
 	}
@@ -248,7 +296,7 @@ type listActorsFake struct {
 func (f *listActorsFake) ListActors(_ context.Context, in *ateapipb.ListActorsRequest, _ ...grpc.CallOption) (*ateapipb.ListActorsResponse, error) {
 	f.requests = append(f.requests, in)
 	name, next := "first", "next"
-	if in.GetPageToken() != "" {
+	if in.GetOptions().GetPageToken() != "" {
 		name = "second"
 		next = ""
 	}
@@ -268,8 +316,8 @@ func TestListActorsPagePassesPageSizeAndTokenThrough(t *testing.T) {
 	require.Empty(t, next)
 	require.Len(t, fake.requests, 1)
 	require.Equal(t, "team-a", fake.requests[0].GetAtespace())
-	require.Equal(t, int32(25), fake.requests[0].GetPageSize())
-	require.Equal(t, "cursor", fake.requests[0].GetPageToken())
+	require.Equal(t, int32(25), fake.requests[0].GetOptions().GetPageSize())
+	require.Equal(t, "cursor", fake.requests[0].GetOptions().GetPageToken())
 }
 
 // stuckPageFake answers every request with the token it was given, which is a server
@@ -333,4 +381,72 @@ func TestDeleteTagPassesUIDPrecondition(t *testing.T) {
 			require.Equal(t, uid, fake.request.GetOptions().GetUid())
 		})
 	}
+}
+
+type suspendActorFake struct {
+	ateapipb.ControlClient
+	actor   *ateapipb.Actor
+	request *ateapipb.SuspendActorRequest
+	get     func(context.Context) (*ateapipb.Actor, error)
+}
+
+func (f *suspendActorFake) SuspendActor(_ context.Context, request *ateapipb.SuspendActorRequest, _ ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
+	f.request = request
+	return &ateapipb.SuspendActorResponse{Actor: f.actor}, nil
+}
+
+func (f *suspendActorFake) GetActor(ctx context.Context, _ *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	return f.get(ctx)
+}
+
+func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
+	completed := &ateapipb.Snapshot{Generation: 1, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/old"}}}
+	pending := &ateapipb.Snapshot{Generation: 2, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING}}
+	actor := &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Uid: "original"}, Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, Snapshots: []*ateapipb.Snapshot{pending, completed}}}
+	for _, test := range []struct {
+		name      string
+		change    func(*ateapipb.Actor)
+		wantError string
+	}{
+		{name: "upload completed", change: func(a *ateapipb.Actor) {
+			a.Status.Snapshots[0].DurableSnapshot = &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"}}
+		}},
+		{name: "actor replaced", change: func(a *ateapipb.Actor) { a.Metadata.Uid = "replacement" }, wantError: "changed"},
+		{name: "actor crashed", change: func(a *ateapipb.Actor) { a.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED }, wantError: "changed"},
+		{name: "generation changed", change: func(a *ateapipb.Actor) { a.Status.Snapshots[0].Generation++ }, wantError: "changed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			next := proto.CloneOf(actor)
+			test.change(next)
+			reads := 0
+			fake := &suspendActorFake{actor: actor, get: func(context.Context) (*ateapipb.Actor, error) { reads++; return next, nil }}
+			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+			got, err := client.SuspendActor(t.Context(), "team", "actor")
+			require.Equal(t, ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS, fake.request.GetOptions().GetMode())
+			require.Equal(t, 1, reads)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "s3://snapshots/new", SnapshotURI(LatestActorSnapshot(got)))
+		})
+	}
+	t.Run("cancel pending upload", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		fake := &suspendActorFake{actor: actor, get: func(context.Context) (*ateapipb.Actor, error) { cancel(); return actor, nil }}
+		client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+		_, err := client.SuspendActor(ctx, "team", "actor")
+		cancel()
+		require.ErrorIs(t, err, context.Canceled)
+	})
+	t.Run("already durable", func(t *testing.T) {
+		durable := proto.CloneOf(actor)
+		durable.Status.Snapshots = []*ateapipb.Snapshot{completed}
+		client := &Client{ControlClient: &suspendActorFake{actor: durable}}
+		got, err := client.SuspendActor(t.Context(), "team", "actor")
+		require.NoError(t, err)
+		require.Same(t, durable, got)
+	})
 }

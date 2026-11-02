@@ -5,7 +5,7 @@ inputs:
   - directory: .
     exclude_paths:
       - a2a.proto
-      - ateapi.proto
+      - api/ateapi/v1/ateapi.proto
       - ateenv/v1alpha/guest.proto
 plugins:
   - remote: buf.build/protocolbuffers/go:v1.36.11
