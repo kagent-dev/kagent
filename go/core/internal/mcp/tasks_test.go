@@ -95,8 +95,8 @@ func TestDetailedTaskIncludesInvocationOutput(t *testing.T) {
 		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &now},
 	}
-	result := detailedTask("task-ref", taskReference{SessionID: testSessionID}, task)
-	output, ok := result.Result.StructuredContent.(InvokeSessionOutput)
+	result := detailedTask("task-ref", task)
+	output, ok := result.Result.StructuredContent.(InvokeAgentOutput)
 	if !ok || output.TaskID != testTaskID || output.ContextID != testSessionID {
 		t.Fatalf("structured invocation output = %#v", result.Result.StructuredContent)
 	}
@@ -232,7 +232,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 
 func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 	gateway := &fakeGateway{}
-	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway}, nil, nil)
+	h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: gateway}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 
 func TestToolCallWithoutTasksWaitsForResult(t *testing.T) {
 	gateway := &fakeGateway{completeOnDrain: true}
-	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway}, nil, nil)
+	h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: gateway}})
 	if err != nil {
 		t.Fatal(err)
 	}

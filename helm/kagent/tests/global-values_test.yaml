@@ -2,7 +2,7 @@ suite: test global values
 templates:
   - controller-deployment.yaml
   - controller-configmap.yaml
-  - rbac/getter-role.yaml
+  - rbac/reconciliation-role.yaml
   - substrate-workerpool.yaml
   # Helm-unittest requires the UI's ConfigMaps to be listed here so it can
   # resolve the Deployment's checksum includes.
@@ -125,7 +125,7 @@ tests:
       global.watchNamespaces:
         - NAMESPACE
         - other
-    template: rbac/getter-role.yaml
+    template: rbac/reconciliation-role.yaml
     asserts:
       - containsDocument:
           apiVersion: rbac.authorization.k8s.io/v1
@@ -141,7 +141,7 @@ tests:
       global.watchNamespaces:
         - NAMESPACE
         - other
-    template: rbac/getter-role.yaml
+    template: rbac/reconciliation-role.yaml
     asserts:
       - containsDocument:
           apiVersion: rbac.authorization.k8s.io/v1
@@ -163,7 +163,7 @@ tests:
       global.watchNamespaces:
         - NAMESPACE
         - other
-    template: rbac/getter-role.yaml
+    template: rbac/reconciliation-role.yaml
     asserts:
       - containsDocument:
           apiVersion: rbac.authorization.k8s.io/v1
@@ -176,7 +176,7 @@ tests:
     set:
       global.watchNamespaces:
         - other
-    template: rbac/getter-role.yaml
+    template: rbac/reconciliation-role.yaml
     asserts:
       - containsDocument:
           apiVersion: rbac.authorization.k8s.io/v1
@@ -198,7 +198,7 @@ tests:
       config.kubernetes.watchNamespaces:
         - NAMESPACE
         - extra
-    template: rbac/getter-role.yaml
+    template: rbac/reconciliation-role.yaml
     asserts:
       - containsDocument:
           apiVersion: rbac.authorization.k8s.io/v1
@@ -215,7 +215,7 @@ tests:
       config.kubernetes.watchNamespaces:
         - NAMESPACE
         - outside
-    template: rbac/getter-role.yaml
+    template: rbac/reconciliation-role.yaml
     asserts:
       - failedTemplate:
           errorPattern: 'config\.kubernetes\.watchNamespaces includes "outside" but rbac\.namespaces does not'

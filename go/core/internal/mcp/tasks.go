@@ -92,7 +92,7 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 		if !ok || req.Params == nil || req.Params.Name != invokeToolName || !supportsTasks(req.ClientCapabilities()) {
 			return next(ctx, method, request)
 		}
-		var input InvokeSessionInput
+		var input InvokeAgentInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
 			return toolError(fmt.Errorf("invalid invocation input: %w", err)), nil
 		}
@@ -101,7 +101,7 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 			return toolError(err), nil
 		}
 		taskRef := taskReference{
-			SessionID: input.SessionID,
+			SessionID: task.ContextID,
 			TaskID:    string(task.ID),
 		}
 		ref, err := encodeTaskReference(taskRef)
@@ -148,11 +148,11 @@ func (h *Handler) getTask(ctx context.Context, _ *mcp.ServerSession, params *get
 	if !taskParamsSupported(params.GetMeta()) {
 		return nil, missingTasksCapabilityError()
 	}
-	ref, _, task, err := h.resolveTask(ctx, params.TaskID)
+	_, _, task, err := h.resolveTask(ctx, params.TaskID)
 	if err != nil {
 		return nil, err
 	}
-	return detailedTask(params.TaskID, ref, task), nil
+	return detailedTask(params.TaskID, task), nil
 }
 
 func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *updateTaskParams) (*completeTaskResult, error) {
@@ -300,13 +300,13 @@ func taskToMCP(id string, task *a2atype.Task) taskFields {
 	}
 }
 
-func detailedTask(id string, ref taskReference, task *a2atype.Task) *getTaskResult {
+func detailedTask(id string, task *a2atype.Task) *getTaskResult {
 	result := &getTaskResult{taskFields: taskToMCP(id, task), ResultType: "complete"}
 	switch task.Status.State {
 	case a2atype.TaskStateInputRequired:
 		result.InputRequests = inputRequests(task)
 	case a2atype.TaskStateCompleted, a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateAuthRequired:
-		callResult, output := invocationResult(InvokeSessionInput{SessionID: ref.SessionID}, task)
+		callResult, output := invocationResult(task)
 		callResult.StructuredContent = output
 		result.Result = callResult
 	}
