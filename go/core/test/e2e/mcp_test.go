@@ -98,6 +98,20 @@ func TestMCPAgentInvocation(t *testing.T) {
 		sessions := apiv1.NewSessionServiceClient(conn)
 		ctx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e")
 		endpoint := mcpEndpoint(t)
+		listed := mcpCall(t, endpoint, "tools/call", map[string]any{
+			"name": "list_agents", "arguments": map[string]any{"namespace": "kagent"},
+		}, false)["result"].(map[string]any)
+		require.NotEqual(t, true, listed["isError"], "%v", listed)
+		var agent map[string]any
+		for _, item := range listed["structuredContent"].(map[string]any)["agents"].([]any) {
+			ref := item.(map[string]any)
+			if ref["name"] == agentName {
+				agent = ref
+				break
+			}
+		}
+		require.NotNil(t, agent, "created Agent must be discoverable before its first Session")
+		require.Equal(t, "kagent", agent["namespace"])
 		for _, test := range []struct {
 			name  string
 			tasks bool
@@ -109,7 +123,7 @@ func TestMCPAgentInvocation(t *testing.T) {
 				request := map[string]any{
 					"name": "invoke_agent",
 					"arguments": map[string]any{
-						"agent":      map[string]any{"namespace": "kagent", "name": agentName},
+						"agent":      agent,
 						"message":    "What is 2+2?",
 						"message_id": uuid.NewString(),
 					},

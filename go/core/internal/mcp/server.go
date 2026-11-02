@@ -31,10 +31,20 @@ const (
 )
 
 type Handler struct {
+	agents      *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
 	sessions    *sessionsvc.Service
 	checkpoints *checkpoint.Service
 	gateway     a2asrv.RequestHandler
 	http        http.Handler
+}
+
+type Config struct {
+	Agents           *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
+	Sessions         *sessionsvc.Service
+	Checkpoints      *checkpoint.Service
+	Gateway          a2asrv.RequestHandler
+	Sandboxes        *sandbox.Service
+	SandboxTemplates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
 }
 
 type ListSessionsInput struct {
@@ -73,21 +83,26 @@ type InvokeAgentOutput struct {
 	Text      string `json:"text,omitempty"`
 }
 
-func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway a2asrv.RequestHandler, sandboxes *sandbox.Service, templates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]) (*Handler, error) {
-	if sessions == nil || checkpoints == nil || gateway == nil {
-		return nil, fmt.Errorf("session service, checkpoint service, and A2A gateway are required")
+func New(cfg Config) (*Handler, error) {
+	if cfg.Agents == nil || cfg.Sessions == nil || cfg.Checkpoints == nil || cfg.Gateway == nil {
+		return nil, fmt.Errorf("agent service, session service, checkpoint service, and A2A gateway are required")
 	}
-	h := &Handler{sessions: sessions, checkpoints: checkpoints, gateway: gateway}
+	h := &Handler{agents: cfg.Agents, sessions: cfg.Sessions, checkpoints: cfg.Checkpoints, gateway: cfg.Gateway}
 	capabilities := &mcp.ServerCapabilities{}
 	capabilities.AddExtension(tasksExtension, nil)
-	instructions := "Use Sessions for agent conversations through A2A. Use checkpoint tools to save and fork Session state."
-	if sandboxes != nil {
+	instructions := "Use list_agents to discover Agents, then invoke_agent with an agent reference to start a conversation or session_id to continue one. Use checkpoint tools to save and fork Session state."
+	if cfg.Sandboxes != nil {
 		instructions += "\n\n" + sandboxInstructions
 	}
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "kagent", Version: version.Version},
 		&mcp.ServerOptions{Capabilities: capabilities, Instructions: instructions},
 	)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_agents",
+		Description: "List Agents visible to the caller, optionally filtered by namespace. Pass an entry from agents as the agent argument to invoke_agent to start a Session. Listing does not imply readiness or permission to invoke.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, h.listAgents)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        listToolName,
 		Description: "List ready Sessions visible to the caller",
@@ -103,8 +118,8 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 		InputSchema: invokeSchema,
 	}, h.invokeAgent)
 	h.registerCheckpointTools(server)
-	registerSandboxTools(server, sandboxes, templates)
-	if sandboxes != nil {
+	registerSandboxTools(server, cfg.Sandboxes, cfg.SandboxTemplates)
+	if cfg.Sandboxes != nil {
 		registerSandboxPrompts(server)
 	}
 	server.AddReceivingMiddleware(h.taskAwareToolCall)

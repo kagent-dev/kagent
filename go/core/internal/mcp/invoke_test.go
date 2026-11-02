@@ -45,7 +45,7 @@ func TestInvokeAgentTargets(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			gateway := &invocationGateway{fakeGateway: fakeGateway{completeOnDrain: true}}
-			h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway}, nil, nil)
+			h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: gateway}})
 			require.NoError(t, err)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				h.ServeHTTP(w, r.WithContext(authContext()))
@@ -106,7 +106,7 @@ func TestInvokeAgentRejectsInvalidTargets(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				gateway := &invocationGateway{}
-				h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway}, nil, nil)
+				h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: gateway}})
 				require.NoError(t, err)
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					h.ServeHTTP(w, r.WithContext(authContext()))
