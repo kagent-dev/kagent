@@ -1,15 +1,10 @@
 name: Scan images
 
 on:
-  # Trigger once a week on the main branch
+  # Scan findings depend on vulnerability data and base images, not on the
+  # commit being scanned, so run daily on the default branch instead of on push.
   schedule:
-  - cron: '0 0 * * 0' # Every Monday at midnight UTC
-
-  # Trigger the workflow on push to main and release branches
-  push:
-    branches: [main, "release/**"]
-    paths-ignore:
-      - '**/*.md'
+  - cron: '0 6 * * *' # Daily at 06:00 UTC
 
   workflow_dispatch:
 
