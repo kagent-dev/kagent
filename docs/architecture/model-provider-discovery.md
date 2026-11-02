@@ -98,8 +98,8 @@ Reproduce with `BenchmarkCatalogScale` and `BenchmarkCatalogNearBodyLimit` in
 
 ModelService lists authorized sources. `ListProviderModelsResponse` returns only
 `discovered_models`, `endpoint`, `state` and `error`, without a wrapper.
-Legacy protobuf fields remain deprecated and are not populated. Reads use the source
-namespace/name; UID, generation and freshness timestamps remain internal. The UI
+Reads identify the source by namespace/name through `ref`; UID, generation and
+freshness timestamps remain internal. The UI
 clears selections when the endpoint changes, discovery becomes pending/failed, or
 the selected model disappears; same-endpoint recreation alone keeps the selection. Explicit
 refresh requires Update permission and is unavailable to session shares.

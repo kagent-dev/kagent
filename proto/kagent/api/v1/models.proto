@@ -86,8 +86,8 @@ message ListSupportedModelProvidersResponse {
 }
 
 message ConfiguredProvider {
-  // Deprecated: use ref to identify the ModelProviderConfig.
-  string name = 1 [deprecated = true];
+  reserved 1;
+  reserved "name";
   string type = 2;
   string endpoint = 3;
   ResourceReference ref = 4;
@@ -102,19 +102,15 @@ message ListConfiguredProvidersResponse {
 }
 
 message ListProviderModelsRequest {
-  // Deprecated: use ref to identify the ModelProviderConfig.
-  string provider_name = 1 [deprecated = true];
+  reserved 1;
+  reserved "provider_name";
   bool refresh = 2;
   ResourceReference ref = 3 [(buf.validate.field).required = true];
 }
 
 message ListProviderModelsResponse {
-  // Deprecated: the request ref identifies the ModelProviderConfig.
-  string provider = 1 [deprecated = true];
-  // Deprecated: use discovered_models for typed discovery metadata.
-  repeated string models = 2 [deprecated = true];
-  reserved 3;
-  reserved "snapshot";
+  reserved 1, 2, 3;
+  reserved "provider", "models", "snapshot";
   repeated DiscoveredModel discovered_models = 4;
   string endpoint = 5;
   DiscoveryState state = 6;

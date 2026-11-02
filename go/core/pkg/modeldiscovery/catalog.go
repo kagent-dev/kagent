@@ -20,7 +20,7 @@ type Snapshot struct {
 	State       apiv1.DiscoveryState
 	Error       string
 	LastSuccess *timestamppb.Timestamp
-	Models      []*Model
+	Models      []*apiv1.DiscoveredModel
 }
 
 // Clone returns an independent copy, including optional model metadata.
@@ -36,17 +36,15 @@ func (s *Snapshot) Clone() *Snapshot {
 		result.LastSuccess = proto.Clone(s.LastSuccess).(*timestamppb.Timestamp)
 	}
 	if s.Models != nil {
-		result.Models = make([]*Model, len(s.Models))
+		result.Models = make([]*apiv1.DiscoveredModel, len(s.Models))
 		for i, model := range s.Models {
 			if model != nil {
-				result.Models[i] = proto.Clone(model).(*Model)
+				result.Models[i] = proto.Clone(model).(*apiv1.DiscoveredModel)
 			}
 		}
 	}
 	return &result
 }
-
-type Model = apiv1.DiscoveredModel
 
 // Reader supplies local inventory. Changes is a coalesced notification: subscribe
 // before listing, then reread after every notification. It includes invalidation,

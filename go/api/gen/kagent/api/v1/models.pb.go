@@ -810,16 +810,12 @@ func (x *ListSupportedModelProvidersResponse) GetProviders() []*ProviderDefiniti
 }
 
 type ConfiguredProvider struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Deprecated: use ref to identify the ModelProviderConfig.
-	//
-	// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
-	Name          string             `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          string             `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	Endpoint      string             `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	Ref           *ResourceReference `protobuf:"bytes,4,opt,name=ref,proto3" json:"ref,omitempty"`
-	State         DiscoveryState     `protobuf:"varint,5,opt,name=state,proto3,enum=kagent.api.v1.DiscoveryState" json:"state,omitempty"`
-	Error         string             `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Endpoint      string                 `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	Ref           *ResourceReference     `protobuf:"bytes,4,opt,name=ref,proto3" json:"ref,omitempty"`
+	State         DiscoveryState         `protobuf:"varint,5,opt,name=state,proto3,enum=kagent.api.v1.DiscoveryState" json:"state,omitempty"`
+	Error         string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -852,14 +848,6 @@ func (x *ConfiguredProvider) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ConfiguredProvider.ProtoReflect.Descriptor instead.
 func (*ConfiguredProvider) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{15}
-}
-
-// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
-func (x *ConfiguredProvider) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
 }
 
 func (x *ConfiguredProvider) GetType() string {
@@ -978,13 +966,9 @@ func (x *ListConfiguredProvidersResponse) GetProviders() []*ConfiguredProvider {
 }
 
 type ListProviderModelsRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Deprecated: use ref to identify the ModelProviderConfig.
-	//
-	// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
-	ProviderName  string             `protobuf:"bytes,1,opt,name=provider_name,json=providerName,proto3" json:"provider_name,omitempty"`
-	Refresh       bool               `protobuf:"varint,2,opt,name=refresh,proto3" json:"refresh,omitempty"`
-	Ref           *ResourceReference `protobuf:"bytes,3,opt,name=ref,proto3" json:"ref,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Refresh       bool                   `protobuf:"varint,2,opt,name=refresh,proto3" json:"refresh,omitempty"`
+	Ref           *ResourceReference     `protobuf:"bytes,3,opt,name=ref,proto3" json:"ref,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1019,14 +1003,6 @@ func (*ListProviderModelsRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{18}
 }
 
-// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
-func (x *ListProviderModelsRequest) GetProviderName() string {
-	if x != nil {
-		return x.ProviderName
-	}
-	return ""
-}
-
 func (x *ListProviderModelsRequest) GetRefresh() bool {
 	if x != nil {
 		return x.Refresh
@@ -1042,19 +1018,11 @@ func (x *ListProviderModelsRequest) GetRef() *ResourceReference {
 }
 
 type ListProviderModelsResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Deprecated: the request ref identifies the ModelProviderConfig.
-	//
-	// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
-	Provider string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
-	// Deprecated: use discovered_models for typed discovery metadata.
-	//
-	// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
-	Models           []string           `protobuf:"bytes,2,rep,name=models,proto3" json:"models,omitempty"`
-	DiscoveredModels []*DiscoveredModel `protobuf:"bytes,4,rep,name=discovered_models,json=discoveredModels,proto3" json:"discovered_models,omitempty"`
-	Endpoint         string             `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	State            DiscoveryState     `protobuf:"varint,6,opt,name=state,proto3,enum=kagent.api.v1.DiscoveryState" json:"state,omitempty"`
-	Error            string             `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	DiscoveredModels []*DiscoveredModel     `protobuf:"bytes,4,rep,name=discovered_models,json=discoveredModels,proto3" json:"discovered_models,omitempty"`
+	Endpoint         string                 `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	State            DiscoveryState         `protobuf:"varint,6,opt,name=state,proto3,enum=kagent.api.v1.DiscoveryState" json:"state,omitempty"`
+	Error            string                 `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1087,22 +1055,6 @@ func (x *ListProviderModelsResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListProviderModelsResponse.ProtoReflect.Descriptor instead.
 func (*ListProviderModelsResponse) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1_models_proto_rawDescGZIP(), []int{19}
-}
-
-// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
-func (x *ListProviderModelsResponse) GetProvider() string {
-	if x != nil {
-		return x.Provider
-	}
-	return ""
-}
-
-// Deprecated: Marked as deprecated in kagent/api/v1/models.proto.
-func (x *ListProviderModelsResponse) GetModels() []string {
-	if x != nil {
-		return x.Models
-	}
-	return nil
 }
 
 func (x *ListProviderModelsResponse) GetDiscoveredModels() []*DiscoveredModel {
@@ -1619,28 +1571,24 @@ const file_kagent_api_v1_models_proto_rawDesc = "" +
 	"\x0foptional_params\x18\x04 \x03(\tR\x0eoptionalParams\"$\n" +
 	"\"ListSupportedModelProvidersRequest\"f\n" +
 	"#ListSupportedModelProvidersResponse\x12?\n" +
-	"\tproviders\x18\x01 \x03(\v2!.kagent.api.v1.ProviderDefinitionR\tproviders\"\xdb\x01\n" +
-	"\x12ConfiguredProvider\x12\x16\n" +
-	"\x04name\x18\x01 \x01(\tB\x02\x18\x01R\x04name\x12\x12\n" +
+	"\tproviders\x18\x01 \x03(\v2!.kagent.api.v1.ProviderDefinitionR\tproviders\"\xcf\x01\n" +
+	"\x12ConfiguredProvider\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x122\n" +
 	"\x03ref\x18\x04 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x03ref\x123\n" +
 	"\x05state\x18\x05 \x01(\x0e2\x1d.kagent.api.v1.DiscoveryStateR\x05state\x12\x14\n" +
-	"\x05error\x18\x06 \x01(\tR\x05error\" \n" +
+	"\x05error\x18\x06 \x01(\tR\x05errorJ\x04\b\x01\x10\x02R\x04name\" \n" +
 	"\x1eListConfiguredProvidersRequest\"b\n" +
 	"\x1fListConfiguredProvidersResponse\x12?\n" +
-	"\tproviders\x18\x01 \x03(\v2!.kagent.api.v1.ConfiguredProviderR\tproviders\"\x9a\x01\n" +
-	"\x19ListProviderModelsRequest\x12'\n" +
-	"\rprovider_name\x18\x01 \x01(\tB\x02\x18\x01R\fproviderName\x12\x18\n" +
+	"\tproviders\x18\x01 \x03(\v2!.kagent.api.v1.ConfiguredProviderR\tproviders\"\x86\x01\n" +
+	"\x19ListProviderModelsRequest\x12\x18\n" +
 	"\arefresh\x18\x02 \x01(\bR\arefresh\x12:\n" +
-	"\x03ref\x18\x03 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x03ref\"\x9c\x02\n" +
-	"\x1aListProviderModelsResponse\x12\x1e\n" +
-	"\bprovider\x18\x01 \x01(\tB\x02\x18\x01R\bprovider\x12\x1a\n" +
-	"\x06models\x18\x02 \x03(\tB\x02\x18\x01R\x06models\x12K\n" +
+	"\x03ref\x18\x03 \x01(\v2 .kagent.api.v1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x03refJ\x04\b\x01\x10\x02R\rprovider_name\"\xfe\x01\n" +
+	"\x1aListProviderModelsResponse\x12K\n" +
 	"\x11discovered_models\x18\x04 \x03(\v2\x1e.kagent.api.v1.DiscoveredModelR\x10discoveredModels\x12\x1a\n" +
 	"\bendpoint\x18\x05 \x01(\tR\bendpoint\x123\n" +
 	"\x05state\x18\x06 \x01(\x0e2\x1d.kagent.api.v1.DiscoveryStateR\x05state\x12\x14\n" +
-	"\x05error\x18\a \x01(\tR\x05errorJ\x04\b\x03\x10\x04R\bsnapshot\"\xe7\x04\n" +
+	"\x05error\x18\a \x01(\tR\x05errorJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\bproviderR\x06modelsR\bsnapshot\"\xe7\x04\n" +
 	"\x0fDiscoveredModel\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06object\x18\x02 \x01(\tR\x06object\x12\x1d\n" +
