@@ -121,8 +121,7 @@ GO_TEST_PACKAGES ?= $(shell go list ./... | grep -vE "/test/")
 
 .PHONY: test
 test: setup-envtest ## Run all unit tests.
-	KAGENT_TEST_UPDATE_GOLDEN=$(KAGENT_TEST_UPDATE_GOLDEN) \
-		KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
 		go test $(GO_TEST_FLAGS) $(GO_TEST_PACKAGES)
 
 # Pin e2e tests to the kind cluster so a stray current-context (or an

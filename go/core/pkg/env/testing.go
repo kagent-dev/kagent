@@ -25,20 +25,6 @@ var (
 		"Host reachable from E2E runtimes for local mock servers. Defaults to 172.17.0.1 on Linux and host.docker.internal on macOS; required on other systems.",
 		ComponentTesting,
 	)
-
-	UpdateGolden = RegisterBoolVar(
-		"KAGENT_TEST_UPDATE_GOLDEN",
-		false,
-		"When true, update golden test files instead of comparing.",
-		ComponentTesting,
-	)
-
-	LLMPort = RegisterStringVar(
-		"KAGENT_TEST_LLM_PORT",
-		"8090",
-		"Port for the mock LLM server.",
-		ComponentTesting,
-	)
 )
 
 var (
