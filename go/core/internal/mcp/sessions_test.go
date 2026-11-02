@@ -554,3 +554,15 @@ func TestToolCallDetailStaysWithinBudget(t *testing.T) {
 	require.Nil(t, small.Response)
 	require.Contains(t, small.ResponseText, "bytes clipped]")
 }
+
+func TestToolCallDetailPendingCallWithLargeArgs(t *testing.T) {
+	call := &toolCall{id: "c", name: "write_file", args: map[string]any{"content": strings.Repeat("x", 20000)}}
+	out, clipped := (&turn{}).toolCallDetail(call, 4096)
+	require.True(t, clipped)
+	require.True(t, out.Pending)
+	require.Nil(t, out.Response, "a pending call has no response to show")
+	_, err := json.Marshal(out)
+	require.NoError(t, err)
+	require.LessOrEqual(t, jsonSize(out), 4096)
+	require.Contains(t, out.ArgsText, "bytes clipped]")
+}

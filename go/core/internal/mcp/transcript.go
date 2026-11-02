@@ -341,10 +341,10 @@ func (t *turn) toolCallDetail(call *toolCall, budget int) (ToolCallDetail, bool)
 	case len(response) <= room/2:
 		argsShare, responseShare = room-len(response), len(response)
 	}
-	if len(args) <= argsShare {
+	if len(args) > 0 && len(args) <= argsShare {
 		out.Args = args
 	}
-	if len(response) <= responseShare {
+	if len(response) > 0 && len(response) <= responseShare {
 		out.Response = response
 	}
 	for range 8 {
