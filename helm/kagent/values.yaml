@@ -463,7 +463,7 @@ ui:
   # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI listener will pass to the backend on
-  # /api/, /a2a/, and /mcp. Names are case-insensitive. Authorization is always
+  # /api/ and /mcp. Names are case-insensitive. Authorization is always
   # forwarded; the auth-proxy identity headers (x-auth-request-*, x-forwarded-user,
   # x-forwarded-email, x-forwarded-groups, x-forwarded-preferred-username) are
   # stripped from client requests unless listed here, so a caller cannot spoof
