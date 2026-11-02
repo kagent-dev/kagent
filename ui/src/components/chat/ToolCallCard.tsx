@@ -21,12 +21,7 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
   const isCall = part.dataKind === "tool_call";
   const wasNotRun = part.dataKind === "tool_not_run";
   const name = typeof part.data.name === "string" ? part.data.name : "tool";
-  /*
-   * Memoised because an image's `src` is its whole base64 payload, megabytes for a
-   * dashboard panel, and the card re-renders while the chat streams. `part` keeps
-   * its identity across streamed updates to other messages; only a history re-read
-   * (paused while a turn runs) hands over new objects.
-   */
+  // Memoised: an image `src` is megabytes of base64, and the card re-renders while the chat streams.
   const { body, failed, sources } = useMemo(() => {
     const { images, ...rest } = describe(part);
     return { ...rest, sources: images.map((image) => `data:${image.mimeType};base64,${image.data}`) };

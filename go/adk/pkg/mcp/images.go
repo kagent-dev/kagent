@@ -19,6 +19,9 @@ import (
 // ToolResultImagesKey holds a note in the tool result and the images in the A2A result.
 const ToolResultImagesKey = "images"
 
+// mcpClientVersion is the version the toolset's MCP client reports.
+const mcpClientVersion = "1.0.0"
+
 const (
 	// Base64 caps for an image, a call and an A2A task (the task is resent under a 16 MiB gRPC limit).
 	maxToolImageBytes      = 2 << 20
