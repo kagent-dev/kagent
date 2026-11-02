@@ -5,6 +5,8 @@
 # The harness runs the generic workflow-agent image (make build-workflow-agent
 # VERSION=dev). It serves whatever document workflowFrom delivers and resolves
 # every model name in it, such as `reviewer`, to the template's ModelConfig.
+# Harness images must be digest-pinned: deploy.sh replaces the :dev tag below
+# with the digest of the current build in the cluster registry.
 apiVersion: api.kagent.dev/v1alpha3
 kind: Harness
 metadata:
