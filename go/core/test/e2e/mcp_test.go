@@ -107,7 +107,7 @@ func TestMCPAgentInvocation(t *testing.T) {
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				request := map[string]any{
-					"name": "invoke_session",
+					"name": "invoke_agent",
 					"arguments": map[string]any{
 						"agent":      map[string]any{"namespace": "kagent", "name": agentName},
 						"message":    "What is 2+2?",
@@ -280,7 +280,7 @@ func mcpEndpoint(t *testing.T) string {
 func mcpInvoke(t *testing.T, endpoint, sessionID, message string, tasks bool) map[string]any {
 	t.Helper()
 	response := mcpCall(t, endpoint, "tools/call", map[string]any{
-		"name": "invoke_session",
+		"name": "invoke_agent",
 		"arguments": map[string]any{
 			"session_id": sessionID, "message": message,
 		},

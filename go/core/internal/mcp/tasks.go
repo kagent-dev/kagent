@@ -92,7 +92,7 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 		if !ok || req.Params == nil || req.Params.Name != invokeToolName || !supportsTasks(req.ClientCapabilities()) {
 			return next(ctx, method, request)
 		}
-		var input InvokeSessionInput
+		var input InvokeAgentInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
 			return toolError(fmt.Errorf("invalid invocation input: %w", err)), nil
 		}

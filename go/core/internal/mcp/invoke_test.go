@@ -32,7 +32,7 @@ func (g *invocationGateway) SendStreamingMessage(ctx context.Context, request *a
 	return g.fakeGateway.SendStreamingMessage(ctx, request)
 }
 
-func TestInvokeSessionTargets(t *testing.T) {
+func TestInvokeAgentTargets(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		agent bool
@@ -57,7 +57,7 @@ func TestInvokeSessionTargets(t *testing.T) {
 			} else {
 				arguments["session_id"] = testSessionID
 			}
-			response := rawMCPCall(t, server.URL, "tools/call", map[string]any{"name": invokeToolName, "arguments": arguments}, test.tasks)
+			response := rawMCPCall(t, server.URL, "tools/call", map[string]any{"name": "invoke_agent", "arguments": arguments}, test.tasks)
 			result := response["result"].(map[string]any)
 			require.NotEqual(t, true, result["isError"], "%v", result)
 			gateway.mu.Lock()
@@ -89,7 +89,7 @@ func TestInvokeSessionTargets(t *testing.T) {
 	}
 }
 
-func TestInvokeSessionRejectsInvalidTargets(t *testing.T) {
+func TestInvokeAgentRejectsInvalidTargets(t *testing.T) {
 	for _, tasks := range []bool{false, true} {
 		for _, test := range []struct {
 			name      string

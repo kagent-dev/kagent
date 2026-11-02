@@ -157,7 +157,7 @@ cancellation, continuation, disconnects, and slow subscribers.
 
 ## Reconnect and client behavior
 
-The core MCP `invoke_session` tool accepts either `session_id` to continue an
+The core MCP `invoke_agent` tool accepts either `session_id` to continue an
 existing conversation or `agent: {namespace, name}` to start one. An Agent target
 sends the message through A2A without a context or task ID, so the gateway owns
 Session creation, authorization, and initial-message deduplication. Reuse the

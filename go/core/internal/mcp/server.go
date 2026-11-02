@@ -26,7 +26,7 @@ import (
 
 const (
 	listToolName            = "list_sessions"
-	invokeToolName          = "invoke_session"
+	invokeToolName          = "invoke_agent"
 	defaultTaskPollInterval = 1000
 )
 
@@ -53,7 +53,7 @@ type ListSessionsOutput struct {
 	NextPageToken string           `json:"next_page_token,omitempty"`
 }
 
-type InvokeSessionInput struct {
+type InvokeAgentInput struct {
 	SessionID string          `json:"session_id,omitempty" jsonschema:"Existing Session UUID; provide either session_id or agent"`
 	Agent     *agentReference `json:"agent,omitempty" jsonschema:"Agent to start a new Session with; omit session_id"`
 	Message   string          `json:"message" jsonschema:"Message to send to the agent"`
@@ -65,7 +65,7 @@ type agentReference struct {
 	Name      string `json:"name" jsonschema:"Agent name"`
 }
 
-type InvokeSessionOutput struct {
+type InvokeAgentOutput struct {
 	SessionID string `json:"session_id"`
 	TaskID    string `json:"task_id"`
 	ContextID string `json:"context_id"`
@@ -92,7 +92,7 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 		Name:        listToolName,
 		Description: "List ready Sessions visible to the caller",
 	}, h.listSessions)
-	invokeSchema, err := jsonschema.For[InvokeSessionInput](nil)
+	invokeSchema, err := jsonschema.For[InvokeAgentInput](nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to infer invocation schema: %w", err)
 	}
@@ -101,7 +101,7 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 		Name:        invokeToolName,
 		Description: "Send a message to an existing Session with session_id, or start a new Session by providing agent instead. Returns the Session and task IDs. Reuse message_id with identical inputs when retrying creation.",
 		InputSchema: invokeSchema,
-	}, h.invokeSession)
+	}, h.invokeAgent)
 	h.registerCheckpointTools(server)
 	registerSandboxTools(server, sandboxes, templates)
 	if sandboxes != nil {
@@ -146,16 +146,16 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text.String()}}}, output, nil
 }
 
-func (h *Handler) invokeSession(ctx context.Context, _ *mcp.CallToolRequest, input InvokeSessionInput) (*mcp.CallToolResult, InvokeSessionOutput, error) {
+func (h *Handler) invokeAgent(ctx context.Context, _ *mcp.CallToolRequest, input InvokeAgentInput) (*mcp.CallToolResult, InvokeAgentOutput, error) {
 	task, err := h.invoke(ctx, input, false)
 	if err != nil {
-		return toolError(err), InvokeSessionOutput{}, nil
+		return toolError(err), InvokeAgentOutput{}, nil
 	}
 	result, output := invocationResult(task)
 	return result, output, nil
 }
 
-func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bool) (*a2atype.Task, error) {
+func (h *Handler) invoke(ctx context.Context, input InvokeAgentInput, async bool) (*a2atype.Task, error) {
 	if (input.SessionID != "") == (input.Agent != nil) {
 		return nil, fmt.Errorf("provide exactly one of session_id or agent")
 	}
@@ -208,14 +208,14 @@ func interactionContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func invocationResult(task *a2atype.Task) (*mcp.CallToolResult, InvokeSessionOutput) {
+func invocationResult(task *a2atype.Task) (*mcp.CallToolResult, InvokeAgentOutput) {
 	text := taskText(task)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 		IsError: task.Status.State == a2atype.TaskStateFailed ||
 			task.Status.State == a2atype.TaskStateRejected ||
 			task.Status.State == a2atype.TaskStateAuthRequired,
-	}, InvokeSessionOutput{
+	}, InvokeAgentOutput{
 		SessionID: task.ContextID,
 		TaskID:    string(task.ID), ContextID: task.ContextID,
 		State: task.Status.State.String(), Text: text,
