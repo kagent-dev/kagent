@@ -222,25 +222,11 @@ func (h *Handler) createSession(ctx context.Context, _ *mcp.CallToolRequest, inp
 	return nil, output, nil
 }
 
-// firstTurn sends a Session's first message once per request ID: the message
-// ID is derived from the Session and request ID, and when the first turn
-// already carries it, that turn is answered and nothing is sent.
+// firstTurn sends a Session's first message under an ID derived from the
+// Session and request ID. The gateway accepts a task-opening message once per
+// conversation, so a retry answers the turn the first send started.
 func (h *Handler) firstTurn(ctx context.Context, session *apiv1.Session, requestID, message string) (*a2atype.Task, error) {
 	messageID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("mcp/first-message/"+session.GetId()+"/"+requestID)).String()
-	tenant := sessionTenant(session)
-	routed := interactionContext(ctx)
-	listed, err := h.gateway.ListTasks(routed, &a2atype.ListTasksRequest{Tenant: tenant, ContextID: session.GetId(), PageSize: 1})
-	if err != nil {
-		return nil, err
-	}
-	if len(listed.Tasks) > 0 {
-		first := listed.Tasks[0]
-		for _, sent := range first.History {
-			if sent.ID == messageID {
-				return first, nil
-			}
-		}
-	}
 	return h.invoke(ctx, InvokeSessionInput{SessionID: session.GetId(), Message: message, MessageID: messageID}, true)
 }
 

@@ -91,7 +91,8 @@ func (s *sessionStore) ListSessions(_ context.Context, query database.SessionQue
 }
 
 // turnGateway serves a Session's turns from tasks and records every message
-// sent to it as a new turn.
+// sent to it as a new turn. Like the gateway, it answers a resent
+// task-opening message with the turn it started.
 type turnGateway struct {
 	fakeGateway
 	mu    sync.Mutex
@@ -144,6 +145,13 @@ func (g *turnGateway) GetTask(_ context.Context, request *a2atype.GetTaskRequest
 func (g *turnGateway) SendStreamingMessage(_ context.Context, request *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if request.Message.TaskID == "" {
+		for _, task := range g.tasks {
+			if task.ContextID == request.Message.ContextID && slices.ContainsFunc(task.History, func(sent *a2atype.Message) bool { return sent.ID == request.Message.ID }) {
+				return func(yield func(a2atype.Event, error) bool) { yield(task, nil) }
+			}
+		}
+	}
 	g.sent = append(g.sent, request.Message)
 	task := &a2atype.Task{
 		ID: a2atype.TaskID(fmt.Sprintf("task-%d", len(g.tasks))), ContextID: request.Message.ContextID,
