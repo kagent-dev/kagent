@@ -268,6 +268,12 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		}
 	case v1alpha3.ModelProviderGemini:
 		name, endpoint, header = env.GoogleAPIKey.Name(), "https://generativelanguage.googleapis.com", "x-goog-api-key"
+		if spec.Gemini != nil && ptr.Deref(spec.Gemini.BaseURL, "") != "" {
+			endpoint = *spec.Gemini.BaseURL
+		}
+		if spec.ActorJWT != nil {
+			header, prefix = "authorization", "Bearer "
+		}
 	case v1alpha3.ModelProviderMistral:
 		name, endpoint, header, prefix = env.MistralAPIKey.Name(), "https://api.mistral.ai", "authorization", "Bearer "
 		if spec.Mistral != nil && spec.Mistral.BaseURL != nil && *spec.Mistral.BaseURL != "" {
@@ -366,6 +372,24 @@ func VertexHostname(location string) string {
 	}
 }
 
+// ModelCredentialHeaders supplies a placeholder when the SDK does not emit its
+// own credential header. The same target defines the gateway's replacement rule.
+func ModelCredentialHeaders(resolved *ResolvedModelConfig) map[string]string {
+	spec := resolved.Config.Spec
+	if spec.APIKeySecret == "" && spec.ActorJWT == nil {
+		return spec.DefaultHeaders
+	}
+	_, _, header, prefix := modelCredentialTarget(resolved)
+	headers := make(map[string]string, len(spec.DefaultHeaders)+1)
+	for key, value := range spec.DefaultHeaders {
+		if !strings.EqualFold(key, header) {
+			headers[key] = value
+		}
+	}
+	headers[header] = prefix + CredentialPlaceholder
+	return headers
+}
+
 // ActorJWTEnvironment supplies the existing SDK credential placeholder for an
 // Actor-authenticated model. The token itself is owned by Substrate's gateway.
 func ActorJWTEnvironment(resolved *ResolvedModelConfig) (corev1.EnvVar, error) {
@@ -373,7 +397,7 @@ func ActorJWTEnvironment(resolved *ResolvedModelConfig) (corev1.EnvVar, error) {
 	switch spec.Provider {
 	case v1alpha3.ModelProviderBedrock:
 		return corev1.EnvVar{}, NewValidationError("Bedrock requires AWS credentials and does not support actorJwt")
-	case v1alpha3.ModelProviderGemini, v1alpha3.ModelProviderOllama:
+	case v1alpha3.ModelProviderOllama:
 		return corev1.EnvVar{}, NewValidationError("%s does not support actorJwt", spec.Provider)
 	}
 	if spec.TokenPassthrough != nil || spec.APIKeySecret != "" || spec.APIKeySecretKey != "" {

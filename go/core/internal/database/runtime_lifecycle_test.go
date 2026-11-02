@@ -57,10 +57,7 @@ func TestAgentWritesRejectSandboxRevisions(t *testing.T) {
 	`)
 	require.NoError(t, err)
 	// Failed validation must roll back preparation changes and preserve the ready revision.
-	err = client.UpsertAgentDefinition(ctx, AgentDefinition{
-		Namespace: "team-a", AgentName: "assistant", AgentUID: "assistant-uid",
-		DesiredRevision: "sandbox-revision",
-	})
+	err = client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "assistant-uid", DesiredRevision: "sandbox-revision"})
 	require.ErrorIs(t, err, ErrConflict)
 	var desired string
 	require.NoError(t, pool.QueryRow(ctx, "SELECT desired_revision FROM agent_definition").Scan(&desired))
@@ -69,9 +66,9 @@ func TestAgentWritesRejectSandboxRevisions(t *testing.T) {
 	revision, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	revision.Revision, revision.ActorTemplateUID = "sandbox-revision", "replacement-uid"
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{}), ErrConflict)
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true}), ErrConflict)
-	require.ErrorIs(t, client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: "revision", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "scratch"}, SandboxTemplateName: "scratch", SandboxTemplateUID: "scratch-uid", SourceSnapshot: []byte(`{}`)}, RecordRevisionOptions{Ready: true}), ErrConflict)
+	require.ErrorIs(t, recordErr(client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{})), ErrConflict)
+	require.ErrorIs(t, recordErr(client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true})), ErrConflict)
+	require.ErrorIs(t, recordErr(client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: "revision", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "scratch"}, SandboxTemplateName: "scratch", SandboxTemplateUID: "scratch-uid", SourceSnapshot: []byte(`{}`)}, RecordRevisionOptions{Ready: true})), ErrConflict)
 	var uid string
 	require.NoError(t, pool.QueryRow(ctx, "SELECT actor_template_uid FROM runtime_revision WHERE revision = 'sandbox-revision'").Scan(&uid))
 	require.Equal(t, "original-uid", uid)

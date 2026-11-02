@@ -26,6 +26,7 @@ import (
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -335,7 +336,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			go func() { _ = server.Serve(listener) }()
 			t.Cleanup(server.Stop)
 			authenticator := &scheduledControllerAuth{}
-			dialer, err := a2agateway.NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
+			dialer, err := a2agateway.NewRuntimeDialer(&configv1.SubstrateConfig{RouterUrl: new("http://" + listener.Addr().String())}, authenticator)
 			require.NoError(t, err)
 			workflow := &scheduledControllerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
 			created, err := client.CreateScheduledRun(owner, &apiv1.CreateScheduledRunRequest{

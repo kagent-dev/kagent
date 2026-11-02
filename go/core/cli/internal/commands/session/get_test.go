@@ -116,8 +116,7 @@ func testSession() *apiv1.Session {
 	return &apiv1.Session{
 		Id: testSessionID, Creator: "e2e",
 
-		Agent:     &apiv1.ResourceReference{Namespace: "kagent", Name: "smoke"},
 		State:     apiv1.RuntimeState_RUNTIME_STATE_READY,
-		CreatedAt: timestamppb.New(time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)),
+		CreatedAt: timestamppb.New(time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)), Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "kagent", Name: "smoke"}},
 	}
 }

@@ -158,7 +158,7 @@ func assertNoClaudeChildSession(t *testing.T, fixture *interactionFixture, child
 		t.Fatalf("list Claude Sessions: %v", err)
 	}
 	for _, session := range sessions.GetSessions() {
-		if session.GetAgent().GetName() == childTemplate {
+		if session.GetAgent().GetRef().GetName() == childTemplate {
 			t.Fatalf("Claude local child created Session %q", session.GetId())
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -56,7 +57,7 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 	authenticator := &runtimeTestAuth{}
-	dialer, err := NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
+	dialer, err := NewRuntimeDialer(&configv1.SubstrateConfig{RouterUrl: new("http://" + listener.Addr().String())}, authenticator)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()

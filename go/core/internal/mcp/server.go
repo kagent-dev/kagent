@@ -156,7 +156,8 @@ func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bo
 	}
 	message.ContextID = session.GetId()
 	// Direct gateway calls carry the Agent tenant on the request, like A2A transports do.
-	tenant := session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName()
+	agent := session.GetAgent().GetRef()
+	tenant := agent.GetNamespace() + "/" + agent.GetName()
 	routed := interactionContext(ctx)
 	var taskID a2atype.TaskID
 	for event, err := range h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Tenant: tenant, Message: message}) {

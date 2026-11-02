@@ -27,7 +27,6 @@
 - apiGroups:
   - api.kagent.dev
   resources:
-  - harnesses/status
   - agents/status
   - modelconfigs/status
   - modelproviderconfigs/status
