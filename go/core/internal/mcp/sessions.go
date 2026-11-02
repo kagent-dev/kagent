@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -84,12 +85,40 @@ type GetSessionOutput struct {
 }
 
 type GetSessionTurnInput struct {
-	SessionID   string `json:"session_id" jsonschema:"Session UUID"`
-	Turn        string `json:"turn" jsonschema:"Task ID, turn index from 0, or last"`
-	Detail      string `json:"detail,omitempty" jsonschema:"transcript (default) or full (A2A messages and artifacts as JSON)"`
-	ToolCall    string `json:"tool_call,omitempty" jsonschema:"Answer one tool call whole, by its index or ID"`
-	FromMessage int    `json:"from_message,omitempty" jsonschema:"First message index to answer; continue with next_message"`
-	MaxBytes    int    `json:"max_bytes,omitempty" jsonschema:"Answer budget in bytes"`
+	SessionID   string    `json:"session_id" jsonschema:"Session UUID"`
+	Turn        indexOrID `json:"turn" jsonschema:"Task ID, turn index from 0, or last"`
+	Detail      string    `json:"detail,omitempty" jsonschema:"transcript (default) or full (A2A messages and artifacts as JSON)"`
+	ToolCall    indexOrID `json:"tool_call,omitempty" jsonschema:"Answer one tool call whole, by its index or ID"`
+	FromMessage int       `json:"from_message,omitempty" jsonschema:"First message index to answer; continue with next_message"`
+	MaxBytes    int       `json:"max_bytes,omitempty" jsonschema:"Answer budget in bytes"`
+}
+
+// indexOrID names a turn or tool call by ID or index. A JSON integer is read as
+// the index it spells.
+type indexOrID string
+
+func (r *indexOrID) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		*r = indexOrID(text)
+		return nil
+	}
+	var index int
+	if err := json.Unmarshal(data, &index); err != nil {
+		return errors.New("must be a string or an integer")
+	}
+	*r = indexOrID(strconv.Itoa(index))
+	return nil
+}
+
+func getSessionTurnSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[GetSessionTurnInput](&jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+		reflect.TypeFor[indexOrID](): {Types: []string{"string", "integer"}},
+	}})
+	if err != nil {
+		panic(fmt.Sprintf("get_session_turn input schema: %v", err))
+	}
+	return schema
 }
 
 type GetSessionTurnOutput struct {
@@ -130,6 +159,7 @@ func (h *Handler) registerSessionTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        getSessionTurnToolName,
 		Description: "Read one turn of a Session in full, or one of its tool calls with arguments and result, paged by message.",
+		InputSchema: getSessionTurnSchema(),
 		Annotations: readOnly(),
 	}, h.getSessionTurn)
 	mcp.AddTool(server, &mcp.Tool{
@@ -344,7 +374,7 @@ func (h *Handler) getSessionTurn(ctx context.Context, _ *mcp.CallToolRequest, in
 	if input.FromMessage < 0 {
 		return toolError(errors.New("from_message must not be negative")), GetSessionTurnOutput{}, nil
 	}
-	ref := strings.TrimSpace(input.Turn)
+	ref := strings.TrimSpace(string(input.Turn))
 	if ref == "" {
 		return toolError(errors.New("turn is required: a task ID, an index or last")), GetSessionTurnOutput{}, nil
 	}
@@ -370,7 +400,7 @@ func (h *Handler) getSessionTurn(ctx context.Context, _ *mcp.CallToolRequest, in
 		State: t.state(), Timestamp: t.timestamp(), TotalMessages: t.items(), FromMessage: input.FromMessage,
 	}
 	if input.ToolCall != "" {
-		call := t.call(strings.TrimSpace(input.ToolCall))
+		call := t.call(strings.TrimSpace(string(input.ToolCall)))
 		if call == nil {
 			return toolError(fmt.Errorf("turn %d of session %s has no tool call %s (it has %d, indexed from 0)", index, session.GetId(), input.ToolCall, len(t.calls))), GetSessionTurnOutput{}, nil
 		}

@@ -329,6 +329,20 @@ func TestGetSessionTurnUnwrapsToolCall(t *testing.T) {
 	require.True(t, transcript.Messages[2].Parts[0].ToolResult.Error)
 }
 
+func TestGetSessionTurnTakesIntegerIndexes(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "done", "ok")}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	output := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{
+		"session_id": testSessionID, "turn": 0, "tool_call": 0,
+	}))
+	require.Equal(t, "task-0", output.TaskID)
+	require.NotNil(t, output.ToolCall)
+	require.Equal(t, "call-1", output.ToolCall.ID)
+
+	require.True(t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": 0.5}).IsError)
+}
+
 func TestGetSessionOfAnotherCallerIsNotFound(t *testing.T) {
 	server := sessionServer(t, newSessionStore(), &turnGateway{})
 	result := callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID})
