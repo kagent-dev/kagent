@@ -49,10 +49,10 @@ type Config struct {
 }
 
 type ListSessionsInput struct {
-	PageSize  int       `json:"page_size,omitempty" jsonschema:"Maximum number of Sessions to return"`
-	PageToken string    `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+	PageSize  int             `json:"page_size,omitempty" jsonschema:"Maximum number of Sessions to return"`
+	PageToken string          `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
 	Agent     *agentReference `json:"agent,omitempty" jsonschema:"Only Sessions of this Agent"`
-	AllStates bool      `json:"all_states,omitempty" jsonschema:"Include Sessions in every state, failed and suspended ones too; default lists ready Sessions only"`
+	AllStates bool            `json:"all_states,omitempty" jsonschema:"Include Sessions in every state, failed and suspended ones too; default lists ready Sessions only"`
 }
 
 // SessionSummary is a Session as every session tool answers it. Agent is

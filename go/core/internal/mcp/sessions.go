@@ -41,15 +41,15 @@ const (
 )
 
 type CreateSessionInput struct {
-	Agent     AgentRef `json:"agent" jsonschema:"The Agent the Session talks to"`
-	RequestID string   `json:"request_id,omitempty" jsonschema:"Stable idempotency key; reuse it with identical inputs on a retry to get the same Session and first turn"`
-	Name      string   `json:"name,omitempty" jsonschema:"Optional display name"`
-	Message   string   `json:"message,omitempty" jsonschema:"Optional first message, sent as invoke_session sends one"`
+	Agent     agentReference `json:"agent" jsonschema:"The Agent the Session talks to"`
+	RequestID string         `json:"request_id,omitempty" jsonschema:"Stable idempotency key; reuse it with identical inputs on a retry to get the same Session and first turn"`
+	Name      string         `json:"name,omitempty" jsonschema:"Optional display name"`
+	Message   string         `json:"message,omitempty" jsonschema:"Optional first message, sent as invoke_agent sends one"`
 }
 
 type CreateSessionOutput struct {
-	Session SessionSummary       `json:"session"`
-	Turn    *InvokeSessionOutput `json:"turn,omitempty"`
+	Session SessionSummary     `json:"session"`
+	Turn    *InvokeAgentOutput `json:"turn,omitempty"`
 }
 
 type SessionIDInput struct {
@@ -216,7 +216,7 @@ func (h *Handler) createSession(ctx context.Context, _ *mcp.CallToolRequest, inp
 		if err != nil {
 			return toolError(fmt.Errorf("session %s was created but its first message was not accepted (retry with request_id %q to reuse it): %s", session.GetId(), create.GetRequestId(), serviceerrors.MessageOf(err))), CreateSessionOutput{}, nil
 		}
-		_, invoked := invocationResult(InvokeSessionInput{SessionID: session.GetId()}, turn)
+		_, invoked := invocationResult(turn)
 		output.Turn = &invoked
 	}
 	return nil, output, nil
@@ -227,7 +227,7 @@ func (h *Handler) createSession(ctx context.Context, _ *mcp.CallToolRequest, inp
 // conversation, so a retry answers the turn the first send started.
 func (h *Handler) firstTurn(ctx context.Context, session *apiv1.Session, requestID, message string) (*a2atype.Task, error) {
 	messageID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("mcp/first-message/"+session.GetId()+"/"+requestID)).String()
-	return h.invoke(ctx, InvokeSessionInput{SessionID: session.GetId(), Message: message, MessageID: messageID}, true)
+	return h.invoke(ctx, InvokeAgentInput{SessionID: session.GetId(), Message: message, MessageID: messageID}, true)
 }
 
 func (h *Handler) getSession(ctx context.Context, _ *mcp.CallToolRequest, input GetSessionInput) (*mcp.CallToolResult, GetSessionOutput, error) {

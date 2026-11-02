@@ -182,7 +182,7 @@ func sessionServer(t *testing.T, store *sessionStore, gateway *turnGateway) *mcp
 	})
 	h.registerSessionTools(server)
 	mcp.AddTool(server, &mcp.Tool{Name: listToolName}, h.listSessions)
-	mcp.AddTool(server, &mcp.Tool{Name: invokeToolName}, h.invokeSession)
+	mcp.AddTool(server, &mcp.Tool{Name: invokeToolName}, h.invokeAgent)
 	return server
 }
 
@@ -448,7 +448,7 @@ func TestGetSessionOfAnotherCallerIsNotFound(t *testing.T) {
 	invoked := callTool(t, server, invokeToolName, map[string]any{"session_id": testSessionID, "message": "hello"})
 	require.True(t, invoked.IsError)
 	require.Equal(t, "not_found", invoked.Meta["kagent.dev/error-code"])
-	require.Equal(t, result.Content, invoked.Content, "invoke_session words a missing Session as get_session does")
+	require.Equal(t, result.Content, invoked.Content, "invoke_agent words a missing Session as get_session does")
 }
 
 func TestListSessionsAllStatesShowsFailures(t *testing.T) {
