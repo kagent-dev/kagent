@@ -1,4 +1,6 @@
 export const A2A_METADATA = {
+  /** The agent that wrote an artifact; a workflow has one per node. */
+  author: "adk_author",
   outputSchemaSha256: "kagent.dev/a2a/output-schema-sha256",
   partType: "kagent.dev/a2a/part-type",
   timelinePosition: "kagent.dev/a2a/timeline-position",

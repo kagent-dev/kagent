@@ -73,6 +73,8 @@ export interface ChatMessage {
   createdAt: string;
   /** The turn this message belongs to, when the transport groups turns. */
   taskId?: string;
+  /** The agent that wrote an agent message. A workflow reports one per node. */
+  author?: string;
 }
 
 /** Lifecycle of one agent turn. */

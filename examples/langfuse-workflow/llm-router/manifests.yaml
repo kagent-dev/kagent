@@ -1,0 +1,48 @@
+# Harness, AgentTemplate and Agent for the declarative llm-router workflow.
+# The workflow document itself is delivered through a ConfigMap built from
+# agent-system.yaml by deploy.sh:
+#   kubectl create configmap llm-router-workflow --from-file=agent-system.yaml
+#
+# The harness reuses the pr-review BYO image, which registers the `reviewer`
+# model that agent-system.yaml names and needs no custom Go functions here.
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: llm-router
+  namespace: kagent
+spec:
+  byo: {}
+  substrate:
+    snapshotPolicy:
+      location: s3://ate-snapshots/llm-router
+    workerPoolRef:
+      name: kagent-default
+  workload:
+    command:
+      - /app
+    image: localhost:5001/kagent-dev/kagent/pr-review-agent@sha256:1518eda61550bb42cf0d5b4e3f3e1093a5d417c14b7f0ada3f78853fc653ed94
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: llm-router
+  namespace: kagent
+spec:
+  description: Classifies a message as question, exclamation or statement with an LLM and routes it to a handler
+  modelConfig:
+    name: default-model-config
+  workflowFrom:
+    name: llm-router-workflow
+    key: agent-system.yaml
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: llm-router
+  namespace: kagent
+spec:
+  harnessRef:
+    name: llm-router
+  template:
+    ref:
+      name: llm-router

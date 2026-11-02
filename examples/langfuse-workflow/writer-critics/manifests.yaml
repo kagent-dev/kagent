@@ -1,0 +1,47 @@
+# Harness, AgentTemplate and Agent for the declarative writer-critics workflow.
+# The workflow document is delivered through a ConfigMap built from agent-system.yaml:
+#   kubectl create configmap writer-critics-workflow --from-file=agent-system.yaml
+#
+# The harness reuses the pr-review BYO image, which registers the `reviewer`
+# model that agent-system.yaml names.
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: writer-critics
+  namespace: kagent
+spec:
+  byo: {}
+  substrate:
+    snapshotPolicy:
+      location: s3://ate-snapshots/writer-critics
+    workerPoolRef:
+      name: kagent-default
+  workload:
+    command:
+      - /app
+    image: localhost:5001/kagent-dev/kagent/pr-review-agent@sha256:1518eda61550bb42cf0d5b4e3f3e1093a5d417c14b7f0ada3f78853fc653ed94
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: writer-critics
+  namespace: kagent
+spec:
+  description: A writer drafts a paragraph, three critics review it in parallel, and the writer revises for at most 5 turns
+  modelConfig:
+    name: default-model-config
+  workflowFrom:
+    name: writer-critics-workflow
+    key: agent-system.yaml
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: writer-critics
+  namespace: kagent
+spec:
+  harnessRef:
+    name: writer-critics
+  template:
+    ref:
+      name: writer-critics

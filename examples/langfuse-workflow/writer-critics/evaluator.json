@@ -1,0 +1,21 @@
+{
+  "type": "llm_as_judge",
+  "name": "feedback_addressed",
+  "description": "Scores one Writer call of the writer-critics loop: when the call is a revision (the input has a DRAFT and CRITIC FEEDBACK), did the rewrite address every REVISE point without losing what was already good. First-turn drafts have no feedback and pass.",
+  "prompt": [
+    {
+      "role": "user",
+      "content": "You are checking one call of a Writer in a write-and-critique loop.\n\n## Messages sent to the Writer\n{{input}}\n\n## Writer reply\n{{output}}\n\n## How to judge\n1. Look in the messages for a section headed CRITIC FEEDBACK together with a DRAFT. If there is none, this is a first draft: return true.\n2. Otherwise list every feedback line that starts with REVISE. Lines that start with APPROVE need no change and must not be undone.\n3. Check that the reply addresses every REVISE point. A point is addressed only if the reply visibly changes in the way the critic asked; restating the draft unchanged fails.\n4. The reply must still be a single paragraph, with no headings or bullets, and must not introduce unrelated new claims.\n\nReturn true only if every REVISE point is addressed and the constraints in step 4 hold. Return false otherwise. Judge only what is written."
+    }
+  ],
+  "variableMapping": [
+    { "variable": "input", "source": "input" },
+    { "variable": "output", "source": "output" }
+  ],
+  "modelConfig": { "provider": "google", "model": "gemini-3.8-flash" },
+  "outputDefinition": {
+    "dataType": "BOOLEAN",
+    "scoreValueInstructions": "true if this is a first draft, or every REVISE point was addressed and the paragraph constraints hold; false otherwise.",
+    "scoreReasoningInstructions": "One concise sentence naming the first unaddressed point, or confirming all were addressed."
+  }
+}

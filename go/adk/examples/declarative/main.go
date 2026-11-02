@@ -133,6 +133,11 @@ func main() {
 			Agent:          root,
 			SessionService: adksession.InMemoryService(),
 		},
+		// A workflow runs several nodes, each its own agent. The default mode
+		// appends every node's reply to one artifact, so the chat shows them as one
+		// run-on block with no sender. One artifact per event keeps each reply
+		// separate and carries its author in the artifact metadata.
+		OutputMode: adka2a.OutputArtifactPerEvent,
 	})
 
 	kagentApp, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneUrl, MaxContentLength: runtime.MaxContentLength,

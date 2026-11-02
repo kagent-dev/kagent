@@ -767,6 +767,7 @@ export class A2AGrpcChatClient implements ChatClient {
               parts,
               createdAt: new Date().toISOString(),
               taskId: event.taskId,
+              author: metadataString(event.artifact?.metadata, A2A_METADATA.author),
             },
           };
           continue;
@@ -995,6 +996,7 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
       parts,
       createdAt,
       taskId: task.id || undefined,
+      author: metadataString(artifact.metadata, A2A_METADATA.author),
     };
     agent.push(converted);
     positioned.push({ message: converted, position: timelinePosition(artifact.metadata) });

@@ -789,6 +789,54 @@ describe("A2AGrpcChatClient.send", () => {
     ).toEqual(["first", "second"]);
   });
 
+  it("names the agent that wrote each workflow reply and keeps the replies apart", async () => {
+    const artifact = (id: string, author: string, reply: string) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          artifact: {
+            artifactId: id,
+            parts: [text(reply)],
+            metadata: { [A2A_METADATA.author]: author },
+          },
+        },
+      },
+    });
+    const events = await turn([
+      artifact("draft", "writer", "A draft."),
+      artifact("review-1", "critic_style", "REVISE: shorter."),
+      artifact("review-2", "critic_clarity", "APPROVE"),
+    ]);
+
+    expect(
+      transcript(events)
+        .filter((message) => message.role === "agent")
+        .map((message) => [message.author, textOf(message)]),
+    ).toEqual([
+      ["writer", "A draft."],
+      ["critic_style", "REVISE: shorter."],
+      ["critic_clarity", "APPROVE"],
+    ]);
+  });
+
+  it("leaves the author unset when the runtime does not report one", async () => {
+    const events = await turn([
+      {
+        payload: {
+          case: "artifactUpdate" as const,
+          value: { taskId: "task-1", artifact: { artifactId: "only", parts: [text("hello")] } },
+        },
+      },
+    ]);
+
+    expect(
+      transcript(events)
+        .filter((message) => message.role === "agent")
+        .map((message) => message.author),
+    ).toEqual([undefined]);
+  });
+
   it("labels a tool call and its result distinguishably", async () => {
     const events = await turn([
       statusFrame({
@@ -1009,6 +1057,51 @@ describe("A2AGrpcChatClient.history", () => {
       });
     });
   }
+
+  it("keeps each workflow reply's author when a conversation is reloaded", async () => {
+    const position = (value: string, author: string) => ({
+      [A2A_METADATA.timelinePosition]: value,
+      [A2A_METADATA.author]: author,
+    });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "opening",
+            role: Role.USER,
+            parts: [text("why the sky is blue")],
+            metadata: { [A2A_METADATA.timelinePosition]: "2026-01-01T00:00:00.000000001Z" },
+          },
+        ],
+        artifacts: [
+          {
+            artifactId: "draft",
+            parts: [text("A draft.")],
+            metadata: position("2026-01-01T00:00:00.000000002Z", "writer"),
+          },
+          {
+            artifactId: "review",
+            parts: [text("APPROVE")],
+            metadata: position("2026-01-01T00:00:00.000000003Z", "critic_clarity"),
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+
+    expect(
+      messages
+        .filter((message) => message.role === "agent")
+        .map((message) => [message.author, textOf(message)]),
+    ).toEqual([
+      ["writer", "A draft."],
+      ["critic_clarity", "APPROVE"],
+    ]);
+  });
 
   it("replays a completed approval as one structured record without protocol text", async () => {
     serveTasks([

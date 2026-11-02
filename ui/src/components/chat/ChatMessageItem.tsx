@@ -70,7 +70,7 @@ export function ChatMessageItem({
         }}
       >
         <Text css={{ color: "inherit", fontSize: "inherit" }}>
-          {isUser ? "You" : "Agent"}
+          {isUser ? "You" : (message.author ?? "Agent")}
         </Text>
         {onManagePush ? (
           <Tooltip title="Task notifications">
