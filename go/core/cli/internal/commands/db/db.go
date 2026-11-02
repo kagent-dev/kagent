@@ -8,13 +8,25 @@ import (
 
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/db"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/db/migrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
-func NewDBCmd() *cobra.Command {
+// NewDBCmd builds the database commands. extra, when set, adds migration
+// tracks after the builtin ones. It runs when a db subcommand runs, after the
+// configuration loads, not when the command tree is built.
+func NewDBCmd(extra migrate.SourcesFunc) *cobra.Command {
 	cmd := dbcli.NewCommandFromFunc(func(ctx context.Context) ([]migrations.Source, error) {
 		cfg := cliconfig.FromContext(ctx).GetDatabase()
-		return migrations.BuiltinSourcesInSchema(cfg.GetVectorEnabled(), cfg.GetSchema(), cfg.GetVectorSchema()), nil
+		sources := migrations.BuiltinSourcesInSchema(cfg.GetVectorEnabled(), cfg.GetSchema(), cfg.GetVectorSchema())
+		if extra == nil {
+			return sources, nil
+		}
+		extraSources, err := extra(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return append(sources, extraSources...), nil
 	})
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if err := cmd.Root().PersistentPreRunE(cmd, args); err != nil {

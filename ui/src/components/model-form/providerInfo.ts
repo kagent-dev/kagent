@@ -87,7 +87,7 @@ export function providerDisplayName(type: string): string {
 export const OLLAMA_PROVIDER = "Ollama";
 
 /**
- * Providers the CRD permits `apiKeyPassthrough` on — where the caller's own
+ * Providers the CRD permits `tokenPassthrough` on — where the caller's own
  * credential is forwarded rather than one stored in the cluster. The passthrough
  * auth option is offered only for these.
  */

@@ -206,7 +206,7 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	fresh.ContextID = session.ContextId
 	_, err = client.CreateRuntimeTask(t.Context(), session.Id, hash[:], a2a.NewSubmittedTask(fresh, fresh), "")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
-	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/exact", ContentScope: "DATA"}
+	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/exact", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), work, snapshot))
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), work, snapshot))
 	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version))
@@ -234,7 +234,7 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	require.NoError(t, client.SettleSessionTask(t.Context(), source.Id, string(completed.ID), version))
 	boundary, err := client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
-	require.NoError(t, client.FinishSessionQuiescence(t.Context(), boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "turn-N", ContentScope: "DATA"}))
+	require.NoError(t, client.FinishSessionQuiescence(t.Context(), boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "turn-N", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	checkpoint, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	_, err = client.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-N", "retained-N", "")
@@ -333,7 +333,7 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 		work, claimErr, writeErr := <-claimed, <-claimErrors, <-writeErrors
 		if claimErr == nil {
 			require.ErrorIs(t, writeErr, ErrDispatchBusy)
-			require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+			require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatchID, ""))
 		} else {
 			require.ErrorIs(t, claimErr, ErrNotFound)
@@ -473,7 +473,7 @@ func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
 	require.ErrorIs(t, err, ErrSnapshotPending)
 	work, err := client.ClaimSessionQuiescence(ctx)
 	require.NoError(t, err)
-	require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+	require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	saved, _, err := client.ReserveSessionCheckpoint(ctx, request, "alice", "saved")
 	require.NoError(t, err)
 	_, err = client.FinalizeSessionCheckpoint(ctx, saved.Id, "tag", "retained-snapshot", "")
@@ -533,7 +533,7 @@ func TestCheckpointRejectsOlderPendingTask(t *testing.T) {
 	task := a2a.NewSubmittedTask(message, message)
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, "alice", uuid.NewString())

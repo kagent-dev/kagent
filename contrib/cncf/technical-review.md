@@ -71,7 +71,6 @@ Target personas interact with kagent through multiple interfaces:
 
 2. **CLI (`kagent`)**: Command-line tool for:
    - Agent deployment and management (`kagent agent deploy`)
-   - MCP server configuration (`kagent mcp`)
    - Local development workflows
    - CI/CD integration
    - Installation: `curl -fsSL https://kagent.dev/install.sh | sh`
@@ -178,7 +177,6 @@ Optional in-cluster:
 
 - **PostgreSQL**: For production database (SQLite default for development)
 - **Qdrant**: For vector memory storage (optional feature)
-- **KMCP**: For building and managing MCP servers (enabled by default)
 - **Prometheus**: For metrics collection (optional)
 - **Jaeger/OTLP Collector**: For distributed tracing (optional)
 
@@ -288,7 +286,6 @@ Kagent exposes multiple API surfaces:
    - `toolservers.kagent.dev/v1alpha1` - MCP tool server definitions
    - `remotemcpservers.api.kagent.dev/v1alpha3` - Remote MCP servers
    - `memories.kagent.dev/v1alpha1` - Memory/vector store configurations
-   - `mcpservers.kagent.dev` (inherited via KMCP dependency)
 
 2. **HTTP REST API** (controller):
    - Base path: `/api`
@@ -426,8 +423,7 @@ After installation, kagent automatically:
 
 1. Deploys controller, UI, and default agents
 2. Creates default ModelConfig from Helm values
-3. Registers KMCP tool server (if enabled)
-4. Starts health check endpoints
+3. Starts health check endpoints
 
 No manual initialization steps required beyond providing LLM credentials.
 
@@ -635,7 +631,7 @@ Ongoing evaluation via:
 **Minimal Privileges:**
 Controller requires:
 
-- **Read/Write**: `agents`, `modelconfigs`, `toolservers`, `memories`, `remotemcpservers`, `mcpservers` (kagent.dev API group)
+- **Read/Write**: `agents`, `modelconfigs`, `toolservers`, `memories`, `remotemcpservers`
 - **Read/Write**: `deployments`, `services`, `configmaps`, `secrets`, `serviceaccounts` (for agent lifecycle)
 - **Read**: All other resources (for status reporting and validation)
 

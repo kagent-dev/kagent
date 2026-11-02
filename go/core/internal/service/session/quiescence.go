@@ -28,7 +28,7 @@ func (w *ActorWorkflow) wakeQuiescence() {
 	}
 }
 
-// Start pauses or suspends idle sessions independently of task publication.
+// Start suspends idle sessions to VOLUMES independently of task publication.
 // Startup and periodic recovery scans discover work missed by local signals.
 // Workers drain claims with bounded concurrency; task reads never wait for them.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
@@ -74,13 +74,7 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 
 func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.SessionQuiescence) {
 	runtimeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	var snapshot *database.SessionTaskSnapshot
-	var err error
-	if work.State.Terminal() {
-		snapshot, err = w.Quiesce(runtimeCtx, work.Session)
-	} else {
-		err = w.Pause(runtimeCtx, work.Session)
-	}
+	snapshot, err := w.Quiesce(runtimeCtx, work.Session)
 	cancel()
 	if err != nil {
 		// No timeout-based takeover: the Substrate request may still complete.

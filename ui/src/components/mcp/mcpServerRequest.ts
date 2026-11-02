@@ -1,9 +1,8 @@
 /**
  * Turning the MCP server form's fields into the request the API takes.
  *
- * Kept apart from the form component so the mapping — which is where the fiddly
- * rules live (arg ordering, header parsing, which timeout applies to which
- * protocol) — can be reasoned about and unit-tested without a DOM.
+ * Kept apart from the form component so header parsing and protocol-specific
+ * timeout rules can be reasoned about and unit-tested without a DOM.
  */
 
 import type { ToolServerCreateRequest, ValueRef } from "@/api";
@@ -13,9 +12,6 @@ import {
   isValidResourceName,
   slugifyResourceName,
 } from "@/components/common/resourceName";
-
-/** Which kind of server the form is describing. */
-export type McpServerKind = "url" | "command";
 
 /** The scheme the stored (scheme-less) URL is served under, per the TLS toggle. */
 export const schemeFor = (tlsEnabled: boolean): string =>
@@ -41,27 +37,9 @@ function isParsableUrl(url: string): boolean {
   }
 }
 
-/** The executors the command form offers, and the image each one runs in. */
-export const COMMAND_EXECUTORS = {
-  npx: { label: "npx", image: "node:24-alpine3.21" },
-  uvx: { label: "uvx", image: "ghcr.io/astral-sh/uv:debian" },
-} as const;
-
-export type CommandExecutor = keyof typeof COMMAND_EXECUTORS;
-
-/** A single environment variable row in the command form. */
-export interface EnvRow {
-  id: string;
-  name: string;
-  value: string;
-}
-
 export interface McpServerFormValues {
-  kind: McpServerKind;
   name: string;
   namespace: string;
-
-  // URL kind.
   url: string;
   // Selects HTTPS or plaintext HTTP for the scheme-less URL.
   tlsEnabled: boolean;
@@ -70,18 +48,10 @@ export interface McpServerFormValues {
   timeout: string;
   sseReadTimeout: string;
   terminateOnClose: boolean;
-
-  // Command kind.
-  executor: CommandExecutor;
-  commandPrefix: string;
-  packageName: string;
-  args: string[];
-  env: EnvRow[];
 }
 
 export function emptyMcpServerForm(): McpServerFormValues {
   return {
-    kind: "url",
     name: "",
     namespace: DEFAULT_NAMESPACE,
     url: "",
@@ -92,11 +62,6 @@ export function emptyMcpServerForm(): McpServerFormValues {
     timeout: "5s",
     sseReadTimeout: "300s",
     terminateOnClose: true,
-    executor: "npx",
-    commandPrefix: "",
-    packageName: "",
-    args: [],
-    env: [],
   };
 }
 
@@ -130,26 +95,22 @@ export function validateMcpServerForm(
     });
   }
 
-  if (values.kind === "url") {
-    // The scheme lives on the TLS toggle, so the field holds only the host and
-    // path; validate the whole thing the toggle would produce.
-    const host = stripScheme(values.url);
-    if (!host) {
-      issues.push({ field: "url", message: "A server URL is required." });
-    } else if (!isParsableUrl(schemeFor(values.tlsEnabled) + host)) {
-      issues.push({
-        field: "url",
-        message: "Enter a valid host and path, for example api.example.com/mcp.",
-      });
-    }
-    if (values.headersJson.trim() && parseHeaders(values.headersJson) === undefined) {
-      issues.push({
-        field: "headersJson",
-        message: "Headers must be a JSON object, for example {\"Authorization\": \"…\"}.",
-      });
-    }
-  } else if (!values.packageName.trim()) {
-    issues.push({ field: "packageName", message: "A package name is required." });
+  // The scheme lives on the TLS toggle, so the field holds only the host and
+  // path; validate the whole thing the toggle would produce.
+  const host = stripScheme(values.url);
+  if (!host) {
+    issues.push({ field: "url", message: "A server URL is required." });
+  } else if (!isParsableUrl(schemeFor(values.tlsEnabled) + host)) {
+    issues.push({
+      field: "url",
+      message: "Enter a valid host and path, for example api.example.com/mcp.",
+    });
+  }
+  if (values.headersJson.trim() && parseHeaders(values.headersJson) === undefined) {
+    issues.push({
+      field: "headersJson",
+      message: "Headers must be a JSON object, for example {\"Authorization\": \"...\"}.",
+    });
   }
 
   return issues;
@@ -173,25 +134,6 @@ export function parseHeaders(json: string): ValueRef[] | undefined {
   }
 }
 
-/**
- * The command line a stdio server will be started with.
- *
- * The package goes last, after any prefix words and explicit arguments — that is
- * the order `npx`/`uvx` expect, and getting it wrong is the sort of thing that
- * fails only once the pod is running.
- */
-export function buildCommandArgs(values: McpServerFormValues): string[] {
-  const prefix = values.commandPrefix.trim().split(/\s+/).filter(Boolean);
-  const args = values.args.map((arg) => arg.trim()).filter(Boolean);
-  return [...prefix, ...args, values.packageName.trim()];
-}
-
-/** The whole command, for the form's preview line. */
-export function previewCommand(values: McpServerFormValues): string {
-  if (!values.packageName.trim()) return "";
-  return [values.executor, ...buildCommandArgs(values)].join(" ");
-}
-
 /** Maps validated form values onto the API's create request. */
 export function toCreateRequest(
   values: McpServerFormValues,
@@ -199,52 +141,26 @@ export function toCreateRequest(
   const name = values.name.trim();
   const namespace = values.namespace.trim() || DEFAULT_NAMESPACE;
 
-  if (values.kind === "url") {
-    // The scheme comes from the TLS toggle, not the field, so it is added back
-    // here onto the scheme-less host the form holds.
-    const url = schemeFor(values.tlsEnabled) + stripScheme(values.url);
-
-    return {
-      type: "RemoteMCPServer",
-      remoteMCPServer: {
-        metadata: { name, namespace },
-        spec: {
-          description: "",
-          protocol: values.streamableHttp ? "STREAMABLE_HTTP" : "SSE",
-          url,
-          headersFrom: parseHeaders(values.headersJson) ?? [],
-          timeout: values.timeout.trim() || undefined,
-          // Only meaningful for SSE; sending it for streamable HTTP would
-          // describe a timeout that never applies.
-          sseReadTimeout: values.streamableHttp
-            ? undefined
-            : values.sseReadTimeout.trim() || undefined,
-          terminateOnClose: values.terminateOnClose,
-        },
-      },
-    };
-  }
-
-  const env: Record<string, string> = {};
-  for (const row of values.env) {
-    const key = row.name.trim();
-    if (key) env[key] = row.value;
-  }
+  // The scheme comes from the TLS toggle, not the field, so it is added back
+  // here onto the scheme-less host the form holds.
+  const url = schemeFor(values.tlsEnabled) + stripScheme(values.url);
 
   return {
-    type: "MCPServer",
-    mcpServer: {
+    type: "RemoteMCPServer",
+    remoteMCPServer: {
       metadata: { name, namespace },
       spec: {
-        deployment: {
-          image: COMMAND_EXECUTORS[values.executor].image,
-          port: 3000,
-          cmd: values.executor,
-          args: buildCommandArgs(values),
-          ...(Object.keys(env).length > 0 ? { env } : {}),
-        },
-        transportType: "stdio",
-        stdioTransport: {},
+        description: "",
+        protocol: values.streamableHttp ? "STREAMABLE_HTTP" : "SSE",
+        url,
+        headersFrom: parseHeaders(values.headersJson) ?? [],
+        timeout: values.timeout.trim() || undefined,
+        // Only meaningful for SSE; sending it for streamable HTTP would
+        // describe a timeout that never applies.
+        sseReadTimeout: values.streamableHttp
+          ? undefined
+          : values.sseReadTimeout.trim() || undefined,
+        terminateOnClose: values.terminateOnClose,
       },
     },
   };
@@ -259,9 +175,7 @@ export function toCreateRequest(
  * reached yet reads as a value they chose, and the placeholder says more.
  */
 export function suggestName(values: McpServerFormValues): string {
-  const source =
-    values.kind === "url" ? hostnameOf(values.url) : lastSegment(values.packageName);
-  return slugifyResourceName(source);
+  return slugifyResourceName(hostnameOf(values.url));
 }
 
 function hostnameOf(url: string): string {
@@ -274,11 +188,4 @@ function hostnameOf(url: string): string {
   } catch {
     return "";
   }
-}
-
-/** `@scope/pkg@1.2.3` → `pkg`. Scope and version are noise in a resource name. */
-function lastSegment(packageName: string): string {
-  const withoutVersion = packageName.trim().replace(/@[^@/]*$/, "");
-  const parts = withoutVersion.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? "";
 }

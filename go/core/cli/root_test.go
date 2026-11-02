@@ -87,10 +87,10 @@ func TestRootCommandInvokeContract(t *testing.T) {
 
 	invokeCmd, _, err := rootCmd.Find([]string{"agent", "invoke"})
 	require.NoError(t, err)
-	for _, flag := range []string{"session", "task", "file", "stream", "token"} {
+	for _, flag := range []string{"session", "task", "file", "stream"} {
 		assert.NotNil(t, invokeCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
-	for _, legacyFlag := range []string{"agent", "url-override"} {
+	for _, legacyFlag := range []string{"agent", "url-override", "token"} {
 		assert.Nil(t, invokeCmd.Flags().Lookup(legacyFlag), "legacy --%s must be removed", legacyFlag)
 	}
 
@@ -151,11 +151,10 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range rootCmd.Commands() {
 		rootCommands = append(rootCommands, command.Name())
 	}
-	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp", "get", "create", "delete", "invoke", "session"} {
+	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp", "mcp", "get", "create", "delete", "invoke", "session"} {
 		assert.NotContains(t, rootCommands, command)
 	}
 	assert.NotContains(t, rootCommands, "update")
-	assert.Contains(t, rootCommands, "mcp")
 
 	agentCmd, _, err := rootCmd.Find([]string{"agent"})
 	require.NoError(t, err)

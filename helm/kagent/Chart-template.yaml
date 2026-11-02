@@ -6,18 +6,10 @@ version: ${VERSION}
 annotations:
   "org.opencontainers.image.source": "https://github.com/kagent-dev/kagent"
 dependencies:
-  - name: kmcp
-    version: ${KMCP_VERSION}
-    repository: oci://ghcr.io/kagent-dev/kmcp/helm
-    condition: kmcp.enabled
   - name: kagent-tools
     version: 0.3.0
     repository: oci://ghcr.io/kagent-dev/tools/helm
     condition: kagent-tools.enabled
-  - name: grafana-mcp
-    version: ${VERSION}
-    repository: file://../tools/grafana-mcp
-    condition: grafana-mcp.enabled
   - name: oauth2-proxy
     version: "~10.7.0"
     repository: "https://oauth2-proxy.github.io/manifests"

@@ -100,15 +100,15 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   });
 
   await test.step("2. an unnamed one says it is untitled rather than showing its key", async () => {
-    const untitled = page.getByTestId(`conversation-link-${instances.suspended}`);
+    const untitled = page.getByTestId(`conversation-link-${instances.idle}`);
     // Not the UUID. A database key presented under a "Conversation" heading reads as
     // a name somebody chose, and eight rows of it are indistinguishable at a glance
     // — which is the specific failure that started this rework.
-    await expect(untitled).not.toHaveText(instances.suspended);
+    await expect(untitled).not.toHaveText(instances.idle);
     await expect(untitled).toContainText("Untitled");
     // The short id is still there: two untitled conversations with one agent have
     // nothing else to tell them apart.
-    await expect(untitled).toContainText(instances.suspended.slice(0, 8));
+    await expect(untitled).toContainText(instances.idle.slice(0, 8));
   });
 
   await test.step("3. renaming one changes what the list shows", async () => {
@@ -118,7 +118,7 @@ test("agents: a conversation is named by the reader, and never renders as a bare
      * new name", which points at the save rather than at the press that never landed.
      */
     const rename = page.getByTestId("conversation-rename-input");
-    await pressUntil(page.getByTestId(`conversation-rename-${instances.suspended}`), () =>
+    await pressUntil(page.getByTestId(`conversation-rename-${instances.idle}`), () =>
       expect(rename).toBeVisible(),
     );
     // The box opens *empty* for an unnamed conversation rather than pre-filled with
@@ -134,12 +134,12 @@ test("agents: a conversation is named by the reader, and never renders as a bare
       expect(rowNamed(page, "Rollback rehearsal")).toHaveCount(1),
     );
     await expect(
-      page.getByTestId(`conversation-link-${instances.suspended}`),
+      page.getByTestId(`conversation-link-${instances.idle}`),
     ).toHaveText("Rollback rehearsal");
   });
 
   await test.step("4. a name the controller would refuse is refused before the round trip", async () => {
-    await page.getByTestId(`conversation-rename-${instances.suspended}`).click();
+    await page.getByTestId(`conversation-rename-${instances.idle}`).click();
     const field = page.getByTestId("conversation-rename-input").locator("input");
     await field.fill(" leading space");
 
@@ -155,7 +155,7 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   });
 
   await test.step("5. clearing a name puts it back to being untitled", async () => {
-    await page.getByTestId(`conversation-rename-${instances.suspended}`).click();
+    await page.getByTestId(`conversation-rename-${instances.idle}`).click();
     const field = page.getByTestId("conversation-rename-input").locator("input");
     await expect(field).toHaveValue("Rollback rehearsal");
     await field.fill("");
@@ -163,7 +163,7 @@ test("agents: a conversation is named by the reader, and never renders as a bare
     await pressOnce(page.getByRole("button", { name: "Save" }));
 
     await expect(
-      page.getByTestId(`conversation-link-${instances.suspended}`),
+      page.getByTestId(`conversation-link-${instances.idle}`),
     ).toContainText("Untitled");
   });
 });

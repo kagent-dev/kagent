@@ -15,6 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -86,15 +87,92 @@ func TestMCPSessionInteraction(t *testing.T) {
 	})
 }
 
+func TestMCPAgentInvocation(t *testing.T) {
+	t.Parallel()
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
+		target := interactionTarget(t)
+		// Prepare only the Agent. The first MCP invocation must create its Session.
+		agentName := createInteractionTemplate(t, harness, startInteractionMock(t))
+		conn := newControllerConn(t, target)
+		sessions := apiv1.NewSessionServiceClient(conn)
+		ctx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e")
+		endpoint := mcpEndpoint(t)
+		listed := mcpCall(t, endpoint, "tools/call", map[string]any{
+			"name": "list_agents", "arguments": map[string]any{"namespace": "kagent"},
+		}, false)["result"].(map[string]any)
+		require.NotEqual(t, true, listed["isError"], "%v", listed)
+		var agent map[string]any
+		for _, item := range listed["structuredContent"].(map[string]any)["agents"].([]any) {
+			ref := item.(map[string]any)
+			if ref["name"] == agentName {
+				agent = ref
+				break
+			}
+		}
+		require.NotNil(t, agent, "created Agent must be discoverable before its first Session")
+		require.Equal(t, "kagent", agent["namespace"])
+		for _, test := range []struct {
+			name  string
+			tasks bool
+		}{
+			{name: "synchronous"},
+			{name: "task", tasks: true},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				request := map[string]any{
+					"name": "invoke_agent",
+					"arguments": map[string]any{
+						"agent":      agent,
+						"message":    "What is 2+2?",
+						"message_id": uuid.NewString(),
+					},
+				}
+				invoke := func() map[string]any {
+					t.Helper()
+					response := mcpCall(t, endpoint, "tools/call", request, test.tasks)
+					result := response["result"].(map[string]any)
+					require.NotEqual(t, true, result["isError"], "%v", result)
+					if test.tasks {
+						handle := result["taskId"].(string)
+						result = waitMCPTask(t, endpoint, handle, "completed")["result"].(map[string]any)
+					}
+					require.NotEqual(t, true, result["isError"], "%v", result)
+					require.Contains(t, mcpResultText(result), "The answer is 4.")
+					return result["structuredContent"].(map[string]any)
+				}
+				first := invoke()
+				sessionID := first["session_id"].(string)
+				require.NotEmpty(t, sessionID)
+				t.Cleanup(func() {
+					cleanupCtx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+					defer cancel()
+					require.NoError(t, deleteIdleSession(cleanupCtx, sessions, sessionID))
+				})
+				require.Equal(t, sessionID, first["context_id"])
+				stored, err := sessions.GetSession(ctx, &apiv1.GetSessionRequest{SessionId: sessionID})
+				require.NoError(t, err)
+				require.Equal(t, agentName, stored.GetSession().GetAgent().GetRef().GetName())
+
+				retry := invoke()
+				require.Equal(t, sessionID, retry["session_id"])
+				require.Equal(t, first["task_id"], retry["task_id"])
+
+				continued := mcpInvoke(t, endpoint, sessionID, "What is 2+2?", false)
+				require.Contains(t, mcpResultText(continued), "The answer is 4.")
+				output := continued["structuredContent"].(map[string]any)
+				require.Equal(t, sessionID, output["session_id"])
+				require.NotEqual(t, first["task_id"], output["task_id"])
+			})
+		}
+	})
+}
+
 func TestMCPAskUserContinuation(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		switch harness.name {
-		case codexE2EHarness, claudeE2EHarness:
-			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
-		}
-		fixture := newInteractionFixture(t, harness, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startAskUserMock(t, harness))
 		endpoint := mcpEndpoint(t)
 		handle := mcpInvoke(t, endpoint, fixture.sessionID, "Which database should we use for storage?", true)["taskId"].(string)
 		waiting := waitMCPTask(t, endpoint, handle, "input_required")
@@ -105,6 +183,7 @@ func TestMCPAskUserContinuation(t *testing.T) {
 		var key string
 		for key = range requests {
 		}
+		assertActorSuspended(t, fixture)
 		mcpCall(t, endpoint, "tasks/update", map[string]any{
 			"taskId": handle,
 			"inputResponses": map[string]any{key: map[string]any{
@@ -188,16 +267,6 @@ func TestMCPCheckpointFork(t *testing.T) {
 			t.Fatalf("listed checkpoints = %#v", listed)
 		}
 
-		if !checkpointForksSupported {
-			result := mcpCall(t, endpoint, "tools/call", map[string]any{
-				"name":      "fork_session",
-				"arguments": map[string]any{"checkpoint_id": checkpointID},
-			}, false)["result"].(map[string]any)
-			if result["isError"] != true {
-				t.Fatalf("fork_session accepted a process-memory checkpoint: %#v", result)
-			}
-			return
-		}
 		forked := mcpCall(t, endpoint, "tools/call", map[string]any{
 			"name":      "fork_session",
 			"arguments": map[string]any{"checkpoint_id": checkpointID},
@@ -225,7 +294,7 @@ func mcpEndpoint(t *testing.T) string {
 func mcpInvoke(t *testing.T, endpoint, sessionID, message string, tasks bool) map[string]any {
 	t.Helper()
 	response := mcpCall(t, endpoint, "tools/call", map[string]any{
-		"name": "invoke_session",
+		"name": "invoke_agent",
 		"arguments": map[string]any{
 			"session_id": sessionID, "message": message,
 		},

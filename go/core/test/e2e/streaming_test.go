@@ -15,7 +15,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
+	"google.golang.org/adk/v2/tool"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,7 +33,7 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 	} {
 		t.Run(string(format), func(t *testing.T) {
 			t.Parallel()
-			recorder := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func(body []byte) error {
+			recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")), func(body []byte) error {
 				var request struct {
 					Stream bool `json:"stream"`
 				}
@@ -56,7 +56,7 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "non-streaming-", Namespace: "kagent", Labels: harness.labels()},
 				Spec: v1alpha3.AgentTemplateSpec{
-					ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+					ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
 				},
 			}
 			createAndWaitInteractionTemplate(t, harness, kube, template)
@@ -84,7 +84,7 @@ func TestSessionCompletesAfterDisconnect(t *testing.T) {
 		started, release := make(chan struct{}), make(chan struct{})
 		var startedOnce, releaseOnce sync.Once
 		upstream := startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")
-		recorder := startModelRecorder(t, upstream, func([]byte) error {
+		recorder := startModelRecorder(t, mockLLMProxy(t, upstream), func([]byte) error {
 			startedOnce.Do(func() { close(started) })
 			select {
 			case <-release:
@@ -176,9 +176,10 @@ type streamResult struct {
 }
 
 type toolEvent struct {
-	partType string
-	id       string
-	name     string
+	awaitingConfirmation bool
+	partType             string
+	id                   string
+	name                 string
 }
 
 // gRPC can report rejection on the first Recv, after opening the stream succeeds.
@@ -296,7 +297,10 @@ func toolEvents(parts []*a2atype.Part) []toolEvent {
 		}
 		id, _ := data["id"].(string)
 		name, _ := data["name"].(string)
-		events = append(events, toolEvent{partType: partType, id: id, name: name})
+		response, _ := data["response"].(map[string]any)
+		errorText, _ := response["error"].(string)
+		awaitingConfirmation := partType == "function_response" && strings.HasSuffix(errorText, tool.ErrConfirmationRequired.Error())
+		events = append(events, toolEvent{partType: partType, id: id, name: name, awaitingConfirmation: awaitingConfirmation})
 	}
 	return events
 }

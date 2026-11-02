@@ -407,3 +407,20 @@ func TestSendAdmissionReleasesWhenCallEndsBeforeExecution(t *testing.T) {
 		})
 	}
 }
+
+type unavailableExecutor struct {
+	a2asrv.AgentExecutor
+}
+
+func (unavailableExecutor) ReservedTaskID() (a2a.TaskID, error) {
+	return "", errors.New("native session cannot continue; start a new session")
+}
+
+func TestSendAdmissionReportsUnusableSessionBeforeAcceptingInput(t *testing.T) {
+	wrapper := (&Store{}).WrapExecutor(unavailableExecutor{}, "", nil)
+	ctx, call := a2asrv.NewCallContext(t.Context(), nil)
+	_, _, err := wrapper.Before(ctx, call, &a2asrv.Request{Payload: &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser)}})
+	require.ErrorContains(t, err, "start a new session")
+	require.Nil(t, wrapper.admitted)
+	require.Empty(t, wrapper.pending)
+}

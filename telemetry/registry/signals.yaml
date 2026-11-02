@@ -289,13 +289,14 @@ span_refinements:
     note: >
       Named `chat {gen_ai.request.model}`, or `chat` when the request model is
       unknown. A subagent model call goes under the execute_tool span of the tool
-      call that started the subagent. Examples are the Claude `Agent` tool and the
-      Codex `spawnAgent` call. This rule also applies when the tool span is in a
-      later segment. Other model calls go under the invoke_agent span. A subagent
+      call that started the subagent when that parent is known in the segment. Examples are the Claude `Agent` tool and the
+      Codex `spawnAgent` call. For Claude and Codex DATA continuations,
+      parent bookkeeping is local to an execution segment; it is not restored
+      across suspension. Other model
+      calls go under the current invoke_agent span. A subagent
       model call can start outside the time of its parent span. A Codex
       `spawnAgent` call ends when the subagent starts, so the subagent model calls
-      start after that span ends. After a pause, the tool span starts in the later
-      segment, so earlier subagent model calls start before it. A call
+      start after that span ends. A call
       that ended with finish reason `error` has an error status, unless it was
       canceled. One span covers a call and all its automatic retries, and only a
       final failure gives it an error status. A Claude call's token counts add up
@@ -346,10 +347,15 @@ span_refinements:
     note: >
       Named `execute_tool {gen_ai.tool.name}`. The span runs from the tool call to
       its result. A subagent tool goes under the execute_tool span of the tool
-      call that started the subagent. Other tools go under the invoke_agent span.
-      A call open across a pause starts no earlier than the segment its result
-      arrives in. The call belongs to that segment, but a subagent tool stays
-      under its parent tool span.
+      call that started the subagent when that parent is known in the segment. Other tools go under the invoke_agent span.
+      For Claude and Codex DATA continuations, non-gated calls still open at
+      input publication are recorded as unfinished; this indicates a missing
+      final result, not proof of remote failure. An approved deferred attempt
+      is recorded in the resumed segment, excluding approval wait time. Claude
+      includes replay startup; Codex includes the harness MCP caller
+      setup and cleanup. Proven pre-execution failures suppress the span. Denial
+      and supplying a cached result create no execution span. Previous tool
+      parents are not restored across suspension.
     stability: development
     attributes:
       - ref: gen_ai.operation.name

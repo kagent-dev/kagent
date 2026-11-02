@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 // createTestJWT creates a minimal JWT token with the given claims
@@ -132,8 +135,8 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 			}
 
 			principal := session.Principal()
-			if principal.User.ID != tt.wantUserID {
-				t.Errorf("User.ID = %q, want %q", principal.User.ID, tt.wantUserID)
+			if principal.ID != pkgauth.PrincipalID("trusted-proxy:", tt.wantUserID) {
+				t.Errorf("User.ID = %q, want %q", principal.ID, tt.wantUserID)
 			}
 
 			// Verify raw claims are passed through
@@ -165,21 +168,19 @@ func TestProxyAuthenticator_AgentCalls(t *testing.T) {
 		headers     map[string]string
 		queryParams map[string]string
 		wantUserID  string
-		wantAgentID string
 		wantErr     bool
 	}{
 		{
-			name: "agent with SA Bearer token and X-User-Id header uses header identity",
+			name: "agent with SA Bearer token and X-User-Id header ignores header identity",
 			headers: map[string]string{
 				"Authorization": "Bearer " + createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:test-agent"}),
 				"X-Agent-Name":  "kagent/test-agent",
 				"X-User-Id":     "user@example.com",
 			},
-			wantUserID:  "user@example.com",
-			wantAgentID: "kagent/test-agent",
+			wantUserID: "system:serviceaccount:kagent:test-agent",
 		},
 		{
-			name: "agent with SA Bearer token and user_id query param uses query identity",
+			name: "agent with SA Bearer token and user_id query param ignores query identity",
 			headers: map[string]string{
 				"Authorization": "Bearer " + createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:test-agent"}),
 				"X-Agent-Name":  "kagent/test-agent",
@@ -187,8 +188,7 @@ func TestProxyAuthenticator_AgentCalls(t *testing.T) {
 			queryParams: map[string]string{
 				"user_id": "user@example.com",
 			},
-			wantUserID:  "user@example.com",
-			wantAgentID: "kagent/test-agent",
+			wantUserID: "system:serviceaccount:kagent:test-agent",
 		},
 		{
 			name: "agent with no X-User-Id falls back to SA sub claim",
@@ -196,8 +196,7 @@ func TestProxyAuthenticator_AgentCalls(t *testing.T) {
 				"Authorization": "Bearer " + createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:test-agent"}),
 				"X-Agent-Name":  "kagent/test-agent",
 			},
-			wantUserID:  "system:serviceaccount:kagent:test-agent",
-			wantAgentID: "kagent/test-agent",
+			wantUserID: "system:serviceaccount:kagent:test-agent",
 		},
 		// Error cases.
 		{
@@ -250,11 +249,8 @@ func TestProxyAuthenticator_AgentCalls(t *testing.T) {
 			}
 
 			principal := session.Principal()
-			if principal.User.ID != tt.wantUserID {
-				t.Errorf("User.ID = %q, want %q", principal.User.ID, tt.wantUserID)
-			}
-			if principal.Agent.ID != tt.wantAgentID {
-				t.Errorf("Agent.ID = %q, want %q", principal.Agent.ID, tt.wantAgentID)
+			if principal.ID != pkgauth.PrincipalID("trusted-proxy:", tt.wantUserID) {
+				t.Errorf("User.ID = %q, want %q", principal.ID, tt.wantUserID)
 			}
 		})
 	}
@@ -281,7 +277,7 @@ func TestProxyAuthenticator_UpstreamAuth(t *testing.T) {
 	// Create a new request to test UpstreamAuth
 	req, _ := http.NewRequest("GET", "http://example.com", nil)
 
-	err = auth.UpstreamAuth(req, session, session.Principal())
+	err = auth.UpstreamAuth(req, session, "")
 	if err != nil {
 		t.Errorf("UpstreamAuth returned error: %v", err)
 	}
@@ -292,7 +288,34 @@ func TestProxyAuthenticator_UpstreamAuth(t *testing.T) {
 	}
 
 	// Verify X-User-Id is forwarded so downstream A2A runtimes receive the real user identity
-	if got := req.Header.Get("X-User-Id"); got != "user123" {
+	if got := req.Header.Get("X-User-Id"); got != pkgauth.PrincipalID("trusted-proxy:", "user123") {
 		t.Errorf("X-User-Id header = %q, want %q", got, "user123")
+	}
+}
+
+func TestProxyRejectsExpiredAndAmbiguousCredentials(t *testing.T) {
+	provider := authimpl.NewProxyAuthenticator("")
+	expired := createTestJWT(map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Minute).Unix()})
+	_, err := provider.Authenticate(t.Context(), http.Header{"Authorization": {"Bearer " + expired}}, nil)
+	if err == nil {
+		t.Fatal("expired token accepted")
+	}
+	token := createTestJWT(map[string]any{"sub": "alice"})
+	_, err = provider.Authenticate(t.Context(), http.Header{"Authorization": {"Bearer " + token, "Bearer " + token}}, nil)
+	if err == nil {
+		t.Fatal("multiple credentials accepted")
+	}
+}
+
+func TestProxyRejectsMalformedJWTHeaders(t *testing.T) {
+	_, payload, _ := strings.Cut(createTestJWT(map[string]any{"sub": "alice"}), ".")
+	for _, header := range []string{"not-json", `{}`, `{"alg":"unknown"}`} {
+		t.Run(header, func(t *testing.T) {
+			token := base64.RawURLEncoding.EncodeToString([]byte(header)) + "." + payload
+			session, err := authimpl.NewProxyAuthenticator("").Authenticate(t.Context(), http.Header{"Authorization": {"Bearer " + token}}, nil)
+			if err == nil || session != nil {
+				t.Fatal("malformed JWT header accepted")
+			}
+		})
 	}
 }

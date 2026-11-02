@@ -29,10 +29,8 @@ message ADKAgentConfig {
   repeated ADKRemoteAgentConfig remote_agents = 8;
   optional bool stream = 9;
   ADKMemoryConfig memory = 10;
-  ADKNetworkConfig network = 11;
   ADKAgentPlugins agent_plugins = 12;
   ADKContextConfig context_config = 13;
-  optional bool share_tools = 14;
   string session_db_url = 15;
   string skills_directory = 16;
   repeated ADKAgentConfig sub_agents = 17;
@@ -101,6 +99,8 @@ message ADKOpenAI {
     (buf.validate.field).string.in = "responses"
   ];
   ADKTokenExchangeConfig token_exchange = 13;
+  // Sends strict with this value on structured output requests.
+  bool strict_output_schema = 14;
 }
 message ADKTokenExchangeConfig {
   oneof source {
@@ -132,6 +132,8 @@ message ADKAzureOpenAI {
       "responses"
     ]
   }];
+  // Sends strict with this value on structured output requests.
+  bool strict_output_schema = 8;
 }
 message ADKAnthropic {
   string base_url = 1;
@@ -189,6 +191,8 @@ message ADKGemini {
     gte: 1
     lte: 2147483647
   }];
+  // Complete API prefix; custom endpoints do not add an SDK API version.
+  string base_url = 2;
 }
 message ADKBedrock {
   string region = 1;
@@ -234,6 +238,9 @@ message ADKFoundry {
       "anthropic"
     ]
   }];
+  // Sends strict with this value on structured output requests in the openai
+  // format.
+  bool strict_output_schema = 5;
 }
 
 message ADKHTTPConnectionParams {
@@ -272,12 +279,16 @@ message ADKHTTPMCPServerConfig {
   repeated string tools = 2;
   repeated string allowed_headers = 3;
   bool require_approval = 4;
+  // Forward the incoming A2A bearer token as this server's Authorization header.
+  bool token_passthrough = 5;
 }
 message ADKSSEMCPServerConfig {
   ADKSSEConnectionParams params = 1 [(buf.validate.field).required = true];
   repeated string tools = 2;
   repeated string allowed_headers = 3;
   bool require_approval = 4;
+  // Forward the incoming A2A bearer token as this server's Authorization header.
+  bool token_passthrough = 5;
 }
 message ADKStdioMCPServerConfig {
   string command = 1;
@@ -315,9 +326,6 @@ message ADKMemoryConfig {
     lte: 106751
   }];
   ADKEmbeddingConfig embedding = 2;
-}
-message ADKNetworkConfig {
-  repeated string allowed_domains = 1;
 }
 message ADKContextConfig {
   ADKCompressionConfig compaction = 1;
@@ -362,9 +370,9 @@ message ADKPluginBundle {
 message ADKPluginSource {
   oneof source {
     option (buf.validate.oneof).required = true;
-    string oci = 1;
     ADKPluginGitSource git = 2;
     ADKPluginS3Source s3 = 3;
+    string directory = 5;
   }
   string path = 4;
 }
@@ -417,11 +425,10 @@ message ADKRuntimeConfig {
   // Absent selects the runtime default; zero means unlimited.
   optional int64 max_content_length = 8 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 9;
-  string bash_venv_path = 10;
-  bool file_search_tools = 11;
-  TelemetryConfig telemetry = 12 [(buf.validate.field).cel = {
+  TelemetryConfig telemetry = 10 [(buf.validate.field).cel = {
     id: "runtime.telemetry.service_identity"
     message: "runtime telemetry resource_attributes must not override compiled service.name or service.namespace"
     expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
   }];
+  BuiltinToolsConfig builtin_tools = 11;
 }

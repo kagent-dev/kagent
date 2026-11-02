@@ -99,16 +99,14 @@ export function allToolServers(): ToolServerResponse[] {
  * Records a created tool server and answers with the row a list would show.
  *
  * Takes the type and the resource's metadata rather than the whole create request,
- * because that is all the RPC carries that identifies the server — and the two
- * server kinds keep their metadata in the same place.
+ * because that is all the RPC carries that identifies the server.
  */
 export function saveToolServer(
-  type: string,
   metadata: { name?: string; namespace?: string } | undefined,
 ): ToolServerResponse {
   const server: ToolServerResponse = {
     ref: `${metadata?.namespace ?? "kagent"}/${metadata?.name ?? "unnamed"}`,
-    groupKind: type === "RemoteMCPServer" ? "RemoteMCPServer.api.kagent.dev" : "MCPServer.kagent.dev",
+    groupKind: "RemoteMCPServer.api.kagent.dev",
     // Empty until the controller has handshaken with the server, which is the
     // honest state immediately after a create. Claiming otherwise would put tools
     // on screen that nothing has confirmed exist.

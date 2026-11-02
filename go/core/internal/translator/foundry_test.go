@@ -7,7 +7,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -38,7 +39,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 			}
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
-				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "help"},
 			}
 			objects := []any{model, &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: model.Spec.APIKeySecret, Namespace: model.Namespace},
@@ -54,7 +55,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}}}
 				objects = append(objects, child, modelConfig())
 			case "memory":
-				harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: model.Name}}
+				harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ObjectReference{Name: model.Name}}
 				template.Spec.ModelConfig.Name = "default-model"
 				objects = append(objects, modelConfig())
 			case "BYO":
@@ -72,8 +73,8 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}
 				revision, err := compiler(t, append(objects, configMap)...).CompileAgent(t.Context(), inlineAgent(harness, template))
 				require.NoError(t, err)
-				var config adk.Config
-				require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
+				var config configv1.ADKConfig
+				require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
 				runtimeModel := config.Agent.Model
 				if location == "shared agent" {
 					require.Len(t, config.Agent.SubAgents, 1)
@@ -84,12 +85,12 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 					require.NotNil(t, config.Agent.Memory.Embedding)
 					require.Equal(t, endpoint, config.Agent.Memory.Embedding.Endpoint)
 				} else {
-					require.IsType(t, &adk.Model{Provider: &adk.Model_Foundry{Foundry: &adk.Foundry{}}}, runtimeModel)
+					require.IsType(t, &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{}}}, runtimeModel)
 					require.Equal(t, endpoint, runtimeModel.GetFoundry().Endpoint)
 				}
 				require.Contains(t, revision.Environment, corev1.EnvVar{Name: "FOUNDRY_ENDPOINT", Value: endpoint})
 				require.Len(t, revision.Credentials, 1)
-				require.Equal(t, host, revision.Credentials[0].Hostname)
+				require.Equal(t, endpoint+":443", revision.Credentials[0].Origin)
 				require.Equal(t, "api-key", revision.Credentials[0].Header)
 				require.Equal(t, "ate-secret://k8s.io/default/test/foundry-auth/token", revision.Credentials[0].URI)
 				require.Contains(t, revision.EgressDestinations, "https://"+host+":443")

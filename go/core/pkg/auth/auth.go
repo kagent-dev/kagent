@@ -24,19 +24,21 @@ type Resource struct {
 	Name      string
 }
 
-type User struct {
-	ID string
+// RuntimeBinding identifies a verified runtime caller and its immutable Session binding.
+// Caller-supplied agent headers never establish an Actor identity.
+type RuntimeBinding struct {
+	SessionID string
+	// CreatorID selects the Session's data partition, never the caller's authority.
+	CreatorID string
 }
 
-type Agent struct {
-	ID string
-}
-
-// Authn
+// Principal describes the authenticated caller, independently of the request's
+// destination. RuntimeBinding is present only for a verified runtime caller.
 type Principal struct {
-	User   User
-	Agent  Agent
-	Claims map[string]any // Raw JWT claims (nil for non-JWT auth)
+	// ID is an opaque, provider-normalized identity, independent of credentials.
+	ID             string
+	RuntimeBinding *RuntimeBinding
+	Claims         map[string]any // Authenticated provider attributes, such as JWT claims.
 }
 
 type Session interface {
@@ -61,16 +63,19 @@ func (ControlPlaneSession) Principal() Principal { return Principal{} }
 // - Forward auth credentials to upstream agents
 type AuthProvider interface {
 	Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (Session, error)
-	// add auth to upstream requests of a session for upstream service account.
-	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
+	// UpstreamAuth authenticates an authorized upstream request as this caller.
+	// destinationSessionID identifies the target conversation; it is empty for
+	// upstreams without a Session, such as sandbox guest APIs.
+	// For A2A calls, UpstreamMethodFrom(r.Context()) names the outgoing method.
+	UpstreamAuth(r *http.Request, session Session, destinationSessionID string) error
 }
 
 // AccessMode is what a gRPC method requires of its caller.
 //
 // It lives here rather than beside the server because a library consumer
 // registering its own services has to name these, and the server package is
-// internal. AccessPublic skips authentication. AccessRuntime requires the
-// separate workload authenticator; the remaining modes use public identity.
+// internal. AccessPublic permits anonymous calls. AccessRuntime requires a
+// verified actor; other modes accept either identity and authorize in services.
 type AccessMode string
 
 const (
@@ -122,22 +127,31 @@ func AuthSessionTo(ctx context.Context, session Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
 }
 
+type upstreamMethodKeyType struct{}
+
+var upstreamMethodKey = upstreamMethodKeyType{}
+
+// UpstreamMethodFrom returns the outgoing a2a-go method, such as "SendMessage", or false outside an A2A call.
+// A retried streaming send that was already accepted goes out as "SubscribeToTask".
+func UpstreamMethodFrom(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(upstreamMethodKey).(string)
+	return v, ok
+}
+
+// UpstreamMethodTo returns a copy of ctx that names the outgoing a2a-go method.
+func UpstreamMethodTo(ctx context.Context, method string) context.Context {
+	return context.WithValue(ctx, upstreamMethodKey, method)
+}
+
 func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip authentication for the health endpoint used by probes.
-			if r.URL.Path == "/health" {
-				next.ServeHTTP(w, r)
-				return
-			}
 			session, err := authn.Authenticate(r.Context(), r.Header, r.URL.Query())
-			if err != nil {
+			if err != nil || session == nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			if session != nil {
-				r = r.WithContext(AuthSessionTo(r.Context(), session))
-			}
+			r = r.WithContext(AuthSessionTo(r.Context(), session))
 			next.ServeHTTP(w, r)
 		})
 	}

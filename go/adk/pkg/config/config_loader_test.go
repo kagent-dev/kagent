@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-
-	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 func createTempConfigFile(t *testing.T, content string) string {
@@ -314,7 +312,7 @@ func TestAgentConfig_ModelTypes(t *testing.T) {
 			}
 
 			// Check the selected provider.
-			modelType := adk.ModelType(config.Agent.Model)
+			modelType := ModelType(config.Agent.Model)
 
 			if modelType != tt.modelType {
 				t.Errorf("Expected model type = %q, got %v", tt.modelType, modelType)

@@ -3,16 +3,19 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -45,7 +48,7 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
 			stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
 				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
-				Agent:     &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
+				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
 			original := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
 			originalPosition := time.Now().Add(-time.Hour).UTC()
 			apia2a.SetTimelinePosition(original, originalPosition)
@@ -189,26 +192,34 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 		}},
 	} {
 		for _, test := range []struct {
-			name  string
-			ctx   context.Context
-			agent types.NamespacedName
-			want  error
+			name   string
+			ctx    context.Context
+			agent  types.NamespacedName
+			denied bool
+			getErr error
+			want   error
 		}{
 			{name: "unauthenticated", ctx: context.Background(), agent: agent, want: a2atype.ErrUnauthenticated},
 			{name: "missing Agent", ctx: serviceTestContext("visitor"), want: a2atype.ErrInvalidRequest},
-			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, want: a2atype.ErrUnauthorized},
+			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
+			{name: "missing session", ctx: serviceTestContext("visitor"), agent: agent, getErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
 			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent},
-			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, want: a2atype.ErrUnauthorized},
+			{name: "denied share recipient", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
+			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, denied: true, want: a2atype.ErrUnauthorized},
 		} {
 			t.Run(operation.name+"/"+test.name, func(t *testing.T) {
 				stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED,
-					Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
-				sessionStore := &serviceTestStore{getResult: stored}
-				authorizer := &recordingAuthorizer{denied: map[string]bool{id: true}}
+					Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
+				sessionStore := &serviceTestStore{getResult: stored, getErr: test.getErr}
+				authorizer := &recordingAuthorizer{denied: map[string]bool{id: test.denied}}
+				if test.getErr != nil {
+					sessionStore.getResult = nil
+				}
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false)
 				want := test.want
-				if test.name == "read-only share" && operation.verb != auth.VerbGet {
+				_, shared := auth.ShareContextFrom(test.ctx)
+				if shared && operation.verb != auth.VerbGet {
 					want = a2atype.ErrUnauthorized
 				}
 				// No A2A SDK tenant or interceptor is installed for this call.
@@ -222,10 +233,10 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				if want == nil && (tasks.taskReads != 1 || sessionStore.getCreator != "owner") {
 					t.Fatal("shared history was not read through its owner")
 				}
-				if test.name == "unauthenticated" && tasks.taskLookups != 0 {
+				if _, authenticated := auth.AuthSessionFrom(test.ctx); !authenticated && tasks.taskLookups != 0 {
 					t.Fatal("unauthenticated operation looked up a task")
 				}
-				if test.name == "denied caller" && (authorizer.verb != operation.verb || authorizer.resource.Type != "Session" || authorizer.resource.Name != id) {
+				if test.denied && !shared && (authorizer.verb != operation.verb || authorizer.resource.Type != "Session" || authorizer.resource.Name != id) {
 					t.Fatalf("operation used the wrong permission: %+v", authorizer)
 				}
 			})
@@ -246,4 +257,72 @@ func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
 			t.Fatalf("ListTasks(%v) = %v, want invalid Agent before storage", agent, err)
 		}
 	}
+}
+
+func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
+	for _, denySession := range []bool{false, true} {
+		t.Run(fmt.Sprintf("session-denied=%v", denySession), func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
+			policy := &recordingAuthorizer{deniedTypes: map[string]bool{"Agent": true, "Session": denySession}}
+			sessions := NewService(&serviceTestStore{getResult: stored}, policy, serviceTestWorkflow{})
+			ctx := serviceTestContext("alice")
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
+			message.ContextID = id
+			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(ctx, agent, message)
+			if denySession {
+				if !errors.Is(err, a2atype.ErrUnauthorized) {
+					t.Fatalf("error = %v, want Session denial", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if len(policy.resources) != 1 || policy.resources[0] != (auth.Resource{Type: "Session", Name: id}) {
+				t.Fatalf("unexpected authorization: %+v", policy.resources)
+			}
+		})
+	}
+}
+
+func TestScheduledMessageIDPrefixIsReserved(t *testing.T) {
+	id := uuid.NewString()
+	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+	stored := &apiv1.Session{
+		Id: id, ContextId: id, Creator: "alice", State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}},
+	}
+	for _, test := range []struct {
+		name   string
+		ctx    context.Context
+		id     string
+		wantOK bool
+	}{
+		{name: "reserved", ctx: serviceTestContext("alice"), id: scheduling.MessageIDPrefix + uuid.NewString()},
+		{name: "ordinary", ctx: serviceTestContext("alice"), id: "ordinary", wantOK: true},
+		{name: "control plane", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), id: scheduling.MessageIDPrefix + uuid.NewString(), wantOK: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sessions := NewService(&serviceTestStore{getResult: stored}, &recordingAuthorizer{}, serviceTestWorkflow{})
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
+			message.ID, message.ContextID = test.id, id
+			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(test.ctx, agent, message)
+			if test.wantOK {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+			}
+		})
+	}
+}
+
+func TestScheduledMessageIDPrefixCannotStartAConversation(t *testing.T) {
+	store := &serviceTestStore{}
+	sessions := NewService(store, &recordingAuthorizer{}, serviceTestWorkflow{})
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+	message.ID = scheduling.MessageIDPrefix + uuid.NewString()
+	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+	_, err := NewInteractionService(nil, nil, sessions, false).PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
+	require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+	require.Nil(t, store.createInput)
 }

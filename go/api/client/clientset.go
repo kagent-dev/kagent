@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"google.golang.org/grpc"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -32,6 +33,14 @@ func NewAPI(apiURL string, options ...ClientOption) (*APIClientSet, error) {
 		Agent:         newAgentClient(client),
 		Sandbox:       &SandboxClient{client: client},
 	}, nil
+}
+
+// Conn returns the gRPC connection this client set uses, so a caller can call
+// services it has added to the same server, which this package has no client
+// for. Calls on it use the client set's TLS settings and token provider. The
+// client set owns the connection: closing the client set closes it.
+func (c *APIClientSet) Conn() (grpc.ClientConnInterface, error) {
+	return c.client.grpcConnection()
 }
 
 // Close releases transport resources owned by the API client set.

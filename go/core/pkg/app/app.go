@@ -19,9 +19,8 @@ import (
 	"strings"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/jackc/pgx/v5/pgxpool"
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -35,6 +34,7 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	typedauth "k8s.io/client-go/kubernetes/typed/authentication/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -48,13 +48,14 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
-	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -70,6 +71,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -120,6 +122,9 @@ type Options struct {
 	// its own surface here; letting it reclassify core's would turn a config
 	// field into a way to make an authenticated method public.
 	MethodPolicies map[string]auth.AccessMode
+	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
+	// all must be bound. Authenticator must not forward the caller token.
+	EgressPolicyCompilers []egresspolicy.Compiler
 }
 
 // resolve substitutes core's defaults for whichever components the caller left
@@ -151,6 +156,8 @@ func SetupLogger(level string) error {
 // fails. It returns the first error rather than exiting, so a library consumer
 // keeps control of how the process ends.
 func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if input == nil {
 		return fmt.Errorf("controller configuration is required")
 	}
@@ -242,8 +249,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	managerScheme := k8sruntime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(managerScheme))
 	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
-	utilruntime.Must(atev1alpha1.AddToScheme(managerScheme))
-	utilruntime.Must(kmcp.AddToScheme(managerScheme))
+	utilruntime.Must(atev1.AddToScheme(managerScheme))
 	watchNamespaces := cfg.GetKubernetes().GetWatchNamespaces()
 	managerClientOptions := client.Options{}
 	managerCacheOptions := cache.Options{DefaultNamespaces: namespaceCache(watchNamespaces)}
@@ -280,15 +286,22 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	actors, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),
-		CAFile:         cfg.GetSubstrate().GetCaFile(),
-		ClientCertFile: cfg.GetSubstrate().GetClientCertFile(),
-		CallTimeout:    30 * time.Second,
+		EgressPolicies:        store,
+		EgressPolicyCompilers: opts.EgressPolicyCompilers,
+		ControlPlaneURL:       cfg.GetRuntimeDefaults().GetControlPlaneUrl(),
+		AteAPIEndpoint:        cfg.GetSubstrate().GetApiEndpoint(),
+		CAFile:                cfg.GetSubstrate().GetCaFile(),
+		ClientCertFile:        cfg.GetSubstrate().GetClientCertFile(),
+		CallTimeout:           30 * time.Second,
 	})
 	if err != nil {
 		return err
 	}
 	defer actors.Close()
+	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), cfg.GetSubstrate().GetCaFile(), substrate.RuntimeJWTAudience)
+	if err != nil {
+		return fmt.Errorf("configure runtime authentication: %w", err)
+	}
 	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		return err
@@ -313,18 +326,23 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up RemoteMCPServer discovery: %w", err)
 	}
-	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
-	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
-		return fmt.Errorf("set up MCPServer discovery: %w", err)
-	}
 
 	authenticator, authorizer := opts.resolve()
+	if machine := cfg.GetServer().GetAuth().GetServiceAccount(); machine != nil {
+		reviewer, err := typedauth.NewForConfig(kubeConfig)
+		if err != nil {
+			return fmt.Errorf("create service-account verifier: %w", err)
+		}
+		authenticator = authimpl.NewServiceAccountProvider(authenticator, reviewer.TokenReviews(), machine.GetAuthority())
+	}
+	authenticator = runtimeauth.NewProvider(authenticator, actorVerifier, store, cfg.GetSubstrate().GetActorJwtIssuer())
+	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
-	memory := memoryservice.NewService(store)
+	memory := memoryservice.NewService(store, authorizer)
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
@@ -343,7 +361,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
-		cfg.GetSubstrate().GetRouterUrl(),
+		cfg.GetSubstrate(),
 		authenticator,
 	)
 	if err != nil {
@@ -351,14 +369,18 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp())
-	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
+	pushSender := sessionsvc.NewHTTPPushSender(cfg.GetPush().GetSendTimeout().AsDuration(),
 		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
 	pushIssuer := cfg.GetPush().GetIssuer()
 	pushSigner, err := sessionsvc.NewPushJWTSigner(pushPrivateKey, strings.TrimRight(pushIssuer, "/"))
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
-	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, cfg.GetPush().GetRecoveryInterval().AsDuration())); err != nil {
+	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, sessionsvc.PushWorkerConfig{
+		RecoveryInterval: cfg.GetPush().GetRecoveryInterval().AsDuration(),
+		MaxConcurrency:   int(cfg.GetPush().GetMaxConcurrency()),
+		SendTimeout:      cfg.GetPush().GetSendTimeout().AsDuration(),
+	})); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
@@ -371,7 +393,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
-	guests, err := sandboxservice.NewGuestDialer(cfg.GetSubstrate().GetRouterUrl(), authenticator)
+	guests, err := sandboxservice.NewGuestDialer(cfg.GetSubstrate(), authenticator)
 	if err != nil {
 		return err
 	}
@@ -396,7 +418,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := manager.Add(sandboxes); err != nil {
 		return err
 	}
-	mcpHandler, err := mcp.New(sessions, checkpoints, gateway, sandboxes, sandboxTemplates)
+	mcpHandler, err := mcp.New(mcp.Config{
+		Agents: agents, Sessions: sessions, Checkpoints: checkpoints, Gateway: gateway,
+		Sandboxes: sandboxes, SandboxTemplates: sandboxTemplates,
+	})
 	if err != nil {
 		return err
 	}
@@ -421,7 +446,6 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		BindAddress:           cfg.GetServer().GetBindAddress(),
 		Reflection:            cfg.GetServer().GetGrpcReflection(),
 		Authenticator:         authenticator,
-		RuntimeAuthenticator:  &taskstore.Authenticator{},
 		ShareStore:            store,
 		ModelService:          models,
 		ToolService:           tools,
@@ -433,6 +457,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		ScheduledRunService:   schedules,
 		// Author Agents and their reusable configuration through the API.
 		AgentService:           agents,
+		AgentIdentityService:   agentidentity.NewService(actorVerifier, store, manager.GetAPIReader()),
 		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: sandboxTemplates,

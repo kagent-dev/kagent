@@ -209,12 +209,12 @@ test.describe("dark theme: control edges", () => {
     page,
   }) => {
     await page.goto("/mcp/new");
-    await expect(page.getByTestId("mcp-kind")).toBeVisible();
+    await expect(page.getByTestId("mcp-tls")).toBeVisible();
 
     const surfaces = await page.evaluate(() => {
-      const track = document.querySelector('[data-testid="mcp-kind"]');
+      const track = document.querySelector('[data-testid="mcp-tls"]');
       const pill = document.querySelector(
-        '[data-testid="mcp-kind"] .ant-segmented-item-selected',
+        '[data-testid="mcp-tls"] .ant-segmented-item-selected',
       );
       if (!track || !pill) throw new Error("the segmented control is not on the page");
       return {
@@ -243,12 +243,12 @@ test.describe("dark theme: control edges", () => {
 
   test("and both of its labels stay readable", async ({ page }) => {
     await page.goto("/mcp/new");
-    await expect(page.getByTestId("mcp-kind")).toBeVisible();
+    await expect(page.getByTestId("mcp-tls")).toBeVisible();
 
     const ratios = await page.evaluate(() =>
       [
         ...document.querySelectorAll(
-          '[data-testid="mcp-kind"] .ant-segmented-item-label',
+          '[data-testid="mcp-tls"] .ant-segmented-item-label',
         ),
       ].map((label) =>
         (window as unknown as { __contrast: (el: Element) => number }).__contrast(label),

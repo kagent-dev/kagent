@@ -64,7 +64,7 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			var tools, toolParents []string
 			var unreported [2]int64
 			open := map[string]string{}
-			err = ParseJSONL(t.Context(), bytes.NewReader(raw), 1<<20, func(event Event) error {
+			err = parseJSONL(t.Context(), bytes.NewReader(raw), 1<<20, map[string]modelUsage{}, nil, func(event Event) error {
 				switch {
 				case event.Kind == EventModelCall && event.ModelCall.UsageOnly:
 					unreported[0] += event.ModelCall.InputTokens
@@ -627,7 +627,7 @@ func collectCalls(calls *[]runtime.ModelCall) func(Event) error {
 func TestParseFailureFlushesTheOpenCall(t *testing.T) {
 	input := `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_main","model":"claude-opus-5-5","usage":{"input_tokens":7}}}}` + "\n{not json\n"
 	var calls []runtime.ModelCall
-	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, collectCalls(&calls)); err == nil || !strings.Contains(err.Error(), "decode Claude event") {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, collectCalls(&calls)); err == nil || !strings.Contains(err.Error(), "decode Claude event") {
 		t.Fatalf("ParseJSONL() error = %v, want the decode error", err)
 	}
 	if len(calls) != 1 || !calls[0].UsagePartial || calls[0].InputTokens != 7 {
@@ -702,7 +702,7 @@ func TestUnreportedUsageGoesToTheCounters(t *testing.T) {
 			}
 			lines := append(slices.Clone(calls), `{"type":"result","subtype":"success","result":"","modelUsage":`+tc.totals+`}`)
 			var got []usage
-			err := parseJSONL(t.Context(), strings.NewReader(strings.Join(lines, "\n")), 4096, tc.base, func(event Event) error {
+			err := parseJSONL(t.Context(), strings.NewReader(strings.Join(lines, "\n")), 4096, tc.base, nil, func(event Event) error {
 				if c := event.ModelCall; event.Kind == EventModelCall && c.UsageOnly {
 					got = append(got, usage{c.RequestModel, c.InputTokens, c.CacheReadTokens, c.OutputTokens})
 				}

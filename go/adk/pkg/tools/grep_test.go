@@ -18,7 +18,7 @@ import (
 // classifier fails here with the specific case that broke.
 //
 // It is the deliberate mirror of Python's
-// test_classify_walk_entry_covers_each_outcome (kagent-skills, shell.py):
+// test_classify_walk_entry_covers_each_outcome (kagent-tools, shell.py):
 // same cases, same order, same expected outcomes. The two runtimes must sort
 // a tree identically, and reading these two tests side by side is how that
 // stays true. Prefer changing both, or neither.
@@ -139,9 +139,9 @@ func TestGrepContent(t *testing.T) {
 	}
 
 	t.Run("matches within a single file", func(t *testing.T) {
-		result, err := GrepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "hello", false, false)
+		result, err := grepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "hello", false, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.Contains(result, "a.txt:1:hello world") {
 			t.Errorf("expected match with path:line:content, got %q", result)
@@ -149,9 +149,9 @@ func TestGrepContent(t *testing.T) {
 	})
 
 	t.Run("no matches", func(t *testing.T) {
-		result, err := GrepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "nope", false, false)
+		result, err := grepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "nope", false, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if result != "no matches found" {
 			t.Errorf("expected no matches message, got %q", result)
@@ -159,9 +159,9 @@ func TestGrepContent(t *testing.T) {
 	})
 
 	t.Run("ignore case", func(t *testing.T) {
-		result, err := GrepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "foo", false, true)
+		result, err := grepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "foo", false, true)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.Contains(result, "FOO bar") {
 			t.Errorf("expected case-insensitive match, got %q", result)
@@ -169,15 +169,15 @@ func TestGrepContent(t *testing.T) {
 	})
 
 	t.Run("directory requires recursive", func(t *testing.T) {
-		if _, err := GrepContent(context.Background(), tmpDir, "foo", false, false); err == nil {
+		if _, err := grepContent(context.Background(), tmpDir, "foo", false, false); err == nil {
 			t.Fatal("expected error when searching a directory without recursive=true")
 		}
 	})
 
 	t.Run("recursive searches subdirectories", func(t *testing.T) {
-		result, err := GrepContent(context.Background(), tmpDir, "foo", true, true)
+		result, err := grepContent(context.Background(), tmpDir, "foo", true, true)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.Contains(result, "b.txt:1:another foo line") {
 			t.Errorf("expected match from subdirectory, got %q", result)
@@ -185,7 +185,7 @@ func TestGrepContent(t *testing.T) {
 	})
 
 	t.Run("invalid pattern", func(t *testing.T) {
-		if _, err := GrepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "(", false, false); err == nil {
+		if _, err := grepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "(", false, false); err == nil {
 			t.Fatal("expected error for invalid regex pattern")
 		}
 	})
@@ -204,9 +204,9 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Remove(linkPath)
 
-		result, err := GrepContent(context.Background(), tmpDir, "foo", true, true)
+		result, err := grepContent(context.Background(), tmpDir, "foo", true, true)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if strings.Contains(result, "top secret") {
 			t.Errorf("expected symlinked file outside root to be skipped, got %q", result)
@@ -224,9 +224,9 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Remove(linkPath)
 
-		result, err := GrepContent(context.Background(), subDir, "foo via symlink", true, false)
+		result, err := grepContent(context.Background(), subDir, "foo via symlink", true, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		// The match must be reported against the resolved target path
 		// (real_target.txt), not the walked symlink path (file_link.txt):
@@ -271,9 +271,9 @@ func TestGrepContent(t *testing.T) {
 			t.Fatalf("Failed to write test file: %v", err)
 		}
 
-		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
+		result, err := grepContent(context.Background(), walkDir, "foo", true, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.Contains(result, "aaa_first.txt:1:foo one") {
 			t.Errorf("expected match before the symlink, got %q", result)
@@ -299,12 +299,12 @@ func TestGrepContent(t *testing.T) {
 
 		// Pass the unresolved symlink directly, as a caller that doesn't
 		// pre-resolve its path would.
-		result, err := GrepContent(context.Background(), linkRoot, "foo", true, false)
+		result, err := grepContent(context.Background(), linkRoot, "foo", true, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.Contains(result, "match.txt:1:foo inside") {
-			t.Errorf("expected GrepContent to resolve a symlinked root and recurse into it, got %q", result)
+			t.Errorf("expected grepContent to resolve a symlinked root and recurse into it, got %q", result)
 		}
 	})
 
@@ -327,18 +327,18 @@ func TestGrepContent(t *testing.T) {
 		var result string
 		var err error
 		go func() {
-			result, err = GrepContent(context.Background(), fifoDir, "foo", true, false)
+			result, err = grepContent(context.Background(), fifoDir, "foo", true, false)
 			close(done)
 		}()
 
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
-			t.Fatal("GrepContent hung on a FIFO instead of skipping it")
+			t.Fatal("grepContent hung on a FIFO instead of skipping it")
 		}
 
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.Contains(result, "aaa_before.txt:1:foo before") {
 			t.Errorf("expected match before the FIFO, got %q", result)
@@ -359,14 +359,14 @@ func TestGrepContent(t *testing.T) {
 		done := make(chan struct{})
 		var err error
 		go func() {
-			_, err = GrepContent(context.Background(), fifoPath, "foo", false, false)
+			_, err = grepContent(context.Background(), fifoPath, "foo", false, false)
 			close(done)
 		}()
 
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
-			t.Fatal("GrepContent hung opening a FIFO directly instead of erroring")
+			t.Fatal("grepContent hung opening a FIFO directly instead of erroring")
 		}
 
 		if err == nil {
@@ -402,9 +402,9 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Chmod(noPermSub, 0755)
 
-		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
+		result, err := grepContent(context.Background(), walkDir, "foo", true, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v, expected the unreadable subdirectory to be skipped rather than aborting the whole search", err)
+			t.Fatalf("grepContent() error = %v, expected the unreadable subdirectory to be skipped rather than aborting the whole search", err)
 		}
 		if !strings.Contains(result, "match.txt:1:foo readable") {
 			t.Errorf("expected match from the readable sibling directory to survive an unreadable subdirectory elsewhere in the tree, got %q", result)
@@ -431,9 +431,9 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Chmod(noPermSub, 0755)
 
-		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
+		result, err := grepContent(context.Background(), walkDir, "foo", true, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.Contains(result, "no matches found") || !strings.Contains(result, "could not be read") {
 			t.Errorf("expected an annotated no-matches message noting unreadable entries, got %q", result)
@@ -468,9 +468,9 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Chmod(noPermSub, 0755)
 
-		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
+		result, err := grepContent(context.Background(), walkDir, "foo", true, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.Contains(result, "match.txt:1:foo readable") {
 			t.Errorf("expected the real match to still be reported, got %q", result)
@@ -495,7 +495,7 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Chmod(walkDir, 0755)
 
-		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
+		result, err := grepContent(context.Background(), walkDir, "foo", true, false)
 		if err == nil {
 			t.Fatalf("expected an error when the search root itself is unreadable, got a result instead: %q", result)
 		}
@@ -510,9 +510,9 @@ func TestGrepContent(t *testing.T) {
 			t.Fatalf("Failed to write test file: %v", err)
 		}
 
-		result, err := GrepContent(context.Background(), filepath.Join(tmpDir, "long.txt"), "foo", false, false)
+		result, err := grepContent(context.Background(), filepath.Join(tmpDir, "long.txt"), "foo", false, false)
 		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
+			t.Fatalf("grepContent() error = %v", err)
 		}
 		if !strings.HasSuffix(result, "...") {
 			t.Errorf("expected truncated line to end with '...', got %q", result)
@@ -538,7 +538,7 @@ func TestGrepContent(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // already cancelled before the walk starts
 
-		_, err := GrepContent(ctx, walkDir, "foo", true, false)
+		_, err := grepContent(ctx, walkDir, "foo", true, false)
 		if err == nil {
 			t.Fatal("expected a cancelled context to abort the search, got no error")
 		}
@@ -547,10 +547,7 @@ func TestGrepContent(t *testing.T) {
 		}
 	})
 
-	t.Run("a non-recursive search is unaffected by context", func(t *testing.T) {
-		// Single-file reads are bounded by file size, so they intentionally
-		// don't consult ctx -- pinning that so the cancellation check isn't
-		// later "helpfully" moved somewhere it would break normal reads.
+	t.Run("a single-file search honors cancellation", func(t *testing.T) {
 		tmpDir := createTempDir(t)
 		defer os.RemoveAll(tmpDir)
 		if err := os.WriteFile(filepath.Join(tmpDir, "a.txt"), []byte("foo\n"), 0644); err != nil {
@@ -560,12 +557,9 @@ func TestGrepContent(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		result, err := GrepContent(ctx, filepath.Join(tmpDir, "a.txt"), "foo", false, false)
-		if err != nil {
-			t.Fatalf("GrepContent() error = %v", err)
-		}
-		if !strings.Contains(result, "a.txt:1:foo") {
-			t.Errorf("expected the single-file match, got %q", result)
+		_, err := grepContent(ctx, filepath.Join(tmpDir, "a.txt"), "foo", false, false)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected cancellation, got %v", err)
 		}
 	})
 }

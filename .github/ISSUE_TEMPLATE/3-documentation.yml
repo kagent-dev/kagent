@@ -1,8 +1,9 @@
 name: 📚 Documentation Request
 description: Report a documentation bug, missing info, or suggest an improvement
 title: "[DOCS] "
-labels: []
-type: Documentation
+labels:
+  - documentation
+type: Task
 assignees: []
 
 body:

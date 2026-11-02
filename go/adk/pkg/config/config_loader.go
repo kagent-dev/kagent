@@ -8,18 +8,18 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 // LoadAgentConfig loads agent configuration from config.json file
-func LoadAgentConfig(configPath string) (*adk.Config, error) {
+func LoadAgentConfig(configPath string) (*configv1.ADKConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
-	var config adk.Config
-	if err := adk.Unmarshal(data, &config); err != nil {
+	var config configv1.ADKConfig
+	if err := Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
@@ -42,7 +42,7 @@ func LoadAgentCard(cardPath string) (*a2a.AgentCard, error) {
 }
 
 // LoadAgentConfigs loads both config and agent card from the config directory
-func LoadAgentConfigs(configDir string) (*adk.Config, *a2a.AgentCard, error) {
+func LoadAgentConfigs(configDir string) (*configv1.ADKConfig, *a2a.AgentCard, error) {
 	configPath := filepath.Join(configDir, "config.json")
 	cardPath := filepath.Join(configDir, "agent-card.json")
 

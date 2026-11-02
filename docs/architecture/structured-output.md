@@ -81,21 +81,47 @@ is not published or included in errors because it may contain sensitive data.
 Schemas must have an object root. The portable profile supports primitive JSON
 types, nested objects and arrays, `properties`, `required`,
 `additionalProperties`, `items`, `enum`, `const`, `anyOf`, titles and
-descriptions, and non-recursive local references through `$defs`.
+descriptions, non-recursive local references through `$defs`, and type lists
+such as `type: [string, "null"]`. String schemas can also use `pattern`, in RE2
+syntax, and `format`, limited to the formats that both OpenAI and Claude
+document.
 
 External or recursive references, conditional schemas, tuple arrays, and other
 unsupported keywords are rejected during compilation rather than silently
 weakened for a provider. A provider or model can still reject structured output
 at runtime; in that case the Task fails.
 
-The serialized schema is limited to 64 KiB. Conversion to the Go ADK schema is
-also limited to 32 levels and 1,000 expanded schema nodes; these bounds include
-nodes expanded through local `$defs` references. Schemas that exceed any limit
-fail compilation.
+The schema is enforced in two places. The provider may constrain generation,
+and the runtime validates every final answer. Each provider receives the schema
+in the form it accepts. OpenAI, Azure OpenAI, Foundry, Claude, and Bedrock get
+it unchanged. Gemini and Mistral get a copy converted to Google's schema
+format. It keeps `pattern` and the supported formats but drops keywords that
+format lacks, such as `const`. Ollama and SAP AI Core get no schema. The final
+validator checks the canonical schema, so a provider that ignores a keyword
+still cannot complete a Task with a nonconforming answer. The one exception is
+`format`, which JSON Schema 2020-12 treats as an annotation. kagent forwards it
+to the provider and does not check it on the answer.
+
+Compilation also rejects a schema that would fail every request on a known
+provider, so the Agent reports the problem at reconcile time instead of each
+Task failing.
+
+Schemas that exceed fixed size and complexity limits fail compilation.
 
 The semantic resolution code is in
 [`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).
 Runtime validation and A2A conversion are owned by the Go kagent ADK executor.
+
+## Strict mode
+
+`outputSchemaStrict` asks OpenAI, Azure OpenAI, and Foundry to constrain
+generation to the schema. kagent sends `strict` on every request to those
+providers, `false` unless the field is `true`, because the Responses API is
+strict when `strict` is omitted. Other providers never receive it, and the final
+validator applies in both modes.
+
+Strict mode accepts fewer schemas. Compilation applies its rules for every
+provider, so a schema stays valid when its ModelConfig changes provider.
 
 ## References
 

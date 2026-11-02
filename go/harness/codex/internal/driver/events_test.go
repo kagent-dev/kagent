@@ -10,11 +10,13 @@ import (
 )
 
 type recordingSink struct {
-	text     strings.Builder
-	sessions []runtime.SessionStarted
-	calls    []runtime.ToolCall
-	results  []runtime.ToolResult
-	models   []runtime.ModelCall
+	executions []runtime.ToolCall
+	executed   []runtime.ToolResult
+	text       strings.Builder
+	sessions   []runtime.SessionStarted
+	calls      []runtime.ToolCall
+	results    []runtime.ToolResult
+	models     []runtime.ModelCall
 }
 
 func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
@@ -280,4 +282,36 @@ func TestUsageReadsTheTokenBreakdown(t *testing.T) {
 	if len(sink.models) != 1 || sink.models[0].CacheWriteTokens != 3 || sink.models[0].CacheReadTokens != 4 || sink.models[0].ReasoningOutputTokens != 1 {
 		t.Fatalf("model calls = %+v, want cache write 3, cache read 4 and reasoning 1", sink.models)
 	}
+}
+
+func TestFailedTurnCarriesCodexError(t *testing.T) {
+	long := "a" + strings.Repeat("é", 300)
+	for _, tc := range []struct{ name, turnError, wantMessage string }{
+		{name: "error message", turnError: `,"error":{"message":"stream disconnected before completion"}`, wantMessage: "Codex execution failed: stream disconnected before completion"},
+		{name: "long error message", turnError: `,"error":{"message":"` + long + `"}`, wantMessage: "Codex execution failed: a" + strings.Repeat("é", 199) + "…"},
+		{name: "no error", wantMessage: "Codex execution failed"},
+		{name: "empty error message", turnError: `,"error":{"message":"  "}`, wantMessage: "Codex execution failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := `{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"failed"` + tc.turnError + `}}}`
+			var message rpcMessage
+			if err := json.Unmarshal([]byte(raw), &message); err != nil {
+				t.Fatal(err)
+			}
+			outcome, done, err := newEventTranslator("thread", "turn").translate(message, &recordingSink{})
+			if err != nil || !done || outcome.Failure == nil {
+				t.Fatalf("outcome = %#v, done %v, err %v", outcome, done, err)
+			}
+			if outcome.Failure.Message != tc.wantMessage {
+				t.Fatalf("failure message = %q, want %q", outcome.Failure.Message, tc.wantMessage)
+			}
+		})
+	}
+}
+
+func (s *recordingSink) ToolExecutionStarted(call runtime.ToolCall) {
+	s.executions = append(s.executions, call)
+}
+func (s *recordingSink) ToolExecutionFinished(result runtime.ToolResult) {
+	s.executed = append(s.executed, result)
 }

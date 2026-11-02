@@ -135,7 +135,7 @@ func checkpointSummary(value *apiv1.Checkpoint) CheckpointSummary {
 func sessionSummary(session *apiv1.Session) SessionSummary {
 	return SessionSummary{
 		ID:    session.GetId(),
-		Agent: session.GetAgent().GetName(),
+		Agent: session.GetAgent().GetRef().GetName(),
 		State: session.GetState().String(),
 	}
 }

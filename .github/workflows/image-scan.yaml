@@ -36,9 +36,6 @@ jobs:
           - build_target: ui
             image_name: ui
             tag_suffix: ""
-          - build_target: kagent-adk
-            image_name: kagent-adk
-            tag_suffix: ""
           - build_target: golang-adk
             image_name: golang-adk
             tag_suffix: ""
@@ -59,11 +56,11 @@ jobs:
           - 5001:5000
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v2
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
       - name: Set version
         id: vars
         run: echo "version=v0.0.0-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
@@ -84,7 +81,7 @@ jobs:
           make build-${{ matrix.build_target }}
         working-directory: ./
       - name: Image vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_SHOW_SUPPRESSED: 'true'
         with:

@@ -5,8 +5,3 @@ type: application
 version: ${VERSION}
 annotations:
   "org.opencontainers.image.source": "https://github.com/kagent-dev/kagent"
-dependencies:
-  - name: kmcp-crds
-    version: ${KMCP_VERSION}
-    repository: oci://ghcr.io/kagent-dev/kmcp/helm
-    condition: kmcp.enabled

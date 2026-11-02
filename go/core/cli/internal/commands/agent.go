@@ -17,11 +17,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
-	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
@@ -152,8 +150,13 @@ func writeAgentResult(w io.Writer, format clioutput.Format, response proto.Messa
 	return writeAgentsTable(w, []apiv1alpha3.Agent{*template}, false, "")
 }
 
-// runGetAgent gets one Agent or lists Agents through Kubernetes.
-func runGetAgent(ctx context.Context, cfg *AgentGetCfg, out io.Writer) error {
+type agentReadClient interface {
+	ListAgents(context.Context, *apiv1.ListAgentsRequest) (*apiv1.ListAgentsResponse, error)
+	GetAgent(context.Context, *apiv1.GetAgentRequest) (*apiv1.GetAgentResponse, error)
+}
+
+// runGetAgent gets one Agent or lists Agents through the kagent API.
+func runGetAgent(ctx context.Context, options connection.Options, cfg *AgentGetCfg, out io.Writer) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
@@ -162,11 +165,14 @@ func runGetAgent(ctx context.Context, cfg *AgentGetCfg, out io.Writer) error {
 		return err
 	}
 
-	clients, err := commonk8s.NewKagentClientset()
+	session, err := connection.OpenAPI(ctx, options)
 	if err != nil {
 		return err
 	}
-	return getAgents(ctx, clients.ApiV1alpha3().Agents(cfg.Namespace), cfg, format, out)
+	defer func() {
+		err = errors.Join(err, session.Close())
+	}()
+	return getAgents(ctx, session.API.Agent, cfg, format, out)
 }
 
 func validateAgentGetCfg(cfg *AgentGetCfg) error {
@@ -181,34 +187,61 @@ func validateAgentGetCfg(cfg *AgentGetCfg) error {
 
 func getAgents(
 	ctx context.Context,
-	client typedapiv1alpha3.AgentInterface,
+	client agentReadClient,
 	cfg *AgentGetCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
 	if cfg.Name != "" {
-		template, err := client.Get(ctx, cfg.Name, metav1.GetOptions{})
+		response, err := client.GetAgent(ctx, &apiv1.GetAgentRequest{Ref: &apiv1.ResourceReference{Namespace: cfg.Namespace, Name: cfg.Name}})
 		if err != nil {
 			return fmt.Errorf("get Agent %q: %w", cfg.Name, err)
 		}
-		if format == clioutput.FormatJSON {
-			return clioutput.WriteJSON(out, template)
+		item, err := decodeAgent(response.GetAgent())
+		if err != nil {
+			return err
 		}
-		return writeAgentsTable(out, []apiv1alpha3.Agent{*template}, false, "")
+		if format == clioutput.FormatJSON {
+			return clioutput.WriteJSON(out, item)
+		}
+		return writeAgentsTable(out, []apiv1alpha3.Agent{*item}, false, "")
 	}
 
 	pageSize := cfg.PageSize
 	if pageSize == 0 {
 		pageSize = agentMaxPageSize
 	}
-	templates, err := client.List(ctx, metav1.ListOptions{Limit: pageSize, Continue: cfg.PageToken})
+	response, err := client.ListAgents(ctx, &apiv1.ListAgentsRequest{
+		Namespace: cfg.Namespace,
+		Page:      &apiv1.PageRequest{Limit: int32(pageSize), PageToken: cfg.PageToken},
+	})
 	if err != nil {
 		return fmt.Errorf("list Agents: %w", err)
 	}
-	if format == clioutput.FormatJSON {
-		return clioutput.WriteJSON(out, templates)
+	// The Kubernetes list shape keeps JSON output and its continue token as they were.
+	list := &apiv1alpha3.AgentList{ListMeta: metav1.ListMeta{Continue: response.GetPage().GetNextPageToken()}}
+	for _, result := range response.GetAgents() {
+		item, err := decodeAgent(result)
+		if err != nil {
+			return err
+		}
+		list.Items = append(list.Items, *item)
 	}
-	return writeAgentsTable(out, templates.Items, true, templates.Continue)
+	if format == clioutput.FormatJSON {
+		return clioutput.WriteJSON(out, list)
+	}
+	return writeAgentsTable(out, list.Items, true, list.Continue)
+}
+
+func decodeAgent(result *apiv1.Agent) (*apiv1alpha3.Agent, error) {
+	if result == nil {
+		return nil, errors.New("agent operation returned no Agent")
+	}
+	item := &apiv1alpha3.Agent{}
+	if err := structuredobject.ToGo(result.GetResource(), agentKind, item, 0); err != nil {
+		return nil, fmt.Errorf("decode Agent: %w", err)
+	}
+	return item, nil
 }
 
 func writeAgentsTable(w io.Writer, templates []apiv1alpha3.Agent, list bool, nextPageToken string) error {
@@ -264,7 +297,7 @@ func newAgentReadCmd(list bool) *cobra.Command {
 			cfg.Namespace = options.Namespace
 			cfg.OutputFormat = format
 			cfg.Name = name
-			return runGetAgent(cmd.Context(), cfg, cmd.OutOrStdout())
+			return runGetAgent(cmd.Context(), options, cfg, cmd.OutOrStdout())
 		},
 	}
 	if list {

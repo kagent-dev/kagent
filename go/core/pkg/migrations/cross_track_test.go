@@ -176,7 +176,7 @@ func stripSQLComments(s string) string {
 // --- Schema-agnostic SQL ---
 //
 // Migration SQL must not name a schema. The connection selects the schema.
-// See the Database changes section in .claude/skills/kagent-dev/SKILL.md.
+// See the Database changes section in .agents/skills/kagent-dev/SKILL.md.
 
 var schemaQualifiedChecks = []sqlCheck{
 	{"CREATE SCHEMA", regexp.MustCompile(`(?i)\bCREATE\s+SCHEMA\b`)},
@@ -184,7 +184,7 @@ var schemaQualifiedChecks = []sqlCheck{
 	{"search_path", regexp.MustCompile(`(?i)\bsearch_path\b`)},
 	{"SET SCHEMA", regexp.MustCompile(`(?i)\bSET\s+SCHEMA\b`)},
 	{"schema-qualified table", regexp.MustCompile(`(?i)\b(?:CREATE|ALTER|DROP)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?\w+\.\w+`)},
-	{"schema-qualified index target", regexp.MustCompile(`(?i)\bON\s+\w+\.\w+`)},
+	{"schema-qualified index target", regexp.MustCompile(`(?i)\bCREATE\s+(?:UNIQUE\s+)?INDEX\b[^;]*?\bON\s+(?:ONLY\s+)?\w+\.\w+`)},
 	{"schema-qualified reference", regexp.MustCompile(`(?i)\bREFERENCES\s+\w+\.\w+`)},
 }
 
@@ -240,12 +240,15 @@ func TestSchemaViolations(t *testing.T) {
 	}{
 		{"unqualified table", `CREATE TABLE IF NOT EXISTS eval_set (id TEXT);`, nil},
 		{"unqualified index", `CREATE INDEX IF NOT EXISTS i ON eval_set(id);`, nil},
+		{"join condition", `CREATE VIEW live AS SELECT a.id FROM actors a JOIN revisions r ON a.revision = r.id;`, nil},
+		{"index followed by join", `CREATE INDEX i ON actors(id); CREATE VIEW live AS SELECT a.id FROM actors a JOIN revisions r ON a.revision = r.id;`, nil},
 		{"schema in comment", `-- create table myschema.foo here` + "\n" + `CREATE TABLE IF NOT EXISTS foo (id TEXT);`, nil},
 		{"qualified table", `CREATE TABLE myschema.eval_set (id TEXT);`, []string{"schema-qualified table"}},
 		{"create schema", `CREATE SCHEMA IF NOT EXISTS myschema;`, []string{"CREATE SCHEMA"}},
 		{"set search_path", `SET search_path TO myschema;`, []string{"search_path"}},
 		{"set schema", `ALTER TABLE foo SET SCHEMA myschema;`, []string{"SET SCHEMA"}},
 		{"qualified index target", `CREATE INDEX i ON myschema.foo(id);`, []string{"schema-qualified index target"}},
+		{"qualified concurrent index target", `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS i ON ONLY myschema.foo(id);`, []string{"schema-qualified index target"}},
 		{"qualified reference", `ALTER TABLE foo ADD CONSTRAINT fk FOREIGN KEY (b) REFERENCES myschema.bar(id);`, []string{"schema-qualified reference"}},
 	}
 	for _, tt := range tests {

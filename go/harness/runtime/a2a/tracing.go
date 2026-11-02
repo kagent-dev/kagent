@@ -27,18 +27,7 @@ const (
 	errorTypeModel      = "model_error"
 )
 
-// openTools are the calls still running when a segment pauses. The call awaiting
-// approval has not run, so it is held apart and gets no span unless approved.
-type openTools struct {
-	owner spanOwner
-	tools map[string]pendingTool
-	ended *endedTools
-	gated string
-	held  *pendingTool
-}
-
-// endedTools are the ended tools that late subagent spans can still go under. A pause
-// carries them to the next segment, where those spans often arrive.
+// endedTools holds parent contexts for subagent spans arriving later in this segment.
 type endedTools struct {
 	// endedToolSpans holds the span contexts of written tools, by call ID.
 	endedToolSpans map[string]trace.SpanContext
@@ -69,14 +58,11 @@ func (e *endedTools) nest(toolID string, owner spanOwner, write func(under spanO
 	return false
 }
 
-// spanOwner parents a segment's chat and tool spans. It keeps the span, not the
-// request context, so a parked turn does not retain the request.
+// spanOwner parents a segment's chat and tool spans.
 type spanOwner struct {
 	parent         trace.Span
 	tracer         trace.Tracer
-	invocation     *tracing.Invocation
 	conversationID string
-	began          time.Time
 	metrics        genAIMetrics
 }
 
@@ -105,9 +91,6 @@ func (s *executionSink) startToolSpan(event runtime.ToolCall) {
 	// and then its span would never be written.
 	if parent == event.ID {
 		parent = ""
-	}
-	if parent == "" {
-		s.toolCalls++
 	}
 	// The plain MCP tool name groups a tool the same way in all runtimes.
 	s.tools[event.ID] = pendingTool{
@@ -185,8 +168,7 @@ func capturedJSON(value any, limit int, key, truncatedKey attribute.Key) []attri
 
 func newSpanOwner(ctx context.Context, reqCtx *a2asrv.ExecutorContext, metrics genAIMetrics) spanOwner {
 	owner := spanOwner{
-		parent: trace.SpanFromContext(ctx), tracer: tracerOf(ctx), invocation: tracing.InvocationFromContext(ctx),
-		began: time.Now(), metrics: metrics,
+		parent: trace.SpanFromContext(ctx), tracer: tracerOf(ctx), metrics: metrics,
 	}
 	if reqCtx != nil {
 		owner.conversationID = reqCtx.ContextID
@@ -235,40 +217,6 @@ func (tool pendingTool) record(end time.Time, errorType string, result ...attrib
 
 // endOpenTools records calls that never got a result.
 func (s *executionSink) endOpenTools() {
-	(openTools{tools: s.tools, ended: s.ended}).recordUnfinished()
-	clear(s.tools)
-}
-
-// pauseTools moves the open calls out of the sink for a pause.
-func (s *executionSink) pauseTools(request runtime.InputRequest) openTools {
-	open := openTools{owner: s.owner, tools: s.tools, ended: s.ended}
-	if approval, ok := request.(*runtime.ApprovalRequest); ok {
-		open.gated = approval.CallID
-		if tool, ok := open.tools[open.gated]; ok {
-			open.held = &tool
-			delete(open.tools, open.gated)
-		}
-	}
-	s.tools = nil
-	return open
-}
-
-// resume moves the open calls to the resumed segment, where their results arrive. A call
-// starts no earlier than that segment, so its span excludes the pause.
-func (o openTools) resume(owner spanOwner, approved bool) {
-	if approved && o.held != nil {
-		o.tools[o.gated] = *o.held
-	}
-	for id, tool := range o.tools {
-		if tool.start.Before(owner.began) {
-			tool.start = owner.began
-		}
-		tool.owner = owner
-		o.tools[id] = tool
-	}
-}
-
-func (o openTools) recordUnfinished() {
 	end := time.Now()
 	unfinished := func(tool *pendingTool) func(under spanOwner) {
 		return func(under spanOwner) {
@@ -276,8 +224,8 @@ func (o openTools) recordUnfinished() {
 			tool.record(end, errorTypeUnfinished)
 		}
 	}
-	open := make(map[string]*pendingTool, len(o.tools))
-	for id, tool := range o.tools {
+	open := make(map[string]*pendingTool, len(s.tools))
+	for id, tool := range s.tools {
 		open[id] = &tool
 	}
 	// A subagent's open tool goes under its open parent tool, at any depth.
@@ -292,10 +240,11 @@ func (o openTools) recordUnfinished() {
 			continue
 		}
 		// Its parent may have ended already, such as a Codex spawn call.
-		if write := unfinished(tool); !o.ended.nest(tool.parentToolID, tool.owner, write) {
+		if write := unfinished(tool); !s.ended.nest(tool.parentToolID, tool.owner, write) {
 			write(tool.owner)
 		}
 	}
+	clear(s.tools)
 }
 
 func tracerOf(spanCtx context.Context) trace.Tracer {
@@ -320,12 +269,7 @@ func (s *executionSink) ModelCall(event runtime.ModelCall) {
 	if s.nestUnderTool(event.ParentToolID, func(under spanOwner) { under.chat(event) }) {
 		return
 	}
-	owner := s.owner
-	// Usage can arrive after an approval pause; keep the call under the segment it ran in.
-	if s.paused != nil && !event.Start.IsZero() && event.Start.Before(owner.began) {
-		owner = *s.paused
-	}
-	owner.chat(event)
+	s.owner.chat(event)
 }
 
 func (o spanOwner) chat(event runtime.ModelCall) {
@@ -383,3 +327,6 @@ func (o spanOwner) chat(event runtime.ModelCall) {
 	span.End(trace.WithTimestamp(event.End))
 	o.metrics.recordInference(trace.ContextWithSpan(context.Background(), span), event, errorType)
 }
+
+func (s *executionSink) ToolExecutionStarted(event runtime.ToolCall)    { s.startToolSpan(event) }
+func (s *executionSink) ToolExecutionFinished(event runtime.ToolResult) { s.endToolSpan(event) }

@@ -27,7 +27,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -59,7 +58,7 @@ func main() {
 	}
 
 	logger.Info("loaded config",
-		"model_type", adk.ModelType(agentConfig.Agent.Model),
+		"model_type", config.ModelType(agentConfig.Agent.Model),
 		"http_tools", len(agentConfig.Agent.HttpTools),
 		"sse_tools", len(agentConfig.Agent.SseTools),
 		"stream", agentConfig.Agent.GetStream())

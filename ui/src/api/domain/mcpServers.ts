@@ -1,12 +1,10 @@
 /**
  * MCP / tool server domain models.
  *
- * Two kinds share one list endpoint: `RemoteMCPServer` (an external URL the
- * controller connects out to) and `MCPServer` (a stdio server the controller
- * runs as a Deployment).
+ * Kagent agents bind RemoteMCPServer resources that describe HTTP MCP endpoints.
  */
 
-import type { ResourceMetadata, TLSConfig, ValueRef } from "./common";
+import type { ActorJWT, ResourceMetadata, TLSConfig, ValueRef } from "./common";
 import type { SecretMaterial } from "./models";
 
 export type RemoteMCPServerProtocol = "SSE" | "STREAMABLE_HTTP";
@@ -16,6 +14,7 @@ export interface RemoteMCPServerSpec {
   protocol: RemoteMCPServerProtocol;
   url: string;
   headersFrom: ValueRef[];
+  actorJwt?: ActorJWT;
   timeout?: string;
   sseReadTimeout?: string;
   terminateOnClose?: boolean;
@@ -27,34 +26,13 @@ export interface RemoteMCPServer {
   spec: RemoteMCPServerSpec;
 }
 
-export interface MCPServerDeployment {
-  image: string;
-  port: number;
-  cmd?: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
-
-export type TransportType = "stdio";
-
-export interface MCPServerSpec {
-  deployment: MCPServerDeployment;
-  transportType: TransportType;
-  stdioTransport: Record<string, never>;
-}
-
-export interface MCPServer {
-  metadata: ResourceMetadata;
-  spec: MCPServerSpec;
-}
-
 /** A tool the controller discovered by handshaking with the server. */
 export interface DiscoveredTool {
   name: string;
   description: string;
 }
 
-/** One row of `ToolService.ListToolServers`, for either server kind. */
+/** One row of `ToolService.ListToolServers`. */
 export interface ToolServerResponse {
   /** `namespace/name`. */
   ref: string;
@@ -63,12 +41,9 @@ export interface ToolServerResponse {
   discoveredTools: DiscoveredTool[];
 }
 
-export type ToolServer = RemoteMCPServer | MCPServer;
-
 export interface ToolServerCreateRequest {
-  type: "RemoteMCPServer" | "MCPServer";
-  remoteMCPServer?: RemoteMCPServer;
-  mcpServer?: MCPServer;
+  type: "RemoteMCPServer";
+  remoteMCPServer: RemoteMCPServer;
   /** Secrets materialised alongside the server so K8s GC cleans them up on delete. */
   secrets?: SecretMaterial[];
 }

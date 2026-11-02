@@ -1,99 +1,158 @@
 package driver
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-func TestApprovalBrokerAllowsAndDeniesProtectedCalls(t *testing.T) {
-	broker, err := NewApprovalBroker([]string{"production_db"}, 4096)
-	if err != nil {
-		t.Fatal(err)
-	}
+func newTestBroker(t *testing.T) *ApprovalBroker {
+	t.Helper()
+	broker, err := NewApprovalBroker([]string{"protected"}, t.TempDir(), 1<<20)
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = broker.Close() })
+	return broker
+}
 
-	settings, err := broker.SettingsJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := string(settings), `{"permissions":{"ask":["mcp__production_db__*"]}}`; got != want {
-		t.Fatalf("settings = %s, want %s", got, want)
-	}
+func testRecord() deferredRecord {
+	return deferredRecord{Version: 1, TaskID: "task", ContextID: "context", SessionID: "session", RequestID: "request", Phase: "waiting", Tool: DeferredTool{ID: "call", Name: "mcp__protected__write", Input: map[string]any{"value": 7}}}
+}
 
-	client := mcp.NewClient(&mcp.Implementation{Name: "approval-test", Version: "1"}, nil)
-	session, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{
-		Endpoint: broker.URL(), HTTPClient: &http.Client{Transport: &headerTransport{
-			headers: broker.Headers(), base: http.DefaultTransport,
-		}}, DisableStandaloneSSE: true,
-	}, nil)
-	if err != nil {
-		t.Fatal(err)
+func TestDeferredTraceOriginSurvivesRestoreAndAnotherPause(t *testing.T) {
+	b := newTestBroker(t)
+	d := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+	origin := runtime.NewTraceOrigin(trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled}))
+	turn := runtime.Turn{TaskID: "task", ContextID: "context", Origin: origin}
+	for _, id := range []string{"call-1", "call-2"} {
+		_, err := d.parkDeferred(turn, "session", &DeferredTool{ID: id, Name: "mcp__protected__write", Input: map[string]any{"value": 7}})
+		require.NoError(t, err)
+		// A new driver reads the record instead of retaining the pending handle.
+		restored := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+		_, _, pending, err := restored.RestorePending()
+		require.NoError(t, err)
+		require.NotNil(t, pending)
+		turn.Origin = pending.(*deferredTurn).TraceOrigin()
+		require.Equal(t, origin.SpanContext().TraceID(), turn.Origin.SpanContext().TraceID())
+		require.Equal(t, origin.SpanContext().SpanID(), turn.Origin.SpanContext().SpanID())
 	}
-	t.Cleanup(func() { _ = session.Close() })
+}
 
+func postHook(t *testing.T, b *ApprovalBroker, input hookInput) hookOutput {
+	t.Helper()
+	raw, err := json.Marshal(input)
+	require.NoError(t, err)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, strings.TrimSuffix(b.URL(), "/mcp")+"/hook", bytes.NewReader(raw))
+	require.NoError(t, err)
+	for name, value := range b.Headers() {
+		req.Header.Set(name, value)
+	}
+	response, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	var output hookOutput
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&output))
+	return output
+}
+
+func TestApprovalHookDefersAndConsumesSavedDecisionOnce(t *testing.T) {
 	for _, approved := range []bool{true, false} {
-		toolUseID := "call-denied"
-		if approved {
-			toolUseID = "call-approved"
-		}
-		response := make(chan struct {
-			result *mcp.CallToolResult
-			err    error
-		}, 1)
-		go func() {
-			result, callErr := session.CallTool(t.Context(), &mcp.CallToolParams{
-				Name: ApprovalToolName,
-				Arguments: map[string]any{
-					"tool_name": "mcp__production_db__write",
-					"input":     map[string]any{"value": 7}, "tool_use_id": toolUseID,
-				},
-			})
-			response <- struct {
-				result *mcp.CallToolResult
-				err    error
-			}{result: result, err: callErr}
-		}()
-
-		pending := <-broker.Requests()
-		approval := pending.approvalRequest()
-		if approval.CallID == "" || approval.Name != "mcp__production_db__write" || approval.Args["value"] != float64(7) {
-			t.Fatalf("approval request = %#v", approval)
-		}
-		if err := pending.resolve(runtime.ApprovalDecision{ID: approval.ID, Approved: approved, RejectionReason: "operator denied"}); err != nil {
-			t.Fatal(err)
-		}
-		got := <-response
-		if got.err != nil || len(got.result.Content) != 1 {
-			t.Fatalf("permission response = %#v, %v", got.result, got.err)
-		}
-		content, ok := got.result.Content[0].(*mcp.TextContent)
-		if !ok {
-			t.Fatalf("permission response content = %#v", got.result.Content[0])
-		}
-		var output permissionPromptOutput
-		if err := json.Unmarshal([]byte(content.Text), &output); err != nil {
-			t.Fatal(err)
-		}
-		want := "deny"
-		if approved {
-			want = "allow"
-		}
-		if output.Behavior != want {
-			t.Fatalf("permission decision = %q, want %q", output.Behavior, want)
-		}
-		if approved && output.UpdatedInput["value"] != float64(7) {
-			t.Fatalf("updated input = %#v", output.UpdatedInput)
-		}
+		t.Run(map[bool]string{true: "approve", false: "deny"}[approved], func(t *testing.T) {
+			b := newTestBroker(t)
+			input := hookInput{SessionID: "session", Event: "PreToolUse", ToolID: "call", ToolName: "mcp__protected__write", Input: map[string]any{"value": 7}}
+			require.Equal(t, "defer", postHook(t, b, input).Specific.Decision)
+			r := testRecord()
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			require.Equal(t, "defer", postHook(t, b, input).Specific.Decision)
+			r.Phase = "resuming"
+			r.Decision = &runtime.ApprovalDecision{ID: r.RequestID, Approved: approved}
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			output := postHook(t, b, input)
+			want := "deny"
+			if approved {
+				want = "allow"
+			}
+			require.Equal(t, want, output.Specific.Decision)
+			saved, err := loadDeferred(b.directory, 1<<20)
+			require.NoError(t, err)
+			require.Equal(t, "executing", saved.Phase)
+			require.Equal(t, "deny", postHook(t, b, input).Specific.Decision, "duplicate hook must not release the tool twice")
+		})
 	}
+}
+
+func TestApprovalHookAnswersSavedQuestion(t *testing.T) {
+	b := newTestBroker(t)
+	r := testRecord()
+	r.Tool = DeferredTool{ID: "question", Name: "AskUserQuestion", Input: map[string]any{"questions": []any{map[string]any{"question": "Which environment?", "options": []any{map[string]any{"label": "staging"}}, "multiSelect": false}}}}
+	r.Phase = "resuming"
+	r.Answer = &runtime.AskUserResponse{ID: r.RequestID, Answers: [][]string{{"staging"}}}
+	require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+	output := postHook(t, b, hookInput{SessionID: r.SessionID, Event: "PreToolUse", ToolID: r.Tool.ID, ToolName: r.Tool.Name, Input: r.Tool.Input})
+	require.Equal(t, "allow", output.Specific.Decision)
+	require.Equal(t, map[string]any{"Which environment?": "staging"}, output.Specific.UpdatedInput["answers"])
+	require.NotNil(t, output.Specific.UpdatedInput["questions"])
+}
+
+func TestApprovalHookRejectsChangedToolAndCorruptData(t *testing.T) {
+	b := newTestBroker(t)
+	r := testRecord()
+	r.Phase = "resuming"
+	r.Decision = &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}
+	require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+	input := hookInput{SessionID: r.SessionID, Event: "PreToolUse", ToolID: r.Tool.ID, ToolName: r.Tool.Name, Input: map[string]any{"value": 8}}
+	require.Equal(t, "deny", postHook(t, b, input).Specific.Decision)
+	require.NoError(t, os.WriteFile(filepath.Join(b.directory, "claude-pending.json"), []byte(`{"broken":true}`), 0o600))
+	require.Equal(t, "deny", postHook(t, b, input).Specific.Decision)
+	driver := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+	task, contextID, pending, err := driver.RestorePending()
+	require.Error(t, err)
+	require.Empty(t, task)
+	require.Empty(t, contextID)
+	require.Nil(t, pending)
+}
+
+func TestDeferredRecoveryRefusesUnfinishedReplay(t *testing.T) {
+	for _, phase := range []string{"resuming", "executing", "released", "abandoned"} {
+		t.Run(phase, func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			r.Phase = phase
+			r.Decision = &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			driver := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+			task, contextID, pending, err := driver.RestorePending()
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			require.Empty(t, task)
+			require.Empty(t, contextID)
+			require.Nil(t, pending)
+		})
+	}
+}
+
+func TestPermissionHostDeniesWithoutWaiting(t *testing.T) {
+	b := newTestBroker(t)
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	session, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: b.URL(), HTTPClient: &http.Client{Transport: &headerTransport{headers: b.Headers(), base: http.DefaultTransport}}, DisableStandaloneSSE: true}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: ApprovalToolName, Arguments: map[string]any{"tool_name": "mcp__protected__write", "tool_use_id": "call", "input": map[string]any{"value": 7}}})
+	require.NoError(t, err)
+	require.Contains(t, result.Content[0].(*mcp.TextContent).Text, `"behavior":"deny"`)
 }
 
 type headerTransport struct {
@@ -101,281 +160,258 @@ type headerTransport struct {
 	base    http.RoundTripper
 }
 
-func (t *headerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	request = request.Clone(request.Context())
-	for name, value := range t.headers {
-		request.Header.Set(name, value)
+func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	for k, v := range t.headers {
+		r.Header.Set(k, v)
 	}
-	return t.base.RoundTrip(request)
+	return t.base.RoundTrip(r)
 }
 
-func TestProcessDriverParksAndResumesSequentialApprovals(t *testing.T) {
-	dir := t.TempDir()
-	decisionOne := filepath.Join(dir, "decision-1")
-	decisionTwo := filepath.Join(dir, "decision-2")
-	executable := filepath.Join(dir, "claude")
-	script := `#!/bin/sh
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}'
-while [ ! -f "$DECISION_ONE" ]; do sleep 0.01; done
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_2","content":[{"type":"tool_use","id":"call-2","name":"mcp__protected__write","input":{}}]}}'
-while [ ! -f "$DECISION_TWO" ]; do sleep 0.01; done
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_warning","content":[{"type":"text","text":"API Error: Connection lost mid-response. The response above may be incomplete."}]}}' '{"type":"assistant","message":{"id":"msg_continued","content":[{"type":"text","text":"continued"}]}}' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
-`
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 2)}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: dir,
-		Environment:   []string{"DECISION_ONE=" + decisionOne, "DECISION_TWO=" + decisionTwo},
-		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
-		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
-	})
-	requests := []*PendingApprovalRequest{
-		newTestPending("approval-1", "call-1"), newTestPending("approval-2", "call-2"),
-	}
-	for _, pending := range requests {
-		broker.requests <- pending
-	}
-	bridgeDecisionToFile(t, requests[0], decisionOne)
-	bridgeDecisionToFile(t, requests[1], decisionTwo)
+var _ http.RoundTripper = (*headerTransport)(nil)
 
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write twice"}, &recordingSink{})
-	if err != nil || outcome.Pending == nil || outcome.Pending.Request().(*runtime.ApprovalRequest).ID != "approval-1" {
-		t.Fatalf("first Run() = %#v, %v", outcome, err)
-	}
-	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, &recordingSink{})
-	if err != nil || outcome.Pending == nil || outcome.Pending.Request().(*runtime.ApprovalRequest).ID != "approval-2" {
-		t.Fatalf("second Run() = %#v, %v", outcome, err)
-	}
-	resumed := &recordingSink{}
-	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-2", Approved: false}, resumed)
-	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
-		t.Fatalf("final Resume() = %#v, %v", outcome, err)
-	}
-	if resumed.text.String() != "continued" {
-		t.Fatalf("resumed text = %q, want only continued", resumed.text.String())
-	}
+func TestApprovalHookRejectsUnauthenticatedRequest(t *testing.T) {
+	b := newTestBroker(t)
+	body := `{"session_id":"session","hook_event_name":"PreToolUse","tool_use_id":"call","tool_name":"mcp__protected__write","tool_input":{}}`
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, strings.TrimSuffix(b.URL(), "/mcp")+"/hook", strings.NewReader(body))
+	require.NoError(t, err)
+	response, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, response.StatusCode)
 }
 
-// Claude Code 2.1.285 writes an is_error tool_result for a denied call, after the decision.
-func TestResumeMarksTheDeniedResultDeclined(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		approved bool
-		want     runtime.ToolStatus
+func TestDeferredRecordRejectsIncompleteState(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*deferredRecord)
 	}{
-		{name: "denied", want: runtime.ToolDeclined},
-		{name: "approved", approved: true, want: runtime.ToolRan},
+		{name: "missing task ownership", mutate: func(r *deferredRecord) { r.TaskID = "" }},
+		{name: "unknown phase", mutate: func(r *deferredRecord) { r.Phase = "unknown" }},
+		{name: "resume without decision", mutate: func(r *deferredRecord) { r.Phase = "resuming" }},
+		{name: "mismatched decision", mutate: func(r *deferredRecord) {
+			r.Phase = "resuming"
+			r.Decision = &runtime.ApprovalDecision{ID: "different", Approved: true}
+		}},
+		{name: "response on waiting record", mutate: func(r *deferredRecord) { r.Decision = &runtime.ApprovalDecision{ID: r.RequestID, Approved: true} }},
+		{name: "canceling waiting record", mutate: func(r *deferredRecord) { r.Canceling = true }},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			decision := filepath.Join(dir, "decision")
-			executable := filepath.Join(dir, "claude")
-			script := `#!/bin/sh
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"call-1","name":"mcp__tools__write","input":{}}]}}'
-while [ ! -f "$DECISION" ]; do sleep 0.01; done
-printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"operator denied","is_error":true}]}}'
-printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
-`
-			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
-			driver := NewProcessDriver(ProcessConfig{
-				Executable: executable, Workspace: dir, Environment: []string{"DECISION=" + decision},
-				MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
-				ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
-			})
-			pending := newTestPending("approval-1", "call-1")
-			broker.requests <- pending
-			bridgeDecisionToFile(t, pending, decision)
+		t.Run(test.name, func(t *testing.T) { r := testRecord(); test.mutate(&r); require.Error(t, r.validate()) })
+	}
+}
 
-			outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
-			if err != nil || outcome.Pending == nil {
-				t.Fatalf("Run() = %#v, %v", outcome, err)
+func TestDeferredRecordRejectsSymlinkAndTrailingData(t *testing.T) {
+	directory := t.TempDir()
+	r := testRecord()
+	require.NoError(t, saveDeferred(directory, 1<<20, &r))
+	path := filepath.Join(directory, "claude-pending.json")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, append(data, []byte(` {}`)...), 0o600))
+	_, err = loadDeferred(directory, 1<<20)
+	require.Error(t, err)
+	require.NoError(t, os.Remove(path))
+	target := filepath.Join(directory, "target")
+	require.NoError(t, os.WriteFile(target, data, 0o600))
+	require.NoError(t, os.Symlink(target, path))
+	_, err = loadDeferred(directory, 1<<20)
+	require.Error(t, err)
+}
+
+func TestApprovalHookDoesNotReviveResolvedCalls(t *testing.T) {
+	for _, phase := range []string{"complete", "canceled"} {
+		t.Run(phase, func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			r.Phase = phase
+			if phase == "complete" {
+				r.Decision = &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}
+			} else {
+				r.Canceling = true
 			}
-			sink := &recordingSink{}
-			if _, err := outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-1", Approved: tc.approved}, sink); err != nil {
-				t.Fatal(err)
-			}
-			if len(sink.results) != 1 || sink.results[0].Status != tc.want || !sink.results[0].IsError {
-				t.Fatalf("results = %+v, want one %q result that keeps is_error", sink.results, tc.want)
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			output := postHook(t, b, hookInput{SessionID: r.SessionID, Event: "PreToolUse", ToolID: r.Tool.ID, ToolName: r.Tool.Name, Input: r.Tool.Input})
+			require.Equal(t, "deny", output.Specific.Decision)
+			if phase == "canceled" {
+				require.NotNil(t, output.Continue)
+				require.False(t, *output.Continue)
 			}
 		})
 	}
 }
 
-// Claude prints the rest of a message before it blocks on the gated call. Those lines
-// must keep the time they arrived, not the time the parser reads them after the resume.
-func TestModelCallKeepsItsTimesAcrossAnApprovalPause(t *testing.T) {
-	dir := t.TempDir()
-	decision := filepath.Join(dir, "decision")
-	executable := filepath.Join(dir, "claude")
-	script := `#!/bin/sh
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m","usage":{"input_tokens":7}}}}'
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}'
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"call-2","name":"Read","input":{}}]}}'
-printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":3}}}'
-printf '%s\n' '{"type":"stream_event","event":{"type":"message_stop"}}'
-while [ ! -f "$DECISION" ]; do sleep 0.01; done
-printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"ok"},{"type":"tool_result","tool_use_id":"call-2","content":"ok"}]}}'
-printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
-`
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: dir, Environment: []string{"DECISION=" + decision},
-		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
-		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
-	})
-	pending := newTestPending("approval-1", "call-1")
-	broker.requests <- pending
-	bridgeDecisionToFile(t, pending, decision)
-
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
-	if err != nil || outcome.Pending == nil {
-		t.Fatalf("Run() = %#v, %v", outcome, err)
-	}
-	time.Sleep(300 * time.Millisecond)
-	resumed := time.Now()
-	sink := &recordingSink{}
-	if _, err := outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, sink); err != nil {
-		t.Fatal(err)
-	}
-	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) {
-		t.Fatalf("model calls = %+v, want one that ended before the resume at %v", sink.models, resumed)
+func TestApprovalHookPassesOrdinaryToolsAndBlocksCancellation(t *testing.T) {
+	b := newTestBroker(t)
+	input := hookInput{SessionID: "session", Event: "PreToolUse", ToolID: "ordinary", ToolName: "Bash", Input: map[string]any{"command": "true"}}
+	require.Empty(t, postHook(t, b, input).Specific.Decision)
+	r := testRecord()
+	r.Canceling, r.Phase = true, "resuming"
+	require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+	for _, id := range []string{"ordinary", r.Tool.ID} {
+		input.ToolID = id
+		output := postHook(t, b, input)
+		require.Equal(t, "deny", output.Specific.Decision)
+		require.NotNil(t, output.Continue)
+		require.False(t, *output.Continue)
 	}
 }
 
-// Claude Code stops reading a stream that the approval wait holds open, then reports it as a lost
-// connection on resume. The call asked for a tool before the pause, so it is not a failure.
-func TestModelCallCutByAnApprovalPauseIsNotAFailure(t *testing.T) {
-	dir := t.TempDir()
-	decision := filepath.Join(dir, "decision")
-	executable := filepath.Join(dir, "claude")
-	script := `#!/bin/sh
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m","usage":{"input_tokens":7}}}}'
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}'
-while [ ! -f "$DECISION" ]; do sleep 0.01; done
-printf '%s\n' '{"type":"assistant","message":{"id":"err_1","model":"<synthetic>","content":[{"type":"text","text":"API Error: Connection lost mid-response. The response above may be incomplete."}]},"error":"server_error","is_api_error_message":true}'
-printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"ok"}]}}'
-printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
-`
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: dir, Environment: []string{"DECISION=" + decision},
-		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
-		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
-	})
-	pending := newTestPending("approval-1", "call-1")
-	broker.requests <- pending
-	bridgeDecisionToFile(t, pending, decision)
-
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
-	if err != nil || outcome.Pending == nil {
-		t.Fatalf("Run() = %#v, %v", outcome, err)
-	}
-	resumed := time.Now()
-	sink := &recordingSink{}
-	if _, err := outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, sink); err != nil {
-		t.Fatal(err)
-	}
-	if len(sink.models) != 1 {
-		t.Fatalf("model calls = %+v, want one", sink.models)
-	}
-	call := sink.models[0]
-	if call.StopReason != tracing.FinishReasonToolCall || call.ErrorType != "" || !call.UsagePartial || !call.End.Before(resumed) {
-		t.Fatalf("model call = %+v, want a partial tool_call that ended before the resume at %v", call, resumed)
+func TestCancellationFailureHookRequestsStop(t *testing.T) {
+	for _, event := range []string{"PostToolUseFailure", "PostToolUse"} {
+		t.Run(event, func(t *testing.T) { testCancellationPostToolHook(t, event) })
 	}
 }
 
-func TestProcessDriverCancelsParkedApproval(t *testing.T) {
-	dir := t.TempDir()
-	executable := filepath.Join(dir, "claude")
-	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nprintf '%s\\n' '{\"type\":\"assistant\",\"message\":{\"id\":\"msg_1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"call-1\",\"name\":\"mcp__protected__write\",\"input\":{}}]}}'\nwhile :; do :; done\n"
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: dir, MaxEventBytes: 4096, MaxStderrBytes: 1024,
-		InterruptGrace: 50 * time.Millisecond, ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
-	})
-	broker.requests <- newTestPending("approval-1", "call-1")
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
-	if err != nil || outcome.Pending == nil {
-		t.Fatalf("Run() = %#v, %v", outcome, err)
-	}
-	if err := outcome.Pending.Cancel(t.Context(), &recordingSink{}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestProcessDriverCancelsParkedApprovalKeepingBufferedModelCalls(t *testing.T) {
-	dir, executable := writeFakeClaude(t, `#!/bin/sh
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":5}}}}'
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}'
-while [ ! -f "$RELEASE" ]; do sleep 0.01; done
-printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":3}}}'
-touch "$PRINTED"
-exec sleep 30
-`)
-	release, printed := filepath.Join(dir, "release"), filepath.Join(dir, "printed")
-	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: dir, Environment: []string{"RELEASE=" + release, "PRINTED=" + printed},
-		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond,
-		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
-	})
-	broker.requests <- newTestPending("approval-1", "call-1")
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
-	if err != nil || outcome.Pending == nil {
-		t.Fatalf("Run() = %#v, %v", outcome, err)
-	}
-	if err := os.WriteFile(release, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for _, err := os.Stat(printed); err != nil; _, err = os.Stat(printed) {
-		if time.Now().After(deadline) {
-			t.Fatalf("fake Claude never printed its model call: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	sink := &recordingSink{}
-	if err := outcome.Pending.Cancel(t.Context(), sink); err != nil {
-		t.Fatalf("Cancel() error = %v", err)
-	}
-	if len(sink.models) != 1 || sink.models[0].OutputTokens != 3 || sink.models[0].UsagePartial {
-		t.Fatalf("model calls = %#v, want the buffered complete call", sink.models)
-	}
-}
-
-func newTestPending(id, callID string) *PendingApprovalRequest {
-	return &PendingApprovalRequest{
-		request:  runtime.ApprovalRequest{ID: id, CallID: callID, Name: "mcp__protected__write"},
-		input:    map[string]any{},
-		decision: make(chan runtime.ApprovalDecision, 1), done: make(chan struct{}),
-	}
-}
-
-func bridgeDecisionToFile(t *testing.T, pending *PendingApprovalRequest, path string) {
+func testCancellationPostToolHook(t *testing.T, event string) {
 	t.Helper()
-	go func() {
-		<-pending.decision
-		if err := os.WriteFile(path, []byte("decision\n"), 0o600); err != nil {
-			t.Errorf("write decision file: %v", err)
+	b := newTestBroker(t)
+	r := testRecord()
+	r.Canceling, r.Phase = true, "executing"
+	require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+	raw, err := json.Marshal(hookInput{SessionID: r.SessionID, Event: event, ToolID: r.Tool.ID, ToolName: r.Tool.Name})
+	require.NoError(t, err)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, strings.TrimSuffix(b.URL(), "/mcp")+"/failure", bytes.NewReader(raw))
+	require.NoError(t, err)
+	for name, value := range b.Headers() {
+		request.Header.Set(name, value)
+	}
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	var output hookOutput
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&output))
+	require.NotNil(t, output.Continue)
+	require.False(t, *output.Continue)
+}
+
+func TestDeferredLaunchFailureKeepsOriginalInputWaiting(t *testing.T) {
+	b := newTestBroker(t)
+	r := testRecord()
+	require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+	expected, err := loadDeferred(b.directory, 1<<20)
+	require.NoError(t, err)
+	d := NewProcessDriver(ProcessConfig{Executable: filepath.Join(t.TempDir(), "missing-claude"), Workspace: t.TempDir(), ApprovalBroker: b, MaxEventBytes: 1 << 20, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	_, _, pending, err := d.RestorePending()
+	require.NoError(t, err)
+	for range 2 {
+		outcome, err := pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}, &recordingSink{})
+		require.NoError(t, err)
+		require.NotNil(t, outcome.Pending)
+		require.Equal(t, pending.Request(), outcome.Pending.Request())
+		saved, err := loadDeferred(b.directory, 1<<20)
+		require.NoError(t, err)
+		require.Equal(t, expected, saved)
+		// Reconstructing from disk retains the same approval, not uncertainty.
+		_, _, pending, err = d.RestorePending()
+		require.NoError(t, err)
+	}
+	// A failed cancellation launch must also preserve the retryable request.
+	require.Error(t, pending.Cancel(t.Context(), &recordingSink{}))
+	saved, err := loadDeferred(b.directory, 1<<20)
+	require.NoError(t, err)
+	require.Equal(t, expected, saved)
+}
+
+func TestDeferredFailureAbandonsSession(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		name := "resume"
+		if cancel {
+			name = "cancel"
 		}
-	}()
+		t.Run(name, func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			directory := t.TempDir()
+			executable := filepath.Join(directory, "claude")
+			require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 17\n"), 0o700))
+			driver := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: directory, ApprovalBroker: b, MaxEventBytes: 1 << 20, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+			_, _, pending, err := driver.RestorePending()
+			require.NoError(t, err)
+			if cancel {
+				err = pending.Cancel(t.Context(), &recordingSink{})
+			} else {
+				_, err = pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}, &recordingSink{})
+			}
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			saved, err := loadDeferred(b.directory, 1<<20)
+			require.NoError(t, err)
+			require.Equal(t, "abandoned", saved.Phase)
+			restored := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+			taskID, contextID, pending, err := restored.RestorePending()
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			require.Empty(t, taskID)
+			require.Empty(t, contextID)
+			require.Nil(t, pending)
+		})
+	}
+}
+
+func TestDeferredInvalidAnswerAbandonsSessionBeforeReplay(t *testing.T) {
+	for _, answers := range [][][]string{{{}}, {{"PostgreSQL", "MySQL"}}} {
+		t.Run(fmt.Sprint(answers), func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			r.Tool.Name = "AskUserQuestion"
+			r.Tool.Input = map[string]any{"questions": []any{map[string]any{"question": "Which database?", "multiSelect": false}}}
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			d := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20, Executable: "must-not-run"})
+			_, _, pending, err := d.RestorePending()
+			require.NoError(t, err)
+			_, err = pending.Resume(t.Context(), &runtime.AskUserResponse{ID: r.RequestID, Answers: answers}, &recordingSink{})
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			fresh := NewProcessDriver(d.config)
+			_, _, restored, err := fresh.RestorePending()
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			require.Nil(t, restored)
+		})
+	}
+}
+
+func TestApprovalPersistenceErrorsDenyAndLogCause(t *testing.T) {
+	for _, failure := range []string{"read", "write", "hook"} {
+		t.Run(failure, func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			r.Phase, r.Decision = phaseExecuting, &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			if failure == "write" {
+				// Reads through a directory symlink succeed, but private writes
+				// reject it before replacing the journal.
+				link := filepath.Join(t.TempDir(), "journal")
+				require.NoError(t, os.Symlink(b.directory, link))
+				b.directory = link
+			} else {
+				require.NoError(t, os.WriteFile(filepath.Join(b.directory, "claude-pending.json"), []byte("{"), 0o600))
+			}
+			var logs bytes.Buffer
+			logger, err := logging.New(&logs, "error")
+			require.NoError(t, err)
+			ctx := logging.IntoContext(t.Context(), logger)
+			if failure == "hook" {
+				request := httptest.NewRequest(http.MethodPost, "/hook", strings.NewReader(`{"session_id":"session","hook_event_name":"PreToolUse","tool_use_id":"call","tool_name":"mcp__protected__write"}`)).WithContext(ctx)
+				response := httptest.NewRecorder()
+				b.handleHook(response, request)
+				require.Equal(t, http.StatusOK, response.Code)
+				var output hookOutput
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &output))
+				require.Equal(t, "deny", output.Specific.Decision)
+			} else {
+				result, _, err := b.handlePermission(ctx, nil, &permissionPromptInput{ToolName: r.Tool.Name, ToolUseID: r.Tool.ID, Input: r.Tool.Input})
+				require.NoError(t, err)
+				var output permissionPromptOutput
+				require.NoError(t, json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &output))
+				require.Equal(t, "deny", output.Behavior)
+				require.NotContains(t, output.Message, "single tool call")
+			}
+			require.Contains(t, logs.String(), `"error":`)
+			if failure == "write" {
+				require.Contains(t, logs.String(), "persist Claude deferred input")
+			} else {
+				require.Contains(t, logs.String(), "decode Claude deferred input")
+			}
+			require.NotContains(t, logs.String(), b.token)
+		})
+	}
 }

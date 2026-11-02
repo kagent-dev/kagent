@@ -28,6 +28,29 @@ const loadingList: ApiResource<AgentInstance[]> = {
   refresh: async () => {},
 };
 
+const listedConversation = (id: string, agent: string): AgentInstance => ({
+  id,
+  name: "",
+  creator: "reader",
+  agent,
+  state: "ready",
+  operation: "unspecified",
+  createdAt: "",
+  updatedAt: "",
+});
+
+const loadedList: ApiResource<AgentInstance[]> = {
+  ...loadingList,
+  data: [
+    listedConversation("abc123", "default/alpha"),
+    listedConversation("sibling456", "default/alpha"),
+    listedConversation("other789", "default/beta"),
+  ],
+  isLoading: false,
+  isValidating: false,
+  isEmpty: false,
+};
+
 /** The rail as a chat page mounts it before the record lands: an id, and nothing else. */
 function renderLoadingRail() {
   return render(
@@ -76,5 +99,28 @@ describe("the agent rail while the conversation is being read", () => {
     const secondary = lines[lines.length - 1];
     expect(secondary.textContent).toBe("");
     expect(getComputedStyle(secondary).minHeight).toBe("16px");
+  });
+
+  it("uses the listed conversation to keep the agent and sibling chats stable", () => {
+    render(
+      <ThemeProvider theme={themeFor("dark")}>
+        <MemoryRouter initialEntries={["/agents/abc123/chat"]}>
+          <AgentRail instanceRef={{ id: "abc123" }} instances={loadedList} />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("agent-rail-identity")).toHaveTextContent("alpha");
+    expect(screen.getByTestId("agent-nav-agent-conversations")).toHaveAttribute(
+      "href",
+      "/agents/default/alpha",
+    );
+    expect(screen.getByTestId("chat-new-session")).toHaveAttribute(
+      "href",
+      "/agents/default/alpha/new",
+    );
+    expect(screen.getByTestId("chat-session-abc123")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-session-sibling456")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-session-other789")).toBeNull();
   });
 });

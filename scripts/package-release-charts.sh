@@ -23,7 +23,6 @@ mv "$staging/builtin-harness-images.json" "$staging/helm/kagent/files/builtin-ha
 
 # Reuse local chart preparation, keeping generated files and intermediate archives isolated.
 make --no-print-directory -j1 -C "$root" helm-version VERSION="$version" \
-  KMCP_VERSION="${KMCP_VERSION:?KMCP version is required}" \
   HELM_SOURCE_DIR="$staging/helm" HELM_DIST_FOLDER="$staging/dist"
 
 # Expose release artifacts only after every chart has packaged successfully.

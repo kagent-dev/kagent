@@ -107,7 +107,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
     ...(templateSource === "reference" && !templateRef ? ["Choose a template."] : []),
     ...(templateSource === "inline" ? draftProblems(inlineTemplate, { isCreate: false }) : []),
     // The compiler's rule, not the CRD's: only a bring-your-own harness runs without a model.
-    ...(templateSource === "inline" && adapter !== "byo" && !inlineTemplate.modelConfig.trim()
+    ...(templateSource === "inline" && adapter !== "byo" && !inlineTemplate.modelConfig?.name.trim()
       ? ["Choose a model configuration for the inline template."]
       : []),
     ...(!harnessRef ? ["Choose a harness."] : []),
@@ -117,6 +117,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
     setSaving(true);
     setFailure(undefined);
     const agentSpec = {
+      ...(spec?.egressPolicyRefs ? { egressPolicyRefs: spec.egressPolicyRefs } : {}),
       template: templateSource === "reference"
         ? { ref: { name: templateRef! } }
         : { inline: specFromDraft(inlineTemplate, spec?.template.inline) },
@@ -168,7 +169,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
                 setNamespace(value);
                 setTemplateRef(undefined);
                 setHarnessRef(undefined);
-                setTemplateDraft({ ...templateDraft, modelConfig: "", subAgentTools: [] });
+                setTemplateDraft({ ...templateDraft, modelConfig: undefined, subAgentTools: [] });
               }}
               options={(namespaces.data ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
             />

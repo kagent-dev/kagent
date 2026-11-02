@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Input, Typography } from "antd";
+import { Input, Skeleton, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Search } from "lucide-react";
 import {
@@ -45,11 +45,15 @@ export function AgentSwitcher({
   const navigate = useNavigate();
   const namespaces = useNamespaces();
   const namespaceNames = useMemo(
-    () => (namespaces.data ?? []).map((entry) => entry.name),
+    () => namespaces.data?.map((entry) => entry.name),
     [namespaces.data],
   );
 
   const definitions = useAgentsAcrossNamespaces(namespaceNames);
+  /** Either read failing means the list is unknown, not empty. */
+  const readError = namespaces.error ?? definitions.error;
+  /** One loading state while the namespaces or the agents are on their way. */
+  const isReading = namespaces.isLoading || definitions.isLoading;
   const agents = useMemo(() => definitions.data?.agents ?? [], [definitions.data]);
   const [query, setQuery] = useState("");
 
@@ -149,9 +153,9 @@ export function AgentSwitcher({
         css={searchInputStyles(theme)}
       />
 
-      {definitions.error ? (
+      {readError ? (
         <Text data-testid="agent-switcher-error" css={{ fontSize: 12, color: theme.color.danger }}>
-          Could not list agents. {definitions.error.message}
+          Could not list agents. {readError.message}
         </Text>
       ) : null}
 
@@ -265,31 +269,22 @@ export function AgentSwitcher({
         })}
 
         {/*
-          Rows of the same size as the real ones while they are on their way.
+          Rows of the same size and shape as the real ones while they are on their way.
 
           The list rendered nothing at all until the agents arrived, so the panel opened
           at the height of its search field and then jumped to the height of a list —
           under a pointer that was already moving toward where the first row was about
           to be. Standing in for three rows is enough to hold the shape: the panel
           scrolls beyond that anyway, so being wrong about the count costs nothing.
-        */}
-        {definitions.isLoading
-          ? [0, 1, 2].map((row) => (
-              <div
-                key={row}
-                data-testid="agent-switcher-loading"
-                aria-hidden
-                css={{
-                  height: 46,
-                  borderRadius: theme.radius.sm,
-                  background: theme.color.bgElevated,
-                  opacity: 0.6,
-                }}
-              />
-            ))
-          : null}
 
-        {!definitions.isLoading && matches.length === 0 ? (
+          Drawn as skeleton rows rather than as boxes holding height. A box painted in
+          the panel's own colour holds the shape but cannot be seen, so the panel still
+          opened blank and filled a moment later — the same blank beat this is meant to
+          remove, in a quieter form.
+        */}
+        {isReading ? [0, 1, 2].map((row) => <LoadingRow key={row} />) : null}
+
+        {!isReading && !readError && matches.length === 0 ? (
           <Text
             data-testid="agent-switcher-empty"
             css={{ fontSize: 12, color: theme.color.textMuted, padding: theme.space(2) }}
@@ -300,6 +295,70 @@ export function AgentSwitcher({
           </Text>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One agent row, drawn as shimmering boxes while the list is on its way.
+ *
+ * Deliberately built from the same pieces as a real row — the same padding, radius,
+ * badge size and two lines of text — so the list that replaces it lands where the
+ * placeholder was instead of growing under the pointer. antd's skeleton carries the
+ * fill and the animation, so it is visible on either theme's panel and needs no
+ * colour of its own.
+ */
+function LoadingRow() {
+  const theme = useTheme();
+
+  return (
+    <div
+      data-testid="agent-switcher-loading"
+      aria-hidden
+      css={{
+        ...rowStyles(theme, false),
+        /*
+         * The row is a picture of a row, not one: hover and press come with `rowStyles`
+         * and would tint the placeholder under the pointer like something you could
+         * pick, so the pointer never reaches it.
+         */
+        pointerEvents: "none",
+        display: "grid",
+        gridTemplateColumns: "auto minmax(0, 1fr)",
+        gridAutoRows: "min-content",
+        alignItems: "center",
+        columnGap: theme.space(2),
+        // The gap between the two lines. With the bars below it adds up to the height
+        // of the name and its subtitle, which is what sets a real row's height — so the
+        // list does not grow when it lands.
+        rowGap: theme.space(1),
+      }}
+    >
+      <Skeleton.Avatar
+        active
+        shape="square"
+        size={28}
+        styles={{ root: { gridRow: "1 / span 2", display: "flex" } }}
+        style={{ borderRadius: theme.radius.sm }}
+      />
+      {/* Widths differ so the pair reads as a name and its subtitle rather than as a
+          block; both are narrower than the row so no bar reaches the scrollbar.
+
+          `display: flex` on the wrapper is not cosmetic: left as an inline block, each
+          bar sits in a line box whose strut is taller than the bar, and the row comes
+          out six pixels taller than the one it stands in for. */}
+      <Skeleton.Button
+        active
+        size="small"
+        styles={{ root: { display: "flex" } }}
+        style={{ width: "58%", height: 15, borderRadius: 4 }}
+      />
+      <Skeleton.Button
+        active
+        size="small"
+        styles={{ root: { display: "flex" } }}
+        style={{ width: "38%", height: 13, borderRadius: 4 }}
+      />
     </div>
   );
 }

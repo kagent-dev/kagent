@@ -5,7 +5,7 @@ import inspect
 import logging
 import uuid
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
 from a2a.server.agent_execution import AgentExecutor
@@ -58,6 +58,7 @@ from ._bearer_token import bearer_token, extract_bearer_token
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from ._request_identity import public_context_id, request_user_id
+from ._turn_usage import TurnUsage, attach_turn_usage
 from .converters.event_converter import serialize_metadata_value
 from .converters.part_converter import convert_a2a_part_to_genai_part as convert_kagent_a2a_part_to_genai_part
 
@@ -78,6 +79,39 @@ class A2aAgentExecutorConfig(BaseModel):
 class _ExecutionState:
     request_context: RequestContext
     last_usage_metadata: Any = None
+    usage: TurnUsage = field(default_factory=TurnUsage)
+
+
+_EXECUTION_END_STATES = frozenset(
+    {
+        TaskState.TASK_STATE_COMPLETED,
+        TaskState.TASK_STATE_FAILED,
+        TaskState.TASK_STATE_CANCELED,
+        TaskState.TASK_STATE_REJECTED,
+        TaskState.TASK_STATE_INPUT_REQUIRED,
+        TaskState.TASK_STATE_AUTH_REQUIRED,
+    }
+)
+
+
+class _UsageStampingQueue:
+    """Stamps the task usage on every status update ending the execution.
+
+    The upstream executor publishes some of them itself, such as the failure
+    of a runner exception, without running the after-agent interceptor.
+    """
+
+    def __init__(self, queue: EventQueue, usage: TurnUsage) -> None:
+        self._queue = queue
+        self._usage = usage
+
+    async def enqueue_event(self, event: A2AEvent) -> None:
+        if isinstance(event, TaskStatusUpdateEvent) and event.status.state in _EXECUTION_END_STATES:
+            self._usage.stamp(event.metadata)
+        await self._queue.enqueue_event(event)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._queue, name)
 
 
 def _call_state(context: RequestContext) -> dict[str, Any]:
@@ -172,6 +206,10 @@ class A2aAgentExecutor(AgentExecutor):
     ):
         self._runner = runner
         self._kagent_config = config or A2aAgentExecutorConfig()
+        # A cancel request arrives with its own context while the execution it
+        # interrupts may still be running; its canceled status is the task's
+        # final event, so it reports that execution's usage.
+        self._running_usage: dict[str, TurnUsage] = {}
 
     async def _resolve_runner(self) -> Runner:
         if not callable(self._runner):
@@ -183,22 +221,39 @@ class A2aAgentExecutor(AgentExecutor):
         return resolved_runner
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
-        executor = UpstreamA2aAgentExecutor(
-            runner=self._runner,
-            force_new_version=True,
+        if not context.task_id:
+            raise ValueError("A2A cancellation must have a task ID")
+        usage = self._running_usage.get(context.task_id)
+        if usage is None:
+            usage = TurnUsage()
+            usage.seed_from_task(context.current_task)
+        event = TaskStatusUpdateEvent(
+            task_id=context.task_id,
+            context_id=context.context_id,
+            status=TaskStatus(state=TaskState.TASK_STATE_CANCELED, timestamp=now_timestamp()),
         )
-        await executor.cancel(context, event_queue)
+        usage.stamp(event.metadata)
+        await event_queue.enqueue_event(event)
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         if not context.message:
             raise ValueError("A2A request must have a message")
 
         runner: Runner | None = None
+        execution_state = _ExecutionState(request_context=context)
+        # Resumed tasks (HITL cycles, follow-up messages) carry the previously
+        # persisted total, so the usage total stays a task-lifetime sum.
+        execution_state.usage.seed_from_task(context.current_task)
+        event_queue = _UsageStampingQueue(event_queue, execution_state.usage)
+        task_id = context.task_id
+        if task_id:
+            self._running_usage[task_id] = execution_state.usage
         identity_token = public_context_id.set(context.context_id)
         user_token = None
         try:
             context = self._translate_hitl_response(context)
             runner = await self._resolve_runner()
+            attach_turn_usage(runner, execution_state.usage)
 
             run_request = self._convert_request(context, _convert_public_a2a_part_to_genai_part)
             # ADK can synthesize a user ID for native session lookup. Only the
@@ -207,7 +262,6 @@ class A2aAgentExecutor(AgentExecutor):
             user_token = request_user_id.set(caller.user_name if caller else "")
             await self._prepare_session(context, run_request, runner)
 
-            execution_state = _ExecutionState(request_context=context)
             upstream_config = UpstreamA2aAgentExecutorConfig(
                 a2a_part_converter=_convert_public_a2a_part_to_genai_part,
                 request_converter=self._convert_request,
@@ -251,8 +305,14 @@ class A2aAgentExecutor(AgentExecutor):
             public_context_id.reset(identity_token)
             if user_token is not None:
                 request_user_id.reset(user_token)
-            if runner is not None:
-                await self._safe_close_runner(runner)
+            try:
+                if runner is not None:
+                    await self._safe_close_runner(runner)
+            finally:
+                # The request handler holds the final event until cleanup ends,
+                # so a cancel arriving meanwhile still reports this execution.
+                if task_id and self._running_usage.get(task_id) is execution_state.usage:
+                    del self._running_usage[task_id]
 
     def _translate_hitl_response(self, context: RequestContext) -> RequestContext:
         payload = get_hitl_payload(context.message)

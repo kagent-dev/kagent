@@ -82,7 +82,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'server RELEASE-NAME-controller\.NAMESPACE\.svc:8083;'
+          pattern: 'server RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083;'
 
   # ---------------------------------------------------------------------------
   # Static SPA serving

@@ -4,11 +4,27 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
+// ErrSessionAbandoned means a deferred continuation cannot safely be resumed.
+var ErrSessionAbandoned = errors.New("deferred continuation cannot be resumed; start a new session")
+
+// CancellationError reports that a runtime could not reach a safe cancellation
+// boundary. The executor must not acknowledge cancellation as successful.
+type CancellationError struct{ Err error }
+
+func (e *CancellationError) Error() string {
+	return "runtime cancellation cleanup failed: " + e.Err.Error()
+}
+func (e *CancellationError) Unwrap() error { return e.Err }
+
 // Turn is one invocation of an Actor's root conversation.
 type Turn struct {
+	TaskID         string
+	ContextID      string
+	Origin         TraceOrigin
 	Prompt         string
 	ContinuationID string
 	InputResponse  InputResponse
@@ -93,6 +109,14 @@ const (
 	ToolUnfinished ToolStatus = "unfinished"
 )
 
+// ToolExecutionSink observes deferred execution without publishing another A2A tool artifact.
+// Drivers bracket deferred execution attempts; a proven non-execution suppresses the span.
+// Supplying a cached result is not another execution attempt.
+type ToolExecutionSink interface {
+	ToolExecutionStarted(ToolCall)
+	ToolExecutionFinished(ToolResult)
+}
+
 // ModelCall reports one model request. InputTokens includes cached tokens. UsagePartial
 // means the harness never reported final usage, so OutputTokens is a lower bound.
 type ModelCall struct {
@@ -123,10 +147,10 @@ type ModelCall struct {
 	UsageOnly bool
 }
 
-// PendingTurn owns the live native process or session behind an input request.
+// PendingTurn identifies the durable continuation behind an input request.
 // The executor retains this handle while the A2A task is waiting for input and
-// must call either Resume or Cancel. Resume continues the same native turn and
-// may return a new PendingTurn when the runtime asks for more input.
+// must call either Resume or Cancel. Resume continues the task and may return a
+// new PendingTurn when the runtime asks for more input.
 type PendingTurn interface {
 	Request() InputRequest
 	Resume(context.Context, InputResponse, EventSink) (Outcome, error)
@@ -136,7 +160,7 @@ type PendingTurn interface {
 }
 
 // Outcome describes why a runtime operation stopped producing events. Failure
-// ends the turn, Pending transfers its live resources to the caller, and an
+// ends the turn, Pending returns a durable continuation awaiting input, and an
 // empty Outcome is successful completion. Failure and Pending are exclusive.
 type Outcome struct {
 	Failure *Failure
@@ -158,7 +182,7 @@ type ApprovalRequest struct {
 
 func (*ApprovalRequest) isInputRequest() {}
 
-// AskUserRequest asks one or more questions while retaining the native turn.
+// AskUserRequest asks one or more questions before the task can continue.
 type AskUserRequest struct {
 	ID        string
 	Questions []AskUserQuestion

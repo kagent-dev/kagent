@@ -62,9 +62,7 @@ class Storage(storerpc.TaskStoreServiceServicer):
         self.dispatch_ids.append(request.dispatch_id)
         if self.reject_saves:
             await context.abort(grpc.StatusCode.UNAVAILABLE, "storage outage")
-        assert dict(context.invocation_metadata())["x-kagent-insecure-runtime-identity"] == (
-            f"team-a/session-{self.session_id}/actor-uid"
-        )
+        assert dict(context.invocation_metadata())["authorization"] == "Bearer placeholder"
         payload = request.SerializeToString(deterministic=True)
         if key in self.receipts:
             digest, version = self.receipts[key]
@@ -201,8 +199,6 @@ async def runtime(tmp_path: Path):
     session_id = str(uuid4())
     identity = tmp_path / "name"
     identity.write_text("session-" + session_id)
-    (tmp_path / "atespace").write_text("team-a")
-    (tmp_path / "uid").write_text("actor-uid")
     service = Storage(session_id)
     server = grpc.aio.server()
     storerpc.add_TaskStoreServiceServicer_to_server(service, server)

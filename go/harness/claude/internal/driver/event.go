@@ -11,6 +11,7 @@ const (
 	EventCompleted      EventKind = "completed"
 	EventFailed         EventKind = "failed"
 	EventModelCall      EventKind = "model_call"
+	EventDeferred       EventKind = "deferred"
 )
 
 // Event is the Claude stream vocabulary consumed by ProcessDriver. Vendor
@@ -28,8 +29,7 @@ type Event struct {
 	ToolResult   any
 	ToolError    bool
 	Metadata     map[string]any
-	Category     string
 	SafeMessage  string
-	Result       string
+	Deferred     *DeferredTool
 	ModelCall    *runtime.ModelCall
 }

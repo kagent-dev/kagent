@@ -16,6 +16,24 @@ func newAgentTemplateClient(client *baseClient) *AgentTemplateClient {
 	return &AgentTemplateClient{client: client}
 }
 
+func (c *AgentTemplateClient) ListAgentTemplates(ctx context.Context, request *apiv1.ListAgentTemplatesRequest) (*apiv1.ListAgentTemplatesResponse, error) {
+	client, callContext, cancel, err := c.client.agentTemplateCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return client.ListAgentTemplates(callContext, request)
+}
+
+func (c *AgentTemplateClient) GetAgentTemplate(ctx context.Context, request *apiv1.GetAgentTemplateRequest) (*apiv1.GetAgentTemplateResponse, error) {
+	client, callContext, cancel, err := c.client.agentTemplateCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return client.GetAgentTemplate(callContext, request)
+}
+
 func (c *AgentTemplateClient) CreateAgentTemplate(ctx context.Context, request *apiv1.CreateAgentTemplateRequest) (*apiv1.CreateAgentTemplateResponse, error) {
 	client, callContext, cancel, err := c.client.agentTemplateCall(ctx)
 	if err != nil {

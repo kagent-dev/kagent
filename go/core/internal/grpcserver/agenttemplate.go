@@ -30,6 +30,10 @@ func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *a
 	if err != nil {
 		return nil, err
 	}
+	items, next, err := kubecrud.Page(items, int(request.GetPage().GetLimit()), request.GetPage().GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	templates := make([]*apiv1.AgentTemplate, 0, len(items))
 	for _, item := range items {
 		template, err := s.agentTemplate(item)
@@ -38,7 +42,7 @@ func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *a
 		}
 		templates = append(templates, template)
 	}
-	return &apiv1.ListAgentTemplatesResponse{AgentTemplates: templates}, nil
+	return &apiv1.ListAgentTemplatesResponse{AgentTemplates: templates, Page: &apiv1.PageResponse{NextPageToken: next}}, nil
 }
 
 func (s *agentTemplateServer) GetAgentTemplate(ctx context.Context, request *apiv1.GetAgentTemplateRequest) (*apiv1.GetAgentTemplateResponse, error) {
@@ -117,12 +121,11 @@ func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*
 	}
 	var modelConfigRef *apiv1.ResourceReference
 	if template.Spec.ModelConfig != nil {
-		modelConfigRef = &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}
+		key := template.Spec.ModelConfig.NamespacedName(template.Namespace)
+		modelConfigRef = &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}
 	}
 	return &apiv1.AgentTemplate{
-		Ref: &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
-		// The model config lives in the template's own namespace: the CRD's
-		// reference is name-only and same-namespace by construction.
+		Ref:            &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
 		ModelConfigRef: modelConfigRef,
 		Resource:       resource,
 		Description:    template.Spec.Description,
