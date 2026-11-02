@@ -39,20 +39,21 @@ tests:
           path: data["config.yaml"]
           pattern: 'enableIpv6: true'
 
+  # Each pattern is bounded to one route, so a match cannot run on into the next route.
   - it: routes API paths to the controller and everything else to the UI server
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'exact: "/\.well-known/jwks\.json"(\n.*)*?\n  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083'
+          pattern: '- name: jwks-0\n(?:  .*\n)*?      exact: "/\.well-known/jwks\.json"\n(?:  .*\n)*?  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083\n'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'pathPrefix: "/a2a/"(\n.*)*?\n  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083'
+          pattern: '- name: a2a-0\n(?:  .*\n)*?      pathPrefix: "/a2a/"\n(?:  .*\n)*?  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083\n'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'exact: "/mcp"(\n.*)*?\n  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083'
+          pattern: '- name: mcp-0\n(?:  .*\n)*?      exact: "/mcp"\n(?:  .*\n)*?  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083\n'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'pathPrefix: "/api/"(\n.*)*?\n  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083'
+          pattern: '- name: api-0\n(?:  .*\n)*?      pathPrefix: "/api/"\n(?:  .*\n)*?  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083\n'
       - matchRegex:
           path: data["config.yaml"]
           pattern: '- name: ui\n  gateways: ui\n  backends:\n  - host: 127\.0\.0\.1:8081\n?$'
@@ -62,19 +63,43 @@ tests:
       # Keeps the client's host name instead of agentgateway's default, the backend's.
       - matchRegex:
           path: data["config.yaml"]
-          pattern: '(?s)(urlRewrite:\n      authority:\n        port: 8083\n.*){4}'
+          pattern: '- name: jwks-0\n(?:  .*\n)*?    urlRewrite:\n      authority:\n        port: 8083\n'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'X-Forwarded-Proto: http'
+          pattern: '- name: a2a-0\n(?:  .*\n)*?    urlRewrite:\n      authority:\n        port: 8083\n'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'X-Forwarded-Host: localhost'
+          pattern: '- name: mcp-0\n(?:  .*\n)*?    urlRewrite:\n      authority:\n        port: 8083\n'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'Origin: "\\"http://\\" \+ request\.host'
+          pattern: '- name: api-0\n(?:  .*\n)*?    urlRewrite:\n      authority:\n        port: 8083\n'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'X-Real-IP: source\.address'
+          pattern: '- name: a2a-0\n(?:  .*\n)*?        X-Forwarded-Proto: http\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: mcp-0\n(?:  .*\n)*?        X-Forwarded-Proto: http\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: api-0\n(?:  .*\n)*?        X-Forwarded-Proto: http\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: api-0\n(?:  .*\n)*?        X-Forwarded-Host: localhost\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: api-0\n(?:  .*\n)*?          X-Real-IP: source\.address\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: api-0\n(?:  .*\n)*?          X-Forwarded-For: '
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: a2a-0\n(?:  .*\n)*?          X-Forwarded-Host: "request\.host'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: a2a-0\n(?:  .*\n)*?          Origin: "\\"http://\\" \+ request\.host'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: a2a-0\n(?:  .*\n)*?          X-Forwarded-For: '
 
   # The ConfigMap is a security boundary: a client must not reach the controller
   # with an identity header an auth proxy would otherwise have set.
@@ -82,14 +107,16 @@ tests:
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'remove:\n        - x-auth-request-user\n        - x-auth-request-email\n        - x-auth-request-groups\n        - x-auth-request-preferred-username\n        - x-auth-request-access-token\n        - x-auth-request-redirect\n        - x-forwarded-user\n        - x-forwarded-email\n        - x-forwarded-groups\n        - x-forwarded-preferred-username\n    transformations'
-      # One list per proxied route: a2a, mcp and api.
+          pattern: '- name: a2a-0\n(?:  .*\n)*?      remove:\n        - x-auth-request-user\n        - x-auth-request-email\n        - x-auth-request-groups\n        - x-auth-request-preferred-username\n        - x-auth-request-access-token\n        - x-auth-request-redirect\n        - x-forwarded-user\n        - x-forwarded-email\n        - x-forwarded-groups\n        - x-forwarded-preferred-username\n    '
       - matchRegex:
           path: data["config.yaml"]
-          pattern: '(?s)(remove:.*){3}'
+          pattern: '- name: mcp-0\n(?:  .*\n)*?      remove:\n        - x-auth-request-user\n        - x-auth-request-email\n        - x-auth-request-groups\n        - x-auth-request-preferred-username\n        - x-auth-request-access-token\n        - x-auth-request-redirect\n        - x-forwarded-user\n        - x-forwarded-email\n        - x-forwarded-groups\n        - x-forwarded-preferred-username\n    '
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: api-0\n(?:  .*\n)*?      remove:\n        - x-auth-request-user\n        - x-auth-request-email\n        - x-auth-request-groups\n        - x-auth-request-preferred-username\n        - x-auth-request-access-token\n        - x-auth-request-redirect\n        - x-forwarded-user\n        - x-forwarded-email\n        - x-forwarded-groups\n        - x-forwarded-preferred-username\n    '
       - notMatchRegex:
           path: data["config.yaml"]
-          pattern: '(?s)(remove:.*){4}'
+          pattern: '- name: jwks-0\n(?:  .*\n)*?      remove:'
       - notMatchRegex:
           path: data["config.yaml"]
           pattern: '- x-agent-name|- x-user-id'
@@ -112,13 +139,25 @@ tests:
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: '- x-forwarded-preferred-username\n        - x-agent-name\n        - x-user-id\n'
+          pattern: '- name: a2a-0\n(?:  .*\n)*?        - x-forwarded-preferred-username\n        - x-agent-name\n        - x-user-id\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: mcp-0\n(?:  .*\n)*?        - x-forwarded-preferred-username\n        - x-agent-name\n        - x-user-id\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: api-0\n(?:  .*\n)*?        - x-forwarded-preferred-username\n        - x-agent-name\n        - x-user-id\n'
 
   - it: maps the nginx timeouts and body limit by default
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'timeout:\n      requestTimeout: 1800s\n      responseIdleTimeout: 1800s\n    buffer:\n      request:\n        maxBytes: 20971520\n        failureMode: failClosed'
+          pattern: '- name: a2a-0\n(?:  .*\n)*?    timeout:\n      requestTimeout: 1800s\n      responseIdleTimeout: 1800s\n    buffer:\n      request:\n        maxBytes: 20971520\n        failureMode: failClosed\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: mcp-0\n(?:  .*\n)*?    timeout:\n      requestTimeout: 1800s\n      responseIdleTimeout: 1800s\n    buffer:\n      request:\n        maxBytes: 20971520\n        failureMode: failClosed\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: api-0\n(?:  .*\n)*?    timeout:\n      requestTimeout: 1800s\n      responseIdleTimeout: 1800s\n    buffer:\n      request:\n        maxBytes: 20971520\n        failureMode: failClosed\n'
 
   - it: reads nginx sizes and bare-second times
     set:
