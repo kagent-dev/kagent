@@ -75,8 +75,7 @@ func genAIPartConverter(ctx context.Context, event *adksession.Event, part *gena
 	return converted, nil
 }
 
-// addToolImages puts the images an MCP tool call returned into its converted
-// function response, in place of the note the session keeps.
+// addToolImages replaces the session's image note with the call's images.
 func addToolImages(ctx context.Context, converted *a2atype.Part, call mcp.ToolCallKey) {
 	images := mcp.TakeToolImages(ctx, call)
 	response, ok := asDataPart(converted)[PartKeyResponse].(map[string]any)
@@ -90,8 +89,7 @@ func addToolImages(ctx context.Context, converted *a2atype.Part, call mcp.ToolCa
 	response[mcp.ToolResultImagesKey] = list
 }
 
-// storedToolImageBytes returns the bytes the tool images already in task count
-// toward its image cap.
+// storedToolImageBytes returns the bytes the task's stored images count toward its cap.
 func storedToolImageBytes(task *a2atype.Task) int {
 	if task == nil {
 		return 0

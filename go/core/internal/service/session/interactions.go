@@ -135,7 +135,6 @@ func (s *InteractionService) ListTasks(ctx context.Context, agent types.Namespac
 		tasks[i] = shapeTask(task, req.HistoryLength, req.IncludeArtifacts)
 	}
 	response := &a2atype.ListTasksResponse{Tasks: tasks, TotalSize: total, PageSize: pageSize}
-	// A page ends early when its tasks would go over the message size limit.
 	if fit := apia2a.TasksWithinSize(tasks, apia2a.MaxTaskPageBytes); fit < len(tasks) {
 		response.Tasks = tasks[:fit]
 		more = true

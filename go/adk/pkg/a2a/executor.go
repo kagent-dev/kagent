@@ -264,8 +264,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		sessionID := reqCtx.ContextID
 
 		ctx = context.WithValue(ctx, publicContextIDKey{}, reqCtx.ContextID)
-		// MCP tool images wait here for their function responses to be converted,
-		// and count toward the task's cap with those earlier executions added.
+		// Holds MCP tool images until their responses are converted.
 		ctx = mcp.WithToolImages(ctx, storedToolImageBytes(reqCtx.StoredTask))
 		ctx = withBearerToken(ctx)
 		// The synthetic ADK user ID is only a native session lookup key. Memory

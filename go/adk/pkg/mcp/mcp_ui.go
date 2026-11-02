@@ -33,8 +33,7 @@ const (
 	mcpUIExtensionName = "io.modelcontextprotocol/ui"
 	// mcpAppHTMLMimeType is the only UI content type defined by the MCP Apps MVP.
 	mcpAppHTMLMimeType = "text/html;profile=mcp-app"
-	// mcpClientVersion is the implementation version kagent's MCP clients
-	// report. The kagent build version is internal to go/core.
+	// mcpClientVersion is the version kagent's MCP clients report.
 	mcpClientVersion = "1.0.0"
 )
 
