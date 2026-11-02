@@ -5,6 +5,7 @@ package taskstore
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"strings"
 	"time"
@@ -23,15 +24,28 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
+const (
+	// retryBudget bounds one operation's attempts and waits together. A
+	// controller restart reaches the runtime as immediate Unavailable from the
+	// egress proxy over a connection that stays READY, so WaitForReady never
+	// holds the call and an attempt count runs out in under a second. Two
+	// minutes keeps the allowance of the former four 30-second attempts.
+	retryBudget = 2 * time.Minute
+	// The wait before a retry doubles from firstRetryDelay up to maxRetryDelay.
+	firstRetryDelay = 100 * time.Millisecond
+	maxRetryDelay   = time.Second
+)
+
 type Store struct {
 	client       *controllerclient.Client
 	identityPath string
+	budget       time.Duration
 }
 
 var _ sdktaskstore.Store = (*Store)(nil)
 
 func New(client *controllerclient.Client, identityPath string) *Store {
-	return &Store{client: client, identityPath: identityPath}
+	return &Store{client: client, identityPath: identityPath, budget: retryBudget}
 }
 
 func (s *Store) sessionID() (string, error) {
@@ -170,29 +184,59 @@ func (s *Store) List(ctx context.Context, request *a2a.ListTasksRequest) (*a2a.L
 	return pbconv.FromProtoListTasksResponse(response.Result)
 }
 
-// retry retains the same immutable mutation after a lost response. It never
-// retries conflicts, advances a version locally, or invokes the agent again.
+// retry repeats a call that fails with Unavailable or DeadlineExceeded until it
+// succeeds, fails otherwise, or the store's retry budget ends. Each attempt has
+// the client's call timeout within what remains of the budget. It retains the
+// same immutable mutation after a lost response, so a replay returns the
+// committed version. It never retries conflicts, advances a version locally,
+// or invokes the agent again.
 func (s *Store) retry(ctx context.Context, call func(context.Context) error) error {
-	for attempt := range 4 {
-		rpcCtx, cancel := s.callContext(ctx)
+	operation, cancel := context.WithTimeout(ctx, s.budget)
+	defer cancel()
+	deadline, _ := operation.Deadline()
+	// A context reports its deadline only once its timer has fired, which can
+	// lag under load, so the clock decides when the budget has passed.
+	open := func() bool { return operation.Err() == nil && time.Now().Before(deadline) }
+	delay := firstRetryDelay
+	var last error
+	for attempt := 1; ; attempt++ {
+		rpcCtx, cancelRPC := s.callContext(operation)
 		err := call(rpcCtx)
-		cancel()
-		if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
+		cancelRPC()
+		if code := status.Code(err); code != codes.Unavailable && code != codes.DeadlineExceeded {
 			return err
 		}
-		if attempt == 3 {
-			logging.FromContext(ctx).ErrorContext(ctx, "taskstore retries exhausted", "attempts", attempt+1, "error", err)
-			return err
+		// An attempt cut short by the budget only says that time ran out. Keep
+		// the error before it, which names the cause.
+		if last == nil || open() {
+			last = err
 		}
-		timer := time.NewTimer(time.Duration(1<<attempt) * 100 * time.Millisecond)
+		timer := time.NewTimer(jitter(delay))
 		select {
-		case <-ctx.Done():
+		case <-operation.Done():
 			timer.Stop()
-			return ctx.Err()
 		case <-timer.C:
 		}
+		if open() {
+			delay = min(2*delay, maxRetryDelay)
+			continue
+		}
+		// A caller that cancelled or ran out of time has not exhausted retries.
+		if callerErr := ctx.Err(); callerErr != nil {
+			return callerErr
+		}
+		if callerDeadline, ok := ctx.Deadline(); ok && !callerDeadline.After(deadline) {
+			return context.DeadlineExceeded
+		}
+		logging.FromContext(ctx).ErrorContext(ctx, "taskstore retries exhausted", "attempts", attempt, "error", last)
+		return last
 	}
-	panic("unreachable")
+}
+
+// jitter waits between half and all of delay, so runtimes that lost the
+// controller together do not retry in step when it returns.
+func jitter(delay time.Duration) time.Duration {
+	return delay/2 + rand.N(delay/2+1)
 }
 
 func fromStored(stored *runtimev1.StoredTask) (*sdktaskstore.StoredTask, error) {

@@ -15,6 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
@@ -31,7 +33,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-// A save made while the controller restarts must wait for it on the same
+// A save made while the controller restarts must keep trying on the same
 // client, replay the same request, and land once the controller serves again.
 func TestRuntimeTaskStoreSaveOutlastsAControllerRestart(t *testing.T) {
 	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
@@ -40,10 +42,25 @@ func TestRuntimeTaskStoreSaveOutlastsAControllerRestart(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(db.Close)
 	store := database.NewClient(db, "public")
-	session := createTaskStoreSession(t, store)
 	issuer := jwttest.New(t)
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
+
+	// A runtime dialing the controller itself loses its connection, so
+	// WaitForReady holds each call until the controller listens again.
+	t.Run("direct", func(t *testing.T) {
+		saveThroughControllerRestart(t, store, issuer, verifier, false)
+	})
+	// A deployed runtime reaches the controller through the egress proxy. Its
+	// connection to the proxy stays READY, and every attempt fails at once with
+	// Unavailable, so only the retry budget can wait for the controller.
+	t.Run("through a reachable proxy", func(t *testing.T) {
+		saveThroughControllerRestart(t, store, issuer, verifier, true)
+	})
+}
+
+func saveThroughControllerRestart(t *testing.T, store *database.Client, issuer *jwttest.Issuer, verifier *substrate.ActorJWTVerifier, viaProxy bool) {
+	session := createTaskStoreSession(t, store)
 	runtimeToken := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(session.Id), "actor-uid"))
 
 	// Stopping closes the listener, so every dial is refused until the next start.
@@ -67,12 +84,16 @@ func TestRuntimeTaskStoreSaveOutlastsAControllerRestart(t *testing.T) {
 	}
 	stopController := startController()
 	t.Cleanup(func() { stopController() })
+	dial := func(ctx context.Context, _ string) (net.Conn, error) { return listener.Load().DialContext(ctx) }
+	if viaProxy {
+		dial = startTaskStoreProxy(t, dial)
+	}
 
 	var mu sync.Mutex
 	var updates []proto.Message
 	controller, err := controllerclient.New(controllerclient.Config{
 		APIURL: "http://api.test", DialOptions: []grpc.DialOption{
-			grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.Load().DialContext(ctx) }),
+			grpc.WithContextDialer(dial),
 			grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 				if method == runtimev1.TaskStoreService_UpdateTask_FullMethodName {
 					mu.Lock()
@@ -114,7 +135,7 @@ func TestRuntimeTaskStoreSaveOutlastsAControllerRestart(t *testing.T) {
 		})
 		saved <- result{version, err}
 	}()
-	// The previous client gave up after four attempts, in under a second.
+	// Four attempts, the client's former limit, end in under a second.
 	require.Never(t, func() bool { return len(saved) > 0 }, 2*time.Second, 20*time.Millisecond,
 		"the save must stay pending while the controller is down")
 	stopController = startController()
@@ -138,4 +159,59 @@ func TestRuntimeTaskStoreSaveOutlastsAControllerRestart(t *testing.T) {
 	for _, request := range updates[1:] {
 		require.True(t, proto.Equal(updates[0], request), "every attempt must replay the same save")
 	}
+}
+
+// startTaskStoreProxy stands in for the egress proxy. It accepts the runtime's
+// connection whatever the controller's state and forwards each TaskStore call.
+// While the controller is down, the forward fails and the runtime receives
+// Unavailable over its healthy connection, as it does from AgentGateway.
+func startTaskStoreProxy(t *testing.T, dialController func(context.Context, string) (net.Conn, error)) func(context.Context, string) (net.Conn, error) {
+	t.Helper()
+	upstream, err := grpc.NewClient("passthrough:///controller",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(dialController),
+		// The proxy connects to the controller for each request, so it reaches
+		// a returning controller at once rather than after a reconnect backoff.
+		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoff.Config{BaseDelay: 10 * time.Millisecond, Multiplier: 1, MaxDelay: 10 * time.Millisecond}, MinConnectTimeout: time.Second}),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, upstream.Close()) })
+	serving := bufconn.Listen(DefaultMaxMessageSize)
+	server := grpc.NewServer()
+	runtimev1.RegisterTaskStoreServiceServer(server, &taskStoreProxy{upstream: runtimev1.NewTaskStoreServiceClient(upstream)})
+	go func() { _ = server.Serve(serving) }()
+	t.Cleanup(server.Stop)
+	return func(ctx context.Context, _ string) (net.Conn, error) { return serving.DialContext(ctx) }
+}
+
+type taskStoreProxy struct {
+	runtimev1.UnimplementedTaskStoreServiceServer
+	upstream runtimev1.TaskStoreServiceClient
+}
+
+// forwardAuthorization passes on the actor's token, the only metadata the
+// controller authenticates.
+func forwardAuthorization(ctx context.Context) context.Context {
+	md, _ := metadata.FromIncomingContext(ctx)
+	return metadata.NewOutgoingContext(ctx, metadata.MD{"authorization": md.Get("authorization")})
+}
+
+func (p *taskStoreProxy) CreateTask(ctx context.Context, request *runtimev1.TaskStoreServiceCreateTaskRequest) (*runtimev1.TaskStoreServiceCreateTaskResponse, error) {
+	return p.upstream.CreateTask(forwardAuthorization(ctx), request)
+}
+
+func (p *taskStoreProxy) UpdateTask(ctx context.Context, request *runtimev1.TaskStoreServiceUpdateTaskRequest) (*runtimev1.TaskStoreServiceUpdateTaskResponse, error) {
+	return p.upstream.UpdateTask(forwardAuthorization(ctx), request)
+}
+
+func (p *taskStoreProxy) GetTask(ctx context.Context, request *runtimev1.TaskStoreServiceGetTaskRequest) (*runtimev1.TaskStoreServiceGetTaskResponse, error) {
+	return p.upstream.GetTask(forwardAuthorization(ctx), request)
+}
+
+func (p *taskStoreProxy) ListTasks(ctx context.Context, request *runtimev1.TaskStoreServiceListTasksRequest) (*runtimev1.TaskStoreServiceListTasksResponse, error) {
+	return p.upstream.ListTasks(forwardAuthorization(ctx), request)
+}
+
+func (p *taskStoreProxy) SettleTask(ctx context.Context, request *runtimev1.TaskStoreServiceSettleTaskRequest) (*runtimev1.TaskStoreServiceSettleTaskResponse, error) {
+	return p.upstream.SettleTask(forwardAuthorization(ctx), request)
 }

@@ -266,8 +266,8 @@ func (e *settledExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorCon
 	if version == 0 {
 		return
 	}
-	// Settlement gets fresh per-attempt deadlines instead of a shared cleanup
-	// deadline, so it can outlast a controller restart.
+	// Settlement retries within the store's retry budget instead of a shared
+	// cleanup deadline, so it can outlast a controller restart.
 	finish := context.WithoutCancel(ctx)
 	// Export the final save before settlement permits suspension. The settlement
 	// RPC's own span is flushed afterwards, but suspension can race that flush.

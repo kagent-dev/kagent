@@ -1,12 +1,17 @@
 package taskstore
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,17 +26,44 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type readinessServer struct {
 	runtimev1.UnimplementedTaskStoreServiceServer
 	task   *a2apb.Task
 	settle func(context.Context)
+
+	mu sync.Mutex
+	// unavailable counts the calls still to reject the way the egress proxy
+	// does while the controller restarts: Unavailable, over a healthy connection.
+	unavailable int
+}
+
+func (s *readinessServer) rejectCalls(count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.unavailable = count
+}
+
+func (s *readinessServer) proxy(ctx context.Context, request any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	s.mu.Lock()
+	reject := s.unavailable > 0
+	if reject {
+		s.unavailable--
+	}
+	s.mu.Unlock()
+	if reject {
+		return nil, status.Error(codes.Unavailable, "upstream call failed: Connect: Connection refused (os error 111)")
+	}
+	return handler(ctx, request)
 }
 
 func (*readinessServer) CreateTask(context.Context, *runtimev1.TaskStoreServiceCreateTaskRequest) (*runtimev1.TaskStoreServiceCreateTaskResponse, error) {
@@ -60,7 +92,7 @@ func (s *readinessServer) SettleTask(ctx context.Context, _ *runtimev1.TaskStore
 func newReadinessStore(t *testing.T, api *readinessServer, available *atomic.Bool, interceptor grpc.UnaryClientInterceptor) *Store {
 	t.Helper()
 	listener := bufconn.Listen(1 << 20)
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.UnaryInterceptor(api.proxy))
 	runtimev1.RegisterTaskStoreServiceServer(server, api)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
@@ -216,4 +248,149 @@ func TestSettlementSurvivesFlushDeadline(t *testing.T) {
 	require.Equal(t, 2, flushes)
 	require.True(t, receive(t, settlementDeadline).After(firstDeadline), "an expired flush must not consume settlement's deadline")
 	require.True(t, secondDeadline.After(firstDeadline), "the second flush must have its own deadline")
+}
+
+func completedUpdate() *sdktaskstore.UpdateRequest {
+	task := &a2a.Task{ID: "task", ContextID: "conversation", Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}}
+	return &sdktaskstore.UpdateRequest{Task: task, PrevVersion: 1, Event: a2a.NewStatusUpdateEvent(task, a2a.TaskStateCompleted, nil)}
+}
+
+// The egress proxy answers Unavailable at once while the controller restarts,
+// over a connection that stays READY, so WaitForReady never waits. The save
+// must keep retrying, past the former four attempts, until the controller
+// answers again.
+func TestTaskStoreRetriesUnavailableFromAReachableProxy(t *testing.T) {
+	api := &readinessServer{}
+	var mu sync.Mutex
+	var updates []proto.Message
+	var notReady atomic.Int32
+	store := newReadinessStore(t, api, nil,
+		func(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
+			if method == runtimev1.TaskStoreService_UpdateTask_FullMethodName {
+				if conn.GetState() != connectivity.Ready {
+					notReady.Add(1)
+				}
+				mu.Lock()
+				updates = append(updates, proto.Clone(req.(proto.Message)))
+				mu.Unlock()
+			}
+			return invoke(ctx, method, req, reply, conn, options...)
+		})
+	// A running runtime's connection to the proxy is already READY.
+	_, err := store.Update(t.Context(), completedUpdate())
+	require.NoError(t, err)
+	mu.Lock()
+	updates = nil
+	mu.Unlock()
+	notReady.Store(0)
+
+	api.rejectCalls(6)
+	version, err := store.Update(t.Context(), completedUpdate())
+	require.NoError(t, err, "the save must outlast the restart")
+	require.Equal(t, sdktaskstore.TaskVersion(2), version)
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, updates, 7, "six rejected attempts, then the one that lands")
+	require.Zero(t, notReady.Load(), "the connection stayed READY, so only the retry loop could wait")
+	for _, request := range updates[1:] {
+		require.True(t, proto.Equal(updates[0], request), "every attempt must replay the same save")
+	}
+}
+
+// Settlement reaches the controller through the same proxy.
+func TestSettlementRetriesUnavailableFromAReachableProxy(t *testing.T) {
+	settled := make(chan struct{}, 1)
+	api := &readinessServer{settle: func(context.Context) { settled <- struct{}{} }}
+	store := newReadinessStore(t, api, nil, nil)
+	wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(nil), "", nil)
+	state := &execution{ready: make(chan struct{})}
+	state.boundary.Store(2)
+	ctx := context.WithValue(t.Context(), executionKey{}, state)
+	wrapper.track(ctx, "task")
+	api.rejectCalls(6)
+	wrapper.Cleanup(ctx, &a2asrv.ExecutorContext{TaskID: "task"}, nil, nil)
+	require.Len(t, settled, 1, "settlement must land once the controller answers")
+}
+
+// Running out of budget returns the last RPC error, which names the cause,
+// and logs the exhaustion once.
+func TestTaskStoreRetryBudgetReturnsTheLastError(t *testing.T) {
+	api := &readinessServer{}
+	store := newReadinessStore(t, api, nil, nil)
+	store.budget = 500 * time.Millisecond
+	api.rejectCalls(math.MaxInt)
+	var logs bytes.Buffer
+	ctx := logging.IntoContext(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	_, err := store.Update(ctx, completedUpdate())
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	require.ErrorContains(t, err, "upstream call failed")
+	var exhausted struct {
+		Message  string `json:"msg"`
+		Attempts int    `json:"attempts"`
+		Error    string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &exhausted), "exactly one log record")
+	require.Equal(t, "taskstore retries exhausted", exhausted.Message)
+	require.Positive(t, exhausted.Attempts)
+	require.Contains(t, exhausted.Error, "upstream call failed")
+}
+
+// A proxy can take a while to report a dead upstream, so the budget can end
+// during an attempt. That attempt's own deadline error must not replace the
+// proxy's error from the attempt before it.
+func TestTaskStoreRetryBudgetEndingMidAttemptKeepsTheCause(t *testing.T) {
+	api := &readinessServer{}
+	store := newReadinessStore(t, api, nil,
+		func(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
+			select {
+			case <-time.After(300 * time.Millisecond):
+			case <-ctx.Done():
+				return status.FromContextError(ctx.Err()).Err()
+			}
+			return invoke(ctx, method, req, reply, conn, options...)
+		})
+	store.budget = time.Second
+	api.rejectCalls(math.MaxInt)
+	_, err := store.Update(t.Context(), completedUpdate())
+	require.Equal(t, codes.Unavailable, status.Code(err), "unexpected error: %v", err)
+	require.ErrorContains(t, err, "upstream call failed")
+}
+
+// A caller that cancels or runs out of time ends the operation itself. That
+// is not retry exhaustion: the caller's error comes back and nothing is logged.
+func TestTaskStoreRetryReturnsTheCallersEnd(t *testing.T) {
+	for name, test := range map[string]struct {
+		end  func(context.Context) (context.Context, context.CancelFunc)
+		want error
+	}{
+		"canceled": {want: context.Canceled, end: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancel(ctx)
+			time.AfterFunc(300*time.Millisecond, cancel)
+			return ctx, cancel
+		}},
+		"deadline": {want: context.DeadlineExceeded, end: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return context.WithTimeout(ctx, 300*time.Millisecond)
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			api := &readinessServer{}
+			store := newReadinessStore(t, api, nil, nil)
+			api.rejectCalls(math.MaxInt)
+			var logs bytes.Buffer
+			ctx, cancel := test.end(logging.IntoContext(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil))))
+			defer cancel()
+			_, err := store.Update(ctx, completedUpdate())
+			// The end lands in a retry wait or, rarely, during an RPC.
+			require.True(t, errors.Is(err, test.want) || status.Code(err) == status.FromContextError(test.want).Code(), "unexpected error: %v", err)
+			require.Empty(t, logs.String())
+		})
+	}
+}
+
+func TestRetryJitterWaitsBetweenHalfAndAllOfTheDelay(t *testing.T) {
+	for range 1000 {
+		wait := jitter(time.Second)
+		require.GreaterOrEqual(t, wait, 500*time.Millisecond)
+		require.LessOrEqual(t, wait, time.Second)
+	}
 }
