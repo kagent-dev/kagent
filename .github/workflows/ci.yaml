@@ -72,6 +72,11 @@ jobs:
           key: e2e-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go/go.mod', 'go/go.sum') }}
           restore-keys: |
             e2e-go-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache the contract's upstream sources at their pins
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: telemetry/deps
+          key: telemetry-deps-${{ hashFiles('telemetry/versions.env', 'telemetry/deps.sh') }}
       - name: Resolve Substrate release
         working-directory: go
         run: |
@@ -350,9 +355,10 @@ jobs:
         with:
           path: telemetry/deps
           key: telemetry-deps-${{ hashFiles('telemetry/versions.env', 'telemetry/deps.sh') }}
+      - name: Fetch the contract's upstream sources at their pins
+        run: make semconv-deps
       - name: Check the registry and generated conventions
-        # The Weaver container has no network: everything the check reads must
-        # come from the pinned checkouts, so a dependency the pins miss fails here.
+        # The Weaver container has no network: the check reads only the pinned sources.
         env:
           WEAVER_CONTAINER_ARGS: --network none
         run: make semconv-verify
