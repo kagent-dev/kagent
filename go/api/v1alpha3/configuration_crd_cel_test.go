@@ -53,6 +53,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		require.NoError(t, err)
 		var names []string
 		for _, resource := range resources.APIResources {
+			require.NotEqual(t, "harnesses/status", resource.Name, "Harness must not expose a status subresource")
 			if !strings.Contains(resource.Name, "/") {
 				names = append(names, resource.Name)
 			}

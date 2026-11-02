@@ -83,7 +83,6 @@ func GetAgentConfigSummary(config *configv1.ADKAgentConfig) string {
 	summary += fmt.Sprintf("  Description: %s\n", config.Description)
 	summary += fmt.Sprintf("  Instruction: %d chars\n", len(config.Instruction))
 	summary += fmt.Sprintf("  Stream: %v\n", config.Stream)
-	summary += fmt.Sprintf("  HasNetworkConfig: %v\n", config.Network != nil)
 	summary += fmt.Sprintf("  HttpTools: %d\n", len(config.HttpTools))
 	summary += fmt.Sprintf("  SseTools: %d\n", len(config.SseTools))
 	summary += fmt.Sprintf("  RemoteAgents: %d\n", len(config.RemoteAgents))

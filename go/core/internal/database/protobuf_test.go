@@ -111,7 +111,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "original")
 	addUnknown(request)
-	addUnknown(request.Agent)
+	addUnknown(request.GetAgent())
 	session, _, err := client.CreateSession(ctx, request, "create")
 	require.NoError(t, err)
 	_, err = client.UpdateSessionName(ctx, session.Id, "alice", "renamed while creating")
@@ -141,7 +141,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.True(t, proto.Equal(session, reconstructed))
 	require.True(t, proto.Equal(session, stored), "persist the full Session protobuf")
 	require.Equal(t, request.ProtoReflect().GetUnknown(), stored.ProtoReflect().GetUnknown())
-	require.Equal(t, request.Agent.ProtoReflect().GetUnknown(), stored.Agent.ProtoReflect().GetUnknown())
+	require.Equal(t, request.GetAgent().ProtoReflect().GetUnknown(), stored.GetAgent().ProtoReflect().GetUnknown())
 	session, err = finishSessionOperation(ctx, client, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, "")
 	require.NoError(t, err)
 

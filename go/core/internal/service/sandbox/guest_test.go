@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
@@ -101,7 +102,7 @@ func (a *testActors) SuspendActor(context.Context, string, string) (*ateapipb.Ac
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/sandbox"}}}}
+	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/sandbox"}}}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
 func (a *testActors) DeleteActor(context.Context, string, string) error {
@@ -159,7 +160,7 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	router.Config.Protocols = protocols
 	router.Start()
 	t.Cleanup(router.Close)
-	guests, err := sandboxservice.NewGuestDialer(router.URL, testAuth{})
+	guests, err := sandboxservice.NewGuestDialer(&configv1.SubstrateConfig{RouterUrl: new(router.URL)}, testAuth{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, guests.Close()) })
 	actors := &testActors{}

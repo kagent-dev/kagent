@@ -30,6 +30,7 @@ type Chart struct {
 	ValuesFiles []string
 	// Generated defaults stay separate from caller files so Helm merges their maps.
 	inlineValues string
+	secretValues string
 }
 
 func cloneChart(chart Chart) Chart {
@@ -65,7 +66,7 @@ func (s ChartInstall) Command() Command {
 		"--wait", "--wait-for-jobs", "--history-max", "2", "--timeout", "5m"}
 	args = append(args, chartTransportArgs(s.Chart)...)
 	args = append(args, helmValueArgs(s.Chart)...)
-	return Command{Program: "helm", Args: args, Stdin: s.Chart.inlineValues}
+	return Command{Program: "helm", Args: args, Stdin: s.Chart.inlineValues, SecretValues: s.Chart.secretValues}
 }
 
 func chartTransportArgs(chart Chart) []string {
@@ -101,7 +102,7 @@ func controllerServiceAccount(ctx context.Context, runner Runner, namespace stri
 		"--namespace", namespace, "--show-only", "templates/controller-deployment.yaml"}
 	args = append(args, chartTransportArgs(chart)...)
 	args = append(args, helmValueArgs(chart)...)
-	manifest, err := runner.Run(ctx, Command{Program: "helm", Args: args, Stdin: chart.inlineValues})
+	manifest, err := runner.Run(ctx, Command{Program: "helm", Args: args, Stdin: chart.inlineValues, SecretValues: chart.secretValues})
 	if err != nil {
 		return "", fmt.Errorf("failed to render controller deployment: %w: %s", err, strings.TrimSpace(manifest))
 	}

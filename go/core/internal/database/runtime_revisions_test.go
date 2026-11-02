@@ -515,7 +515,7 @@ func TestRecordReadyRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 		session, _, err := c.CreateSession(ctx, &apiv1.Session{
 			Id: uuid.NewString(), Creator: "alice",
 
-			Agent: &apiv1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName},
+			Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName}},
 		}, uuid.NewString())
 		if want == "" {
 			require.ErrorIs(t, err, ErrNotFound)

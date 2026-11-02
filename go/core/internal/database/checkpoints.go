@@ -81,8 +81,11 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 		now := timestamppb.Now()
 		session := &apiv1.Session{
 			Id: sessionID, Creator: userID, ContextId: sessionID,
-			Name:             source.GetName(),
-			Agent:            &apiv1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName},
+			Name: source.GetName(),
+			Agent: &apiv1.AgentProvenance{
+				Ref: &apiv1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName},
+				Uid: revision.AgentUID,
+			},
 			PreparedRevision: *checkpoint.PreparedRevision,
 			State:            apiv1.RuntimeState_RUNTIME_STATE_CREATING,
 			Operation:        apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE,

@@ -315,7 +315,9 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 	case v1alpha3.ModelProviderAnthropic:
 		destinations = append(destinations, "https://api.anthropic.com:443")
 	case v1alpha3.ModelProviderGemini:
-		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
+		if modelConfig.Spec.Gemini == nil || ptr.Deref(modelConfig.Spec.Gemini.BaseURL, "") == "" {
+			destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
+		}
 	case v1alpha3.ModelProviderMistral:
 		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
 			destinations = append(destinations, "https://api.mistral.ai:443")

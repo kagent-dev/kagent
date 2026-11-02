@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,7 +114,10 @@ func TestPlanAndApply(t *testing.T) {
 				kagent := steps[len(steps)-1].(ChartInstall)
 				require.Equal(t, "kagent", kagent.Release)
 				require.Contains(t, kagent.Chart.Values, "providers.default=openAI")
-				require.Contains(t, kagent.Chart.Values, "providers.openAI.apiKey=secret-provider-key")
+				require.NotContains(t, strings.Join(render.Args, " "), cfg.APIKey)
+				require.NotContains(t, strings.Join(kagent.Command().Args, " "), cfg.APIKey)
+				require.Contains(t, kagent.Command().SecretValues, cfg.APIKey)
+				require.Equal(t, render.SecretValues, kagent.Command().SecretValues)
 				require.Equal(t, render.Stdin, kagent.Chart.inlineValues)
 				require.Equal(t, []string{"operator.yaml", "local.yaml"}, kagent.Chart.ValuesFiles)
 				if customCharts {
@@ -274,7 +278,7 @@ func TestPlanValuesFilesMergeWithGeneratedDefaults(t *testing.T) {
 		if !ok || (release.Release != "kagent" && release.Release != "substrate") {
 			continue
 		}
-		command := Command{Program: "helm", Args: []string{"template", release.Release, chartReference(release.Chart), "--namespace", release.Namespace, "--show-only", "templates/values.yaml"}, Stdin: release.Chart.inlineValues}
+		command := Command{Program: "helm", Args: []string{"template", release.Release, chartReference(release.Chart), "--namespace", release.Namespace, "--show-only", "templates/values.yaml"}, Stdin: release.Chart.inlineValues, SecretValues: release.Chart.secretValues}
 		command.Args = append(command.Args, helmValueArgs(release.Chart)...)
 		out, err := runner.Run(t.Context(), command)
 		require.NoError(t, err)
@@ -298,5 +302,49 @@ func TestPlanValuesFilesMergeWithGeneratedDefaults(t *testing.T) {
 				}},
 			}, values["ateApi"])
 		}
+	}
+}
+
+func TestModelCredentialValuesPreserveHelmPrecedence(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("Helm is required for credential integration")
+	}
+	for _, tc := range []struct {
+		name, key, override, want string
+	}{
+		{"literal punctuation and newlines", "key,with=punctuation'\"\\$()\nsecond line", "", "key,with=punctuation'\"\\$()\nsecond line"},
+		{"numeric string", "1234", "", "1234"},
+		{"empty string", "", "", ""},
+		{"caller override", "configured-key", "providers.openAI.apiKey=caller-key", "caller-key"},
+		{"combined caller override", "configured-key", "providers.default=ollama,providers.openAI.apiKey=caller-key", "caller-key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			chart := filepath.Join(root, "kagent")
+			require.NoError(t, os.MkdirAll(filepath.Join(chart, "templates"), 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "Chart.yaml"), []byte("apiVersion: v2\nname: kagent\nversion: 1.0.0\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates/controller-deployment.yaml"), []byte("kind: Deployment\nspec: {template: {spec: {serviceAccountName: test-controller}}}\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates/credential.yaml"), []byte("apiVersion: v1\nkind: Secret\nmetadata: {name: test}\ndata:\n  key: {{ .Values.providers.openAI.apiKey | b64enc | quote }}\n"), 0o600))
+			file := filepath.Join(root, "operator.yaml")
+			require.NoError(t, os.WriteFile(file, []byte("providers: {openAI: {apiKey: file-key}}\n"), 0o600))
+			cfg := testConfig()
+			cfg.SkipDatabaseSetup, cfg.APIKey = true, tc.key
+			cfg.Kagent.Repository, cfg.Kagent.ValuesFiles = root, []string{file}
+			cfg.Kagent.Values = []string{tc.override}
+			runner := CommandRunner{}
+			plan, err := NewClient(runner, nil).Plan(t.Context(), cfg)
+			require.NoError(t, err)
+			steps := plan.Steps()
+			release := steps[len(steps)-1].(ChartInstall)
+			command := release.Command()
+			command.Args = append([]string{"template", release.Release, chartReference(release.Chart), "--show-only", "templates/credential.yaml"}, helmValueArgs(release.Chart)...)
+			out, err := runner.Run(t.Context(), command)
+			require.NoError(t, err)
+			var secret struct{ Data map[string]string }
+			require.NoError(t, yaml.Unmarshal([]byte(out), &secret))
+			key, err := base64.StdEncoding.DecodeString(secret.Data["key"])
+			require.NoError(t, err)
+			require.Equal(t, tc.want, string(key))
+		})
 	}
 }

@@ -111,7 +111,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 
 			fresh, _, err := store.CreateSession(ctx, &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 			}, "last-good-session")
 			require.NoError(t, err, "unresolved edits must leave the last successful revision available")
 			require.Equal(t, initial.Target.RevisionID.String(), fresh.PreparedRevision)

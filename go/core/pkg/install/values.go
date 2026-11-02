@@ -37,7 +37,7 @@ func writeValuesChart(dir string) error {
 // The synthetic chart supplies no defaults and never contacts Kubernetes.
 func mergeValues(ctx context.Context, runner Runner, chart Chart, valuesChart string) (map[string]any, error) {
 	args := append([]string{"template", "kagent-install-values", valuesChart}, helmValueArgs(chart)...)
-	out, err := runner.Run(ctx, Command{Program: "helm", Args: args, Stdin: chart.inlineValues})
+	out, err := runner.Run(ctx, Command{Program: "helm", Args: args, Stdin: chart.inlineValues, SecretValues: chart.secretValues})
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge chart values: %w", &valuesError{cause: err})
 	}

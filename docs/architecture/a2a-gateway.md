@@ -177,8 +177,12 @@ conversation. Continuation sends do not gain this guarantee: once context/task I
 are known, use GetTask or SubscribeToTask after an ambiguous response. Storage RPC
 retries remain internal to the runtime adapter and have a separate guarantee.
 
-The scheduler records its single dispatch attempt before sending. After an
-uncertain send it only looks for the task in stored history; it never sends again.
+The scheduler records its single dispatch attempt before sending, using a message
+ID prefixed with `scheduled-run/`. After an uncertain send it only looks for the
+task holding that message ID in stored history; it never sends again. The prefix
+is reserved for the in-process control plane: the session service rejects it from
+every other caller, so a Session's creator cannot plant a task the scheduler would
+adopt.
 A crash between claiming and sending can therefore leave an execution unresolved
 until its deadline, when normal timeout cleanup runs.
 
@@ -241,7 +245,7 @@ matches its atespace and recorded Actor UID. Memory derives its agent namespace
 and user from that persisted session binding, ignoring caller-supplied identity
 fields. Users can also list and delete their own memories on the same endpoint.
 Both actor and user memory operations check the `Memory` resource, whose name is
-the agent key (including legacy keys). User management calls use the requested
+the exact `namespace/name` Agent key. User management calls use the requested
 agent key and the authenticated user ID,
 ignoring the request's user ID, and do not require a live actor or session.
 User and share credentials cannot grant access to actor-only methods. The

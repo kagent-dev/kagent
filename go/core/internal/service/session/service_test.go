@@ -613,7 +613,7 @@ func TestServiceSharedListCannotBroadenAccess(t *testing.T) {
 		{name: "past shared conversation", request: ListRequest{PageToken: encodePageToken(id)}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			stored := &apiv1.Session{Id: id, Agent: agent}
+			stored := &apiv1.Session{Id: id, Agent: &apiv1.AgentProvenance{Ref: agent}}
 			store := &serviceTestStore{getResult: stored}
 			service := NewService(store, serviceTestAuthorizer{}, nil)
 			result, err := service.List(ctx, test.request)
@@ -752,7 +752,7 @@ func TestSessionCreateUsesTargetNamespace(t *testing.T) {
 			svc := NewService(store, sessionCreateNamespacePolicy{namespace: "team-a"}, serviceTestWorkflow{})
 			created, err := svc.Create(serviceTestContext("alice"), &apiv1.ResourceReference{Namespace: namespace, Name: "assistant"}, "request", "")
 			if namespace == "team-a" {
-				if err != nil || created.GetAgent().GetNamespace() != namespace || created.GetCreator() != "alice" {
+				if err != nil || created.GetAgent().GetRef().GetNamespace() != namespace || created.GetCreator() != "alice" {
 					t.Fatalf("create = %+v, error = %v", created, err)
 				}
 			} else if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || store.createInput != nil {

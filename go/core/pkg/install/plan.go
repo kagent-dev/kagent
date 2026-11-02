@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation"
+	"sigs.k8s.io/yaml"
 
 	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 )
@@ -96,15 +97,20 @@ func planInstall(ctx context.Context, runner Runner, cfg Config) (Plan, error) {
 	}
 	kagent := cloneChart(cfg.Kagent)
 	provider := modelProviderKey(cfg.ModelProvider)
-	kagent.Values = append([]string{"providers.default=" + provider,
-		"providers." + provider + ".apiKey=" + cfg.APIKey}, kagent.Values...)
+	kagent.Values = append([]string{"providers.default=" + provider}, kagent.Values...)
+	credentials, err := yaml.Marshal(map[string]any{"providers": map[string]any{provider: map[string]string{"apiKey": cfg.APIKey}}})
+	if err != nil {
+		return Plan{}, fmt.Errorf("failed to encode model credential values: %w", err)
+	}
+	// A final values file preserves --set precedence without putting the key in argv.
+	kagent.secretValues = string(credentials)
 	kagent.inlineValues = `controller:
   substrateClientCertificate:
     enabled: true
 config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
-    routerUrl: http://atenet-router.ate-system.svc:80
+    routerUrl: https://atenet-router.ate-system.svc:443
 ` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
 	if !cfg.SkipDatabaseSetup {
 		kagent.Values = append(kagent.Values, "database.postgres.clientCertificate.enabled=true")
@@ -195,6 +201,7 @@ func postgresClientValues(namespace, serviceAccount string, includeBundledPostgr
 }
 
 func substrateInstallValues(namespace, serviceAccount string) string {
+	controllerIdentity := strconv.Quote("spiffe://cluster.local/ns/" + namespace + "/sa/" + serviceAccount)
 	return fmt.Sprintf(`preview:
   - PerTemplateSnapshotLocation
 ateApi:
@@ -202,11 +209,14 @@ ateApi:
     bootstrapOwners:
       - %s
       - "system:serviceaccount:ate-system:ate-client"
+atenetRouter:
+  ingressAllowedSPIFFEIDs:
+    - %s
 credentialProvider:
   namespacePolicies:
     - atespace: %s
       allowedNamespaces: [%s]
-`, strconv.Quote("spiffe://cluster.local/ns/"+namespace+"/sa/"+serviceAccount), strconv.Quote(namespace), strconv.Quote(namespace))
+`, controllerIdentity, controllerIdentity, strconv.Quote(namespace), strconv.Quote(namespace))
 }
 
 func clonePostgres(p Postgres) Postgres {

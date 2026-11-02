@@ -165,14 +165,10 @@ proto-lint: ## Lint repository-owned protobuf schemas
 	cd proto && $(BUF) lint
 
 .PHONY: proto-breaking
-proto-breaking: ## Check protobuf compatibility against the target branch (default: main)
-	@if git cat-file -e "$(PROTO_BREAKING_BRANCH):proto/buf.yaml" 2>/dev/null; then \
-		$(BUF) breaking proto --against ".git#branch=$(PROTO_BREAKING_BRANCH),subdir=proto"; \
-	else \
-		echo "No protobuf module on $(PROTO_BREAKING_BRANCH); skipping first-release breaking check"; \
-	fi
+proto-breaking: ## Check protobuf compatibility against the target Git ref (default: origin/main)
+	$(BUF) breaking proto --against ".git#ref=$(PROTO_BREAKING_BRANCH),subdir=proto"
 
-PROTO_BREAKING_BRANCH ?= main
+PROTO_BREAKING_BRANCH ?= origin/main
 PROTO_GENERATED_PATHS := go/api/gen ui/src/generated python/packages/kagent-proto/src/kagent python/packages/kagent-proto/src/buf
 
 .PHONY: proto-check
@@ -616,10 +612,10 @@ kagent-cli-install: kagent-cli-deploy
 .PHONY: kagent-cli-deploy
 kagent-cli-deploy: ## Build CLI locally and install kagent with Substrate and the development database
 kagent-cli-deploy: use-kind-cluster build-cli-local helm-dev
-	printf '%s\n' 'registry: "$(DOCKER_REGISTRY)"' 'tag: "$(VERSION)"' 'imagePullPolicy: Always' 'controller: {image: {pullPolicy: Always}}' 'ui: {image: {pullPolicy: Always}}' > go/core/bin/local-values.yaml
-	printf '%s\n' 'atelet:' '  extraArgs: [--localhost-registry-replacement=kind-registry:5000]' 'ateApi:' '  extraArgs: [--template-resync-interval=250ms]' > go/core/bin/local-substrate-values.yaml
-	printf '%s\n' 'install:' '  defaultModelProvider: $(shell printf "%s" "$(MODEL_PROVIDER)" | awk "{print toupper(substr(\$$0,1,1)) substr(\$$0,2)}")' '  kagent:' '    repository: "$(abspath $(HELM_SOURCE_DIR))/"' '    version: "$(VERSION)"' '    valuesFiles: [local-values.yaml]' '  substrate:' '    repository: "$(SUBSTRATE_REPO)/"' '    version: "$(SUBSTRATE_VERSION)"' '    valuesFiles: [local-substrate-values.yaml]' '  podCertificate:' '    repository: "$(SUBSTRATE_PODCERT_REPO)/"' '    version: "$(SUBSTRATE_PODCERT_VERSION)"' > go/core/bin/local-config.yaml
-	KUBECONFIG=$(KIND_KUBECONFIG) ./go/core/bin/kagent-local --config go/core/bin/local-config.yaml install
+	@printf '%s\n' 'registry: "$(DOCKER_REGISTRY)"' 'tag: "$(VERSION)"' 'imagePullPolicy: Always' 'controller: {image: {pullPolicy: Always}}' 'ui: {image: {pullPolicy: Always}}' > go/core/bin/local-values.yaml
+	@printf '%s\n' 'atelet:' '  extraArgs: [--localhost-registry-replacement=kind-registry:5000]' 'ateApi:' '  extraArgs: [--template-resync-interval=250ms]' > go/core/bin/local-substrate-values.yaml
+	@printf '%s\n' 'install:' '  defaultModelProvider: $(shell printf "%s" "$(MODEL_PROVIDER)" | awk "{print toupper(substr(\$$0,1,1)) substr(\$$0,2)}")' '  kagent:' '    repository: "$(abspath $(HELM_SOURCE_DIR))/"' '    version: "$(VERSION)"' '    valuesFiles: [local-values.yaml]' '  substrate:' '    repository: "$(SUBSTRATE_REPO)/"' '    version: "$(SUBSTRATE_VERSION)"' '    valuesFiles: [local-substrate-values.yaml]' '  podCertificate:' '    repository: "$(SUBSTRATE_PODCERT_REPO)/"' '    version: "$(SUBSTRATE_PODCERT_VERSION)"' > go/core/bin/local-config.yaml
+	@KUBECONFIG=$(KIND_KUBECONFIG) ./go/core/bin/kagent-local --config go/core/bin/local-config.yaml install
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: ## Port-forward the kagent controller API to localhost:8083
