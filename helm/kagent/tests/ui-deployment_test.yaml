@@ -254,25 +254,25 @@ tests:
       - notExists:
           path: spec.template.spec.containers[1].readinessProbe.httpGet
 
-  - it: should mount the ui-config ConfigMap for agentgateway
+  - it: should mount the agentgateway ConfigMap
     template: ui-deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: ui-config
+            name: agentgateway-config
             configMap:
-              name: RELEASE-NAME-ui-config
+              name: RELEASE-NAME-ui-agentgateway
       - equal:
           path: spec.template.spec.containers[1].volumeMounts
           value:
-            - name: ui-config
+            - name: agentgateway-config
               mountPath: /etc/agentgateway
               readOnly: true
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: ui-config
+            name: agentgateway-config
           any: true
 
   - it: should give agentgateway its own image and resources
@@ -298,7 +298,7 @@ tests:
     template: ui-deployment.yaml
     asserts:
       - exists:
-          path: spec.template.metadata.annotations["checksum/ui-config"]
+          path: spec.template.metadata.annotations["checksum/agentgateway-config"]
 
   - it: should set tolerations
     template: ui-deployment.yaml

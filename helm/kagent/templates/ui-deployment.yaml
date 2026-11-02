@@ -19,7 +19,7 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
-        checksum/ui-config: {{ include (print $.Template.BasePath "/ui-agentgateway-configmap.yaml") . | sha256sum }}
+        checksum/agentgateway-config: {{ include (print $.Template.BasePath "/ui-agentgateway-configmap.yaml") . | sha256sum }}
         {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -39,9 +39,9 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.ui.volumes.tmp }}
-        - name: ui-config
+        - name: agentgateway-config
           configMap:
-            name: {{ include "kagent.fullname" . }}-ui-config
+            name: {{ include "kagent.fullname" . }}-ui-agentgateway
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -92,7 +92,7 @@ spec:
               containerPort: {{ .Values.ui.service.ports.targetPort }}
               protocol: TCP
           volumeMounts:
-            - name: ui-config
+            - name: agentgateway-config
               mountPath: /etc/agentgateway
               readOnly: true
           resources:
