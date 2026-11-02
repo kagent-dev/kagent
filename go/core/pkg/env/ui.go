@@ -2,7 +2,7 @@ package env
 
 // The controller's UI listener and Vite map the same deployment names to browser keys.
 var (
-	UIDir              = RegisterStringVar("KAGENT_UI_DIR", "/usr/share/kagent/ui", "Directory of the built UI bundle the controller serves. Without an index.html there, the UI listener is off.", ComponentController)
+	UIDir              = RegisterStringVar("KAGENT_UI_DIR", "/usr/share/kagent/ui", "Directory of the built UI bundle the controller serves. Empty, or without an index.html, turns the UI listener off.", ComponentController)
 	UIBindAddress      = RegisterStringVar("KAGENT_UI_BIND_ADDRESS", ":8080", "Address of the controller's UI listener, which serves the bundle and the browser-facing API paths.", ComponentController)
 	UIForwardedHeaders = RegisterStringVar("KAGENT_UI_FORWARDED_HEADERS", "", "Comma-separated auth-proxy identity headers the UI listener keeps; the rest are stripped from browser requests.", ComponentController)
 

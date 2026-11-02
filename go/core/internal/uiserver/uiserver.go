@@ -34,7 +34,7 @@ var (
 )
 
 // apiPaths reach the controller's handler; everything else is the bundle.
-var apiPaths = []string{"/api/", "/mcp", "/.well-known/jwks.json"}
+var apiPaths = []string{"/api/", "/.well-known/jwks.json"}
 
 // maxBodyBytes sits just above the gateway's 16 MiB gRPC cap, which chat attachments hit first.
 const maxBodyBytes = 20 << 20
@@ -81,6 +81,9 @@ func StrippedHeaders(forwarded []string, trustedProxy bool) []string {
 // Run serves the UI until ctx ends. It returns at once when Root has no bundle.
 func Run(ctx context.Context, cfg Config) error {
 	logger := logging.FromContext(ctx).With("component", "ui_server")
+	if cfg.Root == "" {
+		return nil
+	}
 	handler, err := NewHandler(ctx, cfg)
 	if errors.Is(err, os.ErrNotExist) {
 		logger.WarnContext(ctx, "no UI bundle found; UI listener is off", "root", cfg.Root)
@@ -148,9 +151,18 @@ func NewHandler(ctx context.Context, cfg Config) (http.Handler, error) {
 			index(w, r)
 		}
 	})
+	api := http.MaxBytesHandler(cfg.API, maxBodyBytes)
 	for _, p := range apiPaths {
-		mux.Handle(p, http.MaxBytesHandler(cfg.API, maxBodyBytes))
+		mux.Handle(p, api)
 	}
+	// The UI's MCP servers page is also /mcp, so a browser loading it gets the app.
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html") {
+			index(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	})
 	return stripHeaders(stripBasePath(mux, basePath), cfg.StrippedHeaders), nil
 }
 

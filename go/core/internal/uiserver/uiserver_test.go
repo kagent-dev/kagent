@@ -101,6 +101,10 @@ func TestHandler(t *testing.T) {
 		}
 	}
 
+	if got := body(get("/mcp", "Accept", "text/html,application/xhtml+xml")); got != rendered {
+		t.Errorf("/mcp browser load: %q", got)
+	}
+
 	body(get("/api/x", "X-Forwarded-Email", "spoof@test", "X-User-Id", "spoof", "Authorization", "Bearer t"))
 	if seen.Header.Get("X-Forwarded-Email") != "" || seen.Header.Get("X-User-Id") != "" || seen.Header.Get("Authorization") != "Bearer t" {
 		t.Errorf("api headers: %v", seen.Header)
