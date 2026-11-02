@@ -1012,6 +1012,22 @@ class TestConvertContentToOpenaiMessages:
         assert len(tool_messages) == 1
         assert tool_messages[0]["content"] == "result value"
 
+    @pytest.mark.parametrize(
+        ("response", "expected"),
+        [
+            ({"status": "success", "report": "Sunny in Paris"}, '{"status": "success", "report": "Sunny in Paris"}'),
+            ({"error": "Missing city"}, '{"error": "Missing city"}'),
+        ],
+    )
+    def test_tool_result_with_plain_dict(self, response, expected):
+        contents = self._make_contents_with_tool_response(response)
+
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == expected
+
     def test_preserves_thought_signature_on_tool_call_and_tool_result_messages(self):
         """Thought signatures must survive the tool-call/tool-result round-trip."""
         contents = self._make_contents_with_thought_signature({"result": "result value"})
