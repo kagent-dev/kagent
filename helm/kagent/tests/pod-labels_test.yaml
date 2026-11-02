@@ -1,10 +1,7 @@
-suite: test controller and UI pod labels
+suite: test controller pod labels
 templates:
   - controller-deployment.yaml
   - controller-configmap.yaml
-  - ui-deployment.yaml
-  - ui-configmap.yaml
-  - ui-routes-configmap.yaml
 tests:
   - it: should not add extra pod labels by default (controller)
     template: controller-deployment.yaml
@@ -43,29 +40,6 @@ tests:
           path: spec.template.metadata.labels.team
           value: controller-team
 
-  - it: should merge global podLabels into the UI pod template
-    template: ui-deployment.yaml
-    set:
-      podLabels:
-        team: platform
-    asserts:
-      - equal:
-          path: spec.template.metadata.labels.team
-          value: platform
-
-  - it: should let ui.podLabels override the global podLabels
-    template: ui-deployment.yaml
-    set:
-      podLabels:
-        team: platform
-      ui:
-        podLabels:
-          team: ui-team
-    asserts:
-      - equal:
-          path: spec.template.metadata.labels.team
-          value: ui-team
-
   - it: should not allow podLabels to override controller selector labels
     template: controller-deployment.yaml
     set:
@@ -82,13 +56,3 @@ tests:
           path: spec.template.metadata.labels["app.kubernetes.io/instance"]
           value: RELEASE-NAME
 
-  - it: should not allow podLabels to override UI selector labels
-    template: ui-deployment.yaml
-    set:
-      ui:
-        podLabels:
-          app.kubernetes.io/name: hijacked
-    asserts:
-      - equal:
-          path: spec.template.metadata.labels["app.kubernetes.io/name"]
-          value: kagent

@@ -4,11 +4,6 @@ templates:
   - controller-configmap.yaml
   - rbac/reconciliation-role.yaml
   - substrate-workerpool.yaml
-  # Helm-unittest requires the UI's ConfigMaps to be listed here so it can
-  # resolve the Deployment's checksum includes.
-  - ui-deployment.yaml
-  - ui-configmap.yaml
-  - ui-routes-configmap.yaml
 tests:
   - it: should override every image registry from global.imageRegistry
     set:
@@ -88,14 +83,6 @@ tests:
   # come from each harness spec, not from this env. The global must therefore
   # not touch it -- rewiring it would claim mirror coverage the runtime does
   # not have. This pins the removal itself.
-  - it: should point the ui image at global.imageRegistry
-    set:
-      global.imageRegistry: mirror.example
-    template: ui-deployment.yaml
-    asserts:
-      - matchRegex:
-          path: spec.template.spec.containers[0].image
-          pattern: "^mirror\\.example/"
   - it: should keep per-image registry when the global is unset
     template: controller-deployment.yaml
     asserts:

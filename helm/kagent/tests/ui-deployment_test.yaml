@@ -1,25 +1,29 @@
-suite: test ui deployment
+suite: test the UI served by the controller deployment
 templates:
   - ui-configmap.yaml
-  - ui-deployment.yaml
-  - ui-routes-configmap.yaml
+  - controller-deployment.yaml
+  - controller-configmap.yaml
 tests:
   - it: loads browser settings from the ConfigMap and rolls out on changes
-    template: ui-deployment.yaml
+    template: controller-deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].envFrom
           content:
             configMapRef:
               name: RELEASE-NAME-ui
-      - notExists:
-          path: spec.template.spec.containers[0].env
       - matchRegex:
-          path: spec.template.metadata.annotations["checksum/configmap"]
+          path: spec.template.metadata.annotations["checksum/ui-configmap"]
           pattern: "^[a-f0-9]{64}$"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: ui
+            containerPort: 8080
+            protocol: TCP
 
   - it: preserves explicit env overrides and Secret references
-    template: ui-deployment.yaml
+    template: controller-deployment.yaml
     set:
       ui.env:
         - name: KAGENT_UI_API_BASE_URL
@@ -30,16 +34,19 @@ tests:
               name: ui-token
               key: token
     asserts:
-      - equal:
+      - contains:
           path: spec.template.spec.containers[0].env
-          value:
-            - name: KAGENT_UI_API_BASE_URL
-              value: /custom-api
-            - name: CUSTOM_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: ui-token
-                  key: token
+          content:
+            name: KAGENT_UI_API_BASE_URL
+            value: /custom-api
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CUSTOM_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: ui-token
+                key: token
       - equal:
           path: data.KAGENT_UI_API_BASE_URL
           value: /api
@@ -48,306 +55,34 @@ tests:
           path: data.CUSTOM_TOKEN
         template: ui-configmap.yaml
 
-  - it: should render ui deployment with default values
-    template: ui-deployment.yaml
-    asserts:
-      - isKind:
-          of: Deployment
-      - equal:
-          path: metadata.name
-          value: RELEASE-NAME-ui
-      - equal:
-          path: spec.replicas
-          value: 1
-      - hasDocuments:
-          count: 1
-
-  - it: should render ui deployment with custom replica count
-    template: ui-deployment.yaml
-    set:
-      ui:
-        replicas: 2
+  - it: binds the UI listener to IPv4 by default
+    template: ui-configmap.yaml
     asserts:
       - equal:
-          path: spec.replicas
-          value: 2
-
-  - it: should have correct ui container image
-    template: ui-deployment.yaml
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].name
-          value: ui
-      - matchRegex:
-          path: spec.template.spec.containers[0].image
-          pattern: "^ghcr\\.io/kagent-dev/kagent/ui:.+"
-
-  - it: should use global tag when set
-    template: ui-deployment.yaml
-    set:
-      tag: "v1.0.0"
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].image
-          value: ghcr.io/kagent-dev/kagent/ui:v1.0.0
-
-  - it: should have correct ui resources
-    template: ui-deployment.yaml
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].resources.requests.cpu
-          value: 100m
-      - equal:
-          path: spec.template.spec.containers[0].resources.requests.memory
-          value: 256Mi
-      - equal:
-          path: spec.template.spec.containers[0].resources.limits.cpu
-          value: 1000m
-      - equal:
-          path: spec.template.spec.containers[0].resources.limits.memory
-          value: 1Gi
-
-  - it: should have correct service account name
-    template: ui-deployment.yaml
-    asserts:
-      - equal:
-          path: spec.template.spec.serviceAccountName
-          value: RELEASE-NAME-ui
-
-  - it: should have correct container port
-    template: ui-deployment.yaml
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].ports[0].containerPort
-          value: 8080
-
-  - it: should set global annotations on deployment
-    template: ui-deployment.yaml
-    set:
-      annotations:
-        app.kubernetes.io/managed-by: "custom"
-    asserts:
-      - isSubset:
-          path: metadata.annotations
-          content:
-            app.kubernetes.io/managed-by: "custom"
-
-  - it: should set ui annotations on deployment and override global ones
-    template: ui-deployment.yaml
-    set:
-      annotations:
-        global-key: "global-value"
-        shared-key: "global-wins"
-      ui:
-        annotations:
-          ui-key: "ui-value"
-          shared-key: "ui-wins"
-    asserts:
-      - isSubset:
-          path: metadata.annotations
-          content:
-            global-key: "global-value"
-            ui-key: "ui-value"
-            shared-key: "ui-wins"
-
-  - it: should set podAnnotations
-    template: ui-deployment.yaml
-    set:
-      ui:
-        podAnnotations:
-          role: AI
-    asserts:
-      - isSubset:
-          path: spec.template.metadata.annotations
-          content:
-            role: AI
-
-  - it: should fallback to top-level podAnnotations
-    template: ui-deployment.yaml
-    set:
-      podAnnotations:
-        role: AI
-    asserts:
-      - isSubset:
-          path: spec.template.metadata.annotations
-          content:
-            role: AI
-
-  - it: should set nodeSelector
-    template: ui-deployment.yaml
-    set:
-      ui:
-        nodeSelector:
-          role: AI
-    asserts:
-      - equal:
-          path: spec.template.spec.nodeSelector
-          value:
-            role: AI
-
-  - it: should use default httpGet startup probe
-    template: ui-deployment.yaml
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].startupProbe.httpGet.path
-          value: /health
-      - equal:
-          path: spec.template.spec.containers[0].startupProbe.periodSeconds
-          value: 1
-
-  - it: should use default httpGet readiness probe
-    template: ui-deployment.yaml
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
-          value: /health
-      - equal:
-          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
-          value: 30
-
-  - it: should allow overriding startup probe
-    template: ui-deployment.yaml
-    set:
-      ui:
-        startupProbe:
-          exec:
-            command: ["curl", "-sf", "http://[::1]:8080/health"]
-          initialDelaySeconds: 5
-          periodSeconds: 3
-          failureThreshold: 30
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].startupProbe.exec.command
-          value: ["curl", "-sf", "http://[::1]:8080/health"]
-      - equal:
-          path: spec.template.spec.containers[0].startupProbe.periodSeconds
-          value: 3
+          path: data.KAGENT_UI_BIND_ADDRESS
+          value: "0.0.0.0:8080"
       - notExists:
-          path: spec.template.spec.containers[0].startupProbe.httpGet
+          path: data.KAGENT_UI_FORWARDED_HEADERS
 
-  - it: should allow overriding readiness probe
-    template: ui-deployment.yaml
+  - it: binds the UI listener dual-stack with ipv6.enabled
+    template: ui-configmap.yaml
     set:
-      ui:
-        readinessProbe:
-          exec:
-            command: ["curl", "-sf", "http://[::1]:8080/health"]
-          periodSeconds: 10
+      ipv6.enabled: true
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.exec.command
-          value: ["curl", "-sf", "http://[::1]:8080/health"]
-      - equal:
-          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
-          value: 10
-      - notExists:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          path: data.KAGENT_UI_BIND_ADDRESS
+          value: ":8080"
 
-  - it: should mount the ui-config ConfigMap for the UI server
-    template: ui-deployment.yaml
-    asserts:
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: ui-config
-            configMap:
-              name: RELEASE-NAME-ui-config
-      - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: ui-config
-            mountPath: /etc/kagent/ui.json
-            subPath: ui.json
-            readOnly: true
-
-  - it: should not mount a supervisord config now that the entrypoint runs as PID 1
-    template: ui-deployment.yaml
-    asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: ui-config
-            mountPath: /etc/supervisor/conf.d/supervisord.conf
-            subPath: supervisord.conf
-            readOnly: true
-
-  - it: should include config checksum in pod annotations
-    template: ui-deployment.yaml
-    asserts:
-      - exists:
-          path: spec.template.metadata.annotations["checksum/ui-config"]
-
-  - it: should set tolerations
-    template: ui-deployment.yaml
+  - it: passes opted-in identity headers to the UI listener
+    template: ui-configmap.yaml
     set:
-      ui:
-        tolerations:
-          - key: role
-            operator: Equal
-            value: AI
-            effect: NoSchedule
-    asserts:
-      - contains:
-          any: true
-          path: spec.template.spec.tolerations
-          content:
-            key: role
-            value: AI
-            effect: NoSchedule
-            operator: Equal
-
-  - it: should set affinity
-    template: ui-deployment.yaml
-    set:
-      ui:
-        affinity:
-          podAntiAffinity:
-            preferredDuringSchedulingIgnoredDuringExecution:
-              - weight: 100
-                podAffinityTerm:
-                  labelSelector:
-                    matchLabels:
-                      app.kubernetes.io/name: kagent-ui
-                  topologyKey: topology.kubernetes.io/zone
+      ui.additionalForwardedHeaders: [X-Forwarded-User, X-Forwarded-Email]
     asserts:
       - equal:
-          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].weight
-          value: 100
-      - equal:
-          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.topologyKey
-          value: topology.kubernetes.io/zone
+          path: data.KAGENT_UI_FORWARDED_HEADERS
+          value: "X-Forwarded-User,X-Forwarded-Email"
 
-  - it: should set topologySpreadConstraints
-    template: ui-deployment.yaml
-    set:
-      ui:
-        topologySpreadConstraints:
-          - maxSkew: 1
-            topologyKey: topology.kubernetes.io/zone
-            whenUnsatisfiable: ScheduleAnyway
-            labelSelector:
-              matchLabels:
-                app.kubernetes.io/name: kagent-ui
-    asserts:
-      - contains:
-          path: spec.template.spec.topologySpreadConstraints
-          content:
-            maxSkew: 1
-            topologyKey: topology.kubernetes.io/zone
-            whenUnsatisfiable: ScheduleAnyway
-            labelSelector:
-              matchLabels:
-                app.kubernetes.io/name: kagent-ui
-
-  - it: should not render affinity or topologySpreadConstraints by default
-    template: ui-deployment.yaml
-    asserts:
-      - notExists:
-          path: spec.template.spec.affinity
-      - notExists:
-          path: spec.template.spec.topologySpreadConstraints
-
-  - it: should pass runtime browser config to the entrypoint as env
+  - it: should pass runtime browser config to the controller as env
     template: ui-configmap.yaml
     asserts:
       - equal:
@@ -397,7 +132,7 @@ tests:
           path: data.KAGENT_UI_BASE_PATH
 
   - it: should reject a ui.basePath that is not a path
-    template: ui-deployment.yaml
+    template: ui-configmap.yaml
     set:
       ui:
         basePath: ui
@@ -406,7 +141,7 @@ tests:
           errorMessage: ui.basePath must be a path like /ui
 
   - it: should reject a ui.basePath with dot segments
-    template: ui-deployment.yaml
+    template: ui-configmap.yaml
     set:
       ui:
         basePath: /ui/..
@@ -415,7 +150,7 @@ tests:
           errorMessage: ui.basePath must be a path like /ui
 
   - it: should reject a ui.basePath that starts with a path the UI serves
-    template: ui-deployment.yaml
+    template: ui-configmap.yaml
     set:
       ui:
         basePath: /assets/ui
@@ -447,12 +182,3 @@ tests:
       - equal:
           path: data.KAGENT_UI_STREAM_TIMEOUT_MS
           value: "90000"
-
-  - it: should not mount a nextjs build cache
-    template: ui-deployment.yaml
-    asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: nextjs-cache
-            mountPath: /app/ui/.next/cache

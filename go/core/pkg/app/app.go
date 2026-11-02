@@ -68,10 +68,12 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/internal/uiserver"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -474,6 +476,17 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	group.Go(func() error { return runtime.Start(ctx) })
 	group.Go(func() error { return manager.Start(ctx) })
 	group.Go(func() error { return server.Start(ctx) })
+	// The UI listener faces browsers, so it strips identity headers agents send to the internal port.
+	group.Go(func() error {
+		return uiserver.Run(ctx, uiserver.Config{
+			BindAddress: env.UIBindAddress.Get(),
+			Root:        env.UIDir.Get(),
+			Environ:     os.Environ(),
+			API:         server.HandlerOr(mux),
+			StrippedHeaders: uiserver.StrippedHeaders(strings.Split(env.UIForwardedHeaders.Get(), ","),
+				cfg.GetServer().GetAuth().GetMode() == "trusted-proxy"),
+		})
+	})
 	return group.Wait()
 }
 

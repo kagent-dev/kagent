@@ -62,8 +62,11 @@ tests:
             name: controller-config
             mountPath: /etc/kagent
             readOnly: true
-      - notExists:
+      - equal:
           path: spec.template.spec.containers[0].envFrom
+          value:
+            - configMapRef:
+                name: RELEASE-NAME-ui
       - equal:
           path: spec.template.spec.volumes[1].projected.sources[0].secret.name
           value: kagent-postgres-readwrite

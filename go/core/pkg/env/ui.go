@@ -1,7 +1,11 @@
 package env
 
-// The container entrypoint and Vite map the same deployment names to browser keys.
+// The controller's UI listener and Vite map the same deployment names to browser keys.
 var (
+	UIDir              = RegisterStringVar("KAGENT_UI_DIR", "/usr/share/kagent/ui", "Directory of the built UI bundle the controller serves. Without an index.html there, the UI listener is off.", ComponentController)
+	UIBindAddress      = RegisterStringVar("KAGENT_UI_BIND_ADDRESS", ":8080", "Address of the controller's UI listener, which serves the bundle and the browser-facing API paths.", ComponentController)
+	UIForwardedHeaders = RegisterStringVar("KAGENT_UI_FORWARDED_HEADERS", "", "Comma-separated auth-proxy identity headers the UI listener keeps; the rest are stripped from browser requests.", ComponentController)
+
 	_ = RegisterStringVar("KAGENT_UI_API_BASE_URL", "/api", "Browser API base URL for UI containers and Vite development.", ComponentUI)
 	_ = RegisterStringVar("KAGENT_UI_STREAM_TIMEOUT_MS", "1800000", "UI chat stream inactivity timeout in milliseconds. 0 disables the timeout. Applies in containers and Vite development.", ComponentUI)
 	_ = RegisterStringVar("KAGENT_UI_BASE_PATH", "", "UI public path prefix, such as /ui; empty serves at the root. Applies in containers and Vite development; the container falls back to the root for invalid or reserved prefixes.", ComponentUI)

@@ -597,18 +597,18 @@ appends rather than editing the application's own settings above it:
 KAGENT_UI_EXTENSION_EXAMPLE_API_URL=https://api.example.test
 ```
 
-That is the whole mechanism, and nothing needs registering. The container's
-`entrypoint/` program copies every `KAGENT_UI_EXTENSION_*` variable out of the pod's environment
+That is the whole mechanism, and nothing needs registering. The controller
+(`go/core/internal/uiserver`) copies every `KAGENT_UI_EXTENSION_*` variable out of its environment
 **by prefix**, and the dev server does the same from `.env` and your shell. Neither
 enumerates the keys, so this application never learns what your settings mean and
 needs no change when your extension grows one.
 
 The values land on `window.environmentVariables`, which is what `readEnv` reads.
-You should not have to think about that object — the Go entrypoint writes it — but
+You should not have to think about that object — the controller writes it — but
 two consequences of it are worth knowing:
 
 - **A setting is a deployment's choice, not a build's.** One image serves every
-  deployment and the values are rewritten on every container start, so changing one
+  deployment and the values are rewritten on every controller start, so changing one
   needs a restart and a page reload, never a rebuild. Never reach for
   `import.meta.env` for a value an operator should be able to change.
 - **A setting is readable synchronously, by the first module that runs**, because
@@ -618,7 +618,7 @@ two consequences of it are worth knowing:
 **Do not add a `VITE_` prefix.** That prefix is Vite's `envPrefix` filter, which
 decides what `import.meta.env` exposes to bundled code; it applies to build-time
 variables and to nothing else. A prefixed name would no longer match the
-`KAGENT_UI_EXTENSION_` prefix the entrypoint and the dev server select on, so the value
+`KAGENT_UI_EXTENSION_` prefix the controller and the dev server select on, so the value
 would never arrive and `readEnv` would quietly return the fallback.
 
 ---

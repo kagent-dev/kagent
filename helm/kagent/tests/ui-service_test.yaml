@@ -40,7 +40,7 @@ tests:
           value: RELEASE-NAME
       - equal:
           path: spec.selector["app.kubernetes.io/component"]
-          value: ui
+          value: controller
 
   - it: should have correct metadata labels
     asserts:

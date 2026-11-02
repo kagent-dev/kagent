@@ -33,9 +33,6 @@ jobs:
           - build_target: controller
             image_name: controller
             tag_suffix: ""
-          - build_target: ui
-            image_name: ui
-            tag_suffix: ""
           - build_target: golang-adk
             image_name: golang-adk
             tag_suffix: ""

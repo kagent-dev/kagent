@@ -40,17 +40,17 @@ looked like a broken backend rather than a missing forward, since the page loade
 and every read failed with `ECONNREFUSED 127.0.0.1:8083`.
 
 Setting that line is still worth doing when what you want to exercise is the proxy hop
-itself: at `8080` the dev server goes through the UI pod's proxy exactly as a deployed
+itself: at `8080` the dev server goes through the controller's UI port exactly as a deployed
 build does, rather than straight to the controller.
 
 Worth knowing which one you are looking at: the dev server does not exercise the
-Dockerfile or the `ui/entrypoint` server and its settings rendering at start. To see a change
-the way it will ship, rebuild the image and swap it in:
+Dockerfile or the controller's UI listener rendering settings at start. To see a change
+the way it will ship, rebuild the controller image and swap it in:
 
 ```sh
-docker buildx build --push --platform linux/arm64 \
-  -t localhost:5001/kagent-dev/kagent/ui:dev -f ui/Dockerfile ./ui
-kubectl -n kagent rollout restart deploy/kagent-ui
+docker buildx build --push --platform linux/arm64 --target controller --build-context ui=./ui \
+  -t localhost:5001/kagent-dev/kagent/controller:dev -f go/Dockerfile ./go
+kubectl -n kagent rollout restart deploy/kagent-controller
 ```
 
 ## No cluster at all

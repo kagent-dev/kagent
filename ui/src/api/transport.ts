@@ -7,8 +7,8 @@
  * (`withGrpcWeb`/`trimAPIPrefix` in `go/core/internal/httpserver/server.go`).
  * From here, that means the address of a call is
  * `<apiBaseUrl>/<package>.<Service>/<Method>`, and `apiBaseUrl` is the same base
- * every other request in the app is built on — the UI proxy sends `/api`
- * to the controller, so it is same-origin.
+ * every other request in the app is built on — the controller serves `/api`
+ * beside the UI, so it is same-origin.
  *
  * Being same-origin is also why there is no token to attach by default: the
  * deployment authenticates with an oauth2-proxy cookie, which the browser sends
