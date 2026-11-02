@@ -113,7 +113,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.14.2" },
     { name = "google-adk", extras = ["a2a"], specifier = ">=2.13.0,<3" },
     { name = "google-auth", specifier = ">=2.62.0" },
-    { name = "google-genai", specifier = ">=2.33.0,<3" },
+    { name = "google-genai", specifier = ">=2.34.0,<3" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "pyjwt", specifier = ">=2.13.0" },
@@ -1253,7 +1253,7 @@ wheels = [
 
 [[package]]
 name = "google-genai"
-version = "2.33.0"
+version = "2.34.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1267,9 +1267,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/83/a4/b83b378b4a2fbbfb300c3fde0ff9f443f049c33e2accedf06bc0ad9bf393/google_genai-2.33.0.tar.gz", hash = "sha256:fced7f746da45264b34bcf6044a6fcdb91ebad1825e95c324ee48addb6e557ae", size = 758627, upload-time = "2026-10-23T00:06:28.332Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/89/4621aee9cb183efa5b8a187f0e315c49fddcfb8cd7f238b4a3bf4946dcd0/google_genai-2.34.0.tar.gz", hash = "sha256:8e182cf3f73384167b96861cf0aef5102b5070f2db1ea11002879e913806ef37", size = 791853, upload-time = "2026-10-29T06:43:23.706Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/3b/9ae8e16c5b2177bfdec1c64769a93eea9093de684e0bbb95c10c77645fef/google_genai-2.33.0-py3-none-any.whl", hash = "sha256:f3f8ab696b35caf95c222e05268740c1ccd6934257890506be73b126150d3b14", size = 1222487, upload-time = "2026-10-23T00:06:26.528Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/42/c24db865d9231b1c672ea26242a4dcf340e200bb1a9823dce4aa9c4c07a4/google_genai-2.34.0-py3-none-any.whl", hash = "sha256:a4cb02aebc4c357f863d2938132f0e3f7967fc5e00b8a4078673f68aad340665", size = 1258155, upload-time = "2026-10-29T06:43:21.121Z" },
 ]
 
 [[package]]
@@ -1900,7 +1900,7 @@ requires-dist = [
     { name = "filelock", specifier = ">=4.0.9" },
     { name = "google-adk", extras = ["a2a", "db"], specifier = ">=2.12.0,<3" },
     { name = "google-auth", specifier = ">=2.62.0" },
-    { name = "google-genai", specifier = ">=2.33.0,<3" },
+    { name = "google-genai", specifier = ">=2.34.0,<3" },
     { name = "grpcio", specifier = ">=1.83.0" },
     { name = "grpcio-health-checking", specifier = ">=1.74.0,<1.75.0" },
     { name = "httpx", specifier = ">=0.25.0" },
@@ -2011,7 +2011,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "crewai", extras = ["tools"], specifier = ">=1.2.0" },
     { name = "fastapi", specifier = ">=0.100.0" },
-    { name = "google-genai", specifier = ">=2.33.0,<3" },
+    { name = "google-genai", specifier = ">=2.34.0,<3" },
     { name = "kagent-core", extras = ["crewai"], editable = "packages/kagent-core" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
