@@ -297,7 +297,7 @@ describe("the fixture backend", () => {
     expect(configured[0].namespace).toBe("kagent");
     expect(configured[0].name).not.toBe(configured[0].type);
     expect(configured[0].endpoint).toBeTruthy();
-    expect(providers.every(p => p.source === "stock")).toBe(true);
+    expect(providers.some(p => configured.some(source => source.name === p.name))).toBe(false);
   });
 
   it("lists only the prompt libraries in the namespace asked about", async () => {

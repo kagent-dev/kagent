@@ -126,6 +126,7 @@ import {
   mockNamespaces,
   mockProviderModels,
   mockProviders,
+  mockConfiguredProviders,
   mockSubstrateInventory,
   mockTools,
 } from "./fixtures";
@@ -425,20 +426,12 @@ on(ModelService.method.deleteModelConfig, (input) => {
   return {};
 });
 
-/**
- * The providers the controller ships with.
- *
- * `models.providers` merges these with the configured ones, so the fixtures are
- * split the same way the controller splits them rather than served twice from one
- * list. Every fixture provider is a stock one today; one marked `configured`
- * flows into the other RPC without this file changing.
- */
+/** The providers the controller ships with. */
 on(ModelService.method.listSupportedModelProviders, (_input, call) => ({
   providers:
     call.scenario === "empty"
       ? []
       : mockProviders
-          .filter((provider) => provider.source !== "configured")
           .map((provider) => ({
             name: provider.name,
             type: provider.type,
@@ -451,12 +444,12 @@ on(ModelService.method.listConfiguredProviders, (_input, call) => ({
   providers:
     call.scenario === "empty"
       ? []
-      : mockProviders
-          .filter((provider) => provider.source === "configured")
+      : mockConfiguredProviders
           .map((provider) => ({
-            ref: {namespace:"kagent",name:provider.name},
+            ref: { namespace: provider.namespace, name: provider.name },
             type: provider.type,
-            endpoint: provider.endpoint ?? "",
+            endpoint: provider.endpoint,
+            state: 2,
           })),
 }));
 

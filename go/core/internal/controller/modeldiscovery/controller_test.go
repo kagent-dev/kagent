@@ -43,7 +43,7 @@ func waitState(t *testing.T, c *Controller, state apiv1.DiscoveryState) {
 }
 func scheduleNow(c *Controller) {
 	c.mu.Lock()
-	c.entries[testRef.String()].due = time.Time{}
+	c.entries[testRef.String()].due = new(time.Time)
 	c.mu.Unlock()
 	c.signal()
 }
@@ -140,7 +140,7 @@ func TestSecretRotationInvalidatesCatalog(t *testing.T) {
 	secrets.DeleteObject("team/discovery")
 	require.Eventually(t, func() bool { return c.Get(testRef).Error == errSecret.Error() }, 5*time.Second, 10*time.Millisecond)
 }
-func TestExplicitRefreshRateLimitAndImmutableReads(t *testing.T) {
+func TestExplicitRefreshReusesRecentSuccessAndImmutableReads(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"immutable","object":"model"}]}`)
 	}))
@@ -150,8 +150,12 @@ func TestExplicitRefreshRateLimitAndImmutableReads(t *testing.T) {
 	s := c.Get(testRef)
 	s.Models[0].Id = "modified"
 	require.Equal(t, "immutable", c.Get(testRef).Models[0].Id)
-	_, err := c.Refresh(t.Context(), testRef)
-	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeResourceExhausted))
+	refreshed, err := c.Refresh(t.Context(), testRef)
+	require.NoError(t, err)
+	require.Equal(t, "immutable", refreshed.Models[0].Id)
+	require.Equal(t, c.Get(testRef).LastSuccess, refreshed.LastSuccess)
+	refreshed.Models[0].Id = "modified again"
+	require.Equal(t, "immutable", c.Get(testRef).Models[0].Id)
 }
 
 func TestRefreshCoalescesAndCallerCancellationDoesNotCancelDiscovery(t *testing.T) {
@@ -183,9 +187,8 @@ func TestRefreshCoalescesAndCallerCancellationDoesNotCancelDiscovery(t *testing.
 	require.Eventually(t, func() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.entries[testRef.String()].cancel != nil }, time.Second, time.Millisecond)
 	close(release)
 	err := <-second
-	// The caller can arrive after completion; in that case admission rejects a new
-	// attempt instead of creating duplicate upstream work.
-	require.True(t, err == nil || serviceerrors.IsCode(err, serviceerrors.CodeResourceExhausted))
+	// A caller arriving after completion reuses the result without another request.
+	require.NoError(t, err)
 	require.Eventually(t, func() bool { return c.Get(testRef).State == apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT }, time.Second, time.Millisecond)
 	require.Equal(t, int32(2), calls.Load())
 }
@@ -218,4 +221,65 @@ func TestUpstreamConcurrencyIsBounded(t *testing.T) {
 		}
 		return true
 	}, 5*time.Second, time.Millisecond)
+}
+
+func TestScheduledRefreshWakesAtDeadline(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[]}`)
+	}))
+	defer server.Close()
+	c, _, _ := testController(t, server.URL)
+	waitState(t, c, apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT)
+	c.mu.Lock()
+	next := time.Now().Add(150 * time.Millisecond)
+	c.entries[testRef.String()].due = &next
+	c.mu.Unlock()
+	c.signal()
+	require.Never(t, func() bool { return calls.Load() > 1 }, 50*time.Millisecond, time.Millisecond)
+	require.Eventually(t, func() bool { return calls.Load() == 2 }, time.Second, time.Millisecond)
+}
+
+func TestRecentFailedRefreshPreservesFailure(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	c, _, _ := testController(t, server.URL)
+	waitState(t, c, apiv1.DiscoveryState_DISCOVERY_STATE_FAILED)
+	_, err := c.Refresh(t.Context(), testRef)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable))
+	require.Contains(t, err.Error(), errRequest.Error())
+	require.Equal(t, int32(1), calls.Load())
+}
+
+func TestUnsupportedProviderWaitsForConfigurationChange(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[]}`)
+	}))
+	defer server.Close()
+	c, providers, _ := testController(t, server.URL)
+	waitState(t, c, apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT)
+	provider := (*providers.GetKey(testRef.String())).DeepCopy()
+	provider.Generation++
+	provider.Spec.Type = api.ModelProviderAnthropic
+	providers.UpdateObject(provider)
+	waitState(t, c, apiv1.DiscoveryState_DISCOVERY_STATE_FAILED)
+	c.mu.Lock()
+	e := c.entries[testRef.String()]
+	due := e.due
+	e.lastAttempt = time.Time{} // Even outside cooldown, explicit refresh cannot retry.
+	c.mu.Unlock()
+	require.Nil(t, due)
+	_, err := c.Refresh(t.Context(), testRef)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable))
+	require.Contains(t, err.Error(), errUnsupported.Error())
+	provider = provider.DeepCopy()
+	provider.Generation++
+	provider.Spec.Type = api.ModelProviderOpenAI
+	providers.UpdateObject(provider)
+	waitState(t, c, apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT)
 }

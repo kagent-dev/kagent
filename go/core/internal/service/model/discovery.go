@@ -373,7 +373,7 @@ func (s *Service) GetProviderModels(ctx context.Context, request GetProviderMode
 			return nil, err
 		}
 		if s.discovery == nil {
-			return nil, serviceerrors.NewUnavailable("Model discovery is starting", nil)
+			return nil, serviceerrors.NewUnavailable("Model discovery is unavailable", nil)
 		}
 		return s.discovery.Refresh(ctx, request.Ref)
 	}

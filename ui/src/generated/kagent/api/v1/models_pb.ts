@@ -503,21 +503,29 @@ export type DiscoveredModel = Message<"kagent.api.v1.DiscoveredModel"> & {
   name?: string | undefined;
 
   /**
+   * Total context capacity in tokens. Prefer this over context_length when both are present.
+   *
    * @generated from field: optional uint64 context_window = 6;
    */
   contextWindow?: bigint | undefined;
 
   /**
+   * Alternative upstream name for total context capacity; fallback for context_window.
+   *
    * @generated from field: optional uint64 context_length = 7;
    */
   contextLength?: bigint | undefined;
 
   /**
+   * Maximum input tokens, distinct from total context capacity.
+   *
    * @generated from field: optional uint64 max_input_tokens = 8;
    */
   maxInputTokens?: bigint | undefined;
 
   /**
+   * Maximum output tokens, distinct from input and total context limits.
+   *
    * @generated from field: optional uint64 max_tokens = 9;
    */
   maxTokens?: bigint | undefined;

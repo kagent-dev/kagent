@@ -3,7 +3,7 @@
 import type { ActorJWT, TLSConfig } from "./common";
 
 export interface OpenAIConfig {
- apiFormat?: "chatCompletions" | "responses";
+  apiFormat?: "chatCompletions" | "responses";
   baseUrl?: string;
   organization?: string;
   temperature?: string;
@@ -129,9 +129,6 @@ export interface Provider {
   type: string;
   requiredParams: string[];
   optionalParams: string[];
-  /** Stock providers ship with the controller; configured ones were added by a user. */
-  source?: "stock" | "configured";
-  endpoint?: string;
 }
 
 export interface ProviderModel {

@@ -66,8 +66,9 @@ type SecretReference struct {
 //
 // +kubebuilder:validation:XValidation:message="endpoint must be a valid URL starting with http:// or https://",rule="!has(self.endpoint) || size(self.endpoint) == 0 || self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')"
 type ModelProviderConfigSpec struct {
-	// Type is the model provider type (OpenAI, Anthropic, etc.)
+	// Type is the discovery protocol. OpenAI-compatible endpoints are supported.
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == 'OpenAI'",message="only OpenAI-compatible discovery is supported"
 	Type ModelProvider `json:"type"`
 
 	// Endpoint is the API endpoint URL for the provider.
@@ -105,10 +106,6 @@ type ModelProviderConfigStatus struct {
 	// ModelCount is the number of discovered models (for kubectl display)
 	// +optional
 	ModelCount int `json:"modelCount,omitempty"`
-
-	// LastDiscoveryTime is the timestamp of the last successful model discovery
-	// +optional
-	LastDiscoveryTime *metav1.Time `json:"lastDiscoveryTime,omitempty"`
 }
 
 // +genclient

@@ -169,7 +169,6 @@ describe("model configurations", () => {
         type: "openai",
         requiredParams: ["apiKey"],
         optionalParams: ["baseUrl"],
-        source: "stock",
       },
 
     ]);

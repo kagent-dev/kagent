@@ -22,7 +22,7 @@ spec:
 
 The adapter requests `/team/v1/models`, preserving the endpoint prefix.
 `OpenAI` selects the discovery protocol and supports Agw's non-OpenAI and virtual
-models too. Other discovery adapters are not implemented.
+models too. Admission accepts only this discovery protocol.
 
 In **Models → Create model**, discovery is optional and defaults to manual
 configuration. Without a source selected, the existing provider selector,
@@ -43,8 +43,9 @@ collection; a KRT status collection derives desired status. Only the leader runs
 the retry queue that writes it through the generated Kubernetes client.
 Temporary differences between replicas are accepted. Status uses one `Ready`
 condition: successful discovery is True; pending or failed discovery is False,
-with the cause in `reason` (for example, `SecretUnresolved`). `modelCount` and
-`lastDiscoveryTime` describe the catalog; readiness does not verify invocation.
+with the cause in `reason` (for example, `SecretUnresolved`). `modelCount` describes
+catalog size; readiness does not verify invocation.
+Last-success timestamps stay in memory so unchanged polls do not write status.
 
 Entries use a typed OpenAI-compatible shape with optional Agw names, attribution,
 token limits, modalities, capabilities and supported parameters. IDs are preserved
@@ -64,7 +65,10 @@ configuration changes. Defaults: four concurrent requests per replica, one per s
 15-second attempts, 30-second explicit-refresh waits, and retries backing off
 from five seconds to five minutes. Explicit requests coalesce and admit new
 attempts at most every ten seconds per source; caller cancellation only ends
-that caller's wait.
+that caller's wait. Recent successful results are returned during the cooldown;
+recent failures remain errors. A timer targets the earliest scheduled refresh,
+and worker completion or input changes wake the scheduler immediately. Unsupported
+types supplied outside admission are not retried until their configuration changes.
 
 Bodies and model-list responses are limited to 2 MiB, catalogs to 10,000 entries,
 and entries to 16 KiB. Invalid, duplicate or truncated catalogs fail as a whole.

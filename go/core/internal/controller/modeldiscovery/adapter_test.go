@@ -32,6 +32,12 @@ func TestOpenAIDiscovery(t *testing.T) {
 			model := models[0]
 			require.Equal(t, "zai-org/glm-5.2-maas", model.Id)
 			require.Equal(t, uint64(1000000), *model.ContextWindow)
+			require.Equal(t, uint64(1000000), *model.ContextLength)
+			require.Equal(t, uint64(1000000), *model.MaxInputTokens)
+			require.Equal(t, uint64(1781308800), *model.Created)
+			require.Equal(t, "gcp.vertex_ai", *model.OwnedBy)
+			require.Equal(t, "GLM-5.2", *model.Name)
+			require.Equal(t, []string{"text"}, model.Architecture.InputModalities)
 			require.Equal(t, uint64(64000), *model.MaxTokens)
 			require.True(t, *model.Capabilities.Tools)
 			require.False(t, *model.Capabilities.Temperature)

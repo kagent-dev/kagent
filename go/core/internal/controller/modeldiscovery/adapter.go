@@ -85,6 +85,50 @@ func fetch(ctx context.Context, client *http.Client, endpoint, credential string
 	return parseModels(body)
 }
 
+// upstreamModel owns the gateway JSON contract independently of our protobuf API.
+type upstreamModel struct {
+	ID                  string                `json:"id"`
+	Object              string                `json:"object"`
+	Created             *uint64               `json:"created,omitempty"`
+	OwnedBy             *string               `json:"owned_by,omitempty"`
+	Name                *string               `json:"name,omitempty"`
+	ContextWindow       *uint64               `json:"context_window,omitempty"`
+	ContextLength       *uint64               `json:"context_length,omitempty"`
+	MaxInputTokens      *uint64               `json:"max_input_tokens,omitempty"`
+	MaxTokens           *uint64               `json:"max_tokens,omitempty"`
+	Architecture        *upstreamArchitecture `json:"architecture,omitempty"`
+	Capabilities        *upstreamCapabilities `json:"capabilities,omitempty"`
+	SupportedParameters []string              `json:"supported_parameters,omitempty"`
+}
+
+type upstreamArchitecture struct {
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
+}
+
+type upstreamCapabilities struct {
+	Reasoning         *bool `json:"reasoning,omitempty"`
+	StructuredOutputs *bool `json:"structured_outputs,omitempty"`
+	Tools             *bool `json:"tools,omitempty"`
+	Temperature       *bool `json:"temperature,omitempty"`
+}
+
+func (m upstreamModel) discoveredModel() *apiv1.DiscoveredModel {
+	model := &apiv1.DiscoveredModel{
+		Id: m.ID, Object: m.Object, Created: m.Created, OwnedBy: m.OwnedBy,
+		Name: m.Name, ContextWindow: m.ContextWindow, ContextLength: m.ContextLength,
+		MaxInputTokens: m.MaxInputTokens, MaxTokens: m.MaxTokens,
+		SupportedParameters: m.SupportedParameters,
+	}
+	if m.Architecture != nil {
+		model.Architecture = &apiv1.ModelArchitecture{InputModalities: m.Architecture.InputModalities, OutputModalities: m.Architecture.OutputModalities}
+	}
+	if m.Capabilities != nil {
+		model.Capabilities = &apiv1.ModelCapabilities{Reasoning: m.Capabilities.Reasoning, StructuredOutputs: m.Capabilities.StructuredOutputs, Tools: m.Capabilities.Tools, Temperature: m.Capabilities.Temperature}
+	}
+	return model
+}
+
 func parseModels(body []byte) ([]*apiv1.DiscoveredModel, error) {
 	var envelope struct {
 		Object   string          `json:"object"`
@@ -96,26 +140,29 @@ func parseModels(body []byte) ([]*apiv1.DiscoveredModel, error) {
 	if json.Unmarshal(body, &envelope) != nil || envelope.Object != "list" || len(envelope.Data) == 0 || envelope.Data[0] != '[' || envelope.HasMore || envelope.NextPage != "" || envelope.Next != "" {
 		return nil, errResponse
 	}
-	var models []*apiv1.DiscoveredModel
-	if json.Unmarshal(envelope.Data, &models) != nil {
+	var entries []*upstreamModel
+	if json.Unmarshal(envelope.Data, &entries) != nil {
 		return nil, errResponse
 	}
-	if len(models) > maxModels {
+	if len(entries) > maxModels {
 		return nil, errLimit
 	}
-	seen := make(map[string]bool, len(models))
-	for _, m := range models {
-		if m == nil || strings.TrimSpace(m.Id) == "" || m.Object != "model" || seen[m.Id] {
+	models := make([]*apiv1.DiscoveredModel, 0, len(entries))
+	seen := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if entry == nil || strings.TrimSpace(entry.ID) == "" || entry.Object != "model" || seen[entry.ID] {
 			return nil, errResponse
 		}
-		seen[m.Id] = true
-		encoded, err := json.Marshal(m)
+		seen[entry.ID] = true
+		encoded, err := json.Marshal(entry)
 		if err != nil {
 			return nil, errResponse
 		}
 		if len(encoded) > maxEntry {
 			return nil, errLimit
 		}
+		m := entry.discoveredModel()
+		models = append(models, m)
 		slices.Sort(m.SupportedParameters)
 		m.SupportedParameters = slices.Compact(m.SupportedParameters)
 		if m.Architecture != nil {

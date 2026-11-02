@@ -9,6 +9,7 @@
 import type { AgentInstance } from "@/api/domain/agentInstances";
 import type { ToolServerResponse, ToolsResponse } from "@/api/domain/mcpServers";
 import type {
+  ConfiguredModelProvider,
   ModelConfig,
   Provider,
   ProviderModelsResponse,
@@ -163,23 +164,23 @@ export const mockProviders: Provider[] = [
     requiredParams: ["deployment", "endpoint"],
     optionalParams: ["apiVersion", "apiFormat"],
   },
-  // Distinct configured sources sharing an invocation provider type. The
-  // discovery selector must retain their resource identities independently.
+];
+
+// Discovery sources retain their resource identities separately from stock providers.
+export const mockConfiguredProviders: ConfiguredModelProvider[] = [
   {
+    namespace: "kagent",
     name: "example-openai-proxy",
     type: "OpenAI",
-    requiredParams: [],
-    optionalParams: [],
-    source: "configured",
     endpoint: "https://llm.example.test/v1",
+    state: "current",
   },
   {
+    namespace: "kagent",
     name: "example-openai-proxy-b",
     type: "OpenAI",
-    requiredParams: [],
-    optionalParams: [],
-    source: "configured",
     endpoint: "https://other.example.test/v1",
+    state: "current",
   },
 ];
 

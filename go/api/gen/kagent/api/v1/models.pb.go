@@ -1135,19 +1135,23 @@ func (x *ListProviderModelsResponse) GetError() string {
 
 // Canonical OpenAI-compatible model entry, including optional Agw enrichment.
 type DiscoveredModel struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Object              string                 `protobuf:"bytes,2,opt,name=object,proto3" json:"object,omitempty"`
-	Created             *uint64                `protobuf:"varint,3,opt,name=created,proto3,oneof" json:"created,omitempty"`
-	OwnedBy             *string                `protobuf:"bytes,4,opt,name=owned_by,json=ownedBy,proto3,oneof" json:"owned_by,omitempty"`
-	Name                *string                `protobuf:"bytes,5,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	ContextWindow       *uint64                `protobuf:"varint,6,opt,name=context_window,json=contextWindow,proto3,oneof" json:"context_window,omitempty"`
-	ContextLength       *uint64                `protobuf:"varint,7,opt,name=context_length,json=contextLength,proto3,oneof" json:"context_length,omitempty"`
-	MaxInputTokens      *uint64                `protobuf:"varint,8,opt,name=max_input_tokens,json=maxInputTokens,proto3,oneof" json:"max_input_tokens,omitempty"`
-	MaxTokens           *uint64                `protobuf:"varint,9,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Architecture        *ModelArchitecture     `protobuf:"bytes,10,opt,name=architecture,proto3" json:"architecture,omitempty"`
-	Capabilities        *ModelCapabilities     `protobuf:"bytes,11,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
-	SupportedParameters []string               `protobuf:"bytes,12,rep,name=supported_parameters,json=supportedParameters,proto3" json:"supported_parameters,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Object  string                 `protobuf:"bytes,2,opt,name=object,proto3" json:"object,omitempty"`
+	Created *uint64                `protobuf:"varint,3,opt,name=created,proto3,oneof" json:"created,omitempty"`
+	OwnedBy *string                `protobuf:"bytes,4,opt,name=owned_by,json=ownedBy,proto3,oneof" json:"owned_by,omitempty"`
+	Name    *string                `protobuf:"bytes,5,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	// Total context capacity in tokens. Prefer this over context_length when both are present.
+	ContextWindow *uint64 `protobuf:"varint,6,opt,name=context_window,json=contextWindow,proto3,oneof" json:"context_window,omitempty"`
+	// Alternative upstream name for total context capacity; fallback for context_window.
+	ContextLength *uint64 `protobuf:"varint,7,opt,name=context_length,json=contextLength,proto3,oneof" json:"context_length,omitempty"`
+	// Maximum input tokens, distinct from total context capacity.
+	MaxInputTokens *uint64 `protobuf:"varint,8,opt,name=max_input_tokens,json=maxInputTokens,proto3,oneof" json:"max_input_tokens,omitempty"`
+	// Maximum output tokens, distinct from input and total context limits.
+	MaxTokens           *uint64            `protobuf:"varint,9,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Architecture        *ModelArchitecture `protobuf:"bytes,10,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	Capabilities        *ModelCapabilities `protobuf:"bytes,11,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	SupportedParameters []string           `protobuf:"bytes,12,rep,name=supported_parameters,json=supportedParameters,proto3" json:"supported_parameters,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }

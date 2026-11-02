@@ -136,9 +136,13 @@ message DiscoveredModel {
   optional uint64 created = 3;
   optional string owned_by = 4;
   optional string name = 5;
+  // Total context capacity in tokens. Prefer this over context_length when both are present.
   optional uint64 context_window = 6;
+  // Alternative upstream name for total context capacity; fallback for context_window.
   optional uint64 context_length = 7;
+  // Maximum input tokens, distinct from total context capacity.
   optional uint64 max_input_tokens = 8;
+  // Maximum output tokens, distinct from input and total context limits.
   optional uint64 max_tokens = 9;
   ModelArchitecture architecture = 10;
   ModelCapabilities capabilities = 11;

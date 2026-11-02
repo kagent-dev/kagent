@@ -46,9 +46,6 @@ func TestStatusWritesOnlyReady(t *testing.T) {
 			if tt.state == apiv1.DiscoveryState_DISCOVERY_STATE_FAILED || tt.state == apiv1.DiscoveryState_DISCOVERY_STATE_STALE {
 				observation.Error = tt.reason
 			}
-			if tt.state == apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT || tt.state == apiv1.DiscoveryState_DISCOVERY_STATE_STALE {
-				observation.LastSuccess = &transition
-			}
 			got := object.DeepCopy()
 			got.Status = statusWithTransitionTimes(statusForObservation(observation), object.Status)
 			require.Len(t, got.Status.Conditions, 1)
@@ -85,21 +82,16 @@ func TestKRTStatusObservations(t *testing.T) {
 	c, _, secrets := statusFixture(t)
 	key := testRef.String()
 	require.Equal(t, api.ModelProviderConfigReasonPending, c.statuses.GetKey(key).Status.Conditions[0].Reason)
-	now := metav1.NewTime(time.Unix(1700000000, 0))
-	observation := statusObservation{Input: *c.inputs.GetKey(key), State: apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT, Count: 2, LastSuccess: &now}
+	observation := statusObservation{Input: *c.inputs.GetKey(key), State: apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT, Count: 2}
 	c.observations.UpdateObject(observation)
 	require.Eventually(t, func() bool { return c.statuses.GetKey(key).Status.ModelCount == 2 }, time.Second, time.Millisecond)
-	next := metav1.NewTime(now.Add(time.Minute))
-	observation.LastSuccess = &next
-	c.observations.UpdateObject(observation)
-	require.Eventually(t, func() bool { return c.statuses.GetKey(key).Status.LastDiscoveryTime.Equal(&next) }, time.Second, time.Millisecond)
 	// Secret rotation invalidates status even though UID/generation are unchanged.
 	secret := (*secrets.GetKey("team/credential")).DeepCopy()
 	secret.ResourceVersion = "2"
 	secrets.UpdateObject(secret)
 	require.Eventually(t, func() bool {
 		status := c.statuses.GetKey(key).Status
-		return status.ModelCount == 0 && status.LastDiscoveryTime == nil && status.Conditions[0].Reason == api.ModelProviderConfigReasonPending
+		return status.ModelCount == 0 && status.Conditions[0].Reason == api.ModelProviderConfigReasonPending
 	}, time.Second, time.Millisecond)
 	// Late old-credential observations cannot turn the new input epoch Ready.
 	observation.Count = 3

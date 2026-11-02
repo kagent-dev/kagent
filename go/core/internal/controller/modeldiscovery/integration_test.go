@@ -102,6 +102,11 @@ func TestDiscoveryKubernetesIntegration(t *testing.T) {
 	invalid.UID = ""
 	invalid.Spec.Endpoint = "https://host/v1?limit=1"
 	require.Error(t, kube.Create(ctx, invalid))
+	invalid.Spec.Endpoint = source.Spec.Endpoint
+	for _, providerType := range []api.ModelProvider{api.ModelProviderAnthropic, api.ModelProviderGemini, api.ModelProviderBedrock} {
+		invalid.Spec.Type = providerType
+		require.Error(t, kube.Create(ctx, invalid), "unsupported discovery protocol must fail admission")
+	}
 
 	startReplica := func(name string) *Controller {
 		kc, err := apiclient.New(cfg)
@@ -134,7 +139,14 @@ func TestDiscoveryKubernetesIntegration(t *testing.T) {
 	observed := &api.ModelProviderConfig{}
 	require.NoError(t, kube.Get(ctx, testRef, observed))
 	require.Equal(t, 1, observed.Status.ModelCount)
-	require.NotNil(t, observed.Status.LastDiscoveryTime)
+	previousSuccess := leader.Get(testRef).LastSuccess.AsTime()
+	scheduleNow(leader)
+	require.Eventually(t, func() bool { return leader.Get(testRef).LastSuccess.AsTime().After(previousSuccess) }, time.Second, time.Millisecond)
+	require.Never(t, func() bool {
+		current := &api.ModelProviderConfig{}
+		require.NoError(t, kube.Get(ctx, testRef, current))
+		return current.ResourceVersion != observed.ResourceVersion
+	}, 200*time.Millisecond, 10*time.Millisecond)
 
 	service := modelservice.NewService(kube, auth.NoopAuthorizer{}, "team", modelservice.WithProviderDiscovery(follower))
 	listener := bufconn.Listen(1 << 20)

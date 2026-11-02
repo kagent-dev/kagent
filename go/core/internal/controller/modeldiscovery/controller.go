@@ -35,7 +35,7 @@ const (
 	// Expiry ends only that caller's wait, not the shared discovery attempt.
 	explicitTimeout = 30 * time.Second
 	// explicitCooldown limits new user-triggered attempts after the last attempt
-	// started. Calls joining an active attempt bypass this admission check.
+	// started. Recent completed results are reused; active attempts are joined.
 	explicitCooldown = 10 * time.Second
 	// maxConcurrent caps upstream requests per replica across all sources, bounding
 	// outbound load and response memory. Each source also allows one active attempt.
@@ -55,12 +55,13 @@ type source struct {
 func (s source) ResourceName() string { return s.Ref.String() }
 
 type entry struct {
-	input            source
-	snapshot         *modeldiscovery.Snapshot
-	due, lastAttempt time.Time
-	failures         int
-	cancel           context.CancelFunc
-	done             chan struct{}
+	input       source
+	snapshot    *modeldiscovery.Snapshot
+	due         *time.Time // nil disables scheduling; zero requests immediate dispatch.
+	lastAttempt time.Time
+	failures    int
+	cancel      context.CancelFunc
+	done        chan struct{}
 }
 
 type Controller struct {
@@ -89,6 +90,7 @@ func New(providers krt.Collection[*api.ModelProviderConfig], secrets krt.Collect
 			if secret != nil {
 				s.SecretVersion = string((*secret).UID) + "/" + (*secret).ResourceVersion
 			}
+			// Keep an invalid Secret reference distinct from anonymous access.
 			if s.SecretName == "" {
 				s.SecretName = "/invalid"
 			}
@@ -128,8 +130,9 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.synced = true
 	c.notifyLocked()
 	c.mu.Unlock()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	timerC := timer.C
 	var workers sync.WaitGroup
 	defer workers.Wait()
 	defer func() {
@@ -145,7 +148,7 @@ func (c *Controller) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-timerC:
 		case <-c.wake:
 		}
 		c.mu.Lock()
@@ -153,11 +156,11 @@ func (c *Controller) Start(ctx context.Context) error {
 		due := make([]*entry, 0)
 		now := time.Now()
 		for _, e := range c.entries {
-			if e.cancel == nil && !e.due.After(now) {
+			if e.cancel == nil && e.due != nil && !e.due.After(now) {
 				due = append(due, e)
 			}
 		}
-		slices.SortFunc(due, func(a, b *entry) int { return a.due.Compare(b.due) })
+		slices.SortFunc(due, func(a, b *entry) int { return a.due.Compare(*b.due) })
 		for _, e := range due {
 			if c.running >= maxConcurrent {
 				break
@@ -168,6 +171,22 @@ func (c *Controller) Start(ctx context.Context) error {
 			c.running++
 			workers.Add(1)
 			go func(e *entry) { defer workers.Done(); c.refresh(attempt, e) }(e)
+		}
+		// With all slots occupied, completion will wake us. Do not spin on an
+		// overdue entry that cannot start yet.
+		timer.Stop()
+		timerC = nil
+		if c.running < maxConcurrent {
+			var next *time.Time
+			for _, e := range c.entries {
+				if e.cancel == nil && e.due != nil && (next == nil || e.due.Before(*next)) {
+					next = e.due
+				}
+			}
+			if next != nil {
+				timer.Reset(time.Until(*next))
+				timerC = timer.C
+			}
 		}
 		c.mu.Unlock()
 	}
@@ -189,7 +208,7 @@ func (c *Controller) observe(s source) {
 		}
 		close(old.done)
 	}
-	c.entries[s.ResourceName()] = &entry{input: s, snapshot: pending(s), done: make(chan struct{})}
+	c.entries[s.ResourceName()] = &entry{input: s, snapshot: pending(s), due: new(time.Time), done: make(chan struct{})}
 	c.publishStatusLocked(c.entries[s.ResourceName()])
 	c.notifyLocked()
 	c.signal()
@@ -272,7 +291,8 @@ func (c *Controller) refresh(ctx context.Context, e *entry) {
 		s.Error = ""
 		s.LastSuccess = timestamppb.Now()
 		e.failures = 0
-		e.due = time.Now().Add(jitter(refreshInterval))
+		next := time.Now().Add(jitter(refreshInterval))
+		e.due = &next
 	} else {
 		s.Error = err.Error()
 		s.State = apiv1.DiscoveryState_DISCOVERY_STATE_FAILED
@@ -281,7 +301,11 @@ func (c *Controller) refresh(ctx context.Context, e *entry) {
 		}
 		e.failures++
 		backoff := 5 * time.Second * time.Duration(1<<min(e.failures-1, 6))
-		e.due = time.Now().Add(jitter(min(backoff, 5*time.Minute)))
+		next := time.Now().Add(jitter(min(backoff, 5*time.Minute)))
+		e.due = &next
+		if err == errUnsupported {
+			e.due = nil // Only a configuration change can make this source supported.
+		}
 	}
 	changed := s.State != e.snapshot.State || s.Error != e.snapshot.Error || !slices.EqualFunc(s.Models, e.snapshot.Models, func(a, b *apiv1.DiscoveredModel) bool { return proto.Equal(a, b) })
 	if !changed {
@@ -311,11 +335,15 @@ func (c *Controller) Refresh(ctx context.Context, ref types.NamespacedName) (*mo
 			return nil, serviceerrors.NewNotFound("Model provider not found", nil)
 		}
 		if e.cancel == nil {
-			if time.Since(e.lastAttempt) < explicitCooldown {
+			if e.due == nil || time.Since(e.lastAttempt) < explicitCooldown {
+				s := e.snapshot.Clone()
 				c.mu.Unlock()
-				return nil, serviceerrors.NewResourceExhausted("Model discovery refresh is rate limited", nil)
+				if s.State != apiv1.DiscoveryState_DISCOVERY_STATE_CURRENT {
+					return nil, serviceerrors.NewUnavailable(s.Error, nil)
+				}
+				return s, nil
 			}
-			e.due = time.Time{}
+			e.due = new(time.Time)
 			c.signal()
 		}
 		done := e.done

@@ -187,9 +187,9 @@ const models: Pick<
   | "models.delete"
   | "models.providers"
   | "models.providerModels"
- | "models.configuredProviders"
- | "models.discovery"
- | "models.refreshDiscovery"
+  | "models.configuredProviders"
+  | "models.discovery"
+  | "models.refreshDiscovery"
 > = {
   "models.list": async (_input, options) => {
     const name = "ModelService/ListModelConfigs";
@@ -266,25 +266,29 @@ const models: Pick<
   "models.providers": async (_input, options) => {
     const response = await rpc("ModelService/ListSupportedModelProviders", options.signal, () =>
       serviceClient(ModelService).listSupportedModelProviders({}, call("models.providers", options)));
-    return response.providers.map(provider => ({name: provider.name, type: provider.type,
-      requiredParams: provider.requiredParams, optionalParams: provider.optionalParams, source: "stock" as const}));
+    return response.providers.map(provider => ({
+      name: provider.name, type: provider.type,
+      requiredParams: provider.requiredParams, optionalParams: provider.optionalParams,
+    }));
   },
   "models.configuredProviders": async (_input, options) => {
     const response = await rpc("ModelService/ListConfiguredProviders", options.signal, () =>
       serviceClient(ModelService).listConfiguredProviders({}, call("models.configuredProviders", options)));
-    return response.providers.map(provider => ({namespace: provider.ref?.namespace ?? "", name: provider.ref?.name ?? "",
-      type: provider.type, endpoint: provider.endpoint, state: discoveryState(provider.state), error: orUndefined(provider.error)}));
+    return response.providers.map(provider => ({
+      namespace: provider.ref?.namespace ?? "", name: provider.ref?.name ?? "",
+      type: provider.type, endpoint: provider.endpoint, state: discoveryState(provider.state), error: orUndefined(provider.error),
+    }));
   },
   "models.discovery": async (input, options) => {
     const name = "ModelService/ListProviderModels";
     const response = await rpc(name, options.signal, () => serviceClient(ModelService).listProviderModels(
-      {ref: input}, call("models.discovery", options)));
+      { ref: input }, call("models.discovery", options)));
     return discoveryResult(response);
   },
   "models.refreshDiscovery": async (input, options) => {
     const name = "ModelService/ListProviderModels";
     const response = await rpc(name, options.signal, () => serviceClient(ModelService).listProviderModels(
-      {ref: input, refresh: true}, call("models.refreshDiscovery", options)));
+      { ref: input, refresh: true }, call("models.refreshDiscovery", options)));
     return discoveryResult(response);
   },
 
@@ -1389,7 +1393,7 @@ export const defaultOperations: ApiOperations = {
 };
 
 function discoveryState(state: DiscoveryState): import("../domain/models").DiscoveryState {
-  switch(state) {
+  switch (state) {
     case DiscoveryState.CURRENT: return "current";
     case DiscoveryState.STALE: return "stale";
     case DiscoveryState.FAILED: return "failed";
@@ -1397,9 +1401,22 @@ function discoveryState(state: DiscoveryState): import("../domain/models").Disco
   }
 }
 function discoveryResult(response: ListProviderModelsResponse): import("../domain/models").ModelDiscoveryResult {
- return {endpoint: response.endpoint, state: discoveryState(response.state), error: orUndefined(response.error),
-   models: response.discoveredModels.map(model => ({id:model.id, name:model.name, ownedBy:model.ownedBy,
-     contextWindow:model.contextWindow?.toString(), maxTokens:model.maxTokens?.toString(), capabilities:model.capabilities ? {
-       tools:model.capabilities.tools, reasoning:model.capabilities.reasoning,
-       structuredOutputs:model.capabilities.structuredOutputs, temperature:model.capabilities.temperature} : undefined}))};
+  return {
+    endpoint: response.endpoint,
+    state: discoveryState(response.state),
+    error: orUndefined(response.error),
+    models: response.discoveredModels.map((model) => ({
+      id: model.id,
+      name: model.name,
+      ownedBy: model.ownedBy,
+      contextWindow: model.contextWindow?.toString(),
+      maxTokens: model.maxTokens?.toString(),
+      capabilities: model.capabilities ? {
+        tools: model.capabilities.tools,
+        reasoning: model.capabilities.reasoning,
+        structuredOutputs: model.capabilities.structuredOutputs,
+        temperature: model.capabilities.temperature,
+      } : undefined,
+    })),
+  };
 }

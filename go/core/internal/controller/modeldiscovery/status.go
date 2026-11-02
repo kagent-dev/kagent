@@ -31,21 +31,16 @@ const (
 // Observations contain only status metadata, not model records or credentials.
 // Input identity prevents a completed refresh from describing a different source epoch.
 type statusObservation struct {
-	Input       source
-	State       apiv1.DiscoveryState
-	Error       string
-	Count       int
-	LastSuccess *metav1.Time
+	Input source
+	State apiv1.DiscoveryState
+	Error string
+	Count int
 }
 
 func (o statusObservation) ResourceName() string { return o.Input.ResourceName() }
 
 func (c *Controller) publishStatusLocked(e *entry) {
 	o := statusObservation{Input: e.input, State: e.snapshot.State, Error: e.snapshot.Error, Count: len(e.snapshot.Models)}
-	if e.snapshot.LastSuccess != nil {
-		t := metav1.NewTime(e.snapshot.LastSuccess.AsTime().Truncate(time.Second))
-		o.LastSuccess = &t
-	}
 	c.observations.ConditionalUpdateObject(o)
 }
 
@@ -72,7 +67,7 @@ func statusForObservation(o statusObservation) api.ModelProviderConfigStatus {
 	} else if o.Error != "" {
 		reason = o.Error
 	}
-	return api.ModelProviderConfigStatus{ObservedGeneration: o.Input.Generation, ModelCount: o.Count, LastDiscoveryTime: o.LastSuccess,
+	return api.ModelProviderConfigStatus{ObservedGeneration: o.Input.Generation, ModelCount: o.Count,
 		Conditions: []metav1.Condition{{Type: api.ModelProviderConfigConditionTypeReady, Status: ready, Reason: reason, Message: reason, ObservedGeneration: o.Input.Generation}}}
 }
 

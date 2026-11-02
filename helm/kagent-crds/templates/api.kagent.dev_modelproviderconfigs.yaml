@@ -81,7 +81,8 @@ spec:
                 - name
                 type: object
               type:
-                description: Type is the model provider type (OpenAI, Anthropic, etc.)
+                description: Type is the discovery protocol. OpenAI-compatible endpoints
+                  are supported.
                 enum:
                 - Anthropic
                 - OpenAI
@@ -95,6 +96,9 @@ spec:
                 - Foundry
                 - Mistral
                 type: string
+                x-kubernetes-validations:
+                - message: only OpenAI-compatible discovery is supported
+                  rule: self == 'OpenAI'
             required:
             - type
             type: object
@@ -166,11 +170,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              lastDiscoveryTime:
-                description: LastDiscoveryTime is the timestamp of the last successful
-                  model discovery
-                format: date-time
-                type: string
               modelCount:
                 description: ModelCount is the number of discovered models (for kubectl
                   display)
