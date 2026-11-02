@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -185,15 +188,27 @@ func structured[T any](t *testing.T, result *mcp.CallToolResult) T {
 	return out
 }
 
-func TestCreateSessionSchemaFollowsRequest(t *testing.T) {
-	schema := createSessionSchema()
+func TestCreateSessionSchema(t *testing.T) {
+	server := sessionServer(t, newSessionStore(), &turnGateway{})
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = serverSession.Close() })
+	session, err := client.Connect(t.Context(), clientTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+	tools, err := session.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	index := slices.IndexFunc(tools.Tools, func(tool *mcp.Tool) bool { return tool.Name == createSessionToolName })
+	require.GreaterOrEqual(t, index, 0)
+	data, err := json.Marshal(tools.Tools[index].InputSchema)
+	require.NoError(t, err)
+	var schema jsonschema.Schema
+	require.NoError(t, json.Unmarshal(data, &schema))
 	require.Equal(t, []string{"agent"}, schema.Required)
-	for _, name := range []string{"agent", "request_id", "name", "message"} {
-		require.Contains(t, schema.Properties, name)
-	}
+	require.ElementsMatch(t, []string{"agent", "request_id", "name", "message"}, slices.Collect(maps.Keys(schema.Properties)))
 	require.ElementsMatch(t, []string{"name", "namespace"}, schema.Properties["agent"].Required)
-	require.Equal(t, 128, *schema.Properties["request_id"].MaxLength)
-	require.Equal(t, 200, *schema.Properties["name"].MaxLength)
 	require.NotEmpty(t, schema.Properties["agent"].Properties["namespace"].Description)
 }
 
@@ -237,6 +252,8 @@ func TestCreateSessionRefusesInvalidArguments(t *testing.T) {
 		"no agent":      {"name": "orphan"},
 		"blank message": {"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "message": "  "},
 		"long name":     {"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "name": strings.Repeat("n", 201)},
+		"long request":  {"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "request_id": strings.Repeat("r", 129)},
+		"empty agent":   {"agent": map[string]any{"namespace": "team-a", "name": ""}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			result, err := sessionToolCall(t, server, createSessionToolName, arguments)

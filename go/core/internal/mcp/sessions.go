@@ -17,7 +17,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -41,12 +40,11 @@ const (
 	envelopeSlack = 128
 )
 
-var sessionDescriptions = map[string]string{
-	"agent":           "The Agent the Session talks to",
-	"agent.namespace": "Agent namespace",
-	"agent.name":      "Agent name",
-	"request_id":      "Stable idempotency key; reuse it with identical inputs on a retry to get the same Session and first turn",
-	"name":            "Optional display name",
+type CreateSessionInput struct {
+	Agent     AgentRef `json:"agent" jsonschema:"The Agent the Session talks to"`
+	RequestID string   `json:"request_id,omitempty" jsonschema:"Stable idempotency key; reuse it with identical inputs on a retry to get the same Session and first turn"`
+	Name      string   `json:"name,omitempty" jsonschema:"Optional display name"`
+	Message   string   `json:"message,omitempty" jsonschema:"Optional first message, sent as invoke_session sends one"`
 }
 
 type CreateSessionOutput struct {
@@ -146,10 +144,9 @@ var (
 )
 
 func (h *Handler) registerSessionTools(server *mcp.Server) {
-	server.AddTool(&mcp.Tool{
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        createSessionToolName,
 		Description: "Start a Session with an Agent, optionally sending its first message. With message it returns once the turn is accepted; read the reply with get_session. A retry with the same request_id returns the same Session and turn.",
-		InputSchema: createSessionSchema(),
 	}, h.createSession)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        getSessionToolName,
@@ -190,63 +187,39 @@ func (h *Handler) registerSessionTools(server *mcp.Server) {
 	})
 }
 
-// createSessionSchema is CreateSessionRequest's schema, so every field the
-// request carries is accepted, plus the first message.
-func createSessionSchema() *jsonschema.Schema {
-	schema := protoMessageSchema((&apiv1.CreateSessionRequest{}).ProtoReflect().Descriptor(), sessionDescriptions)
-	schema.Required = slices.DeleteFunc(schema.Required, func(name string) bool { return name == "request_id" })
-	schema.Properties["message"] = &jsonschema.Schema{Type: "string", Description: "Optional first message, sent as invoke_session sends one"}
-	schema.PropertyOrder = append(schema.PropertyOrder, "message")
-	return schema
-}
-
-// createSession decodes everything but message into a CreateSessionRequest,
-// creates the Session as the caller and sends the first message once per
-// request ID.
-func (h *Handler) createSession(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	var arguments map[string]json.RawMessage
-	if err := json.Unmarshal(request.Params.Arguments, &arguments); err != nil {
-		return toolError(fmt.Errorf("arguments must be an object: %w", err)), nil
-	}
-	var message string
-	if raw, ok := arguments["message"]; ok {
-		if err := json.Unmarshal(raw, &message); err != nil {
-			return toolError(fmt.Errorf("message must be a string: %w", err)), nil
+// createSession creates the Session as the caller and sends the first message
+// once per request ID.
+func (h *Handler) createSession(ctx context.Context, _ *mcp.CallToolRequest, input CreateSessionInput) (*mcp.CallToolResult, CreateSessionOutput, error) {
+	if input.Message != "" {
+		if strings.TrimSpace(input.Message) == "" {
+			return toolError(errors.New("message is blank: omit it to create the Session without a first message")), CreateSessionOutput{}, nil
 		}
-		delete(arguments, "message")
-		if strings.TrimSpace(message) == "" {
-			return toolError(errors.New("message is blank: omit it to create the Session without a first message")), nil
-		}
-		if len(message) > maxFirstMessageBytes || !utf8.ValidString(message) {
-			return toolError(fmt.Errorf("message must be valid UTF-8 of at most %d bytes", maxFirstMessageBytes)), nil
+		if len(input.Message) > maxFirstMessageBytes || !utf8.ValidString(input.Message) {
+			return toolError(fmt.Errorf("message must be valid UTF-8 of at most %d bytes", maxFirstMessageBytes)), CreateSessionOutput{}, nil
 		}
 	}
-	data, err := json.Marshal(arguments)
-	if err != nil {
-		return toolError(err), nil
+	create := &apiv1.CreateSessionRequest{
+		Agent:     &apiv1.ResourceReference{Namespace: input.Agent.Namespace, Name: input.Agent.Name},
+		RequestId: stableRequestID(input.RequestID),
+		Name:      input.Name,
 	}
-	create := &apiv1.CreateSessionRequest{}
-	if err := protojson.Unmarshal(data, create); err != nil {
-		return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
-	}
-	create.RequestId = stableRequestID(create.GetRequestId())
 	if err := protovalidate.Validate(create); err != nil {
-		return toolError(err), nil
+		return toolError(err), CreateSessionOutput{}, nil
 	}
-	session, err := h.sessions.CreateFromRequest(ctx, create)
+	session, err := h.sessions.Create(ctx, create.GetAgent(), create.GetRequestId(), create.GetName())
 	if err != nil {
-		return sessionToolError(err), nil
+		return sessionToolError(err), CreateSessionOutput{}, nil
 	}
 	output := CreateSessionOutput{Session: sessionSummary(session)}
-	if message != "" {
-		turn, err := h.firstTurn(ctx, session, create.GetRequestId(), message)
+	if input.Message != "" {
+		turn, err := h.firstTurn(ctx, session, create.GetRequestId(), input.Message)
 		if err != nil {
-			return toolError(fmt.Errorf("session %s was created but its first message was not accepted (retry with request_id %q to reuse it): %s", session.GetId(), create.GetRequestId(), serviceerrors.MessageOf(err))), nil
+			return toolError(fmt.Errorf("session %s was created but its first message was not accepted (retry with request_id %q to reuse it): %s", session.GetId(), create.GetRequestId(), serviceerrors.MessageOf(err))), CreateSessionOutput{}, nil
 		}
 		_, invoked := invocationResult(InvokeSessionInput{SessionID: session.GetId()}, turn)
 		output.Turn = &invoked
 	}
-	return structuredResult(output)
+	return nil, output, nil
 }
 
 // firstTurn sends a Session's first message once per request ID: the message
@@ -544,17 +517,6 @@ func sessionTenant(session *apiv1.Session) string {
 
 func sessionResult(session *apiv1.Session) (*mcp.CallToolResult, SessionOutput, error) {
 	return nil, SessionOutput{Session: sessionSummary(session)}, nil
-}
-
-// structuredResult answers output as structured content and, as the MCP
-// specification recommends, as its serialized JSON in a text block, so a
-// client that reads only content sees the whole answer.
-func structuredResult(output any) (*mcp.CallToolResult, error) {
-	data, err := json.Marshal(output)
-	if err != nil {
-		return nil, fmt.Errorf("marshal tool output: %w", err)
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}, StructuredContent: json.RawMessage(data)}, nil
 }
 
 // sessionToolError is a service error as a tool result: its public message,
