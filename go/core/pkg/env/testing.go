@@ -33,13 +33,6 @@ var (
 		ComponentTesting,
 	)
 
-	STSPort = RegisterStringVar(
-		"KAGENT_TEST_STS_PORT",
-		"8091",
-		"Port for the mock STS (Security Token Service) server.",
-		ComponentTesting,
-	)
-
 	LLMPort = RegisterStringVar(
 		"KAGENT_TEST_LLM_PORT",
 		"8090",

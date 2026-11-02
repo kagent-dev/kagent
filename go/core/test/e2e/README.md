@@ -287,13 +287,6 @@ persistence across HTTP and gRPC. `TestSessionHTTPResubscribeAndCancel`
 subscribes to an active HTTP task and verifies cancellation on both SSE streams.
 Both cases run across the harness matrix without a session routing header.
 
-For local interaction debugging, start any retained response fixture from the
-`go` directory:
-
-```bash
-go run ./core/hack/mockllm invoke_mcp_agent.json
-```
-
 Pending-input coverage waits for a suspended Actor and a verified durable VOLUMES
 snapshot before approval, denial, cancellation, and native ask-user responses.
 The approval matrix asserts one MCP execution on approval and none on denial or
