@@ -96,7 +96,6 @@ func TestCompileActorEgressPolicyExtensions(t *testing.T) {
 				return bind(ctx, input, policy)
 			}),
 		}},
-		{name: "unbound target", compilers: []egresspolicy.Compiler{compilerFunc(func(context.Context, egresspolicy.Input, *ateapipb.EgressPolicy) error { return nil })}, wantErr: "has no credential"},
 		{name: "compiler error", compilers: []egresspolicy.Compiler{compilerFunc(func(context.Context, egresspolicy.Input, *ateapipb.EgressPolicy) error {
 			return errors.New("denied")
 		})}, wantErr: "denied"},
@@ -121,11 +120,33 @@ func TestCompileActorEgressPolicyExtensions(t *testing.T) {
 	}
 }
 
-func TestCompileActorEgressPolicyWithoutExtensionsLeavesTargetsUnbound(t *testing.T) {
+func TestCompileActorEgressPolicyMayLeaveTargetsUnbound(t *testing.T) {
 	target := egresspolicy.GatewayTarget{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer "}
-	policy, err := compileActorEgressPolicy(t.Context(), "team", egress.Access{Destinations: []string{target.Origin}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{target}}, testControlPlaneURL, nil)
-	require.NoError(t, err, "runtimes forward the caller token without an extension")
-	require.Empty(t, policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders())
+	access := egress.Access{Destinations: []string{target.Origin}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{target}}
+	extra := compilerFunc(func(_ context.Context, _ egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
+		policy.GetRules()[0].GetHttps().Effects = &ateapipb.HttpRuleEffects{ReplaceHeaders: []*ateapipb.CredentialHeader{
+			{Header: "x-extra", ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{"https://sts.example.com"}}},
+		}}
+		return nil
+	})
+	for _, test := range []struct {
+		name        string
+		compilers   []egresspolicy.Compiler
+		wantHeaders []string
+	}{
+		{name: "no extensions"},
+		{name: "extension adds another header", compilers: []egresspolicy.Compiler{extra}, wantHeaders: []string{"x-extra"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy, err := compileActorEgressPolicy(t.Context(), "team", access, testControlPlaneURL, test.compilers)
+			require.NoError(t, err)
+			var got []string
+			for _, header := range policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders() {
+				got = append(got, header.GetHeader())
+			}
+			require.Equal(t, test.wantHeaders, got)
+		})
+	}
 }
 
 func TestActorPolicyInjectsRuntimeJWTOnlyAtControlPlane(t *testing.T) {

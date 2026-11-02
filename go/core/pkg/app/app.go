@@ -129,8 +129,7 @@ type Options struct {
 	// not protected: the SDK replaces a tool or resource registered under an
 	// existing name or URI. Returning an error aborts startup.
 	MCPExtensions func(*mcpsdk.Server) error
-	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
-	// all must be bound. Authenticator must not forward the caller token.
+	// EgressPolicyCompilers extend each actor's EgressPolicy in order.
 	EgressPolicyCompilers []egresspolicy.Compiler
 }
 

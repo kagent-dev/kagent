@@ -113,7 +113,7 @@ compilers and its `Authenticator.UpstreamAuth` must replace the caller's
 alone changes nothing, and a forwarding authenticator still exposes the token.
 The runtime forwards the placeholder as usual. Compilers run in order after the
 built-in EgressPolicy compiler and may change anything it produced. Kagent then
-validates the result, and every target must have a header. New create and resume
+validates the result. Compilers own binding each target. New create and resume
 operations compile the policy before they are issued, so a failure stops them
 before any lifecycle mutation. If a later compile or this validation fails, the
 actor gets no egress until a retry succeeds. Kagent never names a credential provider.
