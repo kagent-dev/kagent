@@ -16,7 +16,7 @@ import (
 func TestSandboxPrompts(t *testing.T) {
 	// An unconfigured service makes any accidental runtime I/O fail. Retrieving
 	// a workflow must only render instructions, never create or inspect resources.
-	handler, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, &sandbox.Service{}, nil)
+	handler, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, Sandboxes: &sandbox.Service{}})
 	require.NoError(t, err)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -66,7 +66,7 @@ func TestSandboxPrompts(t *testing.T) {
 }
 
 func TestSandboxPromptsAbsentWithoutSandboxService(t *testing.T) {
-	handler, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, nil, nil)
+	handler, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}})
 	require.NoError(t, err)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)

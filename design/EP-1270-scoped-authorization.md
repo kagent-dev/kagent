@@ -98,7 +98,7 @@ attribute. The `create ScheduledRun` check itself remains category-level.
 
 Target Agent access is checked when a Session is created, including checkpoint
 forks. It is an admission prerequisite, not a continuous grant for the lifetime of
-the conversation. Follow-up sends (including `invoke_session`) and Resume require
+the conversation. Follow-up sends (including `invoke_agent`) and Resume require
 their current Session permissions and ownership, without rechecking `get Agent`.
 Revoking Agent access prevents new conversations but does not stop existing ones;
 revoke Session permissions to stop further sends or resumes. Schedule updates and

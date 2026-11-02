@@ -157,6 +157,22 @@ cancellation, continuation, disconnects, and slow subscribers.
 
 ## Reconnect and client behavior
 
+The core MCP `list_agents` tool returns authorized `{namespace, name}` references
+that can be passed directly to `invoke_agent`. It accepts optional `namespace`,
+`page_size` (0 for all, or 1–100), and `page_token` arguments. Authorization scope
+filtering precedes pagination, using the same Agent service and cursors as gRPC.
+Both text and structured results include `agents` and `next_page_token` when
+another page exists. Discovery does not require an existing Session and does not
+guarantee readiness or invocation permission.
+
+The core MCP `invoke_agent` tool accepts either `session_id` to continue an
+existing conversation or `agent: {namespace, name}` to start one. An Agent target
+sends the message through A2A without a context or task ID, so the gateway owns
+Session creation, authorization, and initial-message deduplication. Reuse the
+same `message_id`, Agent, and message when retrying creation. Supplying an unknown
+`session_id` returns an error. Synchronous results and completed MCP task results
+include the assigned Session and A2A task IDs in structured content.
+
 Get/List serve committed state without waking the runtime. Subscribe returns
 current stored state for quiescent tasks; otherwise the runtime supplies its
 initial task followed by live updates. If completion races subscription setup,

@@ -32,7 +32,7 @@ func TestCheckpointSummary(t *testing.T) {
 }
 
 func TestCheckpointToolsAreRegistered(t *testing.T) {
-	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, nil, nil)
+	h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestCheckpointToolsEnforcePermissionsOverMCP(t *testing.T) {
 		t.Run(test.tool, func(t *testing.T) {
 			policy := &checkpointToolDenialPolicy{verb: test.verb, resource: auth.Resource{Type: "Checkpoint", Name: test.name}}
 			// Nil dependencies prove a denied tool cannot reach storage or runtime work.
-			h, err := New(testSessionService(), checkpoint.NewService(nil, policy, nil, nil), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, nil, nil)
+			h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: checkpoint.NewService(nil, policy, nil, nil), Gateway: &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}})
 			require.NoError(t, err)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				h.ServeHTTP(w, r.WithContext(authContext()))
