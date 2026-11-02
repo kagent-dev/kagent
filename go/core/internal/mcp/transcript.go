@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -449,8 +450,8 @@ func jsonString(data json.RawMessage) string {
 }
 
 // unwrapResponse decodes a tool response through the envelopes it travels in:
-// a runtime's {result, isError}, an MCP CallToolResult with one text content,
-// and JSON encoded as a string. It answers the innermost value and whether any
+// a runtime's {result, isError}, an MCP CallToolResult with a single value
+// (see unwrapCallToolResult), and JSON encoded as a string. It answers the innermost value and whether any
 // layer reported an error.
 func unwrapResponse(v any) (any, bool) {
 	failed := false
@@ -498,11 +499,9 @@ func unwrapOnce(v any) (next any, failed, ok bool) {
 		return out, false, true
 	case map[string]any:
 		failed, _ = value["isError"].(bool)
-		if content, isList := value["content"].([]any); isList && len(content) == 1 && onlyKeys(value, "content", "isError", "structuredContent", "_meta") {
-			if item, isMap := content[0].(map[string]any); isMap && item["type"] == "text" {
-				if text, isText := item["text"].(string); isText {
-					return text, failed, true
-				}
+		if onlyKeys(value, "content", "isError", "structuredContent", "_meta") {
+			if inner, ok := unwrapCallToolResult(value); ok {
+				return inner, failed, true
 			}
 		}
 		if result, has := value["result"]; has && onlyKeys(value, "result", "isError") {
@@ -511,6 +510,35 @@ func unwrapOnce(v any) (next any, failed, ok bool) {
 		return v, failed, false
 	}
 	return v, false, false
+}
+
+// unwrapCallToolResult is the one value an MCP CallToolResult carries: its
+// structuredContent when its content is empty or only that value serialized,
+// else its single text content when it has no structuredContent. A result
+// whose text says more than its structuredContent stays whole.
+func unwrapCallToolResult(result map[string]any) (any, bool) {
+	content, _ := result["content"].([]any)
+	structured, hasStructured := result["structuredContent"]
+	hasStructured = hasStructured && structured != nil
+	if len(content) == 0 {
+		return structured, hasStructured
+	}
+	if len(content) != 1 {
+		return nil, false
+	}
+	item, _ := content[0].(map[string]any)
+	text, isText := item["text"].(string)
+	if !isText || item["type"] != "text" {
+		return nil, false
+	}
+	if !hasStructured {
+		return text, true
+	}
+	var decoded any
+	if json.Unmarshal([]byte(text), &decoded) == nil && reflect.DeepEqual(decoded, structured) {
+		return structured, true
+	}
+	return nil, false
 }
 
 func onlyKeys(m map[string]any, keys ...string) bool {

@@ -532,6 +532,29 @@ func TestUnwrapResponse(t *testing.T) {
 		"error field":     {in: map[string]any{"error": "boom"}, want: map[string]any{"error": "boom"}, failed: true},
 		"empty error":     {in: map[string]any{"error": ""}, want: map[string]any{"error": ""}},
 		"mcp error layer": {in: map[string]any{"content": []any{map[string]any{"type": "text", "text": "denied"}}, "isError": true}, want: "denied", failed: true},
+		"mcp structured mirrored in text": {
+			in:   map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"rows":[1,2]}`}}, "structuredContent": map[string]any{"rows": []any{float64(1), float64(2)}}},
+			want: map[string]any{"rows": []any{float64(1), float64(2)}},
+		},
+		"mcp structured without content": {
+			in:   map[string]any{"content": []any{}, "structuredContent": map[string]any{"rows": []any{}}},
+			want: map[string]any{"rows": []any{}},
+		},
+		"mcp structured beside a summary stays whole": {
+			in: map[string]any{
+				"content":           []any{map[string]any{"type": "text", "text": "2 rows"}},
+				"structuredContent": map[string]any{"rows": []any{float64(1), float64(2)}},
+			},
+			want: map[string]any{
+				"content":           []any{map[string]any{"type": "text", "text": "2 rows"}},
+				"structuredContent": map[string]any{"rows": []any{float64(1), float64(2)}},
+			},
+		},
+		"mcp structured beside a summary reports its error": {
+			in:     map[string]any{"content": []any{map[string]any{"type": "text", "text": "failed"}}, "structuredContent": map[string]any{"code": "x"}, "isError": true},
+			want:   map[string]any{"content": []any{map[string]any{"type": "text", "text": "failed"}}, "structuredContent": map[string]any{"code": "x"}, "isError": true},
+			failed: true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, failed := unwrapResponse(test.in)
