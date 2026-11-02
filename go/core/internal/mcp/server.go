@@ -183,7 +183,7 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 func (h *Handler) invokeAgent(ctx context.Context, _ *mcp.CallToolRequest, input InvokeAgentInput) (*mcp.CallToolResult, InvokeAgentOutput, error) {
 	task, err := h.invoke(ctx, input, false)
 	if err != nil {
-		return toolError(err), InvokeAgentOutput{}, nil
+		return sessionToolError(err), InvokeAgentOutput{}, nil
 	}
 	result, output := invocationResult(task)
 	return result, output, nil

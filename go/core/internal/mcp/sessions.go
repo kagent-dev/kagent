@@ -242,7 +242,7 @@ func (h *Handler) createSession(ctx context.Context, request *mcp.CallToolReques
 	if message != "" {
 		turn, err := h.firstTurn(ctx, session, create.GetRequestId(), message)
 		if err != nil {
-			return toolError(fmt.Errorf("session %s was created but its first message was not accepted (retry with request_id %q to reuse it): %w", session.GetId(), create.GetRequestId(), err)), nil
+			return toolError(fmt.Errorf("session %s was created but its first message was not accepted (retry with request_id %q to reuse it): %s", session.GetId(), create.GetRequestId(), serviceerrors.MessageOf(err))), nil
 		}
 		_, invoked := invocationResult(InvokeSessionInput{SessionID: session.GetId()}, turn)
 		output.Turn = &invoked
@@ -291,7 +291,7 @@ func (h *Handler) getSession(ctx context.Context, _ *mcp.CallToolRequest, input 
 	}
 	tasks, err := h.listTurns(ctx, session)
 	if err != nil {
-		return toolError(err), GetSessionOutput{}, nil
+		return sessionToolError(err), GetSessionOutput{}, nil
 	}
 	output := GetSessionOutput{Session: sessionSummary(session), Detail: detail, TotalTurns: len(tasks), Turns: []Turn{}}
 	budget := maxBytes - jsonSize(output) - max(len(omittedTurnsHint), len(turnBoundHint)) - envelopeSlack
@@ -305,7 +305,7 @@ func (h *Handler) getSession(ctx context.Context, _ *mcp.CallToolRequest, input 
 	}
 	turns, omitted, clipped, err := h.packNewestTurns(ctx, session, tasks, first, budget, render)
 	if err != nil {
-		return toolError(err), GetSessionOutput{}, nil
+		return sessionToolError(err), GetSessionOutput{}, nil
 	}
 	if turns != nil {
 		output.Turns = turns
@@ -384,7 +384,7 @@ func (h *Handler) getSessionTurn(ctx context.Context, _ *mcp.CallToolRequest, in
 	}
 	tasks, err := h.listTurns(ctx, session)
 	if err != nil {
-		return toolError(err), GetSessionTurnOutput{}, nil
+		return sessionToolError(err), GetSessionTurnOutput{}, nil
 	}
 	index := turnIndex(tasks, ref)
 	if index < 0 {
@@ -392,7 +392,7 @@ func (h *Handler) getSessionTurn(ctx context.Context, _ *mcp.CallToolRequest, in
 	}
 	whole, err := h.fetchTasks(ctx, session, tasks[index:index+1])
 	if err != nil {
-		return toolError(err), GetSessionTurnOutput{}, nil
+		return sessionToolError(err), GetSessionTurnOutput{}, nil
 	}
 	t := readTurn(index, whole[0])
 	output := GetSessionTurnOutput{
