@@ -4,10 +4,9 @@ description: The telemetry contract of kagent runtimes.
 # An identifier for this registry version. Nothing is published there.
 schema_url: https://kagent.dev/schemas/telemetry/0.2.0
 stability: development
-# The registries are read from the checkouts `make semconv-deps` puts in
-# telemetry/deps at the commits pinned in telemetry/versions.env.
+# Read from telemetry/deps, where `make semconv-deps` puts them at their pins.
 dependencies:
   - schema_url: https://opentelemetry.io/schemas/1.44.0
     registry_path: telemetry/deps/semantic-conventions/model
   - schema_url: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
-    registry_path: telemetry/deps/semantic-conventions-genai/model
+    registry_path: telemetry/deps/semantic-conventions-genai/manifest.yaml
