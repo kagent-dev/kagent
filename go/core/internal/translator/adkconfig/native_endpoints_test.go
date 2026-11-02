@@ -61,7 +61,7 @@ func TestGeminiEndpointTranslation(t *testing.T) {
 				require.Equal(t, baseURL, decoded.Agent.Model.GetGemini().BaseUrl)
 				require.Equal(t, []string{origin}, agentConfigDestinations(&configv1.ADKAgentConfig{}, resolved.Config, m))
 				input := &translator.HarnessInput{Harness: &translator.HarnessConfiguration{}, Root: &translator.AgentInput{Template: &translator.TemplateConfiguration{}, ResolvedModelConfig: resolved}}
-				environment, credentials, targets, err := translator.CompileCredentials(input, nil, data.EnvVars)
+				environment, credentials, targets, err := translator.CompileCredentials(input, nil, data.EnvVars, nil)
 				require.NoError(t, err)
 				require.Empty(t, targets)
 				for _, variable := range environment {

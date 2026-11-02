@@ -20,6 +20,7 @@ from kagent.core._runtime_config import optional_field
 
 from kagent.adk._bearer_token import bearer_token
 from kagent.adk.models._ssl import create_ssl_context
+from kagent.adk.models._vertex import vertex_client_kwargs
 from kagent.adk.types import EmbeddingConfig
 
 from ._azure import (
@@ -299,7 +300,7 @@ class KAgentEmbedding:
         from google.genai import types as genai_types
 
         if self.config.provider.lower() == "vertex_ai":
-            client = genai.Client(vertexai=True)
+            client = genai.Client(vertexai=True, **(vertex_client_kwargs() or {}))
         else:
             client = genai.Client()
 
