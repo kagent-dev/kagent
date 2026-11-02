@@ -474,21 +474,18 @@ ui:
     ssoRedirectPath: "/oauth2/start"
   # -- Client-side chat stream inactivity timeout (seconds). The browser aborts a
   # streaming response if no event is received within this window. Should be >=
-  # ui.nginx.proxyReadTimeout so the proxy isn't the silent limit. Default 1800 (30m).
+  # ui.agentgateway.timeout so the proxy isn't the silent limit. Default 1800 (30m).
   streamTimeoutSeconds: 1800
-  # -- Proxy limits for the UI pod's agentgateway, in nginx syntax (e.g. "1800s", "20m").
-  nginx:
-    # -- Max wait for the controller's response headers, and between two reads of its response body.
-    proxyReadTimeout: 1800s
-    # -- Unused: agentgateway has no timeout between two writes to the controller.
-    proxySendTimeout: 1800s
-    # -- Max request body size (0 disables it). Just above the
-    # gateway's 16 MiB gRPC cap, which chat attachments hit first.
-    clientMaxBodySize: 20m
   # -- agentgateway proxy in front of the UI. It listens on the UI port and sends
   # /api/, /a2a/, /mcp and /.well-known/jwks.json to the controller. It uses the
   # UI container's securityContext.
   agentgateway:
+    # -- Max wait for the controller's response headers, and between two reads of its
+    # response body. A bare number is seconds.
+    timeout: 1800s
+    # -- Max request body size, e.g. 20m or 512k (0 disables it). Just above the
+    # gateway's 16 MiB gRPC cap, which chat attachments hit first.
+    maxBodySize: 20m
     image:
       registry: cr.agentgateway.dev
       repository: agentgateway

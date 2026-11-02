@@ -26,17 +26,17 @@
 {{- $strip := list }}
 {{- range $identityHeaders }}{{ if not (hasKey $forwarded .) }}{{ $strip = append $strip . }}{{ end }}{{ end }}
 
-{{- /* ui.nginx.* takes nginx syntax: a size like 20m, and a time like 1800s (a bare number is seconds). */}}
-{{- $size := .Values.ui.nginx.clientMaxBodySize | toString | lower }}
+{{- /* maxBodySize is a size like 20m; a bare-number timeout is seconds. */}}
+{{- $size := .Values.ui.agentgateway.maxBodySize | toString | lower }}
 {{- $digits := regexFind "^[0-9]+" $size }}
 {{- $units := dict "" 1 "k" 1024 "m" 1048576 "g" 1073741824 }}
 {{- $unit := trimPrefix $digits $size }}
-{{- if or (not $digits) (not (hasKey $units $unit)) }}{{ fail "ui.nginx.clientMaxBodySize must be a size like 20m, 512k or 0" }}{{ end }}
+{{- if or (not $digits) (not (hasKey $units $unit)) }}{{ fail "ui.agentgateway.maxBodySize must be a size like 20m, 512k or 0" }}{{ end }}
 {{- $maxBytes := mul (int64 $digits) (get $units $unit) }}
-{{- $readTimeout := .Values.ui.nginx.proxyReadTimeout | toString }}
+{{- $readTimeout := .Values.ui.agentgateway.timeout | toString }}
 {{- if regexMatch "^[0-9]+$" $readTimeout }}{{ $readTimeout = printf "%ss" $readTimeout }}{{ end }}
 
-{{- /* nginx's $host: the request host, lowercased, without its port. */}}
+{{- /* The request host, lowercased, without its port. */}}
 {{- $host := `request.host.regexReplace(":[0-9]+$", "").lowerAscii()` }}
 {{- $backend := include "kagent.controllerServiceAuthority" . }}
 {{- $backendPort := .Values.controller.service.ports.port | int }}

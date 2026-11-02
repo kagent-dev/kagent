@@ -13,8 +13,6 @@ tests:
           value: RELEASE-NAME-ui-agentgateway
       - exists:
           path: data["config.yaml"]
-      - notExists:
-          path: data["nginx.conf"]
 
   - it: listens on the UI port with its admin, stats and readiness listeners off
     asserts:
@@ -58,7 +56,7 @@ tests:
           path: data["config.yaml"]
           pattern: '- name: ui\n  gateways: ui\n  backends:\n  - host: 127\.0\.0\.1:8081\n?$'
 
-  - it: sets the forwarded headers nginx set
+  - it: sets the client host, forwarded headers and Origin per route
     asserts:
       # Keeps the client's host name instead of agentgateway's default, the backend's.
       - matchRegex:
@@ -147,7 +145,7 @@ tests:
           path: data["config.yaml"]
           pattern: '- name: api-0\n(?:  .*\n)*?        - x-forwarded-preferred-username\n        - x-agent-name\n        - x-user-id\n'
 
-  - it: maps the nginx timeouts and body limit by default
+  - it: sets the default timeouts and body limit on proxied routes
     asserts:
       - matchRegex:
           path: data["config.yaml"]
@@ -159,10 +157,10 @@ tests:
           path: data["config.yaml"]
           pattern: '- name: api-0\n(?:  .*\n)*?    timeout:\n      requestTimeout: 1800s\n      responseIdleTimeout: 1800s\n    buffer:\n      request:\n        maxBytes: 20971520\n        failureMode: failClosed\n'
 
-  - it: reads nginx sizes and bare-second times
+  - it: reads a size suffix and a bare-second timeout
     set:
-      ui.nginx.proxyReadTimeout: 900
-      ui.nginx.clientMaxBodySize: 512K
+      ui.agentgateway.timeout: 900
+      ui.agentgateway.maxBodySize: 512K
     asserts:
       - matchRegex:
           path: data["config.yaml"]
@@ -171,20 +169,20 @@ tests:
           path: data["config.yaml"]
           pattern: 'maxBytes: 524288\n'
 
-  - it: drops the body limit when clientMaxBodySize is 0
+  - it: drops the body limit when maxBodySize is 0
     set:
-      ui.nginx.clientMaxBodySize: 0
+      ui.agentgateway.maxBodySize: 0
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]
           pattern: 'buffer:'
 
-  - it: rejects a clientMaxBodySize it cannot read
+  - it: rejects a maxBodySize it cannot read
     set:
-      ui.nginx.clientMaxBodySize: 20mb
+      ui.agentgateway.maxBodySize: 20mb
     asserts:
       - failedTemplate:
-          errorMessage: ui.nginx.clientMaxBodySize must be a size like 20m, 512k or 0
+          errorMessage: ui.agentgateway.maxBodySize must be a size like 20m, 512k or 0
 
   - it: routes ui.basePath-prefixed API paths with the prefix removed
     set:
