@@ -45,6 +45,8 @@ type Config struct {
 	Gateway          a2asrv.RequestHandler
 	Sandboxes        *sandbox.Service
 	SandboxTemplates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
+	// Extensions adds tools and resources after core has registered its own.
+	Extensions func(Registry) error
 }
 
 type ListSessionsInput struct {
@@ -125,6 +127,11 @@ func New(cfg Config) (*Handler, error) {
 	server.AddReceivingMiddleware(h.taskAwareToolCall)
 	if err := h.registerTaskMethods(server); err != nil {
 		return nil, err
+	}
+	if cfg.Extensions != nil {
+		if err := applyExtensions(server, cfg.Extensions); err != nil {
+			return nil, err
+		}
 	}
 	h.http = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true})
 	return h, nil

@@ -386,6 +386,8 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 	req.Header.Set("Mcp-Method", method)
 	if method == "tools/call" {
 		req.Header.Set("Mcp-Name", params["name"].(string))
+	} else if method == "resources/read" {
+		req.Header.Set("Mcp-Name", params["uri"].(string))
 	} else if strings.HasPrefix(method, "tasks/") {
 		req.Header.Set("Mcp-Name", params["taskId"].(string))
 	}

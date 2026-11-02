@@ -122,6 +122,16 @@ type Options struct {
 	// its own surface here; letting it reclassify core's would turn a config
 	// field into a way to make an authenticated method public.
 	MethodPolicies map[string]auth.AccessMode
+	// MCPExtensions adds tools and resources to core's /mcp server, so a
+	// consumer's MCP surface shares core's endpoint, authenticator and tool list
+	// instead of a second /mcp handler. It runs after core registers its own
+	// tools and before the handler is built; returning an error aborts startup.
+	//
+	// The registry offers no middleware. Run fails if the hook registers a tool
+	// name, resource URI or URI template that core or an earlier call
+	// registered, or input the registry rejects, even when the hook drops the
+	// error. Authorization inside an added tool stays with the consumer.
+	MCPExtensions func(MCPRegistry) error
 	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
 	// all must be bound. Authenticator must not forward the caller token.
 	EgressPolicyCompilers []egresspolicy.Compiler
@@ -421,6 +431,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	mcpHandler, err := mcp.New(mcp.Config{
 		Agents: agents, Sessions: sessions, Checkpoints: checkpoints, Gateway: gateway,
 		Sandboxes: sandboxes, SandboxTemplates: sandboxTemplates,
+		Extensions: mcpExtensions(opts.MCPExtensions),
 	})
 	if err != nil {
 		return err
