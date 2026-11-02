@@ -65,9 +65,9 @@ type ToolCallStub struct {
 	Pending bool   `json:"pending,omitempty"`
 }
 
-// TurnMessage is one message of a turn in the transcript view, or one of the
-// task's artifacts after them (role "artifact"). Index is its position in the
-// turn, as get_session_turn's from_message counts.
+// TurnMessage is one message or artifact (role "artifact") of a turn in the
+// transcript view. Index is its position in the turn's timeline, as
+// get_session_turn's from_message counts.
 type TurnMessage struct {
 	Index   int        `json:"index"`
 	Role    string     `json:"role"`
@@ -127,12 +127,32 @@ type ToolCallDetail struct {
 }
 
 type turn struct {
-	index    int
-	task     *a2atype.Task
-	messages []*a2atype.Message
-	calls    []*toolCall
-	callOf   map[*a2atype.Part]*toolCall
-	kindOf   map[*a2atype.Part]apia2a.ToolActivityKind
+	index   int
+	task    *a2atype.Task
+	entries []entry
+	calls   []*toolCall
+	callOf  map[*a2atype.Part]*toolCall
+	kindOf  map[*a2atype.Part]apia2a.ToolActivityKind
+}
+
+// entry is one message or one artifact of a turn: exactly one is set.
+type entry struct {
+	message  *a2atype.Message
+	artifact *a2atype.Artifact
+}
+
+func (e entry) parts() a2atype.ContentParts {
+	if e.artifact != nil {
+		return e.artifact.Parts
+	}
+	return e.message.Parts
+}
+
+func (e entry) metadata() a2atype.MetadataCarrier {
+	if e.artifact != nil {
+		return e.artifact
+	}
+	return e.message
 }
 
 type toolCall struct {
@@ -146,11 +166,11 @@ type toolCall struct {
 
 func readTurn(index int, task *a2atype.Task) *turn {
 	t := &turn{
-		index: index, task: task, messages: turnMessages(task),
+		index: index, task: task, entries: turnEntries(task),
 		callOf: map[*a2atype.Part]*toolCall{}, kindOf: map[*a2atype.Part]apia2a.ToolActivityKind{},
 	}
-	for _, message := range t.messages {
-		for _, part := range message.Parts {
+	for _, e := range t.entries {
+		for _, part := range e.parts() {
 			activity, ok := apia2a.ParseToolActivity(part)
 			if !ok {
 				continue
@@ -158,11 +178,17 @@ func readTurn(index int, task *a2atype.Task) *turn {
 			t.kindOf[part] = activity.Kind
 			switch activity.Kind {
 			case apia2a.ToolCallKind:
-				call := &toolCall{index: len(t.calls), id: activity.ID, name: activity.Name, args: activity.Args}
-				t.calls = append(t.calls, call)
+				call := t.byID(activity.ID)
+				if call == nil {
+					call = &toolCall{index: len(t.calls), id: activity.ID, name: activity.Name, args: activity.Args}
+					t.calls = append(t.calls, call)
+				}
 				t.callOf[part] = call
 			case apia2a.ToolResultKind:
 				call := t.unanswered(activity.ID, activity.Name)
+				if call == nil {
+					call = t.byID(activity.ID)
+				}
 				if call == nil {
 					call = &toolCall{index: len(t.calls), id: activity.ID, name: activity.Name}
 					t.calls = append(t.calls, call)
@@ -177,6 +203,20 @@ func readTurn(index int, task *a2atype.Task) *turn {
 	return t
 }
 
+// byID is the call id names; nil for an empty id. A call or result recorded
+// both in a message and in an artifact is one call.
+func (t *turn) byID(id string) *toolCall {
+	if id == "" {
+		return nil
+	}
+	for _, call := range t.calls {
+		if call.id == id {
+			return call
+		}
+	}
+	return nil
+}
+
 // unanswered is the first call without a response that id (or, without an
 // id, name) names.
 func (t *turn) unanswered(id, name string) *toolCall {
@@ -189,6 +229,39 @@ func (t *turn) unanswered(id, name string) *toolCall {
 		}
 	}
 	return nil
+}
+
+// turnEntries is a task's messages and artifacts in timeline order. Runtimes
+// record tool activity as artifacts and the gateway answers artifacts apart
+// from the history, so only the timeline position interleaves them. When an
+// entry has none, the messages come first, then the artifacts.
+func turnEntries(task *a2atype.Task) []entry {
+	messages := turnMessages(task)
+	entries := make([]entry, 0, len(messages)+len(task.Artifacts))
+	for _, message := range messages {
+		entries = append(entries, entry{message: message})
+	}
+	for _, artifact := range task.Artifacts {
+		entries = append(entries, entry{artifact: artifact})
+	}
+	positions := make([]time.Time, len(entries))
+	for i, e := range entries {
+		position, ok := apia2a.TimelinePosition(e.metadata())
+		if !ok {
+			return entries
+		}
+		positions[i] = position
+	}
+	order := make([]int, len(entries))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int { return positions[a].Compare(positions[b]) })
+	sorted := make([]entry, len(entries))
+	for i, at := range order {
+		sorted[i] = entries[at]
+	}
+	return sorted
 }
 
 // turnMessages is a task's history and, unless the history already holds it,
@@ -233,9 +306,9 @@ func (t *turn) summary() Turn {
 		}
 		out.Reply = strings.Join(texts, "\n")
 	}
-	for _, message := range t.messages {
-		if message.Role == a2atype.MessageRoleUser {
-			out.User = partsText(message.Parts)
+	for _, e := range t.entries {
+		if e.message != nil && e.message.Role == a2atype.MessageRoleUser {
+			out.User = partsText(e.message.Parts)
 			break
 		}
 	}
@@ -260,32 +333,30 @@ func (t *turn) transcript() Turn {
 	return out
 }
 
-// items counts the turn's messages and, after them, its artifacts.
-func (t *turn) items() int { return len(t.messages) + len(t.task.Artifacts) }
+// items counts the turn's messages and artifacts.
+func (t *turn) items() int { return len(t.entries) }
 
 func (t *turn) messageView(i int) TurnMessage {
-	if i >= len(t.messages) {
-		artifact := t.task.Artifacts[i-len(t.messages)]
-		out := TurnMessage{Index: i, Role: "artifact", Name: artifact.Name}
-		for _, part := range artifact.Parts {
-			out.Parts = append(out.Parts, t.partView(part))
-		}
-		return out
+	e := t.entries[i]
+	out := TurnMessage{Index: i}
+	if e.artifact != nil {
+		out.Role, out.Name = "artifact", e.artifact.Name
+	} else {
+		out.Role = strings.ToLower(strings.TrimPrefix(string(e.message.Role), "ROLE_"))
 	}
-	message := t.messages[i]
-	out := TurnMessage{Index: i, Role: strings.ToLower(strings.TrimPrefix(string(message.Role), "ROLE_"))}
-	for _, part := range message.Parts {
+	for _, part := range e.parts() {
 		out.Parts = append(out.Parts, t.partView(part))
 	}
 	return out
 }
 
-// rawItem is the i-th message as A2A JSON, or an artifact as {"artifact": …}.
+// rawItem is the i-th entry: a message as A2A JSON, an artifact as
+// {"artifact": …}.
 func (t *turn) rawItem(i int) (json.RawMessage, error) {
-	if i < len(t.messages) {
-		return json.Marshal(t.messages[i])
+	if e := t.entries[i]; e.artifact != nil {
+		return json.Marshal(map[string]*a2atype.Artifact{"artifact": e.artifact})
 	}
-	return json.Marshal(map[string]*a2atype.Artifact{"artifact": t.task.Artifacts[i-len(t.messages)]})
+	return json.Marshal(t.entries[i].message)
 }
 
 func (t *turn) partView(part *a2atype.Part) PartView {

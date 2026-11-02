@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -273,6 +274,34 @@ func toolTurn(id string, user, reply string, response any) *a2atype.Task {
 	}
 }
 
+// artifactTurn is a turn as the runtimes record it: the user's message in the
+// history, the tool call, its result and the reply as artifacts, every entry
+// with its timeline position. The history lists the reply's status message
+// before the artifacts that precede it.
+func artifactTurn(id string, response any) *a2atype.Task {
+	at := func(carrier a2atype.MetadataCarrier, second int) {
+		apia2a.SetTimelinePosition(carrier, time.Date(2026, 11, 2, 12, 0, second, 0, time.UTC))
+	}
+	user := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("read it"))
+	at(user, 0)
+	status := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("done"))
+	at(status, 4)
+	artifacts := []*a2atype.Artifact{
+		{ID: "a-call", Parts: a2atype.ContentParts{apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})}},
+		{ID: "a-result", Parts: a2atype.ContentParts{apia2a.NewToolResultPart("call-1", "read_file", response)}},
+		{ID: "a-text", Parts: a2atype.ContentParts{a2atype.NewTextPart("the file has two lines")}},
+	}
+	for i, artifact := range artifacts {
+		at(artifact, i+1)
+	}
+	return &a2atype.Task{
+		ID: a2atype.TaskID(id), ContextID: testSessionID,
+		Status:    a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Message: status},
+		History:   []*a2atype.Message{user, status},
+		Artifacts: artifacts,
+	}
+}
+
 func readySession() *apiv1.Session {
 	return &apiv1.Session{
 		Id: testSessionID, ContextId: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
@@ -328,6 +357,47 @@ func TestGetSessionTurnUnwrapsToolCall(t *testing.T) {
 	require.NotNil(t, transcript.Messages[1].Parts[0].ToolCall)
 	require.NotNil(t, transcript.Messages[2].Parts[0].ToolResult)
 	require.True(t, transcript.Messages[2].Parts[0].ToolResult.Error)
+}
+
+func TestGetSessionReadsToolCallsFromArtifacts(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{artifactTurn("task-0", map[string]any{"result": "127.0.0.1 localhost"})}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	summary := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID}))
+	require.Equal(t, []ToolCallStub{{Index: 0, ID: "call-1", Name: "read_file"}}, summary.Turns[0].ToolCalls)
+	require.Equal(t, "read it", summary.Turns[0].User)
+
+	call := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{
+		"session_id": testSessionID, "turn": 0, "tool_call": "call-1",
+	}))
+	require.NotNil(t, call.ToolCall)
+	require.False(t, call.ToolCall.Pending)
+	require.Equal(t, "127.0.0.1 localhost", call.ToolCall.Response)
+
+	transcript := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": 0}))
+	require.Equal(t, 5, transcript.TotalMessages)
+	roles := make([]string, 0, len(transcript.Messages))
+	for _, message := range transcript.Messages {
+		roles = append(roles, message.Role)
+	}
+	require.Equal(t, []string{"user", "artifact", "artifact", "artifact", "agent"}, roles, "entries follow their timeline positions")
+	require.NotNil(t, transcript.Messages[1].Parts[0].ToolCall)
+	require.NotNil(t, transcript.Messages[2].Parts[0].ToolResult)
+	require.Equal(t, "the file has two lines", transcript.Messages[3].Parts[0].Text)
+}
+
+func TestReadTurnCountsActivityRecordedTwiceOnce(t *testing.T) {
+	task := toolTurn("task-0", "read it", "done", "ok")
+	task.Artifacts = []*a2atype.Artifact{
+		{ID: "a-call", Parts: a2atype.ContentParts{apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})}},
+		{ID: "a-result", Parts: a2atype.ContentParts{apia2a.NewToolResultPart("call-1", "read_file", "ok")}},
+	}
+	turn := readTurn(0, task)
+	require.Len(t, turn.calls, 1)
+	require.True(t, turn.calls[0].answered)
+	require.Equal(t, 6, turn.items(), "without timeline positions the artifacts follow the messages")
+	require.Equal(t, "artifact", turn.messageView(4).Role)
+	require.Equal(t, 0, turn.messageView(5).Parts[0].ToolResult.Index)
 }
 
 func TestGetSessionTurnTakesIntegerIndexes(t *testing.T) {
