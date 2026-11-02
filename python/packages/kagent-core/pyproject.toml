@@ -18,7 +18,7 @@ dependencies = [
   "opentelemetry-distro>=0.63b0,<1",
   "opentelemetry-instrumentation-fastapi>=0.63b0,<1",
   "opentelemetry-instrumentation-grpc>=0.63b0,<1",
-  "opentelemetry-instrumentation-httpx>=0.63b0,<1",
+  "opentelemetry-instrumentation-httpx>=0.66b2,<1",
   "typing-extensions>=4.16.0",
   "protovalidate>=2.1.0,<3",
 ]
