@@ -71,7 +71,7 @@ type GetSessionInput struct {
 	SessionID string `json:"session_id" jsonschema:"Session UUID"`
 	Detail    string `json:"detail,omitempty" jsonschema:"summary (default): per turn the user message, the reply and tool call stubs; transcript: every message, tool arguments clipped and tool results as stubs"`
 	LastTurns int    `json:"last_turns,omitempty" jsonschema:"Read only the last n turns; poll with 1 until the last turn is final"`
-	MaxBytes  int    `json:"max_bytes,omitempty" jsonschema:"Answer budget in bytes; the oldest turns are dropped to fit"`
+	MaxBytes  int    `json:"max_bytes,omitempty" jsonschema:"Budget in bytes for the JSON answer; the oldest turns are dropped to fit"`
 }
 
 type GetSessionOutput struct {
@@ -90,7 +90,7 @@ type GetSessionTurnInput struct {
 	Detail      string    `json:"detail,omitempty" jsonschema:"transcript (default) or full (A2A messages and artifacts as JSON)"`
 	ToolCall    indexOrID `json:"tool_call,omitempty" jsonschema:"Answer one tool call whole, by its index or ID"`
 	FromMessage int       `json:"from_message,omitempty" jsonschema:"First message index to answer; continue with next_message"`
-	MaxBytes    int       `json:"max_bytes,omitempty" jsonschema:"Answer budget in bytes"`
+	MaxBytes    int       `json:"max_bytes,omitempty" jsonschema:"Budget in bytes for the JSON answer"`
 }
 
 // indexOrID names a turn or tool call by ID or index. A JSON integer is read as
@@ -238,7 +238,6 @@ func (h *Handler) createSession(ctx context.Context, request *mcp.CallToolReques
 		return sessionToolError(err), nil
 	}
 	output := CreateSessionOutput{Session: sessionSummary(session)}
-	text := fmt.Sprintf("Created Session %s", session.GetId())
 	if message != "" {
 		turn, err := h.firstTurn(ctx, session, create.GetRequestId(), message)
 		if err != nil {
@@ -246,9 +245,8 @@ func (h *Handler) createSession(ctx context.Context, request *mcp.CallToolReques
 		}
 		_, invoked := invocationResult(InvokeSessionInput{SessionID: session.GetId()}, turn)
 		output.Turn = &invoked
-		text += fmt.Sprintf("; turn %s is %s", invoked.TaskID, invoked.State)
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}, StructuredContent: output}, nil
+	return structuredResult(output)
 }
 
 // firstTurn sends a Session's first message once per request ID: the message
@@ -319,12 +317,7 @@ func (h *Handler) getSession(ctx context.Context, _ *mcp.CallToolRequest, input 
 	case clipped:
 		output.Truncated, output.Hint = true, clippedTurnHint
 	}
-	text := fmt.Sprintf("Session %s is %s with %d turns", session.GetId(), session.GetState(), len(tasks))
-	if n := len(output.Turns); n > 0 {
-		last := output.Turns[n-1]
-		text += fmt.Sprintf("; turn %d is %s", last.Index, last.State)
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, output, nil
+	return nil, output, nil
 }
 
 // packNewestTurns reads tasks[first:] whole, newest first, a batch at a time
@@ -406,7 +399,7 @@ func (h *Handler) getSessionTurn(ctx context.Context, _ *mcp.CallToolRequest, in
 		}
 		answer, clipped := t.toolCallDetail(call, maxBytes-jsonSize(output)-envelopeSlack)
 		output.ToolCall, output.Truncated = &answer, clipped
-		return turnResult(output), output, nil
+		return nil, output, nil
 	}
 	if input.FromMessage > t.items() {
 		return toolError(fmt.Errorf("from_message %d is past the turn's %d messages", input.FromMessage, t.items())), GetSessionTurnOutput{}, nil
@@ -433,13 +426,7 @@ func (h *Handler) getSessionTurn(ctx context.Context, _ *mcp.CallToolRequest, in
 	if next < t.items() {
 		output.NextMessage, output.Truncated, output.Hint = next, true, "continue with from_message: "+strconv.Itoa(next)
 	}
-	return turnResult(output), output, nil
-}
-
-func turnResult(output GetSessionTurnOutput) *mcp.CallToolResult {
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{
-		Text: fmt.Sprintf("Turn %d of Session %s (%s)", output.Index, output.SessionID, output.State),
-	}}}
+	return nil, output, nil
 }
 
 // packForward renders items from on while they fit budget and answers them
@@ -556,10 +543,18 @@ func sessionTenant(session *apiv1.Session) string {
 }
 
 func sessionResult(session *apiv1.Session) (*mcp.CallToolResult, SessionOutput, error) {
-	output := SessionOutput{Session: sessionSummary(session)}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{
-		Text: fmt.Sprintf("Session %s is %s", session.GetId(), session.GetState()),
-	}}}, output, nil
+	return nil, SessionOutput{Session: sessionSummary(session)}, nil
+}
+
+// structuredResult answers output as structured content and, as the MCP
+// specification recommends, as its serialized JSON in a text block, so a
+// client that reads only content sees the whole answer.
+func structuredResult(output any) (*mcp.CallToolResult, error) {
+	data, err := json.Marshal(output)
+	if err != nil {
+		return nil, fmt.Errorf("marshal tool output: %w", err)
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}, StructuredContent: json.RawMessage(data)}, nil
 }
 
 // sessionToolError is a service error as a tool result: its public message,

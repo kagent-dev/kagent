@@ -392,6 +392,36 @@ func TestDeleteSessionTool(t *testing.T) {
 	require.Equal(t, testSessionID, output.Session.ID)
 }
 
+func TestSessionToolsAnswerTheirJSONAsText(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "What is 2+2?", "The answer is 4.", "ok")}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	for _, call := range []struct {
+		tool      string
+		arguments map[string]any
+	}{
+		{createSessionToolName, map[string]any{"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "message": "hello"}},
+		{getSessionToolName, map[string]any{"session_id": testSessionID}},
+		{getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": 0}},
+		{renameSessionToolName, map[string]any{"session_id": testSessionID, "name": "Arithmetic"}},
+		{deleteSessionToolName, map[string]any{"session_id": testSessionID}},
+	} {
+		t.Run(call.tool, func(t *testing.T) {
+			result := callTool(t, server, call.tool, call.arguments)
+			require.False(t, result.IsError, "tool error: %v", result.Content)
+			require.Len(t, result.Content, 1)
+			text, ok := result.Content[0].(*mcp.TextContent)
+			require.True(t, ok, "content is %T", result.Content[0])
+			structuredJSON, err := json.Marshal(result.StructuredContent)
+			require.NoError(t, err)
+			require.JSONEq(t, string(structuredJSON), text.Text)
+			if call.tool == getSessionToolName || call.tool == getSessionTurnToolName {
+				require.Contains(t, text.Text, "The answer is 4.")
+			}
+		})
+	}
+}
+
 func TestSessionToolAnnotations(t *testing.T) {
 	server := sessionServer(t, newSessionStore(), &turnGateway{})
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
