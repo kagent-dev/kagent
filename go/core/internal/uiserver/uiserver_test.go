@@ -172,10 +172,10 @@ func TestRender(t *testing.T) {
 				"KAGENT_UI_EXTENSIONLESS=ignored",
 			},
 			config: "window.environmentVariables = {\n" +
-				"  \"API_BASE_URL\": \"https://x.test/api?a=\\\"b\\\"&c=\\u003cd>\\\\e\",\n" +
+				"  \"API_BASE_URL\": \"https://x.test/api?a=\\\"b\\\"\\u0026c=\\u003cd\\u003e\\\\e\",\n" +
 				"  \"SSO_REDIRECT_PATH\": \"/sso\",\n" +
 				"  \"STREAM_TIMEOUT_MS\": \"0042\",\n" +
-				"  \"KAGENT_UI_EXTENSION_A\": \"\\u003c/script>\\\"\\\\\",\n" +
+				"  \"KAGENT_UI_EXTENSION_A\": \"\\u003c/script\\u003e\\\"\\\\\",\n" +
 				"  \"KAGENT_UI_EXTENSION_B\": \"two=equals=\",\n" +
 				"  \"KAGENT_UI_EXTENSION_LINES\": \"first\",\n" +
 				"  \"BASE_PATH\": \"/ui\",\n" +

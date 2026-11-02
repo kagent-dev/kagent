@@ -4,7 +4,9 @@ package uiserver
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -135,15 +138,15 @@ func NewHandler(ctx context.Context, cfg Config) (http.Handler, error) {
 	// Vite fingerprints these filenames, so a given URL's bytes never change.
 	mux.HandleFunc("/assets/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		serveFile(w, r, file(r))
+		if !serveFile(w, r, file(r)) {
+			http.NotFound(w, r)
+		}
 	})
 	// SPA fallback: a deep link such as /agents is a client-side route, not a file.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if fi, err := os.Stat(file(r)); err == nil && fi.Mode().IsRegular() {
-			serveFile(w, r, file(r))
-			return
+		if !serveFile(w, r, file(r)) {
+			index(w, r)
 		}
-		index(w, r)
 	})
 	for _, p := range apiPaths {
 		mux.Handle(p, http.MaxBytesHandler(cfg.API, maxBodyBytes))
@@ -153,56 +156,57 @@ func NewHandler(ctx context.Context, cfg Config) (http.Handler, error) {
 
 // render returns env-config.js for the given environment, and the validated base path.
 func render(logger *slog.Logger, environ []string) (string, string) {
-	env := map[string]string{}
+	vars := map[string]string{}
 	var extensions []string
 	for _, kv := range environ {
 		name, value, _ := strings.Cut(kv, "=")
-		env[name] = value
+		vars[name] = value
 		if strings.HasPrefix(kv, "KAGENT_UI_EXTENSION_") {
 			// Sorted as whole NAME=value lines, first line of the value only.
 			first, _, _ := strings.Cut(kv, "\n")
 			extensions = append(extensions, first)
 		}
 	}
-	get := func(name, fallback string) string {
-		if v := env[name]; v != "" {
-			return v
-		}
-		return fallback
-	}
+	get := func(v env.StringVar) string { return cmp.Or(vars[v.Name()], v.DefaultValue()) }
 
-	basePath := strings.TrimSuffix(get("KAGENT_UI_BASE_PATH", ""), "/")
+	basePath := strings.TrimSuffix(get(env.UIBasePath), "/")
 	if !basePathRe.MatchString(basePath) || dotSegmentRe.MatchString(basePath) || reservedPathRe.MatchString(basePath) {
 		logger.Warn("KAGENT_UI_BASE_PATH is not a path like /ui, or starts with a path the UI serves; serving at the root", "value", basePath)
 		basePath = ""
 	}
 	// A non-numeric timeout would abort every chat stream at once, so fall back instead.
-	timeout := get("KAGENT_UI_STREAM_TIMEOUT_MS", "1800000")
+	timeout := get(env.UIStreamTimeoutMS)
 	if !digitsRe.MatchString(timeout) {
-		logger.Warn("KAGENT_UI_STREAM_TIMEOUT_MS is not a number; using 1800000", "value", timeout)
-		timeout = "1800000"
+		logger.Warn("KAGENT_UI_STREAM_TIMEOUT_MS is not a number; using the default", "value", timeout)
+		timeout = env.UIStreamTimeoutMS.DefaultValue()
 	}
 
 	// Extension settings pass through by prefix, so core never lists another product's keys.
 	slices.Sort(extensions)
-	var b strings.Builder
-	b.WriteString("window.environmentVariables = {\n")
-	fmt.Fprintf(&b, "  \"API_BASE_URL\": \"%s\",\n", jsonEscape(get("KAGENT_UI_API_BASE_URL", "/api")))
-	fmt.Fprintf(&b, "  \"SSO_REDIRECT_PATH\": \"%s\",\n", jsonEscape(get("KAGENT_UI_SSO_REDIRECT_PATH", "/oauth2/start")))
-	fmt.Fprintf(&b, "  \"STREAM_TIMEOUT_MS\": \"%s\",\n", timeout)
+	fields := [][2]string{
+		{"API_BASE_URL", get(env.UIAPIBaseURL)},
+		{"SSO_REDIRECT_PATH", get(env.UISSORedirectPath)},
+		{"STREAM_TIMEOUT_MS", timeout},
+	}
 	for _, kv := range extensions {
 		name, value, _ := strings.Cut(kv, "=")
-		fmt.Fprintf(&b, "  \"%s\": \"%s\",\n", jsonEscape(name), jsonEscape(value))
+		fields = append(fields, [2]string{name, value})
 	}
-	fmt.Fprintf(&b, "  \"BASE_PATH\": \"%s\",\n", basePath)
-	fmt.Fprintf(&b, "  \"ENABLE_MOCK_UI\": \"%s\"\n", jsonEscape(get("KAGENT_UI_ENABLE_MOCK", "false")))
-	b.WriteString("};\n")
-	return b.String(), basePath
+	fields = append(fields,
+		[2]string{"BASE_PATH", basePath},
+		[2]string{"ENABLE_MOCK_UI", cmp.Or(vars[env.UIEnableMock.Name()], "false")},
+	)
+	lines := make([]string, len(fields))
+	for i, f := range fields {
+		lines[i] = "  " + jsString(f[0]) + ": " + jsString(f[1])
+	}
+	return "window.environmentVariables = {\n" + strings.Join(lines, ",\n") + "\n};\n", basePath
 }
 
-// jsonEscape makes a value safe inside a JSON string in a <script> element: `<` is escaped so markup cannot close it.
-func jsonEscape(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, `<`, `\u003c`).Replace(s)
+// jsString quotes s for a <script> element; encoding/json escapes `<` so markup cannot close it.
+func jsString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // setBaseHref points <base href> at the base path, so deep links load assets under the sub-path too.
@@ -258,17 +262,17 @@ func (w *baseWriter) Flush() { _ = http.NewResponseController(w.ResponseWriter).
 func (w *baseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // serveFile serves a regular file, unlike http.ServeFile, which redirects /index.html.
-func serveFile(w http.ResponseWriter, r *http.Request, name string) {
+// It writes nothing and returns false when name is not one.
+func serveFile(w http.ResponseWriter, r *http.Request, name string) bool {
 	f, err := os.Open(name)
 	if err != nil {
-		http.NotFound(w, r)
-		return
+		return false
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil || !fi.Mode().IsRegular() {
-		http.NotFound(w, r)
-		return
+		return false
 	}
 	http.ServeContent(w, r, name, fi.ModTime(), f)
+	return true
 }
