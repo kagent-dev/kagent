@@ -1,171 +1,252 @@
-// Package main demonstrates declarative workflow agents: an AgentSystem
-// document (agents.yaml) is compiled into a native ADK workflow agent by
-// pkg/declarative and served over A2A.
+// Package main is a generic BYO runtime for declarative workflow agents.
 //
-// The document classifies requests with CEL nodes, calls customer tools on a
-// remote MCP server, and stores tickets with the harness file tools. This
-// program supplies the rest through a declarative.Registry: a Go function,
-// the harness tools, and a model resolver that maps unregistered model names
-// to OpenAI models. Use the "stub" model name in a document to run without
-// credentials.
+// It serves whatever AgentSystem document the controller delivers from
+// AgentTemplate.spec.workflowFrom in /config/config.json. The image carries no
+// workflow and no workflow-specific Go code; the registry holds only what any
+// document can name:
 //
-// CRM_MCP_URL selects the CRM MCP server; when it is unset the program serves
-// a demo CRM on a loopback port.
+//   - Models: every model name resolves to the AgentTemplate's ModelConfig, so
+//     a document runs against whichever model the operator configured. Without
+//     a ModelConfig the name is used as an OpenAI model. "stub" is always the
+//     offline test model.
+//   - Tools: the harness tools read_file, write_file, list_files and bash in
+//     the actor workspace. MCP toolsets are declared in the document itself.
 //
-// Deploy through a BYO Harness. Process settings are loaded from the root
-// runtime object in /config/config.json. OPENAI_API_KEY remains a provider
-// credential. An AgentTemplate that sets spec.workflowFrom replaces the
-// embedded document: the controller validates it and delivers it in
-// /config/config.json.
+// Telemetry and A2A output follow the managed kagent runtime: delivered
+// exporter settings and OTEL_* variables configure tracing, every turn is
+// flushed before its final event, and each workflow node's reply is its own
+// artifact carrying the node as author.
+//
+// Build the image with `make build-workflow-agent` and run it from a BYO
+// Harness; see go/adk/examples/workflow for complete manifests.
 package main
 
 import (
 	"cmp"
 	"context"
-	_ "embed"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	adkmodel "google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
-	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/declarative"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/adk/pkg/session"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	processconfig "github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-//go:embed agents.yaml
-var agentsDocument []byte
+const configDir = "/config"
 
-// newRegistry returns the local library of the document. workspace is the
-// directory of the harness tools; empty uses the actor workspace.
-func newRegistry(workspace string) (*declarative.Registry, error) {
-	reg := declarative.NewRegistry()
-
-	// Unregistered model names resolve to OpenAI models.
-	reg.SetModelResolver(func(ctx context.Context, name string) (adkmodel.LLM, error) {
-		return models.NewOpenAIModel(ctx, &models.OpenAIConfig{Model: name})
-	})
-
-	if err := reg.RegisterFunction("fallback", func(adkagent.Context, any) (declarative.Result, error) {
-		return declarative.Output("I could not classify that request."), nil
-	}); err != nil {
-		return nil, err
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
-	// read_file, write_file, list_files and bash.
+}
+
+func run() error {
+	if err := config.MaterializeFromEnv(configDir); err != nil {
+		return err
+	}
+	compiled, err := config.LoadAgentConfig(filepath.Join(configDir, "config.json"))
+	if err != nil {
+		return err
+	}
+	card, err := loadAgentCard(filepath.Join(configDir, "agent-card.json"))
+	if err != nil {
+		return err
+	}
+	runtime := config.ProcessConfig(compiled)
+	logger, err := logging.New(os.Stderr, cmp.Or(runtime.LogLevel, "info"))
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(logger)
+	ctx := logging.IntoContext(context.Background(), logger)
+
+	runtimeTelemetry := processconfig.RuntimeTelemetry(runtime.GetTelemetry()).WithEnvironment(os.Environ())
+	runtimeTelemetry.Runtime = tracing.RuntimeADKGo
+	runtimeTelemetry.AgentName = runtime.Name
+	runtimeTelemetry.AgentNamespace = cmp.Or(runtime.Namespace, "default")
+	providers, err := telemetry.Init(ctx, runtimeTelemetry)
+	if err != nil {
+		logger.Error("failed to initialize telemetry", "error", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := providers.Shutdown(shutdownCtx); err != nil {
+			logger.Error("failed to shut down telemetry", "error", err)
+		}
+	}()
+
+	agentConfig := compiled.GetAgent()
+	reg, err := newRegistry(agentConfig.GetModel(), "")
+	if err != nil {
+		return fmt.Errorf("create registry: %w", err)
+	}
+	spec, err := loadDocument(reg, agentConfig.GetWorkflow())
+	if err != nil {
+		return err
+	}
+	system, err := declarative.Build(ctx, spec, reg)
+	if err != nil {
+		return fmt.Errorf("build workflow: %w", err)
+	}
+	defer system.Close()
+	root := system.Root()
+
+	sessions, err := session.NewService(agentConfig.GetSessionDbUrl())
+	if err != nil {
+		return fmt.Errorf("open session store: %w", err)
+	}
+	if sessions == nil {
+		sessions = adksession.InMemoryService()
+	}
+	appName := appName(runtime.Namespace, runtime.Name, root.Name())
+	if runtimeTelemetry.AgentName == "" {
+		runtimeTelemetry.AgentName = appName
+	}
+	executor, err := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
+		RunnerConfig:   runner.Config{AppName: appName, Agent: root, SessionService: sessions},
+		SessionService: sessions,
+		Stream:         agentConfig.GetStream(),
+		AppName:        appName,
+		Logger:         logger,
+		Flush:          providers.ForceFlush,
+		AgentName:      runtimeTelemetry.AgentName,
+	})
+	if err != nil {
+		return fmt.Errorf("create A2A executor: %w", err)
+	}
+
+	kagentApp, err := app.New(app.AppConfig{
+		ControlPlaneURL:  runtime.ControlPlaneUrl,
+		MaxContentLength: runtime.MaxContentLength,
+		AgentCard:        agentCardFor(card, root),
+		Host:             runtime.Host,
+		Port:             fmt.Sprint(cmp.Or(runtime.GetPort(), 8082)),
+		AppName:          appName,
+		ShutdownTimeout:  5 * time.Second,
+		Logger:           logger,
+		Agent:            root,
+		Telemetry:        runtimeTelemetry,
+		Flush:            providers.ForceFlush,
+	}, executor)
+	if err != nil {
+		return fmt.Errorf("create app: %w", err)
+	}
+	return kagentApp.Run()
+}
+
+// newRegistry returns the generic library every document may use. model is the
+// AgentTemplate's ModelConfig, nil when it has none; workspace is the directory
+// of the harness tools, empty for the actor workspace.
+func newRegistry(model *configv1.ADKModelConfig, workspace string) (*declarative.Registry, error) {
+	reg := declarative.NewRegistry()
+	reg.SetModelResolver(modelResolver(model, agent.CreateLLM))
 	if err := reg.RegisterHarnessTools(declarative.HarnessConfig{Workspace: workspace}); err != nil {
 		return nil, err
 	}
 	return reg, nil
 }
 
-// loadDocument prefers the document the controller validated and delivered
-// from AgentTemplate.spec.workflowFrom, and falls back to the embedded one.
-func loadDocument(reg *declarative.Registry, delivered *configv1.ADKWorkflowConfig) (*declarative.Spec, error) {
-	if delivered != nil {
-		return reg.ParseConfig(delivered)
+// llmFactory creates the model of a ModelConfig.
+type llmFactory func(context.Context, *configv1.ADKModelConfig) (adkmodel.LLM, error)
+
+// modelResolver maps every model name a document uses to the ModelConfig's
+// model, created once and shared by all nodes. Without a ModelConfig the name
+// is an OpenAI model.
+func modelResolver(model *configv1.ADKModelConfig, create llmFactory) declarative.ModelResolver {
+	if model == nil {
+		return func(ctx context.Context, name string) (adkmodel.LLM, error) {
+			return models.NewOpenAIModel(ctx, &models.OpenAIConfig{Model: name})
+		}
 	}
-	return reg.Parse(agentsDocument)
+	var (
+		mu  sync.Mutex
+		llm adkmodel.LLM
+	)
+	return func(ctx context.Context, _ string) (adkmodel.LLM, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if llm != nil {
+			return llm, nil
+		}
+		created, err := create(ctx, model)
+		if err != nil {
+			return nil, fmt.Errorf("create model from ModelConfig: %w", err)
+		}
+		llm = created
+		return llm, nil
+	}
 }
 
-func main() {
-	if err := config.MaterializeFromEnv("/config"); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+// loadDocument parses the document the controller validated and delivered.
+func loadDocument(reg *declarative.Registry, delivered *configv1.ADKWorkflowConfig) (*declarative.Spec, error) {
+	if delivered == nil {
+		return nil, errors.New("no workflow document delivered: set spec.workflowFrom on the AgentTemplate")
 	}
-	compiled, err := config.LoadAgentConfig("/config/config.json")
+	spec, err := reg.ParseConfig(delivered)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return nil, fmt.Errorf("load workflow document: %w", err)
 	}
-	runtime := config.ProcessConfig(compiled)
-	logger, err := logging.New(os.Stderr, cmp.Or(runtime.LogLevel, "info"))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	slog.SetDefault(logger)
-	ctx := logging.IntoContext(context.Background(), logger)
+	return spec, nil
+}
 
-	if _, set := os.LookupEnv(crmURLEnv); !set { //nolint:forbidigo // demo switch for the example's own MCP server
-		url, stop, err := serveDemoCRM()
-		if err != nil {
-			logger.Error("failed to serve the demo CRM", "error", err)
-			os.Exit(1)
-		}
-		defer stop()
-		if err := os.Setenv(crmURLEnv, url); err != nil {
-			logger.Error("failed to set the CRM URL", "error", err)
-			os.Exit(1)
-		}
-		logger.Info("serving the demo CRM MCP server", "url", url)
+// loadAgentCard reads the delivered agent card; a missing file is not an error.
+func loadAgentCard(path string) (*a2atype.AgentCard, error) {
+	card, err := config.LoadAgentCard(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
+	return card, err
+}
 
-	reg, err := newRegistry("")
-	if err != nil {
-		logger.Error("failed to create registry", "error", err)
-		os.Exit(1)
-	}
-	spec, err := loadDocument(reg, compiled.GetAgent().GetWorkflow())
-	if err != nil {
-		logger.Error("failed to load the agent document", "error", err)
-		os.Exit(1)
-	}
-	system, err := declarative.Build(ctx, spec, reg)
-	if err != nil {
-		logger.Error("failed to build agents", "error", err)
-		os.Exit(1)
-	}
-	defer system.Close()
-	root := system.Root()
-
-	executor := adka2a.NewExecutor(adka2a.ExecutorConfig{
-		RunnerConfig: runner.Config{
-			AppName:        root.Name(),
-			Agent:          root,
-			SessionService: adksession.InMemoryService(),
+// agentCardFor returns the delivered card, or one describing the workflow root.
+// Task events always stream, whether or not model responses do.
+func agentCardFor(delivered *a2atype.AgentCard, root adkagent.Agent) a2atype.AgentCard {
+	card := a2atype.AgentCard{
+		Name:        root.Name(),
+		Description: root.Description(),
+		Version:     "1.0.0",
+		SupportedInterfaces: []*a2atype.AgentInterface{
+			a2atype.NewAgentInterface("/", a2atype.TransportProtocolJSONRPC),
 		},
-		// A workflow runs several nodes, each its own agent. The default mode
-		// appends every node's reply to one artifact, so the chat shows them as one
-		// run-on block with no sender. One artifact per event keeps each reply
-		// separate and carries its author in the artifact metadata.
-		OutputMode: adka2a.OutputArtifactPerEvent,
-	})
+		DefaultInputModes:  []string{"text/plain"},
+		DefaultOutputModes: []string{"text/plain"},
+	}
+	if delivered != nil {
+		card = *delivered
+	}
+	card.Capabilities.Streaming = true
+	return card
+}
 
-	kagentApp, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneUrl, MaxContentLength: runtime.MaxContentLength,
-		AgentCard: a2atype.AgentCard{
-			Name:        root.Name(),
-			Description: root.Description(),
-			Version:     "1.0.0",
-			SupportedInterfaces: []*a2atype.AgentInterface{
-				a2atype.NewAgentInterface("http://localhost:8082", a2atype.TransportProtocolJSONRPC),
-			},
-			DefaultInputModes:  []string{"text/plain"},
-			DefaultOutputModes: []string{"text/plain"},
-			Skills: []a2atype.AgentSkill{{
-				ID:          "support-triage",
-				Name:        "Support triage",
-				Description: "Classifies a request with CEL and routes it to escalation (saved with harness tools), a remote MCP billing lookup, a model answer, or a fallback",
-			}},
-		},
-		Port:   fmt.Sprint(cmp.Or(runtime.GetPort(), 8082)),
-		Logger: logger,
-		Agent:  root,
-	}, executor)
-	if err != nil {
-		logger.Error("failed to create app", "error", err)
-		os.Exit(1)
+// appName is the ADK application name of the agent, namespace__NS__name as in
+// the managed runtime, or the workflow root's name outside a cluster.
+func appName(namespace, name, rootName string) string {
+	if namespace == "" || name == "" {
+		return rootName
 	}
-	if err := kagentApp.Run(); err != nil {
-		logger.Error("server failed", "error", err)
-		os.Exit(1)
-	}
+	return strings.ReplaceAll(namespace, "-", "_") + "__NS__" + strings.ReplaceAll(name, "-", "_")
 }

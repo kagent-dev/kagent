@@ -29,24 +29,28 @@ Two build rules shaped the graph:
 - A node with two unconditional incoming edges is rejected. `write` has one
   (`START`); the loop reaches it through the routed edge.
 
-## Test
+## Run
 
-`go/adk/examples/writercritics` runs the real document through the ADK runner
-with a scripted `reviewer` model and checks:
-
-| Scenario | Expected |
-|---|---|
-| Style approves from draft v3 | stops at turn 3, 3 of 3 approved, 3 writer calls |
-| Accuracy never approves | stops at turn 5, 2 of 3 approved, exactly 5 writer calls |
-| Everyone approves at once | stops at turn 1, 1 writer call |
+The workflow runs on the generic workflow-agent image, which has no
+workflow-specific code: every model name in the document (`reviewer`) resolves
+to the AgentTemplate's ModelConfig.
 
 ```bash
-cd go/adk && go test ./examples/writercritics/ -count=1 -v
+make build-workflow-agent VERSION=dev   # from the repository root
+./deploy.sh apply
 ```
 
-## Status
+In the chat each node's reply is its own message, labelled with its author:
+`writer`, `critic_clarity`, `critic_accuracy`, `critic_style`, and
+`writer_critics` for the loop itself. Traces go to the exporter the Harness
+telemetry configures.
 
-- Builds and passes the three scenarios above with the scripted model.
-- Not deployed and not run against a real model. `manifests.yaml` reuses the
-  `pr-review` BYO image as `llm-router` does; that image's model and its
-  telemetry are unverified for this workflow.
+## Test
+
+`go/adk/examples/declarative` runs this document offline through the runtime's
+executor and checks that every reply arrives as a separate artifact naming its
+author:
+
+```bash
+cd go && go test ./adk/examples/declarative/ -count=1 -v
+```

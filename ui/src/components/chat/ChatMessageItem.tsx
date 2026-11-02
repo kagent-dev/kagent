@@ -12,8 +12,43 @@ import { ToolApprovalRecord } from "./ToolApprovalRecord";
 import { AskUserRecord } from "./AskUserRecord";
 import { AttachmentChip } from "./AttachmentChip";
 import { isAwaitingContent, messageText } from "./messageText";
+import { authorTone } from "./authorTone";
 
 const { Text } = Typography;
+
+/**
+ * The agent that wrote a reply, as a workflow names it: the node's initial in a
+ * circle and its name, both in the node's own colour, as adk-web draws them.
+ */
+function AuthorLabel({ author }: { author: string }) {
+  const theme = useTheme();
+  const tone = authorTone(author, theme);
+  return (
+    <span
+      data-testid="chat-message-author"
+      css={{ display: "inline-flex", alignItems: "center", gap: theme.space(1.5), color: tone.text }}
+    >
+      <span
+        aria-hidden
+        css={{
+          display: "inline-grid",
+          placeItems: "center",
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          background: tone.background,
+          border: `1px solid ${tone.border}`,
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: "uppercase",
+        }}
+      >
+        {author.charAt(0)}
+      </span>
+      <Text css={{ color: "inherit", fontSize: "inherit", fontWeight: 500 }}>{author}</Text>
+    </span>
+  );
+}
 
 /**
  * One message: prose from the user or the agent, or a tool call and its result.
@@ -69,9 +104,13 @@ export function ChatMessageItem({
           fontSize: 12,
         }}
       >
-        <Text css={{ color: "inherit", fontSize: "inherit" }}>
-          {isUser ? "You" : (message.author ?? "Agent")}
-        </Text>
+        {!isUser && message.author ? (
+          <AuthorLabel author={message.author} />
+        ) : (
+          <Text css={{ color: "inherit", fontSize: "inherit" }}>
+            {isUser ? "You" : "Agent"}
+          </Text>
+        )}
         {onManagePush ? (
           <Tooltip title="Task notifications">
             <Button

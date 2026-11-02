@@ -8,6 +8,30 @@ import type { ChatMessage } from "@/api";
 import { ChatMessageItem } from "./ChatMessageItem";
 
 describe("ChatMessageItem interaction layout", () => {
+  it("names the workflow node that wrote a reply, and falls back to Agent", () => {
+    const reply = (id: string, author?: string): ChatMessage => ({
+      id,
+      role: "agent",
+      createdAt: "2026-09-03T00:00:00Z",
+      parts: [{ kind: "text", text: "A draft." }],
+      author,
+    });
+    const { rerender } = render(
+      <ThemeProvider theme={themeFor("dark")}>
+        <ChatMessageItem message={reply("draft", "writer")} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId("chat-message-author").textContent).toBe("wwriter");
+
+    rerender(
+      <ThemeProvider theme={themeFor("dark")}>
+        <ChatMessageItem message={reply("plain")} />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByTestId("chat-message-author")).toBeNull();
+    expect(screen.getByText("Agent")).toBeTruthy();
+  });
+
   it("renders a JSON DataPart as the agent's structured result, not a tool result", () => {
     render(
       <ThemeProvider theme={themeFor("dark")}>

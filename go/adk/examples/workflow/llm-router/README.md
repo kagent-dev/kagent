@@ -15,7 +15,7 @@ graph LR
 
 - `classify` answers with one word. `route` turns it into a route; anything unexpected takes `DEFAULT`.
 - Each branch ends in its own `llm` node. Branches are separate terminals because exclusive routes must not converge on a non-join node.
-- No Go code. The harness reuses the `pr-review` BYO image, which registers the `reviewer` model.
+- No Go code. The harness runs the generic workflow-agent image (`make build-workflow-agent VERSION=dev`), which resolves every model name, here `reviewer`, to the AgentTemplate's ModelConfig.
 
 ## Files
 
@@ -28,7 +28,7 @@ graph LR
 
 ## Status
 
-- Validated offline with the PR's loader and validator (`declarative.Registry.Parse`): passes.
+- Runs offline through the workflow-agent runtime in `go test ./adk/examples/declarative/` (from `go/`).
 - Not yet deployed or run end to end. See the open items in the lecture notes below.
 
 ## Demo steps

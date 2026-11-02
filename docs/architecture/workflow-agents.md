@@ -116,8 +116,7 @@ extensions for optional types, `cel.bind`, strings (`trim`, `lowerAscii`,
 `split`, `format`, ...), base64 encoders, lists, `math`, sets and regex
 (`regex.extract`, `regex.extractAll`, `regex.replace`). An empty optional
 result is null. Expressions compile at validation and run under a cost limit
-of 1,000,000. `go/adk/examples/declarative/agents.yaml` classifies requests
-with an ordered list of regular-expression rules.
+of 1,000,000.
 
 The helper functions follow the names and semantics of the
 [agentgateway CEL functions](https://agentgateway.dev/docs/standalone/latest/reference/cel/variables/),
@@ -345,10 +344,16 @@ drift from the Go validation.
 
 ## Examples and tests
 
-`go/adk/examples/declarative` serves a document through the A2A application
-builder: CEL classifies and routes requests, a remote CRM MCP server answers
-billing questions through a tool node and an LLM node guarded by a CEL tool
-callback, and harness `write_file` stores escalation tickets.
+`go/adk/examples/declarative` is a generic BYO runtime for workflow agents
+(`make build-workflow-agent`). It carries no workflow and no workflow-specific
+code: it serves the document that `workflowFrom` delivers, resolves every model
+name in it to the AgentTemplate's ModelConfig, and offers the harness tools.
+Like the managed runtime, it initializes telemetry from the delivered settings
+and serves through the kagent executor, which emits each node's reply as its
+own artifact. The artifact's `kagent.dev/a2a/author` metadata names the node, so
+the chat shows the writer, each critic, and the loop as separate senders.
+`go/adk/examples/workflow` deploys it with the writer-critics and
+llm-router documents, and the runtime's tests run both offline.
 [Workflow design patterns](workflow-patterns.md) shows router, fan-out and fan-in,
 map-reduce, loops, human approval, and more, each as Go next to YAML, with the
 graphs the engine rejects. `go/adk/pkg/declarative/testdata` holds two documents the package tests run end

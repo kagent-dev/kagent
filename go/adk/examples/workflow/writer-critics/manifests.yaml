@@ -2,8 +2,9 @@
 # The workflow document is delivered through a ConfigMap built from agent-system.yaml:
 #   kubectl create configmap writer-critics-workflow --from-file=agent-system.yaml
 #
-# The harness reuses the pr-review BYO image, which registers the `reviewer`
-# model that agent-system.yaml names.
+# The harness runs the generic workflow-agent image (make build-workflow-agent
+# VERSION=dev). It serves whatever document workflowFrom delivers and resolves
+# every model name in it, such as `reviewer`, to the template's ModelConfig.
 apiVersion: api.kagent.dev/v1alpha3
 kind: Harness
 metadata:
@@ -19,7 +20,7 @@ spec:
   workload:
     command:
       - /app
-    image: localhost:5001/kagent-dev/kagent/pr-review-agent@sha256:1518eda61550bb42cf0d5b4e3f3e1093a5d417c14b7f0ada3f78853fc653ed94
+    image: localhost:5001/kagent-dev/kagent/workflow-agent:dev
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate

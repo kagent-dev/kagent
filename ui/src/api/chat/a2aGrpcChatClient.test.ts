@@ -820,6 +820,35 @@ describe("A2AGrpcChatClient.send", () => {
     ]);
   });
 
+  it("keeps a reply's author when a later chunk replaces it without one", async () => {
+    const chunk = (reply: string, extra: { append?: boolean; lastChunk?: boolean; author?: string }) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          append: extra.append,
+          lastChunk: extra.lastChunk,
+          artifact: {
+            artifactId: "draft",
+            parts: [text(reply)],
+            metadata: extra.author ? { [A2A_METADATA.author]: extra.author } : undefined,
+          },
+        },
+      },
+    });
+    const events = await turn([
+      chunk("A", { author: "writer" }),
+      chunk(" draft.", { append: true }),
+      chunk("A draft.", { lastChunk: true }),
+    ]);
+
+    expect(
+      transcript(events)
+        .filter((message) => message.role === "agent")
+        .map((message) => [message.author, textOf(message)]),
+    ).toEqual([["writer", "A draft."]]);
+  });
+
   it("leaves the author unset when the runtime does not report one", async () => {
     const events = await turn([
       {

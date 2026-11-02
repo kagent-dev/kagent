@@ -4,155 +4,129 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"maps"
-	"net/http/httptest"
+	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/stretchr/testify/require"
-	adkagent "google.golang.org/adk/v2/agent"
 	adkmodel "google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
-	"google.golang.org/genai"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/declarative"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
-// TestAgentsDocumentBuilds guards the example document against drift from the
-// registry it is served with.
-func TestAgentsDocumentBuilds(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "test-key") // building an OpenAI model needs a key; no request is made
-	startCRM(t)
-	reg, err := newRegistry(t.TempDir())
-	require.NoError(t, err)
-	spec, err := reg.Parse(agentsDocument)
-	require.NoError(t, err)
-	system, err := declarative.Build(t.Context(), spec, reg)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, system.Close()) })
-	require.Equal(t, "support_triage", system.Root().Name())
-}
-
-// startCRM serves the demo CRM MCP server for the test and points the
-// document's url_from at it.
-func startCRM(t *testing.T) {
-	t.Helper()
-	srv := httptest.NewServer(newCRMServer())
-	t.Cleanup(srv.Close)
-	t.Setenv(crmURLEnv, srv.URL)
-}
-
-func TestLoadDocumentPrefersTheDeliveredWorkflow(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "test-key")
-	reg, err := newRegistry(t.TempDir())
-	require.NoError(t, err)
-
-	embedded, err := loadDocument(reg, nil)
-	require.NoError(t, err)
-	require.Equal(t, "support_triage", embedded.Agents[0].Name)
-
-	const document = `{"apiVersion":"adk.declarative/v0.2","kind":"AgentSystem","agents":[{"name":"delivered","agent_class":"LlmAgent","model":"stub","instruction":"hi"}]}`
+func delivered(document string) *configv1.ADKWorkflowConfig {
 	sum := sha256.Sum256([]byte(document))
-	delivered, err := loadDocument(reg, &configv1.ADKWorkflowConfig{Document: []byte(document), Sha256: hex.EncodeToString(sum[:])})
-	require.NoError(t, err)
-	require.Equal(t, "delivered", delivered.Agents[0].Name)
+	return &configv1.ADKWorkflowConfig{Document: []byte(document), Sha256: hex.EncodeToString(sum[:])}
 }
 
-// TestCELClassification runs every route of the example offline against the
-// demo CRM MCP server and a temporary harness workspace: the model resolver is
-// replaced by the stub, which echoes "[node] <user text>".
-func TestCELClassification(t *testing.T) {
-	startCRM(t)
-	workspace := t.TempDir()
-	reg, err := newRegistry(workspace)
+func TestLoadDocumentRequiresTheDeliveredWorkflow(t *testing.T) {
+	reg, err := newRegistry(nil, t.TempDir())
 	require.NoError(t, err)
-	reg.SetModelResolver(func(_ context.Context, name string) (adkmodel.LLM, error) {
-		return declarative.NewStubModel(name), nil
-	})
-	spec, err := reg.Parse(agentsDocument)
-	require.NoError(t, err)
-	system, err := declarative.Build(t.Context(), spec, reg)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, system.Close()) })
 
-	for _, tc := range []struct {
-		name, input string
-		want        []string
-		state       map[string]any
-		files       bool
-	}{
-		{
-			name:  "urgent wins over billing",
-			input: "Billing portal is DOWN for c-7",
-			want:  []string{"escalated to on-call: BILLING PORTAL IS DOWN FOR C-7", "(ticket saved to tickets/T-"},
-			files: true,
-		},
-		{
-			name:  "billing with an extracted customer id",
-			input: "Please refund invoice 12 for customer c-42",
-			want:  []string{"Customer c-42 is on the pro plan with a balance of 120 ({\"ticket\":\"T-"},
-			state: map[string]any{"customer_id": "c-42", "keywords": []any{"refund", "invoice"}},
-		},
-		{
-			name:  "billing without a customer id",
-			input: "I was charged twice",
-			want:  []string{"Billing requests need a customer id such as c-123 (ticket T-"},
-			state: map[string]any{"customer_id": ""},
-		},
-		{
-			name:  "greeting counts keywords from state",
-			input: "Hello, my login fails",
-			want:  []string{"Hello! Describe a billing issue", "(1 keywords noted)"},
-		},
-		{
-			name:  "question reaches the model with e-mail redacted",
-			input: "How do I change jane.doe@example.com on my account?",
-			want:  []string{"How do I change <email> on my account?"},
-		},
-		{
-			name:  "unmatched falls back",
-			input: "Thanks for the help",
-			want:  []string{"I could not classify that request."},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			reply, state := runExample(t, system, tc.input)
-			for _, w := range tc.want {
-				require.Contains(t, reply, w)
+	_, err = loadDocument(reg, nil)
+	require.ErrorContains(t, err, "spec.workflowFrom")
+
+	spec, err := loadDocument(reg, delivered(`{"apiVersion":"adk.declarative/v0.2","kind":"AgentSystem","agents":[{"name":"delivered","agent_class":"LlmAgent","model":"stub","instruction":"hi"}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "delivered", spec.Agents[0].Name)
+}
+
+func TestModelResolverMapsEveryNameToTheModelConfig(t *testing.T) {
+	model := &configv1.ADKModelConfig{}
+	created := 0
+	resolve := modelResolver(model, func(_ context.Context, got *configv1.ADKModelConfig) (adkmodel.LLM, error) {
+		require.Same(t, model, got)
+		created++
+		return declarative.NewStubModel("configured"), nil
+	})
+
+	first, err := resolve(t.Context(), "reviewer")
+	require.NoError(t, err)
+	second, err := resolve(t.Context(), "gpt-4o")
+	require.NoError(t, err)
+	require.Equal(t, first, second)
+	require.Equal(t, 1, created)
+}
+
+func TestModelResolverWithoutModelConfigUsesTheNameAsAnOpenAIModel(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key") // creating the client needs a key; no request is made
+	llm, err := modelResolver(nil, nil)(t.Context(), "gpt-4o-mini")
+	require.NoError(t, err)
+	require.Equal(t, "gpt-4o-mini", llm.Name())
+}
+
+func TestAppName(t *testing.T) {
+	require.Equal(t, "kagent__NS__writer_critics", appName("kagent", "writer-critics", "root"))
+	require.Equal(t, "root", appName("", "writer-critics", "root"))
+}
+
+// exampleDocuments are the workflows this runtime is deployed with.
+func exampleDocuments(t *testing.T) []string {
+	t.Helper()
+	paths, err := filepath.Glob("../workflow/*/agent-system.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+	return paths
+}
+
+// TestExampleWorkflowsRunAndNameEveryReply runs each example document offline
+// through the executor the runtime serves with: every model name resolves to
+// the template's model (here the stub), and every reply reaches the chat as its
+// own artifact naming the node that wrote it.
+func TestExampleWorkflowsRunAndNameEveryReply(t *testing.T) {
+	for _, path := range exampleDocuments(t) {
+		t.Run(filepath.Base(filepath.Dir(path)), func(t *testing.T) {
+			document, err := os.ReadFile(path)
+			require.NoError(t, err)
+			reg, err := newRegistry(&configv1.ADKModelConfig{}, t.TempDir())
+			require.NoError(t, err)
+			reg.SetModelResolver(modelResolver(&configv1.ADKModelConfig{}, func(context.Context, *configv1.ADKModelConfig) (adkmodel.LLM, error) {
+				return declarative.NewStubModel("template-model"), nil
+			}))
+			spec, err := loadDocument(reg, delivered(string(document)))
+			require.NoError(t, err)
+			system, err := declarative.Build(t.Context(), spec, reg)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, system.Close()) })
+
+			root := system.Root()
+			sessions := adksession.InMemoryService()
+			executor, err := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
+				RunnerConfig:   runner.Config{AppName: "test", Agent: root, SessionService: sessions},
+				SessionService: sessions,
+				AppName:        "test",
+				Logger:         slog.New(slog.DiscardHandler),
+			})
+			require.NoError(t, err)
+
+			reqCtx := &a2asrv.ExecutorContext{
+				TaskID:    "task-1",
+				ContextID: "context-1",
+				Message:   a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("why is the sky blue")),
 			}
-			for k, v := range tc.state {
-				require.Equal(t, v, state[k], "state %q", k)
-			}
-			if tc.files {
-				ticket, err := os.ReadFile(filepath.Join(workspace, "tickets", state["ticket_ref"].(string)+".txt"))
+			ids := map[a2atype.ArtifactID]bool{}
+			authors := map[string]bool{}
+			for event, err := range executor.Execute(t.Context(), reqCtx) {
 				require.NoError(t, err)
-				require.Equal(t, state["escalation"], string(ticket))
+				update, ok := event.(*a2atype.TaskArtifactUpdateEvent)
+				if !ok || update.Artifact == nil {
+					continue
+				}
+				author, _ := update.Artifact.Metadata[apia2a.AuthorMetadataKey].(string)
+				require.NotEmpty(t, author, "artifact %s has no author", update.Artifact.ID)
+				require.False(t, ids[update.Artifact.ID], "reply appended to artifact %s", update.Artifact.ID)
+				ids[update.Artifact.ID] = true
+				authors[author] = true
 			}
+			require.GreaterOrEqual(t, len(authors), 2, "authors: %v", authors)
 		})
 	}
-}
-
-func runExample(t *testing.T, system *declarative.System, input string) (string, map[string]any) {
-	t.Helper()
-	sessions := adksession.InMemoryService()
-	created, err := sessions.Create(t.Context(), &adksession.CreateRequest{AppName: "example", UserID: "u"})
-	require.NoError(t, err)
-	r, err := runner.New(runner.Config{AppName: "example", Agent: system.Root(), SessionService: sessions})
-	require.NoError(t, err)
-	var reply strings.Builder
-	for ev, err := range r.Run(t.Context(), "u", created.Session.ID(), genai.NewContentFromText(input, genai.RoleUser), adkagent.RunConfig{}) {
-		require.NoError(t, err)
-		if ev.Content != nil && !ev.Partial {
-			for _, p := range ev.Content.Parts {
-				reply.WriteString(p.Text)
-			}
-		}
-	}
-	got, err := sessions.Get(t.Context(), &adksession.GetRequest{AppName: "example", UserID: "u", SessionID: created.Session.ID()})
-	require.NoError(t, err)
-	return reply.String(), maps.Collect(got.Session.State().All())
 }

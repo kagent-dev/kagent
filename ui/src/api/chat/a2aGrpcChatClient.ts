@@ -568,6 +568,8 @@ export class A2AGrpcChatClient implements ChatClient {
      * belongs to this turn and must not outlive it.
      */
     const artifacts = new Map<string, ChatPart[]>();
+    // The sender of each artifact, kept because a replacing chunk may omit it.
+    const artifactAuthors = new Map<string, string>();
 
     const options = this.callOptions(conversation, signal);
     let stream: AsyncIterable<StreamFrame>;
@@ -717,6 +719,8 @@ export class A2AGrpcChatClient implements ChatClient {
           const body = textOf(parts);
           const artifactId = event.artifact?.artifactId || "";
           const known = artifactId !== "" && artifacts.has(artifactId);
+          const author = metadataString(event.artifact?.metadata, A2A_METADATA.author)
+            ?? artifactAuthors.get(artifactId);
 
           if (known) {
             const id = artifactId;
@@ -739,6 +743,7 @@ export class A2AGrpcChatClient implements ChatClient {
                   parts: updated,
                   createdAt: new Date().toISOString(),
                   taskId: event.taskId,
+                  author,
                 },
               };
             }
@@ -759,6 +764,7 @@ export class A2AGrpcChatClient implements ChatClient {
 
           const id = artifactId || nextId("artifact");
           artifacts.set(id, parts);
+          if (author) artifactAuthors.set(id, author);
           yield {
             type: "message",
             message: {
@@ -767,7 +773,7 @@ export class A2AGrpcChatClient implements ChatClient {
               parts,
               createdAt: new Date().toISOString(),
               taskId: event.taskId,
-              author: metadataString(event.artifact?.metadata, A2A_METADATA.author),
+              author,
             },
           };
           continue;
@@ -792,6 +798,8 @@ export class A2AGrpcChatClient implements ChatClient {
           for (const artifact of task.artifacts) {
             if (artifact.artifactId) {
               artifacts.set(artifact.artifactId, toParts(artifact.parts));
+              const author = metadataString(artifact.metadata, A2A_METADATA.author);
+              if (author) artifactAuthors.set(artifact.artifactId, author);
             }
           }
           yield {
