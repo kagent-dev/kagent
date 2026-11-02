@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -122,16 +123,12 @@ type Options struct {
 	// its own surface here; letting it reclassify core's would turn a config
 	// field into a way to make an authenticated method public.
 	MethodPolicies map[string]auth.AccessMode
-	// MCPExtensions adds tools and resources to core's /mcp server, so a
-	// consumer's MCP surface shares core's endpoint, authenticator and tool list
-	// instead of a second /mcp handler. It runs after core registers its own
-	// tools and before the handler is built; returning an error aborts startup.
-	//
-	// The registry offers no middleware. Run fails if the hook registers a tool
-	// name, resource URI or URI template that core or an earlier call
-	// registered, or input the registry rejects, even when the hook drops the
-	// error. Authorization inside an added tool stays with the consumer.
-	MCPExtensions func(MCPRegistry) error
+	// MCPExtensions receives core's /mcp server after core registers its own
+	// tools and before the handler is built, so a consumer can add tools and
+	// resources that share core's endpoint and authenticator. Core's tools are
+	// not protected: the SDK replaces a tool or resource registered under an
+	// existing name or URI. Returning an error aborts startup.
+	MCPExtensions func(*mcpsdk.Server) error
 	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
 	// all must be bound. Authenticator must not forward the caller token.
 	EgressPolicyCompilers []egresspolicy.Compiler
@@ -431,7 +428,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	mcpHandler, err := mcp.New(mcp.Config{
 		Agents: agents, Sessions: sessions, Checkpoints: checkpoints, Gateway: gateway,
 		Sandboxes: sandboxes, SandboxTemplates: sandboxTemplates,
-		Extensions: mcpExtensions(opts.MCPExtensions),
+		Extensions: opts.MCPExtensions,
 	})
 	if err != nil {
 		return err

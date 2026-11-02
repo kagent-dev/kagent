@@ -46,7 +46,7 @@ type Config struct {
 	Sandboxes        *sandbox.Service
 	SandboxTemplates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
 	// Extensions adds tools and resources after core has registered its own.
-	Extensions func(Registry) error
+	Extensions func(*mcp.Server) error
 }
 
 type ListSessionsInput struct {
@@ -129,8 +129,8 @@ func New(cfg Config) (*Handler, error) {
 		return nil, err
 	}
 	if cfg.Extensions != nil {
-		if err := applyExtensions(server, cfg.Extensions); err != nil {
-			return nil, err
+		if err := cfg.Extensions(server); err != nil {
+			return nil, fmt.Errorf("extend /mcp: %w", err)
 		}
 	}
 	h.http = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true})

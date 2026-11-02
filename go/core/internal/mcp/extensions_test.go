@@ -33,37 +33,26 @@ func (headerProvider) Authenticate(_ context.Context, headers http.Header, _ url
 
 func (headerProvider) UpstreamAuth(*http.Request, auth.Session, string) error { return nil }
 
-func extendedHandler(t *testing.T, extend func(Registry) error) (*Handler, error) {
+func extendedHandler(t *testing.T, extend func(*mcp.Server) error) (*Handler, error) {
 	t.Helper()
 	return New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &fakeGateway{}, Extensions: extend})
 }
 
-func objectSchema() *jsonschema.Schema { return &jsonschema.Schema{Type: "object"} }
-
-func noopTool(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return &mcp.CallToolResult{}, nil
-}
-
-func noopResource(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	return &mcp.ReadResourceResult{}, nil
-}
-
 func TestExtensionsServeToolsAndResourcesBehindTheCoreAuthenticator(t *testing.T) {
-	handler, err := extendedHandler(t, func(registry Registry) error {
-		if err := registry.AddTool(&mcp.Tool{
+	handler, err := extendedHandler(t, func(server *mcp.Server) error {
+		server.AddTool(&mcp.Tool{
 			Name:        "whoami",
-			InputSchema: objectSchema(),
+			InputSchema: &jsonschema.Schema{Type: "object"},
 			Meta:        mcp.Meta{"ui": map[string]any{"resourceUri": "ui://ext/app.html"}},
 		}, func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			session, _ := auth.AuthSessionFrom(ctx)
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: session.Principal().ID}}}, nil
-		}); err != nil {
-			return err
-		}
-		return registry.AddResource(&mcp.Resource{URI: "ui://ext/app.html", Name: "app", MIMEType: "text/html;profile=mcp-app"},
+		})
+		server.AddResource(&mcp.Resource{URI: "ui://ext/app.html", Name: "app", MIMEType: "text/html;profile=mcp-app"},
 			func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 				return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: "ui://ext/app.html", MIMEType: "text/html;profile=mcp-app", Text: "<p>hi</p>"}}}, nil
 			})
+		return nil
 	})
 	require.NoError(t, err)
 	server := httptest.NewServer(auth.AuthnMiddleware(headerProvider{})(handler))
@@ -96,55 +85,10 @@ func TestExtensionsServeToolsAndResourcesBehindTheCoreAuthenticator(t *testing.T
 	require.Equal(t, http.StatusUnauthorized, response.StatusCode)
 }
 
-func TestExtensionsRefuseWhatCannotBeRegistered(t *testing.T) {
-	hookErr := errors.New("hook failed")
-	for _, test := range []struct {
-		name    string
-		extend  func(Registry) error
-		wantErr string
-	}{
-		{"core tool name", func(r Registry) error {
-			return r.AddTool(&mcp.Tool{Name: listToolName, InputSchema: objectSchema()}, noopTool)
-		}, `tool "list_sessions" is already registered`},
-		{"core tool name, error dropped", func(r Registry) error {
-			_ = r.AddTool(&mcp.Tool{Name: invokeToolName, InputSchema: objectSchema()}, noopTool)
-			return nil
-		}, `tool "invoke_agent" is already registered`},
-		{"repeated tool name", func(r Registry) error {
-			_ = r.AddTool(&mcp.Tool{Name: "own", InputSchema: objectSchema()}, noopTool)
-			return r.AddTool(&mcp.Tool{Name: "own", InputSchema: objectSchema()}, noopTool)
-		}, `tool "own" is already registered`},
-		{"repeated resource URI", func(r Registry) error {
-			_ = r.AddResource(&mcp.Resource{URI: "ui://own"}, noopResource)
-			return r.AddResource(&mcp.Resource{URI: "ui://own"}, noopResource)
-		}, `resource "ui://own" is already registered`},
-		{"repeated resource template", func(r Registry) error {
-			_ = r.AddResourceTemplate(&mcp.ResourceTemplate{URITemplate: "ui://own/{id}"}, noopResource)
-			return r.AddResourceTemplate(&mcp.ResourceTemplate{URITemplate: "ui://own/{id}"}, noopResource)
-		}, `resource template "ui://own/{id}" is already registered`},
-		{"missing input schema", func(r Registry) error {
-			return r.AddTool(&mcp.Tool{Name: "own"}, noopTool)
-		}, `tool "own" needs an input schema`},
-		{"input schema that is not an object", func(r Registry) error {
-			return r.AddTool(&mcp.Tool{Name: "own", InputSchema: &jsonschema.Schema{Type: "string"}}, noopTool)
-		}, `tool "own": `},
-		{"nil tool handler", func(r Registry) error {
-			return r.AddTool(&mcp.Tool{Name: "own", InputSchema: objectSchema()}, nil)
-		}, "a tool needs a name and a handler"},
-		{"empty resource URI", func(r Registry) error {
-			return r.AddResource(&mcp.Resource{}, noopResource)
-		}, "a resource needs a URI and a handler"},
-		{"invalid URI template", func(r Registry) error {
-			return r.AddResourceTemplate(&mcp.ResourceTemplate{URITemplate: "ui://own/{"}, noopResource)
-		}, `resource template "ui://own/{": `},
-		{"hook error", func(Registry) error { return hookErr }, "hook failed"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			handler, err := extendedHandler(t, test.extend)
-			require.Nil(t, handler)
-			require.ErrorContains(t, err, test.wantErr)
-		})
-	}
+func TestExtensionErrorFailsStartup(t *testing.T) {
+	handler, err := extendedHandler(t, func(*mcp.Server) error { return errors.New("hook failed") })
+	require.Nil(t, handler)
+	require.ErrorContains(t, err, "extend /mcp: hook failed")
 }
 
 func TestExtensionsCanBeLeftOut(t *testing.T) {

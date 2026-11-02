@@ -66,14 +66,12 @@ separate MCP task or session store.
 ## Extending the server
 
 A program that runs core as a library sets `app.Options.MCPExtensions` to add
-tools, resources, and resource templates to this server. The hook runs after
+tools and resources to this server. The hook receives the `*mcp.Server` after
 core registers its own tools. Added tools and resources are served from the same
 endpoint, behind the same authenticator, as core's.
 
-The hook receives a registry, not the MCP server, so it cannot add middleware
-that sees core's tool calls. Startup fails if the hook registers a name, URI,
-or URI template that core or an earlier call already registered, or input the
-registry rejects, even when the hook drops the error. Authorization inside an
-added tool stays with the program that adds it.
+The hook can do anything the SDK allows, including middleware. Core's tools are
+not protected: registering a name or URI core already uses replaces it.
+Authorization inside an added tool stays with the program that adds it.
 
 The implementation is in [`go/core/internal/mcp`](../../go/core/internal/mcp).
