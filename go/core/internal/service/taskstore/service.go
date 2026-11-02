@@ -151,7 +151,6 @@ func (s *Service) ListTasks(ctx context.Context, input *runtimev1.TaskStoreServi
 			task.Artifacts = nil
 		}
 	}
-	// A page ends early when its tasks would go over the message size limit.
 	if fit := apia2a.TasksWithinSize(tasks, apia2a.MaxTaskPageBytes); fit < len(tasks) {
 		tasks = tasks[:fit]
 		more = true

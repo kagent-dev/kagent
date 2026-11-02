@@ -6,11 +6,10 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
-// MaxTaskPageBytes keeps a ListTasks page under the 16 MiB gRPC message limit.
+// MaxTaskPageBytes keeps a ListTasks page under the 16 MiB gRPC limit.
 const MaxTaskPageBytes = 12 << 20
 
-// TasksWithinSize returns how many leading tasks fit in maxBytes of JSON. It
-// returns at least one, so a single oversized task still gets a page of its own.
+// TasksWithinSize returns how many leading tasks fit in maxBytes (at least one).
 func TasksWithinSize(tasks []*a2atype.Task, maxBytes int) int {
 	total := 0
 	for i, task := range tasks {
