@@ -95,7 +95,7 @@ func TestDetailedTaskIncludesInvocationOutput(t *testing.T) {
 		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &now},
 	}
-	result := detailedTask("task-ref", taskReference{SessionID: testSessionID}, task)
+	result := detailedTask("task-ref", task)
 	output, ok := result.Result.StructuredContent.(InvokeSessionOutput)
 	if !ok || output.TaskID != testTaskID || output.ContextID != testSessionID {
 		t.Fatalf("structured invocation output = %#v", result.Result.StructuredContent)

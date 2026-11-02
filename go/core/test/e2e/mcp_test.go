@@ -15,6 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -82,6 +83,73 @@ func TestMCPSessionInteraction(t *testing.T) {
 		synchronous := mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", false)
 		if synchronous["resultType"] != "complete" || !strings.Contains(mcpResultText(synchronous), "The answer is 4.") {
 			t.Fatalf("synchronous MCP result = %#v", synchronous)
+		}
+	})
+}
+
+func TestMCPAgentInvocation(t *testing.T) {
+	t.Parallel()
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
+		target := interactionTarget(t)
+		// Prepare only the Agent. The first MCP invocation must create its Session.
+		agentName := createInteractionTemplate(t, harness, startInteractionMock(t))
+		conn := newControllerConn(t, target)
+		sessions := apiv1.NewSessionServiceClient(conn)
+		ctx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e")
+		endpoint := mcpEndpoint(t)
+		for _, test := range []struct {
+			name  string
+			tasks bool
+		}{
+			{name: "synchronous"},
+			{name: "task", tasks: true},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				request := map[string]any{
+					"name": "invoke_session",
+					"arguments": map[string]any{
+						"agent":      map[string]any{"namespace": "kagent", "name": agentName},
+						"message":    "What is 2+2?",
+						"message_id": uuid.NewString(),
+					},
+				}
+				invoke := func() map[string]any {
+					t.Helper()
+					response := mcpCall(t, endpoint, "tools/call", request, test.tasks)
+					result := response["result"].(map[string]any)
+					require.NotEqual(t, true, result["isError"], "%v", result)
+					if test.tasks {
+						handle := result["taskId"].(string)
+						result = waitMCPTask(t, endpoint, handle, "completed")["result"].(map[string]any)
+					}
+					require.NotEqual(t, true, result["isError"], "%v", result)
+					require.Contains(t, mcpResultText(result), "The answer is 4.")
+					return result["structuredContent"].(map[string]any)
+				}
+				first := invoke()
+				sessionID := first["session_id"].(string)
+				require.NotEmpty(t, sessionID)
+				t.Cleanup(func() {
+					cleanupCtx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+					defer cancel()
+					require.NoError(t, deleteIdleSession(cleanupCtx, sessions, sessionID))
+				})
+				require.Equal(t, sessionID, first["context_id"])
+				stored, err := sessions.GetSession(ctx, &apiv1.GetSessionRequest{SessionId: sessionID})
+				require.NoError(t, err)
+				require.Equal(t, agentName, stored.GetSession().GetAgent().GetRef().GetName())
+
+				retry := invoke()
+				require.Equal(t, sessionID, retry["session_id"])
+				require.Equal(t, first["task_id"], retry["task_id"])
+
+				continued := mcpInvoke(t, endpoint, sessionID, "What is 2+2?", false)
+				require.Contains(t, mcpResultText(continued), "The answer is 4.")
+				output := continued["structuredContent"].(map[string]any)
+				require.Equal(t, sessionID, output["session_id"])
+				require.NotEqual(t, first["task_id"], output["task_id"])
+			})
 		}
 	})
 }
