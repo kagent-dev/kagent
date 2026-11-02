@@ -2,7 +2,7 @@ suite: test ui deployment
 templates:
   - ui-configmap.yaml
   - ui-deployment.yaml
-  - ui-nginx-configmap.yaml
+  - ui-agentgateway-configmap.yaml
 tests:
   - it: loads browser settings from the ConfigMap and rolls out on changes
     template: ui-deployment.yaml
@@ -114,11 +114,22 @@ tests:
           path: spec.template.spec.serviceAccountName
           value: RELEASE-NAME-ui
 
-  - it: should have correct container port
+  - it: should listen on the UI port with agentgateway
     template: ui-deployment.yaml
     asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].ports
       - equal:
-          path: spec.template.spec.containers[0].ports[0].containerPort
+          path: spec.template.spec.containers[1].name
+          value: agentgateway
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: cr.agentgateway.dev/agentgateway:v1.7.0
+      - equal:
+          path: spec.template.spec.containers[1].args
+          value: ["-f", "/etc/agentgateway/config.yaml"]
+      - equal:
+          path: spec.template.spec.containers[1].ports[0].containerPort
           value: 8080
 
   - it: should set global annotations on deployment
@@ -189,20 +200,20 @@ tests:
     template: ui-deployment.yaml
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          path: spec.template.spec.containers[1].startupProbe.httpGet.path
           value: /health
       - equal:
-          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          path: spec.template.spec.containers[1].startupProbe.periodSeconds
           value: 1
 
   - it: should use default httpGet readiness probe
     template: ui-deployment.yaml
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          path: spec.template.spec.containers[1].readinessProbe.httpGet.path
           value: /health
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          path: spec.template.spec.containers[1].readinessProbe.periodSeconds
           value: 30
 
   - it: should allow overriding startup probe
@@ -217,13 +228,13 @@ tests:
           failureThreshold: 30
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].startupProbe.exec.command
+          path: spec.template.spec.containers[1].startupProbe.exec.command
           value: ["curl", "-sf", "http://[::1]:8080/health"]
       - equal:
-          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          path: spec.template.spec.containers[1].startupProbe.periodSeconds
           value: 3
       - notExists:
-          path: spec.template.spec.containers[0].startupProbe.httpGet
+          path: spec.template.spec.containers[1].startupProbe.httpGet
 
   - it: should allow overriding readiness probe
     template: ui-deployment.yaml
@@ -235,15 +246,15 @@ tests:
           periodSeconds: 10
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.exec.command
+          path: spec.template.spec.containers[1].readinessProbe.exec.command
           value: ["curl", "-sf", "http://[::1]:8080/health"]
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          path: spec.template.spec.containers[1].readinessProbe.periodSeconds
           value: 10
       - notExists:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          path: spec.template.spec.containers[1].readinessProbe.httpGet
 
-  - it: should mount the ui-config ConfigMap for nginx
+  - it: should mount the ui-config ConfigMap for agentgateway
     template: ui-deployment.yaml
     asserts:
       - contains:
@@ -252,24 +263,36 @@ tests:
             name: ui-config
             configMap:
               name: RELEASE-NAME-ui-config
-      - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: ui-config
-            mountPath: /etc/nginx/nginx.conf
-            subPath: nginx.conf
-            readOnly: true
-
-  - it: should not mount a supervisord config now that nginx runs as PID 1
-    template: ui-deployment.yaml
-    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].volumeMounts
+          value:
+            - name: ui-config
+              mountPath: /etc/agentgateway
+              readOnly: true
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: ui-config
-            mountPath: /etc/supervisor/conf.d/supervisord.conf
-            subPath: supervisord.conf
-            readOnly: true
+          any: true
+
+  - it: should give agentgateway its own image and resources
+    template: ui-deployment.yaml
+    set:
+      global.imageRegistry: mirror.example
+      ui:
+        agentgateway:
+          image:
+            tag: v9.9.9
+          resources:
+            limits:
+              memory: 1Gi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: mirror.example/agentgateway:v9.9.9
+      - equal:
+          path: spec.template.spec.containers[1].resources.limits.memory
+          value: 1Gi
 
   - it: should include config checksum in pod annotations
     template: ui-deployment.yaml
@@ -414,14 +437,14 @@ tests:
       - failedTemplate:
           errorMessage: ui.basePath must be a path like /ui
 
-  - it: should reject a ui.basePath that starts with a path nginx serves
+  - it: should reject a ui.basePath that starts with a path the UI serves
     template: ui-deployment.yaml
     set:
       ui:
         basePath: /assets/ui
     asserts:
       - failedTemplate:
-          errorMessage: ui.basePath cannot start with a path nginx serves, such as /api or /assets
+          errorMessage: ui.basePath cannot start with a path the UI serves, such as /api or /assets
 
   - it: should accept a ui.basePath that only shares a prefix with a served path
     template: ui-configmap.yaml

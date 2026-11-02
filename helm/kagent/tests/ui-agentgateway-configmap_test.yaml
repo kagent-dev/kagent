@@ -1,0 +1,170 @@
+suite: test ui agentgateway configmap
+templates:
+  - ui-agentgateway-configmap.yaml
+tests:
+  - it: renders one ConfigMap with the agentgateway config
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ui-config
+      - exists:
+          path: data["config.yaml"]
+      - notExists:
+          path: data["nginx.conf"]
+
+  - it: listens on the UI port with its admin, stats and readiness listeners off
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'adminAddr: "off"\n  statsAddr: "off"\n  readinessAddr: "off"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'gateways:\n  ui:\n    port: 8080\n'
+
+  - it: binds IPv4 only by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'enableIpv6: false'
+
+  - it: binds IPv6 when ipv6 is enabled
+    set:
+      ipv6.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'enableIpv6: true'
+
+  - it: routes API paths to the controller and everything else to the UI server
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'exact: "/\.well-known/jwks\.json"(\n.*)*?\n  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'pathPrefix: "/a2a/"(\n.*)*?\n  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'exact: "/mcp"(\n.*)*?\n  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'pathPrefix: "/api/"(\n.*)*?\n  - host: RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: ui\n  gateways: ui\n  backends:\n  - host: 127\.0\.0\.1:8081\n?$'
+
+  - it: sets the forwarded headers nginx set
+    asserts:
+      # Keeps the client's host name instead of agentgateway's default, the backend's.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?s)(urlRewrite:\n      authority:\n        port: 8083\n.*){4}'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'X-Forwarded-Proto: http'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'X-Forwarded-Host: localhost'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'Origin: "\\"http://\\" \+ request\.host'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'X-Real-IP: source\.address'
+
+  # The ConfigMap is a security boundary: a client must not reach the controller
+  # with an identity header an auth proxy would otherwise have set.
+  - it: strips spoofable identity headers on a2a, mcp and api by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'remove:\n        - x-auth-request-user\n        - x-auth-request-email\n        - x-auth-request-groups\n        - x-auth-request-preferred-username\n        - x-auth-request-access-token\n        - x-auth-request-redirect\n        - x-forwarded-user\n        - x-forwarded-email\n        - x-forwarded-groups\n        - x-forwarded-preferred-username\n    transformations'
+      # One list per proxied route: a2a, mcp and api.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?s)(remove:.*){3}'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '(?s)(remove:.*){4}'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '- x-agent-name|- x-user-id'
+
+  - it: forwards an identity header the operator opted into, case-insensitively
+    set:
+      ui.additionalForwardedHeaders: [" X-Forwarded-Email "]
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '- x-forwarded-email'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- x-forwarded-user\n        - x-forwarded-groups'
+
+  - it: strips internal agent identity headers in trusted proxy mode even if opted in
+    set:
+      config.server.auth.mode: trusted-proxy
+      ui.additionalForwardedHeaders: [X-Agent-Name, X-User-Id]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- x-forwarded-preferred-username\n        - x-agent-name\n        - x-user-id\n'
+
+  - it: maps the nginx timeouts and body limit by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'timeout:\n      requestTimeout: 1800s\n      responseIdleTimeout: 1800s\n    buffer:\n      request:\n        maxBytes: 20971520\n        failureMode: failClosed'
+
+  - it: reads nginx sizes and bare-second times
+    set:
+      ui.nginx.proxyReadTimeout: 900
+      ui.nginx.clientMaxBodySize: 512K
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'responseIdleTimeout: 900s'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'maxBytes: 524288\n'
+
+  - it: drops the body limit when clientMaxBodySize is 0
+    set:
+      ui.nginx.clientMaxBodySize: 0
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'buffer:'
+
+  - it: rejects a clientMaxBodySize it cannot read
+    set:
+      ui.nginx.clientMaxBodySize: 20mb
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.nginx.clientMaxBodySize must be a size like 20m, 512k or 0
+
+  - it: routes ui.basePath-prefixed API paths with the prefix removed
+    set:
+      ui.basePath: /my.ui/
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'pathPrefix: "/my\.ui/api/"\n  policies:\n    urlRewrite:\n      authority:\n        port: 8083\n      path:\n        prefix: /api/'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'exact: "/my\.ui/mcp"\n  policies:\n    urlRewrite:\n      authority:\n        port: 8083\n      path:\n        full: /mcp'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'exact: "/my\.ui/\.well-known/jwks\.json"\n  policies:\n    urlRewrite:\n      authority:\n        port: 8083\n      path:\n        full: /\.well-known/jwks\.json'
+
+  - it: adds no prefixed routes without ui.basePath
+    set:
+      ui.basePath: /
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'path:\n        (full|prefix):'

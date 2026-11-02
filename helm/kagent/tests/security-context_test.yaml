@@ -5,7 +5,7 @@ templates:
   - controller-deployment.yaml
   - ui-deployment.yaml
   - ui-configmap.yaml
-  - ui-nginx-configmap.yaml
+  - ui-agentgateway-configmap.yaml
 tests:
   # =============================================================================
   # Controller Security Context Tests
@@ -122,6 +122,14 @@ tests:
           content: ALL
       - isNull:
           path: spec.template.spec.containers[0].securityContext.seccompProfile
+      - equal:
+          path: spec.template.spec.containers[1].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
   - it: should have tmp volume for UI
     template: ui-deployment.yaml
@@ -170,6 +178,9 @@ tests:
           value: false
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 2000
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.runAsUser
           value: 2000
 
   - it: should fallback to global pod security context for UI

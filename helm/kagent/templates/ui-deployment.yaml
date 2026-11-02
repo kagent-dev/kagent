@@ -19,7 +19,7 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
-        checksum/ui-config: {{ include (print $.Template.BasePath "/ui-nginx-configmap.yaml") . | sha256sum }}
+        checksum/ui-config: {{ include (print $.Template.BasePath "/ui-agentgateway-configmap.yaml") . | sha256sum }}
         {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -73,19 +73,30 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "kagent.fullname" . }}-ui
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
+        {{- /* Fronts the UI server, which listens on 127.0.0.1:8081, and proxies API paths to the controller. */}}
+        - name: agentgateway
+          {{- with (.Values.ui.securityContext | default .Values.securityContext) }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ include "kagent.uiAgentgatewayImage" . | quote }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.ui.agentgateway.image.pullPolicy) }}
+          args: ["-f", "/etc/agentgateway/config.yaml"]
           ports:
             - name: http
               containerPort: {{ .Values.ui.service.ports.targetPort }}
               protocol: TCP
           volumeMounts:
-            - name: tmp
-              mountPath: /tmp
             - name: ui-config
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
+              mountPath: /etc/agentgateway
               readOnly: true
           resources:
-            {{- toYaml .Values.ui.resources | nindent 12 }}
+            {{- toYaml .Values.ui.agentgateway.resources | nindent 12 }}
           {{- if .Values.ui.startupProbe }}
           startupProbe:
             {{- toYaml .Values.ui.startupProbe | nindent 12 }}

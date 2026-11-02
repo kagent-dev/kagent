@@ -435,6 +435,11 @@ tag wins over the component tag.
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
 
+{{- define "kagent.uiAgentgatewayImage" -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" .Values.ui.agentgateway.image "global" $global) -}}
+{{- end -}}
+
 {{/* "true" when the controller skips migrations and so needs no owner login. */}}
 {{- define "kagent.database.skipMigrations" -}}
 {{- if dig "database" "skipMigrations" false (.Values.config | default dict) -}}true{{- end -}}

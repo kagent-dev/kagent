@@ -6,5 +6,5 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 data:
-  nginx.conf: |
-    {{- tpl (.Files.Get "files/nginx.conf") . | nindent 4 }}
+  config.yaml: |
+    {{- tpl (.Files.Get "files/agentgateway.yaml") . | trim | nindent 4 }}
