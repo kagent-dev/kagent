@@ -189,8 +189,8 @@ oauth2-proxy:
 ```
 
 Route the public HTTPS hostname to `kagent-oauth2-proxy:4180`, including
-`/oauth2/`, `/api/`, `/a2a/`, and `/mcp`. The proxy forwards to the controller's UI port,
-which serves API, A2A, and MCP requests in-process. Do not enable a
+`/oauth2/`, `/api/`, and `/mcp`. The proxy forwards to the controller's UI port,
+which serves API and MCP requests in-process. Do not enable a
 second ingress, HTTPRoute, or OpenShift Route directly to the UI or controller.
 The chart's default `skip-jwt-bearer-tokens: true` allows API clients presenting
 a valid JWT for the configured OIDC issuer/client to use this same public path.

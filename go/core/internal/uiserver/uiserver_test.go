@@ -35,7 +35,7 @@ func TestHandler(t *testing.T) {
 	var seen *http.Request
 	api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r
-		if r.URL.Path == "/a2a/stream" {
+		if r.URL.Path == "/api/stream" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprint(w, "data: one\n\n")
 			w.(http.Flusher).Flush()
@@ -108,7 +108,7 @@ func TestHandler(t *testing.T) {
 
 	// The first event must arrive before the handler finishes, under the base path too.
 	start := time.Now()
-	resp := get("/ui/a2a/stream")
+	resp := get("/ui/api/stream")
 	line, _ := bufio.NewReader(resp.Body).ReadString('\n')
 	if line != "data: one\n" || time.Since(start) > 150*time.Millisecond {
 		t.Errorf("stream: first line %q after %v", line, time.Since(start))

@@ -34,7 +34,7 @@ var (
 )
 
 // apiPaths reach the controller's handler; everything else is the bundle.
-var apiPaths = []string{"/api/", "/a2a/", "/mcp", "/.well-known/jwks.json"}
+var apiPaths = []string{"/api/", "/mcp", "/.well-known/jwks.json"}
 
 // maxBodyBytes sits just above the gateway's 16 MiB gRPC cap, which chat attachments hit first.
 const maxBodyBytes = 20 << 20
@@ -60,7 +60,7 @@ type Config struct {
 	Root string
 	// Environ supplies the KAGENT_UI_* browser settings, as NAME=value pairs.
 	Environ []string
-	// API is the controller's handler for /api/, /a2a/, /mcp and /.well-known/jwks.json.
+	// API is the controller's handler for /api/, /mcp and /.well-known/jwks.json.
 	API http.Handler
 	// StrippedHeaders are removed from every request before routing.
 	StrippedHeaders []string
@@ -83,7 +83,7 @@ func Run(ctx context.Context, cfg Config) error {
 	logger := logging.FromContext(ctx).With("component", "ui_server")
 	handler, err := NewHandler(ctx, cfg)
 	if errors.Is(err, os.ErrNotExist) {
-		logger.InfoContext(ctx, "no UI bundle found; UI listener is off", "root", cfg.Root)
+		logger.WarnContext(ctx, "no UI bundle found; UI listener is off", "root", cfg.Root)
 		return nil
 	}
 	if err != nil {
