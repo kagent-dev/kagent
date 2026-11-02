@@ -13,19 +13,14 @@ import (
 	"google.golang.org/adk/v2/tool"
 )
 
-// ADK renders MCP image content as a text placeholder, dropping the bytes. The
-// toolset's client moves them into a per-call sink, imageTool stashes them by
-// call ID, and the A2A converter adds them to the result sent to the UI. They
-// stay out of the ADK session, so the model and session history never see them.
+// ADK drops MCP image bytes. They are captured per call, stashed by call ID, and
+// added to the A2A result for the UI, so the model and session never see them.
 
-// ToolResultImagesKey holds a note of the images in a tool result, and the
-// images themselves ([]ToolImage) in the A2A result.
+// ToolResultImagesKey holds a note in the tool result and the images in the A2A result.
 const ToolResultImagesKey = "images"
 
 const (
-	// Caps on the base64 of one image, one call and one A2A task. The task store
-	// resends the whole task under a 16 MiB gRPC limit. Each image also counts
-	// toolImageOverheadBytes toward the call and task caps.
+	// Base64 caps for an image, a call and an A2A task (the task is resent under a 16 MiB gRPC limit).
 	maxToolImageBytes      = 2 << 20
 	maxToolCallImageBytes  = 4 << 20
 	maxTaskImageBytes      = 6 << 20
@@ -33,15 +28,12 @@ const (
 	maxToolCallImages      = 16
 )
 
-// ToolCallKey identifies a tool call. Some providers reuse call IDs, so the
-// invocation scopes them.
+// ToolCallKey scopes call IDs, which some providers reuse, by invocation.
 type ToolCallKey struct {
 	InvocationID string
 	CallID       string
 }
 
-// toolImages holds an execution's images until their function responses are
-// converted, and counts the image bytes the task carries.
 type toolImages struct {
 	sync.Mutex
 	spent int
@@ -50,9 +42,7 @@ type toolImages struct {
 
 type toolImagesKey struct{}
 
-// WithToolImages returns ctx with an image store. spent is the image bytes
-// earlier executions already added to the task. Without a store, tool calls
-// keep ADK's placeholders.
+// WithToolImages returns ctx with an image store; spent is the bytes earlier runs added to the task.
 func WithToolImages(ctx context.Context, spent int) context.Context {
 	return context.WithValue(ctx, toolImagesKey{}, &toolImages{spent: spent, calls: map[ToolCallKey][]ToolImage{}})
 }
@@ -62,13 +52,10 @@ func toolImagesFrom(ctx context.Context) *toolImages {
 	return s
 }
 
-// ToolImageCost returns the bytes an image counts toward the task cap.
 func ToolImageCost(data string) int {
 	return len(data) + toolImageOverheadBytes
 }
 
-// reserve counts n bytes against the task budget, or reports false if they do
-// not fit.
 func (s *toolImages) reserve(n int) bool {
 	s.Lock()
 	defer s.Unlock()
@@ -79,7 +66,6 @@ func (s *toolImages) reserve(n int) bool {
 	return true
 }
 
-// StashToolImages keeps a call's images until its function response is converted.
 func StashToolImages(ctx context.Context, call ToolCallKey, images []ToolImage) {
 	s := toolImagesFrom(ctx)
 	if s == nil {
@@ -90,7 +76,6 @@ func StashToolImages(ctx context.Context, call ToolCallKey, images []ToolImage) 
 	s.calls[call] = append(s.calls[call], images...)
 }
 
-// TakeToolImages returns a call's images and forgets them.
 func TakeToolImages(ctx context.Context, call ToolCallKey) []ToolImage {
 	s := toolImagesFrom(ctx)
 	if s == nil {
@@ -103,35 +88,27 @@ func TakeToolImages(ctx context.Context, call ToolCallKey) []ToolImage {
 	return images
 }
 
-// ToolImage is an image returned by an MCP tool.
 type ToolImage struct {
 	MIMEType string `json:"mimeType"`
-	// Data is the base64-encoded image.
-	Data string `json:"data"`
+	Data     string `json:"data"`
 }
 
 type imageSinkKey struct{}
 
-// imageSink collects the images of one tool call.
 type imageSink struct {
 	store  *toolImages
 	images []ToolImage
 }
 
-// newToolsetClient returns the toolset's MCP client, which advertises MCP Apps
-// support and captures returned images.
 func newToolsetClient() *mcpsdk.Client {
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "adk-mcp-client", Version: mcpClientVersion}, &mcpsdk.ClientOptions{Capabilities: mcpUIClientCapabilities()})
 	client.AddSendingMiddleware(captureImages)
 	return client
 }
 
-// captureImages moves renderable images of a successful tools/call result into
-// the call's sink. Errors, other types, empty images and images over a cap keep
-// their placeholder; the task cap is checked before removal so nothing is lost.
-//
-// ADK joins blocks with a newline around placeholders, so a removed image
-// between two blocks leaves a newline to keep the text apart.
+// captureImages moves renderable images of a successful result into the call's
+// sink. Errors and images over a cap keep their placeholder. A removed image
+// between two blocks leaves a newline, as ADK would have around its placeholder.
 func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 	return func(ctx context.Context, method string, req mcpsdk.Request) (mcpsdk.Result, error) {
 		result, err := next(ctx, method, req)
@@ -141,7 +118,6 @@ func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 			return result, err
 		}
 		kept := make([]mcpsdk.Content, 0, len(res.Content))
-		// previous is the last kept block ADK renders as non-empty text.
 		var previous mcpsdk.Content
 		removed := false
 		captured := 0
@@ -172,8 +148,6 @@ func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 	}
 }
 
-// capturableImage returns content and its cost if the UI renders its type and
-// it fits the call's caps after count images totalling captured bytes.
 func capturableImage(content mcpsdk.Content, captured, count int) (*mcpsdk.ImageContent, int) {
 	image, ok := content.(*mcpsdk.ImageContent)
 	if !ok || image == nil || len(image.Data) == 0 || count >= maxToolCallImages || !isRenderableImage(image.MIMEType) {
@@ -196,7 +170,6 @@ func isRenderableImage(mimeType string) bool {
 	return false
 }
 
-// contentText returns a text block's text, or "" for other blocks.
 func contentText(content mcpsdk.Content) string {
 	if text, ok := content.(*mcpsdk.TextContent); ok && text != nil {
 		return text.Text
@@ -204,7 +177,6 @@ func contentText(content mcpsdk.Content) string {
 	return ""
 }
 
-// withImages stashes the images captured during each of ts's tool calls.
 func withImages(ts tool.Toolset) tool.Toolset {
 	return imageToolset{ts}
 }
@@ -248,7 +220,6 @@ func (t imageTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
 	call := ToolCallKey{InvocationID: ctx.InvocationID(), CallID: ctx.FunctionCallID()}
 	store := toolImagesFrom(ctx)
 	if store == nil || call.InvocationID == "" || call.CallID == "" {
-		// Nowhere to stash images: keep ADK's placeholders.
 		return t.functionTool.Run(ctx, args)
 	}
 	sink := &imageSink{store: store}
