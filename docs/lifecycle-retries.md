@@ -50,9 +50,20 @@ A runtime without a snapshot restarts from its initial state.
 
 Retry an interrupted revert against the same Session ID. Pending recovery retains its operation across API restarts.
 The lifecycle worker retries already admitted recoveries; it does not initiate recovery for other crashed Sessions.
-After recovery succeeds, another revert returns `FAILED_PRECONDITION` because the Actor is healthy.
 Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.
+So does a revert while another lifecycle operation is active.
+
+A revert that can never succeed against the Session as it stands returns `FAILED_PRECONDITION`.
+Its `google.rpc.ErrorInfo` detail, in domain `kagent.dev`, names one of two reasons:
+
+| Reason | Meaning | Client action |
+| --- | --- | --- |
+| `KAGENT_SESSION_RUNTIME_NOT_CRASHED` | The runtime is healthy or suspended. A retry after a revert whose response was lost lands here. | Treat as recovered and continue the conversation. |
+| `KAGENT_SESSION_RUNTIME_UNRECOVERABLE` | The recorded Actor is missing, or a same-name Actor replaced it. | Stop retrying. Start another Session, or fork one from a checkpoint. |
+
+A `FAILED_PRECONDITION` without either reason follows the general table below.
+Read the reason rather than the message text, which is not stable.
 
 ## Errors
 

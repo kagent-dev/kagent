@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 
@@ -288,6 +291,16 @@ func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error)
 		return nil, err
 	}
 	session, err = s.workflow.Revert(ctx, session)
+	if reason := revertRefusalReason(err); reason != "" {
+		// Both refusals are FAILED_PRECONDITION, but one means the runtime is
+		// already healthy and the other that no retry can restore it. The
+		// ErrorInfo reason lets a client tell them apart without parsing text.
+		refusal, detailErr := status.New(codes.FailedPrecondition, err.Error()).WithDetails(&errdetails.ErrorInfo{Domain: "kagent.dev", Reason: reason})
+		if detailErr != nil {
+			return nil, detailErr
+		}
+		return nil, refusal.Err()
+	}
 	if errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}
@@ -298,6 +311,19 @@ func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error)
 		return nil, serviceerrors.NewUnavailable("Failed to revert Session", err)
 	}
 	return session, nil
+}
+
+// revertRefusalReason names the ErrorInfo reason for a revert that can never
+// succeed against the Session as it stands, or returns "" for any other error.
+func revertRefusalReason(err error) string {
+	switch {
+	case errors.Is(err, errRuntimeNotCrashed):
+		return "KAGENT_SESSION_RUNTIME_NOT_CRASHED"
+	case errors.Is(err, errRuntimeUnrecoverable):
+		return "KAGENT_SESSION_RUNTIME_UNRECOVERABLE"
+	default:
+		return ""
+	}
 }
 
 // CreateShare mints a read-only share of the caller's session. A positive ttl bounds how long its

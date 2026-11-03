@@ -190,15 +190,20 @@ func TestCrashedSessionRecoveryFencesConcurrentWork(t *testing.T) {
 
 func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		state   ateapipb.ActorState
-		uid     string
-		readErr error
-		wantErr bool
+		name     string
+		state    ateapipb.ActorState
+		uid      string
+		template string
+		readErr  error
+		// want is the refusal a client sees; nil means the error must stay
+		// retryable, so it may match neither refusal.
+		want error
 	}{
-		{name: "quiet running actor", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, wantErr: true},
-		{name: "transient read failure", readErr: status.Error(codes.Unavailable, "unreachable"), wantErr: true},
-		{name: "same-name replacement", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, uid: "another-actor", wantErr: true},
+		{name: "quiet running actor", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, want: errRuntimeNotCrashed},
+		{name: "transient read failure", readErr: status.Error(codes.Unavailable, "unreachable")},
+		{name: "missing actor", readErr: status.Error(codes.NotFound, "actor not found"), want: errRuntimeUnrecoverable},
+		{name: "same-name replacement", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, uid: "another-actor", want: errRuntimeUnrecoverable},
+		{name: "template changed", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, template: "another-template", want: errRuntimeUnrecoverable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, base, session, task, _ := crashedTurnFixture(t)
@@ -207,16 +212,21 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 			if test.uid != "" {
 				actor.Metadata.Uid = test.uid
 			}
+			if test.template != "" {
+				actor.ActorTemplate.Name = test.template
+			}
 			actors := &recoveryTestActors{lifecycleTestActors: base, readErr: test.readErr}
 			actors.revert = func(context.Context, string, string) (*ateapipb.Actor, error) {
 				t.Fatal("unconfirmed crash issued a revert")
 				return nil, nil
 			}
 			_, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Revert(t.Context(), session)
-			if test.wantErr {
-				require.Error(t, err)
+			require.Error(t, err)
+			if test.want != nil {
+				require.ErrorIs(t, err, test.want)
+				require.ErrorIs(t, err, database.ErrFailedPrecondition)
 			} else {
-				require.NoError(t, err)
+				require.NotErrorIs(t, err, database.ErrFailedPrecondition, "a transient failure must stay retryable")
 			}
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
@@ -225,6 +235,34 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 			stored, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 			require.NoError(t, err)
 			require.Equal(t, a2a.TaskStateWorking, stored.Status.State)
+		})
+	}
+}
+
+// Only an active lifecycle operation is contention a retry waits out. A Session
+// at rest outside READY, such as one suspended by deadline cleanup, would
+// return ABORTED forever if it were reported as contention.
+func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		state     apiv1.RuntimeState
+		operation apiv1.RuntimeOperation
+		want      error
+	}{
+		{name: "suspended by deadline cleanup", state: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, want: errRuntimeNotCrashed},
+		{name: "suspension in progress", state: apiv1.RuntimeState_RUNTIME_STATE_READY, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, want: database.ErrConflict},
+		{name: "resume in progress", state: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, want: database.ErrConflict},
+		{name: "creation in progress", state: apiv1.RuntimeState_RUNTIME_STATE_CREATING, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, want: database.ErrConflict},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Both checks run on the Session the caller read, before any store
+			// or Substrate access, so neither dependency is needed.
+			workflow := NewActorWorkflow(nil, nil, make(chan struct{}, 1), time.Second)
+			_, err := workflow.Revert(t.Context(), &apiv1.Session{Id: uuid.NewString(), State: test.state, Operation: test.operation})
+			require.ErrorIs(t, err, test.want)
+			if test.want == database.ErrConflict {
+				require.NotErrorIs(t, err, database.ErrFailedPrecondition)
+			}
 		})
 	}
 }

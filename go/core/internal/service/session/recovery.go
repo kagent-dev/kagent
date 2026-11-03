@@ -8,12 +8,27 @@ import (
 
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+)
+
+// Revert refuses a Session with nothing to act on for one of two reasons. They
+// ask opposite things of a client, so the API reports them with distinct reasons.
+// errRuntimeNotCrashed means nothing needs recovering: the runtime is healthy or
+// suspended. A retry after a revert whose response was lost lands here, and the
+// next interaction proceeds.
+// errRuntimeUnrecoverable means the recorded Actor is gone or was replaced. No
+// retry restores it, and the client has to start another Session. Transient
+// Substrate and database failures wrap neither, so they stay retryable.
+var (
+	errRuntimeNotCrashed    = fmt.Errorf("runtime is not crashed: %w", database.ErrFailedPrecondition)
+	errRuntimeUnrecoverable = fmt.Errorf("runtime cannot be recovered: %w", database.ErrFailedPrecondition)
 )
 
 // recoverSessionPage retries admitted recoveries in ID order.
@@ -58,8 +73,15 @@ func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*ap
 	if session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED && session.Failure.GetReason() == database.SessionRuntimeCrashed {
 		return w.run(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 	}
-	if session.State != apiv1.RuntimeState_RUNTIME_STATE_READY || session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	// Only an active lifecycle operation is contention: a retry converges once it
+	// finishes. A Session at rest in another state, such as one suspended by
+	// deadline cleanup, stays there until an interaction resumes it, so a retry
+	// would spin until the caller's deadline.
+	if session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return nil, database.ErrConflict
+	}
+	if session.State != apiv1.RuntimeState_RUNTIME_STATE_READY {
+		return nil, fmt.Errorf("runtime state is %s: %w", session.State, errRuntimeNotCrashed)
 	}
 	revision, err := w.store.GetRuntimeRevision(ctx, session.PreparedRevision)
 	if err != nil {
@@ -73,14 +95,22 @@ func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*ap
 		return nil, err
 	}
 	actor, err := w.actors.GetActor(ctx, revision.ActorTemplateAtespace, substrate.ActorName(session.Id))
+	if status.Code(err) == codes.NotFound {
+		return nil, fmt.Errorf("runtime Actor is missing: %w", errRuntimeUnrecoverable)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if err := w.verifyActor(ctx, session, revision, actor); err != nil {
+	if !validActorIdentity(actor, revision, substrate.ActorName(session.Id)) {
+		return nil, fmt.Errorf("runtime Actor identity or template changed: %w", errRuntimeUnrecoverable)
+	}
+	if err := w.verifyActor(ctx, session, revision, actor); errors.Is(err, database.ErrNotFound) {
+		return nil, fmt.Errorf("runtime Actor was replaced: %w", errRuntimeUnrecoverable)
+	} else if err != nil {
 		return nil, err
 	}
 	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_CRASHED {
-		return nil, fmt.Errorf("runtime is not crashed: %w", database.ErrFailedPrecondition)
+		return nil, errRuntimeNotCrashed
 	}
 	snapshot := substrate.LatestDurableActorSnapshot(actor)
 	operation, err := w.store.BeginCrashedSessionRecovery(ctx, session.Id, generation, actor.GetMetadata().GetUid(), database.SessionTaskSnapshot{

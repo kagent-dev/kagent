@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -91,7 +92,7 @@ func TestSessionRevertCrashedRuntime(t *testing.T) {
 		require.NotEmpty(t, substrate.SnapshotURI(substrate.LatestDurableActorSnapshot(running)))
 		request := &apiv1.RevertSessionRequest{SessionId: fixture.sessionID}
 		_, err = fixture.sessions.RevertSession(fixture.ctx, request)
-		require.Equal(t, codes.FailedPrecondition, status.Code(err), "healthy runtimes cannot revert")
+		require.Equal(t, "KAGENT_SESSION_RUNTIME_NOT_CRASHED", revertRefusalReason(t, err), "healthy runtimes cannot revert")
 		assignment := running.GetStatus().GetWorkerAssignment()
 		require.Equal(t, namespace, assignment.GetWorkerNamespace())
 		require.NotEmpty(t, assignment.GetWorkerPod())
@@ -130,6 +131,10 @@ func TestSessionRevertCrashedRuntime(t *testing.T) {
 		reverted, err := fixture.sessions.RevertSession(fixture.ctx, request)
 		require.NoError(t, err)
 		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, reverted.Session.State)
+		// A client whose success response was lost retries and must learn that
+		// the runtime is healthy, not that it cannot be recovered.
+		_, err = fixture.sessions.RevertSession(fixture.ctx, request)
+		require.Equal(t, "KAGENT_SESSION_RUNTIME_NOT_CRASHED", revertRefusalReason(t, err), "a recovered runtime has nothing to revert")
 		recovered, err := findSubstrateActor(fixture.ctx, fixture.system, namespace, name)
 		require.NoError(t, err)
 		require.Equal(t, running.GetMetadata().GetUid(), recovered.GetMetadata().GetUid())
@@ -148,4 +153,19 @@ func TestSessionRevertCrashedRuntime(t *testing.T) {
 		require.Equal(t, a2a.TaskStateCompleted, next.Status.State)
 		require.Contains(t, taskText(next), "4")
 	})
+}
+
+// revertRefusalReason returns the kagent.dev ErrorInfo reason of a
+// FAILED_PRECONDITION revert refusal.
+func revertRefusalReason(t *testing.T, err error) string {
+	t.Helper()
+	refusal, ok := status.FromError(err)
+	require.True(t, ok, "revert error %v is not a gRPC status", err)
+	require.Equal(t, codes.FailedPrecondition, refusal.Code(), "revert error: %v", err)
+	for _, detail := range refusal.Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.GetDomain() == "kagent.dev" {
+			return info.GetReason()
+		}
+	}
+	return ""
 }

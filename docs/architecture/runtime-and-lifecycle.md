@@ -209,7 +209,13 @@ adopted implicitly.
 crashed runtime. It accepts active and idle Sessions, but verifies Substrate's
 CRASHED state for the recorded Actor UID and pinned template before admitting
 recovery. Quiet turns, transport failures, missing Actors and same-name
-replacements cannot authorize a revert.
+replacements cannot authorize a revert. A quiet turn returns `FAILED_PRECONDITION`
+with reason `KAGENT_SESSION_RUNTIME_NOT_CRASHED`. A missing or replaced Actor
+returns `FAILED_PRECONDITION` with `KAGENT_SESSION_RUNTIME_UNRECOVERABLE`,
+because no retry restores it. A transport failure returns `UNAVAILABLE`.
+Only an active lifecycle operation returns `ABORTED`. A Session at rest outside
+READY returns `KAGENT_SESSION_RUNTIME_NOT_CRASHED`, so a client does not retry
+it until its deadline.
 
 Admission records FAILED/RESUME with a RuntimeCrashed failure under the Session
 lock. The same transaction publishes a durable terminal result saved before the
@@ -237,7 +243,7 @@ A successful revert returns the Session to READY with the same Actor suspended.
 The next authorized interaction resumes it through Substrate ingress. Runtime
 changes after the retained snapshot are lost; the discarded turn receives no
 checkpoint at that older snapshot. Another revert against the now-healthy Actor
-returns `FAILED_PRECONDITION`.
+returns `FAILED_PRECONDITION` with `KAGENT_SESSION_RUNTIME_NOT_CRASHED`.
 
 ```mermaid
 sequenceDiagram
