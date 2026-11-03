@@ -173,7 +173,19 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 			makeOnToolErrorCallback(log),
 		},
 	}
-	if agentConfig.Output != nil {
+	if agentConfig.Output != nil && adkoutputschema.UsesFinalAnswerTool(agentConfig.Model) {
+		// The schema reaches the model as a tool it calls to finish, not as a
+		// response format. A response format rides on every request, tool turns
+		// included, and a backend that enforces it can then only return the final
+		// JSON. Leaving OutputSchema unset keeps ADK from adding its own
+		// response format; the executor validates the final answer regardless.
+		finalAnswerTool, err := adkoutputschema.NewFinalAnswerTool(agentConfig.Output.JsonSchema)
+		if err != nil {
+			return nil, err
+		}
+		llmAgentConfig.Tools = append(llmAgentConfig.Tools, finalAnswerTool)
+		llmAgentConfig.Instruction += adkoutputschema.FinalAnswerInstruction
+	} else if agentConfig.Output != nil {
 		llmAgentConfig.OutputSchema, err = adkoutputschema.ToGenAISchema(agentConfig.Output.JsonSchema)
 		if err != nil {
 			return nil, err
@@ -212,13 +224,18 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	return llmAgent, nil
 }
 
-// usesRawOutputSchema reports whether the kagent provider adapter has a native
-// raw JSON Schema request field. Gemini is intentionally absent: upstream ADK
-// owns its native-vs-set_model_response selection using the typed projection.
+// usesRawOutputSchema reports whether the kagent provider adapter sends the
+// canonical JSON Schema as a request-level response format. Gemini is
+// intentionally absent: upstream ADK owns its native-vs-set_model_response
+// selection using the typed projection. OpenAI-format providers are absent too:
+// they receive the schema through the final answer tool.
 func usesRawOutputSchema(model *configv1.ADKModelConfig) bool {
-	switch model.GetProvider().(type) {
-	case *configv1.ADKModelConfig_Openai, *configv1.ADKModelConfig_AzureOpenai, *configv1.ADKModelConfig_Anthropic, *configv1.ADKModelConfig_GeminiAnthropic, *configv1.ADKModelConfig_Bedrock, *configv1.ADKModelConfig_Foundry:
+	switch p := model.GetProvider().(type) {
+	case *configv1.ADKModelConfig_Anthropic, *configv1.ADKModelConfig_GeminiAnthropic, *configv1.ADKModelConfig_Bedrock:
 		return true
+	case *configv1.ADKModelConfig_Foundry:
+		// Claude on Foundry uses the Anthropic Messages API.
+		return p.Foundry.GetApiFormat() == runtimeconfig.FoundryAPIFormatAnthropic
 	default:
 		return false
 	}

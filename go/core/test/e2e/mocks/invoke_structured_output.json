@@ -55,10 +55,20 @@
           {
             "index": 0,
             "message": {
-              "content": "{\"answer\":8,\"explanation\":\"three plus five equals eight\"}",
-              "role": "assistant"
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "structured_call_2",
+                  "type": "function",
+                  "function": {
+                    "name": "set_model_response",
+                    "arguments": "{\"answer\":8,\"explanation\":\"three plus five equals eight\"}"
+                  }
+                }
+              ]
             },
-            "finish_reason": "stop"
+            "finish_reason": "tool_calls"
           }
         ]
       }

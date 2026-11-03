@@ -185,6 +185,9 @@ func generateContentChatCompletions(
 
 	if req.Config != nil && len(req.Config.Tools) > 0 {
 		params.Tools = genaiToolsToOpenAITools(req.Config.Tools)
+		if m.Config.StrictOutputSchema != nil {
+			markChatFinalAnswerStrict(params.Tools, *m.Config.StrictOutputSchema)
+		}
 		params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
 			OfAuto: openai.String("auto"),
 		}
