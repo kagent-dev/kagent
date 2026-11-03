@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"iter"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,19 +62,19 @@ func TestAskUserMalformedArgumentsRemainRecoverableInGoRunner(t *testing.T) {
 			require.NoError(t, err)
 			s, err := sessions.Create(t.Context(), &session.CreateRequest{AppName: "test", UserID: "user"})
 			require.NoError(t, err)
-			answer := ""
+			var answer strings.Builder
 			for event, err := range r.Run(t.Context(), "user", s.Session.ID(), genai.NewContentFromText("Ask me", "user"), adkagent.RunConfig{}) {
 				require.NoError(t, err)
 				require.Empty(t, event.Actions.RequestedToolConfirmations)
 				if event.Content != nil {
 					for _, part := range event.Content.Parts {
-						answer += part.Text
+						answer.WriteString(part.Text)
 					}
 				}
 			}
 			require.Equal(t, 2, m.calls)
 			require.NotEmpty(t, m.toolError)
-			require.Equal(t, "Recovered", answer)
+			require.Equal(t, "Recovered", answer.String())
 		})
 	}
 }
