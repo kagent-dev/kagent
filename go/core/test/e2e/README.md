@@ -259,6 +259,12 @@ selection quality. The registry must accept pushes from the test runner and be
 reachable by Substrate workers through their existing registry rewrite.
 Private-registry credentials are not required.
 
+`TestOCIPluginBinOnPath` runs on the kagent Harness only. It publishes a plugin
+image whose `bin/` holds a shell script, plus a variant over 100 MiB and 10,000
+files, and has the mock model call the bash tool with the script's bare name.
+The script output must reach the model, which proves `bin/` is on `PATH` and that
+mounted plugins skip the package size limits.
+
 `TestSessionEgressPolicyUpdatesLiveActors` loads the same OCI skill and runs
 the same HTTP probe script through each harness's shell tool. During a single
 active invocation, it adds a policy reference and revokes the destination,

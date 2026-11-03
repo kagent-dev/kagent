@@ -296,7 +296,7 @@ container to 32 mounts; the three runtime volumes leave room for 29 distinct
 skill images. Exceeding that limit fails ActorTemplate construction.
 
 The shared materializer resolves `source.path` within the mounted image and
-validates that selected package, including its path, symlink, size, and file-type
+validates that selected package, including its path, symlink, and file-type
 constraints. Unrelated files outside the selected package are ignored. It copies
 selected standalone and Agent Plugins skills to the harness's existing discovery
 directory: `/skills` for Go ADK,
@@ -308,12 +308,21 @@ installed. Claude-format plugin
 roots can use the mounted directory directly. Mounted sources do not use the
 download cache or fall back to an in-runtime OCI pull.
 
-Package limits and path/symlink validation still apply. Build skill images from
-scratch with just package contents; arbitrary ORAS artifact layouts are not
+Path, symlink, and file-type validation still apply to mounted packages, but
+the 100 MiB and 10,000-entry package limits do not, so a plugin image can carry
+a toolchain. Git and S3 packages and every copied skill keep those limits.
+Build skill images from scratch with just package contents; arbitrary ORAS artifact layouts are not
 supported. Existing Git and S3 fetches remain runtime operations and retain
 their golden-runtime networking limitations. The Python ADK does not yet consume
 the `agent_plugins` runtime contract. BYO images must consume that contract to
 load these skills; the Go ADK BYO fixture does so.
+
+On the Go ADK, each materialized plugin's `bin/` directory is appended to the
+end of the runtime's `PATH`, so the shell tool and stdio MCP servers run plugin
+binaries by bare name and the runtime image's own binaries win on a name clash.
+Shared subagent plugins join after the root agent's, because all agents run in
+one process. This is a kagent behavior; the Agent Plugins specification defines
+`PLUGIN_ROOT` and `PLUGIN_DATA` but no `bin/` convention.
 
 ### Runtime configuration
 
