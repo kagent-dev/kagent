@@ -66,8 +66,18 @@ COPY --from=ui . .
 # The mock service worker is a dev and e2e fixture, so it never reaches the image.
 RUN yarn build && rm -f dist/mockServiceWorker.js
 
-FROM runtime AS controller
+# The controller needs no shell, git or libc: the binary is static and serves the UI itself.
+FROM $BASE_IMAGE_REGISTRY/chainguard/static AS controller
+ARG VERSION
+COPY --from=builder /app /app
 COPY --from=ui-builder /app/ui/dist /usr/share/kagent/ui
+USER 65532:65532
+
+LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
+LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
+LABEL org.opencontainers.image.version="$VERSION"
+
+ENTRYPOINT ["/app"]
 
 # The default target stays the plain runtime for every other BUILD_PACKAGE.
 FROM runtime
