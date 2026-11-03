@@ -34,7 +34,7 @@ func newManagedAgentsRunnable(cfg ManagedAgentsConfig, sandboxes managedagents.S
 	return &managedAgentsRunnable{launcher: launcher, session: session}, nil
 }
 
-func (*managedAgentsRunnable) NeedLeaderElection() bool { return false }
+func (*managedAgentsRunnable) NeedLeaderElection() bool { return true }
 
 func (r *managedAgentsRunnable) Start(ctx context.Context) error {
 	return r.launcher.Start(auth.AuthSessionTo(ctx, r.session))

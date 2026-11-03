@@ -42,9 +42,11 @@ func testWork(id string) *anthropic.BetaSelfHostedWork {
 }
 
 type sandboxFixture struct {
-	create func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
-	resume func(context.Context, string) (*apiv1.Sandbox, error)
-	start  func(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error)
+	create  func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
+	resume  func(context.Context, string) (*apiv1.Sandbox, error)
+	start   func(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error)
+	get     func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error)
+	suspend func(context.Context, string) (*apiv1.Sandbox, error)
 }
 
 var _ SandboxService = (*sandboxFixture)(nil)
@@ -67,6 +69,22 @@ func (s *sandboxFixture) StartProcess(ctx context.Context, id string, req *guest
 	return &guestpb.Process{ProcessId: "process-test", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
 }
 
+func (s *sandboxFixture) GetProcess(ctx context.Context, id string, req *guestpb.GetProcessRequest) (*guestpb.Process, error) {
+	if s.get != nil {
+		return s.get(ctx, id, req)
+	}
+	return &guestpb.Process{ProcessId: req.GetProcessId(), State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
+}
+
+func (s *sandboxFixture) Suspend(ctx context.Context, id string) (*apiv1.Sandbox, error) {
+	if s.suspend != nil {
+		return s.suspend(ctx, id)
+	}
+	sb := suspendedSandbox()
+	sb.Id = id
+	return sb, nil
+}
+
 func readySandbox() *apiv1.Sandbox {
 	return &apiv1.Sandbox{Id: testSandboxID, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}
 }
@@ -83,6 +101,8 @@ type workAPI struct {
 	onStop             func()
 	pollStatus         int
 	stoppedWork        []string
+	stopForces         []bool
+	stop               func(http.ResponseWriter, *http.Request)
 }
 
 func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
@@ -144,15 +164,27 @@ func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
 			LastHeartbeat: token, TTLSeconds: ttl, LeaseExtended: true, State: "active",
 		}))
 	case strings.HasSuffix(r.URL.Path, "/stop"):
+		var body struct {
+			Force *bool `json:"force"`
+		}
+		assert.NoError(f.t, json.NewDecoder(r.Body).Decode(&body))
+		if !assert.NotNil(f.t, body.Force) {
+			f.mu.Unlock()
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		f.stops++
 		parts := strings.Split(r.URL.Path, "/")
 		f.stoppedWork = append(f.stoppedWork, parts[len(parts)-2])
+		f.stopForces = append(f.stopForces, *body.Force)
 		f.mu.Unlock()
-		body, err := io.ReadAll(r.Body)
-		assert.NoError(f.t, err)
-		assert.JSONEq(f.t, `{"force":true}`, string(body))
+		assert.Equal(f.t, http.MethodPost, r.Method)
 		if f.onStop != nil {
 			f.onStop()
+		}
+		if f.stop != nil {
+			f.stop(w, r)
+			return
 		}
 		_, _ = io.WriteString(w, `{}`)
 	default:
@@ -217,10 +249,11 @@ func TestServicePollAndHandoff(t *testing.T) {
 			starts = append(starts, proto.Clone(req).(*guestpb.StartProcessRequest))
 			mu.Unlock()
 			started <- struct{}{}
-			return &guestpb.Process{ProcessId: "worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+			return &guestpb.Process{ProcessId: req.Env["ANTHROPIC_WORK_ID"], State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
 		},
 	}
-	api := &workAPI{queue: []*anthropic.BetaSelfHostedWork{testWork("work_one"), testWork("work_two")}, onEmpty: func() {
+	var api *workAPI
+	api = &workAPI{queue: []*anthropic.BetaSelfHostedWork{testWork("work_one"), testWork("work_two")}, onEmpty: func() {
 		for range 2 {
 			select {
 			case <-started:
@@ -228,6 +261,9 @@ func TestServicePollAndHandoff(t *testing.T) {
 				return
 			}
 		}
+		api.mu.Lock()
+		assert.Zero(t, api.stops, "handed-off workers must not be stopped before shutdown")
+		api.mu.Unlock()
 		cancel()
 	}}
 	// Each assignment starts a distinct lease, even when it reuses a Sandbox.
@@ -260,7 +296,8 @@ func TestServicePollAndHandoff(t *testing.T) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	assert.Equal(t, 2, api.acks)
-	assert.Zero(t, api.stops, "next poll and shutdown must not stop handed-off workers")
+	assert.ElementsMatch(t, []string{"work_one", "work_two"}, api.stoppedWork)
+	assert.Equal(t, []bool{false, false}, api.stopForces, "shutdown requests graceful stops only")
 	assert.NotEqual(t, creates[0].RequestId, createRequest(testConfig(), "another-session").RequestId)
 	cfg := testConfig()
 	cfg.EnvironmentID = "another-env"
@@ -369,7 +406,8 @@ func TestServiceConcurrentProvisioningShutdown(t *testing.T) {
 			api.mu.Lock()
 			defer api.mu.Unlock()
 			assert.Equal(t, 2, api.acks)
-			assert.Equal(t, []string{firstWork.ID}, api.stoppedWork, "shutdown must not stop the established worker")
+			assert.Equal(t, []string{firstWork.ID, secondWork.ID}, api.stoppedWork)
+			assert.Equal(t, []bool{true, false}, api.stopForces, "only failed provisioning is force-stopped")
 		})
 	}
 }
@@ -420,6 +458,9 @@ func TestLaunchFailureCleanup(t *testing.T) {
 			launcher := newTestLauncher(t, fixture, api)
 			require.Error(t, launcher.launch(t.Context(), testWork("work_test")))
 			assert.Equal(t, tt.stops, api.stops)
+			for _, force := range api.stopForces {
+				assert.True(t, force, "failed launches still require force cleanup")
+			}
 			assert.Equal(t, tt.starts, starts)
 		})
 	}

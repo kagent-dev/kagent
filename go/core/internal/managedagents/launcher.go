@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -31,6 +32,8 @@ const (
 	sandboxLifetime  = time.Hour
 	provisionTimeout = 2 * time.Minute
 	startTimeout     = 10 * time.Second
+	shutdownTimeout  = 60 * time.Second
+	forceStopTimeout = 20 * time.Second
 	noHeartbeat      = "NO_HEARTBEAT"
 )
 
@@ -68,6 +71,8 @@ type SandboxService interface {
 	Create(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
 	Resume(context.Context, string) (*apiv1.Sandbox, error)
 	StartProcess(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error)
+	GetProcess(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error)
+	Suspend(context.Context, string) (*apiv1.Sandbox, error)
 }
 
 var _ SandboxService = (*sandbox.Service)(nil)
@@ -77,6 +82,17 @@ type Launcher struct {
 	sandboxes SandboxService
 	anthropic anthropic.Client
 	log       *slog.Logger
+	processMu sync.Mutex
+	// Session IDs identify sandboxes before Create returns their runtime IDs.
+	processes map[string]*sandboxProcesses
+}
+
+type sandboxProcesses struct {
+	sandboxID  string
+	processIDs map[string]string // Process ID to handed-off work ID; never credentials.
+	busy       chan struct{}
+	// A partial Suspend can disable guest access; retry it without GetProcess.
+	suspending bool
 }
 
 func New(cfg Config, sandboxes SandboxService, log *slog.Logger) (*Launcher, error) {
@@ -98,16 +114,62 @@ func New(cfg Config, sandboxes SandboxService, log *slog.Logger) (*Launcher, err
 		option.WithMaxRetries(0),
 		option.WithRequestTimeout(10*time.Second),
 	)
-	return &Launcher{config: cfg, sandboxes: sandboxes, anthropic: anthropicClient, log: log}, nil
+	return &Launcher{
+		config: cfg, sandboxes: sandboxes, anthropic: anthropicClient, log: log,
+		processes: make(map[string]*sandboxProcesses),
+	}, nil
+}
+
+func (l *Launcher) lockSandbox(ctx context.Context, sessionID string) (*sandboxProcesses, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		l.processMu.Lock()
+		entry := l.processes[sessionID]
+		if entry == nil {
+			entry = &sandboxProcesses{processIDs: make(map[string]string)}
+			l.processes[sessionID] = entry
+		}
+		if entry.busy == nil {
+			entry.busy = make(chan struct{})
+			l.processMu.Unlock()
+			return entry, nil
+		}
+		done := entry.busy
+		l.processMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-done:
+			// Always re-read the map: the previous holder may have removed
+			// an empty record. Waiters never operate on a detached gate.
+		}
+	}
+}
+
+func (l *Launcher) unlockSandbox(sessionID string, entry *sandboxProcesses) {
+	l.processMu.Lock()
+	defer l.processMu.Unlock()
+	close(entry.busy)
+	entry.busy = nil
+	if len(entry.processIDs) == 0 {
+		delete(l.processes, sessionID)
+	}
 }
 
 func (l *Launcher) Start(ctx context.Context) error {
+	originalCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	var launches sync.WaitGroup
 	defer func() {
 		cancel()
 		launches.Wait()
+		// Join launches before taking the snapshot: a successful StartProcess
+		// response still owns its work even if cancellation raced the response.
+		l.shutdown(context.WithoutCancel(originalCtx), shutdownTimeout, forceStopTimeout)
 	}()
+	launches.Go(func() { l.collectPeriodically(ctx) })
 	poller := environments.NewWorkPoller(ctx, l.anthropic, environments.WorkPollerOptions{
 		EnvironmentID:      l.config.EnvironmentID,
 		EnvironmentKey:     l.config.EnvironmentKey,
@@ -117,7 +179,7 @@ func (l *Launcher) Start(ctx context.Context) error {
 	})
 	defer func() {
 		if err := poller.Close(); err != nil {
-			l.log.ErrorContext(ctx, "failed to close managed agents poller", "error", err)
+			l.log.ErrorContext(ctx, "failed to close managed agents poller", "http_status", upstreamStatus(err))
 		}
 	}()
 	for poller.Next() {
@@ -184,7 +246,12 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	halt := make(chan struct{})
 	done := make(chan heartbeatResult, 1)
 	go l.keepAlive(attemptCtx, cancel, work.ID, lease, halt, done)
-	sandbox, provisionErr := l.provision(attemptCtx, work.Data.ID)
+	entry, provisionErr := l.lockSandbox(attemptCtx, work.Data.ID)
+	var sandbox *apiv1.Sandbox
+	if provisionErr == nil {
+		defer l.unlockSandbox(work.Data.ID, entry)
+		sandbox, provisionErr = l.provision(attemptCtx, work.Data.ID)
+	}
 	close(halt)
 	result := <-done
 	if result.err != nil {
@@ -230,8 +297,55 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	if process.GetProcessId() == "" || (process.GetState() == guestpb.ProcessState_PROCESS_STATE_EXITED && process.GetExitCode() != 0) {
 		return errors.Join(errors.New("managed agent CLI did not start successfully"), l.stopWork(ctx, work.ID))
 	}
+	entry.sandboxID = sandbox.GetId()
+	entry.processIDs[process.GetProcessId()] = work.ID
+	entry.suspending = false
 	l.log.InfoContext(ctx, "started managed agent CLI", "work_id", work.ID, "sandbox_id", sandbox.GetId(), "process_id", process.GetProcessId())
 	return nil
+}
+
+// The caller must first join launches and collection.
+func (l *Launcher) stopWorkers(ctx context.Context, force bool) map[string]bool {
+	l.processMu.Lock()
+	workIDs := make(map[string]struct{})
+	for _, entry := range l.processes {
+		for _, workID := range entry.processIDs {
+			workIDs[workID] = struct{}{}
+		}
+	}
+	l.processMu.Unlock()
+
+	stopped := make(map[string]bool)
+	var mu sync.Mutex
+	var stops sync.WaitGroup
+	for workID := range workIDs {
+		stops.Go(func() {
+			_, err := l.anthropic.Beta.Environments.Work.Stop(ctx, workID, anthropic.BetaEnvironmentWorkStopParams{
+				EnvironmentID:                 l.config.EnvironmentID,
+				BetaSelfHostedWorkStopRequest: anthropic.BetaSelfHostedWorkStopRequestParam{Force: param.NewOpt(force)},
+			})
+			if err == nil || upstreamStatus(err) == http.StatusConflict {
+				mu.Lock()
+				stopped[workID] = true
+				mu.Unlock()
+			} else {
+				// Never log the SDK error: it may contain upstream bodies or credentials.
+				category := "request_failed"
+				switch {
+				case errors.Is(err, context.DeadlineExceeded):
+					category = "deadline_exceeded"
+				case errors.Is(err, context.Canceled):
+					category = "canceled"
+				case upstreamStatus(err) != 0:
+					category = "upstream"
+				}
+				l.log.ErrorContext(ctx, "failed to request managed agent stop", "work_id", workID, "force", force,
+					"http_status", upstreamStatus(err), "error_category", category)
+			}
+		})
+	}
+	stops.Wait()
+	return stopped
 }
 
 func (l *Launcher) stopWork(ctx context.Context, workID string) error {

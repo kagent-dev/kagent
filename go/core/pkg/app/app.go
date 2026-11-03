@@ -271,6 +271,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		// /metrics nonResourceURL.
 		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
+	var gracefulShutdownTimeout *time.Duration
+	if opts.ManagedAgents != nil {
+		// Leave room to join launches, drain workers, and force-suspend stragglers.
+		gracefulShutdownTimeout = new(110 * time.Second)
+	}
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme:                  managerScheme,
 		Cache:                   managerCacheOptions,
@@ -279,6 +284,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		LeaderElection:          cfg.GetKubernetes().GetLeaderElection(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
 		LeaderElectionNamespace: cfg.GetKubernetes().GetNamespace(),
+		GracefulShutdownTimeout: gracefulShutdownTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)

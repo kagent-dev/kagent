@@ -21,10 +21,12 @@ import (
 )
 
 type managedSandboxFixture struct {
-	t       *testing.T
-	owner   string
-	starts  int
-	started chan struct{}
+	t        *testing.T
+	owner    string
+	starts   int
+	started  chan struct{}
+	stopping *atomic.Bool
+	suspends atomic.Int32
 }
 
 var _ managedagents.SandboxService = (*managedSandboxFixture)(nil)
@@ -57,13 +59,36 @@ func (f *managedSandboxFixture) StartProcess(ctx context.Context, id string, _ *
 	assert.Equal(f.t, "sandbox", id)
 	f.starts++
 	close(f.started)
-	return &guestpb.Process{ProcessId: "worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+	return &guestpb.Process{ProcessId: "worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil }
+
+func (f *managedSandboxFixture) GetProcess(ctx context.Context, id string, req *guestpb.GetProcessRequest) (*guestpb.Process, error) {
+	f.checkOwner(ctx)
+	assert.Equal(f.t, "sandbox", id)
+	assert.Equal(f.t, "worker", req.ProcessId)
+	state := guestpb.ProcessState_PROCESS_STATE_RUNNING
+	if f.stopping.Load() {
+		state = guestpb.ProcessState_PROCESS_STATE_EXITED
+	}
+	return &guestpb.Process{ProcessId: req.ProcessId, State: state}, nil
+}
+
+func (f *managedSandboxFixture) Suspend(ctx context.Context, id string) (*apiv1.Sandbox, error) {
+	f.checkOwner(ctx)
+	assert.Equal(f.t, "sandbox", id)
+	assert.True(f.t, f.stopping.Load(), "must request worker shutdown before suspension")
+	f.suspends.Add(1)
+	return &apiv1.Sandbox{
+		Id: id, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED,
+		Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+	}, nil
 }
 
 func TestManagedAgentsRunsInProcessWithStableOwner(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	var polls atomic.Int32
+	var stops atomic.Int32
+	var stopping atomic.Bool
 	started := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -83,6 +108,15 @@ func TestManagedAgentsRunsInProcessWithStableOwner(t *testing.T) {
 			_, _ = io.WriteString(w, `{}`)
 		case strings.HasSuffix(r.URL.Path, "/heartbeat"):
 			_, _ = io.WriteString(w, `{"last_heartbeat":"exact-token","ttl_seconds":60,"lease_extended":true,"state":"active"}`)
+		case strings.HasSuffix(r.URL.Path, "/stop"):
+			assert.NoError(t, r.Context().Err())
+			assert.Equal(t, "Bearer environment-key", r.Header.Get("Authorization"))
+			body, err := io.ReadAll(r.Body)
+			assert.NoError(t, err)
+			assert.JSONEq(t, `{"force":false}`, string(body))
+			stops.Add(1)
+			stopping.Store(true)
+			_, _ = io.WriteString(w, `{}`)
 		default:
 			t.Errorf("unexpected upstream request: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -90,12 +124,15 @@ func TestManagedAgentsRunsInProcessWithStableOwner(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := ManagedAgentsConfig{EnvironmentID: "env_test", EnvironmentKey: "environment-key", BaseURL: server.URL, TemplateNamespace: "test", TemplateName: "claude"}
-	service := &managedSandboxFixture{t: t, owner: auth.PrincipalID("kagent:managed-agents", cfg.EnvironmentID), started: started}
+	service := &managedSandboxFixture{t: t, owner: auth.PrincipalID("kagent:managed-agents", cfg.EnvironmentID), started: started, stopping: &stopping}
 	first, err := newManagedAgentsRunnable(cfg, service, slog.New(slog.DiscardHandler))
 	require.NoError(t, err)
+	require.True(t, first.NeedLeaderElection(), "polling and collection must run only on the manager leader")
 	second, err := newManagedAgentsRunnable(cfg, service, slog.New(slog.DiscardHandler))
 	require.NoError(t, err)
 	assert.Equal(t, first.session.Principal().ID, second.session.Principal().ID, "replicas and restarts must reuse the same owner")
 	require.NoError(t, first.Start(ctx))
 	assert.Equal(t, 1, service.starts)
+	assert.Equal(t, int32(1), stops.Load())
+	assert.Equal(t, int32(1), service.suspends.Load())
 }
