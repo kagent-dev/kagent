@@ -22,6 +22,26 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
 
+### Controller RBAC
+
+The chart separates controller permissions into two Roles and bindings:
+
+- `reconciliation-role` grants shared reads, status updates, and finalizer
+  updates. SandboxTemplate finalizers use the main resource endpoint, so this
+  Role also grants `update` on SandboxTemplates.
+- `management-role` grants the management APIs' CRD and Secret/ConfigMap writes,
+  plus Service deletion for tool servers. API reads use the reconciliation Role.
+
+Both bindings are always enabled and reference the controller ServiceAccount.
+The split organizes permissions; it does not provide a mode that disables
+management API writes. Leader-election leases and event writes retain their
+separate Role in the installation namespace.
+
+`rbac.namespaces` (or its `global.watchNamespaces` fallback) scopes both Roles
+and bindings to the selected namespaces. With no namespace restriction, the chart
+creates ClusterRoles and ClusterRoleBindings; namespace discovery reads are
+included only in this mode.
+
 ### PostgreSQL
 
 The Kagent chart does not deploy or initialize PostgreSQL, and it does not install Substrate. A direct Helm install needs a prepared database, a connection Secret in the Kagent namespace, and Substrate installed as its own release.

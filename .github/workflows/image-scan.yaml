@@ -13,6 +13,9 @@ on:
 
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: image-scan-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true

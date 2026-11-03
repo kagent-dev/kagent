@@ -175,15 +175,12 @@ func TestDiscoveryProviderModels(t *testing.T) {
 	scheme := discoveryScheme(t)
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.ModelProviderConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "configured", Namespace: "service-ns"},
-		Status: v1alpha3.ModelProviderConfigStatus{
-			DiscoveredModels: []string{"model-a", "model-b"},
-		},
+		Status:     v1alpha3.ModelProviderConfigStatus{},
 	}).Build()
 	service := model.NewService(kubeClient, pkgauth.NoopAuthorizer{}, "service-ns")
 
-	result, err := service.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "configured"})
-	require.NoError(t, err)
-	assert.Equal(t, model.ProviderModelsResult{Provider: "configured", Models: []string{"model-a", "model-b"}}, result)
+	_, err := service.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "configured"})
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 }
 
 func TestDiscoveryProviderModelsRefresh(t *testing.T) {
@@ -221,7 +218,7 @@ func TestDiscoveryProviderModelsErrors(t *testing.T) {
 		_, err := service.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "empty"})
 		require.Error(t, err)
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
-		assert.Equal(t, "No models discovered for model provider, try refreshing", serviceerrors.MessageOf(err))
+		assert.Equal(t, "No cached model inventory is available for model provider", serviceerrors.MessageOf(err))
 	})
 
 	t.Run("cached lookup error", func(t *testing.T) {
@@ -307,7 +304,7 @@ func discoveryContext(t *testing.T) context.Context {
 
 func TestConfiguredProviderAuthorization(t *testing.T) {
 	ctx := discoveryContext(t)
-	ready := v1alpha3.ModelProviderConfigStatus{Conditions: []metav1.Condition{{Type: v1alpha3.ModelProviderConfigConditionTypeReady, Status: metav1.ConditionTrue}}, DiscoveredModels: []string{"cached"}}
+	ready := v1alpha3.ModelProviderConfigStatus{Conditions: []metav1.Condition{{Type: v1alpha3.ModelProviderConfigConditionTypeReady, Status: metav1.ConditionTrue}}}
 	kube := fake.NewClientBuilder().WithScheme(discoveryScheme(t)).WithObjects(
 		&v1alpha3.ModelProviderConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "service-ns", Name: "allowed"}, Status: ready},
 		&v1alpha3.ModelProviderConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "service-ns", Name: "denied"}, Status: ready},
@@ -323,7 +320,7 @@ func TestConfiguredProviderAuthorization(t *testing.T) {
 	require.Equal(t, pkgauth.VerbList, authorizer.scopeVerb)
 	require.Equal(t, "ModelProviderConfig", authorizer.scopeType)
 	_, err = service.GetProviderModels(ctx, model.GetProviderModelsRequest{Name: "allowed"})
-	require.NoError(t, err)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, authorizationCall{verb: pkgauth.VerbGet, resource: pkgauth.Resource{Type: "ModelProviderConfig", Namespace: "service-ns", Name: "allowed"}}, authorizer.checkCalls[0])
 	_, err = service.GetProviderModels(ctx, model.GetProviderModelsRequest{Name: "allowed", Refresh: true})
 	require.NoError(t, err)

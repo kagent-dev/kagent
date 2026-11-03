@@ -14,6 +14,17 @@ tests:
             resources: [leases]
             verbs: [get, list, watch, create, update, patch]
         template: rbac/leader-election-role.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [events]
+            verbs: [create, patch]
+        template: rbac/leader-election-role.yaml
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        template: rbac/leader-election-role.yaml
       - equal:
           path: roleRef.name
           value: RELEASE-NAME-leader-election-role
