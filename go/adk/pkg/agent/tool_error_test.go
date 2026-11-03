@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"log/slog"
 	"sync"
@@ -19,6 +20,115 @@ import (
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
+
+// toolErrorContext is the slice of agent.Context the on-tool-error callback
+// reads: the fields of its log line, and the turn's confirmation.
+type toolErrorContext struct {
+	adkagent.StrictContextMock
+	confirmation *toolconfirmation.ToolConfirmation
+}
+
+func (toolErrorContext) FunctionCallID() string { return "call-1" }
+func (toolErrorContext) SessionID() string      { return "session-1" }
+func (toolErrorContext) InvocationID() string   { return "invocation-1" }
+
+func (c *toolErrorContext) ToolConfirmation() *toolconfirmation.ToolConfirmation {
+	return c.confirmation
+}
+
+type namedTool struct{ name string }
+
+func (t namedTool) Name() string      { return t.name }
+func (namedTool) Description() string { return "" }
+func (namedTool) IsLongRunning() bool { return false }
+
+func newToolErrorContext(confirmation *toolconfirmation.ToolConfirmation) *toolErrorContext {
+	return &toolErrorContext{
+		StrictContextMock: adkagent.NewStrictContextMock(context.Background()),
+		confirmation:      confirmation,
+	}
+}
+
+func rejectedWith(payload map[string]any) *toolconfirmation.ToolConfirmation {
+	return &toolconfirmation.ToolConfirmation{Confirmed: false, Payload: payload}
+}
+
+func TestOnToolErrorCallback_FlagsAFailedCall(t *testing.T) {
+	callback := makeOnToolErrorCallback(slog.New(slog.DiscardHandler))
+	// The error adk-go's MCP toolset returns for a CallToolResult with IsError set.
+	message := "Tool execution failed. Details: bad_data: invalid parameter \"query\": parse error"
+	err := errors.New(message)
+
+	response, cbErr := callback(newToolErrorContext(nil), namedTool{name: "call_tool"}, nil, err)
+
+	require.NoError(t, cbErr)
+	require.Equal(t, map[string]any{"error": message, "isError": true}, response)
+}
+
+func TestOnToolErrorCallback_TellsTheModelWhyAPersonRejectedACall(t *testing.T) {
+	callback := makeOnToolErrorCallback(slog.New(slog.DiscardHandler))
+	ctx := newToolErrorContext(rejectedWith(map[string]any{"rejection_reason": "What does this tool do?"}))
+	err := fmt.Errorf("error tool %q %w", "call_tool", tool.ErrConfirmationRejected)
+
+	response, cbErr := callback(ctx, namedTool{name: "call_tool"}, nil, err)
+
+	require.NoError(t, cbErr)
+	require.Equal(t, map[string]any{
+		"error":   "Tool call was rejected by user. Reason: What does this tool do?",
+		"isError": true,
+	}, response)
+}
+
+func TestOnToolErrorCallback_LeavesAConfirmationRequestToTheFlow(t *testing.T) {
+	callback := makeOnToolErrorCallback(slog.New(slog.DiscardHandler))
+	err := fmt.Errorf("error tool %q %w", "call_tool", tool.ErrConfirmationRequired)
+
+	response, cbErr := callback(newToolErrorContext(nil), namedTool{name: "call_tool"}, nil, err)
+
+	require.NoError(t, cbErr)
+	require.Nil(t, response, "a confirmation request is a pause, not a failure: adk-go builds the plain response")
+}
+
+func TestToolErrorResponse(t *testing.T) {
+	require.Nil(t, toolErrorResponse(nil, nil))
+
+	err := errors.New("connection refused")
+	require.Equal(t, map[string]any{"error": "connection refused", "isError": true}, toolErrorResponse(nil, err))
+}
+
+func TestRejectionMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		confirmation *toolconfirmation.ToolConfirmation
+		want         string
+	}{{
+		name:         "the reason the person gave",
+		confirmation: rejectedWith(map[string]any{"rejection_reason": "not production"}),
+		want:         "Tool call was rejected by user. Reason: not production",
+	}, {
+		name:         "no reason given",
+		confirmation: rejectedWith(nil),
+		want:         "Tool call was rejected by user.",
+	}, {
+		name:         "a blank reason is no reason",
+		confirmation: rejectedWith(map[string]any{"rejection_reason": "   "}),
+		want:         "Tool call was rejected by user.",
+	}, {
+		// A rejection propagated from a child agent carries that agent's own
+		// decisions, not a reason of its own.
+		name:         "a nested confirmation",
+		confirmation: rejectedWith(map[string]any{"subagent_name": "child", "task_id": "child-task"}),
+		want:         "Tool call was rejected by user.",
+	}, {
+		name:         "no confirmation at all",
+		confirmation: nil,
+		want:         "Tool call was rejected by user.",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, rejectionMessage(tc.confirmation))
+		})
+	}
+}
 
 // The error adk-go's MCP toolset returns for a CallToolResult with IsError set.
 const mcpToolError = "Tool execution failed. Details: bad_data: invalid parameter \"query\": parse error"
@@ -81,10 +191,10 @@ func newToolRunner(t *testing.T, ctx context.Context, tools ...tool.Tool) *toolR
 	return &toolRunner{runner: r, sessionID: sess.Session.ID()}
 }
 
-// turn runs one turn and returns the function responses and function calls
-// the flow emitted, in order.
-func (r *toolRunner) turn(t *testing.T, ctx context.Context, content *genai.Content) (responses []*genai.FunctionResponse, calls []*genai.FunctionCall) {
+// turn runs one turn and returns the function responses the flow emitted, in order.
+func (r *toolRunner) turn(t *testing.T, ctx context.Context, content *genai.Content) []*genai.FunctionResponse {
 	t.Helper()
+	var responses []*genai.FunctionResponse
 	for event, err := range r.runner.Run(ctx, "user", r.sessionID, content, adkagent.RunConfig{}) {
 		require.NoError(t, err)
 		if event.Content == nil {
@@ -94,14 +204,13 @@ func (r *toolRunner) turn(t *testing.T, ctx context.Context, content *genai.Cont
 			if part.FunctionResponse != nil {
 				responses = append(responses, part.FunctionResponse)
 			}
-			if part.FunctionCall != nil {
-				calls = append(calls, part.FunctionCall)
-			}
 		}
 	}
-	return responses, calls
+	return responses
 }
 
+// A tool error reaches the model through adk-go's flow as the flagged response,
+// not only through a direct call of the callback.
 func TestFailedToolCallIsFlaggedInTheFunctionResponse(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -110,40 +219,9 @@ func TestFailedToolCallIsFlaggedInTheFunctionResponse(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	responses, _ := newToolRunner(t, ctx, failing).turn(t, ctx, genai.NewContentFromText("is prometheus up?", genai.RoleUser))
+	responses := newToolRunner(t, ctx, failing).turn(t, ctx, genai.NewContentFromText("is prometheus up?", genai.RoleUser))
 
 	require.Len(t, responses, 1)
 	require.Equal(t, "query_prometheus", responses[0].Name)
 	require.Equal(t, map[string]any{"error": mcpToolError, "isError": true}, responses[0].Response)
-}
-
-func TestConfirmationRequestIsAPauseAndRejectionAFailure(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	ran := false
-	guarded, err := functiontool.New(functiontool.Config{Name: "delete_pod", RequireConfirmation: true}, func(adkagent.Context, queryArgs) (map[string]any, error) {
-		ran = true
-		return map[string]any{"result": "deleted"}, nil
-	})
-	require.NoError(t, err)
-	r := newToolRunner(t, ctx, guarded)
-
-	responses, calls := r.turn(t, ctx, genai.NewContentFromText("delete the pod", genai.RoleUser))
-
-	require.Len(t, responses, 1, "the pending call answers with adk-go's plain response")
-	require.Contains(t, responses[0].Response, "error")
-	require.NotContains(t, responses[0].Response, "isError", "a confirmation request is a pause, not a failure")
-	require.Len(t, calls, 2, "the model's call, then the confirmation request")
-	require.Equal(t, toolconfirmation.FunctionCallName, calls[1].Name)
-
-	// The user rejects the call: the tool does not run, and the call is flagged.
-	rejection := &genai.Content{Role: genai.RoleUser, Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{
-		ID: calls[1].ID, Name: toolconfirmation.FunctionCallName, Response: map[string]any{"confirmed": false},
-	}}}}
-	responses, _ = r.turn(t, ctx, rejection)
-
-	require.False(t, ran, "a rejected call must not run")
-	require.Len(t, responses, 1)
-	require.Equal(t, "delete_pod", responses[0].Name)
-	require.Equal(t, map[string]any{"error": "error tool \"delete_pod\" call is rejected", "isError": true}, responses[0].Response)
 }

@@ -36,7 +36,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		templateName := createInteractionTemplate(t, harness, modelURL)
 		kube := interactionKubeClient(t)
 		conn := newControllerConn(t, target)
-		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
+		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version)), 6*time.Minute)
 		t.Cleanup(cancel)
 		sessions := apiv1.NewSessionServiceClient(conn)
 		checkpoints := apiv1.NewCheckpointServiceClient(conn)

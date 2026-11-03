@@ -102,7 +102,7 @@ func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 			if protocol == a2atype.TransportProtocolGRPC {
 				tenant = gatewayTestAgent
 			}
-			params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}}
+			params := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}}
 			request := func(id string) *a2atype.SendMessageRequest {
 				message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
 				message.ID = id
@@ -155,7 +155,7 @@ func TestGatewayMissingConversationAcrossTransports(t *testing.T) {
 				dialer := &gatewayTestDialer{}
 				gateway := newTestGateway(store, &gatewayTestAuthorizer{err: test.authErr}, dialer, "")
 				transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
-				params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}}
+				params := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}}
 				for _, ids := range []struct {
 					contextID string
 					taskID    a2atype.TaskID
@@ -212,7 +212,7 @@ func TestHTTPAgentURLIsAuthoritative(t *testing.T) {
 			server, runtime := newHTTPTestServer(t, store, &gatewayTestAuthorizer{}, nil)
 			transport := a2aclient.NewJSONRPCTransport(server.URL+HTTPPathPrefix+tc.path, server.Client())
 			t.Cleanup(func() { require.NoError(t, transport.Destroy()) })
-			params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}}
+			params := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}}
 			request := gatewayTestRequest()
 			request.Tenant = tc.tenant
 			_, err := transport.SendMessage(t.Context(), params, request)
@@ -406,7 +406,7 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 					gateway := newTestGateway(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 					address := startCoreTestServer(t, gateway, shares)
 					transport := newGatewayTestTransport(t, address, protocol)
-					params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}, "x-share-token": {"share"}}
+					params := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}, "x-share-token": {"share"}}
 					_, err := transport.GetTask(t.Context(), params, &a2atype.GetTaskRequest{Tenant: gatewayTestAgent, ID: "task"})
 					if test.canRead {
 						require.NoError(t, err)
@@ -497,7 +497,7 @@ func TestEmbeddedPushAcrossTransports(t *testing.T) {
 				}
 				gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
 				transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
-				params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}}
+				params := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}}
 				tenant := ""
 				if protocol == a2atype.TransportProtocolGRPC {
 					tenant = gatewayTestAgent
@@ -575,7 +575,7 @@ func TestGatewayNewConversationRequiresAgentAccessAcrossTransports(t *testing.T)
 			if protocol == a2atype.TransportProtocolGRPC {
 				tenant = gatewayTestAgent
 			}
-			_, err := transport.SendMessage(t.Context(), a2aclient.ServiceParams{"authorization": {"Bearer valid"}}, &a2atype.SendMessageRequest{
+			_, err := transport.SendMessage(t.Context(), a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}}, &a2atype.SendMessageRequest{
 				Tenant:  tenant,
 				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
 			})

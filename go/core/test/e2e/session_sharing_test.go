@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"testing"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -23,7 +24,7 @@ func TestSessionSharesAreReadOnly(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, created.Token)
-		visitor := metadata.NewOutgoingContext(fixture.ctx, metadata.Pairs("x-user-id", "share-reader", "x-share-token", created.Token))
+		visitor := metadata.NewOutgoingContext(fixture.ctx, metadata.Pairs("x-user-id", "share-reader", "x-share-token", created.Token, a2atype.SvcParamVersion, string(a2atype.Version)))
 		read, err := fixture.sessions.GetSession(visitor, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 		require.NoError(t, err)
 		require.Equal(t, fixture.sessionID, read.Session.Id)
