@@ -30,11 +30,13 @@ operation.
 
 ## Request forms
 
-Version 1 supports two request kinds:
+Version 1 supports three request kinds:
 
 - **tool approval** identifies one or more pending tool calls. Each decision
   explicitly approves or rejects a call and may include a rejection reason.
 - **ask user** identifies one or more questions and returns an answer for each.
+- **URL elicitation** asks the person to open a URL outside the conversation,
+  such as an MCP server's sign-in link (MCP URL mode elicitation).
 
 Requests and responses live in the A2A status message metadata under the
 extension URI key. The message also includes the extension URI in its `extensions`
@@ -69,6 +71,35 @@ the same `id`, and an `answers` array whose entries contain string arrays. A
 request may also carry `nested` child-agent correlation: `subagent_name`,
 `task_id`, `context_id`, and the child's pending tools.
 
+A URL elicitation request names the MCP `server` that asked, its `message`, the
+`url`, and the server's `elicitation_id` when it sent one:
+
+```json
+{
+  "type": "url_elicitation_request",
+  "id": "tool-1",
+  "server": "github",
+  "message": "Sign in to github",
+  "url": "https://gateway.example/oauth/start?s=1",
+  "elicitation_id": "e1"
+}
+```
+
+```json
+{"type": "url_elicitation_response", "id": "tool-1", "action": "accept"}
+```
+
+`action` is `accept`, `decline`, or `cancel`. Unlike MCP, where `accept` only
+means the person agreed to open the URL, `accept` here means the person completed
+the interaction there: the paused tool call runs again. `decline` and `cancel`
+reject the call. The URL is `https`, or `http` on a loopback host, with no user
+info; the runtime drops any other URL. Form mode elicitations are declined,
+because what the person typed would reach the model's context.
+
+When a URL elicitation shares its pause with other calls, the pause is a tool
+approval, and the waiting call's tool carries the request as `url_elicitation`.
+Approving that tool accepts it.
+
 The server rejects responses that use the wrong task/context, omit required
 decisions, duplicate IDs, or answer an operation that is no longer pending.
 
@@ -77,6 +108,9 @@ runtime composes that text the same way, and a client receives it whether or not
 it activated the extension:
 
 - an `ask_user` pause renders its questions, joined with `; `;
+- a URL elicitation renders its message followed by the URL, so a client that
+  does not know `url_elicitation_request` still shows the link; in a tool
+  approval, that text is the waiting tool's hint;
 - any other pause renders the hints its tools supplied, followed by the tool
   names in parentheses: `Deleting this file requires approval (delete_file,
   restart_pod)`;
@@ -126,7 +160,13 @@ without human input.
 
 The kagent Go harness maps the contract to ADK confirmations. Remote A2A tools in
 the Go and Python ADKs can retain a child continuation when a subagent requests
-input.
+input; a subagent's URL elicitation is not forwarded yet and fails the parent's
+call.
+
+For an MCP server on protocol 2026-07-28, which asks through an `input_required`
+tool result, the Go harness keeps the server's request state and input responses
+in runtime session state while the task is paused, never in the public request,
+and sends them back when the call runs again.
 
 A rejected call is reported to the model as `Tool call was rejected by user.`,
 followed by `Reason: <reason>` when the decision carried a `rejection_reason`.
