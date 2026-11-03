@@ -501,7 +501,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 			// presented as an approval: the tool carries it typed, and the
 			// text carries the URL for a client without the extension.
 			hitlTool.URLElicitation = candidate
-			hint = urlElicitationText(candidate, true)
+			hint = urlElicitationText(candidate)
 		}
 		tools = append(tools, hitlTool)
 		if hint != "" {
@@ -575,24 +575,22 @@ func parseURLElicitation(payload map[string]any) *apia2a.URLElicitationRequest {
 	return &request
 }
 
-// urlElicitationText is what the person reads about a URL elicitation. The URL
-// is part of it unless the client renders it from the typed payload.
-func urlElicitationText(request *apia2a.URLElicitationRequest, withURL bool) string {
+// urlElicitationText is what the person reads about a URL elicitation. It
+// always carries the URL: a client that activated the extension may predate
+// url_elicitation_request and render only the text.
+func urlElicitationText(request *apia2a.URLElicitationRequest) string {
 	text := request.Message
 	if text == "" {
 		text = fmt.Sprintf("%s asks you to open a link to continue.", request.Server)
 	}
-	if withURL {
-		text = fmt.Sprintf("%s %s", text, request.URL)
-	}
-	return text
+	return fmt.Sprintf("%s %s", text, request.URL)
 }
 
 // urlElicitationStatusMessage is the public message of a pause on an MCP
 // server's URL elicitation: a url_elicitation_request, carried by
 // input-required. The URL goes to the person and never reaches the model.
 func urlElicitationStatusMessage(message *a2atype.Message, request *apia2a.URLElicitationRequest, activated bool) *a2atype.Message {
-	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(urlElicitationText(request, !activated)))
+	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(urlElicitationText(request)))
 	public.TaskID, public.ContextID = message.TaskID, message.ContextID
 	if !activated {
 		return public
