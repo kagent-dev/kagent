@@ -2,7 +2,6 @@ package install
 
 import (
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,6 +39,8 @@ func TestControllerServiceAccount(t *testing.T) {
 		name, manifest, want, wantErr string
 	}{
 		{"default", "kind: Deployment\nspec: {template: {spec: {serviceAccountName: kagent-controller}}}", "kagent-controller", ""},
+		// Helm 4.2 writes OCI pull status before the manifest. The Deployment only needs a kind and service account.
+		{"helm 4.2 oci preamble", "Pulled: ghcr.io/kagent-dev/kagent/helm/kagent:1.0.0-rc1\nDigest: sha256:372385ceb67ea2281645ca3755c27861f8b5dc0b60c8149995e658d46f5737e8\n---\nkind: Deployment\nspec: {template: {spec: {serviceAccountName: kagent-controller}}}", "kagent-controller", ""},
 		{"custom", "kind: Deployment\nspec: {template: {spec: {serviceAccountName: existing-controller}}}", "existing-controller", ""},
 		{"missing", "kind: Deployment", "", "no service account"},
 		{"malformed", "[", "", "decode controller deployment"},
@@ -64,15 +65,4 @@ func TestControllerServiceAccount(t *testing.T) {
 			require.Equal(t, chart.inlineValues, runner.commands[0].Stdin)
 		})
 	}
-}
-
-func TestControllerServiceAccountHelm42OCIPreamble(t *testing.T) {
-	manifest, err := os.ReadFile("testdata/helm42-controller-deployment.stdout")
-	require.NoError(t, err)
-	require.Contains(t, string(manifest), "Pulled: ghcr.io/kagent-dev/kagent/helm/kagent:1.0.0-rc1\n")
-	runner := &recordingRunner{run: func(Command) (string, error) { return string(manifest), nil }}
-	chart := Chart{Name: "kagent", Repository: "oci://ghcr.io/kagent-dev/kagent/helm/", Version: "1.0.0-rc1"}
-	got, err := controllerServiceAccount(t.Context(), runner, "kagent", chart)
-	require.NoError(t, err)
-	require.Equal(t, "kagent-controller", got)
 }
