@@ -191,7 +191,7 @@ const claudeManifest = ".claude-plugin/plugin.json"
 
 func fetchSource(ctx context.Context, source agentplugin.Source, destination string, requiredFiles ...string) (string, error) {
 	selected := 0
-	if source.OCI != "" {
+	if source.Directory != "" {
 		selected++
 	}
 	if source.Git != nil {
@@ -203,11 +203,18 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 	if selected != 1 {
 		return "", fmt.Errorf("exactly one artifact source is required")
 	}
-	if _, err := os.Stat(destination); err == nil {
-		if err := validatePackage(destination); err != nil {
-			return "", err
+	if source.Directory != "" {
+		if !filepath.IsAbs(source.Directory) {
+			return "", fmt.Errorf("mounted artifact directory %q must be absolute", source.Directory)
 		}
-		root, err := containedPath(destination, source.Path)
+		root, err := validatedPackageRoot(source.Directory, source.Path)
+		if err != nil {
+			return "", fmt.Errorf("validate mounted artifact: %w", err)
+		}
+		return root, nil
+	}
+	if _, err := os.Stat(destination); err == nil {
+		root, err := validatedPackageRoot(destination, source.Path)
 		if err == nil {
 			for _, requiredFile := range requiredFiles {
 				if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(requiredFile))); err == nil && info.Mode().IsRegular() {
@@ -226,10 +233,6 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		return "", err
 	}
 	switch {
-	case source.OCI != "":
-		if err := skillsinit.FetchOCI(skillsinit.OCIRef{Image: source.OCI, Dest: destination}, false); err != nil {
-			return "", err
-		}
 	case source.Git != nil:
 		if err := skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, destination); err != nil {
 			return "", err
@@ -245,14 +248,18 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 	default:
 		return "", fmt.Errorf("artifact source is required")
 	}
-	if err := validatePackage(destination); err != nil {
-		return "", err
-	}
-	root, err := containedPath(destination, source.Path)
+	return validatedPackageRoot(destination, source.Path)
+}
+
+func validatedPackageRoot(root, relative string) (string, error) {
+	selected, err := containedPath(root, relative)
 	if err != nil {
 		return "", err
 	}
-	return root, nil
+	if err := validatePackage(selected); err != nil {
+		return "", err
+	}
+	return selected, nil
 }
 
 func validatePackage(root string) error {
@@ -261,9 +268,6 @@ func validatePackage(root string) error {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() && entry.Name() == ".git" {
-			return filepath.SkipDir
-		}
 		entries++
 		if entries > maxPackageEntries {
 			return fmt.Errorf("artifact contains more than %d filesystem entries", maxPackageEntries)
@@ -271,6 +275,9 @@ func validatePackage(root string) error {
 		info, err := entry.Info()
 		if err != nil {
 			return err
+		}
+		if !info.Mode().IsRegular() && !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("artifact contains unsupported file %q (%s)", path, info.Mode())
 		}
 		if info.Mode().IsRegular() {
 			bytes += info.Size()

@@ -6,8 +6,7 @@ from unittest import mock
 
 import httpx2
 import pytest
-from anthropic import AsyncAnthropic
-from anthropic.lib.credentials import AccessToken, AccessTokenProvider
+from anthropic import AsyncAnthropic, AsyncAnthropicFoundry
 from anthropic.types import Message, TextBlock, ThinkingBlock, Usage
 from google.adk.models.anthropic_llm import content_block_to_part
 from google.adk.models.llm_request import LlmRequest
@@ -128,9 +127,9 @@ class TestFoundryAnthropic:
         token_provider = object()
         with (
             mock.patch.dict("os.environ", {}, clear=True),
-            mock.patch("kagent.adk.models._azure.AsyncAnthropic") as mock_anthropic,
+            mock.patch("kagent.adk.models._azure.AsyncAnthropicFoundry") as mock_anthropic,
             mock.patch(
-                "kagent.adk.models._azure.azure_access_token_provider",
+                "kagent.adk.models._azure.azure_ad_token_provider",
                 return_value=token_provider,
             ) as mock_provider,
         ):
@@ -143,15 +142,15 @@ class TestFoundryAnthropic:
             _ = llm._anthropic_client
 
         mock_provider.assert_called_once_with(AI_FOUNDRY_SCOPE)
-        assert mock_anthropic.call_args.kwargs["credentials"] is token_provider
-        assert "api_key" not in mock_anthropic.call_args.kwargs
+        assert mock_anthropic.call_args.kwargs["azure_ad_token_provider"] is token_provider
+        assert mock_anthropic.call_args.kwargs["api_key"] is None
         assert mock_anthropic.call_args.kwargs["default_headers"] == {"X-Custom": "preserved"}
         assert mock_anthropic.call_args.kwargs["base_url"] == "https://example.services.ai.azure.com/anthropic"
 
     def test_passthrough_without_token_does_not_fall_back_to_workload_identity(self):
         with (
             mock.patch.dict("os.environ", {"FOUNDRY_API_KEY": "must-not-win"}, clear=True),
-            mock.patch("kagent.adk.models._azure.azure_access_token_provider") as mock_provider,
+            mock.patch("kagent.adk.models._azure.azure_ad_token_provider") as mock_provider,
         ):
             llm = FoundryAnthropic(
                 model="claude-haiku-deployment",
@@ -172,10 +171,10 @@ class TestFoundryAnthropic:
             deployment="claude-haiku-deployment",
             api_key_passthrough=True,
         )
-        with mock.patch("kagent.adk.models._azure.AsyncAnthropic") as mock_anthropic:
+        with mock.patch("kagent.adk.models._azure.AsyncAnthropicFoundry") as mock_anthropic:
             mock_anthropic.side_effect = [
-                mock.MagicMock(spec=AsyncAnthropic),
-                mock.MagicMock(spec=AsyncAnthropic),
+                mock.MagicMock(spec=AsyncAnthropicFoundry),
+                mock.MagicMock(spec=AsyncAnthropicFoundry),
             ]
             llm.set_passthrough_key("first-token")
             first_client = llm._anthropic_client
@@ -188,7 +187,8 @@ class TestFoundryAnthropic:
         assert mock_anthropic.call_args.kwargs["api_key"] == "second-token"
 
     @pytest.mark.asyncio
-    async def test_api_key_uses_messages_path_and_x_api_key(self):
+    @pytest.mark.parametrize("passthrough", [False, True], ids=["environment-key", "passthrough-key"])
+    async def test_api_key_uses_messages_path_and_x_api_key(self, passthrough):
         captured_request = None
 
         async def handler(request: httpx2.Request) -> httpx2.Response:
@@ -211,13 +211,17 @@ class TestFoundryAnthropic:
         with (
             mock.patch.dict("os.environ", {"FOUNDRY_API_KEY": "foundry-key"}, clear=True),
             mock.patch.object(FoundryAnthropic, "_create_http_client", return_value=http_client),
+            mock.patch("kagent.adk.models._azure.azure_ad_token_provider") as mock_provider,
         ):
             llm = FoundryAnthropic(
                 model="claude-haiku-deployment",
                 endpoint="https://example.services.ai.azure.com/",
                 deployment="claude-haiku-deployment",
+                api_key_passthrough=passthrough,
                 extra_headers={"Authorization": "Bearer leaked", "X-Custom": "preserved"},
             )
+            if passthrough:
+                llm.set_passthrough_key("passthrough-key")
             await llm._anthropic_client.messages.create(
                 model=llm._resolve_model_name("wrong-request-model"),
                 max_tokens=16,
@@ -227,17 +231,24 @@ class TestFoundryAnthropic:
 
         assert captured_request is not None
         assert captured_request.url.path == "/anthropic/v1/messages"
-        assert captured_request.headers["x-api-key"] == "foundry-key"
+        expected_key = "passthrough-key" if passthrough else "foundry-key"
+        assert captured_request.headers["x-api-key"] == expected_key
+        assert captured_request.headers["api-key"] == expected_key
         assert "authorization" not in captured_request.headers
         assert captured_request.headers["x-custom"] == "preserved"
+        mock_provider.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_workload_identity_uses_bearer_without_x_api_key(self):
-        captured_request = None
+    @pytest.mark.parametrize(
+        "environment",
+        [{}, {"ANTHROPIC_API_KEY": "unrelated-key"}, {"ANTHROPIC_FOUNDRY_API_KEY": "must-not-win"}],
+        ids=["no-api-key", "anthropic-api-key", "anthropic-foundry-api-key"],
+    )
+    async def test_workload_identity_uses_bearer_without_api_keys(self, environment):
+        captured_requests = []
 
         async def handler(request: httpx2.Request) -> httpx2.Response:
-            nonlocal captured_request
-            captured_request = request
+            captured_requests.append(request)
             return httpx2.Response(
                 200,
                 json={
@@ -252,14 +263,12 @@ class TestFoundryAnthropic:
             )
 
         http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
-        token_provider = mock.Mock(
-            spec=AccessTokenProvider, return_value=AccessToken(token="entra-token", expires_at=4_102_444_800)
-        )
+        token_provider = mock.AsyncMock(side_effect=["entra-token", "refreshed-entra-token"])
         with (
-            mock.patch.dict("os.environ", {}, clear=True),
+            mock.patch.dict("os.environ", environment, clear=True),
             mock.patch.object(FoundryAnthropic, "_create_http_client", return_value=http_client),
             mock.patch(
-                "kagent.adk.models._azure.azure_access_token_provider",
+                "kagent.adk.models._azure.azure_ad_token_provider",
                 return_value=token_provider,
             ),
         ):
@@ -267,21 +276,24 @@ class TestFoundryAnthropic:
                 model="claude-haiku-deployment",
                 endpoint="https://example.services.ai.azure.com/",
                 deployment="claude-haiku-deployment",
-                extra_headers={"X-Api-Key": "leaked", "X-Custom": "preserved"},
+                extra_headers={"X-Api-Key": "leaked", "api-key": "leaked", "X-Custom": "preserved"},
             )
-            await llm._anthropic_client.messages.create(
-                model=llm._resolve_model_name(None),
-                max_tokens=16,
-                messages=[{"role": "user", "content": "hello"}],
-            )
+            for _ in range(2):
+                await llm._anthropic_client.messages.create(
+                    model=llm._resolve_model_name(None),
+                    max_tokens=16,
+                    messages=[{"role": "user", "content": "hello"}],
+                )
             await llm._anthropic_client.close()
 
-        assert captured_request is not None
-        assert captured_request.url.path == "/anthropic/v1/messages"
-        assert captured_request.headers["authorization"] == "Bearer entra-token"
-        assert "x-api-key" not in captured_request.headers
-        assert captured_request.headers["x-custom"] == "preserved"
-        token_provider.assert_called_once()
+        assert len(captured_requests) == 2
+        for request, token in zip(captured_requests, ["entra-token", "refreshed-entra-token"], strict=True):
+            assert request.url.path == "/anthropic/v1/messages"
+            assert request.headers["authorization"] == f"Bearer {token}"
+            assert "x-api-key" not in request.headers
+            assert "api-key" not in request.headers
+            assert request.headers["x-custom"] == "preserved"
+        assert token_provider.await_count == 2
 
 
 class TestAnthropicThinkingBlock:

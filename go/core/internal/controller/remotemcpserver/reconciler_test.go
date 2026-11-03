@@ -162,7 +162,7 @@ func TestReconcileAcceptsWithoutDiscoveryWhenDisabled(t *testing.T) {
 		t.Fatalf("disabled discovery status = %#v", updated.Status)
 	}
 	condition := apiMeta.FindStatusCondition(updated.Status.Conditions, conditionAccepted)
-	if condition == nil || condition.Status != metav1.ConditionTrue || condition.Reason != "DiscoveryDisabled" || condition.Message != discoveryDisabledMessage {
+	if condition == nil || condition.Status != metav1.ConditionTrue || condition.Reason != "DiscoveryDisabled" || condition.Message != "Global tool discovery is disabled by the kagent.dev/discovery label; agents resolve the tool list at run time" {
 		t.Fatalf("Accepted condition = %#v", condition)
 	}
 	if catalog.server == nil || catalog.server.Name != "test/tools" || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
@@ -240,4 +240,31 @@ func getServer(t *testing.T, kube client.Client, source *v1alpha3.RemoteMCPServe
 		t.Fatal(err)
 	}
 	return result
+}
+
+func TestActorJWTDisablesGlobalDiscovery(t *testing.T) {
+	server := testServer()
+	server.Spec.ActorJWT = &v1alpha3.ActorJWT{Audiences: []string{"mcp"}}
+	server.Status.DiscoveredTools = []*v1alpha3.MCPTool{{Name: "stale", Description: "stale"}}
+	kube := testClient(t, server)
+	discoverer := &fakeDiscoverer{err: errors.New("controller must not contact an Actor-authenticated server")}
+	catalog := &fakeCatalog{}
+	_, err := New(kube, discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if discoverer.calls != 0 {
+		t.Fatal("unexpected global discovery")
+	}
+	updated := getServer(t, kube, server)
+	condition := apiMeta.FindStatusCondition(updated.Status.Conditions, conditionAccepted)
+	if condition == nil || condition.Status != metav1.ConditionTrue || condition.Reason != "DiscoveryDisabled" || condition.Message != "Global tool discovery requires an executing Actor because actorJwt is enabled; agents resolve the tool list at run time" {
+		t.Fatalf("Accepted condition = %#v", condition)
+	}
+	if len(updated.Status.DiscoveredTools) != 0 {
+		t.Fatal("stale discovery status must be cleared")
+	}
+	if len(catalog.tools) != 0 {
+		t.Fatal("stale tools must be cleared")
+	}
 }

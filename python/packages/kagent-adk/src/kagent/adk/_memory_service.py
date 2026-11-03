@@ -41,7 +41,6 @@ class KagentMemoryService(BaseMemoryService):
 
     def __init__(
         self,
-        agent_name: str,
         controller_client: AsyncControllerClient,
         embedding_config: Optional[EmbeddingConfig] = None,
         ttl_days: int = 0,
@@ -49,12 +48,10 @@ class KagentMemoryService(BaseMemoryService):
         """Initialize KagentMemoryService.
 
         Args:
-            agent_name: Name of the agent (used as namespace in storage)
             controller_client: Shared authenticated controller gRPC client
             embedding_config: Configuration for embedding model (EmbeddingConfig only).
             ttl_days: TTL for memory entries in days. 0 means use the server default.
         """
-        self.agent_name = agent_name
         self.client = controller_client
         self.embedding_config = embedding_config
         self.ttl_days = ttl_days
@@ -124,8 +121,6 @@ class KagentMemoryService(BaseMemoryService):
                     continue
 
                 item = memory_pb2.SessionMemoryInput(
-                    agent_name=self.agent_name,
-                    user_id=user_id,
                     content=content_item,
                     vector=vector,
                 )
@@ -174,8 +169,6 @@ class KagentMemoryService(BaseMemoryService):
             return
 
         memory = memory_pb2.SessionMemoryInput(
-            agent_name=self.agent_name,
-            user_id=user_id,
             content=content,
             vector=vector,
         )
@@ -205,8 +198,8 @@ class KagentMemoryService(BaseMemoryService):
         """Search memory for relevant content.
 
         Args:
-            app_name: The application name (used for filtering)
-            user_id: ADK compatibility parameter; ownership comes from request identity.
+            app_name: ADK compatibility parameter; scope comes from the actor's session.
+            user_id: ADK compatibility parameter; ownership comes from the actor's session.
             query: The search query text
 
         Returns:
@@ -225,8 +218,6 @@ class KagentMemoryService(BaseMemoryService):
         try:
             response = await self.client.memory_service.Search(
                 memory_pb2.MemoryServiceSearchRequest(
-                    agent_name=self.agent_name,
-                    user_id=user_id,
                     vector=vector,
                     limit=5,
                     min_score=0.3,

@@ -9,6 +9,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 )
 
+// DefaultSkillsRoot is where the ADK installs root-agent skills.
+const DefaultSkillsRoot = "/skills"
+
 // AgentPluginPaths contains the ADK runtime destinations for Agent Plugin
 // packages, selected skills, and mutable MCP server data.
 type AgentPluginPaths struct {

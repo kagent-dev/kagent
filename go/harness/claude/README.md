@@ -35,6 +35,10 @@ Credentials use [Substrate gateway injection](../../../docs/architecture/credent
 AWS IAM keys and Vertex service-account keys require local signing and are rejected
 by the compiler. Harness environment entries accept only literal values.
 
+Production runs retain Claude's native retry defaults. E2E fixtures opt into
+zero retries through an internal test switch while upstream denial handling
+still causes minutes of waiting.
+
 ## Telemetry
 
 The driver passes each prompt to Claude Code on stdin as stream-JSON. When

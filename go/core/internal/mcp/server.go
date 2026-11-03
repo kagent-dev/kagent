@@ -10,6 +10,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
@@ -25,15 +26,25 @@ import (
 
 const (
 	listToolName            = "list_sessions"
-	invokeToolName          = "invoke_session"
+	invokeToolName          = "invoke_agent"
 	defaultTaskPollInterval = 1000
 )
 
 type Handler struct {
+	agents      *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
 	sessions    *sessionsvc.Service
 	checkpoints *checkpoint.Service
 	gateway     a2asrv.RequestHandler
 	http        http.Handler
+}
+
+type Config struct {
+	Agents           *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
+	Sessions         *sessionsvc.Service
+	Checkpoints      *checkpoint.Service
+	Gateway          a2asrv.RequestHandler
+	Sandboxes        *sandbox.Service
+	SandboxTemplates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
 }
 
 type ListSessionsInput struct {
@@ -52,13 +63,19 @@ type ListSessionsOutput struct {
 	NextPageToken string           `json:"next_page_token,omitempty"`
 }
 
-type InvokeSessionInput struct {
-	SessionID string `json:"session_id" jsonschema:"Session UUID"`
-	Message   string `json:"message" jsonschema:"Message to send to the agent"`
-	MessageID string `json:"message_id,omitempty" jsonschema:"Optional stable A2A message ID for idempotency"`
+type InvokeAgentInput struct {
+	SessionID string          `json:"session_id,omitempty" jsonschema:"Existing Session UUID; provide either session_id or agent"`
+	Agent     *agentReference `json:"agent,omitempty" jsonschema:"Agent to start a new Session with; omit session_id"`
+	Message   string          `json:"message" jsonschema:"Message to send to the agent"`
+	MessageID string          `json:"message_id,omitempty" jsonschema:"Stable A2A message ID; reuse with the same agent and message to retry creating a Session without another first turn"`
 }
 
-type InvokeSessionOutput struct {
+type agentReference struct {
+	Namespace string `json:"namespace" jsonschema:"Agent namespace"`
+	Name      string `json:"name" jsonschema:"Agent name"`
+}
+
+type InvokeAgentOutput struct {
 	SessionID string `json:"session_id"`
 	TaskID    string `json:"task_id"`
 	ContextID string `json:"context_id"`
@@ -66,15 +83,15 @@ type InvokeSessionOutput struct {
 	Text      string `json:"text,omitempty"`
 }
 
-func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway a2asrv.RequestHandler, sandboxes *sandbox.Service, templates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]) (*Handler, error) {
-	if sessions == nil || checkpoints == nil || gateway == nil {
-		return nil, fmt.Errorf("session service, checkpoint service, and A2A gateway are required")
+func New(cfg Config) (*Handler, error) {
+	if cfg.Agents == nil || cfg.Sessions == nil || cfg.Checkpoints == nil || cfg.Gateway == nil {
+		return nil, fmt.Errorf("agent service, session service, checkpoint service, and A2A gateway are required")
 	}
-	h := &Handler{sessions: sessions, checkpoints: checkpoints, gateway: gateway}
+	h := &Handler{agents: cfg.Agents, sessions: cfg.Sessions, checkpoints: cfg.Checkpoints, gateway: cfg.Gateway}
 	capabilities := &mcp.ServerCapabilities{}
 	capabilities.AddExtension(tasksExtension, nil)
-	instructions := "Use Sessions for agent conversations through A2A. Use checkpoint tools to save and fork Session state."
-	if sandboxes != nil {
+	instructions := "Use list_agents to discover Agents, then invoke_agent with an agent reference to start a conversation or session_id to continue one. Use checkpoint tools to save and fork Session state."
+	if cfg.Sandboxes != nil {
 		instructions += "\n\n" + sandboxInstructions
 	}
 	server := mcp.NewServer(
@@ -82,16 +99,27 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 		&mcp.ServerOptions{Capabilities: capabilities, Instructions: instructions},
 	)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_agents",
+		Description: "List Agents visible to the caller, optionally filtered by namespace. Pass an entry from agents as the agent argument to invoke_agent to start a Session. Listing does not imply readiness or permission to invoke.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, h.listAgents)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        listToolName,
 		Description: "List ready Sessions visible to the caller",
 	}, h.listSessions)
+	invokeSchema, err := jsonschema.For[InvokeAgentInput](nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to infer invocation schema: %w", err)
+	}
+	invokeSchema.OneOf = []*jsonschema.Schema{{Required: []string{"session_id"}}, {Required: []string{"agent"}}}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        invokeToolName,
-		Description: "Invoke a Session through the public A2A gateway",
-	}, h.invokeSession)
+		Description: "Send a message to an existing Session with session_id, or start a new Session by providing agent instead. Returns the Session and task IDs. Reuse message_id with identical inputs when retrying creation.",
+		InputSchema: invokeSchema,
+	}, h.invokeAgent)
 	h.registerCheckpointTools(server)
-	registerSandboxTools(server, sandboxes, templates)
-	if sandboxes != nil {
+	registerSandboxTools(server, cfg.Sandboxes, cfg.SandboxTemplates)
+	if cfg.Sandboxes != nil {
 		registerSandboxPrompts(server)
 	}
 	server.AddReceivingMiddleware(h.taskAwareToolCall)
@@ -133,30 +161,40 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text.String()}}}, output, nil
 }
 
-func (h *Handler) invokeSession(ctx context.Context, _ *mcp.CallToolRequest, input InvokeSessionInput) (*mcp.CallToolResult, InvokeSessionOutput, error) {
+func (h *Handler) invokeAgent(ctx context.Context, _ *mcp.CallToolRequest, input InvokeAgentInput) (*mcp.CallToolResult, InvokeAgentOutput, error) {
 	task, err := h.invoke(ctx, input, false)
 	if err != nil {
-		return toolError(err), InvokeSessionOutput{}, nil
+		return toolError(err), InvokeAgentOutput{}, nil
 	}
-	result, output := invocationResult(input, task)
+	result, output := invocationResult(task)
 	return result, output, nil
 }
 
-func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bool) (*a2atype.Task, error) {
-	if input.SessionID == "" || strings.TrimSpace(input.Message) == "" {
-		return nil, fmt.Errorf("session_id and message are required")
+func (h *Handler) invoke(ctx context.Context, input InvokeAgentInput, async bool) (*a2atype.Task, error) {
+	if (input.SessionID != "") == (input.Agent != nil) {
+		return nil, fmt.Errorf("provide exactly one of session_id or agent")
+	}
+	if strings.TrimSpace(input.Message) == "" {
+		return nil, fmt.Errorf("message is required")
 	}
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(input.Message))
 	if input.MessageID != "" {
 		message.ID = input.MessageID
 	}
-	session, err := h.sessions.Get(ctx, input.SessionID)
-	if err != nil {
-		return nil, err
+	var tenant string
+	if input.Agent != nil {
+		// An unset context lets A2A own creation and initial-message retries.
+		tenant = input.Agent.Namespace + "/" + input.Agent.Name
+	} else {
+		session, err := h.sessions.Get(ctx, input.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		message.ContextID = session.GetId()
+		agent := session.GetAgent().GetRef()
+		tenant = agent.GetNamespace() + "/" + agent.GetName()
 	}
-	message.ContextID = session.GetId()
 	// Direct gateway calls carry the Agent tenant on the request, like A2A transports do.
-	tenant := session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName()
 	routed := interactionContext(ctx)
 	var taskID a2atype.TaskID
 	for event, err := range h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Tenant: tenant, Message: message}) {
@@ -185,15 +223,15 @@ func interactionContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func invocationResult(input InvokeSessionInput, task *a2atype.Task) (*mcp.CallToolResult, InvokeSessionOutput) {
+func invocationResult(task *a2atype.Task) (*mcp.CallToolResult, InvokeAgentOutput) {
 	text := taskText(task)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 		IsError: task.Status.State == a2atype.TaskStateFailed ||
 			task.Status.State == a2atype.TaskStateRejected ||
 			task.Status.State == a2atype.TaskStateAuthRequired,
-	}, InvokeSessionOutput{
-		SessionID: input.SessionID,
+	}, InvokeAgentOutput{
+		SessionID: task.ContextID,
 		TaskID:    string(task.ID), ContextID: task.ContextID,
 		State: task.Status.State.String(), Text: text,
 	}

@@ -6,9 +6,13 @@ type AgentExpansion interface{}
 
 type AgentTemplateExpansion interface{}
 
+type EgressPolicyExpansion interface{}
+
 type HarnessExpansion interface{}
 
 type ModelConfigExpansion interface{}
+
+type ModelProviderConfigExpansion interface{}
 
 type RemoteMCPServerExpansion interface{}
 

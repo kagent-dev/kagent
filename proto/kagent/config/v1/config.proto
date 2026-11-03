@@ -15,6 +15,20 @@ message CLIConfig {
   LoggingConfig logging = 3;
   InstallConfig install = 4;
   DatabaseConfig database = 5;
+  TUIConfig tui = 6;
+}
+
+// TUIConfig sets how the interactive workspace starts.
+message TUIConfig {
+  // sidebar is whether the Namespaces, Agents and Sessions panels show at start; /sidebar toggles them for the run. Default "shown".
+  optional string sidebar = 1 [(buf.validate.field).string = {
+    in: [
+      "shown",
+      "hidden"
+    ]
+  }];
+  // bell rings the terminal bell when a turn finishes or waits for input while the terminal window is unfocused; needs a terminal that reports focus. Default true.
+  optional bool bell = 2;
 }
 
 message ConnectionConfig {
@@ -144,6 +158,13 @@ message AuthenticationConfig {
     ]
   }];
   string user_id_claim = 2;
+  ServiceAccountAuthentication service_account = 3;
+}
+
+// Platform-owned invocation authentication for the fixed kagent-invocation audience,
+// independent of the Kubernetes API token.
+message ServiceAccountAuthentication {
+  string authority = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 // DatabaseConfig names two PostgreSQL logins. The owner applies migrations; the
@@ -201,6 +222,11 @@ message SubstrateConfig {
     uri: true
     pattern: "^https?://[^/?#]+"
   }];
+  // Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file.
+  optional string actor_jwt_issuer = 5 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https://[^/?#]+"
+  }];
 }
 
 message SessionsConfig {
@@ -243,6 +269,13 @@ message PushConfig {
   bool allow_private_networks = 4;
   // Recovery interval for missed wake-ups and unbound registration cleanup.
   google.protobuf.Duration recovery_interval = 5 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  // Maximum concurrent callback deliveries per controller replica. Defaults to 10.
+  optional int32 max_concurrency = 6 [(buf.validate.field).int32.gt = 0];
+  // Timeout for each callback attempt. Defaults to 5s.
+  google.protobuf.Duration send_timeout = 7 [(buf.validate.field).duration = {
     gt: {}
     lte: {seconds: 9223372036}
   }];
@@ -346,14 +379,19 @@ message RuntimeDefaultsConfig {
   }];
   optional int64 max_content_length = 5 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 6;
-  SkillToolsConfig skill_tools = 7;
+  BuiltinToolsConfig builtin_tools = 7;
+  // Per-agent runtime limits, in Kubernetes quantity notation.
+  optional string cpu = 8 [(buf.validate.field).string.min_len = 1];
+  optional string memory = 9 [(buf.validate.field).string.min_len = 1];
 }
 
-// SkillToolsConfig configures the built-in tools available with local skills.
-message SkillToolsConfig {
-  bool file_search_tools = 1;
+// BuiltinToolsConfig configures built-in tools independently of skills.
+message BuiltinToolsConfig {
+  bool disable_file_search = 1;
   string bash_venv_path = 2;
   bool disable_bash = 3;
+  // Omitted or false keeps the built-in question tool enabled.
+  bool disable_ask_user = 4;
 }
 
 message TokenPropagationConfig {

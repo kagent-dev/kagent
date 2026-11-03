@@ -91,11 +91,9 @@ class AsyncControllerClient:
         return self._task_store_service
 
     async def call_options(self, user_id: str | None = None) -> dict[str, Any]:
-        metadata: list[tuple[str, str]] = []
-        if self.token_provider is not None:
-            token = await self.token_provider.get_token()
-            if token:
-                metadata.append(("authorization", f"Bearer {token}"))
+        # Substrate replaces this placeholder at the controller's runtime origin.
+        token = await self.token_provider.get_token() if self.token_provider is not None else None
+        metadata: list[tuple[str, str]] = [("authorization", f"Bearer {token or 'placeholder'}")]
         if self.agent_name:
             metadata.append(("x-agent-name", self.agent_name))
         if not user_id:

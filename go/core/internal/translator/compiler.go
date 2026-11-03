@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -20,6 +22,7 @@ type Compiler struct {
 	collections      Collections
 	harnessCompilers map[HarnessType]HarnessCompiler
 	images           *configv1.HarnessImagesConfig
+	settings         *configv1.RuntimeDefaultsConfig
 }
 
 // HarnessType identifies the runtime selected by a Harness.
@@ -90,8 +93,8 @@ type AgentInputBinding struct {
 }
 
 // NewCompiler constructs the runtime compiler.
-func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *configv1.HarnessImagesConfig) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images}
+func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *configv1.HarnessImagesConfig, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images, settings: settings}
 }
 
 // CompileAgent resolves inline or referenced behavior with its referenced
@@ -123,7 +126,7 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		return nil, fmt.Errorf("resolve Harness %q: not found", harnessKey)
 	}
 	harness := harnessConfiguration(*foundHarness)
-	result, err := c.compileConfiguration(ctx, agent.Name, harness, template)
+	result, err := c.compileConfiguration(ctx, agent, harness, template)
 	if err != nil {
 		return nil, err
 	}
@@ -140,9 +143,9 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 	return result, nil
 }
 
-// compileConfiguration compiles resolved configuration for the named Agent.
+// compileConfiguration resolves inputs and compiles configuration for the Agent.
 // The Agent name owns runtime identity; template and Harness names are provenance.
-func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
+func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Agent, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -155,7 +158,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if err != nil {
 		return nil, err
 	}
-	input.AgentName = agentName
+	input.AgentName = agent.Name
 	image, err := harnessImage(harness, c.images)
 	if err != nil {
 		return nil, err
@@ -169,9 +172,15 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if workerPool == nil {
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
-	result.AgentName = agentName
+	result.AgentName = agent.Name
 	result.Image = image
-	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	result.CPU = c.settings.GetCpu()
+	result.Memory = c.settings.GetMemory()
+	result.SandboxClass = (*workerPool).Spec.DefaultSandboxClass()
+	// Shared agents and plugin selections can contribute the same image.
+	// Normalize once after the complete harness configuration has been compiled.
+	slices.Sort(result.SkillImages)
+	result.SkillImages = slices.Compact(result.SkillImages)
 	return result, nil
 }
 
@@ -247,32 +256,16 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 }
 
 func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) (*HarnessInput, error) {
-	outputSchema, err := c.resolveOutputSchema(ctx, tree.Root.Template)
-	if err != nil {
-		return nil, err
-	}
-	if outputSchema != nil && harnessType(tree.Harness) != HarnessTypeKagent {
-		return nil, NewValidationError("Harness runtime %q does not support structured output", harnessType(tree.Harness))
-	}
 	var build func(*resolvedTemplate) (*AgentInput, error)
 	build = func(agent *resolvedTemplate) (*AgentInput, error) {
 		template := agent.Template
-		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
-		if err != nil {
-			return nil, err
-		}
-		input := &AgentInput{Template: template, Instruction: instruction}
+		input := &AgentInput{Template: template}
 		if template.Spec.ModelConfig != nil {
-			input.ResolvedModelConfig = krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}))
-			if input.ResolvedModelConfig == nil {
-				return nil, fmt.Errorf("resolve ModelConfig %q: not found", template.Spec.ModelConfig.Name)
+			resolved, err := ResolveModelReference(c.ctx, c.collections, template.Namespace, *template.Spec.ModelConfig)
+			if err != nil {
+				return nil, err
 			}
-			if failures := input.ResolvedModelConfig.SemanticFailures; len(failures) > 0 {
-				return nil, NewValidationError("ModelConfig %q: %s", template.Spec.ModelConfig.Name, failures[0].Message)
-			}
-			if failures := input.ResolvedModelConfig.ReferenceFailures; len(failures) > 0 {
-				return nil, fmt.Errorf("resolve ModelConfig %q: %s", template.Spec.ModelConfig.Name, failures[0].Message)
-			}
+			input.ResolvedModelConfig = resolved
 		}
 		toolNames := make([]string, 0)
 		for _, tool := range template.Spec.Tools {
@@ -285,14 +278,22 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 			if tool.MCP.Server.Kind != "RemoteMCPServer" {
 				return nil, NewValidationError("unsupported MCP server kind %q", tool.MCP.Server.Kind)
 			}
-			key := types.NamespacedName{Namespace: template.Namespace, Name: tool.MCP.Server.Name}
+			key := (v1alpha3.ObjectReference{Name: tool.MCP.Server.Name, Namespace: ptr.Deref(tool.MCP.Server.Namespace, "")}).NamespacedName(template.Namespace)
 			server := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(key))
 			if server == nil {
 				return nil, fmt.Errorf("resolve %s %q: not found", tool.MCP.Server.Kind, tool.MCP.Server.Name)
 			}
+			if err := authorizeReference(c.ctx, c.collections, template.Namespace, key, (*server).Spec.AllowedNamespaces); err != nil {
+				return nil, fmt.Errorf("resolve RemoteMCPServer %q: %w", key, err)
+			}
 			input.MCPTools = append(input.MCPTools, ResolvedMCPTool{Binding: *tool.MCP.DeepCopy(), Server: *server})
 			toolNames = append(toolNames, tool.MCP.Tools...)
 		}
+		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
+		if err != nil {
+			return nil, err
+		}
+		input.Instruction = instruction
 		if template.Spec.PromptTemplate != nil {
 			refs := make([]promptSourceRef, 0, len(template.Spec.PromptTemplate.DataSources))
 			for _, source := range template.Spec.PromptTemplate.DataSources {
@@ -323,6 +324,13 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 	root, err := build(tree.Root)
 	if err != nil {
 		return nil, err
+	}
+	outputSchema, err := c.resolveOutputSchema(ctx, tree.Root.Template)
+	if err != nil {
+		return nil, err
+	}
+	if outputSchema != nil && harnessType(tree.Harness) != HarnessTypeKagent {
+		return nil, NewValidationError("Harness runtime %q does not support structured output", harnessType(tree.Harness))
 	}
 	return &HarnessInput{Harness: tree.Harness, Root: root, OutputSchema: outputSchema}, nil
 }

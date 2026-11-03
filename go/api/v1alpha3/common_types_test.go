@@ -17,38 +17,28 @@ limitations under the License.
 package v1alpha3
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
-func TestAllowedNamespaces_AllowsNamespace(t *testing.T) {
-	scheme := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(scheme))
-
+func TestAllowedNamespaces_AllowsNamespaceMetadata(t *testing.T) {
 	// Create test namespaces
-	namespaces := []runtime.Object{
-		&corev1.Namespace{
+	namespaces := []*corev1.Namespace{
+		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "target-ns",
 			},
 		},
-		&corev1.Namespace{
+		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "source-ns",
 			},
 		},
-		&corev1.Namespace{
+		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "labeled-ns",
 				Labels: map[string]string{
@@ -57,13 +47,13 @@ func TestAllowedNamespaces_AllowsNamespace(t *testing.T) {
 				},
 			},
 		},
-		&corev1.Namespace{
+		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   "empty-labels-ns",
 				Labels: map[string]string{},
 			},
 		},
-		&corev1.Namespace{
+		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "restricted-ns",
 				Labels: map[string]string{
@@ -72,13 +62,6 @@ func TestAllowedNamespaces_AllowsNamespace(t *testing.T) {
 			},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithRuntimeObjects(namespaces...).
-		Build()
-
-	ctx := context.Background()
 
 	tests := []struct {
 		name            string
@@ -318,7 +301,7 @@ func TestAllowedNamespaces_AllowsNamespace(t *testing.T) {
 			sourceNamespace: "non-existent-ns",
 			targetNamespace: "target-ns",
 			wantErr:         true,
-			errContains:     "failed to get namespace",
+			errContains:     "requires observed namespace metadata",
 		},
 		{
 			name: "Unknown From value returns error",
@@ -334,7 +317,13 @@ func TestAllowedNamespaces_AllowsNamespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			allowed, err := tt.allowedNs.AllowsNamespace(ctx, fakeClient, tt.sourceNamespace, tt.targetNamespace)
+			var observed *corev1.Namespace
+			for _, ns := range namespaces {
+				if ns.Name == tt.sourceNamespace {
+					observed = ns
+				}
+			}
+			allowed, err := tt.allowedNs.AllowsNamespaceMetadata(tt.sourceNamespace, tt.targetNamespace, observed)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -348,29 +337,4 @@ func TestAllowedNamespaces_AllowsNamespace(t *testing.T) {
 			assert.Equal(t, tt.wantAllowed, allowed)
 		})
 	}
-
-	t.Run("From=Selector returns error when namespace read is forbidden", func(t *testing.T) {
-		forbiddenClient := fake.NewClientBuilder().
-			WithScheme(scheme).
-			// Simulates namespaced RBAC where the controller cannot read Namespace objects.
-			WithInterceptorFuncs(interceptor.Funcs{
-				Get: func(ctx context.Context, c ctrl_client.WithWatch, key ctrl_client.ObjectKey, obj ctrl_client.Object, opts ...ctrl_client.GetOption) error {
-					if _, ok := obj.(*corev1.Namespace); ok {
-						return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, key.Name, nil)
-					}
-					return c.Get(ctx, key, obj, opts...)
-				},
-			}).
-			Build()
-
-		allowedNs := &AllowedNamespaces{
-			From: NamespacesFromSelector,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"shared-access": "true"},
-			},
-		}
-		_, err := allowedNs.AllowsNamespace(ctx, forbiddenClient, "source-ns", "target-ns")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "allowedNamespaces.from=Selector requires namespace read access")
-	})
 }

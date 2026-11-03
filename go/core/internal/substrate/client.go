@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -38,7 +39,7 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
-	tlsConfig, err := ateAPITLSConfig(cfg)
+	tlsConfig, err := clientTLSConfig(cfg.CAFile, cfg.ClientCertFile)
 	if err != nil {
 		return nil, err
 	}
@@ -67,23 +68,23 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	}, nil
 }
 
-func ateAPITLSConfig(cfg Config) (*tls.Config, error) {
+func clientTLSConfig(caFile, clientCertFile string) (*tls.Config, error) {
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	if cfg.CAFile != "" {
-		pem, err := os.ReadFile(cfg.CAFile)
+	if caFile != "" {
+		pem, err := os.ReadFile(caFile)
 		if err != nil {
-			return nil, fmt.Errorf("substrate: read ate-api CA file: %w", err)
+			return nil, fmt.Errorf("substrate: read CA file: %w", err)
 		}
 		tlsCfg.RootCAs = x509.NewCertPool()
 		if !tlsCfg.RootCAs.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("substrate: ate-api CA file %q contains no certificates", cfg.CAFile)
+			return nil, fmt.Errorf("substrate: CA file %q contains no certificates", caFile)
 		}
 	}
-	if cfg.ClientCertFile != "" {
+	if clientCertFile != "" {
 		tlsCfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-			cert, err := tls.LoadX509KeyPair(cfg.ClientCertFile, cfg.ClientCertFile)
+			cert, err := tls.LoadX509KeyPair(clientCertFile, clientCertFile)
 			if err != nil {
-				return nil, fmt.Errorf("substrate: load ate-api client certificate: %w", err)
+				return nil, fmt.Errorf("substrate: load client certificate: %w", err)
 			}
 			return &cert, nil
 		}
@@ -148,14 +149,20 @@ func (c *Client) GetActorTemplate(ctx context.Context, atespace, name string) (*
 func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
+	// Substrate requires request opt-in as well as the server's
+	// PerTemplateSnapshotLocation gate to honor the configured snapshot location.
+	ctx = metadata.AppendToOutgoingContext(ctx, "ate-preview-allowed", "true")
 	return c.ControlClient.CreateActorTemplate(ctx, &ateapipb.CreateActorTemplateRequest{ActorTemplate: template})
 }
 
 // DeleteActorTemplate delegates golden Actor and Tag cleanup to Substrate.
-func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name string) error {
+func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{ActorTemplate: actorRef(atespace, name)})
+	_, err := c.ControlClient.DeleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{
+		ActorTemplate: actorRef(atespace, name),
+		Options:       &ateapipb.DeleteOptions{Uid: uid},
+	})
 	if status.Code(err) == codes.NotFound {
 		return nil
 	}
@@ -196,14 +203,43 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
+// SuspendActor waits for durable storage, including an upload left by an earlier
+// attempt. Substrate's synchronous mode returns already-suspended Actors as-is.
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID)})
+	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{
+		Actor:   actorRef(atespace, actorID),
+		Options: &ateapipb.SuspendOptions{Mode: ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS},
+	})
 	if err != nil {
 		return nil, err
 	}
-	return resp.GetActor(), nil
+	actor := resp.GetActor()
+	uid := actor.GetMetadata().GetUid()
+	generation := LatestActorSnapshot(actor).GetGeneration()
+	for {
+		if actor.GetMetadata().GetUid() != uid || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED || LatestActorSnapshot(actor).GetGeneration() != generation {
+			return nil, fmt.Errorf("actor %s/%s changed while waiting for its durable snapshot", atespace, actorID)
+		}
+		snapshot := LatestActorSnapshot(actor)
+		if snapshot.GetDurableSnapshot().GetState() != ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING {
+			// The lifecycle owner validates fidelity and completeness; only a pending
+			// upload warrants polling. Never substitute an older completed generation.
+			return actor, nil
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("wait for Actor %s/%s durable snapshot: %w", atespace, actorID, ctx.Err())
+		case <-timer.C:
+		}
+		actor, err = c.ControlClient.GetActor(ctx, &ateapipb.GetActorRequest{Actor: actorRef(atespace, actorID)})
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 func (c *Client) GetTag(ctx context.Context, atespace, name string) (*ateapipb.Tag, error) {
@@ -224,10 +260,13 @@ func (c *Client) CreateTag(ctx context.Context, atespace, name, actorName string
 	})
 }
 
-func (c *Client) DeleteTag(ctx context.Context, atespace, name string) error {
+func (c *Client) DeleteTag(ctx context.Context, atespace, name, uid string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteTag(ctx, &ateapipb.DeleteTagRequest{Tag: actorRef(atespace, name)})
+	_, err := c.ControlClient.DeleteTag(ctx, &ateapipb.DeleteTagRequest{
+		Tag:     actorRef(atespace, name),
+		Options: &ateapipb.DeleteOptions{Uid: uid},
+	})
 	return err
 }
 
@@ -246,7 +285,17 @@ func (c *Client) DeleteActor(ctx context.Context, atespace, actorID string) erro
 func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
+	// Existing spaces only require scoped access, not global create permission.
+	_, err := c.GetAtespace(ctx, &ateapipb.GetAtespaceRequest{
+		Atespace: &ateapipb.ObjectRef{Name: name},
+	})
+	if err == nil {
+		return nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return err
+	}
+	_, err = c.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
 		Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: name}},
 	})
 	if err != nil && status.Code(err) == codes.AlreadyExists {

@@ -28,7 +28,7 @@ func (w *ActorWorkflow) wakeQuiescence() {
 	}
 }
 
-// Start suspends idle sessions to DATA independently of task publication.
+// Start suspends idle sessions to VOLUMES independently of task publication.
 // Startup and periodic recovery scans discover work missed by local signals.
 // Workers drain claims with bounded concurrency; task reads never wait for them.
 func (w *ActorWorkflow) Start(ctx context.Context) error {

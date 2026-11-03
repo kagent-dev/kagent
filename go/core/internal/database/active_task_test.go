@@ -23,7 +23,7 @@ func TestCheckpointCreationBlocksSessionTaskWrites(t *testing.T) {
 	task.ContextID = session.GetContextId()
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
-		&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+		&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx,
 		&apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)

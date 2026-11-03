@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -26,6 +26,7 @@ import (
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
@@ -38,12 +39,15 @@ import (
 // Agent. Compilation failures are data so invalid Agents still produce
 // status instead of disappearing from the graph.
 type AgentReconciliation struct {
-	Agent                 *kagentv1alpha3.Agent
-	Target                *compiledTarget
-	Warnings              []string
-	CompilationFailure    *ReconciliationFailure
-	ObservedActorTemplate *ateapipb.ActorTemplate
-	PreparationFailure    *ReconciliationFailure
+	Agent              *kagentv1alpha3.Agent
+	EgressGrant        egress.Access // Requested union, including conflicting grants.
+	EgressIssues       []translator.EgressGrantIssue
+	EgressConflict     string
+	Target             *compiledTarget
+	Warnings           []string
+	CompilationFailure *ReconciliationFailure
+	Golden             goldenProgress
+	PreparationFailure *ReconciliationFailure
 }
 
 // compiledTarget is published only after compilation, hashing, and ActorTemplate
@@ -68,12 +72,10 @@ var _ krt.Equaler[AgentReconciliation] = AgentReconciliation{}
 
 // Equals keeps KRT from reflecting over protobuf caches that mutate during reads.
 func (r AgentReconciliation) Equals(other AgentReconciliation) bool {
-	if !r.Target.equals(other.Target) ||
-		!proto.Equal(r.ObservedActorTemplate, other.ObservedActorTemplate) {
+	if !r.Target.equals(other.Target) {
 		return false
 	}
 	r.Target, other.Target = nil, nil
-	r.ObservedActorTemplate, other.ObservedActorTemplate = nil, nil
 	return reflect.DeepEqual(r, other)
 }
 
@@ -102,78 +104,94 @@ func newAgentReconciliations(
 ) krt.Collection[AgentReconciliation] {
 	return krt.NewCollection(agents, func(ctx krt.HandlerContext, agent *kagentv1alpha3.Agent) *AgentReconciliation {
 		state := &AgentReconciliation{Agent: agent}
-		compilation, err := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
-			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
-			translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
-			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
-		}, images).CompileAgent(context.Background(), agent)
-		if err != nil {
-			condition, reason := kagentv1alpha3.AgentConditionResolvedRefs, "ReferenceResolutionFailed"
-			var validation *translator.ValidationError
-			var missingPool *translator.WorkerPoolNotFoundError
-			switch {
-			case errors.As(err, &validation):
-				// TODO(tim): Separate structural Agent validation from resolved
-				// compatibility failures so invalid sources do not report Accepted=True
-				// and ResolvedRefs=True.
-				condition, reason = kagentv1alpha3.AgentConditionCompatible, "UnsupportedConfiguration"
-			case errors.As(err, &missingPool):
-				reason = "WorkerPoolNotFound"
-			}
-			state.CompilationFailure = &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
+		if !agent.DeletionTimestamp.IsZero() {
 			return state
 		}
-		revision := &compilation.Revision
-		state.Warnings = append([]string(nil), compilation.Warnings...)
-		revisionID, err := revision.Digest()
+		resolution := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
+		state.EgressGrant, state.EgressIssues = resolution.Access, resolution.Issues
+		state.Target, state.Warnings, state.CompilationFailure = compileAgentTarget(ctx, collections, agent, settings, images)
+		var err error
+		if state.Target == nil {
+			// Unrelated compilation failures must not freeze grant updates.
+			_, err = egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil)
+		} else {
+			revision := &state.Target.Revision
+			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets}
+			_, err = egress.MergeAccess(base, state.EgressGrant)
+		}
 		if err != nil {
-			state.CompilationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
+			state.EgressConflict = err.Error()
+		}
+		if state.CompilationFailure != nil {
 			return state
 		}
-
-		actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID)
-		if err != nil {
-			state.CompilationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
-			return state
-		}
-		state.Target = &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}
 
 		observed := krt.FetchOne(ctx, agentRuntimeObservations, krt.FilterKey(state.ResourceName()))
 		if observed == nil || observed.RevisionID != state.Target.RevisionID {
 			return state
 		}
-		if observed.Failure != nil {
-			state.PreparationFailure = observed.Failure
-			return state
-		}
-		state.ObservedActorTemplate = (*observed).Template
-		if !substrate.ActorTemplateSpecEqual(state.ObservedActorTemplate, state.Target.ActorTemplate) {
-			state.PreparationFailure = &ReconciliationFailure{
-				Condition: kagentv1alpha3.AgentConditionReady,
-				Reason:    "ActorTemplateConflict",
-				Message:   "existing immutable ActorTemplate differs from the compiled revision",
-			}
-		} else if message := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateFailed", Message: message}
-		}
+		state.Golden, state.PreparationFailure = observed.Golden, observed.Failure
 		return state
 	}, opts.WithName("AgentReconciliations")...)
+}
+
+func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collections, agent *kagentv1alpha3.Agent, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) (*compiledTarget, []string, *ReconciliationFailure) {
+	compilation, err := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
+	}, images, settings).CompileAgent(context.Background(), agent)
+	if err != nil {
+		return nil, nil, compilationFailure(err)
+	}
+	revision := &compilation.Revision
+	warnings := slices.Clone(compilation.Warnings)
+	revisionID, err := revision.Digest()
+	if err != nil {
+		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
+	}
+	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID)
+	if err != nil {
+		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
+	}
+	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}, warnings, nil
+}
+
+func compilationFailure(err error) *ReconciliationFailure {
+	condition, reason := kagentv1alpha3.AgentConditionResolvedRefs, "ReferenceResolutionFailed"
+	var validation *translator.ValidationError
+	var missingPool *translator.WorkerPoolNotFoundError
+	switch {
+	case errors.As(err, &validation):
+		// TODO(tim): Separate structural Agent validation from resolved
+		// compatibility failures so invalid sources do not report Accepted=True
+		// and ResolvedRefs=True.
+		condition, reason = kagentv1alpha3.AgentConditionCompatible, "UnsupportedConfiguration"
+	case errors.As(err, &missingPool):
+		reason = "WorkerPoolNotFound"
+	}
+	return &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
 }
 
 // runtimeRevisionStore is the controller's narrow view of the shared database.
 // Substrate owns ActorTemplates; the database retains revisions while an Agent
 // or a Session or checkpoint references them.
 type runtimeRevisionStore interface {
+	actorEgressStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
-	RecordRuntimeRevision(context.Context, database.RuntimeRevision, bool) error
-	RetireAgentIdentities(ctx context.Context, namespace, name string, except *database.AgentDefinition) error
+	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
+	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) (database.GoldenRetry, error)
+	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
+	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
 
 type actorTemplateClient interface {
+	actorEgressClient
 	EnsureAtespace(context.Context, string) error
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
 	CreateActorTemplate(context.Context, *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error)
+	DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error
 }
 
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
@@ -183,6 +201,7 @@ type Reconciler struct {
 	templates   actorTemplateClient
 	store       runtimeRevisionStore
 	status      kagentclient.ApiV1alpha3Interface
+	golden      goldenRetries
 
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
@@ -213,6 +232,7 @@ func newReconciler(
 		templates:   templates,
 		store:       store,
 		status:      status,
+		golden:      defaultGoldenRetries,
 	}
 	r.agents = newReconciliationQueue("agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
@@ -225,10 +245,13 @@ func newReconciler(
 	})
 
 	r.agentHandler = collections.Reconciliations.Register(func(event krt.Event[AgentReconciliation]) {
-		// Observations and status writes must not bypass failure backoff. Only
-		// a changed desired runtime or Agent identity needs immediate work.
+		// Desired inputs and cleanup changes bypass failure backoff; observations
+		// and status writes do not. Grants must reconcile without a new revision.
 		if event.Old != nil && event.New != nil && event.Old.Agent.UID == event.New.Agent.UID &&
-			event.Old.desiredRevision() == event.New.desiredRevision() {
+			event.Old.desiredRevision() == event.New.desiredRevision() &&
+			reflect.DeepEqual(event.Old.EgressGrant, event.New.EgressGrant) &&
+			reflect.DeepEqual(event.Old.EgressIssues, event.New.EgressIssues) &&
+			event.Old.EgressConflict == event.New.EgressConflict && event.Old.Agent.DeletionTimestamp.Equal(event.New.Agent.DeletionTimestamp) {
 			return
 		}
 		r.agents.Add(krt.GetKey(event.Latest()))
@@ -260,19 +283,44 @@ func newReconciliationQueue(name string, reconcile func(any) error) controllers.
 	)
 }
 
-// Run waits for the graph boundary to observe initial state, then processes
-// Agent and status writes until stop closes.
-func (r *Reconciler) Run(stop <-chan struct{}) {
+// Start waits for initial Kubernetes state, recovers offline deletions, then
+// processes Agent preparation and status writes until cancellation.
+func (r *Reconciler) Start(ctx context.Context) error {
+	stop := ctx.Done()
 	if !r.agentHandler.WaitUntilSynced(stop) || !r.agentStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) {
 		r.agents.ShutDownEarly()
 		r.agentStatuses.ShutDownEarly()
 		r.modelConfigStatuses.ShutDownEarly()
-		return
+		return nil
+	}
+	if err := r.enqueueDeletedAgents(ctx); err != nil {
+		r.agents.ShutDownEarly()
+		r.agentStatuses.ShutDownEarly()
+		r.modelConfigStatuses.ShutDownEarly()
+		return err
 	}
 	go r.pollPendingTemplates(stop)
 	go r.agentStatuses.Run(stop)
 	go r.modelConfigStatuses.Run(stop)
 	r.agents.Run(stop)
+	return nil
+}
+
+func (r *Reconciler) enqueueDeletedAgents(ctx context.Context) error {
+	sources, err := r.store.ListAgentEgressSources(ctx)
+	if err != nil {
+		return fmt.Errorf("recover deleted Agents: %w", err)
+	}
+	for _, source := range sources {
+		if len(r.collections.watchNamespaces) != 0 && !slices.Contains(r.collections.watchNamespaces, source.Namespace) {
+			continue
+		}
+		key := source.Namespace + "/" + source.Name
+		if r.collections.Agents.GetKey(key) == nil {
+			r.agents.Add(key)
+		}
+	}
+	return nil
 }
 
 func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
@@ -282,20 +330,14 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 		select {
 		case <-stop:
 			return
-		case <-ticker.C:
+		case now := <-ticker.C:
 			for _, state := range r.collections.Reconciliations.List() {
-				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
-				if state.Target != nil && state.PreparationFailure == nil && state.ObservedActorTemplate != nil && golden.GetGoldenTag() == nil {
+				if state.Golden.due(now) {
 					r.agents.Add(state.ResourceName())
 				}
 			}
 		}
 	}
-}
-
-func (r *Reconciler) Start(ctx context.Context) error {
-	r.Run(ctx.Done())
-	return nil
 }
 
 func (r *Reconciler) NeedLeaderElection() bool { return true }
@@ -306,19 +348,36 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		(state == nil || state.Target == nil || observation.RevisionID != state.Target.RevisionID) {
 		r.collections.AgentRuntimeObservations.DeleteObject(key)
 	}
-	if state == nil {
+	if state == nil || !state.Agent.DeletionTimestamp.IsZero() {
 		parts := strings.Split(key, "/")
 		if len(parts) != 2 {
 			return fmt.Errorf("invalid Agent key %q", key)
 		}
-		if err := r.store.RetireAgentIdentities(ctx, parts[0], parts[1], nil); err != nil {
+		err := r.store.RetireAgentIdentities(ctx, parts[0], parts[1])
+		if err != nil {
 			return fmt.Errorf("retire Agent %s: %w", key, err)
+		}
+		if err := applySourceEgress(ctx, r.store, r.templates, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: parts[0], Name: parts[1]}); err != nil {
+			return err
 		}
 		return nil
 	}
+	grants := state.EgressGrant
+	if state.EgressConflict != "" {
+		previous, err := r.store.GetAgentEgressGrant(ctx, state.Agent.Namespace, string(state.Agent.UID))
+		if err != nil {
+			return r.observePreparationError(*state, fmt.Errorf("read Agent %s grants: %w", key, err))
+		}
+		grants = egress.IntersectAccess(previous, grants)
+		if state.Target != nil {
+			revision := &state.Target.Revision
+			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets}
+			grants, _ = egress.FilterConflicts(base, grants)
+		}
+	}
 	definition := database.AgentDefinition{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
-		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(),
+		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(), EgressGrant: grants,
 	}
 
 	// Store the desired edge before creating compute so a concurrent collector
@@ -327,6 +386,9 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	// the upsert preserves the current UID's last-good runtime in either case.
 	if err := r.store.UpsertAgentDefinition(ctx, definition); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store Agent %s: %w", key, err))
+	}
+	if err := applySourceEgress(ctx, r.store, r.templates, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: definition.Namespace, Name: definition.AgentName}); err != nil {
+		return r.observePreparationError(*state, err)
 	}
 	if state.Target == nil {
 		return nil
@@ -345,7 +407,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		if status.Code(err) == codes.InvalidArgument {
 			// Validation rejects the immutable request, so retries cannot repair
 			// it. Backend messages may quote configuration; keep status safe.
-			r.observePreparation(*state, nil, &ReconciliationFailure{
+			r.observePreparation(*state, goldenProgress{}, &ReconciliationFailure{
 				Condition: kagentv1alpha3.AgentConditionReady,
 				Reason:    "ActorTemplateRejected",
 				Message:   "Substrate rejected the compiled ActorTemplate (InvalidArgument); verify the Agent configuration against Substrate's validation requirements",
@@ -360,25 +422,42 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return r.observePreparationError(*state, fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err))
 	}
 	if !substrate.ActorTemplateSpecEqual(observed, target.ActorTemplate) {
-		r.observePreparation(*state, observed, nil)
+		r.observePreparation(*state, goldenProgress{}, &ReconciliationFailure{
+			Condition: kagentv1alpha3.AgentConditionReady,
+			Reason:    "ActorTemplateConflict",
+			Message:   "existing immutable ActorTemplate differs from the compiled revision",
+		})
 		return nil
 	}
 
+	digest, err := substrate.ActorTemplateSpecDigest(observed)
+	if err != nil {
+		return r.observePreparationError(*state, err)
+	}
 	revision := database.RuntimeRevision{
 		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
 		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
 		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
-		EgressDestinations:    target.Revision.EgressDestinations,
-		Credentials:           target.Revision.Credentials,
-		ActorTemplateAtespace: observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
+		EgressDestinations:      target.Revision.EgressDestinations,
+		Credentials:             target.Revision.Credentials,
+		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
+		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
+		ActorTemplateSpecDigest: digest,
 	}
-	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
-	if err := r.store.RecordRuntimeRevision(ctx, revision, ready); err != nil {
+	now := time.Now()
+	retry, err := r.store.RecordRuntimeRevision(ctx, revision, goldenRecordOptions(observed, now))
+	if err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}
+	golden, err := r.golden.advance(ctx, r.templates, revision.Revision, observed, retry, now)
+	if failure := golden.failure(); failure != nil {
+		r.observePreparation(*state, golden, failure)
+		return err
+	}
+
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after session creation can select the persisted revision.
-	r.observePreparation(*state, observed, nil)
+	r.observePreparation(*state, golden, nil)
 	return nil
 }
 
@@ -390,21 +469,14 @@ func (r *Reconciler) observePreparationError(state AgentReconciliation, err erro
 	if state.PreparationFailure != nil && !state.PreparationFailure.Retryable {
 		return err
 	}
-	r.observePreparation(state, nil, runtimePreparationFailure(err, state.Target.ActorTemplate.GetSandboxConfig().GetConfigName(), state.Target.Revision.SandboxClass))
+	r.observePreparation(state, goldenProgress{}, runtimePreparationFailure(err))
 	return err
 }
 
-func runtimePreparationFailure(err error, configName string, class atev1alpha1.SandboxClass) *ReconciliationFailure {
+func runtimePreparationFailure(err error) *ReconciliationFailure {
 	// Backend errors can contain credentials or infrastructure details. Publish
-	// only the code and expected configuration, never the raw error or details.
+	// only the code, never the raw error or details.
 	message := fmt.Sprintf("Runtime preparation failed (%s); check controller logs for details", status.Code(err))
-	if status.Code(err) == codes.FailedPrecondition {
-		if class == "" {
-			class = atev1alpha1.SandboxClassGvisor
-		}
-		message = fmt.Sprintf("Substrate rejected runtime preparation (FailedPrecondition); verify SandboxConfig %q exists with spec.sandboxClass=%q and the required runtime assets; check controller logs for details",
-			configName, class)
-	}
 	return &ReconciliationFailure{
 		Condition: kagentv1alpha3.AgentConditionReady,
 		Reason:    "RuntimePreparationFailed",
@@ -415,11 +487,11 @@ func runtimePreparationFailure(err error, configName string, class atev1alpha1.S
 
 // Observations belong to the Agent's current preparation, independently of how
 // long sessions or checkpoints keep its old runtime alive in the database.
-func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, failure *ReconciliationFailure) {
+func (r *Reconciler) observePreparation(state AgentReconciliation, golden goldenProgress, failure *ReconciliationFailure) {
 	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
 		RevisionID: state.Target.RevisionID,
-		Template:   template,
+		Golden:     golden,
 		Failure:    failure,
 	})
 }

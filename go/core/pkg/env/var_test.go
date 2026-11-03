@@ -1,9 +1,7 @@
 package env
 
 import (
-	"encoding/json"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -335,60 +333,6 @@ func TestVarTypeString(t *testing.T) {
 	}
 }
 
-func TestExportMarkdown(t *testing.T) {
-	allVars = make(map[string]Var)
-
-	RegisterStringVar("TEST_MD_VAR", "default", "A test variable.", ComponentController)
-	RegisterBoolVar("TEST_MD_BOOL", true, "A bool variable.", ComponentController)
-
-	md := ExportMarkdown("all")
-	if !strings.HasSuffix(md, "\n") || strings.HasSuffix(md, "\n\n") {
-		t.Error("markdown should end with exactly one newline")
-	}
-	t.Setenv("TEST_MD_VAR", "secret-from-current-environment")
-	if got := ExportMarkdown("all"); got != md {
-		t.Error("documentation must contain registered defaults, not live environment values")
-	}
-	if !strings.Contains(md, "TEST_MD_VAR") {
-		t.Error("markdown should contain TEST_MD_VAR")
-	}
-	if !strings.Contains(md, "A test variable.") {
-		t.Error("markdown should contain description")
-	}
-	if !strings.Contains(md, "controller") {
-		t.Error("markdown should contain component heading")
-	}
-}
-
-func TestExportMarkdownFilter(t *testing.T) {
-	allVars = make(map[string]Var)
-
-	RegisterStringVar("CTRL_VAR", "", "controller var", ComponentController)
-	RegisterStringVar("CLI_VAR", "", "cli var", ComponentCLI)
-
-	md := ExportMarkdown("controller")
-	if !strings.Contains(md, "CTRL_VAR") {
-		t.Error("should contain controller var")
-	}
-	if strings.Contains(md, "CLI_VAR") {
-		t.Error("should not contain cli var when filtering by controller")
-	}
-}
-
-func TestExportJSON(t *testing.T) {
-	allVars = make(map[string]Var)
-
-	RegisterStringVar("JSON_VAR", "val", "json test", ComponentCLI)
-
-	j := ExportJSON("all")
-	if !strings.Contains(j, `"name": "JSON_VAR"`) {
-		t.Error("JSON should contain var name")
-	}
-	if !strings.Contains(j, `"description": "json test"`) {
-		t.Error("JSON should contain description")
-	}
-}
-
 func TestRegisterMultipleComponents(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -420,76 +364,6 @@ func TestRegisterMultipleComponents(t *testing.T) {
 			require.Panics(t, func() { tt.register() })
 			require.Panics(t, func() { tt.register(ComponentController, "") })
 		})
-	}
-}
-
-func TestExportMultipleComponents(t *testing.T) {
-	type exportedVar struct {
-		Name       string      `json:"name"`
-		Components []Component `json:"components"`
-	}
-	allVars = make(map[string]Var)
-	RegisterStringVar("SHARED", "value", "shared setting", ComponentController, ComponentCLI, ComponentController)
-	RegisterBoolVar("CLI_ONLY", true, "CLI setting", ComponentCLI)
-	register(Var{Name: "HIDDEN", Components: []Component{ComponentCLI, ComponentController}, Hidden: true})
-	wantComponents := []Component{ComponentCLI, ComponentController}
-
-	tests := []struct {
-		component  string
-		wantNames  []string
-		sharedRows int
-	}{
-		{"", []string{"CLI_ONLY", "SHARED"}, 2},
-		{"all", []string{"CLI_ONLY", "SHARED"}, 2},
-		{"controller", []string{"SHARED"}, 1},
-		{"cli", []string{"CLI_ONLY", "SHARED"}, 1},
-		{"agent-runtime", []string{}, 0},
-		{"unknown", []string{}, 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.component, func(t *testing.T) {
-			var exported []exportedVar
-			require.NoError(t, json.Unmarshal([]byte(ExportJSON(tt.component)), &exported))
-			names := make([]string, 0, len(exported))
-			for _, v := range exported {
-				names = append(names, v.Name)
-				if v.Name == "SHARED" {
-					require.Equal(t, wantComponents, v.Components)
-				}
-			}
-			require.Equal(t, tt.wantNames, names)
-
-			md := ExportMarkdown(tt.component)
-			require.Equal(t, tt.sharedRows, strings.Count(md, "| `SHARED` |"))
-			require.NotContains(t, md, "HIDDEN")
-			if tt.component == "controller" {
-				require.Contains(t, md, "## controller\n")
-				require.NotContains(t, md, "## cli\n")
-				require.NotContains(t, md, "CLI_ONLY")
-			}
-		})
-	}
-}
-
-func TestHiddenVarsExcluded(t *testing.T) {
-	allVars = make(map[string]Var)
-
-	sv := RegisterStringVar("VISIBLE_VAR", "", "visible", ComponentController)
-	_ = sv
-	// Manually register a hidden var
-	register(Var{
-		Name:        "HIDDEN_VAR",
-		Description: "hidden",
-		Components:  []Component{ComponentController},
-		Hidden:      true,
-	})
-
-	md := ExportMarkdown("all")
-	if !strings.Contains(md, "VISIBLE_VAR") {
-		t.Error("should contain visible var")
-	}
-	if strings.Contains(md, "HIDDEN_VAR") {
-		t.Error("should not contain hidden var")
 	}
 }
 

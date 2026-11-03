@@ -25,15 +25,6 @@ export interface Harness {
   workloadImage: string;
 
   /**
-   * The `Ready` status condition.
-   *
-   * False also covers a harness the controller has not observed yet, which is not
-   * the same thing as one that failed — so a page saying "not ready" is right and
-   * a page saying "broken" would not be.
-   */
-  ready: boolean;
-
-  /**
    * The whole custom resource, for anything the fields above do not carry.
    *
    * The spec is carried verbatim rather than re-modelled, exactly as the service
@@ -41,7 +32,7 @@ export interface Harness {
    * copy of it here. `unknown` because nothing in this app reads into it yet, and
    * a shape written speculatively is the thing that drifts.
    */
-  resource: { metadata: ResourceMetadata; spec?: unknown; status?: unknown };
+  resource: { metadata: ResourceMetadata; spec?: unknown };
 }
 
 /**
@@ -60,8 +51,8 @@ export interface HarnessResource {
 
 /** `spec.kagent.compaction.summarizer`: the model and prompt that write the summaries. */
 export interface KagentHarnessSummarizer {
-  /** A ModelConfig in the harness namespace. Omitted summarizes with the agent's own model. */
-  modelConfigRef?: { name: string };
+  /** An authorized ModelConfig, defaulting to the harness namespace. Omitted summarizes with the agent's own model. */
+  modelConfigRef?: { name: string; namespace?: string };
   /** Must contain `{conversation_history}`. */
   promptTemplate?: string;
 }
@@ -81,7 +72,7 @@ export interface KagentHarnessCompaction {
 
 /** `spec.kagent`: runtime policy of the kagent adapter. */
 export interface KagentHarnessSpec {
-  memory?: { modelConfigRef: { name: string }; ttlDays?: number };
+  memory?: { modelConfigRef: { name: string; namespace?: string }; ttlDays?: number };
   compaction?: KagentHarnessCompaction;
 }
 

@@ -60,6 +60,8 @@ func canonicalizeADKPart(part *a2atype.Part) {
 	}
 	metadata := part.Metadata
 	copyADKMetadata(metadata, adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey), apia2a.PartTypeMetadataKey)
+	// Without this, dropping ADK's keys would turn a reasoning summary into answer text.
+	copyADKMetadata(metadata, adka2a.ToA2AMetaKey("thought"), apia2a.ThoughtMetadataKey)
 	canonicalizeADKMetadata(metadata)
 }
 

@@ -1,45 +1,7 @@
 /**
- * What is happening in this conversation, read from what the controller actually says.
- *
- * Two different nouns, and keeping them apart is the point. An `AgentInstance` is a
- * **conversation** — one exchange with an agent, which is itself a template paired
- * with a harness. So the lifecycle operations below (resume, suspend) are things
- * happening to the *conversation*, while a turn in flight is the *agent* working. A
- * reading that called an instance an agent would contradict every list page.
- *
- * Nothing draws this any more. The indicator that did was removed once the server
- * suspended instances itself, and a reader has no decision to make about a
- * lifecycle they no longer drive. What survives is the one question the chat page
- * still has to answer — whether to watch the instance closely — which is a join of
- * two records, each reporting a different half of the same moment.
- *
- * ## Every stage is observed, and none is invented
- *
- * The three stages come from two places, both stated outright by the controller:
- *
- * - **`AgentInstance.operation`** — the lifecycle operation claimed *right now*.
- *   The workflow claims one before it acts and clears it when it finishes
- *   (`ClaimSessionOperation`/`FinishSessionOperation` in
- *   `go/core/internal/service/session/workflow.go`), so a non-
- *   `unspecified` value means that operation is in flight this moment. `resume`
- *   and `suspend` are two of its five values.
- * - **The turn's own phase**, from `useChat`'s state machine, which is what the
- *   A2A stream reported about the task.
- *
- * `AgentInstance.state` supplies the resting reading between turns.
- *
- * ## What cannot be shown, and is therefore not shown
- *
- * **A runtime that suspends itself after answering is visible here only if the
- * controller claims a `suspend` operation on the record for it.** Nothing else in
- * the API reports a self-suspend: an instance has no event stream, and an A2A task
- * says nothing about the actor behind it. So the suspending stage lights up for a
- * suspend the controller is carrying out and stays dark otherwise, rather than
- * being animated on a timer after every answer — which would be a picture of
- * something this build cannot see.
- *
- * The same goes for how far through a resume is: the record says an operation is
- * in flight, not its progress. A progress bar here would be invented.
+ * Combines the Session record and current turn to decide whether to poll closely.
+ * Runtime operations use the shared lifecycle enum. Automatic quiescence leaves
+ * the Session READY and does not report a Session suspend operation.
  */
 
 import type { AgentInstance, ChatTurnPhase } from "@/api";
@@ -164,7 +126,7 @@ export function lifecycleReading(
       // reads as a verdict on the last answer rather than as the agent's own condition.
       summary: "Agent is suspended",
       source:
-        "The conversation reports its state as suspended. It is resumed when it is next asked something.",
+        "The conversation reports its state as suspended.",
     };
   }
 

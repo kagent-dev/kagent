@@ -13,6 +13,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
@@ -50,6 +51,8 @@ type Result struct {
 	Templates   []*translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
+	SkillImages []translator.SkillImage
+	MCPTools    []translator.ResolvedMCPTool
 }
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
@@ -110,15 +113,15 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		stream = modelConfig.Spec.Stream
 	}
 	cfg := &configv1.ADKAgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
-	pluginConfig, pluginEgress, err := translator.CompileSkillResources(input.Template)
+	plugins, err := translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = runtimeconfig.PluginConfig(pluginConfig)
+	if len(plugins.Resources.Skills) > 0 || len(plugins.Resources.Plugins) > 0 {
+		cfg.AgentPlugins = runtimeconfig.PluginConfig(plugins.Resources)
 	}
 	for _, tool := range input.MCPTools {
-		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
+		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, tool.Server.Namespace, tool.Server.Spec.HeadersFrom)
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
@@ -130,9 +133,10 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
 	}
 	result := &Result{
-		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
+		MCPTools: slices.Clone(input.MCPTools), Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
-		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
+		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), plugins.Egress...),
+		SkillImages: plugins.Images,
 	}
 	if modelConfig != nil {
 		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
@@ -144,17 +148,20 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		}
 		child.Config.Name, child.Config.Description = binding.Name, binding.Description
 		cfg.SubAgents = append(cfg.SubAgents, child.Config)
+		result.MCPTools = append(result.MCPTools, child.MCPTools...)
 		result.Models = append(result.Models, child.Models...)
 		result.Templates = append(result.Templates, child.Templates...)
 		result.Environment = append(result.Environment, child.Environment...)
 		result.Egress = append(result.Egress, child.Egress...)
+		result.SkillImages = append(result.SkillImages, child.SkillImages...)
 	}
 	return result, nil
 }
 
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, templates []*translator.TemplateConfiguration, models []*translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, compiled *Result) ([]byte, error) {
+	templates, models := compiled.Templates, compiled.Models
 	var entries []provenanceEntry
 	// The Harness is always a standalone resource. Inline template configuration
 	// is recorded by the enclosing Agent provenance below.
@@ -178,7 +185,7 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.Harne
 	}
 	for _, resolved := range models {
 		model := resolved.Config
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec))
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec))
 	}
 	for name := range configMaps {
 		fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
@@ -188,42 +195,20 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.Harne
 		configMap := *fetched
 		entries = append(entries, objectProvenance("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
 	}
-	for _, template := range templates {
-		for _, binding := range template.Spec.Tools {
-			if binding.MCP == nil {
+	for _, tool := range compiled.MCPTools {
+		server := tool.Server
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Namespace+"/"+server.Name, server.UID, server.Generation, server.Spec))
+		for _, header := range server.Spec.HeadersFrom {
+			if header.ValueFrom == nil || header.ValueFrom.Type != v1alpha3.ConfigMapValueSource {
 				continue
 			}
-			switch binding.MCP.Server.Kind {
-			case "RemoteMCPServer":
-				fetched := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}))
-				if fetched == nil {
-					return nil, fmt.Errorf("remote MCP server %q not found", binding.MCP.Server.Name)
-				}
-				server := *fetched
-				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
+			key := types.NamespacedName{Namespace: server.Namespace, Name: header.ValueFrom.Name}
+			found := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(key))
+			if found == nil {
+				return nil, fmt.Errorf("ConfigMap %q not found", key)
 			}
-		}
-	}
-	// Validate Secret references without making rotation part of revision identity.
-	seenSecrets := map[string]struct{}{}
-	for _, variable := range environment {
-		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
-			continue
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		identity := ref.Name + "\x00" + ref.Key
-		if _, ok := seenSecrets[identity]; ok {
-			continue
-		}
-		seenSecrets[identity] = struct{}{}
-		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}))
-		if fetched == nil {
-			return nil, fmt.Errorf("secret %q not found", ref.Name)
-		}
-		secret := *fetched
-		_, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
+			cm := *found
+			entries = append(entries, objectProvenance("v1", "ConfigMap", key.String(), cm.UID, cm.Generation, cm.Data))
 		}
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
@@ -255,6 +240,9 @@ func (c *Builder) resolveAgentTemplateHeaders(ctx context.Context, namespace str
 			}
 			headers[name] = value
 			continue
+		}
+		if err := translator.ValidateSecretKey(c.ctx, c.collections, namespace, ref.ValueFrom.Name, ref.ValueFrom.Key); err != nil {
+			return nil, nil, err
 		}
 		selector := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.ValueFrom.Name}, Key: ref.ValueFrom.Key}
 		sum := sha256.Sum256([]byte(namespace + "\x00" + selector.Name + "\x00" + selector.Key))
@@ -327,10 +315,21 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 	case v1alpha3.ModelProviderAnthropic:
 		destinations = append(destinations, "https://api.anthropic.com:443")
 	case v1alpha3.ModelProviderGemini:
-		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
+		if modelConfig.Spec.Gemini == nil || ptr.Deref(modelConfig.Spec.Gemini.BaseURL, "") == "" {
+			destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
+		}
 	case v1alpha3.ModelProviderMistral:
 		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
 			destinations = append(destinations, "https://api.mistral.ai:443")
+		}
+	case v1alpha3.ModelProviderBedrock:
+		// Bedrock's endpoint is derived from the region, which is not part of
+		// the serialized model, so the walk above never sees it. The bearer
+		// token is bound to this origin in CompileCredentials; without the
+		// matching allowlist entry CanonicalAccess rejects the credential and
+		// the revision cannot be admitted.
+		if bedrock := modelConfig.Spec.Bedrock; bedrock != nil {
+			destinations = append(destinations, models.BedrockRuntimeOrigin(bedrock.Region)+":443")
 		}
 	case v1alpha3.ModelProviderOllama:
 		// Ollama's endpoint is the provider's own field and is not part of the
@@ -350,7 +349,7 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 			// ignoring the operator's host. That over-allowed egress: with a
 			// host set the request goes to that host, so api.ollama.com never
 			// needs to be reachable.
-			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
+			hasCredential := modelConfig.Spec.APIKeySecret != "" || ptr.Deref(modelConfig.Spec.TokenPassthrough, false) || modelConfig.Spec.ActorJWT != nil
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
 				destinations = append(destinations, "https://api.ollama.com:443")
 			}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
@@ -59,7 +60,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}
 	var pluginDirs []string
 	if cfg.SkillResources != nil {
-		skillsDir := filepath.Join(skillRoot, ".claude", "skills")
+		skillsDir := config.SkillsRoot(input.DurableDir)
 		if err := utils.EnsurePrivateDir(skillsDir); err != nil {
 			return nil, fmt.Errorf("prepare generated Claude skills directory: %w", err)
 		}
@@ -70,7 +71,12 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		if err != nil {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}
-		pluginDirs = materialized.ClaudeFormatPluginRoots()
+		// --setting-sources disables project skill discovery, including --add-dir.
+		// Load compiler-selected skills explicitly without enabling workspace settings.
+		if err := utils.ReplacePrivateFile(filepath.Join(skillRoot, ".claude-plugin", "plugin.json"), []byte(`{"name":"kagent-skills","skills":"./.claude/skills/"}`)); err != nil {
+			return nil, fmt.Errorf("materialize Claude skill plugin: %w", err)
+		}
+		pluginDirs = append([]string{skillRoot}, materialized.ClaudeFormatPluginRoots()...)
 	}
 	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
 	// The native runtime inherits the compiled identity through the standard
@@ -79,6 +85,12 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	// The image and compiler pin an exact Claude version. Prevent both automatic
 	// and manual update paths from changing that runtime after validation.
 	environment = setEnvironment(environment, config.DisableUpdatesEnvName, "1")
+	// TODO: REMOVE this test-only override and its reserved environment name once upstream
+	// denial handling permits bounded native retries: https://github.com/agent-substrate/substrate/issues/2663
+	// Alpha3 fixes musl DNS search fallback, but denied requests still retry for minutes.
+	if slices.Contains(input.Environment, env.TestClaudeDisableRetries+"=true") {
+		environment = setEnvironment(environment, config.MaxRetriesEnvName, "0")
+	}
 	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
 	if err != nil {
 		return nil, err
@@ -127,7 +139,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
 		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath,
 		SettingsPath: settingsPath, PermissionPromptTool: permissionPromptTool, ApprovalBroker: approvalBroker,
-		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
+		PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
 	}), nil

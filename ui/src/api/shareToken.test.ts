@@ -34,8 +34,6 @@ describe("withInstanceShareToken", () => {
 
   it("does not attach the token to mutations or unrelated operations", () => {
     const message = { sessionId: "instance-1" };
-    expect(header("agentInstances.suspend", message)).toBeUndefined();
-    expect(header("agentInstances.resume", message)).toBeUndefined();
     expect(header("agentInstances.delete", message)).toBeUndefined();
     expect(header("models.list", {})).toBeUndefined();
   });

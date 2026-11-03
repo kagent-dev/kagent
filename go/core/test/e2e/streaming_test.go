@@ -16,7 +16,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/tool"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,7 +33,7 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 	} {
 		t.Run(string(format), func(t *testing.T) {
 			t.Parallel()
-			recorder := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func(body []byte) error {
+			recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")), func(body []byte) error {
 				var request struct {
 					Stream bool `json:"stream"`
 				}
@@ -57,7 +56,7 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "non-streaming-", Namespace: "kagent", Labels: harness.labels()},
 				Spec: v1alpha3.AgentTemplateSpec{
-					ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+					ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
 				},
 			}
 			createAndWaitInteractionTemplate(t, harness, kube, template)
@@ -85,7 +84,7 @@ func TestSessionCompletesAfterDisconnect(t *testing.T) {
 		started, release := make(chan struct{}), make(chan struct{})
 		var startedOnce, releaseOnce sync.Once
 		upstream := startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")
-		recorder := startModelRecorder(t, upstream, func([]byte) error {
+		recorder := startModelRecorder(t, mockLLMProxy(t, upstream), func([]byte) error {
 			startedOnce.Do(func() { close(started) })
 			select {
 			case <-release:

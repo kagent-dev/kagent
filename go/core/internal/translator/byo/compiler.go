@@ -66,11 +66,11 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 			AgentName: input.AgentName, AgentNamespace: template.Namespace,
 		}, environment)
 	}
-	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
+	provenance, err := c.config.BuildProvenance(ctx, harness, compiled)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, credentials, err := translator.CompileCredentials(input, compiled.Models, environment)
+	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, compiled.Models, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -82,8 +82,9 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		Namespace: template.Namespace,
 		Command:   harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
+		TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
 	}}, nil
 }
 

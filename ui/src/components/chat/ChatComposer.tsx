@@ -4,7 +4,7 @@ import type { TextAreaRef } from "antd/es/input/TextArea";
 import { useTheme } from "@emotion/react";
 import { Paperclip, Save, Send, Square } from "lucide-react";
 import type { ChatController } from "@/api";
-import { ACCEPTED_FILES, mediaTypeOf, stageFiles } from "@/api/chat/attachments";
+import { ACCEPTED_FILES, LinkFile, mediaTypeOf, stageFiles, textLinks } from "@/api/chat/attachments";
 import { randomId } from "@/api/randomId";
 import { AttachmentChip } from "./AttachmentChip";
 import { WindowFileDrop } from "./WindowFileDrop";
@@ -144,7 +144,7 @@ export function ChatComposer({
     // immediately, rather than holding text that has already been sent.
     setDraft("");
     setStaged({ files: [] });
-    await send(text, files);
+    await send(text, canAttach ? [...files, ...textLinks(text).map((url) => new LinkFile(url))] : files);
   }
 
   return (

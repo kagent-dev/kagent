@@ -21,10 +21,9 @@ import (
 )
 
 // KagentMemoryService implements memory.Service by storing memories
-// via the Kagent backend API (backed by pgvector). Memory ownership comes only
-// from the caller identity in context, never from ADK's local session keys.
+// via the Kagent backend API (backed by pgvector). The controller derives memory
+// ownership from the authenticated actor's session, never from ADK's local keys.
 type KagentMemoryService struct {
-	agentName        string
 	controllerClient *controllerclient.Client
 	ttlDays          int64
 	embeddingClient  *embedding.Client
@@ -33,8 +32,6 @@ type KagentMemoryService struct {
 
 // Config for creating a new KagentMemoryService.
 type Config struct {
-	// AgentName is used as the namespace for memory storage
-	AgentName string
 	// ControllerClient is the shared authenticated native gRPC client.
 	ControllerClient *controllerclient.Client
 	// TTLDays is the TTL for memory entries in days (0 uses server default of 15)
@@ -47,9 +44,6 @@ type Config struct {
 
 // New creates a new KagentMemoryService.
 func New(cfg Config) (*KagentMemoryService, error) {
-	if cfg.AgentName == "" {
-		return nil, fmt.Errorf("agent name is required")
-	}
 	if cfg.ControllerClient == nil {
 		return nil, fmt.Errorf("controller client is required")
 	}
@@ -65,7 +59,6 @@ func New(cfg Config) (*KagentMemoryService, error) {
 	}
 
 	return &KagentMemoryService{
-		agentName:        cfg.AgentName,
 		controllerClient: cfg.ControllerClient,
 		ttlDays:          cfg.TTLDays,
 		embeddingClient:  embClient,
@@ -131,10 +124,8 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, content string, v
 		return err
 	}
 	memoryInput := &runtimev1.SessionMemoryInput{
-		AgentName: s.agentName,
-		UserId:    userID,
-		Content:   content,
-		Vector:    vector,
+		Content: content,
+		Vector:  vector,
 	}
 	if s.ttlDays != 0 {
 		memoryInput.TtlDays = new(int32(s.ttlDays))
@@ -181,11 +172,9 @@ func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.Sear
 
 	// Prepare API request
 	searchRequest := &runtimev1.MemoryServiceSearchRequest{
-		AgentName: s.agentName,
-		UserId:    userID,
-		Vector:    vector,
-		Limit:     new(int32(5)),
-		MinScore:  new(0.3),
+		Vector:   vector,
+		Limit:    new(int32(5)),
+		MinScore: new(0.3),
 	}
 	callContext, cancel := s.controllerClient.CallContext(ctx, userID)
 	defer cancel()

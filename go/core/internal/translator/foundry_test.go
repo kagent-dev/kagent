@@ -39,7 +39,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 			}
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
-				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "help"},
 			}
 			objects := []any{model, &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: model.Spec.APIKeySecret, Namespace: model.Namespace},
@@ -55,7 +55,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}}}
 				objects = append(objects, child, modelConfig())
 			case "memory":
-				harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: model.Name}}
+				harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ObjectReference{Name: model.Name}}
 				template.Spec.ModelConfig.Name = "default-model"
 				objects = append(objects, modelConfig())
 			case "BYO":
@@ -90,7 +90,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}
 				require.Contains(t, revision.Environment, corev1.EnvVar{Name: "FOUNDRY_ENDPOINT", Value: endpoint})
 				require.Len(t, revision.Credentials, 1)
-				require.Equal(t, host, revision.Credentials[0].Hostname)
+				require.Equal(t, endpoint+":443", revision.Credentials[0].Origin)
 				require.Equal(t, "api-key", revision.Credentials[0].Header)
 				require.Equal(t, "ate-secret://k8s.io/default/test/foundry-auth/token", revision.Credentials[0].URI)
 				require.Contains(t, revision.EgressDestinations, "https://"+host+":443")

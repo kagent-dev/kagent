@@ -31,7 +31,7 @@ func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*
 	if !ok {
 		return nil, serviceerrors.NewUnauthenticated("authentication required", nil)
 	}
-	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Name: ref.String()}); err != nil {
+	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return nil, serviceerrors.NewPermissionDenied("not authorized", err)
 	}
 	if s.store.err != nil {

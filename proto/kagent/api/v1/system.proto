@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1;
 
-import "ateapi.proto";
+import "api/ateapi/v1/ateapi.proto";
 import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
@@ -46,7 +46,7 @@ message ListNamespacesResponse {
 
 message SubstrateWorkerPool {
   ResourceReference ref = 5;
-  // The whole upstream ate.dev/v1alpha1 WorkerPool CR, including spec and status.
+  // The whole upstream ate.dev/v1 WorkerPool CR, including spec and status.
   StructuredObject resource = 6;
 }
 
@@ -62,7 +62,8 @@ message GetSubstrateSummaryRequest {
     max_len: 63
     pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
   }];
-  // ATE atespace for actors and templates. Empty lists all atespaces.
+  // ATE atespace for actors and templates. Empty uses the watched namespaces, or every
+  // atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
   string atespace = 2 [(buf.validate.field).string = {
     max_len: 63
     pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
@@ -71,7 +72,7 @@ message GetSubstrateSummaryRequest {
 
 message SubstrateActorStatusCount {
   int64 count = 2;
-  ateapi.ActorState state = 3;
+  substrate.ateapi.v1.ActorState state = 3;
 }
 
 message GetSubstrateSummaryResponse {
@@ -91,12 +92,14 @@ message GetSubstrateSummaryResponse {
   // When this answer was computed, which is not when it was received.
   google.protobuf.Timestamp computed_at = 10;
   // Inventory metadata and status only; runtime configuration may contain credentials.
-  repeated ateapi.ActorTemplate actor_templates = 11;
+  repeated substrate.ateapi.v1.ActorTemplate actor_templates = 11;
 }
 
-// One upstream page of actors, in Substrate order.
+// One page of actors. A controller that watches some namespaces reads its watched
+// atespaces one at a time, in name order, and Substrate order inside each.
 message ListSubstrateActorsRequest {
-  // ATE atespace of the actor itself. Empty lists all atespaces.
+  // ATE atespace of the actor itself. Empty uses the watched namespaces, or every
+  // atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
   string atespace = 6 [(buf.validate.field).string = {
     max_len: 63
     pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
@@ -108,14 +111,15 @@ message ListSubstrateActorsRequest {
 
 message ListSubstrateActorsResponse {
   string ate_api_error = 2;
-  repeated ateapi.Actor actors = 3;
-  // Upstream continuation token. A page can be empty even when another page exists.
+  repeated substrate.ateapi.v1.Actor actors = 3;
+  // Continuation after the last returned actor. Authorization and namespace
+  // filtering precede pagination; tokens never expose filtered-out identities.
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
 }
 
-// One upstream page of workers, in Substrate order.
-// Namespace filtering applies to this page only; it may be empty and still have a next token.
+// One page of authorized workers, in Substrate worker-name order. Continuation
+// resumes after the last returned worker, with authorization checked again.
 message ListSubstrateWorkersRequest {
   string namespace = 1 [(buf.validate.field).string = {
     max_len: 63
@@ -126,7 +130,7 @@ message ListSubstrateWorkersRequest {
 
 message ListSubstrateWorkersResponse {
   string ate_api_error = 2;
-  repeated ateapi.Worker workers = 3;
+  repeated substrate.ateapi.v1.Worker workers = 3;
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
 }

@@ -19,8 +19,8 @@ func PluginConfig(resources agentplugin.Resources) *configv1.ADKAgentPlugins {
 func pluginSource(source agentplugin.Source) *configv1.ADKPluginSource {
 	result := &configv1.ADKPluginSource{Path: source.Path}
 	switch {
-	case source.OCI != "":
-		result.Source = &configv1.ADKPluginSource_Oci{Oci: source.OCI}
+	case source.Directory != "":
+		result.Source = &configv1.ADKPluginSource_Directory{Directory: source.Directory}
 	case source.Git != nil:
 		result.Source = &configv1.ADKPluginSource_Git{Git: &configv1.ADKPluginGitSource{Url: source.Git.URL, Commit: source.Git.Commit}}
 	case source.S3 != nil:
@@ -43,8 +43,8 @@ func PluginResources(config *configv1.ADKAgentPlugins) agentplugin.Resources {
 func pluginResourceSource(source *configv1.ADKPluginSource) agentplugin.Source {
 	result := agentplugin.Source{Path: source.GetPath()}
 	switch value := source.GetSource().(type) {
-	case *configv1.ADKPluginSource_Oci:
-		result.OCI = value.Oci
+	case *configv1.ADKPluginSource_Directory:
+		result.Directory = value.Directory
 	case *configv1.ADKPluginSource_Git:
 		result.Git = &agentplugin.GitSource{URL: value.Git.Url, Commit: value.Git.Commit}
 	case *configv1.ADKPluginSource_S3:

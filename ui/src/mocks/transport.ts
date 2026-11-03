@@ -2,8 +2,8 @@ import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtim
 import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
-import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
-import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageState, type WorkerSchema, type ActorSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
+import type { ActorTemplateSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
@@ -638,7 +638,7 @@ function agentInstanceMessage(
     // turns it into a title rather than treating it as a gap.
     name: row.name,
     creator: row.creator,
-    agent: row.agent ? splitRef(row.agent) : undefined,
+    agent: row.agent ? { ref: splitRef(row.agent) } : undefined,
     // Proto3 cannot carry an absent string, so an unset field goes back as the
     // empty one the controller would also send — and `orUndefined` on the client
     // turns it back into "not reported".
@@ -777,55 +777,6 @@ function instanceFor(id: string, call: MockCall): AgentInstance {
   return found;
 }
 
-/**
- * A lifecycle operation, refused exactly where the controller refuses it.
- *
- * `ActorWorkflow.Suspend` claims the instance from `READY` and `Resume` from
- * `SUSPENDED`, and the claim itself fails when an operation is already in flight —
- * both come back as `ErrAgentInstanceConflict`, which the service maps to `Aborted`.
- * Reproducing that here is the difference between a disabled button that is right
- * and one that is merely decorative: the page can be tested against a fake that
- * says no for the same reasons a cluster does.
- *
- * Both complete synchronously on success, leaving `operation` cleared — so the
- * record handed back is final, not a promise to look again later.
- */
-function lifecycle(
-  id: string,
-  call: MockCall,
-  from: AgentInstanceState,
-  to: AgentInstanceState,
-  operation: AgentInstanceOperation,
-): AgentInstance {
-  const instance = instanceFor(
-    requireInstanceId(id),
-    call,
-  );
-
-  if (instance.operation !== "unspecified") {
-    throw new ConnectError(
-      `AgentInstance has a conflicting lifecycle operation: ${instance.operation} is already in progress.`,
-      Code.Aborted,
-    );
-  }
-  if (instance.state !== from) {
-    throw new ConnectError(
-      `AgentInstance has a conflicting lifecycle operation: only a ${from} instance can be ${operation}ed, and this one is ${instance.state}.`,
-      Code.Aborted,
-    );
-  }
-
-  return saveAgentInstance({
-    ...instance,
-    state: to,
-    operation: "unspecified",
-    // A successful operation cannot leave the previous failure standing: the record
-    // would then show a healthy instance beside the reason it broke.
-    failure: undefined,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
 on(SessionService.method.listSessions, (input, call) => {
   if (call.scenario === "empty") return { sessions: [], page: {} };
 
@@ -871,18 +822,6 @@ on(SessionService.method.getSession, (input, call) => ({
       requireInstanceId(input.sessionId),
       call,
     ),
-  ),
-}));
-
-on(SessionService.method.suspendSession, (input, call) => ({
-  session: agentInstanceMessage(
-    lifecycle(input.sessionId, call, "ready", "suspended", "suspend"),
-  ),
-}));
-
-on(SessionService.method.resumeSession, (input, call) => ({
-  session: agentInstanceMessage(
-    lifecycle(input.sessionId, call, "suspended", "ready", "resume"),
   ),
 }));
 
@@ -1083,7 +1022,6 @@ on(HarnessService.method.listHarnesses, (input, call) => {
         resource: structured("Harness", harness.resource as unknown as JsonObject),
         runtime: harness.runtime,
         workloadImage: harness.workloadImage,
-        ready: harness.ready,
       })),
   };
 });
@@ -1117,14 +1055,8 @@ function templateFor(namespace: string, name: string): AgentTemplate {
 /**
  * A written harness, as this backend will answer it back.
  *
- * The denormalised fields — `runtime`, `workloadImage`, `ready` — are what the
- * controller computes from the spec, so they are computed here too rather than taken
- * from the request: a fixture that echoed whatever it was sent would let a client claim
- * a harness was ready by saying so.
- *
- * `ready` is false on a freshly created harness, which is what a cluster reports too:
- * the controller has not observed it yet. That is a state the tab has to render
- * correctly, and it would be missed entirely if new harnesses arrived ready.
+ * The controller derives `runtime` and `workloadImage` from the spec, so the mock
+ * computes them from the written resource as well.
  */
 function harnessFromResource(namespace: string, name: string, resource: JsonObject): Harness {
   const spec = (resource.spec ?? {}) as {
@@ -1142,7 +1074,6 @@ function harnessFromResource(namespace: string, name: string, resource: JsonObje
     name,
     runtime: runtime ?? "",
     workloadImage: spec.workload?.image ?? "",
-    ready: false,
     resource: {
       ...(resource as unknown as Harness["resource"]),
       metadata: {
@@ -1164,7 +1095,7 @@ function templateFromResource(
     ref: `${namespace}/${name}`,
     namespace,
     name,
-    modelConfigRef: spec.modelConfig?.name ? `${namespace}/${spec.modelConfig.name}` : "",
+    modelConfigRef: spec.modelConfig?.name ? `${spec.modelConfig.namespace || namespace}/${spec.modelConfig.name}` : "",
     description: spec.description ?? "",
     // Recomputed by `saveAgentTemplate` from the labels; whatever is passed here is
     // replaced.
@@ -1246,7 +1177,6 @@ on(HarnessService.method.createHarness, (input, call) => {
       resource: structured("Harness", saved.resource as unknown as JsonObject),
       runtime: saved.runtime,
       workloadImage: saved.workloadImage,
-      ready: saved.ready,
     },
   };
 });
@@ -1322,11 +1252,11 @@ function substrateWorkerPoolMessage(pool: SubstrateWorkerPoolEntry) {
   return {
     ref: { namespace: pool.namespace, name: pool.name },
     resource: structured("WorkerPool", {
-      apiVersion: "ate.dev/v1alpha1",
+      apiVersion: "ate.dev/v1",
       kind: "WorkerPool",
       metadata: { namespace: pool.namespace, name: pool.name },
       spec: { replicas: pool.replicas ?? 0, workerImage: pool.ateomImage ?? "" },
-    }, "ate.dev/v1alpha1"),
+    }, "ate.dev/v1"),
   };
 }
 
@@ -1345,11 +1275,6 @@ function substrateActorTemplateMessage(
           : undefined,
         errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
       },
-    },
-    sandboxConfig: {
-      sandboxClass:
-        SandboxClass[template.sandboxClass?.toUpperCase() as keyof typeof SandboxClass]
-        ?? SandboxClass.UNSPECIFIED,
     },
     workerSelector: {
       matchLabels: template.workerSelector
@@ -1373,7 +1298,7 @@ function substrateActorMessage(
       name: actor.actorTemplateName ?? "",
     },
     status: {
-      state: ActorState[
+      state: actor.status === "Paused" ? ActorState.SUSPENDED : ActorState[
         actor.status.replace(/^ACTOR_STATE_/, "").toUpperCase() as keyof typeof ActorState
       ] ?? ActorState.UNSPECIFIED,
       workerAssignment: actor.ateomPodName ? {
@@ -1382,10 +1307,18 @@ function substrateActorMessage(
         workerPodIps: actor.ateomPodIp ? [actor.ateomPodIp] : [],
         workerPool: actor.workerPoolName ?? "",
       } : undefined,
-      externalSnapshot: actor.latestSnapshot
-        ? { snapshotUri: actor.latestSnapshot }
-        : undefined,
-      inProgressLocalSnapshotName: actor.inProgressSnapshot ?? "",
+      snapshots: [
+        ...(actor.latestSnapshot ? [{
+          generation: 1,
+          durableSnapshot: { state: SnapshotStorageState.COMPLETED, object: { snapshotUri: actor.latestSnapshot } },
+        }] : []),
+        ...(actor.status === "Paused" ? [{ generation: 2, locality: "worker-node" }] : []),
+        ...(actor.inProgressSnapshot ? [{
+          generation: 3,
+          uuid: actor.inProgressSnapshot,
+          durableSnapshot: { state: SnapshotStorageState.PENDING },
+        }] : []),
+      ],
     },
   };
 }
@@ -1395,9 +1328,9 @@ function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    ips: worker.ip ? [worker.ip] : [],
     metadata: { version: BigInt(worker.version ?? 0) },
     status: {
+      ips: worker.ip ? [worker.ip] : [],
       allocated: {
         // Worker allocation includes actors from every atespace.
         actors: mockSubstrateInventory.actors.filter((actor) =>

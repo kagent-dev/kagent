@@ -4,6 +4,7 @@
 package v1alpha3
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -37,14 +38,29 @@ type SandboxTemplateSpec struct {
 	// resolved in this template's namespace.
 	// +required
 	Substrate RuntimeSubstratePolicy `json:"substrate"`
+
+	// EgressPolicyRefs grants additional access in this template's namespace.
+	// Changes update the access of existing sandboxes without restarting them.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(ref, has(ref.name) && ref.name != '')",message="egressPolicyRefs requires non-empty names"
+	// +listType=map
+	// +listMapKey=name
+	EgressPolicyRefs []corev1.LocalObjectReference `json:"egressPolicyRefs,omitempty"`
 }
+
+// SandboxTemplateConditionEgressPoliciesApplied reports grant admission independently of Ready.
+const SandboxTemplateConditionEgressPoliciesApplied = "EgressPoliciesApplied"
 
 // SandboxTemplateStatus reports preparation of the current template inputs.
 type SandboxTemplateStatus struct {
 	// ObservedGeneration is the generation considered by preparation.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Conditions describe whether a prepared revision is available.
+	// Conditions report runtime readiness and independent egress grant admission.
+	// EgressPoliciesApplied is False for EgressPolicyNotFound, InvalidEgressPolicy,
+	// or EgressGrantConflict; Applied means all grants are admitted. Grant issues
+	// do not affect Ready.
 	// +optional
 	// +listType=map
 	// +listMapKey=type

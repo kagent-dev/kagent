@@ -2,7 +2,7 @@
 {{- if not .Values.substrateWorkerPool.workerImage }}
 {{- fail "substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true" }}
 {{- end }}
-apiVersion: ate.dev/v1alpha1
+apiVersion: ate.dev/v1
 kind: WorkerPool
 metadata:
   name: {{ .Values.substrateWorkerPool.name | quote }}
@@ -13,7 +13,10 @@ metadata:
 spec:
   replicas: {{ .Values.substrateWorkerPool.replicas }}
   workerImage: {{ include "kagent.mirroredImage" (dict "root" . "image" .Values.substrateWorkerPool.workerImage) | quote }}
-  sandboxClass: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
+  sandboxClasses:
+    - name: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
+      configRef:
+        name: {{ .Values.substrateWorkerPool.sandboxConfigRef | default (ternary "microvm" "gvisor-default" (eq (.Values.substrateWorkerPool.sandboxClass | default "gvisor") "microvm")) | quote }}
   template:
     {{- toYaml (set (deepCopy (.Values.substrateWorkerPool.template | default dict)) "serviceAccountName" (include "kagent.substrateWorkerPool.serviceAccountName" .)) | nindent 4 }}
 {{- end }}

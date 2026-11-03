@@ -225,7 +225,7 @@ func replayTaskEvents(events []sessionTaskEventRow, contextID string) ([]session
 			if event.GetMessage() != nil {
 				return nil, fmt.Errorf("runtime boundary requires an explicit task transition")
 			}
-			row.SnapshotAtespace, row.SnapshotURI, row.SnapshotContentScope = source.SnapshotAtespace, source.SnapshotURI, source.SnapshotContentScope
+			row.SnapshotAtespace, row.SnapshotURI, row.SnapshotFidelity = source.SnapshotAtespace, source.SnapshotURI, source.SnapshotFidelity
 			row.HistorySequence = &source.Sequence
 		}
 	}

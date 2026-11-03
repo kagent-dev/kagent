@@ -191,19 +191,6 @@ export interface AgentInstancesApi {
   ): Promise<AgentInstance[]>;
   get(id: string, options?: ReadOptions): Promise<AgentInstance>;
 
-  /**
-   * Suspends a running instance, answering with the record as it now stands.
-   *
-   * Only a `ready` instance with no operation in flight can be suspended; the
-   * controller refuses anything else with `Aborted`. `canSuspend` in
-   * `domain/agentInstances` is that precondition, so a caller can ask before it
-   * offers the action.
-   */
-  suspend(id: string): Promise<AgentInstance>;
-
-  /** Resumes a suspended instance. The mirror of `suspend`, and `canResume` guards it. */
-  resume(id: string): Promise<AgentInstance>;
-
   create(input: {
     agent: ResourceRefInput;
     /**
@@ -368,8 +355,6 @@ export function createApiClient(): KagentApiClient {
         invoke("agentInstances.rename", { id, name }),
       get: (id, options) =>
         invoke("agentInstances.get", { id }, options),
-      suspend: (id) => invoke("agentInstances.suspend", { id }),
-      resume: (id) => invoke("agentInstances.resume", { id }),
       create: (input) => invoke("agentInstances.create", input),
       remove: (id) => invoke("agentInstances.delete", { id }),
       fork: (id, name) =>

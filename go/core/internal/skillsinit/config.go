@@ -9,9 +9,3 @@ type S3Ref struct {
 	Region    string `json:"region,omitempty"`
 	VersionID string `json:"versionId,omitempty"`
 }
-
-// OCIRef describes a single OCI image to pull and extract.
-type OCIRef struct {
-	Image string `json:"image"`
-	Dest  string `json:"dest"`
-}

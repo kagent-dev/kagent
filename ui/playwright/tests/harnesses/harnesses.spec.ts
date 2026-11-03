@@ -17,13 +17,6 @@ import {
  * journey is create, read back, remove. That is narrower than `HarnessService`, which
  * implements update too — this application has never called it.
  *
- * ## What the tab exists to say
- *
- * **A harness must not be called broken.** `ready: false` also covers one the controller
- * has not observed yet, which is a different thing from one that failed — and the
- * `kagent` harness on the development cluster is exactly that: it runs agents and carries
- * `status: null`. Calling that "broken" sends somebody debugging a harness that works.
- *
  * ## Why the form is short
  *
  * The CRD is strict, and the constraints the form enforces are the cluster's rather than
@@ -50,23 +43,11 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
   await test.step("1. the harnesses are listed", async () => {
     await loadPage(page, routes.harnesses, { title: "Agents" });
     await expect(page.getByTestId(table)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("harness-ready").first()).toBeVisible();
-
+    await expect(page.getByTestId(table).getByText("k8s-agent", { exact: true })).toBeVisible();
+    await expect(page.getByTestId(table).getByRole("columnheader", { name: "Ready", exact: true })).toHaveCount(0);
   });
 
-  await test.step("2. an unobserved harness is 'not ready yet', never 'broken'", async () => {
-    const states = await page.getByTestId("harness-ready").allTextContents();
-    expect(states.length).toBeGreaterThan(0);
-    for (const state of states) {
-      expect(
-        state.toLowerCase(),
-        "a harness the controller has not observed is not a broken one",
-      ).not.toContain("broken");
-      expect(state).toMatch(/Ready|Not ready yet/);
-    }
-  });
-
-  await test.step("3. the list narrows like every other table", async () => {
+  await test.step("2. the list narrows like every other table", async () => {
     await expect(page.getByTestId("harnesses-filters")).toContainText("All namespaces");
     const rows = page.getByTestId(table).locator("tbody tr");
     const before = await rows.count();
@@ -81,7 +62,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect.poll(() => rows.count()).toBe(before);
   });
 
-  await test.step("4. the form requires a complete runtime configuration", async () => {
+  await test.step("3. the form requires a complete runtime configuration", async () => {
     await page.getByTestId("agents-new-harness").click();
     await page.waitForURL(/\/harnesses\/new(\?|$)/);
 
@@ -98,7 +79,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     });
   });
 
-  await test.step("5. an image that is not pinned cannot be submitted", async () => {
+  await test.step("4. an image that is not pinned cannot be submitted", async () => {
     // Any namespace will do: this step is about the image, not about where the harness
     // lives.
     await selectFirstOption(page, "harness-namespace");
@@ -112,7 +93,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     ).toBeDisabled();
   });
 
-  await test.step("6. nor can one with no snapshot location", async () => {
+  await test.step("5. nor can one with no snapshot location", async () => {
     // The CRD requires it. This form used to treat it as optional, so a harness could be
     // submitted without one and the controller answered "Invalid Harness" — naming
     // neither the field nor what was wrong with it.
@@ -122,7 +103,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId("harness-create")).toBeDisabled();
   });
 
-  await test.step("7. pinned by digest and told where snapshots go, it is created", async () => {
+  await test.step("6. pinned by digest and told where snapshots go, it is created", async () => {
     await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent");
 
     await expect(page.getByTestId("harness-create")).toBeEnabled();
@@ -135,14 +116,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId(table)).toContainText(CREATED, { timeout: 30_000 });
   });
 
-  await test.step("8. and it is not ready yet, which is what a cluster reports", async () => {
-    // The controller has not observed it. A fixture that answered "ready" would hide the
-    // one state a newly created harness is actually in.
-    const row = page.getByTestId(table).locator("tr", { hasText: CREATED });
-    await expect(row.getByTestId("harness-ready")).toContainText("Not ready yet");
-  });
-
-  await test.step("9. a rejected delete reports failure and keeps the row", async () => {
+  await test.step("7. a rejected delete reports failure and keeps the row", async () => {
     await page.evaluate(() => {
       const url = new URL(window.location.href);
       url.searchParams.set("mock", "error");
@@ -162,7 +136,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     });
   });
 
-  await test.step("10. it is removed from the same tab, and the rest stays", async () => {
+  await test.step("8. it is removed from the same tab, and the rest stays", async () => {
     const rows = page.getByTestId(table).locator("tbody tr");
     const before = await rows.count();
 
@@ -176,7 +150,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect.poll(() => rows.count()).toBe(before - 1);
   });
 
-  await test.step("11. an empty result leaves the tab standing, with no rows", async () => {
+  await test.step("9. an empty result leaves the tab standing, with no rows", async () => {
     // Last, after the delete: reaching these needs the backend answering differently and
     // `?mock=` is per-navigation, which discards what the journey made.
     await loadPage(page, routes.harnesses, { scenario: "empty", title: "Agents" });
@@ -185,7 +159,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId("harnesses-error")).toHaveCount(0);
   });
 
-  await test.step("12. a failed load is reported, not disguised as an empty tab", async () => {
+  await test.step("10. a failed load is reported, not disguised as an empty tab", async () => {
     await loadPage(page, routes.harnesses, { scenario: "error", title: "Agents" });
 
     const alert = page.getByTestId("harnesses-error");

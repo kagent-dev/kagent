@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   draftFromTemplate,
+  draftFromSpec,
   draftProblems,
   emptyDraft,
   labelsFromDraft,
@@ -173,10 +174,42 @@ describe("the agent template draft", () => {
     expect(text).not.toHaveProperty("outputSchemaFrom");
   });
 
+  it.each([
+    [undefined, false],
+    [false, false],
+    [true, true],
+  ] as const)("reads outputSchemaStrict %s as %s and writes only true", (strict, expected) => {
+    const template = templateWithExtras();
+    const spec = { ...template.resource.spec, outputSchemaStrict: strict };
+    const draft = draftFromTemplate({ ...template, resource: { ...template.resource, spec } });
+
+    expect(draft.outputStrict).toBe(expected);
+    const saved = specFromDraft(draft, spec);
+    if (expected) expect(saved.outputSchemaStrict).toBe(true);
+    else expect(saved).not.toHaveProperty("outputSchemaStrict");
+  });
+
+  it("keeps strict through an edit to another field and drops it with the schema", () => {
+    const template = templateWithExtras();
+    const spec = { ...template.resource.spec, outputSchemaStrict: true };
+    const draft = draftFromTemplate({ ...template, resource: { ...template.resource, spec } });
+
+    expect(specFromDraft({ ...draft, outputStrict: false }, spec)).not.toHaveProperty(
+      "outputSchemaStrict",
+    );
+    const edited = specFromDraft({ ...draft, description: "Edited." }, spec);
+    expect(edited.description).toBe("Edited.");
+    expect(edited.outputSchemaStrict).toBe(true);
+
+    const text = specFromDraft({ ...draft, outputSource: "text" }, spec);
+    expect(text).not.toHaveProperty("outputSchema");
+    expect(text).not.toHaveProperty("outputSchemaStrict");
+  });
+
   it("keeps an MCP binding with no selection because it exposes every server tool", () => {
     const draft = emptyDraft("kagent");
-    draft.modelConfig = "gpt";
-    draft.mcpTools = [{ serverRef: "kagent/tools", tools: [] }];
+    draft.modelConfig = { name: "gpt" };
+    draft.mcpTools = [{ serverRef: { name: "tools", namespace: "kagent" }, tools: [] }];
     draft.subAgentTools = [
       { name: "", description: "", refName: "other" },
     ];
@@ -213,8 +246,8 @@ describe("the agent template draft", () => {
 
   it("omits requireApproval when it is off, because the CRD's default is false", () => {
     const draft = emptyDraft("kagent");
-    draft.modelConfig = "gpt";
-    draft.mcpTools = [{ serverRef: "kagent/tools", tools: [], requireApproval: false }];
+    draft.modelConfig = { name: "gpt" };
+    draft.mcpTools = [{ serverRef: { name: "tools", namespace: "kagent" }, tools: [], requireApproval: false }];
 
     expect(specFromDraft(draft).tools?.[0].mcp).toEqual({
       server: { kind: "RemoteMCPServer", name: "tools" },
@@ -223,8 +256,8 @@ describe("the agent template draft", () => {
 
   it("sends an MCP server by bare name, as the CRD's reference is same-namespace", () => {
     const draft = emptyDraft("kagent");
-    draft.modelConfig = "gpt";
-    draft.mcpTools = [{ serverRef: "kagent/tools", tools: ["a"] }];
+    draft.modelConfig = { name: "gpt" };
+    draft.mcpTools = [{ serverRef: { name: "tools", namespace: "kagent" }, tools: ["a"] }];
 
     expect(specFromDraft(draft).tools?.[0].mcp?.server).toEqual({
       kind: "RemoteMCPServer",
@@ -239,7 +272,7 @@ describe("the agent template draft", () => {
     ]);
 
     draft.name = "t";
-    draft.modelConfig = "gpt";
+    draft.modelConfig = { name: "gpt" };
     // No labels, no tools, no description: all of that is a valid template.
     expect(draftProblems(draft, { isCreate: true })).toEqual([]);
 
@@ -252,7 +285,7 @@ describe("the agent template draft", () => {
   it("reports incomplete or malformed structured-output configuration", () => {
     const draft = emptyDraft("kagent");
     draft.name = "t";
-    draft.modelConfig = "gpt";
+    draft.modelConfig = { name: "gpt" };
     draft.outputSource = "inline";
 
     expect(draftProblems(draft, { isCreate: true })).toContain(
@@ -288,5 +321,50 @@ describe("the agent template draft", () => {
     ];
 
     expect(labelsFromDraft(draft)).toEqual({ "kagent.dev/runtime": "runner" });
+  });
+});
+
+
+describe("cross-namespace references", () => {
+  it("preserves shared model and MCP identities across an edit", () => {
+    const spec = {
+      modelConfig: { name: "default", namespace: "shared" },
+      tools: [{ mcp: { server: { kind: "RemoteMCPServer" as const, name: "tools", namespace: "shared" } } }],
+    };
+    const draft = draftFromSpec(spec, "team-a");
+    expect(draft.modelConfig).toEqual({ name: "default", namespace: "shared" });
+    expect(draft.mcpTools[0].serverRef).toEqual({ name: "tools", namespace: "shared" });
+    const saved = specFromDraft(draft, spec);
+    expect(saved.modelConfig).toEqual(spec.modelConfig);
+    expect(saved.tools).toEqual(spec.tools);
+  });
+
+  it("edits structured references without mutating the loaded resource", () => {
+    const spec = {
+      modelConfig: { name: "default", namespace: "shared" },
+      tools: [{ mcp: { server: { kind: "RemoteMCPServer" as const, name: "tools", namespace: "shared" } } }],
+    };
+    const draft = draftFromSpec(spec, "team-a");
+    draft.modelConfig!.namespace = "other";
+    draft.mcpTools[0].serverRef.namespace = "other";
+    const saved = specFromDraft(draft, spec);
+    expect(saved.modelConfig).toEqual({ name: "default", namespace: "other" });
+    expect(saved.tools?.[0].mcp?.server).toEqual({ kind: "RemoteMCPServer", name: "tools", namespace: "other" });
+    expect(spec.modelConfig.namespace).toBe("shared");
+    expect(spec.tools[0].mcp.server.namespace).toBe("shared");
+  });
+
+  it("omits local namespaces and clears an unselected model", () => {
+    const draft = emptyDraft("team-a");
+    draft.modelConfig = { name: "model", namespace: "team-a" };
+    draft.mcpTools = [{ serverRef: { name: "tools", namespace: "team-a" }, tools: [] }];
+    const saved = specFromDraft(draft);
+    expect(saved.modelConfig).toEqual({ name: "model" });
+    expect(saved.tools?.[0].mcp?.server).toEqual({ kind: "RemoteMCPServer", name: "tools" });
+    draft.modelConfig = undefined;
+    draft.mcpTools.push({ serverRef: { name: "" }, tools: [] });
+    const cleared = specFromDraft(draft, saved);
+    expect(cleared).not.toHaveProperty("modelConfig");
+    expect(cleared.tools).toHaveLength(1);
   });
 });

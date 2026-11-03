@@ -15,7 +15,8 @@
 // Copyright 2026 The Agent Substrate Authors.
 //
 // Minimal Protocol Buffers definition for the Agent Substrate Guest Data Plane.
-// Exposes asynchronous process execution, process output streaming, and streaming file I/O.
+// Exposes asynchronous process execution with streaming I/O and signals, and
+// streaming file I/O.
 
 syntax = "proto3";
 
@@ -23,34 +24,51 @@ package ateenv.v1alpha;
 
 option go_package = "github.com/agent-substrate/env/proto/ateenv/v1alpha;ateenvv1alpha";
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 // ============================================================================
 // --- SERVICES ---
 // ============================================================================
 
-// ProcessService manages the asynchronous lifecycle and output streaming of
-// processes running inside the container.
+// ProcessService manages the lifecycle and I/O of processes running inside
+// the container.
+//
+// A process is started asynchronously and addressed by its process_id. Output
+// is spooled by the guest and can be streamed live or replayed from an offset.
+// Input is fed through a client stream, and any POSIX signal can be delivered
+// to the process group.
 service ProcessService {
-  // StartProcess launches a long-running process asynchronously in the background
-  // and immediately returns a unique process_id for tracking.
-  rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
+  // StartProcess launches a process in the background and returns its
+  // Process resource immediately.
+  rpc StartProcess(StartProcessRequest) returns (Process);
 
-  // GetProcess retrieves the current metadata, lifecycle state, and timestamps of a process.
+  // GetProcess returns the current state of a process.
   rpc GetProcess(GetProcessRequest) returns (Process);
 
-  // StreamProcessOutputs streams real-time stdout and stderr from a process.
-  rpc StreamProcessOutputs(StreamProcessOutputsRequest) returns (stream OutputChunk);
+  // StreamProcessOutput streams stdout and stderr from a process. Once the
+  // process has exited and all output has been delivered, the stream ends
+  // with a final exit message carrying the finished Process. Following with
+  // no interest in output (offsets past the end of the spool) is the way to
+  // wait for a process to exit.
+  rpc StreamProcessOutput(StreamProcessOutputRequest) returns (stream ProcessOutput);
 
-  // KillProcess terminates a running asynchronous process and its child process tree.
-  rpc KillProcess(KillProcessRequest) returns (KillProcessResponse);
+  // WriteProcessInput feeds bytes to the stdin of a process started with
+  // stdin enabled. Multiple calls may be made over the life of a process;
+  // stdin stays open until a message sets close, or the process exits.
+  rpc WriteProcessInput(stream WriteProcessInputRequest) returns (WriteProcessInputResponse);
+
+  // SignalProcess delivers a signal to the process and its process group and
+  // returns the process state right after delivery. Use StreamProcessOutput
+  // to observe the effect.
+  rpc SignalProcess(SignalProcessRequest) returns (Process);
 }
 
 // FileSystemService provides streaming file reading and writing capabilities inside
 // the container rootfs/workspace to prevent memory exhaustion (OOM).
 service FileSystemService {
   // ReadFile streams the binary or text contents of a file in chunks.
-  rpc ReadFile(ReadFileRequest) returns (stream FileChunk);
+  rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
 
   // WriteFile streams binary or text chunks directly to a target file.
   rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
@@ -60,94 +78,143 @@ service FileSystemService {
 // --- PROCESS SERVICE MESSAGES ---
 // ============================================================================
 
-// Execution status of an asynchronous process.
-enum ProcessStatus {
-  PROCESS_STATUS_UNSPECIFIED = 0;
-  // Process is actively running in the background.
-  PROCESS_STATUS_RUNNING = 1;
-  // Process completed successfully with exit code 0.
-  PROCESS_STATUS_COMPLETED = 2;
-  // Process completed with a non-zero exit code or failed to run.
-  PROCESS_STATUS_FAILED = 3;
-  // Process was killed before completion.
-  PROCESS_STATUS_TERMINATED = 4;
+// Lifecycle state of a process.
+enum ProcessState {
+  PROCESS_STATE_UNSPECIFIED = 0;
+  // The process is running (or stopped by SIGSTOP) and has not been reaped.
+  PROCESS_STATE_RUNNING = 1;
+  // The process has exited; see Process.exit_code.
+  PROCESS_STATE_EXITED = 2;
 }
 
-// Output stream source.
-enum OutputSource {
-  OUTPUT_SOURCE_UNSPECIFIED = 0;
-  OUTPUT_SOURCE_STDOUT = 1;
-  OUTPUT_SOURCE_STDERR = 2;
+// POSIX signals that can be sent to a process. Values match the Linux signal
+// numbers on x86/arm.
+enum Signal {
+  SIGNAL_UNSPECIFIED = 0;
+  SIGNAL_HUP = 1;
+  SIGNAL_INT = 2;
+  SIGNAL_QUIT = 3;
+  SIGNAL_ILL = 4;
+  SIGNAL_TRAP = 5;
+  SIGNAL_ABRT = 6;
+  SIGNAL_BUS = 7;
+  SIGNAL_FPE = 8;
+  SIGNAL_KILL = 9;
+  SIGNAL_USR1 = 10;
+  SIGNAL_SEGV = 11;
+  SIGNAL_USR2 = 12;
+  SIGNAL_PIPE = 13;
+  SIGNAL_ALRM = 14;
+  SIGNAL_TERM = 15;
+  SIGNAL_CHLD = 17;
+  SIGNAL_CONT = 18;
+  SIGNAL_STOP = 19;
+  SIGNAL_TSTP = 20;
+  SIGNAL_TTIN = 21;
+  SIGNAL_TTOU = 22;
+  SIGNAL_URG = 23;
+  SIGNAL_XCPU = 24;
+  SIGNAL_XFSZ = 25;
+  SIGNAL_VTALRM = 26;
+  SIGNAL_PROF = 27;
+  SIGNAL_WINCH = 28;
+  SIGNAL_IO = 29;
+  SIGNAL_SYS = 31;
 }
 
-// The Process resource representing execution state and metadata.
+// The Process resource: identity, lifecycle state, and exit status.
 message Process {
-  // Unique process identifier.
+  // Unique process identifier assigned by the guest.
   string process_id = 1;
-  // Current execution lifecycle state.
-  ProcessStatus status = 2;
-  // Process exit status code (0 for success, 1-127 for program exit code,
-  // 128 + signal number if terminated by signal, e.g. 137 for SIGKILL, 143 for SIGTERM).
-  // Valid once status is COMPLETED, FAILED, or TERMINATED.
-  int32 exit_code = 3;
+  // Command binary and arguments the process was started with.
+  repeated string command = 2;
+  // Operating system PID inside the container.
+  int32 pid = 3;
+  // Current lifecycle state.
+  ProcessState state = 4;
+  // Exit status, valid once state is EXITED: the process's exit code, or
+  // 128 + signal number if it was terminated by a signal (e.g. 137 for
+  // SIGKILL, 143 for SIGTERM).
+  int32 exit_code = 5;
   // Timestamp when the process started.
-  google.protobuf.Timestamp started_at = 4;
-  // Timestamp when the process terminated (if finished).
-  google.protobuf.Timestamp finished_at = 5;
+  google.protobuf.Timestamp started_at = 6;
+  // Timestamp when the process exited. Unset while RUNNING.
+  google.protobuf.Timestamp finished_at = 7;
 }
 
-// Request to start a background asynchronous process.
+// Request to start a process.
 message StartProcessRequest {
   // Command binary and arguments to execute (e.g. ["pytest", "tests/"] or ["sh", "-c", "ls -la"]).
   repeated string command = 1;
-  // Working directory inside the container (defaults to container workdir).
+  // Working directory inside the container (defaults to the guest workspace).
   string cwd = 2;
-  // Environment variables to set for the background process.
+  // Environment variables to set for the process, on top of the guest's environment.
   map<string, string> env = 3;
+  // If true, stdin is an open pipe fed by WriteProcessInput. If false, stdin
+  // reads as empty (/dev/null) and WriteProcessInput is rejected.
+  bool stdin = 4;
+  // Maximum wall-clock run time. On expiry the process group receives SIGKILL.
+  // Unset or zero applies the guest's default timeout.
+  google.protobuf.Duration timeout = 5;
 }
 
-// Response returned immediately after launching an asynchronous process.
-message StartProcessResponse {
-  // Unique process identifier used for status inspection, log streaming, and killing.
-  string process_id = 1;
-}
-
-// Request to get the Process resource.
+// Request to get a Process.
 message GetProcessRequest {
   // Identifier of the process to inspect.
   string process_id = 1;
 }
 
 // Request to stream output from a process.
-message StreamProcessOutputsRequest {
+message StreamProcessOutputRequest {
   // Identifier of the process to stream output from.
   string process_id = 1;
   // Byte offset to start reading stdout from (defaults to 0 / beginning).
+  // Bytes before the offset are never delivered, so an offset past the end
+  // of the spool suppresses stdout entirely.
   int64 stdout_offset = 2;
   // Byte offset to start reading stderr from (defaults to 0 / beginning).
+  // Same semantics as stdout_offset.
   int64 stderr_offset = 3;
-  // If true, the stream follows new output in real-time until the process finishes.
+  // If true, the stream stays open and delivers new output until the process
+  // exits. If false, the output spooled so far is returned and the stream ends.
   bool follow = 4;
 }
 
-// Streamed chunk of process output.
-message OutputChunk {
-  // Stream source (stdout or stderr).
-  OutputSource source = 1;
-  // Output content bytes.
-  bytes data = 2;
+// One message on a process output stream. Exactly one field is set.
+message ProcessOutput {
+  oneof output {
+    // A chunk of standard output.
+    bytes stdout = 1;
+    // A chunk of standard error.
+    bytes stderr = 2;
+    // Final message: the process has exited and all output has been delivered.
+    // Absent if the stream ends while the process is still running (follow=false).
+    Process exit = 3;
+  }
 }
 
-// Request to terminate a running asynchronous process.
-message KillProcessRequest {
-  // Identifier of the background process to terminate.
+// One chunk of standard input for a process.
+message WriteProcessInputRequest {
+  // Identifier of the target process. Required on the first message; ignored afterwards.
   string process_id = 1;
+  // Bytes to write to stdin. May be empty, e.g. to only close stdin.
+  bytes data = 2;
+  // If true, stdin is closed (EOF) after data is written. No further input is accepted.
+  bool close = 3;
 }
 
-// Response from terminating a process.
-message KillProcessResponse {
-  // Exit status code after process termination (typically 128 + signal, e.g. 137 for SIGKILL).
-  int32 exit_code = 1;
+// Response confirming the input write.
+message WriteProcessInputResponse {
+  // Total number of bytes written to stdin across all messages in the stream.
+  int64 bytes_written = 1;
+}
+
+// Request to send a signal to a process.
+message SignalProcessRequest {
+  // Identifier of the target process.
+  string process_id = 1;
+  // Signal to deliver to the process group.
+  Signal signal = 2;
 }
 
 // ============================================================================
@@ -158,22 +225,36 @@ message KillProcessResponse {
 message ReadFileRequest {
   // Absolute or workspace-relative path of the file to read.
   string path = 1;
+  // Optional POSIX file mode permission (e.g. 0644). When set and the file
+  // does not exist, it is created empty with this mode (parent directories
+  // included) and the stream ends without chunks. When zero, a missing file
+  // is a NOT_FOUND error. Existing files are never modified.
+  uint32 mode = 2;
 }
 
 // Streamed chunk of file data.
-message FileChunk {
+message ReadFileResponse {
   // Raw binary or text chunk of the file.
-  bytes data = 1;
+  bytes chunk = 1;
 }
 
-// Streamed request chunk for writing data to a file.
+// Streamed request chunk for writing data to a file. path, mode and
+// seek_offset are read from the first message only and ignored on all
+// subsequent messages; every message may carry a chunk.
 message WriteFileRequest {
-  // Absolute or workspace-relative path of the file to write (sent on first message).
+  // Absolute or workspace-relative path of the file to write. Required on the
+  // first message.
   string path = 1;
+  // Optional POSIX file mode permission (e.g. 0644 or 0755), applied when the
+  // file is created.
+  uint32 mode = 2;
+  // Byte offset at which writing starts. Zero, the default, truncates the
+  // file and rewrites it from the beginning. A positive offset keeps existing
+  // content, begins writing at the offset (extending the file with zero bytes
+  // if it is shorter), and leaves bytes after the written range in place.
+  int64 seek_offset = 3;
   // Raw binary or text chunk to write to the file.
-  bytes chunk = 2;
-  // Optional POSIX file mode permission (e.g. 0644 or 0755; processed on first message).
-  uint32 mode = 3;
+  bytes chunk = 4;
 }
 
 // Response confirming the write operation.

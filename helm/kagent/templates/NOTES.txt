@@ -26,9 +26,6 @@ ENABLED TOOLS:
 {{- if index .Values "kagent-tools" "enabled" }}
   - Tool Server: Kagent's Built-in tools
 {{- end }}
-{{- if index .Values "grafana-mcp" "enabled" }}
-  - Tool Server: Grafana MCP
-{{- end }}
 
 USEFUL COMMANDS:
   # View all kagent resources

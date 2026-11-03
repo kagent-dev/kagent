@@ -57,10 +57,6 @@ func TestSessionSharesAreReadOnly(t *testing.T) {
 				_, err := fixture.sessions.UpdateSessionName(visitor, &apiv1.UpdateSessionNameRequest{SessionId: fixture.sessionID, Name: "changed"})
 				return err
 			}},
-			{name: "suspend", call: func() error {
-				_, err := fixture.sessions.SuspendSession(visitor, &apiv1.SuspendSessionRequest{SessionId: fixture.sessionID})
-				return err
-			}},
 		} {
 			t.Run(mutation.name, func(t *testing.T) {
 				require.Equal(t, codes.PermissionDenied, status.Code(mutation.call()))
