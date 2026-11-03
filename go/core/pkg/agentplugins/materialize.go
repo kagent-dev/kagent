@@ -213,7 +213,9 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		}
 		return root, nil
 	}
-	if _, err := os.Stat(destination); err == nil {
+	if _, err := os.Stat(destination); err != nil && !os.IsNotExist(err) {
+		return "", err
+	} else if err == nil && fetchedFrom(destination) == sourceDescription(source) {
 		root, err := validatedPackageRoot(destination, source.Path)
 		if err == nil {
 			for _, requiredFile := range requiredFiles {
@@ -226,10 +228,11 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		} else if !os.IsNotExist(err) {
 			return "", err
 		}
-	} else if !os.IsNotExist(err) {
-		return "", err
 	}
 	if err := os.RemoveAll(destination); err != nil {
+		return "", err
+	}
+	if err := os.RemoveAll(destination + fetchedSourceSuffix); err != nil {
 		return "", err
 	}
 	switch {
@@ -248,7 +251,35 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 	default:
 		return "", fmt.Errorf("artifact source is required")
 	}
-	return validatedPackageRoot(destination, source.Path)
+	root, err := validatedPackageRoot(destination, source.Path)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(destination+fetchedSourceSuffix, []byte(sourceDescription(source)), 0o644); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+// fetchedSourceSuffix names the file beside a package directory that records
+// the source fetched into it. A package directory can outlive a start, and a
+// start reuses it only for that exact source, so a moved pin is fetched again.
+const fetchedSourceSuffix = ".source"
+
+func fetchedFrom(destination string) string {
+	raw, err := os.ReadFile(destination + fetchedSourceSuffix)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func sourceDescription(source agentplugin.Source) string {
+	raw, err := json.Marshal(source)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func validatedPackageRoot(root, relative string) (string, error) {
