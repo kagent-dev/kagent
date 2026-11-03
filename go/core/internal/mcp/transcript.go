@@ -291,29 +291,11 @@ func (t *turn) header() Turn {
 	return Turn{TaskID: string(t.task.ID), State: t.state(), Timestamp: t.timestamp(), Artifacts: len(t.task.Artifacts)}
 }
 
-// summary is the turn's first user message, its reply and its tool call
-// stubs. The reply is the status message, else the artifacts' text, else the
-// latest agent message of the history.
+// summary is the turn's first user message, its reply as invoke_agent answers
+// it, and its tool call stubs.
 func (t *turn) summary() Turn {
 	out := t.header()
-	out.Reply = partsText(statusParts(t.task))
-	if out.Reply == "" {
-		var texts []string
-		for _, artifact := range t.task.Artifacts {
-			if text := partsText(artifact.Parts); text != "" {
-				texts = append(texts, text)
-			}
-		}
-		out.Reply = strings.Join(texts, "\n")
-	}
-	if out.Reply == "" {
-		for _, message := range slices.Backward(t.task.History) {
-			if message != nil && message.Role == a2atype.MessageRoleAgent {
-				out.Reply = partsText(message.Parts)
-				break
-			}
-		}
-	}
+	out.Reply = taskReply(t.task)
 	for _, e := range t.entries {
 		if e.message != nil && e.message.Role == a2atype.MessageRoleUser {
 			out.User = partsText(e.message.Parts)
@@ -324,13 +306,6 @@ func (t *turn) summary() Turn {
 		out.ToolCalls = append(out.ToolCalls, ToolCallStub{Index: call.index, ID: call.id, Name: call.name, Error: call.failed, Pending: !call.answered})
 	}
 	return out
-}
-
-func statusParts(task *a2atype.Task) a2atype.ContentParts {
-	if task.Status.Message == nil {
-		return nil
-	}
-	return task.Status.Message.Parts
 }
 
 func (t *turn) transcript() Turn {

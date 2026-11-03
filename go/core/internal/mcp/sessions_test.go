@@ -244,6 +244,9 @@ func TestCreateSessionSendsFirstMessageOncePerRequestID(t *testing.T) {
 	require.Equal(t, first.Turn.TaskID, retry.Turn.TaskID)
 	require.Len(t, gateway.sent, 1)
 	require.Equal(t, first.Session.ID, gateway.sent[0].ContextID)
+
+	listed := structured[ListTasksOutput](t, callTool(t, server, listTasksToolName, map[string]any{"session_id": first.Session.ID}))
+	require.Equal(t, []Turn{*first.Turn}, listed.Tasks, "create_session answers its first turn as list_tasks does")
 }
 
 func TestCreateSessionWithoutMessageStartsNoTurn(t *testing.T) {

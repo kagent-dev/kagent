@@ -54,8 +54,8 @@ type CreateSessionInput struct {
 }
 
 type CreateSessionOutput struct {
-	Session SessionSummary     `json:"session"`
-	Turn    *InvokeAgentOutput `json:"turn,omitempty"`
+	Session SessionSummary `json:"session"`
+	Turn    *Turn          `json:"turn,omitempty"`
 }
 
 type SessionIDInput struct {
@@ -242,8 +242,8 @@ func (h *Handler) createSession(ctx context.Context, _ *mcp.CallToolRequest, inp
 		if err != nil {
 			return toolError(fmt.Errorf("session %s was created but its first message was not accepted (retry with request_id %q to reuse it): %s", session.GetId(), create.GetRequestId(), serviceerrors.MessageOf(err))), CreateSessionOutput{}, nil
 		}
-		_, invoked := invocationResult(turn)
-		output.Turn = &invoked
+		first := readTurn(turn).summary()
+		output.Turn = &first
 	}
 	return nil, output, nil
 }

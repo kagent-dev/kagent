@@ -13,9 +13,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
@@ -245,42 +245,69 @@ func interactionContext(ctx context.Context) context.Context {
 func invocationResult(task *a2atype.Task) (*mcp.CallToolResult, InvokeAgentOutput) {
 	text := taskText(task)
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: text}},
-		IsError: task.Status.State == a2atype.TaskStateFailed ||
-			task.Status.State == a2atype.TaskStateRejected ||
-			task.Status.State == a2atype.TaskStateAuthRequired,
-	}, InvokeAgentOutput{
-		SessionID: task.ContextID,
-		TaskID:    string(task.ID), ContextID: task.ContextID,
-		State: task.Status.State.String(), Text: text,
-	}
+			Content: []mcp.Content{&mcp.TextContent{Text: text}},
+			IsError: task.Status.State == a2atype.TaskStateFailed ||
+				task.Status.State == a2atype.TaskStateRejected ||
+				task.Status.State == a2atype.TaskStateAuthRequired,
+		}, InvokeAgentOutput{
+			SessionID: task.ContextID,
+			TaskID:    string(task.ID), ContextID: task.ContextID,
+			State: task.Status.State.String(), Text: text,
+		}
 }
 
+// taskText is taskReply, or the task as JSON when the task has no reply yet:
+// an async invocation answers a submitted or working task, and a client that
+// reads only the text content still needs its ID and state. The session
+// tools use taskReply alone, since a task dump would fill their byte budget.
 func taskText(task *a2atype.Task) string {
-	var text strings.Builder
+	if reply := taskReply(task); reply != "" {
+		return reply
+	}
+	data, _ := json.Marshal(task)
+	return string(data)
+}
+
+// taskReply is the text a caller reads as the task's answer: the status
+// message and the artifacts, else the latest agent message of the history.
+// Tool activity is not part of the reply; a structured result is its JSON.
+func taskReply(task *a2atype.Task) string {
+	var texts []string
 	if task.Status.Message != nil {
-		text.WriteString(a2a.ExtractText(task.Status.Message))
+		texts = appendReplyText(texts, task.Status.Message.Parts)
 	}
 	for _, artifact := range task.Artifacts {
-		for _, part := range artifact.Parts {
-			if part != nil {
-				text.WriteString(part.Text())
-			}
+		if artifact != nil {
+			texts = appendReplyText(texts, artifact.Parts)
 		}
 	}
-	if text.Len() == 0 {
+	if len(texts) == 0 {
 		for _, message := range slices.Backward(task.History) {
-			if message.Role == a2atype.MessageRoleAgent {
-				text.WriteString(a2a.ExtractText(message))
+			if message != nil && message.Role == a2atype.MessageRoleAgent {
+				texts = appendReplyText(texts, message.Parts)
 				break
 			}
 		}
 	}
-	if text.Len() == 0 {
-		data, _ := json.Marshal(task)
-		return string(data)
+	return strings.Join(texts, "\n")
+}
+
+func appendReplyText(texts []string, parts a2atype.ContentParts) []string {
+	for _, part := range parts {
+		if part == nil {
+			continue
+		}
+		if apia2a.IsStructuredOutputPart(part) {
+			if encoded, err := apia2a.StructuredOutputJSON(part); err == nil {
+				texts = append(texts, encoded)
+			}
+			continue
+		}
+		if text := part.Text(); text != "" {
+			texts = append(texts, text)
+		}
 	}
-	return text.String()
+	return texts
 }
 
 func toolError(err error) *mcp.CallToolResult {
