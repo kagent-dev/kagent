@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -48,9 +49,9 @@ func render(environ []string) (string, string) {
 		name, value, _ := strings.Cut(kv, "=")
 		env[name] = value
 		if strings.HasPrefix(kv, "KAGENT_UI_EXTENSION_") {
-			// Sorted as whole NAME=value lines, first line of the value only, to match `env | sort`.
-			first, _, _ := strings.Cut(kv, "\n")
-			extensions = append(extensions, first)
+			// Sorted as whole NAME=value entries to match `env | sort`, but the value keeps every
+			// line: settings like custom CSS or markdown are naturally multi-line.
+			extensions = append(extensions, kv)
 		}
 	}
 	get := func(name, fallback string) string {
@@ -76,22 +77,28 @@ func render(environ []string) (string, string) {
 	slices.Sort(extensions)
 	var b strings.Builder
 	b.WriteString("window.environmentVariables = {\n")
-	fmt.Fprintf(&b, "  \"API_BASE_URL\": \"%s\",\n", jsonEscape(get("KAGENT_UI_API_BASE_URL", "/api")))
-	fmt.Fprintf(&b, "  \"SSO_REDIRECT_PATH\": \"%s\",\n", jsonEscape(get("KAGENT_UI_SSO_REDIRECT_PATH", "/oauth2/start")))
+	fmt.Fprintf(&b, "  \"API_BASE_URL\": %s,\n", jsonString(get("KAGENT_UI_API_BASE_URL", "/api")))
+	fmt.Fprintf(&b, "  \"SSO_REDIRECT_PATH\": %s,\n", jsonString(get("KAGENT_UI_SSO_REDIRECT_PATH", "/oauth2/start")))
 	fmt.Fprintf(&b, "  \"STREAM_TIMEOUT_MS\": \"%s\",\n", timeout)
 	for _, kv := range extensions {
 		name, value, _ := strings.Cut(kv, "=")
-		fmt.Fprintf(&b, "  \"%s\": \"%s\",\n", jsonEscape(name), jsonEscape(value))
+		fmt.Fprintf(&b, "  %s: %s,\n", jsonString(name), jsonString(value))
 	}
 	fmt.Fprintf(&b, "  \"BASE_PATH\": \"%s\",\n", basePath)
-	fmt.Fprintf(&b, "  \"ENABLE_MOCK_UI\": \"%s\"\n", jsonEscape(get("KAGENT_UI_ENABLE_MOCK", "false")))
+	fmt.Fprintf(&b, "  \"ENABLE_MOCK_UI\": %s\n", jsonString(get("KAGENT_UI_ENABLE_MOCK", "false")))
 	b.WriteString("};\n")
 	return b.String(), basePath
 }
 
-// jsonEscape makes a value safe inside a JSON string in a <script> element: `<` is escaped so markup cannot close it.
-func jsonEscape(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, `<`, `\u003c`).Replace(s)
+// jsonString quotes s as a JSON string that is safe inside a <script> element. encoding/json escapes
+// control characters, U+2028 and U+2029, so a line break cannot end the string literal and break the
+// whole file; `<` is escaped so markup cannot close the element.
+func jsonString(s string) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s) // Encoding a string cannot fail.
+	return strings.ReplaceAll(strings.TrimSuffix(b.String(), "\n"), "<", `\u003c`)
 }
 
 // setBaseHref points <base href> at the base path, so deep links load assets under the sub-path too.
