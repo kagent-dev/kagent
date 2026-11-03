@@ -2,9 +2,13 @@ package mcp
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"iter"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,9 +30,28 @@ type urlElicitationToolContext struct {
 	ctx          context.Context
 	confirmation *toolconfirmation.ToolConfirmation
 	actions      session.EventActions
+	state        mapState
 	hint         string
 	payload      any
 }
+
+type mapState map[string]any
+
+func (s mapState) Get(key string) (any, error) {
+	value, ok := s[key]
+	if !ok {
+		return nil, session.ErrStateKeyNotExist
+	}
+	return value, nil
+}
+func (s mapState) Set(key string, value any) error { s[key] = value; return nil }
+func (s mapState) All() iter.Seq2[string, any]     { return maps.All(s) }
+
+func newToolContext(t *testing.T, state mapState, confirmation *toolconfirmation.ToolConfirmation) *urlElicitationToolContext {
+	return &urlElicitationToolContext{ctx: t.Context(), state: state, confirmation: confirmation}
+}
+
+func (c *urlElicitationToolContext) State() session.State { return c.state }
 
 func (c *urlElicitationToolContext) ToolConfirmation() *toolconfirmation.ToolConfirmation {
 	return c.confirmation
@@ -45,23 +68,11 @@ func (c *urlElicitationToolContext) Done() <-chan struct{}       { return c.ctx.
 func (c *urlElicitationToolContext) Err() error                  { return c.ctx.Err() }
 func (c *urlElicitationToolContext) Value(key any) any           { return c.ctx.Value(key) }
 
-// signInServer serves the tool whoami, which asks for a sign-in until the
-// person signed in: with an input_required result on MCP 2026-07-28, which a
-// stateless server serves, and with -32042 on 2025-11-25.
-func signInServer(t *testing.T, stateless bool, signedIn *atomic.Bool, calls *atomic.Int32) string {
+const signInURL = "https://gateway.example/oauth/proxy/start?s=1"
+
+// serve serves server over streamable HTTP for the test.
+func serve(t *testing.T, server *mcpsdk.Server, stateless bool) string {
 	t.Helper()
-	signIn := &mcpsdk.ElicitParams{Mode: "url", Message: "Sign in to github", URL: "https://gateway.example/oauth/proxy/start?s=1", ElicitationID: "e1"}
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gateway", Version: "0.0.1"}, nil)
-	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(_ context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
-		calls.Add(1)
-		if signedIn.Load() {
-			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "jane"}}}, nil, nil
-		}
-		if request.ProtocolVersion() < "2026-07-28" {
-			return nil, nil, mcpsdk.URLElicitationRequiredError([]*mcpsdk.ElicitParams{signIn})
-		}
-		return &mcpsdk.CallToolResult{InputRequests: mcpsdk.InputRequestMap{"sign_in": signIn}}, nil, nil
-	})
 	httpServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return server }, &mcpsdk.StreamableHTTPOptions{Stateless: stateless}))
 	t.Cleanup(func() {
 		// A stateful session keeps the client's stream open.
@@ -71,57 +82,186 @@ func signInServer(t *testing.T, stateless bool, signedIn *atomic.Bool, calls *at
 	return httpServer.URL
 }
 
-func TestURLElicitationToolAsksThePersonAndRunsOnceConfirmed(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		stateless bool
-	}{
-		{name: "input required", stateless: true},
-		{name: "-32042", stateless: false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var signedIn atomic.Bool
-			var calls atomic.Int32
-			serverURL := signInServer(t, test.stateless, &signedIn, &calls)
-			toolset, err := mcptoolset.New(mcptoolset.Config{
-				Transport: &mcpsdk.StreamableClientTransport{Endpoint: serverURL},
-				Client:    newElicitingClient(serverURL, nil),
-			})
-			require.NoError(t, err)
-			wrapped := &urlElicitationToolset{inner: toolset, serverURL: serverURL}
-			ctx := &urlElicitationToolContext{ctx: t.Context()}
-			tools, err := wrapped.Tools(ctx)
-			require.NoError(t, err)
-			require.Len(t, tools, 1)
-			whoami, ok := tools[0].(*urlElicitationTool)
-			require.True(t, ok, "tool = %T", tools[0])
+// continuationServer serves the tool whoami on MCP 2026-07-28 from a
+// stateless server that keeps no record of a sign-in: it answers only a call
+// that returns the request state it issued with the sign-in accepted and its
+// consent form declined. Any other call gets a new sign-in.
+func continuationServer(t *testing.T, calls *atomic.Int32) string {
+	t.Helper()
+	var mu sync.Mutex
+	issued := map[string]bool{}
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gateway", Version: "0.0.1"}, nil)
+	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(_ context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+		n := calls.Add(1)
+		mu.Lock()
+		defer mu.Unlock()
+		params := request.Params
+		signIn, _ := params.InputResponses["sign_in"].(*mcpsdk.ElicitResult)
+		consent, _ := params.InputResponses["consent"].(*mcpsdk.ElicitResult)
+		if issued[params.RequestState] && signIn != nil && signIn.Action == "accept" && consent != nil && consent.Action == "decline" {
+			delete(issued, params.RequestState)
+			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "jane"}}}, nil, nil
+		}
+		state := fmt.Sprintf("state-%d", n)
+		issued[state] = true
+		return &mcpsdk.CallToolResult{
+			RequestState: state,
+			InputRequests: mcpsdk.InputRequestMap{
+				"sign_in": &mcpsdk.ElicitParams{Mode: "url", Message: "Sign in to github", URL: signInURL, ElicitationID: state},
+				"consent": &mcpsdk.ElicitParams{Mode: "form", Message: "Your token?", RequestedSchema: map[string]any{"type": "object"}},
+			},
+		}, nil, nil
+	})
+	return serve(t, server, true)
+}
 
-			_, err = whoami.Run(ctx, map[string]any{})
-			require.ErrorIs(t, err, tool.ErrConfirmationRequired)
-			require.Equal(t, int32(1), calls.Load(), "the server is not answered before the person opens the URL")
-			payload, ok := ctx.payload.(map[string]any)
-			require.True(t, ok, "payload = %#v", ctx.payload)
-			require.Equal(t, apia2a.HITLTypeURLElicitationRequest, payload["type"])
-			require.Equal(t, "https://gateway.example/oauth/proxy/start?s=1", payload["url"])
-			require.Equal(t, "Sign in to github", payload["message"])
-			require.Equal(t, "e1", payload["elicitation_id"])
-			require.NotEmpty(t, payload["server"])
-			require.Equal(t, "Sign in to github", ctx.hint)
-			require.True(t, ctx.actions.SkipSummarization)
+// legacyServer serves the tool whoami on MCP 2025-11-25, which fails the call
+// with -32042 until the person signed in.
+func legacyServer(t *testing.T, signedIn *atomic.Bool, calls *atomic.Int32) string {
+	t.Helper()
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gateway", Version: "0.0.1"}, nil)
+	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(_ context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+		calls.Add(1)
+		require.Less(t, request.ProtocolVersion(), "2026-07-28")
+		if signedIn.Load() {
+			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "jane"}}}, nil, nil
+		}
+		return nil, nil, mcpsdk.URLElicitationRequiredError([]*mcpsdk.ElicitParams{{Mode: "url", Message: "Sign in to github", URL: signInURL, ElicitationID: "e1"}})
+	})
+	return serve(t, server, false)
+}
 
-			signedIn.Store(true)
-			before := calls.Load()
-			confirmed := &urlElicitationToolContext{ctx: t.Context(), confirmation: &toolconfirmation.ToolConfirmation{Confirmed: true}}
-			result, err := whoami.Run(confirmed, map[string]any{})
-			require.NoError(t, err)
-			require.Equal(t, map[string]any{"output": "jane"}, result)
-			require.Equal(t, before+1, calls.Load(), "the confirmed call runs once")
+func whoamiTool(t *testing.T, serverURL string, ctx adkagent.ReadonlyContext) *urlElicitationTool {
+	t.Helper()
+	toolset, err := mcptoolset.New(mcptoolset.Config{
+		Transport: &mcpsdk.StreamableClientTransport{Endpoint: serverURL},
+		Client:    newElicitingClient(serverURL, nil),
+	})
+	require.NoError(t, err)
+	wrapped := &urlElicitationToolset{inner: toolset, serverURL: serverURL}
+	tools, err := wrapped.Tools(ctx)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	whoami, ok := tools[0].(*urlElicitationTool)
+	require.True(t, ok, "tool = %T", tools[0])
+	return whoami
+}
 
-			rejected := &urlElicitationToolContext{ctx: t.Context(), confirmation: &toolconfirmation.ToolConfirmation{Confirmed: false}}
-			_, err = whoami.Run(rejected, map[string]any{})
-			require.True(t, errors.Is(err, tool.ErrConfirmationRejected), "err = %v", err)
-		})
+func requireSignInPause(t *testing.T, ctx *urlElicitationToolContext, err error) {
+	t.Helper()
+	require.ErrorIs(t, err, tool.ErrConfirmationRequired)
+	payload, ok := ctx.payload.(map[string]any)
+	require.True(t, ok, "payload = %#v", ctx.payload)
+	require.Equal(t, apia2a.HITLTypeURLElicitationRequest, payload["type"])
+	require.Equal(t, signInURL, payload["url"])
+	require.Equal(t, "Sign in to github", payload["message"])
+	require.NotEmpty(t, payload["server"])
+	require.Equal(t, "Sign in to github", ctx.hint)
+	require.True(t, ctx.actions.SkipSummarization)
+}
+
+func TestURLElicitationToolResumesWithTheServersRequestState(t *testing.T) {
+	var calls atomic.Int32
+	serverURL := continuationServer(t, &calls)
+	state := mapState{}
+	whoami := whoamiTool(t, serverURL, newToolContext(t, state, nil))
+
+	paused := newToolContext(t, state, nil)
+	_, err := whoami.Run(paused, map[string]any{})
+	requireSignInPause(t, paused, err)
+	require.Equal(t, int32(1), calls.Load(), "the server is not answered before the person opens the URL")
+	payload := paused.payload.(map[string]any)
+	require.Equal(t, "state-1", payload["elicitation_id"])
+	require.Equal(t, "gateway", payload["server"], "the server's reported name")
+	require.NotContains(t, fmt.Sprint(payload), "request_state", "the request state stays in the runtime")
+	require.Contains(t, fmt.Sprint(state), "state-1")
+
+	result, err := whoami.Run(newToolContext(t, state, &toolconfirmation.ToolConfirmation{Confirmed: true}), map[string]any{})
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"output": "jane"}, result)
+	require.Equal(t, int32(2), calls.Load(), "the confirmed call runs once")
+	for key, value := range state {
+		require.Empty(t, value, "the continuation %s is removed once used", key)
 	}
+}
+
+func TestURLElicitationToolPausesAgainWhenTheServerAsksAgain(t *testing.T) {
+	var calls atomic.Int32
+	serverURL := continuationServer(t, &calls)
+	state := mapState{}
+	whoami := whoamiTool(t, serverURL, newToolContext(t, state, nil))
+
+	_, err := whoami.Run(newToolContext(t, state, nil), map[string]any{})
+	require.ErrorIs(t, err, tool.ErrConfirmationRequired)
+	for key := range state {
+		state[key] = `{"request_state":"forged","input_responses":{"sign_in":{"action":"accept"},"consent":{"action":"decline"}}}`
+	}
+
+	again := newToolContext(t, state, &toolconfirmation.ToolConfirmation{Confirmed: true})
+	_, err = whoami.Run(again, map[string]any{})
+	requireSignInPause(t, again, err)
+	require.Equal(t, "state-2", again.payload.(map[string]any)["elicitation_id"])
+	require.Contains(t, fmt.Sprint(state), "state-2", "the new continuation replaces the used one")
+}
+
+func TestURLElicitationToolRejectedDropsTheContinuation(t *testing.T) {
+	var calls atomic.Int32
+	serverURL := continuationServer(t, &calls)
+	state := mapState{}
+	whoami := whoamiTool(t, serverURL, newToolContext(t, state, nil))
+
+	_, err := whoami.Run(newToolContext(t, state, nil), map[string]any{})
+	require.ErrorIs(t, err, tool.ErrConfirmationRequired)
+
+	_, err = whoami.Run(newToolContext(t, state, &toolconfirmation.ToolConfirmation{Confirmed: false}), map[string]any{})
+	require.ErrorIs(t, err, tool.ErrConfirmationRejected)
+	require.Equal(t, int32(1), calls.Load())
+	for key, value := range state {
+		require.Empty(t, value, "the continuation %s is removed", key)
+	}
+}
+
+func TestURLElicitationToolRetriesALegacyServerAfterTheSignIn(t *testing.T) {
+	var signedIn atomic.Bool
+	var calls atomic.Int32
+	serverURL := legacyServer(t, &signedIn, &calls)
+	state := mapState{}
+	whoami := whoamiTool(t, serverURL, newToolContext(t, state, nil))
+
+	paused := newToolContext(t, state, nil)
+	_, err := whoami.Run(paused, map[string]any{})
+	requireSignInPause(t, paused, err)
+	require.Equal(t, int32(1), calls.Load())
+	require.Empty(t, state, "-32042 carries no request state")
+
+	signedIn.Store(true)
+	result, err := whoami.Run(newToolContext(t, state, &toolconfirmation.ToolConfirmation{Confirmed: true}), map[string]any{})
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"output": "jane"}, result)
+	require.Equal(t, int32(2), calls.Load())
+}
+
+func TestAnswerInputRequests(t *testing.T) {
+	continuation, elicitation, err := answerInputRequests(&mcpsdk.CallToolResult{
+		RequestState: "s",
+		InputRequests: mcpsdk.InputRequestMap{
+			"a": &mcpsdk.ElicitParams{Mode: "url", Message: "Unsafe", URL: "javascript:alert(1)"},
+			"b": &mcpsdk.ElicitParams{Mode: "url", Message: "First", URL: "https://gateway.example/b"},
+			"c": &mcpsdk.ElicitParams{Mode: "url", Message: "Second", URL: "https://gateway.example/c"},
+			"d": &mcpsdk.ElicitParams{Message: "Form"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "First", elicitation.Message)
+	require.Equal(t, "s", continuation.RequestState)
+	actions := map[string]string{}
+	for id, response := range continuation.InputResponses {
+		actions[id] = response.Action
+	}
+	require.Equal(t, map[string]string{"a": "decline", "b": "accept", "c": "decline", "d": "decline"}, actions)
+
+	_, _, err = answerInputRequests(&mcpsdk.CallToolResult{InputRequests: mcpsdk.InputRequestMap{"roots": &mcpsdk.ListRootsParams{}}})
+	require.True(t, err != nil && strings.Contains(err.Error(), "unsupported"), "err = %v", err)
 }
 
 func TestElicitationHandlerRelaysOnlyASafeURL(t *testing.T) {
