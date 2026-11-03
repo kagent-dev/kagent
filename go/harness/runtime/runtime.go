@@ -51,6 +51,16 @@ type AskUserResponse struct {
 
 func (*AskUserResponse) isInputResponse() {}
 
+// URLElicitationResponse answers a URLElicitationRequest with an MCP
+// elicitation action: accept once the person completed the interaction at the
+// URL, decline or cancel otherwise.
+type URLElicitationResponse struct {
+	ID     string
+	Action string
+}
+
+func (*URLElicitationResponse) isInputResponse() {}
+
 // EventSink receives ordered incremental runtime activity. Terminal state is
 // returned as an Outcome from the runner rather than mixed into this stream.
 type EventSink interface {
@@ -190,6 +200,19 @@ type AskUserRequest struct {
 }
 
 func (*AskUserRequest) isInputRequest() {}
+
+// URLElicitationRequest relays an MCP server's URL mode elicitation, such as a
+// sign-in link, while retaining the native turn. The URL goes to the person,
+// never to the model.
+type URLElicitationRequest struct {
+	ID            string
+	Server        string
+	Message       string
+	URL           string
+	ElicitationID string
+}
+
+func (*URLElicitationRequest) isInputRequest() {}
 
 type AskUserQuestion struct {
 	ID       string

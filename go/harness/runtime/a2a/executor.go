@@ -391,10 +391,11 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			if !park(outcome.Pending) {
 				return
 			}
-			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
+			state := a2atype.TaskStateInputRequired
+			result = tracing.Result{TaskState: string(state)}
 			endInvocation()
 			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
+			yield(a2atype.NewStatusUpdateEvent(reqCtx, state, message), nil)
 			return
 		}
 		if finish() {
@@ -442,8 +443,8 @@ func (s *executionSink) captureAttributes(result tracing.Result) []attribute.Key
 }
 
 // finishReason maps a segment outcome onto the GenAI conventions' finish
-// reason. Both harnesses park only at a tool call that needs a decision or an
-// answer, so a segment waiting for input finished at a tool call. A
+// reason. The harnesses park only at a tool call that needs a decision, an
+// answer or a sign-in, so a segment waiting for input finished at a tool call. A
 // disposition the conventions do not enumerate is recorded under its own name.
 func finishReason(result tracing.Result) string {
 	switch {
@@ -451,7 +452,7 @@ func finishReason(result tracing.Result) string {
 		return tracing.FinishReasonError
 	case result.Disposition != "":
 		return result.Disposition
-	case result.TaskState == string(a2atype.TaskStateInputRequired):
+	case requiresInput(a2atype.TaskState(result.TaskState)):
 		return tracing.FinishReasonToolCall
 	default:
 		return tracing.FinishReasonStop
@@ -603,6 +604,18 @@ func inputRequiredMessage(reqCtx *a2asrv.ExecutorContext, request runtime.InputR
 		message := taskMessage(reqCtx, request.Hint)
 		if err := apia2a.AttachHITL(message, apia2a.AskUserRequest{
 			Type: apia2a.HITLTypeAskUserRequest, ID: request.ID, Questions: questions,
+		}); err != nil {
+			return nil, err
+		}
+		return message, nil
+	case *runtime.URLElicitationRequest:
+		if request.ID == "" || request.URL == "" {
+			return nil, fmt.Errorf("runtime URL elicitation request is incomplete")
+		}
+		message := taskMessage(reqCtx, request.Message)
+		if err := apia2a.AttachHITL(message, apia2a.URLElicitationRequest{
+			Type: apia2a.HITLTypeURLElicitationRequest, ID: request.ID, Server: request.Server,
+			Message: request.Message, URL: request.URL, ElicitationID: request.ElicitationID,
 		}); err != nil {
 			return nil, err
 		}
@@ -839,12 +852,26 @@ func validateRequest(reqCtx *a2asrv.ExecutorContext) (runtime.Turn, error) {
 				ID: decision.ID, Approved: decision.Approved, RejectionReason: decision.RejectionReason,
 			}}, nil
 		}
+		elicitationRequest, err := apia2a.ParseURLElicitationRequest(reqCtx.StoredTask.Status.Message)
+		if err != nil {
+			return runtime.Turn{}, err
+		}
+		if elicitationRequest != nil {
+			response, err := apia2a.ParseURLElicitationResponse(reqCtx.Message)
+			if err != nil {
+				return runtime.Turn{}, err
+			}
+			if err := apia2a.ValidateURLElicitationResponse(elicitationRequest, response); err != nil {
+				return runtime.Turn{}, err
+			}
+			return runtime.Turn{InputResponse: &runtime.URLElicitationResponse{ID: response.ID, Action: response.Action}}, nil
+		}
 		askRequest, err := apia2a.ParseAskUserRequest(reqCtx.StoredTask.Status.Message)
 		if err != nil {
 			return runtime.Turn{}, err
 		}
 		if askRequest == nil {
-			return runtime.Turn{}, fmt.Errorf("stored input-required task has no supported request")
+			return runtime.Turn{}, fmt.Errorf("stored task waiting for input has no supported request")
 		}
 		response, err := apia2a.ParseAskUserResponse(reqCtx.Message)
 		if err != nil {
