@@ -37,18 +37,26 @@ Tree resolution detects missing references and cycles before compilation.
 
 Claude Shared children can select standalone `spec.skills` and MCP bindings.
 Their MCP servers are compiled as inline `mcpServers` in the child's `--agents`
-entry, with selected MCP tools in `tools`. Child servers use the same credential
+entry. Child servers use the same credential
 forwarding, egress, provenance, and approval handling as root servers, without
 adding them to the root's MCP configuration. Skills are installed alongside root
 skills and preloaded through the child's `skills` entry.
-Explicit tool selections require current server discovery. The compiler also
-emits `disallowedTools` for discovered tools outside the selection because the
-pinned Claude CLI otherwise adds all inline MCP tools despite `tools`.
+When discovery is current, the compiler emits `disallowedTools` for discovered
+MCP tools outside an explicit selection. It leaves `tools` unset so adding MCP
+bindings or skills preserves the child's inherited built-in tools, including
+`Edit` and `Write`. If discovery is stale or unavailable, compilation succeeds
+with the same warning as the root and exposes the whole server until discovery
+is current again. Tool selections are not an authorization boundary.
 
 Codex installs the root's and all direct Shared children's standalone skills in
 the same Codex home. Each child's role file disables every installed skill it
 did not select, including root and sibling skills, using `skills.config` entries
-with `enabled = false`. Codex Shared children still cannot select MCP tools:
+with `enabled = false`. A Codex child with an empty `spec.skills` therefore has
+all installed root and sibling skills disabled. This is intentional: a child
+must explicitly select a root skill with the same name and source to use it.
+Claude differs: an empty `skills` list disables preloading, while installed
+skills remain invocable through the Skill tool.
+Codex Shared children still cannot select MCP tools:
 roles cannot add servers or reduce the root's inherited MCP servers.
 
 On both CLIs, the root can discover and invoke skills selected by a child.

@@ -185,6 +185,13 @@ func TestE2EClaudeSharedSkillsAndMCP(t *testing.T) {
 		if isChild {
 			sawChild = true
 			require.Contains(t, string(recorded.Body), "SKILL_BODY_STANDALONE")
+			for _, name := range []string{"Edit", "Write"} {
+				var found bool
+				for _, tool := range request.Tools {
+					found = found || tool.Name == name
+				}
+				require.True(t, found, "MCP child must retain built-in %s", name)
+			}
 		}
 		var childTools []string
 		for _, tool := range request.Tools {

@@ -105,7 +105,6 @@ type Agent struct {
 	Description     string               `json:"description"`
 	Prompt          string               `json:"prompt"`
 	Model           string               `json:"model,omitempty"`
-	Tools           []string             `json:"tools,omitempty"`
 	DisallowedTools []string             `json:"disallowed_tools,omitempty"`
 	Skills          []string             `json:"skills,omitempty"`
 	MCPServers      map[string]MCPServer `json:"mcp_servers,omitempty"`
@@ -224,14 +223,13 @@ func (c Config) AgentsJSON() (string, error) {
 		Description     string                       `json:"description"`
 		Prompt          string                       `json:"prompt"`
 		Model           string                       `json:"model,omitempty"`
-		Tools           []string                     `json:"tools,omitempty"`
 		DisallowedTools []string                     `json:"disallowedTools,omitempty"`
 		Skills          []string                     `json:"skills,omitempty"`
 		MCPServers      []map[string]nativeMCPServer `json:"mcpServers,omitempty"`
 	}
 	agents := make(map[string]nativeAgent, len(c.Agents))
 	for name, agent := range c.Agents {
-		native := nativeAgent{Description: agent.Description, Prompt: agent.Prompt, Model: agent.Model, Tools: agent.Tools, DisallowedTools: agent.DisallowedTools}
+		native := nativeAgent{Description: agent.Description, Prompt: agent.Prompt, Model: agent.Model, DisallowedTools: agent.DisallowedTools}
 		for _, skill := range agent.Skills {
 			// Selected standalone skills are loaded through this generated plugin.
 			native.Skills = append(native.Skills, "kagent-skills:"+skill)

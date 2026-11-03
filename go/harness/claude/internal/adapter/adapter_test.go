@@ -103,7 +103,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {Type: "http", URL: "https://mcp.example.com/mcp"}}
 	cfg.Agents = map[string]config.Agent{"reviewer": {
-		Description: "Reviews", Prompt: "Review", Skills: []string{"review"}, Tools: []string{"mcp__child__read", "Skill"},
+		Description: "Reviews", Prompt: "Review", Skills: []string{"review"}, DisallowedTools: []string{"mcp__child__write"},
 		MCPServers: map[string]config.MCPServer{"child": {Type: "http", URL: "https://child.example.com/mcp", RequireApproval: true}},
 	}}
 	raw, err := json.Marshal(cfg)
@@ -146,7 +146,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 	args := runner.Args(runtime.Turn{Prompt: "test"})
 	index := slices.Index(args, "--agents")
-	if index < 0 || !strings.Contains(args[index+1], `"skills":["kagent-skills:review"]`) || !strings.Contains(args[index+1], `"mcpServers":[{"child":`) || strings.Contains(args[index+1], "require_approval") {
+	if index < 0 || !strings.Contains(args[index+1], `"skills":["kagent-skills:review"]`) || !strings.Contains(args[index+1], `"mcpServers":[{"child":`) || strings.Contains(args[index+1], "require_approval") || strings.Contains(args[index+1], `"tools":`) {
 		t.Fatalf("invalid native child configuration: %v", args)
 	}
 	settings, err := os.ReadFile(filepath.Join(ephemeralDir, "settings.json"))

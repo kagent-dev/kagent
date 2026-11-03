@@ -177,25 +177,20 @@ func (c *Compiler) compileLocalAgents(ctx context.Context, root *translator.Agen
 		combined.environment = append(combined.environment, mcp.environment...)
 		combined.egress = append(combined.egress, mcp.egress...)
 		combined.warnings = append(combined.warnings, mcp.warnings...)
-		tools, disallowedTools, err := localAgentTools(child.Template.Namespace, child.MCPTools)
+		disallowedTools, selectionWarnings, err := localAgentToolExclusions(child.Template.Namespace, child.MCPTools)
 		if err != nil {
 			return nil, combined, fmt.Errorf("compile Claude local agent %q tools: %w", binding.Name, err)
 		}
+		combined.warnings = append(combined.warnings, selectionWarnings...)
 		var skills []string
 		for _, skill := range child.Template.Spec.Skills {
 			skills = append(skills, skill.Name)
 		}
-		if len(skills) != 0 && len(tools) != 0 {
-			tools = append(tools, "Read", "Bash", "Glob", "Grep", "Skill")
-		}
-		slices.Sort(tools)
-		tools = slices.Compact(tools)
 		agents[binding.Name] = claudeconfig.Agent{
 			Description:     binding.Description,
 			Prompt:          child.Instruction,
 			Model:           childModel.Spec.Model,
 			MCPServers:      mcp.servers,
-			Tools:           tools,
 			DisallowedTools: disallowedTools,
 			Skills:          skills,
 		}

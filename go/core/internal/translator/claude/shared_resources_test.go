@@ -22,6 +22,59 @@ func TestCompileSharedResources(t *testing.T) {
 	}
 }
 
+func TestSharedAgentPreservesInheritedTools(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		mcp, skills bool
+	}{
+		{name: "plain"},
+		{name: "skills", skills: true},
+		{name: "MCP", mcp: true},
+		{name: "MCP and skills", mcp: true, skills: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			input, collections := testInput(t, v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-test", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+			}, map[string][]byte{"api-key": []byte("secret")})
+			child := &translator.AgentInput{
+				Template:            &translator.TemplateConfiguration{Name: "child", Namespace: "test"},
+				ResolvedModelConfig: input.Root.ResolvedModelConfig,
+				Instruction:         "Edit the requested files.",
+			}
+			if tt.skills {
+				child.Template.Spec.Skills = []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{OCI: "example.com/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
+			}
+			if tt.mcp {
+				child.MCPTools = []translator.ResolvedMCPTool{{
+					Binding: v1alpha3.MCPToolBinding{Tools: []string{"read"}},
+					Server: &v1alpha3.RemoteMCPServer{
+						ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test", Generation: 1},
+						Spec:       v1alpha3.RemoteMCPServerSpec{URL: "https://tools.example.com/mcp"},
+						Status:     v1alpha3.RemoteMCPServerStatus{ObservedGeneration: 1, DiscoveredTools: []*v1alpha3.MCPTool{{Name: "read"}, {Name: "write"}}},
+					},
+				}}
+			}
+			input.Root.Shared = []translator.AgentInputBinding{{Name: "editor", Description: "Edits files", Agent: child}}
+			result, err := NewCompiler(krt.TestingDummyContext{}, collections, testRuntimeDefaults()).Compile(t.Context(), input)
+			require.NoError(t, err)
+			cfg, err := claudeconfig.Parse(result.ConfigJSON)
+			require.NoError(t, err)
+			raw, err := cfg.AgentsJSON()
+			require.NoError(t, err)
+			var agents map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal([]byte(raw), &agents))
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(agents["editor"], &fields))
+			require.NotContains(t, fields, "tools", "native built-in inheritance must not depend on MCP or skills")
+			if tt.mcp {
+				require.Equal(t, []string{"mcp__tools__write"}, cfg.Agents["editor"].DisallowedTools)
+			} else {
+				require.Empty(t, cfg.Agents["editor"].DisallowedTools)
+			}
+		})
+	}
+}
+
 func testCompileSharedResources(t *testing.T, serverNamespace string) {
 	t.Helper()
 	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-root", APIKeySecret: "model-auth", APIKeySecretKey: "api-key"}
@@ -65,10 +118,10 @@ func testCompileSharedResources(t *testing.T, serverNamespace string) {
 	agent := cfg.Agents["reviewer"]
 	runtimeName := translator.MCPRuntimeName(child.Template.Namespace, server)
 	require.Equal(t, []string{"review"}, agent.Skills)
-	require.Contains(t, agent.Tools, "mcp__"+runtimeName+"__read")
-	require.NotContains(t, agent.Tools, "mcp__"+runtimeName+"__*")
+	nativeJSON, err := cfg.AgentsJSON()
+	require.NoError(t, err)
+	require.NotContains(t, nativeJSON, `"tools":`, "MCP bindings must preserve inherited built-in tools")
 	require.Equal(t, []string{"mcp__" + runtimeName + "__write"}, agent.DisallowedTools)
-	require.Contains(t, agent.Tools, "Skill")
 	require.True(t, agent.MCPServers[runtimeName].RequireApproval)
 	require.Equal(t, "team-a", agent.MCPServers[runtimeName].Headers["X-Tenant"])
 	require.Len(t, cfg.SkillResources.Skills, 1)
@@ -106,8 +159,14 @@ func testCompileSharedResources(t *testing.T, serverNamespace string) {
 	require.ErrorContains(t, err, "nested agent tools")
 	child.Shared = nil
 	server.Status.ObservedGeneration = 0
-	_, err = compiler.Compile(t.Context(), input)
-	require.ErrorContains(t, err, "requires current tool discovery")
+	stale, err := compiler.Compile(t.Context(), input)
+	require.NoError(t, err, "a discovery refresh must not block the parent")
+	require.Len(t, stale.Warnings, 1)
+	require.Contains(t, stale.Warnings[0], "no current discovered tool set")
+	require.Contains(t, stale.Warnings[0], "exposing the whole server")
+	staleConfig, err := claudeconfig.Parse(stale.ConfigJSON)
+	require.NoError(t, err)
+	require.Empty(t, staleConfig.Agents["reviewer"].DisallowedTools)
 	server.Status.ObservedGeneration = 1
 	child.MCPTools[0].Binding.Tools = []string{"missing"}
 	_, err = compiler.Compile(t.Context(), input)
@@ -117,7 +176,6 @@ func testCompileSharedResources(t *testing.T, serverNamespace string) {
 	require.NoError(t, err)
 	wholeConfig, err := claudeconfig.Parse(whole.ConfigJSON)
 	require.NoError(t, err)
-	require.Contains(t, wholeConfig.Agents["reviewer"].Tools, "mcp__"+runtimeName+"__*")
 	require.Empty(t, wholeConfig.Agents["reviewer"].DisallowedTools)
 	server.Spec.TokenPassthrough = new(true)
 	_, err = compiler.Compile(t.Context(), input)
@@ -127,12 +185,12 @@ func testCompileSharedResources(t *testing.T, serverNamespace string) {
 func TestSharedAgentNativeJSON(t *testing.T) {
 	cfg := claudeconfig.Production("claude-root", "Root")
 	cfg.Agents = map[string]claudeconfig.Agent{"reviewer": {
-		Description: "Reviews", Prompt: "Review", Skills: []string{"review"}, Tools: []string{"mcp__tools__read"},
+		Description: "Reviews", Prompt: "Review", Skills: []string{"review"}, DisallowedTools: []string{"mcp__tools__write"},
 		MCPServers: map[string]claudeconfig.MCPServer{"tools": {Type: "http", URL: "https://mcp.example.com", Headers: map[string]string{"Authorization": "${TOKEN}"}, RequireApproval: true}},
 	}}
 	raw, err := cfg.AgentsJSON()
 	require.NoError(t, err)
-	require.JSONEq(t, `{"reviewer":{"description":"Reviews","prompt":"Review","skills":["kagent-skills:review"],"tools":["mcp__tools__read"],"mcpServers":[{"tools":{"type":"http","url":"https://mcp.example.com","headers":{"Authorization":"${TOKEN}"}}}]}}`, raw)
+	require.JSONEq(t, `{"reviewer":{"description":"Reviews","prompt":"Review","skills":["kagent-skills:review"],"disallowedTools":["mcp__tools__write"],"mcpServers":[{"tools":{"type":"http","url":"https://mcp.example.com","headers":{"Authorization":"${TOKEN}"}}}]}}`, raw)
 	contract, err := json.Marshal(cfg)
 	require.NoError(t, err)
 	parsed, err := claudeconfig.Parse(contract)
