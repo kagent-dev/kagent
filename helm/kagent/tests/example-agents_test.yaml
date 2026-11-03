@@ -57,7 +57,7 @@ tests:
           path: spec.substrate.snapshotPolicy.location
           value: gs://bucket/kagent/
 
-  - it: should give every Agent the Harness, model, prompts, skills image, and one tool server binding
+  - it: should give every Agent the Harness, model, prompts, skills image, and the tool server
     documentSelector:
       path: kind
       value: Agent
@@ -83,9 +83,6 @@ tests:
       - matchRegex:
           path: spec.template.inline.systemPrompt
           pattern: '\{\{include "builtin/skills-usage"\}\}'
-      - lengthEqual:
-          path: spec.template.inline.tools
-          count: 1
       - equal:
           path: spec.template.inline.tools[0].mcp.server
           value:
@@ -110,11 +107,37 @@ tests:
             - argo-rollouts-progressive-delivery
             - prometheus-observability
       - lengthEqual:
+          path: spec.template.inline.tools
+          count: 2
+      - notExists:
+          path: spec.template.inline.tools[0].mcp.requireApproval
+      - lengthEqual:
           path: spec.template.inline.tools[0].mcp.tools
-          count: 29
+          count: 17
       - contains:
           path: spec.template.inline.tools[0].mcp.tools
           content: helm_list_releases
+      - equal:
+          path: spec.template.inline.tools[1].mcp.server.name
+          value: kagent-tool-server
+      - equal:
+          path: spec.template.inline.tools[1].mcp.requireApproval
+          value: true
+      - equal:
+          path: spec.template.inline.tools[1].mcp.tools
+          value:
+            - k8s_apply_manifest
+            - k8s_check_service_connectivity
+            - k8s_delete_resource
+            - k8s_patch_resource
+            - k8s_rollout
+            - k8s_scale
+            - helm_uninstall
+            - helm_upgrade
+            - argo_pause_rollout
+            - argo_promote_rollout
+            - argo_set_rollout_image
+            - argo_verify_gateway_plugin
 
   - it: should render the networking Agent
     documentSelector:
@@ -127,11 +150,34 @@ tests:
             - istio-traffic-debugging
             - cilium-network-debugging
       - lengthEqual:
+          path: spec.template.inline.tools
+          count: 2
+      - notExists:
+          path: spec.template.inline.tools[0].mcp.requireApproval
+      - lengthEqual:
           path: spec.template.inline.tools[0].mcp.tools
-          count: 31
+          count: 26
       - contains:
           path: spec.template.inline.tools[0].mcp.tools
           content: istio_proxy_status
+      - notContains:
+          path: spec.template.inline.tools[0].mcp.tools
+          content: cilium_uninstall_cilium
+      - notContains:
+          path: spec.template.inline.tools[0].mcp.tools
+          content: cilium_flush_ipsec_state
+      - equal:
+          path: spec.template.inline.tools[1].mcp.server.name
+          value: kagent-tool-server
+      - equal:
+          path: spec.template.inline.tools[1].mcp.requireApproval
+          value: true
+      - equal:
+          path: spec.template.inline.tools[1].mcp.tools
+          value:
+            - k8s_apply_manifest
+            - istio_apply_waypoint
+            - istio_delete_waypoint
 
   - it: should render the security Agent
     documentSelector:
@@ -142,6 +188,9 @@ tests:
           path: spec.template.inline.plugins[0].skills
           value:
             - kubescape-security-posture
+      - lengthEqual:
+          path: spec.template.inline.tools
+          count: 1
       - lengthEqual:
           path: spec.template.inline.tools[0].mcp.tools
           count: 10
@@ -173,6 +222,12 @@ tests:
           value: tools-demo-security
       - equal:
           path: spec.template.inline.tools[0].mcp.server.name
+          value: custom-tool-server
+        documentSelector:
+          path: metadata.name
+          value: tools-demo-networking
+      - equal:
+          path: spec.template.inline.tools[1].mcp.server.name
           value: custom-tool-server
         documentSelector:
           path: metadata.name
