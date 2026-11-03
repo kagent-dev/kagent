@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -538,4 +539,51 @@ func TestSessionRecoveryPagesPastUnavailableActors(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
 	}
+}
+
+// blockedSuspendActors holds every idle suspension in runtime I/O until the
+// test ends, the way a slow Substrate upload would.
+type blockedSuspendActors struct {
+	*lifecycleTestActors
+	entered atomic.Int32
+}
+
+func (a *blockedSuspendActors) SuspendActor(ctx context.Context, _, _ string) (*ateapipb.Actor, error) {
+	a.entered.Add(1)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// Start retries an admitted recovery on its own ticker. Every quiescence worker
+// is blocked in an idle suspension for the whole test, so a scan that shared
+// those workers would never run.
+func TestStartRetriesAdmittedRecoveryWhileIdleWorkBlocks(t *testing.T) {
+	store, base, crashed, _, _ := crashedTurnFixture(t)
+	unavailable := &recoveryTestActors{lifecycleTestActors: base, revert: func(context.Context, string, string) (*ateapipb.Actor, error) {
+		return nil, status.Error(codes.Unavailable, "control plane unavailable")
+	}}
+	_, err := NewActorWorkflow(store, unavailable, make(chan struct{}, 1), time.Hour).Revert(t.Context(), crashed)
+	require.Error(t, err, "the first attempt leaves an admitted recovery for Start to retry")
+
+	const idleSessions = 4 // one per quiescence worker
+	for range idleSessions {
+		idle, _, err := store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: crashed.Creator, Agent: crashed.Agent}, uuid.NewString())
+		require.NoError(t, err)
+		idle, err = NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour).Create(t.Context(), idle)
+		require.NoError(t, err)
+		request := stageQuiescenceTask(t, store.Client, idle, a2a.TaskStateCompleted)
+		require.NoError(t, store.SettleSessionTask(t.Context(), idle.Id, request.TaskId, request.Version))
+	}
+
+	actors := &blockedSuspendActors{lifecycleTestActors: base}
+	startQuiescenceWorker(t, NewActorWorkflow(store, actors, make(chan struct{}, 1), 20*time.Millisecond))
+	require.Eventually(t, func() bool { return actors.entered.Load() == idleSessions }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		current, err := store.GetSessionByID(t.Context(), crashed.Id)
+		return err == nil && current.State == apiv1.RuntimeState_RUNTIME_STATE_READY
+	}, 5*time.Second, 10*time.Millisecond)
+	actor, err := base.GetActor(t.Context(), "team-a", substrate.ActorName(crashed.Id))
+	require.NoError(t, err)
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
+	require.EqualValues(t, idleSessions, actors.entered.Load(), "idle work stayed blocked while recovery completed")
 }

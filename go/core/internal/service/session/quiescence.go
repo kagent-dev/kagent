@@ -30,27 +30,18 @@ func (w *ActorWorkflow) wakeQuiescence() {
 
 // Start suspends idle sessions to VOLUMES independently of task publication and
 // retries crash recoveries admitted by explicit requests.
-// Startup and periodic scans discover idle work missed by local signals; crash
-// checks use the same recovery interval. Workers drain claims with bounded concurrency.
+// Startup and periodic scans discover idle work missed by local signals. Workers
+// drain claims with bounded concurrency. Crash recovery scans on its own ticker, so
+// a slow idle suspension cannot delay a recovery retry and a slow revert cannot
+// hold up idle work.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
 	var workers sync.WaitGroup
-	for worker := range 4 {
+	workers.Go(func() { w.recoverCrashedSessions(ctx) })
+	for range 4 {
 		workers.Go(func() {
 			timer := time.NewTimer(w.recoveryInterval)
 			defer timer.Stop()
-			var recoveryAfter string
-			nextRecovery := time.Now().Add(w.recoveryInterval)
 			for ctx.Err() == nil {
-				if worker == 0 && !time.Now().Before(nextRecovery) {
-					scanCtx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
-					after, err := w.recoverSessionPage(scanCtx, recoveryAfter)
-					cancel()
-					if err != nil && ctx.Err() == nil {
-						logging.FromContext(ctx).ErrorContext(ctx, "scan interrupted sessions", "error", err)
-					}
-					recoveryAfter = after
-					nextRecovery = time.Now().Add(w.recoveryInterval)
-				}
 				work, err := w.store.ClaimSessionQuiescence(ctx)
 				if err == nil {
 					// Hand off a hint before runtime I/O so a single settlement
@@ -83,6 +74,30 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 	}
 	workers.Wait()
 	return nil
+}
+
+// recoverCrashedSessions retries admitted crash recoveries one page per tick.
+// The cursor carries across ticks, so a large backlog cannot starve the Sessions
+// after its first page, and an Actor that stays unreadable is revisited when the
+// scan wraps.
+func (w *ActorWorkflow) recoverCrashedSessions(ctx context.Context) {
+	ticker := time.NewTicker(w.recoveryInterval)
+	defer ticker.Stop()
+	var after string
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		scanCtx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+		next, err := w.recoverSessionPage(scanCtx, after)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "scan interrupted sessions", "error", err)
+		}
+		after = next
+	}
 }
 
 func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.SessionQuiescence) {
