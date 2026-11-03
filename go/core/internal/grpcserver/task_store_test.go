@@ -313,7 +313,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, httpTransport.Destroy()) })
 		}
 	}
-	publicCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice"))
+	publicCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice", a2a.SvcParamVersion, string(a2a.Version)))
 	observer, stopObserver := context.WithTimeout(publicCtx, 10*time.Second)
 	defer stopObserver()
 	input := &a2apb.SendMessageRequest{Tenant: "team-a/assistant", Message: &a2apb.Message{
@@ -425,7 +425,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.Equal(t, "managed-grpc", grpcConfig.GetId())
 	require.Empty(t, grpcConfig.GetToken())
 	require.Nil(t, grpcConfig.GetAuthentication())
-	params := a2aclient.ServiceParams{"x-user-id": {"alice"}}
+	params := a2aclient.ServiceParams{"x-user-id": {"alice"}, a2a.SvcParamVersion: {string(a2a.Version)}}
 	jsonConfig, err := httpTransport.CreateTaskPushConfig(publicCtx, params, &a2a.PushConfig{
 		TaskID: a2a.TaskID(parkedID), ID: "managed-json", URL: receiver.URL,
 	})
@@ -596,7 +596,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	t.Run("HTTP and gRPC share durable tasks", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
-		params := a2aclient.ServiceParams{"x-user-id": {"alice"}}
+		params := a2aclient.ServiceParams{"x-user-id": {"alice"}, a2a.SvcParamVersion: {string(a2a.Version)}}
 		message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("work"))
 		message.ContextID = id
 		result, err := httpTransport.SendMessage(ctx, params, &a2a.SendMessageRequest{Message: message})

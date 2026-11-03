@@ -350,7 +350,7 @@ func TestRequestSpanCompletesWhenAStreamingClientDisconnects(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(ctx, request)
+	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(a2aTestContext(ctx), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ func TestRequestSpanCompletesOnAStreamingMessageResult(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(t.Context(), request)
+	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(a2aTestContext(t.Context()), request)
 	if err != nil {
 		t.Fatal(err)
 	}
