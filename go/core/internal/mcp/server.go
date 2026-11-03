@@ -292,21 +292,31 @@ func taskReply(task *a2atype.Task) string {
 	return strings.Join(texts, "\n")
 }
 
+// appendReplyText appends one message's or artifact's text. Its text parts
+// are concatenated, since runtimes stream a reply as appended parts; a
+// structured result stands on its own.
 func appendReplyText(texts []string, parts a2atype.ContentParts) []string {
+	var text strings.Builder
+	flush := func() {
+		if text.Len() > 0 {
+			texts = append(texts, text.String())
+			text.Reset()
+		}
+	}
 	for _, part := range parts {
 		if part == nil {
 			continue
 		}
 		if apia2a.IsStructuredOutputPart(part) {
+			flush()
 			if encoded, err := apia2a.StructuredOutputJSON(part); err == nil {
 				texts = append(texts, encoded)
 			}
 			continue
 		}
-		if text := part.Text(); text != "" {
-			texts = append(texts, text)
-		}
+		text.WriteString(part.Text())
 	}
+	flush()
 	return texts
 }
 

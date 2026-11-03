@@ -180,6 +180,25 @@ func TestTaskReply(t *testing.T) {
 			want: "Let me check.\nThe answer is 4.",
 		},
 		{
+			name: "streamed text parts concatenated within an artifact",
+			task: &a2atype.Task{
+				Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+				Artifacts: []*a2atype.Artifact{
+					artifact(a2atype.NewTextPart("hel"), a2atype.NewTextPart("lo")),
+					artifact(a2atype.NewTextPart("wor"), a2atype.NewTextPart("ld")),
+				},
+			},
+			want: "hello\nworld",
+		},
+		{
+			name: "structured result apart from the text around it",
+			task: &a2atype.Task{
+				Status:    a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+				Artifacts: []*a2atype.Artifact{artifact(a2atype.NewTextPart("Here:"), apia2a.NewStructuredOutputPart(map[string]any{"answer": 4}, "digest"))},
+			},
+			want: "Here:\n{\"answer\":4}",
+		},
+		{
 			name: "failed task keeps its error and partial output",
 			task: &a2atype.Task{
 				Status:    a2atype.TaskStatus{State: a2atype.TaskStateFailed, Message: agentMessage("model unavailable")},
