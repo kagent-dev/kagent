@@ -88,8 +88,10 @@ func serverName(session *mcpsdk.ClientSession, serverURL string) string {
 	return serverURL
 }
 
-// urlElicitationRequired reads the URL elicitation of a -32042 error, the
-// answer of a server on MCP 2025-11-25.
+// urlElicitationRequired reads the first safe URL elicitation of a -32042
+// error, the answer of a server on MCP 2025-11-25. The server tracks each
+// elicitation's completion and lists the ones still open when the call runs
+// again.
 func urlElicitationRequired(err error, serverURL string) *apia2a.URLElicitationRequest {
 	var rpcErr *jsonrpc.Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != mcpsdk.CodeURLElicitationRequired || len(rpcErr.Data) == 0 {
@@ -184,7 +186,9 @@ func inputRequiredMiddleware(serverURL string) mcpsdk.Middleware {
 
 // answerInputRequests answers the input requests of an input_required result.
 // The first safe URL elicitation, by request ID, is accepted and returned: the
-// call pauses on it. Every other elicitation is declined.
+// call pauses on it. Other safe URL elicitations get no response, so the
+// server asks for them again on the retry instead of reading a decision the
+// person never made. Forms and unsafe URLs are declined.
 func answerInputRequests(result *mcpsdk.CallToolResult) (*urlElicitationContinuation, *mcpsdk.ElicitParams, error) {
 	continuation := &urlElicitationContinuation{
 		RequestState:   result.RequestState,
@@ -196,9 +200,11 @@ func answerInputRequests(result *mcpsdk.CallToolResult) (*urlElicitationContinua
 		if !ok {
 			return nil, nil, fmt.Errorf("MCP server sent input request %q of unsupported type %T", id, result.InputRequests[id])
 		}
-		if elicitation == nil && params.Mode == "url" && apia2a.ValidateElicitationURL(params.URL) == nil {
-			elicitation = params
-			continuation.InputResponses[id] = &mcpsdk.ElicitResult{Action: "accept"}
+		if params.Mode == "url" && apia2a.ValidateElicitationURL(params.URL) == nil {
+			if elicitation == nil {
+				elicitation = params
+				continuation.InputResponses[id] = &mcpsdk.ElicitResult{Action: "accept"}
+			}
 			continue
 		}
 		continuation.InputResponses[id] = &mcpsdk.ElicitResult{Action: "decline"}
@@ -251,7 +257,8 @@ func (t *urlElicitationTool) ProcessRequest(ctx adkagent.Context, req *model.LLM
 }
 
 func (t *urlElicitationTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
-	if confirmation := ctx.ToolConfirmation(); confirmation != nil {
+	confirmation := ctx.ToolConfirmation()
+	if confirmation != nil {
 		continuation, err := takeContinuation(ctx)
 		if err != nil {
 			return nil, err
@@ -264,6 +271,11 @@ func (t *urlElicitationTool) Run(ctx adkagent.Context, args any) (map[string]any
 	request, continuation := t.urlElicitation(err)
 	if request == nil {
 		return result, err
+	}
+	// ADK does not pause a call that resumes from a confirmation again: a
+	// second RequestConfirmation is recorded and the model runs on.
+	if confirmation != nil {
+		return nil, fmt.Errorf("MCP server %s asked for another URL elicitation after the person confirmed tool %q, and a confirmed call cannot pause again", request.Server, t.Name())
 	}
 	if continuation != nil {
 		if err := storeContinuation(ctx, continuation); err != nil {
