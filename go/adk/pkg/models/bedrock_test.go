@@ -19,6 +19,11 @@ import (
 	"google.golang.org/genai"
 )
 
+func TestBedrockRuntimeOrigin(t *testing.T) {
+	require.Equal(t, "https://bedrock-runtime.us-east-1.amazonaws.com", BedrockRuntimeOrigin("us-east-1"))
+	require.Equal(t, "https://bedrock-runtime.eu-central-1.amazonaws.com", BedrockRuntimeOrigin("eu-central-1"))
+}
+
 func TestBedrockProviderJSONReachesConverseUnchanged(t *testing.T) {
 	t.Setenv("AWS_BEARER_TOKEN_BEDROCK", "")
 	raw := `{"thinking":{"budget_tokens":1024},"large":9007199254740993,"values":[0,false,null,0.25]}`
