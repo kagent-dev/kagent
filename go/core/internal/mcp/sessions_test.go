@@ -452,6 +452,15 @@ func TestReadTurnCountsActivityRecordedTwiceOnce(t *testing.T) {
 	require.Equal(t, task.Artifacts[0], turn.item(4).Artifact)
 }
 
+func TestReadTurnSkipsNullEntries(t *testing.T) {
+	task := toolTurn("task-0", "read it", "done", "ok")
+	task.History = append(task.History, nil)
+	task.Artifacts = []*a2atype.Artifact{nil}
+	turn := readTurn(task)
+	require.Equal(t, 4, turn.items())
+	require.Equal(t, "read it", turn.summary().User)
+}
+
 func TestGetTaskTakesAnIntegerToolCallIndex(t *testing.T) {
 	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "done", "ok")}}
 	server := sessionServer(t, newSessionStore(readySession()), gateway)

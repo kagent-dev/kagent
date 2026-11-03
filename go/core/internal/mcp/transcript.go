@@ -171,10 +171,14 @@ func turnEntries(task *a2atype.Task) []entry {
 	messages := turnMessages(task)
 	entries := make([]entry, 0, len(messages)+len(task.Artifacts))
 	for _, message := range messages {
-		entries = append(entries, entry{message: message})
+		if message != nil {
+			entries = append(entries, entry{message: message})
+		}
 	}
 	for _, artifact := range task.Artifacts {
-		entries = append(entries, entry{artifact: artifact})
+		if artifact != nil {
+			entries = append(entries, entry{artifact: artifact})
+		}
 	}
 	positions := make([]time.Time, len(entries))
 	for i, e := range entries {
