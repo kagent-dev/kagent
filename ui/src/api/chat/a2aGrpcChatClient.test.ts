@@ -215,6 +215,7 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
     })) {
       void event;
     }
+    expect(headers?.["a2a-version"]).toBe("1.0");
     expect(headers?.["a2a-extensions"]).toBe("https://kagent.dev/extensions/hitl/v1");
   });
 
