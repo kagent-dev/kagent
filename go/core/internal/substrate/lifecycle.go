@@ -19,6 +19,7 @@ type LifecycleClient interface {
 	CheckActorEgressPolicy(context.Context, string, string) error
 	EnsureActorEgressPolicy(context.Context, string, string, string) error
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
+	RevertActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
 	DeleteActor(context.Context, string, string) error
 }
@@ -51,6 +52,9 @@ type ActorTransition struct {
 	operation apiv1.RuntimeOperation
 	actor     *ateapipb.Actor
 	creation  *ActorCreation
+	// revert restores a crashed Actor to its last durable snapshot. The
+	// operation stays RESUME because that is what the Session records.
+	revert bool
 }
 
 // ActorUID returns the observed runtime identity, including after creation.
@@ -118,6 +122,26 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 	return &ActorTransition{binding: binding, operation: operation, actor: actor, creation: creation}, nil
 }
 
+// PrepareActorRevert performs the read-only checks for crash recovery before
+// the store's durable claim. Reading first keeps a failed or missing Actor from
+// leaving a claim behind, so Delete can still supersede the unissued recovery.
+// A SUSPENDED Actor means an earlier revert completed and its response was lost.
+func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding) (*ActorTransition, error) {
+	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
+	if err != nil {
+		return nil, fmt.Errorf("get Actor %s/%s: %w", binding.Atespace, binding.Name, err)
+	}
+	if !binding.Matches(actor) {
+		return nil, fmt.Errorf("actor %s/%s identity or template changed", binding.Atespace, binding.Name)
+	}
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_REVERTING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
+	default:
+		return nil, fmt.Errorf("crashed Actor %s/%s has unexpected state %s", binding.Atespace, binding.Name, actor.GetStatus().GetState())
+	}
+	return &ActorTransition{binding: binding, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, actor: actor, revert: true}, nil
+}
+
 // ApplyActorTransition requires durable execution authority. Errors retain the
 // claim's durable intent and pins. Another bounded attempt can retry that intent.
 func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transition *ActorTransition) error {
@@ -125,6 +149,9 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 		return err
 	}
 	binding, actor := transition.binding, transition.actor
+	if transition.revert {
+		return transition.applyRevert(ctx, actors)
+	}
 	var err error
 	switch transition.operation {
 	case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
@@ -198,6 +225,30 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 	}
 	if err != nil {
 		return fmt.Errorf("perform %s on Actor %s/%s: %w", transition.operation, binding.Atespace, binding.Name, err)
+	}
+	return nil
+}
+
+// applyRevert must not replace the Actor or roll it past the snapshot observed
+// before the claim. A changed UID or snapshot means something other than this
+// recovery acted on the runtime, so the Session must not adopt the result.
+func (t *ActorTransition) applyRevert(ctx context.Context, actors LifecycleClient) error {
+	binding, actor := t.binding, t.actor
+	before := proto.CloneOf(LatestDurableActorSnapshot(actor))
+	if before != nil {
+		// Revert restores onto any node, so the locality of the source copy is
+		// expected to change.
+		before.Locality = ""
+	}
+	if state := actor.GetStatus().GetState(); state == ateapipb.ActorState_ACTOR_STATE_CRASHED || state == ateapipb.ActorState_ACTOR_STATE_REVERTING {
+		reverted, err := actors.RevertActor(ctx, binding.Atespace, binding.Name)
+		if err != nil {
+			return fmt.Errorf("revert crashed Actor %s/%s: %w", binding.Atespace, binding.Name, err)
+		}
+		actor = reverted
+	}
+	if t.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED) != nil || !proto.Equal(before, LatestActorSnapshot(actor)) {
+		return fmt.Errorf("revert Actor %s/%s returned unexpected identity or state", binding.Atespace, binding.Name)
 	}
 	return nil
 }

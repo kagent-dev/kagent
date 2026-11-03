@@ -587,3 +587,51 @@ func TestStartRetriesAdmittedRecoveryWhileIdleWorkBlocks(t *testing.T) {
 	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
 	require.EqualValues(t, idleSessions, actors.entered.Load(), "idle work stayed blocked while recovery completed")
 }
+
+// A recovery whose Actor cannot be read has issued nothing, so it must not take
+// a claim that would make Delete refuse the Session.
+func TestDeleteSupersedesUnissuedCrashRecovery(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		gone    bool
+		readErr error
+	}{
+		{name: "actor read fails", readErr: status.Error(codes.Unavailable, "control plane unavailable")},
+		{name: "actor is gone", gone: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, base, session, _, _ := crashedTurnFixture(t)
+			key := actorKey("team-a", substrate.ActorName(session.Id))
+			_, err := store.BeginCrashedSessionRecovery(t.Context(), session.Id, revertGeneration(t, store, session.Id), base.actors[key].GetMetadata().GetUid(), database.SessionTaskSnapshot{})
+			require.NoError(t, err)
+			if test.gone {
+				delete(base.actors, key)
+			}
+			actors := &recoveryTestActors{lifecycleTestActors: base, readErr: test.readErr}
+			actors.revert = func(context.Context, string, string) (*ateapipb.Actor, error) {
+				t.Fatal("an unread Actor was reverted")
+				return nil, nil
+			}
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+			admitted, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			_, err = workflow.Revert(t.Context(), admitted)
+			require.Error(t, err)
+			_, err = workflow.recoverSessionPage(t.Context(), "")
+			require.NoError(t, err)
+
+			pending, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, pending.State)
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, pending.Operation, "a failed read keeps the recovery for the next scan")
+			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
+			_, err = base.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+			require.Equal(t, codes.NotFound, status.Code(err))
+			page, err := store.ListSessionRecoveryCandidates(t.Context(), "", 100)
+			require.NoError(t, err)
+			require.Empty(t, page)
+		})
+	}
+}
