@@ -189,6 +189,13 @@ func sessionServer(t *testing.T, store *sessionStore, gateway *turnGateway) *mcp
 	return server
 }
 
+func jsonText(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(data)
+}
+
 func structured[T any](t *testing.T, result *mcp.CallToolResult) T {
 	t.Helper()
 	require.False(t, result.IsError, "tool error: %v", result.Content)
@@ -367,8 +374,19 @@ func TestGetSessionReadsTurnsWithinBudget(t *testing.T) {
 	require.NotEmpty(t, tight.Hint)
 }
 
-func TestGetTaskUnwrapsToolCall(t *testing.T) {
-	response := map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"lines":2}`}}, "isError": true}
+// itemMessage decodes a get_task item's message as A2A.
+func itemMessage(t *testing.T, item TaskItem) *a2atype.Message {
+	t.Helper()
+	require.NotNil(t, item.Message, "item %d is not a message", item.Index)
+	data, err := json.Marshal(item.Message)
+	require.NoError(t, err)
+	var message a2atype.Message
+	require.NoError(t, json.Unmarshal(data, &message))
+	return &message
+}
+
+func TestGetTaskAnswersToolCallParts(t *testing.T) {
+	response := map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"id":9007199254740993}`}}, "isError": true}
 	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "failed", response)}}
 	server := sessionServer(t, newSessionStore(readySession()), gateway)
 
@@ -377,17 +395,19 @@ func TestGetTaskUnwrapsToolCall(t *testing.T) {
 	}))
 	require.Equal(t, "task-0", output.TaskID)
 	require.NotNil(t, output.ToolCall)
-	require.True(t, output.ToolCall.Error)
-	require.JSONEq(t, `{"path":"/etc/hosts"}`, jsonText(output.ToolCall.Args))
-	require.JSONEq(t, `{"lines":2}`, jsonText(output.ToolCall.Response))
+	require.False(t, output.Truncated)
+	require.JSONEq(t, jsonText(t, apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})), jsonText(t, output.ToolCall.Call))
+	require.Contains(t, jsonText(t, output.ToolCall.Result), `{\"id\":9007199254740993}`, "a tool's JSON text reaches the client as written")
 
-	transcript := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+	items := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
 		"session_id": testSessionID, "task_id": "task-0",
 	}))
-	require.Equal(t, 4, transcript.TotalMessages)
-	require.NotNil(t, transcript.Messages[1].Parts[0].ToolCall)
-	require.NotNil(t, transcript.Messages[2].Parts[0].ToolResult)
-	require.True(t, transcript.Messages[2].Parts[0].ToolResult.Error)
+	require.Equal(t, 4, items.TotalItems)
+	require.Len(t, items.Items, 4)
+	activity, ok := apia2a.ParseToolActivity(itemMessage(t, items.Items[1]).Parts[0])
+	require.True(t, ok)
+	require.Equal(t, apia2a.ToolCallKind, activity.Kind)
+	require.Equal(t, "failed", itemMessage(t, items.Items[3]).Parts[0].Text())
 }
 
 func TestGetSessionReadsToolCallsFromArtifacts(t *testing.T) {
@@ -403,18 +423,19 @@ func TestGetSessionReadsToolCallsFromArtifacts(t *testing.T) {
 	}))
 	require.NotNil(t, call.ToolCall)
 	require.False(t, call.ToolCall.Pending)
-	require.Equal(t, "127.0.0.1 localhost", call.ToolCall.Response)
+	require.Contains(t, jsonText(t, call.ToolCall.Result), "127.0.0.1 localhost")
 
-	transcript := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0"}))
-	require.Equal(t, 5, transcript.TotalMessages)
-	roles := make([]string, 0, len(transcript.Messages))
-	for _, message := range transcript.Messages {
-		roles = append(roles, message.Role)
+	task := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0"}))
+	require.Equal(t, 5, task.TotalItems)
+	kinds := make([]string, 0, len(task.Items))
+	for _, item := range task.Items {
+		if item.Artifact != nil {
+			kinds = append(kinds, "artifact")
+		} else {
+			kinds = append(kinds, string(itemMessage(t, item).Role))
+		}
 	}
-	require.Equal(t, []string{"user", "artifact", "artifact", "artifact", "agent"}, roles, "entries follow their timeline positions")
-	require.NotNil(t, transcript.Messages[1].Parts[0].ToolCall)
-	require.NotNil(t, transcript.Messages[2].Parts[0].ToolResult)
-	require.Equal(t, "the file has two lines", transcript.Messages[3].Parts[0].Text)
+	require.Equal(t, []string{string(a2atype.MessageRoleUser), "artifact", "artifact", "artifact", string(a2atype.MessageRoleAgent)}, kinds, "entries follow their timeline positions")
 }
 
 func TestReadTurnCountsActivityRecordedTwiceOnce(t *testing.T) {
@@ -425,10 +446,10 @@ func TestReadTurnCountsActivityRecordedTwiceOnce(t *testing.T) {
 	}
 	turn := readTurn(task)
 	require.Len(t, turn.calls, 1)
-	require.True(t, turn.calls[0].answered)
+	require.Same(t, task.History[1].Parts[0], turn.calls[0].call, "the first recording of a call is kept")
+	require.Same(t, task.History[2].Parts[0], turn.calls[0].result)
 	require.Equal(t, 6, turn.items(), "without timeline positions the artifacts follow the messages")
-	require.Equal(t, "artifact", turn.messageView(4).Role)
-	require.Equal(t, 0, turn.messageView(5).Parts[0].ToolResult.Index)
+	require.Equal(t, task.Artifacts[0], turn.item(4).Artifact)
 }
 
 func TestGetTaskTakesAnIntegerToolCallIndex(t *testing.T) {
@@ -552,51 +573,6 @@ func TestSessionToolAnnotations(t *testing.T) {
 	}
 }
 
-func TestUnwrapResponse(t *testing.T) {
-	for name, test := range map[string]struct {
-		in     any
-		want   any
-		failed bool
-	}{
-		"plain":           {in: "hello", want: "hello"},
-		"runtime result":  {in: map[string]any{"result": "ok", "isError": false}, want: "ok"},
-		"mcp text":        {in: map[string]any{"content": []any{map[string]any{"type": "text", "text": "out"}}}, want: "out"},
-		"nested json":     {in: `{"result":"{\"a\":1}"}`, want: map[string]any{"a": float64(1)}},
-		"error field":     {in: map[string]any{"error": "boom"}, want: map[string]any{"error": "boom"}, failed: true},
-		"empty error":     {in: map[string]any{"error": ""}, want: map[string]any{"error": ""}},
-		"mcp error layer": {in: map[string]any{"content": []any{map[string]any{"type": "text", "text": "denied"}}, "isError": true}, want: "denied", failed: true},
-		"mcp structured mirrored in text": {
-			in:   map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"rows":[1,2]}`}}, "structuredContent": map[string]any{"rows": []any{float64(1), float64(2)}}},
-			want: map[string]any{"rows": []any{float64(1), float64(2)}},
-		},
-		"mcp structured without content": {
-			in:   map[string]any{"content": []any{}, "structuredContent": map[string]any{"rows": []any{}}},
-			want: map[string]any{"rows": []any{}},
-		},
-		"mcp structured beside a summary stays whole": {
-			in: map[string]any{
-				"content":           []any{map[string]any{"type": "text", "text": "2 rows"}},
-				"structuredContent": map[string]any{"rows": []any{float64(1), float64(2)}},
-			},
-			want: map[string]any{
-				"content":           []any{map[string]any{"type": "text", "text": "2 rows"}},
-				"structuredContent": map[string]any{"rows": []any{float64(1), float64(2)}},
-			},
-		},
-		"mcp structured beside a summary reports its error": {
-			in:     map[string]any{"content": []any{map[string]any{"type": "text", "text": "failed"}}, "structuredContent": map[string]any{"code": "x"}, "isError": true},
-			want:   map[string]any{"content": []any{map[string]any{"type": "text", "text": "failed"}}, "structuredContent": map[string]any{"code": "x"}, "isError": true},
-			failed: true,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			got, failed := unwrapResponse(test.in)
-			require.Equal(t, test.want, got)
-			require.Equal(t, test.failed, failed)
-		})
-	}
-}
-
 func TestClipText(t *testing.T) {
 	require.Equal(t, "short", clipText("short", 10))
 	clipped := clipText(strings.Repeat("é", 100), 40)
@@ -643,48 +619,57 @@ func longTurn(n, size int) *a2atype.Task {
 	return &a2atype.Task{ID: "task-0", ContextID: testSessionID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}, History: history}
 }
 
-func TestGetTaskPagesByMessage(t *testing.T) {
+func TestGetTaskPagesByItem(t *testing.T) {
 	gateway := &turnGateway{tasks: []*a2atype.Task{longTurn(12, 1000)}}
 	server := sessionServer(t, newSessionStore(readySession()), gateway)
 
-	for _, detail := range []string{detailTranscript, detailFull} {
-		t.Run(detail, func(t *testing.T) {
-			var seen int
-			from := 0
-			for pages := 0; ; pages++ {
-				require.Less(t, pages, 20, "paging does not advance")
-				result := callTool(t, server, getTaskToolName, map[string]any{
-					"session_id": testSessionID, "task_id": "task-0", "detail": detail, "from_message": from, "max_bytes": minSessionMaxBytes,
-				})
-				page := structured[GetTaskOutput](t, result)
-				require.LessOrEqual(t, jsonSize(result.StructuredContent), minSessionMaxBytes)
-				require.Equal(t, 13, page.TotalMessages)
-				seen += len(page.Messages) + len(page.History)
-				if page.NextMessage == 0 {
-					require.False(t, page.Truncated)
-					break
-				}
-				require.True(t, page.Truncated)
-				require.Greater(t, page.NextMessage, from)
-				from = page.NextMessage
-			}
-			require.Equal(t, 13, seen)
+	var seen int
+	from := 0
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 20, "paging does not advance")
+		result := callTool(t, server, getTaskToolName, map[string]any{
+			"session_id": testSessionID, "task_id": "task-0", "from_item": from, "max_bytes": minSessionMaxBytes,
 		})
+		page := structured[GetTaskOutput](t, result)
+		require.LessOrEqual(t, jsonSize(result.StructuredContent), minSessionMaxBytes)
+		require.Equal(t, 13, page.TotalItems)
+		for _, item := range page.Items {
+			require.Zero(t, item.OmittedBytes)
+		}
+		seen += len(page.Items)
+		if page.NextItem == 0 {
+			require.False(t, page.Truncated)
+			break
+		}
+		require.True(t, page.Truncated)
+		require.Greater(t, page.NextItem, from)
+		from = page.NextItem
 	}
+	require.Equal(t, 13, seen)
 }
 
-func TestGetTaskFullAnswersA2AMessages(t *testing.T) {
+func TestGetTaskFlagsAnItemOverMaxBytes(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{longTurn(1, 10_000)}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	first := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0", "from_item": 1, "max_bytes": minSessionMaxBytes,
+	}))
+	require.Len(t, first.Items, 1)
+	require.Nil(t, first.Items[0].Message)
+	require.Greater(t, first.Items[0].OmittedBytes, 10_000)
+	require.Zero(t, first.NextItem, "no item is left for another page")
+	require.True(t, first.Truncated, "an omitted item makes the answer incomplete")
+	require.Contains(t, first.Hint, "omitted_bytes")
+}
+
+func TestGetTaskAnswersA2AMessages(t *testing.T) {
 	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "done", "ok")}}
 	server := sessionServer(t, newSessionStore(readySession()), gateway)
 
-	full := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0", "detail": detailFull}))
-	require.Len(t, full.History, full.TotalMessages)
-	require.Empty(t, full.Messages)
-	data, err := json.Marshal(full.History[0])
-	require.NoError(t, err)
-	var message a2atype.Message
-	require.NoError(t, json.Unmarshal(data, &message))
-	require.Equal(t, "read it", message.Parts[0].Text())
+	task := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0"}))
+	require.Len(t, task.Items, task.TotalItems)
+	require.Equal(t, "read it", itemMessage(t, task.Items[0]).Parts[0].Text())
 }
 
 func TestFitTurnStaysWithinBudget(t *testing.T) {
@@ -701,44 +686,21 @@ func TestFitTurnStaysWithinBudget(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestFitMessageStaysWithinBudget(t *testing.T) {
-	in := TurnMessage{Index: 1, Role: "agent", Parts: []PartView{{Text: strings.Repeat("a", 4000)}, {Text: strings.Repeat("b", 4000)}}}
-	out := fitMessage(in, 1000)
-	require.LessOrEqual(t, jsonSize(out), 1000)
-	require.True(t, out.Clipped)
-	require.Len(t, out.Parts, 2)
-	require.Len(t, in.Parts[0].Text, 4000, "input is left unchanged")
-
-	require.Nil(t, fitMessage(in, 40).Parts)
-}
-
-func TestToolCallDetailStaysWithinBudget(t *testing.T) {
+func TestToolCallPartsStayWithinBudget(t *testing.T) {
 	task := toolTurn("task-0", "read it", "done", map[string]any{"result": strings.Repeat("y", 20000)})
-	turn := readTurn(task)
-	call := turn.calls[0]
+	call := readTurn(task).calls[0]
 
-	whole, clipped := turn.toolCallDetail(call, 1<<20)
-	require.False(t, clipped)
-	require.Equal(t, strings.Repeat("y", 20000), whole.Response)
+	whole, omitted := call.parts(1 << 20)
+	require.False(t, omitted)
+	require.NotNil(t, whole.Call)
+	require.NotNil(t, whole.Result)
 
-	small, clipped := turn.toolCallDetail(call, 2000)
-	require.True(t, clipped)
+	small, omitted := call.parts(2000)
+	require.True(t, omitted)
 	require.LessOrEqual(t, jsonSize(small), 2000)
-	require.NotNil(t, small.Args, "small arguments stay whole")
-	require.Nil(t, small.Response)
-	require.Contains(t, small.ResponseText, "bytes clipped]")
-}
-
-func TestToolCallDetailPendingCallWithLargeArgs(t *testing.T) {
-	call := &toolCall{id: "c", name: "write_file", args: map[string]any{"content": strings.Repeat("x", 20000)}}
-	out, clipped := (&turn{}).toolCallDetail(call, 4096)
-	require.True(t, clipped)
-	require.True(t, out.Pending)
-	require.Nil(t, out.Response, "a pending call has no response to show")
-	_, err := json.Marshal(out)
-	require.NoError(t, err)
-	require.LessOrEqual(t, jsonSize(out), 4096)
-	require.Contains(t, out.ArgsText, "bytes clipped]")
+	require.NotNil(t, small.Call, "the small call part stays")
+	require.Nil(t, small.Result)
+	require.Greater(t, small.OmittedBytes, 20000)
 }
 
 func TestGetSessionReplyFallsBackToHistory(t *testing.T) {
