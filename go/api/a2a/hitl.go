@@ -3,6 +3,8 @@ package a2a
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"slices"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -15,6 +17,18 @@ const (
 	HITLTypeAskUserRequest       = "ask_user_request"
 	HITLTypeToolApprovalResponse = "tool_approval_response"
 	HITLTypeAskUserResponse      = "ask_user_response"
+	// HITLTypeURLElicitationRequest asks the person to open a URL out of band,
+	// such as an MCP server's sign-in link (MCP URL mode elicitation). It is
+	// carried by the input-required task state, like the other requests.
+	HITLTypeURLElicitationRequest  = "url_elicitation_request"
+	HITLTypeURLElicitationResponse = "url_elicitation_response"
+)
+
+// URL elicitation actions, as defined by MCP elicitation.
+const (
+	URLElicitationAccept  = "accept"
+	URLElicitationDecline = "decline"
+	URLElicitationCancel  = "cancel"
 )
 
 // HITLExtension returns the optional Agent Card capability implemented by
@@ -92,6 +106,26 @@ type AskUserResponse struct {
 	Type    string          `json:"type"`
 	ID      string          `json:"id"`
 	Answers []AskUserAnswer `json:"answers,omitempty"`
+}
+
+// URLElicitationRequest asks the person to open URL outside the conversation.
+// Server names the MCP server that asked. ElicitationID is the server's own
+// correlation, when it sent one.
+type URLElicitationRequest struct {
+	Type          string `json:"type"`
+	ID            string `json:"id"`
+	Server        string `json:"server"`
+	Message       string `json:"message,omitempty"`
+	URL           string `json:"url"`
+	ElicitationID string `json:"elicitation_id,omitempty"`
+}
+
+// URLElicitationResponse answers one URL elicitation. Accept means the person
+// completed the interaction at the URL.
+type URLElicitationResponse struct {
+	Type   string `json:"type"`
+	ID     string `json:"id"`
+	Action string `json:"action"`
 }
 
 // AttachHITL adds a typed HITL payload and extension declaration to a message.
@@ -197,6 +231,74 @@ func ParseAskUserRequest(message *a2atype.Message) (*AskUserRequest, error) {
 		return nil, fmt.Errorf("ask-user request ID is required")
 	}
 	return &request, nil
+}
+
+// ParseURLElicitationRequest decodes a URL elicitation request when one is present.
+func ParseURLElicitationRequest(message *a2atype.Message) (*URLElicitationRequest, error) {
+	raw, ok := hitlPayload(message)
+	if !ok || raw["type"] != HITLTypeURLElicitationRequest {
+		return nil, nil
+	}
+	var request URLElicitationRequest
+	if err := decodeHITLPayload(raw, &request); err != nil {
+		return nil, fmt.Errorf("decode URL elicitation request: %w", err)
+	}
+	if request.ID == "" {
+		return nil, fmt.Errorf("URL elicitation request needs an ID")
+	}
+	if err := ValidateElicitationURL(request.URL); err != nil {
+		return nil, err
+	}
+	return &request, nil
+}
+
+// ValidateElicitationURL accepts a URL that is safe to show the person as a
+// link: https, or http on a loopback host, with no user info, which would let
+// the link read as another host.
+func ValidateElicitationURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("URL elicitation URL is invalid: %w", err)
+	}
+	if parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("URL elicitation URL needs a host and no user info")
+	}
+	switch parsed.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if host := parsed.Hostname(); host == "localhost" || net.ParseIP(host).IsLoopback() {
+			return nil
+		}
+	}
+	return fmt.Errorf("URL elicitation URL must use https, or http on a loopback host")
+}
+
+// ParseURLElicitationResponse decodes a URL elicitation response.
+// ValidateURLElicitationResponse checks its correlation.
+func ParseURLElicitationResponse(message *a2atype.Message) (*URLElicitationResponse, error) {
+	raw, ok := hitlPayload(message)
+	if !ok || raw["type"] != HITLTypeURLElicitationResponse {
+		return nil, fmt.Errorf("URL elicitation response payload is required")
+	}
+	var response URLElicitationResponse
+	if err := decodeHITLPayload(raw, &response); err != nil {
+		return nil, fmt.Errorf("decode URL elicitation response: %w", err)
+	}
+	switch response.Action {
+	case URLElicitationAccept, URLElicitationDecline, URLElicitationCancel:
+	default:
+		return nil, fmt.Errorf("URL elicitation action %q is not accept, decline or cancel", response.Action)
+	}
+	return &response, nil
+}
+
+// ValidateURLElicitationResponse verifies that response answers request.
+func ValidateURLElicitationResponse(request *URLElicitationRequest, response *URLElicitationResponse) error {
+	if request == nil || response == nil || request.ID != response.ID {
+		return fmt.Errorf("URL elicitation response has invalid correlation")
+	}
+	return nil
 }
 
 // ValidateToolApprovalResponse verifies that every request ID is decided exactly once.
