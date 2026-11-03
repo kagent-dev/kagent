@@ -345,7 +345,7 @@ controller-manifests: ## Regenerate CRD manifests in the Helm chart
 build-controller: ## Build and push the controller image
 build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
-		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
+		--build-arg BUILD_PACKAGE=./core/cmd/controller \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 

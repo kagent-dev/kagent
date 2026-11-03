@@ -142,6 +142,54 @@ Policy edits update running and suspended sandboxes without replacing their Acto
 Creation and resume apply that effective policy before execution, without
 translating Kubernetes inputs.
 
+## Anthropic Managed Agents launcher (experimental)
+
+The shipped controller can poll an Anthropic self-hosted environment and start
+the stock Anthropic CLI in a Sandbox. Enable it with
+`KAGENT_MANAGED_AGENTS_ENABLED=true`. Every enabled replica polls independently.
+The bundled launcher calls the same top-level Sandbox service operations as the
+gRPC handlers, in-process; it does not call a loopback API or access Substrate
+and persistence internals directly.
+
+| Controller environment variable | Purpose |
+| --- | --- |
+| `ANTHROPIC_ENVIRONMENT_ID` | Required self-hosted environment ID |
+| `ANTHROPIC_ENVIRONMENT_KEY` | Required environment polling credential |
+| `ANTHROPIC_BASE_URL` | Optional Anthropic endpoint override, also passed to the CLI |
+| `KAGENT_MANAGED_AGENTS_TEMPLATE_NAMESPACE` | Required SandboxTemplate namespace |
+| `KAGENT_MANAGED_AGENTS_TEMPLATE_NAME` | Required SandboxTemplate name |
+
+The controller supplies a stable, credentialless internal principal derived from
+the Anthropic environment ID using `auth.PrincipalID("kagent:managed-agents", id)`.
+Replicas and restarts reuse that owner. The Sandbox service still applies the
+configured authorizer; no human bearer credential or local API TLS setup is
+needed. Guest routing continues through the existing Sandbox service.
+
+The selected template's tools image must contain `ant` v2.5.0 (or a verified
+compatible version), `/bin/bash`, task tools, and writable `/data/workspace`.
+The guest server remains the entrypoint. Reference same-namespace EgressPolicies
+through `spec.egressPolicyRefs` to allow Anthropic API/resource origins and task
+destinations, and ensure the CLI trusts the egress gateway CA.
+
+The launcher maintains the work lease during provisioning, then starts
+`ant beta:worker run --workdir /data/workspace --log-format json`. It transfers
+only session/work IDs, the opaque scoped work secret, and the final heartbeat
+token through process environment. Standing Anthropic and kagent credentials
+are never passed to the worker. The CLI owns streaming, tools, results, and
+subsequent heartbeats.
+
+Each claimed assignment launches in its own goroutine, so provisioning does not
+block polling or other launches. There is no per-replica launch concurrency cap.
+Shutdown cancels and joins pending launches without stopping established workers.
+
+A deterministic creation receipt reuses one Sandbox per environment/session,
+including resuming a suspended instance. Its absolute lifetime is fixed at one
+hour; expiration can interrupt active work and delete files. There is no idle
+collector or automatic replacement of expired workspaces. Established workers
+continue when their launching controller stops. Process startup is not retried:
+this prototype assumes a definitive response and does not reconcile ambiguous
+starts, crashes during handoff, or exactly-once execution.
+
 ## Lifecycle and recovery
 
 `SandboxService` exposes Create, Get, List, Suspend, Resume, and Delete. Creation

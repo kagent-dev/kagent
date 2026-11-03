@@ -71,6 +71,11 @@ func run(path string, check bool, level string) error {
 			return err
 		}
 	}
+	managedConfig, err := loadManagedAgentsConfig(os.Getenv) //nolint:forbidigo // Registered integration settings read once at the executable boundary.
+	if err != nil {
+		slog.Default().Error("managed agents disabled due to invalid configuration", "error", err)
+		managedConfig = nil
+	}
 	if check {
 		return nil
 	}
@@ -85,7 +90,8 @@ func run(path string, check bool, level string) error {
 	}
 	// These downward-API inputs describe this pod, not runtime defaults.
 	podTelemetryDefaults(cfg, os.Getenv) //nolint:forbidigo // Private pod identity supplied by Helm.
-	if err := app.Run(ctx, cfg, app.Options{Authenticator: authenticator}); err != nil {
+	options := app.Options{Authenticator: authenticator, ManagedAgents: managedConfig}
+	if err := app.Run(ctx, cfg, options); err != nil {
 		slog.Default().ErrorContext(ctx, "controller stopped", "error", err)
 		return err
 	}
