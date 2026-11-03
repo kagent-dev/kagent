@@ -57,21 +57,22 @@ checkout() {
   echo "$1" >"${dir}/.pin"
 }
 
-# package <git url>@<commit> builds that commit's registry into a Weaver package.
+# package <git url>@<commit> builds that commit's registry into a Weaver package; a Weaver bump rebuilds it.
 package() {
   local commit dir
   commit="$(commit_of "$1")"
   dir="$(dir_of "$1")"
-  if present "${dir}" "$1"; then
+  if present "${dir}" "$1 ${WEAVER_VERSION}"; then
     echo "$(basename "${dir}"): ${commit:0:12} present"
     return
   fi
   echo "$(basename "${dir}"): packaging ${commit:0:12}"
   rm -rf "${dir}"
   telemetry/weaver.sh registry package -r "$1[model]" --v2 --skip-policies --resolved-registry-uri resolved.yaml -o "${dir}" --quiet
-  echo "$1" >"${dir}/.pin"
+  echo "$1 ${WEAVER_VERSION}" >"${dir}/.pin"
 }
 
+# The core registry stays a checkout: as a v2 package, its excluded GenAI spans collide with the imports.
 checkout "${SEMCONV_CORE_REGISTRY}"
 checkout "${WEAVER_PACKAGES}"
 package "${SEMCONV_GENAI_REGISTRY}"
