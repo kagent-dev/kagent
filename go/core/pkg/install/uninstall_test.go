@@ -12,9 +12,13 @@ import (
 )
 
 func TestUninstallReversesInstall(t *testing.T) {
-	const listReleases = "helm list --all-namespaces --deployed --failed --pending --uninstalling --filter ^kagent(-crds)?$ --output json"
+	const (
+		listReleases = "helm list --all-namespaces --deployed --failed --pending --uninstalling --filter ^kagent(-crds)?$ --output json"
+		listPools    = "kubectl get workerpools.ate.dev --all-namespaces -l app.kubernetes.io/instance!=kagent -o jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name} {end}"
+	)
 	before := []string{
 		listReleases,
+		listPools,
 		"kubectl delete sandboxtemplates.api.kagent.dev --all --all-namespaces --ignore-not-found --timeout=5m",
 		"helm uninstall kagent --namespace kagent --wait",
 		"kubectl delete sandboxconfigs.ate.dev --all --ignore-not-found --timeout=5m",
@@ -30,16 +34,18 @@ func TestUninstallReversesInstall(t *testing.T) {
 		"kubectl delete clustertrustbundles.certificates.k8s.io " + strings.Join(substrateTrustBundles, " ") + " --ignore-not-found --timeout=5m",
 	}
 	for _, tc := range []struct {
-		name, releases, deployment, wantErr string
-		alreadyGone                         bool
-		want                                []string
+		name, releases, deployment, pools, wantErr string
+		alreadyGone                                bool
+		want                                       []string
 	}{
-		{"bundled database", `[{"namespace":"kagent"}]`, "deployment.apps/kagent-postgresql", "", false,
+		{"bundled database", `[{"namespace":"kagent"}]`, "deployment.apps/kagent-postgresql", "", "", false,
 			slices.Concat(before, []string{"kubectl delete --ignore-not-found -f -"}, after)},
-		{"external database", `[{"namespace":"kagent"}]`, "", "", false, slices.Concat(before, after)},
-		{"interrupted uninstall", `[]`, "", "", true, slices.Concat(before, after)},
-		{"wrong namespace", `[{"namespace":"other"}]`, "", "namespace other, not kagent", false, []string{listReleases}},
-		{"CRDs left in another namespace", `[{"name":"kagent-crds","namespace":"other"}]`, "", "namespace other, not kagent", false, []string{listReleases}},
+		{"external database", `[{"namespace":"kagent"}]`, "", "", "", false, slices.Concat(before, after)},
+		{"interrupted uninstall", `[]`, "", "", "", true, slices.Concat(before, after)},
+		{"wrong namespace", `[{"namespace":"other"}]`, "", "", "namespace other, not kagent", false, []string{listReleases}},
+		{"CRDs left in another namespace", `[{"name":"kagent-crds","namespace":"other"}]`, "", "", "namespace other, not kagent", false, []string{listReleases}},
+		{"user worker pools", `[{"namespace":"kagent"}]`, "", "team/http default/batch ", "self-managed WorkerPools team/http, default/batch", false,
+			[]string{listReleases, listPools}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runner := &recordingRunner{run: func(cmd Command) (string, error) {
@@ -49,6 +55,11 @@ func TestUninstallReversesInstall(t *testing.T) {
 					return tc.releases, nil
 				case strings.Contains(args, "get deployment/kagent-postgresql"):
 					return tc.deployment, nil
+				case strings.HasPrefix(args, "get workerpools"):
+					if tc.alreadyGone {
+						return "", errors.New("the server doesn't have a resource type")
+					}
+					return tc.pools, nil
 				case tc.alreadyGone && cmd.Program == "helm":
 					return "", errors.New("release not found")
 				case tc.alreadyGone && strings.HasPrefix(args, "delete sandbox"):
@@ -59,6 +70,11 @@ func TestUninstallReversesInstall(t *testing.T) {
 				return "", nil
 			}}
 			result, err := NewClient(runner, fake.NewSimpleClientset()).Uninstall(t.Context(), "kagent", "postgres:18-alpine", nil)
+			if tc.pools != "" {
+				var poolsErr *SelfManagedWorkerPoolsError
+				require.ErrorAs(t, err, &poolsErr)
+				require.Equal(t, strings.Fields(tc.pools), poolsErr.Pools)
+			}
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 			} else {
@@ -80,7 +96,7 @@ func TestUninstallReversesInstall(t *testing.T) {
 }
 
 func TestUninstallStopsAtFailure(t *testing.T) {
-	for _, failAt := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11} {
+	for _, failAt := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12} {
 		t.Run(fmt.Sprintf("command_%d", failAt), func(t *testing.T) {
 			failure := errors.New("cluster unavailable")
 			calls := 0
@@ -99,4 +115,17 @@ func TestUninstallStopsAtFailure(t *testing.T) {
 			require.Equal(t, failAt+1, calls)
 		})
 	}
+}
+
+func TestDeleteWorkerPools(t *testing.T) {
+	runner := &recordingRunner{}
+	require.NoError(t, NewClient(runner, fake.NewSimpleClientset()).DeleteWorkerPools(t.Context(), []string{"team/http", "default/batch"}))
+	var commands []string
+	for _, cmd := range runner.commands {
+		commands = append(commands, cmd.Program+" "+strings.Join(cmd.Args, " "))
+	}
+	require.Equal(t, []string{
+		"kubectl delete workerpools.ate.dev --namespace team http --ignore-not-found --timeout=5m",
+		"kubectl delete workerpools.ate.dev --namespace default batch --ignore-not-found --timeout=5m",
+	}, commands)
 }

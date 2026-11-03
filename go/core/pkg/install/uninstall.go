@@ -57,6 +57,44 @@ func (c *Client) deleteServed(ctx context.Context, resource string, args ...stri
 	return nil
 }
 
+// SelfManagedWorkerPoolsError stops an uninstall before anything is deleted.
+// Pools lists the WorkerPools outside the kagent release as namespace/name.
+// DeleteWorkerPools removes them so a rerun can proceed.
+type SelfManagedWorkerPoolsError struct{ Pools []string }
+
+func (e *SelfManagedWorkerPoolsError) Error() string {
+	return fmt.Sprintf("self-managed WorkerPools %s run on the Substrate that uninstall removes; delete them first", strings.Join(e.Pools, ", "))
+}
+
+// selfManagedWorkerPools lists WorkerPools outside the kagent release as
+// namespace/name. A cluster that no longer serves WorkerPools has none.
+func (c *Client) selfManagedWorkerPools(ctx context.Context) ([]string, error) {
+	out, err := c.kubectl(ctx, "", "get", "workerpools.ate.dev", "--all-namespaces", "-l", "app.kubernetes.io/instance!="+kagentRelease,
+		"-o", "jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name} {end}")
+	if err != nil {
+		if strings.Contains(out+err.Error(), "doesn't have a resource type") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list Substrate worker pools: %w", err)
+	}
+	return strings.Fields(out), nil
+}
+
+// DeleteWorkerPools deletes namespace/name WorkerPools and waits for
+// atecontroller to finalize them.
+func (c *Client) DeleteWorkerPools(ctx context.Context, pools []string) error {
+	for _, pool := range pools {
+		namespace, name, ok := strings.Cut(pool, "/")
+		if !ok {
+			return fmt.Errorf("worker pool %q is not namespace/name", pool)
+		}
+		if err := c.deleteServed(ctx, "workerpools.ate.dev", "--namespace", namespace, name); err != nil {
+			return fmt.Errorf("delete worker pool %s: %w", pool, err)
+		}
+	}
+	return nil
+}
+
 // substrateTrustBundles are the cluster-scoped ClusterTrustBundles Substrate's
 // controllers publish. Kubernetes requires a bundle whose name has a signer
 // prefix to carry that signer, so the names alone identify them.
@@ -84,6 +122,16 @@ func (c *Client) Uninstall(ctx context.Context, namespace, postgresImage string,
 	}
 	if len(releaseNamespaces) > 0 && !slices.Contains(releaseNamespaces, namespace) {
 		return result, fmt.Errorf("kagent is installed in namespace %s, not %s; rerun with --namespace %s", strings.Join(releaseNamespaces, ", "), namespace, releaseNamespaces[0])
+	}
+	// atecontroller keeps a SandboxConfig while any WorkerPool uses it, so a
+	// WorkerPool outside the kagent release would stall the uninstall halfway.
+	// Those pools belong to the user, so they stop it before anything is deleted.
+	pools, err := c.selfManagedWorkerPools(ctx)
+	if err != nil {
+		return result, err
+	}
+	if len(pools) > 0 {
+		return result, &SelfManagedWorkerPoolsError{Pools: pools}
 	}
 
 	release := func(name, releaseNamespace string) error {
