@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	createSessionToolName  = "create_session"
-	getSessionToolName     = "get_session"
-	getSessionTurnToolName = "get_session_turn"
-	deleteSessionToolName  = "delete_session"
-	renameSessionToolName  = "rename_session"
+	createSessionToolName = "create_session"
+	getSessionToolName    = "get_session"
+	listTasksToolName     = "list_tasks"
+	getTaskToolName       = "get_task"
+	deleteSessionToolName = "delete_session"
+	renameSessionToolName = "rename_session"
 
 	// maxFirstMessageBytes bounds create_session's first message.
 	maxFirstMessageBytes = 128 << 10
@@ -35,6 +36,11 @@ const (
 	maxSummaryTurns = 200
 	// fetchBatch turns are read whole at a time, newest first.
 	fetchBatch = 8
+	// defaultTaskPageSize is A2A tasks/list's default page size.
+	defaultTaskPageSize = 50
+	// minTaskShare is the least of max_bytes one listed task's summary may
+	// take: room for its header and clipped texts.
+	minTaskShare = 256
 	// envelopeSlack is what an answer's fields set after its budget was taken
 	// may add.
 	envelopeSlack = 128
@@ -82,16 +88,32 @@ type GetSessionOutput struct {
 	Turns        []Turn         `json:"turns"`
 }
 
-type GetSessionTurnInput struct {
+type ListTasksInput struct {
+	SessionID string `json:"session_id" jsonschema:"Session UUID"`
+	PageSize  int    `json:"page_size,omitempty" jsonschema:"Maximum number of tasks to return, 1 to 100; default 50"`
+	PageToken string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+	MaxBytes  int    `json:"max_bytes,omitempty" jsonschema:"Budget in bytes for the JSON answer; a task's summary that exceeds its share is clipped"`
+}
+
+type ListTasksOutput struct {
+	SessionID     string `json:"session_id"`
+	TotalSize     int    `json:"total_size"`
+	NextPageToken string `json:"next_page_token,omitempty"`
+	Truncated     bool   `json:"truncated,omitempty"`
+	Hint          string `json:"hint,omitempty"`
+	Tasks         []Turn `json:"tasks"`
+}
+
+type GetTaskInput struct {
 	SessionID   string    `json:"session_id" jsonschema:"Session UUID"`
-	Turn        indexOrID `json:"turn" jsonschema:"Task ID, turn index from 0, or last"`
+	TaskID      string    `json:"task_id" jsonschema:"Task ID, as list_tasks and get_session answer it"`
 	Detail      string    `json:"detail,omitempty" jsonschema:"transcript (default) or full (A2A messages and artifacts as JSON)"`
 	ToolCall    indexOrID `json:"tool_call,omitempty" jsonschema:"Answer one tool call whole, by its index or ID"`
 	FromMessage int       `json:"from_message,omitempty" jsonschema:"First message index to answer; continue with next_message"`
 	MaxBytes    int       `json:"max_bytes,omitempty" jsonschema:"Budget in bytes for the JSON answer"`
 }
 
-// indexOrID names a turn or tool call by ID or index. A JSON integer is read as
+// indexOrID names a tool call by ID or index. A JSON integer is read as
 // the index it spells.
 type indexOrID string
 
@@ -109,21 +131,19 @@ func (r *indexOrID) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func getSessionTurnSchema() *jsonschema.Schema {
-	schema, err := jsonschema.For[GetSessionTurnInput](&jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+func getTaskSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[GetTaskInput](&jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
 		reflect.TypeFor[indexOrID](): {Types: []string{"string", "integer"}},
 	}})
 	if err != nil {
-		panic(fmt.Sprintf("get_session_turn input schema: %v", err))
+		panic(fmt.Sprintf("get_task input schema: %v", err))
 	}
 	return schema
 }
 
-type GetSessionTurnOutput struct {
+type GetTaskOutput struct {
 	SessionID     string          `json:"session_id"`
 	Detail        string          `json:"detail"`
-	Index         int             `json:"index"`
-	TotalTurns    int             `json:"total_turns"`
 	TaskID        string          `json:"task_id"`
 	State         string          `json:"state"`
 	Timestamp     string          `json:"timestamp,omitempty"`
@@ -138,9 +158,10 @@ type GetSessionTurnOutput struct {
 }
 
 var (
-	omittedTurnsHint = fmt.Sprintf("older turns were left out to fit max_bytes: raise max_bytes (at most %d), pick turns with last_turns, or read one turn with %s", maxSessionMaxBytes, getSessionTurnToolName)
-	turnBoundHint    = fmt.Sprintf("older turns were left out: one call reads at most %d turns; pick turns with last_turns or read one with %s", maxSummaryTurns, getSessionTurnToolName)
-	clippedTurnHint  = "the newest turn alone exceeds max_bytes and was clipped: read it with " + getSessionTurnToolName
+	omittedTurnsHint = fmt.Sprintf("older turns were left out to fit max_bytes: raise max_bytes (at most %d), pick turns with last_turns, or page through them with %s", maxSessionMaxBytes, listTasksToolName)
+	turnBoundHint    = fmt.Sprintf("older turns were left out: one call reads at most %d turns; page through them with %s", maxSummaryTurns, listTasksToolName)
+	clippedTurnHint  = "the newest turn alone exceeds max_bytes and was clipped: read it with " + getTaskToolName
+	clippedTasksHint = "summaries marked clipped exceeded their share of max_bytes: read one with " + getTaskToolName + ", or lower page_size"
 )
 
 func (h *Handler) registerSessionTools(server *mcp.Server) {
@@ -154,11 +175,16 @@ func (h *Handler) registerSessionTools(server *mcp.Server) {
 		Annotations: readOnly(),
 	}, h.getSession)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        getSessionTurnToolName,
-		Description: "Read one turn of a Session in full, or one of its tool calls with arguments and result, paged by message.",
-		InputSchema: getSessionTurnSchema(),
+		Name:        listTasksToolName,
+		Description: "Page through a Session's tasks, oldest first, each as a summary: user message, reply and tool call stubs.",
 		Annotations: readOnly(),
-	}, h.getSessionTurn)
+	}, h.listTasks)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        getTaskToolName,
+		Description: "Read one task of a Session in full, or one of its tool calls with arguments and result, paged by message.",
+		InputSchema: getTaskSchema(),
+		Annotations: readOnly(),
+	}, h.getSessionTask)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        deleteSessionToolName,
 		Description: "Delete a Session and its runtime state. Fails with a conflict while another operation on the Session is in flight; retry it.",
@@ -296,7 +322,7 @@ pack:
 		}
 		fetched += n
 		for j := n - 1; j >= 0; j-- {
-			t := readTurn(next, batch[j])
+			t := readTurn(batch[j])
 			item := render(t)
 			if size := jsonSize(item) + 1; used+size <= budget {
 				kept, used, next = append(kept, item), used+size, next-1
@@ -314,54 +340,89 @@ pack:
 	return kept, next - first + 1, clipped, nil
 }
 
-func (h *Handler) getSessionTurn(ctx context.Context, _ *mcp.CallToolRequest, input GetSessionTurnInput) (*mcp.CallToolResult, GetSessionTurnOutput, error) {
-	detail, err := detailLevel(input.Detail, detailTranscript, detailTranscript, detailFull)
-	if err != nil {
-		return toolError(err), GetSessionTurnOutput{}, nil
-	}
+func (h *Handler) listTasks(ctx context.Context, _ *mcp.CallToolRequest, input ListTasksInput) (*mcp.CallToolResult, ListTasksOutput, error) {
 	maxBytes, err := sessionMaxBytes(input.MaxBytes)
 	if err != nil {
-		return toolError(err), GetSessionTurnOutput{}, nil
+		return toolError(err), ListTasksOutput{}, nil
 	}
-	if input.FromMessage < 0 {
-		return toolError(errors.New("from_message must not be negative")), GetSessionTurnOutput{}, nil
+	pageSize := input.PageSize
+	if pageSize == 0 {
+		pageSize = defaultTaskPageSize
 	}
-	ref := strings.TrimSpace(string(input.Turn))
-	if ref == "" {
-		return toolError(errors.New("turn is required: a task ID, an index or last")), GetSessionTurnOutput{}, nil
+	if pageSize < 1 || pageSize > 100 {
+		return toolError(errors.New("page_size must be between 1 and 100")), ListTasksOutput{}, nil
+	}
+	budget := maxBytes - jsonSize(ListTasksOutput{NextPageToken: input.PageToken}) - len(clippedTasksHint) - envelopeSlack
+	if budget/pageSize < minTaskShare {
+		return toolError(fmt.Errorf("max_bytes %d leaves under %d bytes per task at page_size %d: raise max_bytes or lower page_size", maxBytes, minTaskShare, pageSize)), ListTasksOutput{}, nil
 	}
 	session, err := h.sessions.Get(ctx, input.SessionID)
 	if err != nil {
-		return sessionToolError(err), GetSessionTurnOutput{}, nil
+		return sessionToolError(err), ListTasksOutput{}, nil
 	}
-	tasks, err := h.listTurns(ctx, session)
+	listed, err := h.gateway.ListTasks(interactionContext(ctx), &a2atype.ListTasksRequest{
+		Tenant: sessionTenant(session), ContextID: session.GetId(),
+		PageSize: pageSize, PageToken: input.PageToken, IncludeArtifacts: true,
+	})
 	if err != nil {
-		return sessionToolError(err), GetSessionTurnOutput{}, nil
+		return sessionToolError(err), ListTasksOutput{}, nil
 	}
-	index := turnIndex(tasks, ref)
-	if index < 0 {
-		return toolError(fmt.Errorf("session %s has no turn %s (it has %d, indexed from 0)", session.GetId(), ref, len(tasks))), GetSessionTurnOutput{}, nil
+	output := ListTasksOutput{SessionID: session.GetId(), TotalSize: listed.TotalSize, NextPageToken: listed.NextPageToken, Tasks: make([]Turn, 0, len(listed.Tasks))}
+	share := (maxBytes - jsonSize(output) - len(clippedTasksHint) - envelopeSlack) / max(len(listed.Tasks), 1)
+	for _, task := range listed.Tasks {
+		if task.ContextID != "" && task.ContextID != session.GetId() {
+			return toolError(fmt.Errorf("task %s does not belong to session %s", task.ID, session.GetId())), ListTasksOutput{}, nil
+		}
+		item := readTurn(task).summary()
+		if jsonSize(item)+1 > share {
+			item, _ = fitTurn(item, share-1)
+			output.Truncated, output.Hint = true, clippedTasksHint
+		}
+		output.Tasks = append(output.Tasks, item)
 	}
-	whole, err := h.fetchTasks(ctx, session, tasks[index:index+1])
+	return nil, output, nil
+}
+
+func (h *Handler) getSessionTask(ctx context.Context, _ *mcp.CallToolRequest, input GetTaskInput) (*mcp.CallToolResult, GetTaskOutput, error) {
+	detail, err := detailLevel(input.Detail, detailTranscript, detailTranscript, detailFull)
 	if err != nil {
-		return sessionToolError(err), GetSessionTurnOutput{}, nil
+		return toolError(err), GetTaskOutput{}, nil
 	}
-	t := readTurn(index, whole[0])
-	output := GetSessionTurnOutput{
-		SessionID: session.GetId(), Detail: detail, Index: index, TotalTurns: len(tasks), TaskID: string(t.task.ID),
+	maxBytes, err := sessionMaxBytes(input.MaxBytes)
+	if err != nil {
+		return toolError(err), GetTaskOutput{}, nil
+	}
+	if input.FromMessage < 0 {
+		return toolError(errors.New("from_message must not be negative")), GetTaskOutput{}, nil
+	}
+	taskID := strings.TrimSpace(input.TaskID)
+	if taskID == "" {
+		return toolError(errors.New("task_id is required")), GetTaskOutput{}, nil
+	}
+	session, err := h.sessions.Get(ctx, input.SessionID)
+	if err != nil {
+		return sessionToolError(err), GetTaskOutput{}, nil
+	}
+	whole, err := h.fetchTasks(ctx, session, []a2atype.TaskID{a2atype.TaskID(taskID)})
+	if err != nil {
+		return sessionToolError(err), GetTaskOutput{}, nil
+	}
+	t := readTurn(whole[0])
+	output := GetTaskOutput{
+		SessionID: session.GetId(), Detail: detail, TaskID: string(t.task.ID),
 		State: t.state(), Timestamp: t.timestamp(), TotalMessages: t.items(), FromMessage: input.FromMessage,
 	}
 	if input.ToolCall != "" {
 		call := t.call(strings.TrimSpace(string(input.ToolCall)))
 		if call == nil {
-			return toolError(fmt.Errorf("turn %d of session %s has no tool call %s (it has %d, indexed from 0)", index, session.GetId(), input.ToolCall, len(t.calls))), GetSessionTurnOutput{}, nil
+			return toolError(fmt.Errorf("task %s of session %s has no tool call %s (it has %d, indexed from 0)", t.task.ID, session.GetId(), input.ToolCall, len(t.calls))), GetTaskOutput{}, nil
 		}
 		answer, clipped := t.toolCallDetail(call, maxBytes-jsonSize(output)-envelopeSlack)
 		output.ToolCall, output.Truncated = &answer, clipped
 		return nil, output, nil
 	}
 	if input.FromMessage > t.items() {
-		return toolError(fmt.Errorf("from_message %d is past the turn's %d messages", input.FromMessage, t.items())), GetSessionTurnOutput{}, nil
+		return toolError(fmt.Errorf("from_message %d is past the turn's %d messages", input.FromMessage, t.items())), GetTaskOutput{}, nil
 	}
 	budget := maxBytes - jsonSize(output) - envelopeSlack
 	var next int
@@ -375,7 +436,7 @@ func (h *Handler) getSessionTurn(ctx context.Context, _ *mcp.CallToolRequest, in
 			}
 		})
 		if err != nil {
-			return toolError(err), GetSessionTurnOutput{}, nil
+			return toolError(err), GetTaskOutput{}, nil
 		}
 	} else {
 		output.Messages, next, _ = packForward(t.items(), input.FromMessage, budget, func(i int) (TurnMessage, error) {
@@ -413,8 +474,7 @@ func packForward[T any](n, from, budget int, render func(int) (T, error), fit fu
 	return out, i, nil
 }
 
-// listTurns is the IDs of the Session's tasks, oldest first: what its turns
-// are addressed by.
+// listTurns is the IDs of the Session's tasks, oldest first.
 func (h *Handler) listTurns(ctx context.Context, session *apiv1.Session) ([]a2atype.TaskID, error) {
 	none := 0
 	routed := interactionContext(ctx)
@@ -459,21 +519,6 @@ func (h *Handler) fetchTasks(ctx context.Context, session *apiv1.Session, ids []
 		return nil, err
 	}
 	return out, nil
-}
-
-// turnIndex is the index of the turn ref names in ids: "last", an index or a
-// task ID; -1 for none.
-func turnIndex(ids []a2atype.TaskID, ref string) int {
-	if ref == "last" {
-		return len(ids) - 1
-	}
-	if n, err := strconv.Atoi(ref); err == nil {
-		if n < 0 || n >= len(ids) {
-			return -1
-		}
-		return n
-	}
-	return slices.Index(ids, a2atype.TaskID(ref))
 }
 
 func detailLevel(level, def string, allowed ...string) (string, error) {

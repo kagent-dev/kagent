@@ -123,6 +123,9 @@ func (g *turnGateway) ListTasks(_ context.Context, request *a2atype.ListTasksReq
 		if request.HistoryLength != nil && *request.HistoryLength == 0 {
 			listed.History = nil
 		}
+		if !request.IncludeArtifacts {
+			listed.Artifacts = nil
+		}
 		response.Tasks = append(response.Tasks, &listed)
 	}
 	if end < len(matching) {
@@ -350,24 +353,24 @@ func TestGetSessionReadsTurnsWithinBudget(t *testing.T) {
 
 	last := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID, "last_turns": 1}))
 	require.Len(t, last.Turns, 1)
-	require.Equal(t, 2, last.Turns[0].Index)
+	require.Equal(t, "task-2", last.Turns[0].TaskID)
 	require.Equal(t, 3, last.TotalTurns)
 	require.Zero(t, last.OmittedTurns)
 
 	tight := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID, "max_bytes": minSessionMaxBytes}))
-	require.Equal(t, 2, tight.Turns[len(tight.Turns)-1].Index)
+	require.Equal(t, "task-2", tight.Turns[len(tight.Turns)-1].TaskID)
 	require.Positive(t, tight.OmittedTurns)
 	require.True(t, tight.Truncated)
 	require.NotEmpty(t, tight.Hint)
 }
 
-func TestGetSessionTurnUnwrapsToolCall(t *testing.T) {
+func TestGetTaskUnwrapsToolCall(t *testing.T) {
 	response := map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"lines":2}`}}, "isError": true}
 	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "failed", response)}}
 	server := sessionServer(t, newSessionStore(readySession()), gateway)
 
-	output := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{
-		"session_id": testSessionID, "turn": "last", "tool_call": "call-1",
+	output := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0", "tool_call": "call-1",
 	}))
 	require.Equal(t, "task-0", output.TaskID)
 	require.NotNil(t, output.ToolCall)
@@ -375,8 +378,8 @@ func TestGetSessionTurnUnwrapsToolCall(t *testing.T) {
 	require.JSONEq(t, `{"path":"/etc/hosts"}`, jsonText(output.ToolCall.Args))
 	require.JSONEq(t, `{"lines":2}`, jsonText(output.ToolCall.Response))
 
-	transcript := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{
-		"session_id": testSessionID, "turn": "0",
+	transcript := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0",
 	}))
 	require.Equal(t, 4, transcript.TotalMessages)
 	require.NotNil(t, transcript.Messages[1].Parts[0].ToolCall)
@@ -392,14 +395,14 @@ func TestGetSessionReadsToolCallsFromArtifacts(t *testing.T) {
 	require.Equal(t, []ToolCallStub{{Index: 0, ID: "call-1", Name: "read_file"}}, summary.Turns[0].ToolCalls)
 	require.Equal(t, "read it", summary.Turns[0].User)
 
-	call := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{
-		"session_id": testSessionID, "turn": 0, "tool_call": "call-1",
+	call := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0", "tool_call": "call-1",
 	}))
 	require.NotNil(t, call.ToolCall)
 	require.False(t, call.ToolCall.Pending)
 	require.Equal(t, "127.0.0.1 localhost", call.ToolCall.Response)
 
-	transcript := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": 0}))
+	transcript := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0"}))
 	require.Equal(t, 5, transcript.TotalMessages)
 	roles := make([]string, 0, len(transcript.Messages))
 	for _, message := range transcript.Messages {
@@ -417,7 +420,7 @@ func TestReadTurnCountsActivityRecordedTwiceOnce(t *testing.T) {
 		{ID: "a-call", Parts: a2atype.ContentParts{apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})}},
 		{ID: "a-result", Parts: a2atype.ContentParts{apia2a.NewToolResultPart("call-1", "read_file", "ok")}},
 	}
-	turn := readTurn(0, task)
+	turn := readTurn(task)
 	require.Len(t, turn.calls, 1)
 	require.True(t, turn.calls[0].answered)
 	require.Equal(t, 6, turn.items(), "without timeline positions the artifacts follow the messages")
@@ -425,18 +428,18 @@ func TestReadTurnCountsActivityRecordedTwiceOnce(t *testing.T) {
 	require.Equal(t, 0, turn.messageView(5).Parts[0].ToolResult.Index)
 }
 
-func TestGetSessionTurnTakesIntegerIndexes(t *testing.T) {
+func TestGetTaskTakesAnIntegerToolCallIndex(t *testing.T) {
 	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "done", "ok")}}
 	server := sessionServer(t, newSessionStore(readySession()), gateway)
 
-	output := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{
-		"session_id": testSessionID, "turn": 0, "tool_call": 0,
+	output := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0", "tool_call": 0,
 	}))
 	require.Equal(t, "task-0", output.TaskID)
 	require.NotNil(t, output.ToolCall)
 	require.Equal(t, "call-1", output.ToolCall.ID)
 
-	require.True(t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": 0.5}).IsError)
+	require.True(t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0", "tool_call": 0.5}).IsError)
 }
 
 func TestGetSessionOfAnotherCallerIsNotFound(t *testing.T) {
@@ -497,7 +500,8 @@ func TestSessionToolsAnswerTheirJSONAsText(t *testing.T) {
 	}{
 		{createSessionToolName, map[string]any{"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "message": "hello"}},
 		{getSessionToolName, map[string]any{"session_id": testSessionID}},
-		{getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": 0}},
+		{listTasksToolName, map[string]any{"session_id": testSessionID}},
+		{getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0"}},
 		{renameSessionToolName, map[string]any{"session_id": testSessionID, "name": "Arithmetic"}},
 		{deleteSessionToolName, map[string]any{"session_id": testSessionID}},
 	} {
@@ -510,7 +514,7 @@ func TestSessionToolsAnswerTheirJSONAsText(t *testing.T) {
 			structuredJSON, err := json.Marshal(result.StructuredContent)
 			require.NoError(t, err)
 			require.JSONEq(t, string(structuredJSON), text.Text)
-			if call.tool == getSessionToolName || call.tool == getSessionTurnToolName {
+			if call.tool != createSessionToolName && call.tool != renameSessionToolName && call.tool != deleteSessionToolName {
 				require.Contains(t, text.Text, "The answer is 4.")
 			}
 		})
@@ -534,7 +538,8 @@ func TestSessionToolAnnotations(t *testing.T) {
 		annotations[tool.Name] = tool.Annotations
 	}
 	require.True(t, annotations[getSessionToolName].ReadOnlyHint)
-	require.True(t, annotations[getSessionTurnToolName].ReadOnlyHint)
+	require.True(t, annotations[listTasksToolName].ReadOnlyHint)
+	require.True(t, annotations[getTaskToolName].ReadOnlyHint)
 	require.True(t, *annotations[deleteSessionToolName].DestructiveHint)
 	// create_session without request_id creates another Session, and its first
 	// message starts an agent turn that may run any tool.
@@ -605,14 +610,12 @@ func TestGetSessionAddressesTurnsPastOnePage(t *testing.T) {
 
 	last := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID, "last_turns": 1}))
 	require.Equal(t, 1100, last.TotalTurns)
-	require.Equal(t, 1099, last.Turns[0].Index)
+	require.Equal(t, "task-1099", last.Turns[0].TaskID)
 	require.Equal(t, "question 1099", last.Turns[0].User)
 
-	for ref, want := range map[string]string{"0": "task-0", "1099": "task-1099", "last": "task-1099", "task-120": "task-120"} {
-		turn := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": ref}))
-		require.Equal(t, want, turn.TaskID, ref)
-	}
-	require.True(t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": "1100"}).IsError)
+	task := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-120"}))
+	require.Equal(t, "task-120", task.TaskID)
+	require.True(t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-1100"}).IsError)
 }
 
 func TestRenameSession(t *testing.T) {
@@ -637,7 +640,7 @@ func longTurn(n, size int) *a2atype.Task {
 	return &a2atype.Task{ID: "task-0", ContextID: testSessionID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}, History: history}
 }
 
-func TestGetSessionTurnPagesByMessage(t *testing.T) {
+func TestGetTaskPagesByMessage(t *testing.T) {
 	gateway := &turnGateway{tasks: []*a2atype.Task{longTurn(12, 1000)}}
 	server := sessionServer(t, newSessionStore(readySession()), gateway)
 
@@ -647,10 +650,10 @@ func TestGetSessionTurnPagesByMessage(t *testing.T) {
 			from := 0
 			for pages := 0; ; pages++ {
 				require.Less(t, pages, 20, "paging does not advance")
-				result := callTool(t, server, getSessionTurnToolName, map[string]any{
-					"session_id": testSessionID, "turn": "0", "detail": detail, "from_message": from, "max_bytes": minSessionMaxBytes,
+				result := callTool(t, server, getTaskToolName, map[string]any{
+					"session_id": testSessionID, "task_id": "task-0", "detail": detail, "from_message": from, "max_bytes": minSessionMaxBytes,
 				})
-				page := structured[GetSessionTurnOutput](t, result)
+				page := structured[GetTaskOutput](t, result)
 				require.LessOrEqual(t, jsonSize(result.StructuredContent), minSessionMaxBytes)
 				require.Equal(t, 13, page.TotalMessages)
 				seen += len(page.Messages) + len(page.History)
@@ -667,11 +670,11 @@ func TestGetSessionTurnPagesByMessage(t *testing.T) {
 	}
 }
 
-func TestGetSessionTurnFullAnswersA2AMessages(t *testing.T) {
+func TestGetTaskFullAnswersA2AMessages(t *testing.T) {
 	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "done", "ok")}}
 	server := sessionServer(t, newSessionStore(readySession()), gateway)
 
-	full := structured[GetSessionTurnOutput](t, callTool(t, server, getSessionTurnToolName, map[string]any{"session_id": testSessionID, "turn": "0", "detail": detailFull}))
+	full := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0", "detail": detailFull}))
 	require.Len(t, full.History, full.TotalMessages)
 	require.Empty(t, full.Messages)
 	data, err := json.Marshal(full.History[0])
@@ -682,7 +685,7 @@ func TestGetSessionTurnFullAnswersA2AMessages(t *testing.T) {
 }
 
 func TestFitTurnStaysWithinBudget(t *testing.T) {
-	in := Turn{Index: 3, TaskID: "task-3", State: "TASK_STATE_COMPLETED", User: strings.Repeat("u", 5000), Reply: strings.Repeat("r", 5000),
+	in := Turn{TaskID: "task-3", State: "TASK_STATE_COMPLETED", User: strings.Repeat("u", 5000), Reply: strings.Repeat("r", 5000),
 		ToolCalls: []ToolCallStub{{Index: 0, Name: "read_file"}}}
 	out, ok := fitTurn(in, 600)
 	require.True(t, ok)
@@ -708,7 +711,7 @@ func TestFitMessageStaysWithinBudget(t *testing.T) {
 
 func TestToolCallDetailStaysWithinBudget(t *testing.T) {
 	task := toolTurn("task-0", "read it", "done", map[string]any{"result": strings.Repeat("y", 20000)})
-	turn := readTurn(0, task)
+	turn := readTurn(task)
 	call := turn.calls[0]
 
 	whole, clipped := turn.toolCallDetail(call, 1<<20)
@@ -733,4 +736,62 @@ func TestToolCallDetailPendingCallWithLargeArgs(t *testing.T) {
 	require.NoError(t, err)
 	require.LessOrEqual(t, jsonSize(out), 4096)
 	require.Contains(t, out.ArgsText, "bytes clipped]")
+}
+
+func TestListTasksPagesThroughASession(t *testing.T) {
+	gateway := &turnGateway{}
+	for i := range 5 {
+		gateway.tasks = append(gateway.tasks, artifactTurn(fmt.Sprintf("task-%d", i), "ok"))
+	}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	var ids []string
+	token := ""
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 5, "paging does not advance")
+		page := structured[ListTasksOutput](t, callTool(t, server, listTasksToolName, map[string]any{
+			"session_id": testSessionID, "page_size": 2, "page_token": token,
+		}))
+		require.Equal(t, testSessionID, page.SessionID)
+		require.Equal(t, 5, page.TotalSize)
+		require.LessOrEqual(t, len(page.Tasks), 2)
+		for _, task := range page.Tasks {
+			ids = append(ids, task.TaskID)
+			require.Equal(t, []ToolCallStub{{Index: 0, ID: "call-1", Name: "read_file"}}, task.ToolCalls, "tool calls are read from artifacts")
+		}
+		if page.NextPageToken == "" {
+			break
+		}
+		token = page.NextPageToken
+	}
+	require.Equal(t, []string{"task-0", "task-1", "task-2", "task-3", "task-4"}, ids)
+}
+
+func TestListTasksClipsSummariesToMaxBytes(t *testing.T) {
+	gateway := &turnGateway{}
+	for i := range 4 {
+		gateway.tasks = append(gateway.tasks, toolTurn(fmt.Sprintf("task-%d", i), "go", strings.Repeat("r", 5000), "ok"))
+	}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	result := callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID, "page_size": 4, "max_bytes": minSessionMaxBytes})
+	page := structured[ListTasksOutput](t, result)
+	require.LessOrEqual(t, jsonSize(result.StructuredContent), minSessionMaxBytes)
+	require.Len(t, page.Tasks, 4)
+	require.True(t, page.Truncated)
+	require.NotEmpty(t, page.Hint)
+	for _, task := range page.Tasks {
+		require.True(t, task.Clipped)
+	}
+
+	refused := callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID, "page_size": 100, "max_bytes": minSessionMaxBytes})
+	require.True(t, refused.IsError, "a page that cannot fit max_bytes is refused")
+	require.True(t, callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID, "page_size": 101}).IsError)
+}
+
+func TestListTasksOfAnotherCallerIsNotFound(t *testing.T) {
+	server := sessionServer(t, newSessionStore(), &turnGateway{})
+	result := callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID})
+	require.True(t, result.IsError)
+	require.Equal(t, "not_found", result.Meta["kagent.dev/error-code"])
 }

@@ -15,7 +15,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
-// The views get_session and get_session_turn answer a conversation in.
+// The views get_session, list_tasks and get_task answer a conversation in.
 const (
 	// detailSummary is per turn the user's message, the agent's reply and one
 	// stub per tool call.
@@ -38,11 +38,10 @@ const (
 	maxUnwrapDepth = 6
 )
 
-// Turn is one turn of a conversation, one A2A task, indexed from 0 oldest
-// first. The summary view sets User, Reply and ToolCalls, the transcript view
+// Turn is one turn of a conversation, one A2A task, addressed by its task ID.
+// The summary view sets User, Reply and ToolCalls, the transcript view
 // Messages, which hold all of them.
 type Turn struct {
-	Index     int            `json:"index"`
 	TaskID    string         `json:"task_id"`
 	State     string         `json:"state"`
 	Timestamp string         `json:"timestamp,omitempty"`
@@ -57,7 +56,7 @@ type Turn struct {
 }
 
 // ToolCallStub names one tool call of a turn. Index addresses it in
-// get_session_turn's tool_call.
+// get_task's tool_call.
 type ToolCallStub struct {
 	Index   int    `json:"index"`
 	ID      string `json:"id,omitempty"`
@@ -68,7 +67,7 @@ type ToolCallStub struct {
 
 // TurnMessage is one message or artifact (role "artifact") of a turn in the
 // transcript view. Index is its position in the turn's timeline, as
-// get_session_turn's from_message counts.
+// get_task's from_message counts.
 type TurnMessage struct {
 	Index   int        `json:"index"`
 	Role    string     `json:"role"`
@@ -128,7 +127,6 @@ type ToolCallDetail struct {
 }
 
 type turn struct {
-	index   int
 	task    *a2atype.Task
 	entries []entry
 	calls   []*toolCall
@@ -165,9 +163,9 @@ type toolCall struct {
 	failed   bool
 }
 
-func readTurn(index int, task *a2atype.Task) *turn {
+func readTurn(task *a2atype.Task) *turn {
 	t := &turn{
-		index: index, task: task, entries: turnEntries(task),
+		task: task, entries: turnEntries(task),
 		callOf: map[*a2atype.Part]*toolCall{}, kindOf: map[*a2atype.Part]apia2a.ToolActivityKind{},
 	}
 	for _, e := range t.entries {
@@ -290,7 +288,7 @@ func (t *turn) timestamp() string {
 }
 
 func (t *turn) header() Turn {
-	return Turn{Index: t.index, TaskID: string(t.task.ID), State: t.state(), Timestamp: t.timestamp(), Artifacts: len(t.task.Artifacts)}
+	return Turn{TaskID: string(t.task.ID), State: t.state(), Timestamp: t.timestamp(), Artifacts: len(t.task.Artifacts)}
 }
 
 // summary is the turn's first user message, its status message (else its
@@ -617,7 +615,7 @@ func fitTurn(in Turn, budget int) (Turn, bool) {
 		return out, true
 	}
 	out.ToolCalls = nil
-	rest := budget - jsonSize(Turn{Index: out.Index, TaskID: out.TaskID, State: out.State, Timestamp: out.Timestamp, Artifacts: out.Artifacts, Clipped: true})
+	rest := budget - jsonSize(Turn{TaskID: out.TaskID, State: out.State, Timestamp: out.Timestamp, Artifacts: out.Artifacts, Clipped: true})
 	for userMax, replyMax := rest/4, rest*3/4; replyMax > 0; userMax, replyMax = userMax/2, replyMax/2 {
 		out.User, out.Reply = clipText(in.User, userMax), clipText(in.Reply, replyMax)
 		if jsonSize(out) <= budget {
