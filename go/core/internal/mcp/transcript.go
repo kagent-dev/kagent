@@ -291,8 +291,9 @@ func (t *turn) header() Turn {
 	return Turn{TaskID: string(t.task.ID), State: t.state(), Timestamp: t.timestamp(), Artifacts: len(t.task.Artifacts)}
 }
 
-// summary is the turn's first user message, its status message (else its
-// artifacts' text) and its tool call stubs.
+// summary is the turn's first user message, its reply and its tool call
+// stubs. The reply is the status message, else the artifacts' text, else the
+// latest agent message of the history.
 func (t *turn) summary() Turn {
 	out := t.header()
 	out.Reply = partsText(statusParts(t.task))
@@ -304,6 +305,14 @@ func (t *turn) summary() Turn {
 			}
 		}
 		out.Reply = strings.Join(texts, "\n")
+	}
+	if out.Reply == "" {
+		for _, message := range slices.Backward(t.task.History) {
+			if message != nil && message.Role == a2atype.MessageRoleAgent {
+				out.Reply = partsText(message.Parts)
+				break
+			}
+		}
 	}
 	for _, e := range t.entries {
 		if e.message != nil && e.message.Role == a2atype.MessageRoleUser {

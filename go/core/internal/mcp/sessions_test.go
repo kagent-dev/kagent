@@ -738,6 +738,23 @@ func TestToolCallDetailPendingCallWithLargeArgs(t *testing.T) {
 	require.Contains(t, out.ArgsText, "bytes clipped]")
 }
 
+func TestGetSessionReplyFallsBackToHistory(t *testing.T) {
+	task := &a2atype.Task{
+		ID: "task-0", ContextID: testSessionID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+		History: []*a2atype.Message{
+			a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?")),
+			a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Let me think.")),
+			a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("The answer is 4.")),
+		},
+	}
+	server := sessionServer(t, newSessionStore(readySession()), &turnGateway{tasks: []*a2atype.Task{task}})
+
+	output := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID}))
+	require.Equal(t, "The answer is 4.", output.Turns[0].Reply)
+	_, invoked := invocationResult(task)
+	require.Equal(t, invoked.Text, output.Turns[0].Reply, "get_session answers the reply invoke_agent does")
+}
+
 func TestListTasksPagesThroughASession(t *testing.T) {
 	gateway := &turnGateway{}
 	for i := range 5 {
