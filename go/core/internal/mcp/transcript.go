@@ -208,7 +208,7 @@ func turnMessages(task *a2atype.Task) []*a2atype.Message {
 		return task.History
 	}
 	for _, message := range task.History {
-		if message == status || (status.ID != "" && message.ID == status.ID) {
+		if message == status || (message != nil && status.ID != "" && message.ID == status.ID) {
 			return task.History
 		}
 	}
