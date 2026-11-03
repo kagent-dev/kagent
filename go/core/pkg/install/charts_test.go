@@ -2,6 +2,7 @@ package install
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -63,4 +64,15 @@ func TestControllerServiceAccount(t *testing.T) {
 			require.Equal(t, chart.inlineValues, runner.commands[0].Stdin)
 		})
 	}
+}
+
+func TestControllerServiceAccountHelm42OCIPreamble(t *testing.T) {
+	manifest, err := os.ReadFile("testdata/helm42-controller-deployment.stdout")
+	require.NoError(t, err)
+	require.Contains(t, string(manifest), "Pulled: ghcr.io/kagent-dev/kagent/helm/kagent:1.0.0-rc1\n")
+	runner := &recordingRunner{run: func(Command) (string, error) { return string(manifest), nil }}
+	chart := Chart{Name: "kagent", Repository: "oci://ghcr.io/kagent-dev/kagent/helm/", Version: "1.0.0-rc1"}
+	got, err := controllerServiceAccount(t.Context(), runner, "kagent", chart)
+	require.NoError(t, err)
+	require.Equal(t, "kagent-controller", got)
 }
