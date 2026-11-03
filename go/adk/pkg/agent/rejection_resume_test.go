@@ -9,8 +9,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	kagenta2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
@@ -20,6 +18,9 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/genai"
+
+	kagenta2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 type deleteFileArgs struct {
