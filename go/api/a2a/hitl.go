@@ -45,6 +45,10 @@ type HITLTool struct {
 	CallID string         `json:"call_id"`
 	Name   string         `json:"name"`
 	Args   map[string]any `json:"args"`
+	// URLElicitation is set when the call waits on an MCP server's URL
+	// elicitation: the person opens its URL, and approving the call means they
+	// completed the interaction there, as a URL elicitation response's accept.
+	URLElicitation *URLElicitationRequest `json:"url_elicitation,omitempty"`
 }
 
 // NestedHITLRequest identifies tool approvals propagated from a child agent.

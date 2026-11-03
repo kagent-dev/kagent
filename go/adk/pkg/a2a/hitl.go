@@ -493,15 +493,17 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		}
 		tool := parseConfirmationTool(data)
 		hitlTool := tool.asHitlTool()
-		tools = append(tools, hitlTool)
 		hint := tool.hint
 		if candidate := parseURLElicitation(tool.payload); candidate != nil {
 			candidate.ID = hitlTool.ID
 			elicitation = candidate
 			// When other calls share this pause, the URL elicitation is
-			// presented as an approval, whose text has to carry the URL.
+			// presented as an approval: the tool carries it typed, and the
+			// text carries the URL for a client without the extension.
+			hitlTool.URLElicitation = candidate
 			hint = urlElicitationText(candidate, true)
 		}
+		tools = append(tools, hitlTool)
 		if hint != "" {
 			hints = append(hints, hint)
 		}
