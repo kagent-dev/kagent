@@ -4,13 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -121,64 +118,4 @@ func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*ap
 		return nil, err
 	}
 	return w.execute(ctx, operation)
-}
-
-// recoverCrashedSession reconciles lost revert responses without replacing the Actor.
-func (w *ActorWorkflow) recoverCrashedSession(ctx context.Context, operation *database.SessionOperation) (_ *apiv1.Session, err error) {
-	session := operation.Instance
-	if session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
-		return nil, database.ErrConflict
-	}
-	executorID := uuid.New()
-	claimed, err := w.store.ClaimSessionOperation(ctx, session.Id, operation.ID, executorID)
-	if err != nil {
-		return nil, err
-	}
-	if !claimed {
-		current, err := w.store.GetSessionOperation(ctx, session.Id, operation.ID)
-		if err != nil {
-			return nil, err
-		}
-		return operationOutcome(current)
-	}
-	defer func() {
-		if err != nil {
-			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer cancel()
-			err = errors.Join(err, w.store.ReleaseRuntimeOperation(releaseCtx, session.Id, operation.ID, executorID))
-		}
-	}()
-	revision, err := w.store.GetRuntimeRevision(ctx, session.PreparedRevision)
-	if err != nil {
-		return nil, err
-	}
-	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.Id)
-	actor, err := w.actors.GetActor(ctx, atespace, name)
-	if err != nil {
-		return nil, err
-	}
-	if err := w.verifyActor(ctx, session, revision, actor); err != nil {
-		return nil, err
-	}
-	before := actor
-	beforeSnapshot := proto.CloneOf(substrate.LatestDurableActorSnapshot(actor))
-	if beforeSnapshot != nil {
-		beforeSnapshot.Locality = ""
-	}
-	switch actor.GetStatus().GetState() {
-	case ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_REVERTING:
-		actor, err = w.actors.RevertActor(ctx, atespace, name)
-		if err != nil {
-			return nil, fmt.Errorf("revert crashed Actor %s/%s: %w", atespace, name, err)
-		}
-	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
-	default:
-		return nil, fmt.Errorf("crashed Actor %s/%s has unexpected state %s", atespace, name, actor.GetStatus().GetState())
-	}
-	if !validActorIdentity(actor, revision, name) || actor.GetMetadata().GetUid() != before.GetMetadata().GetUid() || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED || !proto.Equal(beforeSnapshot, substrate.LatestActorSnapshot(actor)) {
-		return nil, fmt.Errorf("revert Actor %s/%s returned unexpected identity or state", atespace, name)
-	}
-	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	return w.store.FinishSessionOperation(finishCtx, session.Id, operation.ID, executorID, "", actor.GetMetadata().GetUid(), "")
 }
