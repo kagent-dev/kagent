@@ -121,7 +121,9 @@ type URLElicitationRequest struct {
 }
 
 // URLElicitationResponse answers one URL elicitation. Accept means the person
-// completed the interaction at the URL.
+// completed the interaction at the URL, so the call that needed it can run
+// again. This differs from MCP, where accept means only that the person agreed
+// to open the URL and the server reports completion separately.
 type URLElicitationResponse struct {
 	Type   string `json:"type"`
 	ID     string `json:"id"`
