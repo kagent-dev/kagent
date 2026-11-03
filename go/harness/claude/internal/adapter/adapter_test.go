@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -87,19 +88,12 @@ func TestNativeProcessRetriesAreOptIn(t *testing.T) {
 
 func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
-	claudeDir := filepath.Join(durableDir, "claude")
 	skillRoot := filepath.Join(durableDir, "generated", "claude")
-	packageRoot := filepath.Join(claudeDir, "packages", "standalone-0")
-	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(packageRoot, "SKILL.md"), []byte("# Review"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	repository, commit := skillRepository(t, map[string]string{"SKILL.md": "# Review"})
 	cfg := config.Production("claude-test", "help")
 	cfg.StrictVersion = false
 	cfg.SkillResources = &agentplugin.Resources{Skills: []agentplugin.Skill{{
-		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
+		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}},
 	}}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {Type: "http", URL: "https://mcp.example.com/mcp"}}
 	raw, err := json.Marshal(cfg)
@@ -353,4 +347,32 @@ func TestLargeSystemPromptIsDeliveredThroughFile(t *testing.T) {
 	if slices.Contains(args, prompt) || slices.Contains(args, "--append-system-prompt") {
 		t.Fatal("system prompt is still passed inline")
 	}
+}
+
+// skillRepository commits files to a local git repository, fetchable by
+// commit.
+func skillRepository(t *testing.T, files map[string]string) (repository, commit string) {
+	t.Helper()
+	repository = t.TempDir()
+	git := func(args ...string) string {
+		command := exec.Command("git", append([]string{"-C", repository, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	git("init", "-q")
+	for name, content := range files {
+		path := filepath.Join(repository, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("add", ".")
+	git("commit", "-q", "-m", "fixture")
+	return repository, git("rev-parse", "HEAD")
 }

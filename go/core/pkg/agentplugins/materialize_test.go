@@ -82,14 +82,79 @@ func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root, err := fetchSource(context.Background(), agentplugin.Source{Git: &agentplugin.GitSource{
-		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
-	}, Path: "selected"}, destination, "SKILL.md")
+	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "does-not-exist", Commit: strings.Repeat("a", 40)}, Path: "selected"}
+	if err := os.WriteFile(destination+fetchedSourceSuffix, []byte(sourceDescription(source)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := fetchSource(context.Background(), source, destination, "SKILL.md")
 	if err != nil {
 		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
 	}
 	if want := canonicalPath(filepath.Join(destination, "selected")); root != want {
 		t.Fatalf("fetchSource() root = %q, want %q", root, want)
+	}
+}
+
+// TestFetchSourceDoesNotReuseAnotherSourcesMaterialization guards a moved
+// pin: a directory fetched from another source, or with no record of its
+// source, is fetched again.
+func TestFetchSourceDoesNotReuseAnotherSourcesMaterialization(t *testing.T) {
+	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "does-not-exist", Commit: strings.Repeat("a", 40)}}
+	previous := agentplugin.Source{Git: &agentplugin.GitSource{URL: "does-not-exist", Commit: strings.Repeat("b", 40)}}
+	for name, record := range map[string]*agentplugin.Source{"another source": &previous, "no record": nil} {
+		t.Run(name, func(t *testing.T) {
+			destination := t.TempDir()
+			if err := os.WriteFile(filepath.Join(destination, "SKILL.md"), []byte("# Previous"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if record != nil {
+				if err := os.WriteFile(destination+fetchedSourceSuffix, []byte(sourceDescription(*record)), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := fetchSource(context.Background(), source, destination, "SKILL.md"); err == nil {
+				t.Fatal("fetchSource() reused a materialization of another source instead of fetching its own")
+			}
+		})
+	}
+}
+
+// TestMaterializeRefetchesAPackageOfAnotherSource guards a Harness whose
+// package directory outlives a start: a start on a new pin runs the new
+// commit, not the package a start on the previous pin left there.
+func TestMaterializeRefetchesAPackageOfAnotherSource(t *testing.T) {
+	repository, first := commitFiles(t, map[string]string{
+		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
+		"skills/review/SKILL.md": "# First",
+	})
+	if err := os.WriteFile(filepath.Join(repository, "skills", "review", "SKILL.md"), []byte("# Second"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "-C", repository, "commit", "-qam", "second").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, output)
+	}
+	head, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := func(commit string) agentplugin.Resources {
+		return agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+			Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
+		}}}
+	}
+	root := t.TempDir()
+	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
+	if _, err := Materialize(context.Background(), pinned(first), paths); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Materialize(context.Background(), pinned(strings.TrimSpace(string(head))), paths); err != nil {
+		t.Fatal(err)
+	}
+
+	if content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md")); err != nil || string(content) != "# Second" {
+		t.Fatalf("skill after the pin moved = %q, %v; want the new commit's", content, err)
 	}
 }
 
@@ -106,26 +171,17 @@ func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 
 func TestMaterializeCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
 	root := t.TempDir()
-	pluginRoot := filepath.Join(root, "plugins", "plugin-0")
-	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "review"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	files := map[string]string{
+	repository, commit := commitFiles(t, map[string]string{
 		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
 		"mcp.json":               `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"local":{"type":"stdio","command":"server"}}}`,
 		"skills/review/SKILL.md": "# Review",
-	}
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(pluginRoot, filepath.FromSlash(name)), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	})
 	paths := Paths{
 		Packages: filepath.Join(root, "plugins"),
 		Skills:   filepath.Join(root, "skills"),
 	}
 	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
-		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}},
 		Skills: []string{"review"},
 	}}}
 	if _, err := Materialize(context.Background(), resources, paths); err != nil {
