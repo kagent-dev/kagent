@@ -15,6 +15,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -69,6 +70,9 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	agent := native.Agents["reviewer"]
 	if native.ModelProvider != "kagent-openai" || provider.WireAPI != "responses" || provider.EnvKey != "OPENAI_API_KEY" || provider.BaseURL != cfg.Provider.BaseURL {
 		t.Fatalf("generated provider configuration = %#v, provider name = %q", provider, native.ModelProvider)
+	}
+	if provider.HTTPHeaders[egresspolicy.ActorIdentityHeader] != "required" {
+		t.Fatalf("provider workload identity header = %q", provider.HTTPHeaders[egresspolicy.ActorIdentityHeader])
 	}
 	if !native.Features.DefaultModeRequestUserInput {
 		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")

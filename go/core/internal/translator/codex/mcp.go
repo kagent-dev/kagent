@@ -15,6 +15,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 )
 
@@ -68,6 +69,10 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		selected := append([]string(nil), tool.Binding.Tools...)
 		slices.Sort(selected)
 		selected = slices.Compact(selected)
+		headers, err = egresspolicy.WithActorIdentity(headers)
+		if err != nil {
+			return mcpCompilation{}, err
+		}
 		result.servers[name] = codexconfig.MCPServer{
 			URL: server.Spec.URL, Headers: headers, EnabledTools: selected,
 			RequireApproval: tool.Binding.RequireApproval,
