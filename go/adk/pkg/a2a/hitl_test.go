@@ -521,6 +521,28 @@ func TestBuildHITLStatusMessageURLElicitationWithAnotherCall(t *testing.T) {
 	if !strings.Contains(request.Hint, "https://gateway.example/oauth/proxy/start?s=1") {
 		t.Fatalf("approval hint carries no link: %q", request.Hint)
 	}
+	for _, tool := range request.Tools {
+		elicitation := tool.URLElicitation
+		if elicitation == nil || elicitation.URL != "https://gateway.example/oauth/proxy/start?s=1" || elicitation.ID != tool.ID || elicitation.Server == "" {
+			t.Fatalf("tool %s carries URL elicitation %#v", tool.ID, elicitation)
+		}
+	}
+}
+
+// A call that waits on a URL elicitation carries it typed in an approval it
+// shares with a plain approval, which carries none.
+func TestBuildHITLStatusMessageURLElicitationWithAnApproval(t *testing.T) {
+	message := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		urlElicitationPart("confirm-1", "call-1"),
+		confirmationPart("confirm-2", "delete_file", "call-2", map[string]any{"path": "a"}, nil),
+	), true)
+	request := GetToolApprovalRequest(message)
+	if request == nil || len(request.Tools) != 2 {
+		t.Fatalf("approval request = %#v", request)
+	}
+	if request.Tools[0].URLElicitation == nil || request.Tools[1].URLElicitation != nil {
+		t.Fatalf("tools = %#v", request.Tools)
+	}
 }
 
 func TestBuildHITLStatusMessageIgnoresAnUnsafeURL(t *testing.T) {
