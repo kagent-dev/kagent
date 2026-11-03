@@ -45,9 +45,13 @@ type deferredRecord struct {
 	RequestID string                    `json:"requestId"`
 	Canceling bool                      `json:"canceling,omitempty"`
 	Phase     string                    `json:"phase"`
-	Tool      DeferredTool              `json:"tool"`
+	Tool      DeferredTool              `json:"tool,omitzero"`
 	Decision  *runtime.ApprovalDecision `json:"decision,omitempty"`
 	Answer    *runtime.AskUserResponse  `json:"answer,omitempty"`
+	// Elicitation replaces Tool when the session waits on a URL elicitation:
+	// the call that asked for it already ended. Action is the person's answer.
+	Elicitation *runtime.URLElicitationRequest  `json:"elicitation,omitempty"`
+	Action      *runtime.URLElicitationResponse `json:"action,omitempty"`
 }
 
 type nativeQuestion struct {
@@ -61,6 +65,9 @@ type nativeQuestion struct {
 }
 
 func (r *deferredRecord) request() (runtime.InputRequest, error) {
+	if r.Elicitation != nil {
+		return r.Elicitation, nil
+	}
 	if r.Tool.Name != "AskUserQuestion" {
 		return &runtime.ApprovalRequest{ID: r.RequestID, CallID: r.Tool.ID, Name: r.Tool.Name, Args: r.Tool.Input, Hint: "Claude requires approval before calling " + r.Tool.Name + "."}, nil
 	}
@@ -97,7 +104,13 @@ func (r *deferredRecord) request() (runtime.InputRequest, error) {
 }
 
 func (r *deferredRecord) validate() error {
-	if r.Version != 1 || r.TaskID == "" || r.ContextID == "" || r.SessionID == "" || r.RequestID == "" || r.Tool.ID == "" || r.Tool.Name == "" {
+	if r.Version != 1 || r.TaskID == "" || r.ContextID == "" || r.SessionID == "" || r.RequestID == "" {
+		return fmt.Errorf("invalid Claude deferred identity")
+	}
+	if r.Elicitation != nil {
+		return r.validateElicitation()
+	}
+	if r.Tool.ID == "" || r.Tool.Name == "" || r.Action != nil {
 		return fmt.Errorf("invalid Claude deferred identity")
 	}
 	request, err := r.request()
@@ -236,6 +249,9 @@ func (d *ProcessDriver) RestorePending() (string, string, runtime.PendingTurn, e
 	}
 	if r.Phase == phaseComplete || r.Phase == phaseCanceled {
 		return "", "", nil, nil
+	}
+	if r.Elicitation != nil {
+		return d.restoreElicitation(r)
 	}
 	if r.Phase == phaseAbandoned || r.Phase == phaseResuming || r.Phase == phaseExecuting || r.Phase == phaseReleased {
 		return "", "", nil, runtime.ErrSessionAbandoned
@@ -408,7 +424,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		return runtime.Outcome{Pending: p}, nil
 	}
 	if err != nil || outcome.Pending != nil {
-		return outcome, err
+		return outcome, err // Another input request has already replaced the record.
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
