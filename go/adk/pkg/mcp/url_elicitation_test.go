@@ -115,6 +115,31 @@ func continuationServer(t *testing.T, calls *atomic.Int32) string {
 	return serve(t, server, true)
 }
 
+// twoSignInServer serves the tool whoami on MCP 2026-07-28 behind two
+// sign-ins, and asks again for each one a retry leaves unanswered. It records
+// the input responses of every call.
+func twoSignInServer(t *testing.T, received *[]mcpsdk.InputResponseMap) string {
+	t.Helper()
+	var mu sync.Mutex
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gateway", Version: "0.0.1"}, nil)
+	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(_ context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		*received = append(*received, request.Params.InputResponses)
+		open := mcpsdk.InputRequestMap{}
+		for id, link := range map[string]string{"github": signInURL, "jira": "https://gateway.example/oauth/proxy/start?s=2"} {
+			if response, ok := request.Params.InputResponses[id].(*mcpsdk.ElicitResult); !ok || response.Action != "accept" {
+				open[id] = &mcpsdk.ElicitParams{Mode: "url", Message: "Sign in to " + id, URL: link, ElicitationID: id}
+			}
+		}
+		if len(open) == 0 {
+			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "jane"}}}, nil, nil
+		}
+		return &mcpsdk.CallToolResult{RequestState: "state", InputRequests: open}, nil, nil
+	})
+	return serve(t, server, true)
+}
+
 // legacyServer serves the tool whoami on MCP 2025-11-25, which fails the call
 // with -32042 until the person signed in.
 func legacyServer(t *testing.T, signedIn *atomic.Bool, calls *atomic.Int32) string {
@@ -186,7 +211,7 @@ func TestURLElicitationTool(t *testing.T) {
 		}
 	})
 
-	t.Run("Given a stored continuation the server no longer accepts, when the person confirms the call, assert that it pauses on the new sign-in", func(t *testing.T) {
+	t.Run("Given a stored continuation the server no longer accepts, when the person confirms the call, assert that it fails instead of pausing again", func(t *testing.T) {
 		var calls atomic.Int32
 		serverURL := continuationServer(t, &calls)
 		state := mapState{}
@@ -200,9 +225,34 @@ func TestURLElicitationTool(t *testing.T) {
 
 		again := newToolContext(t, state, &toolconfirmation.ToolConfirmation{Confirmed: true})
 		_, err = whoami.Run(again, map[string]any{})
-		requireSignInPause(t, again, err)
-		require.Equal(t, "state-2", again.payload.(map[string]any)["elicitation_id"])
-		require.Contains(t, fmt.Sprint(state), "state-2", "the new continuation replaces the used one")
+		require.ErrorContains(t, err, "cannot pause again")
+		require.NotErrorIs(t, err, tool.ErrConfirmationRequired)
+		require.Nil(t, again.payload, "no confirmation is requested")
+		require.Equal(t, int32(2), calls.Load())
+		for key, value := range state {
+			require.Empty(t, value, "the continuation %s is removed", key)
+		}
+	})
+
+	t.Run("Given a server that asks for two sign-ins at once, when the person confirms the first, assert that the retry leaves the second unanswered and the call fails instead of pausing again", func(t *testing.T) {
+		var received []mcpsdk.InputResponseMap
+		serverURL := twoSignInServer(t, &received)
+		state := mapState{}
+		whoami := whoamiTool(t, serverURL, newToolContext(t, state, nil))
+
+		paused := newToolContext(t, state, nil)
+		_, err := whoami.Run(paused, map[string]any{})
+		require.ErrorIs(t, err, tool.ErrConfirmationRequired)
+		require.Equal(t, "github", paused.payload.(map[string]any)["elicitation_id"])
+
+		_, err = whoami.Run(newToolContext(t, state, &toolconfirmation.ToolConfirmation{Confirmed: true}), map[string]any{})
+		require.ErrorContains(t, err, "cannot pause again")
+		require.Len(t, received, 2)
+		retry := received[1]
+		require.Len(t, retry, 1, "only the sign-in the person confirmed is answered")
+		github, ok := retry["github"].(*mcpsdk.ElicitResult)
+		require.True(t, ok, "retry = %#v", retry)
+		require.Equal(t, "accept", github.Action)
 	})
 
 	t.Run("Given a paused call, when the person rejects it, assert that the server is not called and the continuation is removed", func(t *testing.T) {
@@ -244,7 +294,7 @@ func TestURLElicitationTool(t *testing.T) {
 }
 
 func TestAnswerInputRequests(t *testing.T) {
-	t.Run("Given URL, unsafe URL and form requests, when a result asks for them, assert that only the first safe URL is accepted", func(t *testing.T) {
+	t.Run("Given URL, unsafe URL and form requests, when a result asks for them, assert that the first safe URL is accepted and the other safe URL gets no response", func(t *testing.T) {
 		continuation, elicitation, err := answerInputRequests(&mcpsdk.CallToolResult{
 			RequestState: "s",
 			InputRequests: mcpsdk.InputRequestMap{
@@ -261,7 +311,7 @@ func TestAnswerInputRequests(t *testing.T) {
 		for id, response := range continuation.InputResponses {
 			actions[id] = response.Action
 		}
-		require.Equal(t, map[string]string{"a": "decline", "b": "accept", "c": "decline", "d": "decline"}, actions)
+		require.Equal(t, map[string]string{"a": "decline", "b": "accept", "d": "decline"}, actions)
 
 		_, _, err = answerInputRequests(&mcpsdk.CallToolResult{InputRequests: mcpsdk.InputRequestMap{"roots": &mcpsdk.ListRootsParams{}}})
 		require.True(t, err != nil && strings.Contains(err.Error(), "unsupported"), "err = %v", err)

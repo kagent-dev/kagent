@@ -96,6 +96,12 @@ reject the call. The URL is `https`, or `http` on a loopback host, with no user
 info; the runtime drops any other URL. Form mode elicitations are declined,
 because what the person typed would reach the model's context.
 
+A pause carries one URL. When a server asks for several at once, the runtime
+pauses on the first and leaves the others unanswered when the call runs
+again, so the server asks for them again. A call that already resumed from a
+confirmation cannot pause a second time: a further URL elicitation fails the
+call.
+
 When a URL elicitation shares its pause with other calls, the pause is a tool
 approval, and the waiting call's tool carries the request as `url_elicitation`.
 Approving that tool accepts it.
