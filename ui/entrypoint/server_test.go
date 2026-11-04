@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -278,5 +280,47 @@ func TestParse(t *testing.T) {
 	}
 	if _, ok := parseSize("20x"); ok {
 		t.Error("parseSize accepted 20x")
+	}
+}
+
+func TestDropsUnderscoreHeaders(t *testing.T) {
+	url := start(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for name, v := range r.Header {
+			w.Header().Add("Got", name+"="+strings.Join(v, ","))
+		}
+	}), nil, "")
+	resp, _ := get(t, url+"/api/x", "X_Auth_Request_User", "evil", "X-Custom", "ok")
+	got := strings.Join(resp.Header.Values("Got"), " ")
+	if strings.Contains(got, "_") || !strings.Contains(got, "X-Custom=ok") {
+		t.Errorf("upstream headers: %s", got)
+	}
+}
+
+func TestWebSocketUpgrade(t *testing.T) {
+	url := start(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, rw, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		io.WriteString(rw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		rw.Flush()
+		line, _ := rw.ReadString('\n')
+		io.WriteString(rw, "echo "+line)
+		rw.Flush()
+	}), nil, "")
+	conn, err := net.Dial("tcp", strings.TrimPrefix(url, "http://"))
+	check(t, err)
+	defer conn.Close()
+	io.WriteString(conn, "GET /api/ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, nil)
+	check(t, err)
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	io.WriteString(conn, "ping\n")
+	if line, _ := br.ReadString('\n'); line != "echo ping\n" {
+		t.Errorf("reply %q", line)
 	}
 }

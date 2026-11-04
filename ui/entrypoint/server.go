@@ -215,6 +215,30 @@ func (b *idleBody) Close() error {
 	return b.ReadCloser.Close()
 }
 
+// idleTunnel keeps an upgraded connection writable, which ReverseProxy requires, while still enforcing the read timeout.
+type idleTunnel struct {
+	io.ReadWriteCloser
+	timer *time.Timer
+	idle  time.Duration
+}
+
+func (t *idleTunnel) Read(p []byte) (int, error) {
+	n, err := t.ReadWriteCloser.Read(p)
+	t.timer.Reset(t.idle)
+	return n, err
+}
+
+func (t *idleTunnel) Write(p []byte) (int, error) {
+	n, err := t.ReadWriteCloser.Write(p)
+	t.timer.Reset(t.idle)
+	return n, err
+}
+
+func (t *idleTunnel) Close() error {
+	t.timer.Stop()
+	return t.ReadWriteCloser.Close()
+}
+
 func (s *server) newProxy(kind route, transport http.RoundTripper) http.Handler {
 	rp := &httputil.ReverseProxy{
 		Transport: transport,
@@ -223,7 +247,12 @@ func (s *server) newProxy(kind route, transport http.RoundTripper) http.Handler 
 		Rewrite:       func(pr *httputil.ProxyRequest) { s.rewrite(kind, pr) },
 		ModifyResponse: func(resp *http.Response) error {
 			if cancel, ok := resp.Request.Context().Value(cancelKey{}).(context.CancelFunc); ok && s.readTimeout > 0 {
-				resp.Body = &idleBody{ReadCloser: resp.Body, timer: time.AfterFunc(s.readTimeout, cancel), idle: s.readTimeout}
+				timer := time.AfterFunc(s.readTimeout, cancel)
+				if tunnel, ok := resp.Body.(io.ReadWriteCloser); ok && resp.StatusCode == http.StatusSwitchingProtocols {
+					resp.Body = &idleTunnel{ReadWriteCloser: tunnel, timer: timer, idle: s.readTimeout}
+				} else {
+					resp.Body = &idleBody{ReadCloser: resp.Body, timer: timer, idle: s.readTimeout}
+				}
 			}
 			return nil
 		},
@@ -298,6 +327,16 @@ func (s *server) rewrite(kind route, pr *httputil.ProxyRequest) {
 	}
 }
 
+// dropUnderscoreHeaders removes header names containing underscores, as nginx does by default,
+// so one cannot impersonate a dashed header the proxy strips.
+func dropUnderscoreHeaders(h http.Header) {
+	for name := range h {
+		if strings.Contains(name, "_") {
+			delete(h, name)
+		}
+	}
+}
+
 // cleanPath normalises a request path like nginx does, keeping a trailing slash.
 func cleanPath(p string) string {
 	c := path.Clean("/" + p)
@@ -323,6 +362,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, s.maxBodyBytes)
 	}
+	dropUnderscoreHeaders(r.Header)
 	p := s.stripBase(cleanPath(r.URL.Path))
 	r.URL.Path, r.URL.RawPath = p, ""
 
