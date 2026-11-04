@@ -152,7 +152,8 @@ flowchart TD
     B --> POOL
     POOL --> REV[immutable revision and digest]
     POOL -->|error| STATUS
-    REV --> ATE[ate-api ActorTemplate]
+    REV --> BUNDLE[persist revision and bootstrap bundle]
+    BUNDLE --> ATE[ate-api ActorTemplate]
     ATE --> GOLDEN[golden snapshot]
     GOLDEN -->|ready| LATEST[latest successful revision]
     RESOLVE -->|error| STATUS[Agent status]
@@ -164,10 +165,12 @@ flowchart TD
 3. Select the harness compiler from the runtime-type registration map.
 4. Produce an immutable revision containing workload, configuration, Agent Card,
    capacity, snapshot, provenance, and inferred egress inputs.
-5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and apply
-   it as an ate-api ActorTemplate.
-6. Wait for the golden snapshot to become ready.
-7. Persist the revision and advance the Agent's latest-successful pointer.
+5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and persist
+   its immutable bootstrap bundle before creating compute.
+6. Apply the ate-api ActorTemplate and record its observed identity.
+7. Let the golden runtime bootstrap its configuration and wait for its snapshot
+   to become ready.
+8. Advance the Agent's latest-successful pointer.
 
 Agent owns readiness, warnings, the desired revision, and the latest successful
 revision. AgentTemplate is shared context with no runtime status. Child template
@@ -200,6 +203,35 @@ last successful revision remains available, while abandoned preparations can
 be collected and cannot become the latest successful revision through a delayed
 completion.
 
+### Configuration delivery
+
+Each prepared revision owns an immutable bootstrap bundle in PostgreSQL containing
+its compiled configuration and rendered Agent Card. Their combined limit is
+256 KiB of UTF-8 bytes, including shared subagents; oversized bundles are rejected
+before compute creation.
+
+The ActorTemplate carries a small `KAGENT_BOOTSTRAP_JSON` descriptor with the
+control-plane URL, revision, format version, and bundle digest. The URL and
+bootstrap version participate in revision identity. The controller publishes the
+bundle before creating the template, then records the template's identity.
+The bootstrap service returns only the bundle bound to the authenticated actor's
+template. It uses a separate `kagent-bootstrap` JWT audience and requires no
+Session; this credential grants no user, TaskStore, or Memory authority.
+
+During golden initialization, the runtime fetches and verifies the bundle, then
+atomically saves it at `/data/kagent/bootstrap/bundle.pb` before becoming ready.
+Transient failures, including a pending template binding, retry within the startup
+deadline. New Sessions and forks inherit the saved bundle through snapshots;
+process restarts and volume restores load it without contacting bootstrap.
+A corrupt or mismatched bundle fails startup. Existing Sessions keep their pinned
+configuration after Agent edits. Bundles are collected with their revisions once
+sources, runtimes, checkpoints, and in-progress preparation no longer retain them.
+
+Go ADK, Python ADK, Codex, Claude, and supported BYO images use this contract.
+Credentials and actor identity retain their separate delivery paths. Golden
+egress allows the control-plane origin with bootstrap authority; normal Session
+egress uses runtime authority.
+
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
@@ -218,9 +250,10 @@ millicores and memory bytes for every harness, rounding positive fractions up
 to the next unit. Standalone sandbox limits remain under `sandboxes` configuration.
 
 Harness and SandboxTemplate snapshot locations require Substrate's
-`PerTemplateSnapshotLocation` preview gate. The CLI installer enables it; direct
-Substrate installations must include it in their Helm `preview` list. The
-Substrate client opts ActorTemplate creation requests into preview features.
+`PerTemplateSnapshotLocation` preview gate; configuration bootstrap requires
+`GoldenEgressPolicy`. The CLI installer enables both. Direct Substrate
+installations must include both in their Helm `preview` list. The Substrate
+client opts ActorTemplate creation requests into preview features.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates
@@ -256,9 +289,11 @@ ActorTemplate and recreates it on the persisted schedule described in
 with reason `ActorTemplateRetrying` and only the failure reason in its message.
 
 ActorTemplate construction checks the size of each emitted environment value
-against Substrate's 32,768-character limit, including the serialized config and
-Agent Card. The check counts Unicode code points after JSON encoding, including
-its escaping. Oversized values produce `Compatible=False` with reason
+against Substrate's 32,768-character limit. Configuration and Agent Card
+payloads use the separate [bootstrap bundle](#configuration-delivery) budget.
+The environment-value check counts Unicode code points after JSON encoding,
+including its escaping.
+Oversized values produce `Compatible=False` with reason
 `ActorTemplateInvalid` before any Substrate call. A subsequent `InvalidArgument`
 from `CreateActorTemplate` is recorded as a terminal `ActorTemplateRejected`
 preparation failure. Its backend message is not copied into status because it
