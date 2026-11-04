@@ -313,7 +313,9 @@ func TestAnswerInputRequests(t *testing.T) {
 		}
 		require.Equal(t, map[string]string{"a": "decline", "b": "accept", "d": "decline"}, actions)
 
-		_, _, err = answerInputRequests(&mcpsdk.CallToolResult{InputRequests: mcpsdk.InputRequestMap{"other": unsupportedInputRequest{}}})
+		// Roots is deprecated (SEP-2577) but servers may still send roots/list
+		// as an input request until the SDK drops it, so it must stay rejected.
+		_, _, err = answerInputRequests(&mcpsdk.CallToolResult{InputRequests: mcpsdk.InputRequestMap{"roots": &mcpsdk.ListRootsParams{}}}) //nolint:staticcheck // SA1019: see above
 		require.True(t, err != nil && strings.Contains(err.Error(), "unsupported"), "err = %v", err)
 	})
 }
@@ -340,6 +342,3 @@ func TestElicitationHandlerRelaysOnlyASafeURL(t *testing.T) {
 		Message: "Sign in", URL: "https://gateway.example/s", ElicitationID: "e1",
 	}, elicitation.request)
 }
-
-// unsupportedInputRequest is an input request kind other than an elicitation.
-type unsupportedInputRequest struct{ mcpsdk.InputRequest }
