@@ -154,8 +154,10 @@ The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
 `SUBSTRATE_VERSION=1.0.0-rc2 bash scripts/kind/setup-microvm.sh`.
-It fetches the matching Substrate release to use its asset installer and caches
-the downloaded assets under `.cache/substrate/microvm-assets/`.
+It fetches the matching Substrate release and runs
+`ate-setup deploy sandboxconfig --sandbox-classes=microvm`. The installer assembles
+and verifies the assets, uploads them to RustFS, and applies the SandboxConfig.
+Its outputs are cached under `.cache/substrate/microvm-assets/`.
 
 To compare four versus eight on the same revision and runner, manually dispatch
 the CI workflow with `e2e_parallel` set to `4` or `8`. Compare the `Run e2e tests`
