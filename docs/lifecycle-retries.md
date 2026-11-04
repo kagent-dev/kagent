@@ -2,8 +2,8 @@
 
 Session and Sandbox lifecycle mutations run within the API request. The server
 records the intended operation before calling the runtime and records completion
-before returning success. Sessions expose Create, Fork, and Delete; explicit Suspend
-and Resume are available only for Sandboxes. Session runtime suspension and resumption
+before returning success. Sessions expose Create, Fork, Revert, and Delete; explicit
+Suspend and Resume are available only for Sandboxes. Session runtime suspension and resumption
 are platform-managed. A failed request can have changed the runtime: a timeout
 does not mean that nothing happened, and canceling a request does not undo it.
 
@@ -38,6 +38,32 @@ CLI callers should supply `--request-id` when creating a Session and retain it
 for subsequent invocations. Omitting it generates a new ID on each invocation,
 so rerunning that command is a new creation rather than a retry. MCP callers
 should likewise retain the `request_id` passed to `create_sandbox`.
+
+## Recovering a crashed Session
+
+Call `SessionService.RevertSession` with the Session ID to restore its recorded runtime to the last durable snapshot.
+The caller needs Session update access. The operation verifies Substrate's CRASHED state and the recorded Actor identity.
+Recovery fails interrupted turns and waiting tasks absent from the retained snapshot.
+It preserves durable terminal results and returns the Session to READY with its Actor suspended.
+It discards runtime changes since that snapshot and does not replay input.
+A runtime without a snapshot restarts from its initial state.
+
+Retry an interrupted revert against the same Session ID. Pending recovery retains its operation across API restarts.
+The lifecycle worker retries already admitted recoveries; it does not initiate recovery for other crashed Sessions.
+Checkpoint creation returns `ABORTED` until it finishes.
+A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.
+So does a revert while another lifecycle operation is active.
+
+A revert that can never succeed against the Session as it stands returns `FAILED_PRECONDITION`.
+Its `google.rpc.ErrorInfo` detail, in domain `kagent.dev`, names one of two reasons:
+
+| Reason | Meaning | Client action |
+| --- | --- | --- |
+| `KAGENT_SESSION_RUNTIME_NOT_CRASHED` | The runtime is healthy or suspended. A retry after a revert whose response was lost lands here. | Treat as recovered and continue the conversation. |
+| `KAGENT_SESSION_RUNTIME_UNRECOVERABLE` | The recorded Actor is missing, or a same-name Actor replaced it. | Stop retrying. Start another Session, or fork one from a checkpoint. |
+
+A `FAILED_PRECONDITION` without either reason follows the general table below.
+Read the reason rather than the message text, which is not stable.
 
 ## Errors
 

@@ -13,6 +13,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -129,6 +132,10 @@ func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (
 	return session, w.err
 }
 
+func (w serviceTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return session, w.err
+}
+
 func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return session, w.err
 }
@@ -201,23 +208,57 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
-func TestServiceDeletePreservesContentionErrors(t *testing.T) {
-	for _, failure := range []struct {
-		cause error
-		code  serviceerrors.Code
+func TestServiceRevertNamesRefusalReason(t *testing.T) {
+	for _, test := range []struct {
+		cause  error
+		reason string
 	}{
-		{database.ErrConflict, serviceerrors.CodeAborted},
-		{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
+		{errRuntimeNotCrashed, "KAGENT_SESSION_RUNTIME_NOT_CRASHED"},
+		{fmt.Errorf("runtime Actor was replaced: %w", errRuntimeUnrecoverable), "KAGENT_SESSION_RUNTIME_UNRECOVERABLE"},
 	} {
-		conflict := fmt.Errorf("Session has an operation in progress: %w", failure.cause)
-		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
-		_, err := service.Delete(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", false)
-		if !serviceerrors.IsCode(err, failure.code) {
-			t.Fatalf("error = %v, want code %s", err, failure.code)
-		}
-		if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
-			t.Fatalf("error = %v, want preserved contention reason", err)
-		}
+		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: test.cause})
+		_, err := service.Revert(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+		refusal, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, codes.FailedPrecondition, refusal.Code())
+		require.Equal(t, test.cause.Error(), refusal.Message())
+		require.Len(t, refusal.Details(), 1)
+		info, ok := refusal.Details()[0].(*errdetails.ErrorInfo)
+		require.True(t, ok)
+		require.Equal(t, "kagent.dev", info.GetDomain())
+		require.Equal(t, test.reason, info.GetReason())
+	}
+}
+
+func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		call func(*Service, context.Context, string) (*apiv1.Session, error)
+	}{
+		{name: "revert", call: (*Service).Revert},
+		{name: "delete", call: func(service *Service, ctx context.Context, id string) (*apiv1.Session, error) {
+			return service.Delete(ctx, id, false)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, failure := range []struct {
+				cause error
+				code  serviceerrors.Code
+			}{
+				{database.ErrConflict, serviceerrors.CodeAborted},
+				{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
+			} {
+				conflict := fmt.Errorf("Session has an operation in progress: %w", failure.cause)
+				service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
+				_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+				if !serviceerrors.IsCode(err, failure.code) {
+					t.Fatalf("error = %v, want code %s", err, failure.code)
+				}
+				if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
+					t.Fatalf("error = %v, want preserved contention reason", err)
+				}
+			}
+		})
 	}
 }
 
@@ -553,6 +594,7 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		name string
 		call func() error
 	}{
+		{name: "revert", call: func() error { _, err := service.Revert(ctx, id); return err }},
 		{name: "delete", call: func() error { _, err := service.Delete(ctx, id, false); return err }},
 		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
 		{name: "share listing", call: func() error { _, err := service.ListShares(ctx, id, 0, ""); return err }},
