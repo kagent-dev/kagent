@@ -6,7 +6,7 @@ import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { useAgentInstanceShareToken } from "@/api/shareToken";
 import { useAgentInstance } from "@/api";
 import { useChat } from "@/api/hooks/useChat";
-import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
+import { refreshConversation, useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { shortInstanceId } from "@/components/agent-instances/instanceLabels";
 
 const { Text } = Typography;
@@ -45,8 +45,9 @@ export function SharedAgentPage() {
   const chat = useChat(conversation);
   const error = instance.error ?? chat.historyError;
 
-  // Keep up with messages the owner sends while this page is open.
-  useLiveTranscript(chat.refreshTranscript, {
+  // Keep up with messages the owner sends while this page is open. The Session is read
+  // on the same tick, so a recovery the owner runs updates the failure indicators here.
+  useLiveTranscript(() => refreshConversation(chat.refreshTranscript, instance.refresh), {
     enabled: Boolean(conversation),
     isBusy: chat.phase === "streaming",
   });
@@ -92,7 +93,7 @@ export function SharedAgentPage() {
             height: `calc(100vh - ${theme.layout.headerHeight}px - ${theme.space(48)})`,
           }}
         >
-          <ChatTranscript chat={chat} sessionId={id} readOnly />
+          <ChatTranscript chat={chat} sessionId={id} recovery={instance.data?.recovery} readOnly />
         </div>
       )}
 
