@@ -16,7 +16,7 @@ import (
 
 type workflowStore interface {
 	ListSessionRecoveryCandidates(context.Context, string, int) ([]*apiv1.Session, error)
-	SessionLifecycleGeneration(context.Context, string) (uuid.UUID, error)
+	SessionRecoveryFence(context.Context, string) (*database.SessionRecoveryFence, error)
 	BeginCrashedSessionRecovery(context.Context, string, uuid.UUID, string, database.SessionTaskSnapshot) (*database.SessionOperation, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)

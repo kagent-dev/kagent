@@ -43,23 +43,50 @@ func (c *Client) ListSessionRecoveryCandidates(ctx context.Context, afterID stri
 	return result, nil
 }
 
-// SessionLifecycleGeneration returns the ID of the Session's latest lifecycle
-// operation, or uuid.Nil when none is recorded. Every operation replaces it, and
-// completion keeps it. Recovery reads it before observing Substrate.
-func (c *Client) SessionLifecycleGeneration(ctx context.Context, id string) (uuid.UUID, error) {
-	generation, err := queryOne(ctx, c.db, `SELECT operation_id FROM session_record WHERE id = $1`, pgx.RowTo[*uuid.UUID], id)
+// SessionRecoveryFence is what crash recovery reads before it observes Substrate.
+// Generation is the ID of the Session's latest lifecycle operation, or uuid.Nil
+// when none is recorded. Every operation replaces it, and completion keeps it.
+// ActorUID is the recorded runtime Actor, or "" when none is recorded. The
+// template identifies where that Actor lives and what it must run.
+type SessionRecoveryFence struct {
+	Generation       uuid.UUID
+	ActorUID         string
+	TemplateAtespace string
+	TemplateName     string
+}
+
+// SessionRecoveryFence reads the lifecycle generation, recorded Actor UID, and
+// Actor template of a live Session in one statement. Deleted or missing Sessions
+// return ErrNotFound. Callers authorize access. The read takes no lock: admission
+// re-checks the generation and Actor UID under the Session lock.
+func (c *Client) SessionRecoveryFence(ctx context.Context, id string) (*SessionRecoveryFence, error) {
+	type fenceRow struct {
+		OperationID           *uuid.UUID
+		ActorUID              *string
+		ActorTemplateAtespace string
+		ActorTemplateName     string
+	}
+	row, err := queryOne(ctx, c.db, `
+		SELECT i.operation_id, i.actor_uid, r.actor_template_atespace, r.actor_template_name
+		FROM session_record i JOIN runtime_revision r ON r.revision = i.prepared_revision
+		WHERE i.id = $1 AND i.state <> 'RUNTIME_STATE_DELETED'
+	`, pgx.RowToStructByName[fenceRow], id)
 	if err != nil {
-		return uuid.Nil, notFoundOr(err)
+		return nil, fmt.Errorf("read Session %s recovery fence: %w", id, notFoundOr(err))
 	}
-	if generation == nil {
-		return uuid.Nil, nil
+	fence := &SessionRecoveryFence{TemplateAtespace: row.ActorTemplateAtespace, TemplateName: row.ActorTemplateName}
+	if row.OperationID != nil {
+		fence.Generation = *row.OperationID
 	}
-	return *generation, nil
+	if row.ActorUID != nil {
+		fence.ActorUID = *row.ActorUID
+	}
+	return fence, nil
 }
 
 // BeginCrashedSessionRecovery fences confirmed-crash recovery under the Session lock.
 // It preserves durable results; obsolete Actors and conflicting operations fail.
-// generation is the caller's SessionLifecycleGeneration read from before it
+// generation is the caller's SessionRecoveryFence generation, read before it
 // observed the crash. A lifecycle operation begun since then makes the observation
 // stale, because a concurrent revert keeps the Actor UID and returns to READY.
 func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, generation uuid.UUID, actorUID string, snapshot SessionTaskSnapshot) (*SessionOperation, error) {
@@ -69,11 +96,21 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, gen
 		if err != nil {
 			return notFoundOr(err)
 		}
-		matches, err := queryOne(ctx, tx, `SELECT actor_uid = $2 FROM session WHERE id = $1`, pgx.RowTo[bool], row.ID, actorUID)
+		// Both guards are read under the lock in one statement, and are evaluated in
+		// their original order: Actor identity first, checkpoint creation last.
+		type guards struct {
+			Matches bool
+			Busy    bool
+		}
+		guard, err := queryOne(ctx, tx, `
+			SELECT actor_uid = $2 AS matches,
+			    EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING') AS busy
+			FROM session WHERE id = $1
+		`, pgx.RowToStructByName[guards], row.ID, actorUID)
 		if err != nil {
 			return err
 		}
-		if !matches || actorUID == "" {
+		if !guard.Matches || actorUID == "" {
 			return ErrConflict
 		}
 		session, err := toSession(row)
@@ -100,13 +137,7 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, gen
 		// retires the claim in this transaction; a late finish for it changes nothing.
 		// The generation check keeps the crash observation current: without another
 		// lifecycle operation, nothing returns the crashed Actor to service.
-		busy, err := queryOne(ctx, tx, `
-			SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
-		`, pgx.RowTo[bool], row.ID)
-		if err != nil {
-			return err
-		}
-		if busy {
+		if guard.Busy {
 			return ErrConflict
 		}
 		row.State = apiv1.RuntimeState_RUNTIME_STATE_FAILED.String()
@@ -136,45 +167,54 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, gen
 // settleCrashedSessionTask retains captured waits and fails discarded nonterminal work.
 // Callers hold the Session lock; recovery cannot checkpoint discarded state.
 func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, snapshot SessionTaskSnapshot) error {
-	if err := execSQL(ctx, tx, `UPDATE session_task_event SET quiescence_pending = FALSE WHERE history_id = $1 AND quiescence_pending`, session.HistoryID); err != nil {
-		return err
+	type interruptedTask struct {
+		ID      string
+		Data    []byte
+		Version *int64
+		Pending bool
 	}
-	taskIDs, err := queryMany(ctx, tx, `
-		SELECT t.id FROM session_task t WHERE t.history_id = $1
+	// The CTE clears the history's pending quiescence marker. The main query
+	// reads the pre-update snapshot, but pending only tests that a boundary was
+	// recorded, which clearing keeps true. A task without events is malformed.
+	tasks, err := queryMany(ctx, tx, `
+		WITH cleared AS (
+		    UPDATE session_task_event SET quiescence_pending = FALSE
+		    WHERE history_id = $1 AND quiescence_pending)
+		SELECT t.id, t.data, latest.sequence AS version,
+		    COALESCE(NOT latest.published AND latest.quiescence_pending IS NOT NULL, FALSE) AS pending
+		FROM session_task t
+		LEFT JOIN LATERAL (SELECT sequence, published, quiescence_pending FROM session_task_event e
+		    WHERE e.history_id = t.history_id AND e.task_id = t.id
+		    ORDER BY sequence DESC LIMIT 1) latest ON TRUE
+		WHERE t.history_id = $1
 		    AND (t.state IN ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING')
 		      OR (t.state IN ('TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')
 		        AND NOT EXISTS (SELECT 1 FROM session_task_event captured
 		          WHERE captured.history_id = t.history_id AND $2::text <> ''
 		            AND captured.snapshot_uri = $2 AND captured.snapshot_fidelity = $3
 		            AND captured.snapshot_atespace = $4
-		            AND captured.sequence >= (SELECT MAX(sequence) FROM session_task_event latest
-		              WHERE latest.history_id = t.history_id AND latest.task_id = t.id))))
-	`, pgx.RowTo[string], session.HistoryID, snapshot.URI, snapshot.Fidelity, snapshot.Atespace)
+		            AND captured.sequence >= latest.sequence)))
+	`, pgx.RowToStructByName[interruptedTask], session.HistoryID, snapshot.URI, snapshot.Fidelity, snapshot.Atespace)
 	if err != nil {
 		return fmt.Errorf("read interrupted Session tasks: %w", err)
 	}
-	for _, taskID := range taskIDs {
-		version, err := taskVersion(ctx, tx, session.HistoryID, taskID)
-		if err != nil {
-			return err
+	for _, interrupted := range tasks {
+		taskID, data := interrupted.ID, interrupted.Data
+		if interrupted.Version == nil {
+			return fmt.Errorf("interrupted Session task %s has no events", taskID)
 		}
-		pending, err := queryOne(ctx, tx, `
-			SELECT EXISTS (SELECT 1 FROM session_task_event
-			    WHERE sequence = $1 AND NOT published AND quiescence_pending IS NOT NULL)
-		`, pgx.RowTo[bool], version)
-		if err != nil {
-			return err
-		}
-		if pending {
-			if err := settleSessionTask(ctx, tx, session, taskID, version); err != nil {
+		if interrupted.Pending {
+			if err := settleSessionTask(ctx, tx, session, taskID, *interrupted.Version); err != nil {
 				return err
 			}
+			// Settlement rewrote the projection, so the selected data is stale.
+			stored, err := readSessionTask(ctx, tx, session.HistoryID, taskID)
+			if err != nil {
+				return err
+			}
+			data = stored.Data
 		}
-		stored, err := readSessionTask(ctx, tx, session.HistoryID, taskID)
-		if err != nil {
-			return err
-		}
-		task, err := unmarshalSessionTask(stored.Data)
+		task, err := unmarshalSessionTask(data)
 		if err != nil {
 			return err
 		}
@@ -186,7 +226,7 @@ func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow
 			if err := storeSessionTaskEvent(ctx, tx, session, task, event, false); err != nil {
 				return err
 			}
-			version, err = taskVersion(ctx, tx, session.HistoryID, taskID)
+			version, err := taskVersion(ctx, tx, session.HistoryID, taskID)
 			if err != nil {
 				return err
 			}
