@@ -13,6 +13,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/jsonschema-go/jsonschema"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/plugin"
@@ -423,7 +424,7 @@ func (e *KAgentExecutor) flushTurnSpans(ctx context.Context) {
 		return
 	}
 	if err := e.flush(ctx); err != nil {
-		e.logger.ErrorContext(ctx, "failed to flush turn telemetry", "error", err)
+		otel.Handle(err)
 	}
 }
 

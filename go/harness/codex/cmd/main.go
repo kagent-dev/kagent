@@ -13,6 +13,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"go.opentelemetry.io/otel"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
@@ -78,13 +79,13 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 		DeferMetrics: true,
 	})
 	if err != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to initialize harness telemetry", "error", err)
+		otel.Handle(err)
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := providers.Shutdown(shutdownCtx); err != nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "failed to shutdown harness telemetry", "error", err)
+			otel.Handle(err)
 		}
 	}()
 	exec, err := executor.New(ctx, executor.Config{ConfigJSON: configJSON, DataDir: dataDir, Environment: environment})
