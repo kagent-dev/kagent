@@ -19,3 +19,11 @@ data:
   {{- if .Values.ui.streamTimeoutSeconds }}
   KAGENT_UI_STREAM_TIMEOUT_MS: {{ mul (int .Values.ui.streamTimeoutSeconds) 1000 | quote }}
   {{- end }}
+  {{- /* The UI server reads its proxy settings from these. */}}
+  KAGENT_UI_UPSTREAM: {{ include "kagent.controllerServiceAuthority" . | quote }}
+  KAGENT_UI_PROXY_READ_TIMEOUT: {{ .Values.ui.nginx.proxyReadTimeout | quote }}
+  KAGENT_UI_PROXY_SEND_TIMEOUT: {{ .Values.ui.nginx.proxySendTimeout | quote }}
+  KAGENT_UI_MAX_BODY_SIZE: {{ .Values.ui.nginx.clientMaxBodySize | quote }}
+  KAGENT_UI_FORWARDED_HEADERS: {{ join "," (default list .Values.ui.additionalForwardedHeaders) | quote }}
+  KAGENT_UI_TRUSTED_PROXY: {{ eq .Values.config.server.auth.mode "trusted-proxy" | quote }}
+  KAGENT_UI_IPV6: {{ .Values.ipv6.enabled | quote }}

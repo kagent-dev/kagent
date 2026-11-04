@@ -19,7 +19,6 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
-        checksum/ui-config: {{ include (print $.Template.BasePath "/ui-nginx-configmap.yaml") . | sha256sum }}
         {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -39,9 +38,6 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.ui.volumes.tmp }}
-        - name: ui-config
-          configMap:
-            name: {{ include "kagent.fullname" . }}-ui-config
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -80,10 +76,6 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: ui-config
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
-              readOnly: true
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
           {{- if .Values.ui.startupProbe }}
