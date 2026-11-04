@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
@@ -40,6 +41,8 @@ type CompileResult struct {
 
 // Revision is the resolved runtime configuration for one immutable revision.
 type Revision struct {
+	ControlPlaneURL string
+
 	// These fields identify the Agent that produced the revision.
 	AgentName string
 	AgentUID  string
@@ -52,7 +55,7 @@ type Revision struct {
 	Environment []corev1.EnvVar
 	CPU         string
 	Memory      string
-	// ConfigJSON is injected into the runtime container verbatim.
+	// ConfigJSON is delivered in the immutable bootstrap bundle.
 	// AgentCard stays typed until a runtime or public protocol boundary renders it.
 	ConfigJSON  []byte
 	AgentCard   *a2apb.AgentCard
@@ -96,6 +99,8 @@ func (r *Revision) Digest() (RevisionID, error) {
 		return RevisionID{}, fmt.Errorf("unsupported sandbox class %q", sandboxClass)
 	}
 	raw, err := json.Marshal(struct {
+		BootstrapVersion        uint32                       `json:"bootstrapVersion"`
+		ControlPlaneURL         string                       `json:"controlPlaneURL"`
 		AgentName               string                       `json:"agentName"`
 		AgentUID                string                       `json:"agentUID"`
 		Namespace               string                       `json:"namespace"`
@@ -118,6 +123,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		// Hash it explicitly so existing immutable templates do not conflict after upgrades.
 		WorkerPoolNamespace string `json:"workerPoolNamespace"`
 	}{
+		BootstrapVersion: bootstrap.FormatVersion, ControlPlaneURL: r.ControlPlaneURL,
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		CPU: r.CPU, Memory: r.Memory,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,

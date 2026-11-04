@@ -97,9 +97,9 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 		Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Command: []string{"/agent"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
-	// All three signals must leave room for fourteen user settings. The final
+	// All three signals must leave room for fifteen user settings. The final
 	// ActorTemplate also includes credentials/trust and bootstrap variables.
-	for i := range 14 {
+	for i := range 15 {
 		harness.Spec.Env = append(harness.Spec.Env, v1alpha3.RuntimeEnvVar{Name: fmt.Sprintf("CUSTOM_%d", i), Value: "value"})
 	}
 	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}}
@@ -111,12 +111,12 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	revision.CPU, revision.Memory = "1", "1Gi"
 	id, err := revision.Digest()
 	require.NoError(t, err)
-	actor, err := substrate.ActorTemplateForRevision(&revision.Revision, id)
+	actor, _, err := substrate.ActorTemplateForRevision(&revision.Revision, id)
 	require.NoError(t, err)
 	require.Len(t, actor.GetContainers()[0].GetEnv(), 32)
 	require.Contains(t, revision.EgressDestinations, "http://collector:4317")
 	// Keep the actual Substrate boundary enforced after compaction.
 	revision.Environment = append(revision.Environment, corev1.EnvVar{Name: "ONE_MORE", Value: "value"})
-	_, err = substrate.ActorTemplateForRevision(&revision.Revision, id)
+	_, _, err = substrate.ActorTemplateForRevision(&revision.Revision, id)
 	require.ErrorContains(t, err, "Substrate supports at most 32")
 }

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package kagent.runtime.v1;
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1";
+
+// BootstrapService delivers immutable configuration to authenticated actors before
+// a Session exists. The actor's associated template determines the bundle.
+service BootstrapService {
+  rpc GetBootstrapConfig(BootstrapServiceGetBootstrapConfigRequest) returns (BootstrapServiceGetBootstrapConfigResponse);
+}
+
+message BootstrapServiceGetBootstrapConfigRequest {}
+
+message BootstrapServiceGetBootstrapConfigResponse {
+  uint32 format_version = 1;
+  string revision = 2;
+  bytes config_json = 3;
+  bytes agent_card_json = 4;
+  string sha256 = 5;
+}
