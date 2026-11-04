@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -176,6 +175,7 @@ type testTags struct {
 	getErr                 error
 	createErr              error
 	deleteErr              error
+	deleteResponseErr      error
 	actorErr               error
 	mutateTag              func(*ateapipb.Tag)
 	beforeDelete           func()
@@ -241,7 +241,7 @@ func (t *testTags) DeleteTag(_ context.Context, _, _, uid string) error {
 		return status.Error(codes.Aborted, "tag UID changed")
 	}
 	t.created = nil
-	return nil
+	return t.deleteResponseErr
 }
 
 func TestCreatePreservesStoreConflictReason(t *testing.T) {
@@ -250,7 +250,7 @@ func TestCreatePreservesStoreConflictReason(t *testing.T) {
 			storeErr := fmt.Errorf("Session cannot checkpoint in its current state: %w", cause)
 			service := NewService(&testStore{reserveErr: storeErr}, testAuthorizer{}, nil, nil)
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+			_, err := createAndRecover(service, ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 			require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(err))
 			require.Equal(t, storeErr.Error(), serviceerrors.MessageOf(err))
 			require.ErrorIs(t, err, cause)
@@ -268,7 +268,7 @@ func TestCreateDistinguishesPendingSnapshotFromAdvancedConversation(t *testing.T
 	} {
 		service := NewService(&testStore{reserveErr: test.err}, testAuthorizer{}, &testTags{}, &testWorkflow{})
 		ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-		_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request", "task-a")
+		_, err := createAndRecover(service, ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request", "task-a")
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
 		details := status.Convert(err).Details()
 		require.Len(t, details, 1)
@@ -302,7 +302,7 @@ func TestCreateTagsRecordedSnapshotBoundary(t *testing.T) {
 	service := NewService(store, &restrictiveAuthorizer{resource: "Session", verb: auth.VerbCreate}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	checkpoint, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+	checkpoint, err := createAndRecover(service, ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestCreateCleansTagBeforeFailing(t *testing.T) {
 			service := NewService(store, testAuthorizer{}, tags, nil)
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 
-			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+			_, err := createAndRecover(service, ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 			require.Error(t, err)
 			require.Equal(t, 1, tags.deleteCalls)
 			require.NotEmpty(t, store.failed)
@@ -350,7 +350,7 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 
 	store.forkSourceErr = fmt.Errorf("deletion must use the snapshot returned by BeginDelete")
 	tags.getErr = fmt.Errorf("tag lookup unavailable")
-	if err := service.Delete(ctx, checkpoint.GetId()); err == nil {
+	if err := deleteAndRecover(service, ctx, checkpoint.GetId()); err == nil {
 		t.Fatal("Delete() succeeded without verifying the snapshot tag")
 	}
 	if checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_DELETING || tags.deleteCalls != 0 || store.deleted {
@@ -358,11 +358,11 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 	}
 	tags.getErr = nil
 	tags.deleteErr = status.Error(codes.Unavailable, "tag delete unavailable")
-	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(service.Delete(ctx, checkpoint.GetId())))
+	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(deleteAndRecover(service, ctx, checkpoint.GetId())))
 	require.False(t, store.deleted, "a failed tag delete must retain the database reference")
 	require.NotNil(t, tags.created)
 	tags.deleteErr = nil
-	if err := service.Delete(ctx, checkpoint.GetId()); err != nil {
+	if err := deleteAndRecover(service, ctx, checkpoint.GetId()); err != nil {
 		t.Fatal(err)
 	}
 	if checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_DELETING || tags.deleteCalls != 2 || !store.deleted {
@@ -380,7 +380,7 @@ func TestDeleteFailedCheckpointWithMissingTag(t *testing.T) {
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 
 	tags.getErr = status.Error(codes.Unavailable, "tag lookup unavailable")
-	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(service.Delete(ctx, checkpoint.GetId())))
+	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(deleteAndRecover(service, ctx, checkpoint.GetId())))
 	require.False(t, store.deleted)
 	require.Zero(t, tags.deleteCalls)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, checkpoint.State)
@@ -388,7 +388,7 @@ func TestDeleteFailedCheckpointWithMissingTag(t *testing.T) {
 	// Retry through a new service instance after the backend recovers.
 	tags.getErr = nil
 	service = NewService(store, testAuthorizer{}, tags, nil)
-	require.NoError(t, service.Delete(ctx, checkpoint.GetId()))
+	require.NoError(t, deleteAndRecover(service, ctx, checkpoint.GetId()))
 	require.True(t, store.deleted)
 	require.Zero(t, tags.deleteCalls)
 }
@@ -415,7 +415,7 @@ func TestDeleteRejectsUnverifiedTag(t *testing.T) {
 			}}
 			service := NewService(store, testAuthorizer{}, tags, nil)
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-			require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(service.Delete(ctx, checkpoint.GetId())))
+			require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(deleteAndRecover(service, ctx, checkpoint.GetId())))
 			require.False(t, store.deleted)
 			require.Zero(t, tags.deleteCalls)
 		})
@@ -450,13 +450,13 @@ func TestCreateRetriesRetainedTagAfterPublishFailure(t *testing.T) {
 	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", createErr: status.Error(codes.DeadlineExceeded, "response lost")}
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+	_, err := createAndRecover(service, ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 	require.Error(t, err)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
 	require.Equal(t, 0, tags.deleteCalls)
 	retained := tags.created
 	store.finalizeErr = nil
-	checkpoint, err := service.Create(ctx, store.prepared.SessionId, "request-1", "task-1")
+	checkpoint, err := createAndRecover(service, ctx, store.prepared.SessionId, "request-1", "task-1")
 	require.NoError(t, err)
 	require.Same(t, retained, tags.created)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, checkpoint.State)
@@ -472,7 +472,7 @@ func TestCreateRejectsInvalidTagAndKeepsCleanupRetryable(t *testing.T) {
 		{"upload pending", func(tag *ateapipb.Tag) {
 			tag.Status.Snapshot.DurableSnapshot.State = ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING
 		}},
-		{"wrong source", func(tag *ateapipb.Tag) { tag.SourceActor.Name = "other" }},
+
 		{"wrong template", func(tag *ateapipb.Tag) { tag.Status.ActorTemplateUid = "other" }},
 		{"missing template", func(tag *ateapipb.Tag) { tag.Status.ActorTemplateUid = "" }},
 		{"wrong scope", func(tag *ateapipb.Tag) {
@@ -485,11 +485,11 @@ func TestCreateRejectsInvalidTagAndKeepsCleanupRetryable(t *testing.T) {
 			tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", mutateTag: tc.mutate, deleteErr: errors.New("cleanup unavailable")}
 			service := NewService(store, testAuthorizer{}, tags, nil)
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+			_, err := createAndRecover(service, ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 			require.Error(t, err)
 			require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
 			tags.deleteErr = nil
-			_, err = service.Create(ctx, store.prepared.SessionId, "request-1", "task-1")
+			_, err = createAndRecover(service, ctx, store.prepared.SessionId, "request-1", "task-1")
 			require.Error(t, err)
 			require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, store.prepared.State)
 			require.Nil(t, tags.created)
@@ -519,27 +519,17 @@ func TestForkRejectsReplacedTag(t *testing.T) {
 	}
 }
 
-func TestConcurrentCreateRetainsOneTag(t *testing.T) {
+func TestRepeatedCreateDoesNotCopyReadyTag(t *testing.T) {
 	store := &testStore{}
-	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", mutateTag: func(*ateapipb.Tag) { runtime.Gosched() }}
+	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1"}
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	start := make(chan struct{})
-	results := make(chan error, 32)
-	for range cap(results) {
-		go func() {
-			<-start
-			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
-			results <- err
-		}()
-	}
-	close(start)
-	for range cap(results) {
-		require.NoError(t, <-results)
+	for range 32 {
+		_, err := createAndRecover(service, ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+		require.NoError(t, err)
 	}
 	require.Equal(t, 1, tags.createCalls)
-	require.Equal(t, 0, tags.deleteCalls)
-	require.Equal(t, "s3://tags/checkpoint", store.snapshot.URI)
+	require.Zero(t, tags.deleteCalls)
 }
 
 func TestDeletePreservesTagReplacedAfterLookup(t *testing.T) {
@@ -553,17 +543,17 @@ func TestDeletePreservesTagReplacedAfterLookup(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 
-	require.Error(t, service.Delete(ctx, checkpoint.GetId()))
+	require.Error(t, deleteAndRecover(service, ctx, checkpoint.GetId()))
 	require.Equal(t, 1, tags.deleteCalls)
 	require.Equal(t, "replacement-uid", tags.created.GetMetadata().GetUid(), "replacement snapshot must survive")
 	require.False(t, store.deleted, "retain the checkpoint reference after a rejected deletion")
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, checkpoint.State)
 
 	tags.beforeDelete = nil
-	require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(service.Delete(ctx, checkpoint.GetId())))
+	require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(deleteAndRecover(service, ctx, checkpoint.GetId())))
 	require.Equal(t, 1, tags.deleteCalls, "retry must reject the replacement at lookup")
 	tags.created = nil
-	require.NoError(t, service.Delete(ctx, checkpoint.GetId()))
+	require.NoError(t, deleteAndRecover(service, ctx, checkpoint.GetId()))
 	require.True(t, store.deleted, "cleanup can finish once the tag is absent")
 }
 
@@ -618,7 +608,7 @@ func TestCheckpointComposesPermissionsBeforeEffects(t *testing.T) {
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 			var err error
 			if test.operation == "create" {
-				_, err = service.Create(ctx, sourceID, "request", "head")
+				_, err = createAndRecover(service, ctx, sourceID, "request", "head")
 			} else {
 				_, err = service.Fork(ctx, checkpointID, "request")
 			}
@@ -677,9 +667,9 @@ func TestCheckpointSharesAndCategoryDenialsProtectEveryOperation(t *testing.T) {
 				return err
 			}},
 			{"rename", auth.VerbUpdate, func(ctx context.Context, s *Service) error { _, err := s.Rename(ctx, id, "name"); return err }},
-			{"delete", auth.VerbDelete, func(ctx context.Context, s *Service) error { return s.Delete(ctx, id) }},
+			{"delete", auth.VerbDelete, func(ctx context.Context, s *Service) error { return deleteAndRecover(s, ctx, id) }},
 			{"create", auth.VerbCreate, func(ctx context.Context, s *Service) error {
-				_, err := s.Create(ctx, id, "request", "head")
+				_, err := createAndRecover(s, ctx, id, "request", "head")
 				return err
 			}},
 			{"fork", auth.VerbGet, func(ctx context.Context, s *Service) error { _, err := s.Fork(ctx, id, "request"); return err }},
@@ -703,10 +693,10 @@ func TestCreateRetriesReadyCheckpointAfterSourceDeletion(t *testing.T) {
 	policy := &restrictiveAuthorizer{}
 	svc := NewService(store, policy, tags, nil)
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	first, err := svc.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+	first, err := createAndRecover(svc, ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 	require.NoError(t, err)
 	store.sourceErr = database.ErrNotFound
-	retried, err := svc.Create(ctx, first.SessionId, "request-1", "task-1")
+	retried, err := createAndRecover(svc, ctx, first.SessionId, "request-1", "task-1")
 	require.NoError(t, err)
 	require.Equal(t, first.Id, retried.Id)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, retried.State)
@@ -714,11 +704,11 @@ func TestCreateRetriesReadyCheckpointAfterSourceDeletion(t *testing.T) {
 	require.Zero(t, store.sourceReads.Load())
 	before := store.reservations
 	policy.resource, policy.verb = "Session", auth.VerbGet
-	_, err = svc.Create(ctx, first.SessionId, "request-1", "task-1")
+	_, err = createAndRecover(svc, ctx, first.SessionId, "request-1", "task-1")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
 	require.Equal(t, before, store.reservations)
 	policy.resource = ""
-	_, err = svc.Create(auth.AuthSessionTo(t.Context(), testSession{userID: "bob"}), first.SessionId, "request-1", "task-1")
+	_, err = createAndRecover(svc, auth.AuthSessionTo(t.Context(), testSession{userID: "bob"}), first.SessionId, "request-1", "task-1")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 }
 
@@ -782,13 +772,13 @@ func TestCheckpointCanonicalIdentityDenialsCannotBeBypassed(t *testing.T) {
 				var err error
 				switch op {
 				case "create":
-					_, err = svc.Create(ctx, encoded, "request", "head")
+					_, err = createAndRecover(svc, ctx, encoded, "request", "head")
 				case "get":
 					_, err = svc.Get(ctx, encoded)
 				case "rename":
 					_, err = svc.Rename(ctx, encoded, "name")
 				case "delete":
-					err = svc.Delete(ctx, encoded)
+					err = deleteAndRecover(svc, ctx, encoded)
 				case "fork":
 					_, err = svc.Fork(ctx, encoded, "request")
 				}
@@ -828,7 +818,7 @@ func TestCheckpointCanonicalIdentityReachesStorageAndRetries(t *testing.T) {
 	svc := NewService(store, testAuthorizer{}, nil, nil)
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 	for _, id := range []string{canonical, strings.ToUpper(canonical)} {
-		got, err := svc.Create(ctx, id, "same-request", "head")
+		got, err := createAndRecover(svc, ctx, id, "same-request", "head")
 		require.NoError(t, err)
 		require.Equal(t, checkpointID, got.GetId())
 		require.Equal(t, canonical, store.sessionID)
@@ -852,4 +842,116 @@ func TestForkCanonicalizesSavedSourceIdentity(t *testing.T) {
 	require.Equal(t, policy.denied, policy.calls[len(policy.calls)-1])
 	require.Equal(t, 1, store.forkSourceReads)
 	require.Nil(t, store.forked)
+}
+
+func (s *testStore) GetCheckpointOperation(ctx context.Context, id, owner string) (*database.CheckpointOperation, error) {
+	if s.deleted {
+		return nil, database.ErrNotFound
+	}
+	cp, err := s.GetSessionCheckpoint(ctx, id, owner)
+	if err != nil {
+		return nil, err
+	}
+	return &database.CheckpointOperation{Checkpoint: cp, Creator: owner, Snapshot: s.snapshot, TagUID: s.tagUID}, nil
+}
+
+func (*testStore) ListPendingCheckpoints(context.Context, string, int) ([]*database.CheckpointOperation, error) {
+	return nil, nil
+}
+
+func (s *testStore) BeginCheckpointCleanup(_ context.Context, _, uid, failure string) error {
+	s.prepared.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: failure}
+	s.tagUID = uid
+	return nil
+}
+
+// Run one owner step without a background goroutine so fault injection stays
+// deterministic. The PostgreSQL recovery tests exercise the public waiting RPCs
+// concurrently with a real recovery worker and replacement service instances.
+func createAndRecover(s *Service, ctx context.Context, id, requestID, head string) (*apiv1.Checkpoint, error) {
+	cp, owner, err := s.beginCreate(ctx, id, requestID, head)
+	if err != nil || cp.State != apiv1.CheckpointState_CHECKPOINT_STATE_CREATING {
+		return cp, err
+	}
+	op, err := s.store.GetCheckpointOperation(ctx, cp.Id, owner)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.recoverOperation(ctx, op); err != nil {
+		return nil, err
+	}
+	return s.waitCreate(ctx, cp.Id, owner)
+}
+
+func deleteAndRecover(s *Service, ctx context.Context, id string) error {
+	owner, err := s.beginDelete(ctx, id)
+	if err != nil {
+		return err
+	}
+	op, err := s.store.GetCheckpointOperation(ctx, id, owner)
+	if err != nil {
+		return err
+	}
+	return s.recoverOperation(ctx, op)
+}
+
+func TestCleanupResumesAfterLostDeleteResponse(t *testing.T) {
+	for _, phase := range []apiv1.CheckpointState{apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING} {
+		t.Run(phase.String(), func(t *testing.T) {
+			cp := &apiv1.Checkpoint{Id: "11111111-1111-4111-8111-111111111111", SessionId: "22222222-2222-4222-8222-222222222222", State: phase}
+			if phase == apiv1.CheckpointState_CHECKPOINT_STATE_CREATING {
+				cp.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: "copy interrupted"}
+			}
+			tags := &testTags{snapshotURI: "s3://snapshots/source", deleteResponseErr: status.Error(codes.Unavailable, "reply lost")}
+			_, err := tags.CreateTag(t.Context(), "team-a", tagName(cp.Id), substrate.ActorName(cp.SessionId))
+			require.NoError(t, err)
+			snapshot := &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://tags/checkpoint", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
+			store := &testStore{prepared: cp, snapshot: snapshot, tagUID: "tag-uid", checkpointOwner: "alice"}
+			service := NewService(store, testAuthorizer{}, tags, nil)
+			op, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+			require.NoError(t, err)
+			require.Error(t, service.recoverOperation(t.Context(), op))
+			require.Nil(t, tags.created)
+			// New owner sees the persisted phase and confirms absence rather than
+			// creating a replacement tag or discarding its reference prematurely.
+			service = NewService(store, testAuthorizer{}, tags, nil)
+			require.NoError(t, service.recoverOperation(t.Context(), op))
+			if phase == apiv1.CheckpointState_CHECKPOINT_STATE_CREATING {
+				require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, cp.State)
+			} else {
+				require.True(t, store.deleted)
+			}
+			require.Equal(t, 1, tags.createCalls)
+			require.Equal(t, 1, tags.deleteCalls)
+		})
+	}
+}
+
+func TestCleanupRefusesReplacementTag(t *testing.T) {
+	cp := &apiv1.Checkpoint{Id: "11111111-1111-4111-8111-111111111111", SessionId: "22222222-2222-4222-8222-222222222222", State: apiv1.CheckpointState_CHECKPOINT_STATE_CREATING,
+		Failure: &apiv1.Failure{Reason: "SnapshotTagFailed", Message: "copy interrupted"}}
+	tags := &testTags{snapshotURI: "s3://snapshots/source"}
+	_, err := tags.CreateTag(t.Context(), "team-a", tagName(cp.Id), substrate.ActorName(cp.SessionId))
+	require.NoError(t, err)
+	tags.created.Metadata.Uid = "replacement"
+	store := &testStore{prepared: cp, snapshot: &database.SessionTaskSnapshot{Atespace: "team-a"}, tagUID: "retained", checkpointOwner: "alice"}
+	service := NewService(store, testAuthorizer{}, tags, nil)
+	op, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+	require.NoError(t, err)
+	require.Error(t, service.recoverOperation(t.Context(), op))
+	require.Zero(t, tags.deleteCalls)
+	require.Equal(t, "replacement", tags.created.Metadata.Uid)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, cp.State)
+}
+
+func TestCreationRefusesUnrelatedTag(t *testing.T) {
+	store := &testStore{}
+	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", mutateTag: func(tag *ateapipb.Tag) { tag.SourceActor.Name = "unrelated" }}
+	service := NewService(store, testAuthorizer{}, tags, nil)
+	_, err := createAndRecover(service, auth.AuthSessionTo(t.Context(), testSession{userID: "alice"}), "018f47a2-4efb-7c21-a848-123456789abc", "request", "task-1")
+	require.Error(t, err)
+	require.Zero(t, tags.deleteCalls)
+	require.NotNil(t, tags.created)
+	require.Nil(t, store.prepared.Failure)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
 }

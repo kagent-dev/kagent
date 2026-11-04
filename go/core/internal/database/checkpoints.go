@@ -353,6 +353,9 @@ func (c *Client) FinalizeSessionCheckpoint(ctx context.Context, id, tagUID, snap
 			}
 			return ErrNotFound
 		}
+		if result.Failure != nil && (failure == "" || result.Failure.Message != failure) {
+			return ErrConflict
+		}
 		result.State = apiv1.CheckpointState_CHECKPOINT_STATE_READY
 		if failure != "" {
 			result.State = apiv1.CheckpointState_CHECKPOINT_STATE_FAILED

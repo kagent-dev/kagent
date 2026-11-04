@@ -126,6 +126,12 @@ checks also run in parallel. Trace cases share the receiver but select spans by
 their own trace IDs; the receiver is cleared once before starting those cases.
 
 Controller restart cases stay sequential with respect to the rest of the suite.
+`TestCheckpointReplayAfterControllerRestart` loses a successful public checkpoint
+response, replaces the controller once for the harness matrix, retries the same
+request, and forks the retained snapshot to verify conversation continuity.
+The response loss is caller-side after success; interrupted tag copying,
+publication and compensation are exercised with PostgreSQL-backed workflow fault
+tests. This test does not inject live Substrate packet loss.
 The scheduled-run restart test starts all selected harness executions before one
 shared controller restart, then releases their model responses and checks recovery
 in parallel. Each harness retains its own Session, task, and prompt-count assertions.

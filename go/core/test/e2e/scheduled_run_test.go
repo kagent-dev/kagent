@@ -27,9 +27,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
@@ -152,32 +150,8 @@ func TestScheduledRunControllerRestart(t *testing.T) {
 	if len(releases) == 0 || t.Failed() {
 		return
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
-	defer cancel()
-	kube := interactionKubeClient(t)
-	pods := &corev1.PodList{}
-	require.NoError(t, kube.List(ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
-	require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
-	old := pods.Items[0]
-	require.NoError(t, kube.Delete(ctx, &old))
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
-		current := &corev1.PodList{}
-		if err := kube.List(ctx, current, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
-			return false, err
-		}
-		for _, pod := range current.Items {
-			if pod.UID == old.UID {
-				continue
-			}
-			for _, condition := range pod.Status.Conditions {
-				if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-					return true, nil
-				}
-			}
-		}
-		return false, nil
-	}), "wait for replacement controller")
-	newControllerConn(t, interactionTarget(t))
+	restartTestController(t)
+
 	restarted = true
 }
 
