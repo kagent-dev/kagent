@@ -66,9 +66,9 @@ func (a *recoveryTestActors) GetActor(ctx context.Context, atespace, name string
 
 func revertGeneration(t *testing.T, store *lifecycleTestStore, sessionID string) uuid.UUID {
 	t.Helper()
-	generation, err := store.SessionLifecycleGeneration(t.Context(), sessionID)
+	fence, err := store.SessionRecoveryFence(t.Context(), sessionID)
 	require.NoError(t, err)
-	return generation
+	return fence.Generation
 }
 
 func crashedTurnFixture(t *testing.T) (*lifecycleTestStore, *lifecycleTestActors, *apiv1.Session, *a2a.Task, int64) {

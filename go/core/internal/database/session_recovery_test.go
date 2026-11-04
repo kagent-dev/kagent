@@ -197,9 +197,9 @@ func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 
 func lifecycleGeneration(t *testing.T, client *Client, sessionID string) uuid.UUID {
 	t.Helper()
-	generation, err := client.SessionLifecycleGeneration(t.Context(), sessionID)
+	fence, err := client.SessionRecoveryFence(t.Context(), sessionID)
 	require.NoError(t, err)
-	return generation
+	return fence.Generation
 }
 
 // completeCrashedRecovery admits and finishes a revert as a successful concurrent
@@ -275,4 +275,29 @@ func TestCrashedRecoveryNotePinsItsTimelinePosition(t *testing.T) {
 	position, ok := apia2a.TimelinePosition(failed.Status.Message)
 	require.True(t, ok, "the crash note has a timeline position")
 	require.True(t, position.Equal(*failed.Status.Timestamp), "position %s, status timestamp %s", position, failed.Status.Timestamp)
+}
+
+// The fence reports the recorded Actor and the generation a crash observation
+// is valid for. Admitting a recovery replaces the generation and keeps the UID.
+func TestSessionRecoveryFenceReadsRecordedActor(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, _ := waitingTaskFixture(t, client)
+
+	fence, err := client.SessionRecoveryFence(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, "actor-"+session.Id, fence.ActorUID)
+	require.Equal(t, "team-a", fence.TemplateAtespace)
+	require.Equal(t, "revision-actor-template", fence.TemplateName)
+	require.NotEqual(t, uuid.Nil, fence.Generation, "creation recorded a lifecycle operation")
+
+	operation, err := client.BeginCrashedSessionRecovery(t.Context(), session.Id, fence.Generation, fence.ActorUID, SessionTaskSnapshot{})
+	require.NoError(t, err)
+	admitted, err := client.SessionRecoveryFence(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, operation.ID, admitted.Generation)
+	require.Equal(t, fence.ActorUID, admitted.ActorUID)
+
+	_, err = client.SessionRecoveryFence(t.Context(), uuid.NewString())
+	require.ErrorIs(t, err, ErrNotFound)
 }
