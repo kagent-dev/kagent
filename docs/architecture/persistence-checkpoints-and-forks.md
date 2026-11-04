@@ -81,6 +81,10 @@ lock, and a delayed release cannot revoke a replacement's claim. Leader election
 reduces duplicate scans but is not the execution fence. A slow remote copy is
 still synchronized through Substrate's tag lease after a client attempt expires.
 
+Upgrading from per-request tag writers requires stopping the old controller
+replicas before starting this version. Those writers do not acquire checkpoint
+execution claims; mixed-version rolling operation is not fenced by this worker.
+
 A pending tag is not evidence of abandonment. Substrate serializes `CreateTag`
 against both the source Actor and the tag, including a copy still finishing after
 an earlier controller disappeared. Recovery calls `CreateTag` under those leases
