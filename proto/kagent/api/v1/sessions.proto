@@ -50,6 +50,25 @@ message Session {
   // Output only. A2A conversation ID, equal to this session's ID.
   // Forks receive a new conversation ID and new task IDs.
   string context_id = 14;
+  // Output only. Set only by GetSession; every other response leaves it unset.
+  SessionRecovery recovery = 16;
+}
+
+message SessionRecovery {
+  // Whether the recorded runtime crashed and needs a revert. Unset when
+  // GetSession could not observe the runtime; clients must not offer a revert then.
+  optional bool needed = 1;
+  // User messages the restored runtime does not remember, from every revert of
+  // this Session. Each appears once. Their A2A history remains available,
+  // including completed task results, so the list lasts as long as the
+  // Session and grows only when a revert discards input.
+  repeated SessionMessageReference failed_messages = 3;
+}
+
+// Message IDs are unique within a task, not across a conversation.
+message SessionMessageReference {
+  string task_id = 1;
+  string message_id = 2;
 }
 
 message AgentProvenance {
