@@ -29,7 +29,7 @@ func (l *Launcher) inspectWorker(ctx context.Context, entry *sandboxWorker) (wor
 		return workerInactive, nil
 	}
 	if err != nil {
-		return workerLive, safeRecoveryError("managed agents sandbox inspection failed", err)
+		return workerLive, safeRecoveryError("anthropic self-hosted sandboxes sandbox inspection failed", err)
 	}
 	if err := l.validateSavedSandbox(instance, entry.sandboxID); err != nil {
 		return workerLive, err
@@ -45,7 +45,7 @@ func (l *Launcher) inspectWorker(ctx context.Context, entry *sandboxWorker) (wor
 	}
 	if instance.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY ||
 		instance.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
-		return workerLive, &recoveryError{message: "managed agents sandbox is not ready for inspection", transient: true}
+		return workerLive, &recoveryError{message: "anthropic self-hosted sandboxes sandbox is not ready for inspection", transient: true}
 	}
 	return l.discoverWorker(ctx, entry.sandboxID)
 }
@@ -56,7 +56,7 @@ func (l *Launcher) finishWorker(ctx context.Context, entry *sandboxWorker) (work
 	}
 	state, err := l.inspectWorker(ctx, entry)
 	if err != nil {
-		l.log.WarnContext(ctx, "failed to inspect managed agent worker", "sandbox_id", entry.sandboxID)
+		l.log.WarnContext(ctx, "failed to inspect anthropic self-hosted sandbox worker", "sandbox_id", entry.sandboxID)
 		return state, err
 	}
 	if state == workerLive {
@@ -67,16 +67,16 @@ func (l *Launcher) finishWorker(ctx context.Context, entry *sandboxWorker) (work
 		suspended, err := l.sandboxes.Suspend(callCtx, entry.sandboxID)
 		cancel()
 		if err != nil {
-			l.log.WarnContext(ctx, "failed to suspend idle managed agent sandbox", "sandbox_id", entry.sandboxID,
+			l.log.WarnContext(ctx, "failed to suspend idle anthropic self-hosted sandbox sandbox", "sandbox_id", entry.sandboxID,
 				"grpc_code", status.Code(err).String(), "service_code", serviceerrors.CodeOf(err))
-			return state, safeRecoveryError("managed agents suspension failed", err)
+			return state, safeRecoveryError("anthropic self-hosted sandboxes suspension failed", err)
 		}
 		if suspended.GetId() != entry.sandboxID {
-			return state, errors.New("managed agents suspension sandbox identity mismatch")
+			return state, errors.New("anthropic self-hosted sandboxes suspension sandbox identity mismatch")
 		}
 		if suspended.GetState() != apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED ||
 			suspended.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
-			return state, &recoveryError{message: "managed agents suspension is incomplete", transient: true}
+			return state, &recoveryError{message: "anthropic self-hosted sandboxes suspension is incomplete", transient: true}
 		}
 	}
 	entry.workID = ""
@@ -92,10 +92,10 @@ func (l *Launcher) discoverWorker(ctx context.Context, sandboxID string) (worker
 		Timeout: durationpb.New(collectionTimeout),
 	})
 	if err != nil {
-		return workerLive, safeRecoveryError("managed agents process discovery failed", err)
+		return workerLive, safeRecoveryError("anthropic self-hosted sandboxes process discovery failed", err)
 	}
 	if process.GetProcessId() == "" {
-		return workerLive, errors.New("managed agents process discovery returned no process ID")
+		return workerLive, errors.New("anthropic self-hosted sandboxes process discovery returned no process ID")
 	}
 	var output strings.Builder
 	var exit *guestpb.Process
@@ -103,7 +103,7 @@ func (l *Launcher) discoverWorker(ctx context.Context, sandboxID string) (worker
 		ProcessId: process.GetProcessId(), Follow: true,
 	}, func(chunk *guestpb.ProcessOutput) error {
 		if output.Len()+len(chunk.GetStdout()) > 1<<20 {
-			return errors.New("managed agents process listing is too large")
+			return errors.New("anthropic self-hosted sandboxes process listing is too large")
 		}
 		output.Write(chunk.GetStdout())
 		if chunk.GetExit() != nil {
@@ -112,10 +112,10 @@ func (l *Launcher) discoverWorker(ctx context.Context, sandboxID string) (worker
 		return nil
 	})
 	if err != nil {
-		return workerLive, safeRecoveryError("managed agents process listing failed", err)
+		return workerLive, safeRecoveryError("anthropic self-hosted sandboxes process listing failed", err)
 	}
 	if exit == nil || exit.GetState() != guestpb.ProcessState_PROCESS_STATE_EXITED || exit.GetExitCode() != 0 {
-		return workerLive, errors.New("managed agents process listing did not complete successfully")
+		return workerLive, errors.New("anthropic self-hosted sandboxes process listing did not complete successfully")
 	}
 	for name := range strings.FieldsSeq(output.String()) {
 		if name == "ant" {

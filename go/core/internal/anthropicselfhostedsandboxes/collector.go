@@ -52,7 +52,7 @@ func (l *Launcher) collectSandbox(ctx context.Context, sessionID string) error {
 	defer stop()
 	entry, err := l.lockSandbox(ctx, sessionID)
 	if err != nil {
-		return safeRecoveryError("managed agents collection gate failed", err)
+		return safeRecoveryError("anthropic self-hosted sandboxes collection gate failed", err)
 	}
 	defer l.unlockSandbox(sessionID, entry)
 	_, err = l.finishWorker(ctx, entry)

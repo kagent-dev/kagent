@@ -71,10 +71,10 @@ func run(path string, check bool, level string) error {
 			return err
 		}
 	}
-	managedConfig, err := loadManagedAgentsConfig(os.Getenv) //nolint:forbidigo // Registered integration settings read once at the executable boundary.
+	anthropicSelfHostedSandboxesConfig, err := loadAnthropicSelfHostedSandboxesConfig(os.Getenv) //nolint:forbidigo // Registered integration settings read once at the executable boundary.
 	if err != nil {
-		slog.Default().Error("managed agents disabled due to invalid configuration", "error", err)
-		managedConfig = nil
+		slog.Default().Error("anthropic self-hosted sandboxes disabled due to invalid configuration", "error", err)
+		anthropicSelfHostedSandboxesConfig = nil
 	}
 	if check {
 		return nil
@@ -90,7 +90,7 @@ func run(path string, check bool, level string) error {
 	}
 	// These downward-API inputs describe this pod, not runtime defaults.
 	podTelemetryDefaults(cfg, os.Getenv) //nolint:forbidigo // Private pod identity supplied by Helm.
-	options := app.Options{Authenticator: authenticator, ManagedAgents: managedConfig}
+	options := app.Options{Authenticator: authenticator, AnthropicSelfHostedSandboxes: anthropicSelfHostedSandboxesConfig}
 	if err := app.Run(ctx, cfg, options); err != nil {
 		slog.Default().ErrorContext(ctx, "controller stopped", "error", err)
 		return err

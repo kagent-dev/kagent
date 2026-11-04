@@ -33,7 +33,7 @@ const (
 	noHeartbeat      = "NO_HEARTBEAT"
 )
 
-// Config for the Anthropic managed agent launcher.
+// Config for the Anthropic anthropic self-hosted sandbox launcher.
 type Config struct {
 	EnvironmentID     string
 	EnvironmentKey    string
@@ -45,7 +45,7 @@ type Config struct {
 
 func (c Config) Validate() error {
 	if c.SandboxTTL <= 0 {
-		return errors.New("managed agents sandbox TTL must be positive")
+		return errors.New("anthropic self-hosted sandboxes sandbox TTL must be positive")
 	}
 	for _, field := range []struct{ name, value string }{
 		{"environment ID", c.EnvironmentID},
@@ -54,13 +54,13 @@ func (c Config) Validate() error {
 		{"template name", c.TemplateName},
 	} {
 		if strings.TrimSpace(field.value) == "" {
-			return fmt.Errorf("managed agents %s is required", field.name)
+			return fmt.Errorf("anthropic self-hosted sandboxes %s is required", field.name)
 		}
 	}
 	if c.BaseURL != "" {
 		u, err := url.Parse(c.BaseURL)
 		if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
-			return errors.New("managed agents base URL must be an HTTP(S) URL without credentials, query, or fragment")
+			return errors.New("anthropic self-hosted sandboxes base URL must be an HTTP(S) URL without credentials, query, or fragment")
 		}
 	}
 	return nil
@@ -100,7 +100,7 @@ func New(cfg Config, sandboxes SandboxService, log *slog.Logger) (*Launcher, err
 		return nil, err
 	}
 	if sandboxes == nil || log == nil {
-		return nil, errors.New("managed agents sandbox client and logger are required")
+		return nil, errors.New("anthropic self-hosted sandboxes sandbox client and logger are required")
 	}
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
@@ -165,7 +165,7 @@ func (l *Launcher) Start(ctx context.Context) error {
 		cancel()
 		launches.Wait()
 	}()
-	if err := l.recoverWorkers(ctx); err != nil {
+	if err := l.adopt(ctx); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -181,7 +181,7 @@ func (l *Launcher) Start(ctx context.Context) error {
 	})
 	defer func() {
 		if err := poller.Close(); err != nil {
-			l.log.ErrorContext(ctx, "failed to close managed agents poller", "http_status", upstreamStatus(err))
+			l.log.ErrorContext(ctx, "failed to close anthropic self-hosted sandboxes poller", "http_status", upstreamStatus(err))
 		}
 	}()
 	for poller.Next() {
@@ -197,12 +197,12 @@ func (l *Launcher) Start(ctx context.Context) error {
 			if err := l.launch(operationCtx, work); err != nil {
 				// SDK errors may contain request/response bodies, including scoped
 				// credentials. Log only their category and stable work identity.
-				l.log.ErrorContext(ctx, "failed to launch managed agent", "work_id", work.ID, "http_status", upstreamStatus(err), "grpc_code", status.Code(err).String(), "service_code", serviceerrors.CodeOf(err))
+				l.log.ErrorContext(ctx, "failed to launch anthropic self-hosted sandbox", "work_id", work.ID, "http_status", upstreamStatus(err), "grpc_code", status.Code(err).String(), "service_code", serviceerrors.CodeOf(err))
 			}
 		})
 	}
 	if err := poller.Err(); err != nil && ctx.Err() == nil {
-		return fmt.Errorf("managed agents poller stopped (HTTP status %d)", upstreamStatus(err))
+		return fmt.Errorf("anthropic self-hosted sandboxes poller stopped (HTTP status %d)", upstreamStatus(err))
 	}
 	return nil
 }
@@ -252,7 +252,7 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	defer l.unlockSandbox(work.Data.ID, entry)
 	if entry.workID != "" && entry.workID == work.ID {
 		if work.EnvironmentID != l.config.EnvironmentID || work.Data.Type != "session" {
-			return errors.New("invalid managed agents tracked assignment")
+			return errors.New("invalid anthropic self-hosted sandboxes tracked assignment")
 		}
 		state, err := l.inspectWorker(attemptCtx, entry)
 		if err != nil {
@@ -263,7 +263,7 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 		}
 	}
 	if work.ID == "" || work.EnvironmentID != l.config.EnvironmentID || work.Data.ID == "" || work.Secret == "" || work.Data.Type != "session" {
-		return errors.Join(errors.New("invalid managed agents assignment"), l.stopWork(ctx, work.ID))
+		return errors.Join(errors.New("invalid anthropic self-hosted sandboxes assignment"), l.stopWork(ctx, work.ID))
 	}
 	lease, err := l.heartbeat(attemptCtx, work.ID, leaseState{token: noHeartbeat, ttl: 30 * time.Second})
 	if err != nil {
@@ -286,7 +286,7 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 				return struct{}{}, err
 			}
 			if state == workerLive {
-				return struct{}{}, errors.New("previous managed agent CLI is still active")
+				return struct{}{}, errors.New("previous anthropic self-hosted sandbox CLI is still active")
 			}
 			return struct{}{}, nil
 		}, backoff.WithBackOff(backoff.NewConstantBackOff(100*time.Millisecond)), backoff.WithMaxElapsedTime(0))
@@ -310,7 +310,7 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	// Leave time for the CLI's first heartbeat; never start on an expired lease.
 	remaining := time.Until(result.lease.expiresAt()) - 2*time.Second
 	if remaining <= 0 {
-		return errors.New("managed agents lease expired before handoff")
+		return errors.New("anthropic self-hosted sandboxes lease expired before handoff")
 	}
 	startCtx, stop := context.WithTimeout(attemptCtx, min(startTimeout, remaining))
 	defer stop()
@@ -336,14 +336,14 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 		if ctx.Err() == nil && time.Now().Before(result.lease.expiresAt()) {
 			err = errors.Join(err, l.stopWork(ctx, work.ID))
 		}
-		return fmt.Errorf("failed to start managed agent CLI: %w", err)
+		return fmt.Errorf("failed to start anthropic self-hosted sandbox CLI: %w", err)
 	}
 	if process.GetProcessId() == "" || (process.GetState() == guestpb.ProcessState_PROCESS_STATE_EXITED && process.GetExitCode() != 0) {
-		return errors.Join(errors.New("managed agent CLI did not start successfully"), l.stopWork(ctx, work.ID))
+		return errors.Join(errors.New("anthropic self-hosted sandbox CLI did not start successfully"), l.stopWork(ctx, work.ID))
 	}
 	entry.sandboxID = sandbox.GetId()
 	entry.workID = work.ID
-	l.log.InfoContext(ctx, "started managed agent CLI", "work_id", work.ID, "sandbox_id", sandbox.GetId(), "process_id", process.GetProcessId())
+	l.log.InfoContext(ctx, "started anthropic self-hosted sandbox CLI", "work_id", work.ID, "sandbox_id", sandbox.GetId(), "process_id", process.GetProcessId())
 	return nil
 }
 
@@ -358,7 +358,7 @@ func (l *Launcher) stopWork(ctx context.Context, workID string) error {
 		BetaSelfHostedWorkStopRequest: anthropic.BetaSelfHostedWorkStopRequestParam{Force: param.NewOpt(true)},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to stop unlaunched managed agent work: %w", err)
+		return fmt.Errorf("failed to stop unlaunched anthropic self-hosted sandbox work: %w", err)
 	}
 	return nil
 }
@@ -395,12 +395,12 @@ func (l *Launcher) heartbeat(ctx context.Context, workID string, lease leaseStat
 		DesiredTTLSeconds:     param.NewOpt(int64(60)),
 	})
 	if err != nil {
-		return lease, fmt.Errorf("failed to heartbeat managed agents work: %w", err)
+		return lease, fmt.Errorf("failed to heartbeat anthropic self-hosted sandboxes work: %w", err)
 	}
 	if !response.LeaseExtended || response.LastHeartbeat == "" || response.TTLSeconds <= 0 ||
 		response.State == anthropic.BetaSelfHostedWorkHeartbeatResponseStateStopping ||
 		response.State == anthropic.BetaSelfHostedWorkHeartbeatResponseStateStopped {
-		return lease, errors.New("managed agents lease is no longer active")
+		return lease, errors.New("anthropic self-hosted sandboxes lease is no longer active")
 	}
 	return leaseState{token: response.LastHeartbeat, ttl: time.Duration(response.TTLSeconds) * time.Second, updated: sent}, nil
 }
@@ -470,7 +470,7 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 			sandbox = nil
 		}
 		if sandbox != nil && sandboxUnavailable(sandbox) {
-			return nil, backoff.Permanent(errors.New("managed agents sandbox is unavailable"))
+			return nil, backoff.Permanent(errors.New("anthropic self-hosted sandboxes sandbox is unavailable"))
 		}
 		var err error
 		callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -479,7 +479,7 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 			created, createErr := l.sandboxes.Create(callCtx, request)
 			if createErr != nil {
 				if !retryable(createErr) {
-					return nil, backoff.Permanent(fmt.Errorf("failed to create managed agents sandbox: %w", createErr))
+					return nil, backoff.Permanent(fmt.Errorf("failed to create anthropic self-hosted sandboxes sandbox: %w", createErr))
 				}
 				return nil, createErr
 			}
@@ -490,10 +490,10 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 			entry.sandboxID = created.GetId()
 		}
 		if sandboxExpired(sandbox) {
-			return nil, errors.New("managed agents sandbox expired during provisioning")
+			return nil, errors.New("anthropic self-hosted sandboxes sandbox expired during provisioning")
 		}
 		if sandboxUnavailable(sandbox) {
-			return nil, backoff.Permanent(errors.New("managed agents sandbox is unavailable"))
+			return nil, backoff.Permanent(errors.New("anthropic self-hosted sandboxes sandbox is unavailable"))
 		}
 		if !sandboxExpired(sandbox) && sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY && sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 			return sandbox, nil
@@ -505,7 +505,7 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 			resumed, err = l.sandboxes.Resume(callCtx, sandbox.GetId())
 			if err == nil {
 				if resumed.GetId() != sandbox.GetId() {
-					return nil, backoff.Permanent(errors.New("managed agents resumed sandbox identity mismatch"))
+					return nil, backoff.Permanent(errors.New("anthropic self-hosted sandboxes resumed sandbox identity mismatch"))
 				}
 				sandbox = resumed
 			}
@@ -520,16 +520,16 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 			}
 		}
 		if err != nil && !retryable(err) {
-			return nil, backoff.Permanent(fmt.Errorf("failed to provision managed agents sandbox: %w", err))
+			return nil, backoff.Permanent(fmt.Errorf("failed to provision anthropic self-hosted sandboxes sandbox: %w", err))
 		}
 		if err == nil {
 			if sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY && sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 				return sandbox, nil
 			}
 			if sandboxUnavailable(sandbox) && !sandboxExpired(sandbox) {
-				return nil, backoff.Permanent(errors.New("managed agents sandbox is unavailable"))
+				return nil, backoff.Permanent(errors.New("anthropic self-hosted sandboxes sandbox is unavailable"))
 			}
-			return nil, errors.New("managed agents sandbox is not ready")
+			return nil, errors.New("anthropic self-hosted sandboxes sandbox is not ready")
 		}
 		return nil, err
 	}, backoff.WithBackOff(retryBackoff), backoff.WithMaxElapsedTime(0))

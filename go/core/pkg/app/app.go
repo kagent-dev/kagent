@@ -93,8 +93,8 @@ type Options struct {
 	// Authorizer decides what an identified caller may do and which collection
 	// entries it may see. Nil selects NoopAuthorizer, which permits every action.
 	Authorizer auth.CollectionAuthorizer
-	// ManagedAgents enables the bundled Anthropic launcher. Nil leaves it disabled.
-	ManagedAgents *ManagedAgentsConfig
+	// AnthropicSelfHostedSandboxes enables the bundled Anthropic launcher. Nil leaves it disabled.
+	AnthropicSelfHostedSandboxes *AnthropicSelfHostedSandboxesConfig
 	// SetupWithManager registers additional controllers and scheme types on
 	// core's manager. It runs after the manager exists and before it starts, so
 	// a scheme added here is in place before any cache is built. Returning an
@@ -272,7 +272,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 	var gracefulShutdownTimeout *time.Duration
-	if opts.ManagedAgents != nil {
+	if opts.AnthropicSelfHostedSandboxes != nil {
 		// Finish bounded provisioning and metadata writes before releasing leadership.
 		gracefulShutdownTimeout = new(150 * time.Second)
 	}
@@ -426,13 +426,13 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := manager.Add(sandboxes); err != nil {
 		return err
 	}
-	if opts.ManagedAgents != nil {
-		launcher, err := newManagedAgentsRunnable(*opts.ManagedAgents, sandboxes, logger)
+	if opts.AnthropicSelfHostedSandboxes != nil {
+		launcher, err := newAnthropicSelfHostedSandboxesRunnable(*opts.AnthropicSelfHostedSandboxes, sandboxes, logger)
 		if err != nil {
-			return fmt.Errorf("configure managed agents launcher: %w", err)
+			return fmt.Errorf("configure anthropic self-hosted sandboxes launcher: %w", err)
 		}
 		if err := manager.Add(launcher); err != nil {
-			return fmt.Errorf("register managed agents launcher: %w", err)
+			return fmt.Errorf("register anthropic self-hosted sandboxes launcher: %w", err)
 		}
 	}
 	mcpHandler, err := mcp.New(mcp.Config{

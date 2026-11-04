@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -34,25 +33,6 @@ func safeRecoveryError(message string, err error) error {
 		(serviceerrors.CodeOf(err) == "" && (errors.As(err, &networkError) || code == 408 || code == 409 || code == 429 || code >= 500))}
 }
 
-func (l *Launcher) recoverWorkers(ctx context.Context) error {
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		err := l.adopt(ctx)
-		if err == nil || !recoveryRetryable(err) {
-			return err
-		}
-		timer := time.NewTimer(250 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-}
-
 func (l *Launcher) adopt(ctx context.Context) error {
 	selected := make(map[string]*apiv1.Sandbox)
 	request := &apiv1.ListSandboxesRequest{
@@ -64,10 +44,10 @@ func (l *Launcher) adopt(ctx context.Context) error {
 		page, err := l.sandboxes.List(callCtx, request)
 		cancel()
 		if err != nil {
-			return safeRecoveryError("managed agents sandbox discovery failed", err)
+			return safeRecoveryError("anthropic self-hosted sandboxes sandbox discovery failed", err)
 		}
 		if page == nil {
-			return errors.New("managed agents sandbox discovery returned no page")
+			return errors.New("anthropic self-hosted sandboxes sandbox discovery returned no page")
 		}
 		for _, instance := range page.GetSandboxes() {
 			sessionID, ok := strings.CutPrefix(instance.GetName(), sandboxNamePrefix)
@@ -79,7 +59,7 @@ func (l *Launcher) adopt(ctx context.Context) error {
 			}
 			latest, err := newerSandbox(selected[sessionID], instance)
 			if err != nil {
-				return fmt.Errorf("failed to select managed agents sandbox: %w", err)
+				return fmt.Errorf("failed to select anthropic self-hosted sandboxes sandbox: %w", err)
 			}
 			selected[sessionID] = latest
 		}
@@ -88,7 +68,7 @@ func (l *Launcher) adopt(ctx context.Context) error {
 			break
 		}
 		if next == request.Page.PageToken {
-			return errors.New("managed agents sandbox discovery repeated a page token")
+			return errors.New("anthropic self-hosted sandboxes sandbox discovery repeated a page token")
 		}
 		request.Page.PageToken = next
 	}
@@ -101,7 +81,7 @@ func (l *Launcher) adopt(ctx context.Context) error {
 	l.processMu.Unlock()
 	for _, sessionID := range l.trackedSessions() {
 		if err := l.collectSandbox(ctx, sessionID); err != nil {
-			l.log.WarnContext(ctx, "failed to inspect discovered managed agent sandbox", "error", err)
+			l.log.WarnContext(ctx, "failed to inspect discovered anthropic self-hosted sandbox sandbox", "error", err)
 		}
 	}
 	return nil

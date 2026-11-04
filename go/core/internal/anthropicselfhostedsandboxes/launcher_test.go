@@ -118,7 +118,7 @@ func (s *sandboxFixture) Suspend(ctx context.Context, id string) (*apiv1.Sandbox
 }
 
 func readySandbox() *apiv1.Sandbox {
-	return &apiv1.Sandbox{Id: testSandboxID, Name: sandboxNamePrefix + "session_test", Creator: auth.PrincipalID("kagent:managed-agents", testConfig().EnvironmentID),
+	return &apiv1.Sandbox{Id: testSandboxID, Name: sandboxNamePrefix + "session_test", Creator: auth.PrincipalID("kagent:anthropic-self-hosted-sandboxes", testConfig().EnvironmentID),
 		SandboxTemplate: &apiv1.ResourceReference{Namespace: "test", Name: "claude"},
 		State:           apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}
 }
@@ -231,7 +231,7 @@ func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{}`)
 	default:
 		f.mu.Unlock()
-		f.t.Errorf("unexpected managed agents request %s %s", r.Method, r.URL)
+		f.t.Errorf("unexpected anthropic self-hosted sandboxes request %s %s", r.Method, r.URL)
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
@@ -255,7 +255,7 @@ func TestServicePollAndHandoff(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "unrelated-organization-secret")
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	session := auth.NewCredentialSession(auth.Principal{ID: auth.PrincipalID("kagent:managed-agents", testConfig().EnvironmentID)}, nil)
+	session := auth.NewCredentialSession(auth.Principal{ID: auth.PrincipalID("kagent:anthropic-self-hosted-sandboxes", testConfig().EnvironmentID)}, nil)
 	ctx = auth.AuthSessionTo(ctx, session)
 	assertSession := func(ctx context.Context) {
 		t.Helper()
