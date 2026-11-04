@@ -55,6 +55,22 @@ flowchart LR
     MCP -->|updates or final result| CLIENT
 ```
 
+Synchronous `invoke_agent` calls originating from a verified runtime ask A2A
+admission to record the originating Session's dependency on the call's input.
+Admission persists it before dispatch, whether the call starts a Session for an
+Agent or continues one. If the child waits for human input, the native
+controller resumes the parent after the child and its nested delegations settle.
+The dependency is committed with task settlement, recovered across controller
+restarts, and fenced by cancellation and native message-ID admission. Independent
+MCP Tasks retain their explicitly asynchronous lifetime.
+
+A gateway may carry the initiating runtime proof in `X-Substrate-Actor-Token`.
+The proof must validate against the recorded Actor UID and belong to the
+already authenticated caller. It records origin without replacing that caller's
+Session authorization. Resume messages use stable `kagent-continuation-<UUID>`
+IDs, reserved for the control plane like scheduled-run IDs, and A2A
+`reference_task_ids` containing the parent and original child task.
+
 ## MCP Tasks
 
 The server implements the MCP Tasks extension. An opaque base64 task reference

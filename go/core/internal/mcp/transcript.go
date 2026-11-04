@@ -227,7 +227,7 @@ func (t *turn) timestamp() string {
 // summary is the turn's first user message, its reply as invoke_agent answers
 // it, and its tool call stubs.
 func (t *turn) summary() Turn {
-	out := Turn{TaskID: string(t.task.ID), State: t.state(), Timestamp: t.timestamp(), Artifacts: len(t.task.Artifacts), Reply: taskReply(t.task)}
+	out := Turn{TaskID: string(t.task.ID), State: t.state(), Timestamp: t.timestamp(), Artifacts: len(t.task.Artifacts), Reply: a2a.TaskReply(t.task)}
 	for _, e := range t.entries {
 		if e.message != nil && e.message.Role == a2atype.MessageRoleUser {
 			out.User = a2a.ExtractText(e.message)
