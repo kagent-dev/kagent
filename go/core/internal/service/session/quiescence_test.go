@@ -32,6 +32,10 @@ type idleQuiescenceStore struct {
 
 var _ workflowStore = (*idleQuiescenceStore)(nil)
 
+func (s *idleQuiescenceStore) ListSessionRecoveryCandidates(context.Context, string, int) ([]*apiv1.Session, error) {
+	return nil, nil
+}
+
 func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error) {
 	s.claims.Add(1)
 	if s.claimErr != nil {

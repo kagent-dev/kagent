@@ -15,6 +15,9 @@ import (
 )
 
 type workflowStore interface {
+	ListSessionRecoveryCandidates(context.Context, string, int) ([]*apiv1.Session, error)
+	SessionLifecycleGeneration(context.Context, string) (uuid.UUID, error)
+	BeginCrashedSessionRecovery(context.Context, string, uuid.UUID, string, database.SessionTaskSnapshot) (*database.SessionOperation, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
@@ -157,11 +160,15 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES}
 		}
 	}
-	prepare := substrate.PrepareActorTransition
-	if operation.ExecutorID != uuid.Nil {
-		prepare = substrate.PrepareActorRetry
+	var transition *substrate.ActorTransition
+	switch {
+	case crashRecovery(operation):
+		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding)
+	case operation.ExecutorID != uuid.Nil:
+		transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
+	default:
+		transition, err = substrate.PrepareActorTransition(ctx, w.actors, binding, kind, creation)
 	}
-	transition, err := prepare(ctx, w.actors, binding, kind, creation)
 	if err != nil {
 		return w.failPreparation(ctx, operation, err)
 	}
@@ -214,6 +221,12 @@ func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.
 	if admitted.ExecutorID != uuid.Nil {
 		return nil, cause // An earlier attempt may have issued work; retain its intent.
 	}
+	if crashRecovery(admitted) {
+		// Admission already failed the interrupted turn, so clearing the operation
+		// would leave a FAILED Session that nothing retries. Keep the intent for the
+		// next scan. No claim was taken, so Delete can still supersede it.
+		return nil, cause
+	}
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	_, err := w.store.FinishSessionOperation(finishCtx, admitted.Instance.Id, admitted.ID, uuid.Nil, "", "", "lifecycle preparation failed")
@@ -225,6 +238,15 @@ func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.
 		return operationOutcome(operation)
 	}
 	return nil, errors.Join(cause, err)
+}
+
+// crashRecovery reports a RESUME admitted after Substrate confirmed a crash.
+// It reverts the recorded Actor in place instead of resuming it.
+func crashRecovery(operation *database.SessionOperation) bool {
+	session := operation.Instance
+	return session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED &&
+		session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME &&
+		session.Failure.GetReason() == database.SessionRuntimeCrashed
 }
 
 func operationOutcome(operation *database.SessionOperation) (*apiv1.Session, error) {
