@@ -1,8 +1,7 @@
 # Web interface
 
-A Vite single-page app. It is a static bundle served by nginx: there is no server
-process, so there are no server components, no server-side data fetching and no
-file-system routing.
+A Vite single-page app. It is a static bundle served by a small Go server, so there
+are no server components, no server-side data fetching and no file-system routing.
 
 **Stack:** Vite + React 19, TypeScript, antd 6 for components, Emotion for styling
 (the `css` prop, via `jsxImportSource`), SWR for reads, Yarn 4. React Router owns
