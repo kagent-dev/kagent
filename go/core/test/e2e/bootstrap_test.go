@@ -114,10 +114,16 @@ func TestADKOversizedConfigurationRejected(t *testing.T) {
 			return false, err
 		}
 		condition := meta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionCompatible)
-		return condition != nil && condition.ObservedGeneration == agent.Generation && condition.Status == metav1.ConditionFalse && condition.Reason == "ActorTemplateInvalid", nil
+		// Wait for compatibility to be evaluated, then assert the outcome below.
+		// An unrelated rejection (or unexpected acceptance) must fail directly,
+		// rather than keeping the poll alive until its deadline.
+		resolved := meta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionResolvedRefs)
+		return resolved != nil && resolved.ObservedGeneration == agent.Generation && resolved.Status == metav1.ConditionTrue &&
+			condition != nil && condition.ObservedGeneration == agent.Generation && condition.Status != metav1.ConditionUnknown, nil
 	})
 	require.NoError(t, err, "last conditions: %+v", agent.Status.Conditions)
 	condition := meta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionCompatible)
+	require.Equal(t, metav1.ConditionFalse, condition.Status, "oversized configuration must be incompatible: %+v", agent.Status.Conditions)
 	require.Contains(t, condition.Message, "configuration and Agent Card exceed")
 	require.Empty(t, agent.Status.DesiredRevision)
 	require.Empty(t, agent.Status.LatestSuccessfulRevision)
