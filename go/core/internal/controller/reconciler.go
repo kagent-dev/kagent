@@ -24,6 +24,7 @@ import (
 
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -56,6 +57,7 @@ type compiledTarget struct {
 	Revision      translator.Revision
 	RevisionID    translator.RevisionID
 	ActorTemplate *ateapipb.ActorTemplate
+	Bootstrap     *runtimev1.BootstrapServiceGetBootstrapConfigResponse
 }
 
 func (c *compiledTarget) equals(other *compiledTarget) bool {
@@ -63,7 +65,7 @@ func (c *compiledTarget) equals(other *compiledTarget) bool {
 		return c == other
 	}
 	return c.RevisionID == other.RevisionID && c.Revision.Equals(other.Revision) &&
-		proto.Equal(c.ActorTemplate, other.ActorTemplate)
+		proto.Equal(c.ActorTemplate, other.ActorTemplate) && proto.Equal(c.Bootstrap, other.Bootstrap)
 }
 
 func (r AgentReconciliation) ResourceName() string { return r.Agent.Namespace + "/" + r.Agent.Name }
@@ -151,11 +153,11 @@ func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collectio
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
 	}
-	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID)
+	actorTemplate, bundle, err := substrate.ActorTemplateForRevision(revision, revisionID)
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 	}
-	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}, warnings, nil
+	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate, Bootstrap: bundle}, warnings, nil
 }
 
 func compilationFailure(err error) *ReconciliationFailure {
@@ -182,6 +184,7 @@ type runtimeRevisionStore interface {
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) (database.GoldenRetry, error)
+	PublishBootstrapRevision(context.Context, database.RuntimeRevision, *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
@@ -396,8 +399,29 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	if state.PreparationFailure != nil && !state.PreparationFailure.Retryable {
 		return nil
 	}
+	// Publication protects creation from collection for two minutes. Bound the
+	// whole compute attempt to one minute, leaving cleanup/recovery headroom.
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
 	target := state.Target
 	desiredRef := target.ActorTemplate.GetMetadata()
+	digest, err := substrate.ActorTemplateSpecDigest(target.ActorTemplate)
+	if err != nil {
+		return r.observePreparationError(*state, err)
+	}
+	revision := database.RuntimeRevision{
+		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
+		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
+		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
+		EgressDestinations:      target.Revision.EgressDestinations,
+		Credentials:             target.Revision.Credentials,
+		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
+		ActorTemplateAtespace:   desiredRef.GetAtespace(), ActorTemplateName: desiredRef.GetName(),
+		ActorTemplateSpecDigest: digest,
+	}
+	if err := r.store.PublishBootstrapRevision(ctx, revision, target.Bootstrap); err != nil {
+		return r.observePreparationError(*state, fmt.Errorf("publish runtime revision: %w", err))
+	}
 	observed, err := r.templates.GetActorTemplate(ctx, desiredRef.GetAtespace(), desiredRef.GetName())
 	if status.Code(err) == codes.NotFound {
 		if err := r.templates.EnsureAtespace(ctx, desiredRef.GetAtespace()); err != nil {
@@ -430,20 +454,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return nil
 	}
 
-	digest, err := substrate.ActorTemplateSpecDigest(observed)
-	if err != nil {
-		return r.observePreparationError(*state, err)
-	}
-	revision := database.RuntimeRevision{
-		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
-		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
-		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
-		EgressDestinations:      target.Revision.EgressDestinations,
-		Credentials:             target.Revision.Credentials,
-		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
-		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
-		ActorTemplateSpecDigest: digest,
-	}
+	revision.ActorTemplateUID = observed.GetMetadata().GetUid()
 	now := time.Now()
 	retry, err := r.store.RecordRuntimeRevision(ctx, revision, goldenRecordOptions(observed, now))
 	if err != nil {

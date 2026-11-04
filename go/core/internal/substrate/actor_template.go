@@ -17,7 +17,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -45,31 +46,39 @@ var egressTrustEnvironment = map[string]struct{}{
 }
 
 // ActorTemplateForRevision constructs the immutable ate-api resource for a
-// compiled revision. It performs no reads or writes, which makes it safe to use
+// compiled revision and returns the exact bundle referenced by its descriptor.
+// It performs no reads or writes, which makes it safe to use
 // inside a KRT transformation.
-func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID) (*ateapipb.ActorTemplate, error) {
+func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID) (*ateapipb.ActorTemplate, *runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
 	if revisionID.IsZero() {
-		return nil, fmt.Errorf("runtime revision ID is required")
+		return nil, nil, fmt.Errorf("runtime revision ID is required")
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentName, revisionID)
-	// Config and SDK placeholders contain no Secret values. Render the typed
-	// card only at this boundary.
-	card, err := apia2a.FromProtoAgentCard(spec.AgentCard)
+	bundle, err := spec.BootstrapBundle(revisionID)
 	if err != nil {
-		return nil, fmt.Errorf("convert runtime Agent Card: %w", err)
+		return nil, nil, err
 	}
-	cardJSON, err := json.Marshal(card)
+	descriptor := bootstrap.Descriptor{FormatVersion: bootstrap.FormatVersion, ControlPlaneURL: spec.ControlPlaneURL, Revision: revisionID.String(), SHA256: bundle.Sha256}
+	if err := descriptor.Validate(); err != nil {
+		return nil, nil, err
+	}
+	descriptorJSON, err := json.Marshal(descriptor)
 	if err != nil {
-		return nil, fmt.Errorf("render runtime Agent Card: %w", err)
+		return nil, nil, fmt.Errorf("encode bootstrap descriptor: %w", err)
 	}
+	goldenPolicy, err := bootstrapEgressPolicy(spec.Namespace, spec.ControlPlaneURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	environment := withServiceVersion(append([]corev1.EnvVar(nil), spec.Environment...), revisionID.Short())
 	// The systemInfo trustBundle volume below projects the gateway CA. These
 	// variables tell each TLS client to trust it; mounting the file alone does
 	// not configure trust. The gateway intercepts HTTPS even without credentials.
 	for _, variable := range environment {
-		if _, owned := egressTrustEnvironment[variable.Name]; owned {
-			return nil, fmt.Errorf("runtime environment %q conflicts with gateway trust", variable.Name)
+		if _, owned := egressTrustEnvironment[variable.Name]; owned || variable.Name == bootstrap.Environment || variable.Name == "KAGENT_CONFIG_JSON" || variable.Name == "KAGENT_AGENT_CARD_JSON" {
+			return nil, nil, fmt.Errorf("runtime environment %q conflicts with gateway trust", variable.Name)
 		}
 	}
 	for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"} {
@@ -77,24 +86,24 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	}
 	environment = append(environment, corev1.EnvVar{Name: "SSL_CERT_DIR", Value: egressTrustMount})
 	environment = append(environment,
-		corev1.EnvVar{Name: "KAGENT_CONFIG_JSON", Value: string(spec.ConfigJSON)},
-		corev1.EnvVar{Name: "KAGENT_AGENT_CARD_JSON", Value: string(cardJSON)},
+		corev1.EnvVar{Name: bootstrap.Environment, Value: string(descriptorJSON)},
 	)
 	actorEnv, err := actorTemplateEnvFromPodEnv(environment)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(actorEnv) > 32 {
-		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
+		return nil, nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
 	resources, err := actorResources(spec.CPU, spec.Memory)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	template := &ateapipb.ActorTemplate{
-		Metadata:  &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
-		Resources: resources,
+		GoldenEgressPolicy: goldenPolicy,
+		Metadata:           &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
+		Resources:          resources,
 		Containers: []*ateapipb.Container{{
 			Name:    defaultContainerName,
 			Image:   spec.Image,
@@ -142,9 +151,9 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		})
 	}
 	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
-		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
+		return nil, nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
-	return template, nil
+	return template, bundle, nil
 }
 
 // ActorTemplateSpecEqual compares the client-owned immutable fields of two
@@ -173,11 +182,12 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector: template.GetWorkerSelector(),
-		Containers:     template.GetContainers(),
-		Volumes:        template.GetVolumes(),
-		SnapshotConfig: template.GetSnapshotConfig(),
-		Resources:      template.GetResources(),
+		WorkerSelector:     template.GetWorkerSelector(),
+		Containers:         template.GetContainers(),
+		Volumes:            template.GetVolumes(),
+		SnapshotConfig:     template.GetSnapshotConfig(),
+		Resources:          template.GetResources(),
+		GoldenEgressPolicy: template.GetGoldenEgressPolicy(),
 	}
 }
 

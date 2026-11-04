@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -25,6 +26,7 @@ import (
 
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
@@ -101,6 +103,10 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 			_, err = store.RecordRuntimeRevision(ctx, *abandoned, database.RecordRevisionOptions{Ready: true})
 			require.NoError(t, err)
+			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
+			require.NoError(t, err)
+			require.Empty(t, unreferenced, "the preparation lease protects an abandoned attempt until expiry")
+			expirePreparationLease(t, pool, abandoned.Revision)
 			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
 			require.Len(t, unreferenced, 1)
@@ -580,4 +586,17 @@ func (p *preparationTestBackend) GetAgentEgressGrant(ctx context.Context, namesp
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.store.GetAgentEgressGrant(ctx, namespace, uid)
+}
+
+func (p *preparationTestBackend) PublishBootstrapRevision(ctx context.Context, revision database.RuntimeRevision, bundle *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.PublishBootstrapRevision(ctx, revision, bundle)
+}
+
+// Advance the durable deadline without waiting two minutes in lifecycle tests.
+func expirePreparationLease(t *testing.T, pool *pgxpool.Pool, revision string) {
+	t.Helper()
+	_, err := pool.Exec(t.Context(), `UPDATE runtime_bootstrap SET preparing_until = statement_timestamp() - INTERVAL '1 second' WHERE revision = $1`, revision)
+	require.NoError(t, err)
 }

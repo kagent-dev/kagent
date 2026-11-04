@@ -126,7 +126,9 @@ func collectableTemplate(revision database.RuntimeArtifact, template *ateapipb.A
 		return "", false, fmt.Errorf("get unreferenced ActorTemplate %s: %w", ref, getErr)
 	}
 	uid = template.GetMetadata().GetUid()
-	if (revision.ActorTemplateUID != "" && uid == revision.ActorTemplateUID) || isUnrecordedRebuild(revision, template) {
+	digest, digestErr := substrate.ActorTemplateSpecDigest(template)
+	unpublished := revision.ActorTemplateUID == "" && revision.ActorTemplateSpecDigest != "" && digestErr == nil && digest == revision.ActorTemplateSpecDigest
+	if unpublished || (revision.ActorTemplateUID != "" && uid == revision.ActorTemplateUID) || isUnrecordedRebuild(revision, template) {
 		return uid, false, nil
 	}
 	return "", false, fmt.Errorf("unreferenced ActorTemplate %s UID changed", ref)

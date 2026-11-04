@@ -112,6 +112,7 @@ type RecordRevisionOptions struct {
 // source if still desired. Existing inputs are preserved; actor UID, spec digest
 // and update time refresh. Stale reports cannot replace the last successful
 // revision. Deleting revisions return ErrObjectDeleting.
+// Bootstrap payload publication is a separate operation.
 func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, options RecordRevisionOptions) (GoldenRetry, error) {
 	if revision.AgentCard == nil {
 		return GoldenRetry{}, fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
@@ -131,17 +132,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 				return err
 			}
 		}
-		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
-			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
-				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID, ActorTemplateSpecDigest: revision.ActorTemplateSpecDigest},
-			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets,
-		}); err != nil {
-			return err
-		}
-		if err := execSQL(ctx, tx, `
-			INSERT INTO agent_revision (revision, agent_name, agent_uid, agent_card)
-			VALUES ($1, $2, $3, $4) ON CONFLICT (revision) DO NOTHING
-		`, revision.Revision, revision.AgentName, revision.AgentUID, card); err != nil {
+		if err := recordAgentRevision(ctx, tx, revision, card); err != nil {
 			return err
 		}
 		var err error
@@ -161,6 +152,25 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		`, revision.Revision, revision.Namespace, revision.AgentUID)
 	})
 	return retry, err
+}
+
+// recordAgentRevision persists immutable agent inputs and refreshes the observed
+// template binding in the caller's transaction. Deleting revisions are rejected.
+func recordAgentRevision(ctx context.Context, tx pgx.Tx, revision RuntimeRevision, card []byte) error {
+	if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
+		RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
+			ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID, ActorTemplateSpecDigest: revision.ActorTemplateSpecDigest},
+		SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets,
+	}); err != nil {
+		return err
+	}
+	if err := execSQL(ctx, tx, `
+			INSERT INTO agent_revision (revision, agent_name, agent_uid, agent_card)
+			VALUES ($1, $2, $3, $4) ON CONFLICT (revision) DO NOTHING
+		`, revision.Revision, revision.AgentName, revision.AgentUID, card); err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetRuntimeRevision returns a prepared revision and its decoded agent card, or
@@ -228,7 +238,8 @@ func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, 
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeArtifact, error) {
 	return queryMany(ctx, c.db, `
 		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_failure_uid, deleted_at
-		FROM runtime_revision WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
+		FROM runtime_revision r WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
+ AND NOT EXISTS (SELECT 1 FROM runtime_bootstrap b WHERE b.revision = r.revision AND b.preparing_until > statement_timestamp())
 	`, pgx.RowToStructByName[RuntimeArtifact])
 }
 
@@ -291,7 +302,7 @@ func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevis
   INSERT INTO runtime_revision (revision, kind, namespace, source_snapshot, egress_destinations,
    actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, credentials, token_passthrough_targets)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-  ON CONFLICT (revision) DO UPDATE SET actor_template_uid = EXCLUDED.actor_template_uid,
+  ON CONFLICT (revision) DO UPDATE SET actor_template_uid = COALESCE(NULLIF(EXCLUDED.actor_template_uid, ''), runtime_revision.actor_template_uid),
    actor_template_spec_digest = EXCLUDED.actor_template_spec_digest, updated_at = NOW()
   WHERE runtime_revision.deleted_at IS NULL AND runtime_revision.kind = EXCLUDED.kind
  `, revision.Revision, revision.Kind, revision.Namespace, revision.SourceSnapshot, revision.EgressDestinations,
@@ -322,6 +333,7 @@ func (c *Client) BeginRuntimeRevisionDeletion(ctx context.Context, revision stri
 			UPDATE runtime_revision
 			SET deleted_at = COALESCE(deleted_at, NOW())
 			WHERE revision = $1 AND revision IN (SELECT revision FROM unreferenced_runtime_revision)
+ AND NOT EXISTS (SELECT 1 FROM runtime_bootstrap b WHERE b.revision = runtime_revision.revision AND b.preparing_until > statement_timestamp())
 		`, revision)
 		if err != nil || updated.RowsAffected() == 0 {
 			return err

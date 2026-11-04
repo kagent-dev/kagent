@@ -262,7 +262,7 @@ type failingRecordStore struct {
 }
 
 func (s *failingRecordStore) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
-	if s.recordErr != nil {
+	if s.recordErr != nil && revision.ActorTemplateUID != "" {
 		return database.GoldenRetry{}, s.recordErr
 	}
 	return s.Client.RecordRuntimeRevision(ctx, revision, options)
@@ -307,6 +307,7 @@ func TestRuntimeRevisionGCCollectsOnlyMatchingUnrecordedGoldenRebuild(t *testing
 			require.Equal(t, "uid-2", templates.template.GetMetadata().GetUid())
 			test.replace(templates.template)
 			require.NoError(t, store.RetireAgentIdentities(ctx, initial.Agent.Namespace, initial.Agent.Name))
+			expirePreparationLease(t, pool, revision)
 
 			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
 			err = collector.collect(ctx, revision)
