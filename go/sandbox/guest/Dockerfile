@@ -22,7 +22,8 @@ RUN apk add --no-cache bash ca-certificates git && \
     chown -R 65532:65532 /data
 
 COPY --from=builder /kagent-sandbox-guest /usr/local/bin/kagent-sandbox-guest
-WORKDIR /data/workspace
+# The guest creates its workspace after the durable /data volume is mounted.
+WORKDIR /data
 USER 65532:65532
 EXPOSE 80
 

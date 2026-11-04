@@ -34,7 +34,7 @@ func TestHTTPActorA2AUsesSessionAuthorization(t *testing.T) {
 	binding := actorBinding{session: session}
 	store := &gatewayTestStore{session: session, task: &a2atype.Task{ID: "runtime-task", ContextID: session.Id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, binding, issuer.URL)
 	policy := runtimeauth.NewAuthorizer(auth.NoopAuthorizer{}, binding)
@@ -44,8 +44,8 @@ func TestHTTPActorA2AUsesSessionAuthorization(t *testing.T) {
 	t.Cleanup(server.Close)
 	transport := newGatewayTestTransport(t, server.Listener.Addr().String(), a2atype.TransportProtocolJSONRPC)
 	token := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(session.Id), "actor-uid"))
-	actor := a2aclient.ServiceParams{"authorization": {token}, "x-user-id": {"forged"}}
-	user := a2aclient.ServiceParams{"x-user-id": {"alice"}}
+	actor := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {token}, "x-user-id": {"forged"}}
+	user := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "x-user-id": {"alice"}}
 	for _, params := range []a2aclient.ServiceParams{actor, user} {
 		task, err := transport.GetTask(t.Context(), params, &a2atype.GetTaskRequest{ID: "runtime-task"})
 		require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestHTTPActorA2AUsesSessionAuthorization(t *testing.T) {
 	_, err = transport.SendMessage(t.Context(), actor, gatewayTestRequest())
 	require.NoError(t, err)
 	require.True(t, runtime.sent, "an authorized actor call reaches its runtime")
-	_, err = transport.GetTask(t.Context(), a2aclient.ServiceParams{"authorization": {token}, "x-share-token": {"share"}}, &a2atype.GetTaskRequest{ID: "runtime-task"})
+	_, err = transport.GetTask(t.Context(), a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {token}, "x-share-token": {"share"}}, &a2atype.GetTaskRequest{ID: "runtime-task"})
 	require.Error(t, err)
 	// A different session for the same owner is still outside actor authority.
 	other := gatewayTestSession()

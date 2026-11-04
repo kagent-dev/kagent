@@ -72,7 +72,7 @@ func TestSessionRevertCrashedRuntime(t *testing.T) {
 		require.NoError(t, err)
 		session, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 		require.NoError(t, err)
-		namespace, name := session.Session.Agent.Namespace, substrate.ActorName(fixture.sessionID)
+		namespace, name := session.GetSession().GetAgent().GetRef().GetNamespace(), substrate.ActorName(fixture.sessionID)
 		blockNext.Store(true)
 		_, turn := newMessageRequest(t, "What is 2+2?")
 		turn.Tenant, turn.Message.ContextId = fixture.tenant, fixture.sessionID

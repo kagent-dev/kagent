@@ -39,7 +39,7 @@ func TestModelCredentialDelivery(t *testing.T) {
 		require.NoError(t, kube.Patch(t.Context(), model, ctrlclient.MergeFrom(before)))
 		template := &v1alpha3.AgentTemplate{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "gateway-credentials-", Namespace: "kagent", Labels: harness.labels()},
-			Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly."},
+			Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly."},
 		}
 		createAndWaitInteractionTemplate(t, harness, kube, template)
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)

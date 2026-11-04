@@ -17,6 +17,7 @@ func TestActorJWTModelPlaceholders(t *testing.T) {
 		environment string
 	}{
 		{v1alpha3.ModelProviderOpenAI, "OPENAI_API_KEY"},
+		{v1alpha3.ModelProviderGemini, "GOOGLE_API_KEY"},
 		{v1alpha3.ModelProviderAnthropic, "ANTHROPIC_API_KEY"},
 		{v1alpha3.ModelProviderAzureOpenAI, "AZURE_OPENAI_API_KEY"},
 		{v1alpha3.ModelProviderMistral, "MISTRAL_API_KEY"},
@@ -41,7 +42,6 @@ func TestActorJWTModelPlaceholders(t *testing.T) {
 func TestActorJWTUnsupportedProviders(t *testing.T) {
 	for _, spec := range []v1alpha3.ModelConfigSpec{
 		{Provider: v1alpha3.ModelProviderBedrock, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
-		{Provider: v1alpha3.ModelProviderGemini},
 		{Provider: v1alpha3.ModelProviderOllama, Ollama: &v1alpha3.OllamaConfig{}},
 	} {
 		t.Run(string(spec.Provider), func(t *testing.T) {

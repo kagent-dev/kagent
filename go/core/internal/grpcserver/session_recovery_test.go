@@ -115,7 +115,7 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team-a", Name: name, Uid: "actor-uid"},
 				ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "assistant-kagent-revision"},
 				Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
-					Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/last-good"}}}}},
+					Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/last-good"}}}}},
 			}
 			var task *a2a.Task
 			if test.task != "" {

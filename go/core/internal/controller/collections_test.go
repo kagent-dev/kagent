@@ -28,7 +28,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: "model"},
+			ModelConfig:  &kagentv1alpha3.ObjectReference{Name: "model"},
 			SystemPrompt: "help",
 		},
 	}
@@ -86,7 +86,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		return len(states) == 1 && states[0].CompilationFailure == nil && states[0].Target != nil
 	})
 	state := collections.Reconciliations.List()[0]
-	if state.ObservedActorTemplate != nil {
+	if state.Golden.phase != goldenUnobserved {
 		t.Fatal("ActorTemplate was observed before it existed")
 	}
 	waitFor(t, func() bool {
@@ -109,7 +109,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
 		updates := collections.AgentStatuses.List()
-		if len(states) != 1 || states[0].ObservedActorTemplate == nil || len(updates) != 1 {
+		if len(states) != 1 || !states[0].Golden.ready() || len(updates) != 1 {
 			return false
 		}
 		ready := apimeta.FindStatusCondition(updates[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
@@ -119,7 +119,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	modelConfigs.UpdateObject(&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.1"}})
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
-		return len(states) == 1 && states[0].Target.RevisionID != state.Target.RevisionID && states[0].ObservedActorTemplate == nil
+		return len(states) == 1 && states[0].Target.RevisionID != state.Target.RevisionID && states[0].Golden.phase == goldenUnobserved
 	})
 }
 
@@ -139,7 +139,7 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 			runtimeHarness.Spec.Substrate.SnapshotPolicy.Location = "snapshots"
 			if harnessType == translator.HarnessTypeKagent {
 				runtimeHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
-				template.Spec.ModelConfig = &corev1.LocalObjectReference{Name: "model"}
+				template.Spec.ModelConfig = &kagentv1alpha3.ObjectReference{Name: "model"}
 			} else {
 				runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
 				runtimeHarness.Spec.Workload.Command = []string{"/agent"}
@@ -183,7 +183,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			opts := krt.NewOptionsBuilder(stop, "test-sandbox", nil)
 			template := &kagentv1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"},
-				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 			}
 			runtimeHarness := harness("team-a", string(harnessType), nil)
 			runtimeHarness.UID = "harness-uid"
@@ -253,12 +253,10 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			gvisorRevision := baseline.Target.RevisionID
 			require.False(t, gvisorRevision.IsZero())
 			gvisorTemplate := proto.CloneOf(baseline.Target.ActorTemplate)
-			observed := proto.CloneOf(gvisorTemplate)
-			observed.Metadata.Uid = "actor-template-uid"
 			observations.UpdateObject(AgentRuntimeObservation{
-				Namespace: template.Namespace, AgentName: template.Name, RevisionID: gvisorRevision, Template: observed,
+				Namespace: template.Namespace, AgentName: template.Name, RevisionID: gvisorRevision, Golden: goldenProgress{phase: goldenReady},
 			})
-			waitFor(t, func() bool { return reconciliations.GetKey(key).ObservedActorTemplate != nil })
+			waitFor(t, func() bool { return reconciliations.GetKey(key).Golden.ready() })
 
 			for _, step := range []struct {
 				name    string
@@ -296,7 +294,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					if step.failure != nil {
 						require.Nil(t, state.Target)
 						require.Empty(t, state.desiredRevision())
-						require.Nil(t, state.ObservedActorTemplate)
+						require.Zero(t, state.Golden)
 						pairStatus := statusForAgent(*state, 1, gvisorRevision.String())
 						require.Equal(t, gvisorRevision.String(), pairStatus.LatestSuccessfulRevision)
 						condition := apimeta.FindStatusCondition(pairStatus.Conditions, step.failure.Condition)
@@ -316,7 +314,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					if step.class == atev1.SandboxClassMicroVM {
 						require.NotEqual(t, gvisorRevision, state.Target.RevisionID)
 						require.NotEqual(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
-						require.Nil(t, state.ObservedActorTemplate, "a gVisor observation must not satisfy a MicroVM revision")
+						require.False(t, state.Golden.ready(), "a gVisor observation must not satisfy a MicroVM revision")
 					} else {
 						require.Equal(t, gvisorRevision, state.Target.RevisionID)
 						require.Equal(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
@@ -336,7 +334,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "claude"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	claudeHarness := harness("team-a", "claude", map[string]string{"runtime": "claude"})
 	claudeHarness.UID = "harness-uid"
@@ -391,7 +389,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	responses := kagentv1alpha3.OpenAIAPIFormatResponses
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "codex"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	codexHarness := harness("team-a", "codex", map[string]string{"runtime": "codex"})
 	codexHarness.UID = "harness-uid"
@@ -446,12 +444,12 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	child := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "child", Labels: map[string]string{"runtime": "python"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "before"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "before"},
 	}
 	root := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "root", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "model"},
+			ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"},
 			Tools: []kagentv1alpha3.ToolBinding{{SubAgent: &kagentv1alpha3.SubAgentToolBinding{
 				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},

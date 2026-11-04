@@ -97,25 +97,31 @@ func (c *Client) ListAgentEgressSources(ctx context.Context) ([]RuntimeEgressSou
  `, pgx.RowToStructByName[RuntimeEgressSource])
 }
 
-// RecordRevisionOptions controls whether a prepared revision becomes available.
+// RecordRevisionOptions reports the state of the recorded ActorTemplate's golden build.
 type RecordRevisionOptions struct {
-	// Ready promotes the revision only while its source is active and still desires it.
+	// Ready promotes the revision only while its source is active and still
+	// desires it, and clears its golden retry state.
 	Ready bool
+	// GoldenFailedAt, when set, marks the recorded ActorTemplate's golden build
+	// as failed at that time. Repeat reports for the same template keep the first.
+	GoldenFailedAt time.Time
 }
 
-// RecordRuntimeRevision atomically stores immutable inputs and, when Ready,
-// promotes the revision for its active source if still desired. Existing inputs
-// are preserved; actor UID and update time refresh. Stale reports cannot replace
-// the last successful revision. Deleting revisions return ErrObjectDeleting.
-func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, options RecordRevisionOptions) error {
+// RecordRuntimeRevision atomically stores immutable inputs and the golden
+// build's retry state and, when Ready, promotes the revision for its active
+// source if still desired. Existing inputs are preserved; actor UID, spec digest
+// and update time refresh. Stale reports cannot replace the last successful
+// revision. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, options RecordRevisionOptions) (GoldenRetry, error) {
 	if revision.AgentCard == nil {
-		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
+		return GoldenRetry{}, fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
 	}
 	card, err := proto.Marshal(revision.AgentCard)
 	if err != nil {
-		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
+		return GoldenRetry{}, fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
-	return c.withTx(ctx, func(tx pgx.Tx) error {
+	var retry GoldenRetry
+	err = c.withTx(ctx, func(tx pgx.Tx) error {
 		if options.Ready {
 			// Match definition preparation and GC: source before revision.
 			if _, err := queryMany(ctx, tx, `
@@ -127,7 +133,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		}
 		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
 			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
-				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID},
+				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID, ActorTemplateSpecDigest: revision.ActorTemplateSpecDigest},
 			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets,
 		}); err != nil {
 			return err
@@ -138,8 +144,9 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		`, revision.Revision, revision.AgentName, revision.AgentUID, card); err != nil {
 			return err
 		}
-		if !options.Ready {
-			return nil
+		var err error
+		if retry, err = recordGoldenRetry(ctx, tx, revision.Revision, revision.ActorTemplateUID, options); err != nil || !options.Ready {
+			return err
 		}
 		return execSQL(ctx, tx, `
 			UPDATE agent_definition p
@@ -153,6 +160,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 			  AND p.latest_successful_revision IS DISTINCT FROM r.revision
 		`, revision.Revision, revision.Namespace, revision.AgentUID)
 	})
+	return retry, err
 }
 
 // GetRuntimeRevision returns a prepared revision and its decoded agent card, or
@@ -161,7 +169,7 @@ func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*Runt
 	row, err := queryOne(ctx, c.db, `
 		SELECT revision, namespace, agent_name, agent_uid,
 		    source_snapshot, egress_destinations, token_passthrough_targets, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
-		    agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
+		    actor_template_spec_digest, agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 	if err != nil {
 		return nil, fmt.Errorf("get runtime revision %s: %w", revision, notFoundOr(err))
@@ -192,7 +200,7 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 		TokenPassthroughTargets: targets,
 		Credentials:             credentials,
 		ActorTemplateAtespace:   row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
-		ActorTemplateUID: row.ActorTemplateUID,
+		ActorTemplateUID: row.ActorTemplateUID, ActorTemplateSpecDigest: row.ActorTemplateSpecDigest,
 	}, nil
 }
 
@@ -219,14 +227,14 @@ func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, 
 // instances, or checkpoints, including deletions still awaiting compute cleanup.
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeArtifact, error) {
 	return queryMany(ctx, c.db, `
-		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, deleted_at
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_failure_uid, deleted_at
 		FROM runtime_revision WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
 	`, pgx.RowToStructByName[RuntimeArtifact])
 }
 
 func getRuntimeArtifactForUpdate(ctx context.Context, tx pgx.Tx, revision string) (RuntimeArtifact, error) {
 	return queryOne(ctx, tx, `
-		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, deleted_at
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_failure_uid, deleted_at
 		FROM runtime_revision WHERE revision = $1 FOR UPDATE
 	`, pgx.RowToStructByName[RuntimeArtifact], revision)
 }
@@ -239,7 +247,7 @@ func getAvailableRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revisi
 	return queryOne(ctx, tx, `
   SELECT revision, namespace, agent_name, agent_uid,
    source_snapshot, egress_destinations, token_passthrough_targets, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
-   agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
+   actor_template_spec_digest, agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
  `, pgx.RowToStructByName[runtimeRevisionRow], revision)
 }
 
@@ -281,12 +289,13 @@ func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevis
 	}
 	result, err := tx.Exec(ctx, `
   INSERT INTO runtime_revision (revision, kind, namespace, source_snapshot, egress_destinations,
-   actor_template_atespace, actor_template_name, actor_template_uid, credentials, token_passthrough_targets)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-  ON CONFLICT (revision) DO UPDATE SET actor_template_uid = EXCLUDED.actor_template_uid, updated_at = NOW()
+   actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, credentials, token_passthrough_targets)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+  ON CONFLICT (revision) DO UPDATE SET actor_template_uid = EXCLUDED.actor_template_uid,
+   actor_template_spec_digest = EXCLUDED.actor_template_spec_digest, updated_at = NOW()
   WHERE runtime_revision.deleted_at IS NULL AND runtime_revision.kind = EXCLUDED.kind
  `, revision.Revision, revision.Kind, revision.Namespace, revision.SourceSnapshot, revision.EgressDestinations,
-		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.Credentials, revision.TokenPassthroughTargets)
+		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.ActorTemplateSpecDigest, revision.Credentials, revision.TokenPassthroughTargets)
 	if err != nil {
 		return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
 	}
@@ -385,6 +394,61 @@ type runtimeRevisionRow struct {
 	ActorTemplateAtespace   string
 	ActorTemplateName       string
 	ActorTemplateUID        string
+	ActorTemplateSpecDigest string
 	AgentCard               []byte
 	DeletedAt               *time.Time
+}
+
+// GoldenRetry is a revision's golden build retry state since its last success.
+type GoldenRetry struct {
+	// Retries counts the golden builds that failed since the last success.
+	Retries int
+	// FailedAt is when the recorded ActorTemplate's golden build failed, or zero
+	// when the recorded template has not failed.
+	FailedAt time.Time
+	// New reports that this record call saw the failure first.
+	New bool
+}
+
+// recordGoldenRetry updates the retry state from one report of the recorded
+// ActorTemplate and returns it. Ready clears it, so a later failure starts again
+// from the first backoff delay. A failure counts once per template UID, because
+// reconciles see the same failed template on every pass until it is replaced.
+func recordGoldenRetry(ctx context.Context, tx pgx.Tx, revision, templateUID string, options RecordRevisionOptions) (GoldenRetry, error) {
+	var retry GoldenRetry
+	switch {
+	case options.Ready:
+		if err := execSQL(ctx, tx, `
+			UPDATE runtime_revision SET golden_retries = 0, golden_failure_uid = '', golden_failed_at = NULL, updated_at = NOW()
+			WHERE revision = $1 AND golden_retries > 0
+		`, revision); err != nil {
+			return GoldenRetry{}, err
+		}
+	case !options.GoldenFailedAt.IsZero():
+		result, err := tx.Exec(ctx, `
+			UPDATE runtime_revision
+			SET golden_retries = golden_retries + 1, golden_failure_uid = $2, golden_failed_at = $3, updated_at = NOW()
+			WHERE revision = $1 AND golden_failure_uid <> $2
+		`, revision, templateUID, options.GoldenFailedAt)
+		if err != nil {
+			return GoldenRetry{}, fmt.Errorf("record golden failure for runtime revision %s: %w", revision, err)
+		}
+		retry.New = result.RowsAffected() > 0
+	}
+	type goldenRetryRow struct {
+		GoldenRetries  int
+		GoldenFailedAt *time.Time
+	}
+	row, err := queryOne(ctx, tx, `
+		SELECT golden_retries, CASE WHEN golden_failure_uid = actor_template_uid THEN golden_failed_at END AS golden_failed_at
+		FROM runtime_revision WHERE revision = $1
+	`, pgx.RowToStructByName[goldenRetryRow], revision)
+	if err != nil {
+		return GoldenRetry{}, fmt.Errorf("get golden retry for runtime revision %s: %w", revision, notFoundOr(err))
+	}
+	retry.Retries = row.GoldenRetries
+	if row.GoldenFailedAt != nil {
+		retry.FailedAt = *row.GoldenFailedAt
+	}
+	return retry, nil
 }

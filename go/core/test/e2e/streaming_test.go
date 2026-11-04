@@ -16,7 +16,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/tool"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,7 +56,7 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "non-streaming-", Namespace: "kagent", Labels: harness.labels()},
 				Spec: v1alpha3.AgentTemplateSpec{
-					ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+					ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
 				},
 			}
 			createAndWaitInteractionTemplate(t, harness, kube, template)

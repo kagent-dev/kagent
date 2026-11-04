@@ -10,7 +10,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -187,7 +186,7 @@ func createCompactionHarness(t *testing.T, kube ctrlclient.Client, summarizerMod
 	}
 	harness.Spec.Kagent.Compaction = policy
 	harness.Spec.Kagent.Compaction.Summarizer = &v1alpha3.KagentHarnessSummarizer{
-		ModelConfigRef: &corev1.LocalObjectReference{Name: summarizerModel},
+		ModelConfigRef: &v1alpha3.ObjectReference{Name: summarizerModel},
 		PromptTemplate: compactionSummaryPrompt + "\n\n{conversation_history}",
 	}
 	if err := kube.Create(t.Context(), harness); err != nil {
@@ -211,7 +210,7 @@ func createCompactionInteractionTemplate(t *testing.T, kube ctrlclient.Client, h
 			Labels: map[string]string{compactionRuntimeLabel: compactionRuntime, "kagent.dev/harness": harnessName},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: agentModel},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: agentModel},
 			Description:  "Context compaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
 		},

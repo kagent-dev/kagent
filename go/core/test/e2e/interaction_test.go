@@ -45,6 +45,7 @@ import (
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
@@ -377,7 +378,7 @@ func TestSessionCheckpoint(t *testing.T) {
 			}
 		})
 		forkCtx, forkCancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(),
-			"x-user-id", "e2e",
+			"x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version),
 		), 4*time.Minute)
 		t.Cleanup(forkCancel)
 		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fork.GetContextId(), PageSize: 10})
@@ -423,7 +424,7 @@ func TestSessionCheckpoint(t *testing.T) {
 				t.Errorf("delete nested fork: %v", err)
 			}
 		})
-		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e")
+		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version))
 		nestedFixture := &interactionFixture{ctx: nestedCtx, client: fixture.client, tenant: fixture.tenant, sessionID: nestedID, contextID: nestedID}
 		_, _, nestedTask := nestedFixture.send(t, "What was the answer before the checkpoint?")
 		if nestedTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(nestedTask), "The answer is 4.") {
@@ -571,7 +572,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 			t.Fatalf("list Sessions: %v", err)
 		}
 		for _, session := range sessions.GetSessions() {
-			if session.GetAgent().GetName() == fixture.childTemplate {
+			if session.GetAgent().GetRef().GetName() == fixture.childTemplate {
 				t.Fatalf("Shared child created Session %q", session.GetId())
 			}
 		}
@@ -790,7 +791,7 @@ func newInteractionFixtureForTemplate(t *testing.T, harness testHarness, target,
 func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, templateName string) *interactionFixture {
 	t.Helper()
 	conn := newControllerConn(t, target)
-	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version)), 4*time.Minute)
 	t.Cleanup(cancel)
 	sessions := apiv1.NewSessionServiceClient(conn)
 	request := &apiv1.CreateSessionRequest{
@@ -823,7 +824,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	}
 	return &interactionFixture{
 		ctx:         ctx,
-		tenant:      session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName(),
+		tenant:      session.GetAgent().GetRef().GetNamespace() + "/" + session.GetAgent().GetRef().GetName(),
 		client:      a2apb.NewA2AServiceClient(conn),
 		sessions:    sessions,
 		checkpoints: apiv1.NewCheckpointServiceClient(conn),
@@ -1110,7 +1111,7 @@ func createInteractionTemplate(t *testing.T, harness testHarness, modelURL strin
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "Agent interaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
 		},
@@ -1144,12 +1145,12 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:        &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:        &v1alpha3.ObjectReference{Name: model.Name},
 			SystemPrompt:       "Use available tools when needed, then return the arithmetic answer and a short explanation.",
 			OutputSchema:       &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
 			OutputSchemaStrict: true,
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 				Tools:  []string{"add_numbers"},
 			}}},
 		},
@@ -1160,7 +1161,6 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 
 func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL string, requireApproval bool, actorJWT *v1alpha3.ActorJWT) (string, string) {
 	t.Helper()
-	kube := interactionKubeClient(t)
 	server := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "interaction-mcp-", Namespace: "kagent"},
 		Spec: v1alpha3.RemoteMCPServerSpec{
@@ -1170,6 +1170,12 @@ func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL stri
 			ActorJWT:    actorJWT,
 		},
 	}
+	return createMCPReferenceTemplate(t, harness, server, requireApproval)
+}
+
+func createMCPReferenceTemplate(t *testing.T, harness testHarness, server *v1alpha3.RemoteMCPServer, requireApproval bool) (string, string) {
+	t.Helper()
+	kube := interactionKubeClient(t)
 	if err := kube.Create(t.Context(), server); err != nil {
 		t.Fatalf("create interaction RemoteMCPServer: %v", err)
 	}
@@ -1178,14 +1184,15 @@ func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL stri
 			t.Errorf("delete interaction RemoteMCPServer: %v", err)
 		}
 	})
+	nativeName := translator.MCPRuntimeName("kagent", server)
 	var modelURL string
 	toolName := "add_numbers"
 	switch harness.name {
 	case codexE2EHarness:
-		toolName = server.Name + ".add_numbers"
-		modelURL = startCodexResourceMockLLM(t, codexMCPToolNamespace(server.Name))
+		toolName = nativeName + ".add_numbers"
+		modelURL = startCodexResourceMockLLM(t, codexMCPToolNamespace(nativeName))
 	case claudeE2EHarness:
-		toolName = "mcp__" + server.Name + "__add_numbers"
+		toolName = "mcp__" + nativeName + "__add_numbers"
 		modelURL = startClaudeResourceMockLLM(t, toolName)
 	default:
 		cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_mcp_agent.json", interactionMocks)
@@ -1204,11 +1211,11 @@ func createMCPInteractionTemplate(t *testing.T, harness testHarness, mcpURL stri
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
 			Description:  "MCP interaction E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server:          corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name, Namespace: new(server.Namespace)},
 				RequireApproval: requireApproval,
 			}}},
 		},
@@ -1228,7 +1235,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: childModel.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: childModel.Name},
 			Description:  "Shared specialist",
 			SystemPrompt: "Answer as the shared specialist.",
 		},
@@ -1240,7 +1247,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: rootModel.Name},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: rootModel.Name},
 			Description:  "Shared agent interaction E2E fixture",
 			SystemPrompt: "Delegate every request to the specialist.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{

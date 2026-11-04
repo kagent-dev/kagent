@@ -89,6 +89,13 @@ export interface FoundryConfig {
 }
 
 export interface ModelConfigSpec {
+  allowedNamespaces?: {
+    from?: "Same" | "All" | "Selector";
+    selector?: {
+      matchLabels?: Record<string, string>;
+      matchExpressions?: { key: string; operator: "In" | "NotIn" | "Exists" | "DoesNotExist"; values?: string[] }[];
+    };
+  };
   model: string;
   provider: string;
   apiKeySecret?: string;

@@ -50,7 +50,7 @@ func (s *sessionAuthorizationStore) ListSessions(_ context.Context, query databa
 		if session.Id <= query.AfterID || (!query.AllUsers && session.Creator != query.UserID) {
 			continue
 		}
-		if query.Agent != nil && (session.Agent.Namespace != query.Agent.Namespace || session.Agent.Name != query.Agent.Name) {
+		if query.Agent != nil && (session.Agent.Ref.Namespace != query.Agent.Namespace || session.Agent.Ref.Name != query.Agent.Name) {
 			continue
 		}
 		rows = append(rows, session)
@@ -89,8 +89,8 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 	bobID := "22222222-2222-4222-8222-222222222222"
 	agent := &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}
 	store := &sessionAuthorizationStore{sessions: []*apiv1.Session{
-		{Id: aliceID, Creator: "alice", Agent: agent},
-		{Id: bobID, Creator: "bob", Agent: agent},
+		{Id: aliceID, Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: agent}},
+		{Id: bobID, Creator: "bob", Agent: &apiv1.AgentProvenance{Ref: agent}},
 	}}
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
 		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, nil)

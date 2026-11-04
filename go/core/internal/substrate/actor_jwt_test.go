@@ -15,7 +15,7 @@ import (
 
 func TestActorJWTVerifier(t *testing.T) {
 	i := jwttest.New(t)
-	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, RuntimeJWTAudience)
 	require.NoError(t, err)
 	for _, test := range []struct {
 		name   string
@@ -81,17 +81,39 @@ func TestActorJWTVerifier(t *testing.T) {
 
 func TestActorJWTVerifierRequiresTrustedDiscovery(t *testing.T) {
 	i := jwttest.New(t)
-	_, err := NewActorJWTVerifier(t.Context(), i.URL, "")
+	_, err := NewActorJWTVerifier(t.Context(), i.URL, "", RuntimeJWTAudience)
 	require.Error(t, err, "untrusted TLS certificate")
 	for _, issuer := range []string{"", "http://issuer.test", "https://user:password@issuer.test", "https://issuer.test#fragment", "https://issuer.test?query"} {
-		_, err := NewActorJWTVerifier(t.Context(), issuer, i.CAFile)
+		_, err := NewActorJWTVerifier(t.Context(), issuer, i.CAFile, RuntimeJWTAudience)
 		require.Error(t, err, issuer)
 	}
 }
 
+func TestActorJWTVerifierAudienceViews(t *testing.T) {
+	i := jwttest.New(t)
+	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, RuntimeJWTAudience)
+	require.NoError(t, err)
+	metadata := v.ForAudience("kagent-agent-info")
+	require.Same(t, v.keys, metadata.keys, "audience views share signing-key refresh and revocation")
+	claims := i.Claims("team-a", "session-example", "actor-uid")
+	runtimeToken := i.Token(t, claims)
+	claims["aud"] = []string{"downstream-api", "kagent-agent-info"}
+	metadataToken := i.Token(t, claims)
+	_, err = v.Verify(t.Context(), metadataToken)
+	require.Error(t, err)
+	_, err = metadata.Verify(t.Context(), runtimeToken)
+	require.Error(t, err)
+	_, err = metadata.Verify(t.Context(), metadataToken)
+	require.NoError(t, err)
+	_, err = v.Verify(t.Context(), runtimeToken)
+	require.NoError(t, err, "binding another audience must not modify the runtime verifier")
+	_, err = v.ForAudience("").Verify(t.Context(), runtimeToken)
+	require.Error(t, err)
+}
+
 func TestActorJWTVerifierClockSkew(t *testing.T) {
 	i := jwttest.New(t)
-	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, RuntimeJWTAudience)
 	require.NoError(t, err)
 	for _, test := range []struct {
 		name    string

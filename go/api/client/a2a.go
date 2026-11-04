@@ -9,6 +9,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"google.golang.org/grpc/metadata"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
@@ -30,13 +31,13 @@ func (c *A2AClient) ForAgent(ctx context.Context, agent *apiv1.ResourceReference
 	return c.forAgent(ctx, agent, "")
 }
 
-// ForSession resolves its Agent and supplies the conversation context on sends.
+// ForSession routes to the Session's Agent and supplies the conversation context on sends.
 func (c *A2AClient) ForSession(ctx context.Context, id string) (*a2aclient.Client, error) {
 	response, err := newSessionClient(c.client).GetSession(ctx, &apiv1.GetSessionRequest{SessionId: id})
 	if err != nil {
 		return nil, err
 	}
-	return c.forAgent(ctx, response.GetSession().GetAgent(), id)
+	return c.forAgent(ctx, response.GetSession().GetAgent().GetRef(), id)
 }
 
 // ListTaskPushConfigsPage preserves the pagination token that the upstream
@@ -46,7 +47,7 @@ func (c *A2AClient) ListTaskPushConfigsPage(ctx context.Context, sessionID, task
 	if err != nil {
 		return nil, err
 	}
-	agent := response.GetSession().GetAgent()
+	agent := response.GetSession().GetAgent().GetRef()
 	if agent.GetNamespace() == "" || agent.GetName() == "" {
 		return nil, fmt.Errorf("agent namespace and name are required")
 	}
@@ -56,6 +57,12 @@ func (c *A2AClient) ListTaskPushConfigsPage(ctx context.Context, sessionID, task
 	}
 	callContext, cancel := c.client.grpcCallContext(ctx)
 	defer cancel()
+	headers, _ := metadata.FromOutgoingContext(callContext)
+	if headers == nil {
+		headers = metadata.MD{}
+	}
+	headers.Set(a2atype.SvcParamVersion, string(a2atype.Version))
+	callContext = metadata.NewOutgoingContext(callContext, headers)
 	return a2apb.NewA2AServiceClient(connection).ListTaskPushNotificationConfigs(callContext, &a2apb.ListTaskPushNotificationConfigsRequest{
 		Tenant:    agent.Namespace + "/" + agent.Name,
 		TaskId:    taskID,

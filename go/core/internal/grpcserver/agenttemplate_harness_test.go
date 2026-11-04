@@ -82,7 +82,7 @@ func testAgentTemplate(namespace, name, modelConfig string) *v1alpha3.AgentTempl
 	return &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: modelConfig},
+			ModelConfig: &v1alpha3.ObjectReference{Name: modelConfig},
 			Description: "a template",
 		},
 	}
@@ -223,14 +223,6 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 
 func TestHarnessServiceGeneratedClient(t *testing.T) {
 	existing := testHarness("team", "z-existing", "pool-z")
-	existing.Status = v1alpha3.HarnessStatus{
-		Conditions: []metav1.Condition{{
-			Type:               v1alpha3.HarnessConditionTypeReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             "Ready",
-			LastTransitionTime: metav1.Now(),
-		}},
-	}
 	client := apiv1.NewHarnessServiceClient(newTemplateAndHarnessConnection(t, existing))
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "harness-user"))
 	ref := &apiv1.ResourceReference{Namespace: "team", Name: "a-created"}
@@ -245,8 +237,8 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	if got := created.GetHarness(); got.GetRuntime() != harnessRuntimeCodex || got.GetWorkloadImage() != testHarnessImage {
 		t.Fatalf("CreateHarness() = %+v, want codex runtime and pinned image", got)
 	}
-	if created.GetHarness().GetReady() {
-		t.Fatal("CreateHarness() ready = true, want false before the controller observes it")
+	if _, ok := created.GetHarness().GetResource().GetValue().GetFields()["status"]; ok {
+		t.Fatal("CreateHarness() resource must not contain status")
 	}
 
 	_, err = client.CreateHarness(ctx, &apiv1.CreateHarnessRequest{
@@ -261,9 +253,6 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	}
 	if len(listed.GetHarnesses()) != 2 {
 		t.Fatalf("ListHarnesses() count = %d, want 2", len(listed.GetHarnesses()))
-	}
-	if !listed.GetHarnesses()[1].GetReady() {
-		t.Fatal("ListHarnesses()[1].ready = false, want the Ready condition reflected")
 	}
 
 	_, err = client.CreateHarness(ctx, &apiv1.CreateHarnessRequest{
