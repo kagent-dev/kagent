@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -25,6 +26,8 @@ import (
 )
 
 type interactionStore interface {
+	CancelTaskContinuations(context.Context, string, string) error
+	RegisterTaskContinuation(context.Context, string, string, string) error
 	RegisterSessionPushNotification(context.Context, string, string, string, *a2atype.PushConfig) error
 	SaveTaskPushConfig(context.Context, string, string, *a2atype.PushConfig) error
 	GetTaskPushConfig(context.Context, string, string, string) (*database.TaskPushConfig, error)
@@ -87,6 +90,25 @@ func (s *InteractionService) GetTask(ctx context.Context, agent types.Namespaced
 	if req == nil {
 		return nil, a2atype.ErrInvalidParams
 	}
+	if _, ok := auth.AuthSessionFrom(ctx); !ok {
+		return nil, a2atype.ErrUnauthenticated
+	}
+	if req.ID == "" {
+		return nil, a2atype.ErrInvalidParams
+	}
+	// Public task IDs are globally unique. An omitted tenant is resolved only
+	// through the owning session's authorization, never through caller metadata.
+	if agent == (types.NamespacedName{}) {
+		id, err := s.store.SessionForTask(ctx, string(req.ID))
+		if err != nil {
+			return nil, interactionStoreError(ctx, err)
+		}
+		session, err := s.sessions.getAuthorized(ctx, id, auth.VerbGet)
+		if err != nil {
+			return nil, interactionError(ctx, err)
+		}
+		agent = types.NamespacedName{Namespace: session.GetAgent().GetRef().GetNamespace(), Name: session.GetAgent().GetRef().GetName()}
+	}
 	session, err := s.taskSession(ctx, agent, auth.VerbGet, req.ID)
 	if err != nil {
 		return nil, err
@@ -141,13 +163,16 @@ func (s *InteractionService) ListTasks(ctx context.Context, agent types.Namespac
 // PrepareSend authorizes and resolves the conversation, then reserves its input.
 // An initial-message retry returns its saved task without granting another send.
 func (s *InteractionService) PrepareSend(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (*PreparedSend, error) {
-	initialID := initialMessageID(req)
+	initialID := initialMessageID(ctx, req)
 	pushConfig, err := initialPushConfig(agent, req, s.allowPushHTTP)
 	if err != nil {
 		return nil, err
 	}
 	session, err := s.resolveSend(ctx, agent, req)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.registerContinuation(ctx, session.Id, req.Message.ID); err != nil {
 		return nil, err
 	}
 	if pushConfig != nil {
@@ -186,7 +211,14 @@ func (s *InteractionService) PrepareCancelTask(ctx context.Context, agent types.
 	if req == nil {
 		return nil, nil, a2atype.ErrInvalidParams
 	}
-	return s.prepareTask(ctx, agent, req.ID, auth.VerbUpdate)
+	session, task, err := s.prepareTask(ctx, agent, req.ID, auth.VerbUpdate)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := s.store.CancelTaskContinuations(ctx, session.Id, string(req.ID)); err != nil {
+		return nil, nil, interactionStoreError(ctx, err)
+	}
+	return session, task, nil
 }
 
 // PrepareTaskSubscription resolves a read-authorized task. The gateway decides
@@ -334,11 +366,16 @@ func (s *InteractionService) messageSession(ctx context.Context, agent types.Nam
 	return session, nil
 }
 
-// checkReservedMessageID rejects scheduler message IDs from every caller but the
-// in-process control plane. Scheduled-run recovery adopts the task holding that
-// ID, so a Session's creator must not be able to plant it.
+// reservedMessageIDPrefixes identify control-plane inputs that recovery adopts
+// by message ID: scheduled runs and delegated-task continuations.
+var reservedMessageIDPrefixes = []string{scheduling.MessageIDPrefix, continuationMessageIDPrefix}
+
+// checkReservedMessageID rejects reserved message IDs from every caller but the
+// in-process control plane, so a Session's creator cannot plant them.
 func checkReservedMessageID(ctx context.Context, message *a2atype.Message) error {
-	if !strings.HasPrefix(string(message.ID), scheduling.MessageIDPrefix) {
+	if !slices.ContainsFunc(reservedMessageIDPrefixes, func(prefix string) bool {
+		return strings.HasPrefix(message.ID, prefix)
+	}) {
 		return nil
 	}
 	if caller, _ := auth.AuthSessionFrom(ctx); caller != nil {
@@ -346,7 +383,7 @@ func checkReservedMessageID(ctx context.Context, message *a2atype.Message) error
 			return nil
 		}
 	}
-	return a2atype.NewError(a2atype.ErrInvalidParams, "message ID prefix is reserved for scheduled runs")
+	return a2atype.NewError(a2atype.ErrInvalidParams, "message ID prefix is reserved for the control plane")
 }
 
 func (s *InteractionService) awaitBoundary(ctx context.Context, sessionID string, taskID a2atype.TaskID, historyLength *int) (*a2atype.Task, error) {
@@ -459,7 +496,7 @@ func interactionStoreError(ctx context.Context, err error) error {
 	return a2atype.NewError(a2atype.ErrInternalError, "failed to read task")
 }
 
-// acceptedTask recovers an admitted first message without dispatching it again.
+// acceptedTask recovers an admitted initial or controller-continuation input.
 func (s *InteractionService) acceptedTask(ctx context.Context, sessionID, messageID string, historyLength *int) (*a2atype.Task, error) {
 	task, err := s.store.GetSessionTaskByMessage(ctx, sessionID, "", messageID)
 	if err != nil {
@@ -513,8 +550,16 @@ func (s *InteractionService) listSessions(ctx context.Context, agent types.Names
 	}
 }
 
-func initialMessageID(req *a2atype.SendMessageRequest) string {
-	if req != nil && req.Message != nil && req.Message.ContextID == "" && req.Message.TaskID == "" {
+// initialMessageID limits existing-context replay to trusted controller continuations.
+func initialMessageID(ctx context.Context, req *a2atype.SendMessageRequest) string {
+	if req == nil || req.Message == nil || req.Message.TaskID != "" {
+		return ""
+	}
+	if req.Message.ContextID == "" {
+		return req.Message.ID
+	}
+	session, _ := auth.AuthSessionFrom(ctx)
+	if _, internal := session.(auth.ControlPlaneSession); internal && strings.HasPrefix(req.Message.ID, continuationMessageIDPrefix) {
 		return req.Message.ID
 	}
 	return ""

@@ -71,6 +71,8 @@ type gatewayTestStore struct {
 	created          map[string]*apiv1.Session
 }
 
+func (*gatewayTestStore) CancelTaskContinuations(context.Context, string, string) error { return nil }
+
 func (s *gatewayTestStore) RegisterSessionPushNotification(_ context.Context, sessionID, messageID, taskID string, config *a2atype.PushConfig) error {
 	s.pushConfig, s.pushSessionID, s.pushMessageID = config, sessionID, messageID
 	return s.pushErr
@@ -497,6 +499,23 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGatewayResolvesTaskWithoutTenantThroughSessionAuthorization(t *testing.T) {
+	task := &a2atype.Task{ID: "native-task", ContextID: gatewayTestContextID}
+	store := &gatewayTestStore{session: gatewayTestSession(), task: task}
+	authorizer := &gatewayTestAuthorizer{}
+	dialer := &gatewayTestDialer{}
+	gateway := newTestGateway(store, authorizer, dialer, gatewayTestURL)
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestAuthSession{})
+	got, err := gateway.GetTask(ctx, &a2atype.GetTaskRequest{ID: task.ID})
+	require.NoError(t, err)
+	require.Equal(t, task.ID, got.ID)
+	require.Equal(t, gatewayTestID, authorizer.resource.Name)
+	require.Nil(t, dialer.session)
+	authorizer.err = errors.New("denied")
+	_, err = gateway.GetTask(ctx, &a2atype.GetTaskRequest{ID: task.ID})
+	require.ErrorIs(t, err, a2atype.ErrUnauthorized)
 }
 
 /*

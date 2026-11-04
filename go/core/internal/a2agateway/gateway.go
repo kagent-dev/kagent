@@ -59,6 +59,9 @@ func New(interactions interactionService, dialer runtimeDialer, gatewayURL strin
 }
 
 func (g *Gateway) GetTask(ctx context.Context, req *a2a.GetTaskRequest) (*a2a.Task, error) {
+	if tenant, _ := a2a.TenantFrom(ctx); tenant == "" {
+		return g.interactions.GetTask(ctx, types.NamespacedName{}, req)
+	}
 	agent, err := route(ctx)
 	if err != nil {
 		return nil, err

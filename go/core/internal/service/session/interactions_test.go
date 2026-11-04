@@ -29,6 +29,10 @@ type interactionTestStore struct {
 	dispatchErr error
 }
 
+func (*interactionTestStore) CancelTaskContinuations(context.Context, string, string) error {
+	return nil
+}
+
 func (s *interactionTestStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
 	return s.dispatchErr
 }
@@ -58,11 +62,16 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 				tasks.dispatchErr = database.ErrMessageAccepted
 			}
 			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false)
+			ctx := serviceTestContext("alice")
+			if test.accepted {
+				original.ID = "kagent-continuation-" + uuid.NewString()
+				ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
+			}
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
 			message.ID, message.ContextID, message.TaskID = original.ID, id, test.taskID
 			apia2a.SetTimelinePosition(message, time.Unix(1, 0))
 			before := time.Now().UTC()
-			prepared, err := service.PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
+			prepared, err := service.PrepareSend(ctx, agent, &a2atype.SendMessageRequest{Message: message})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -76,6 +85,42 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			position, ok := apia2a.TimelinePosition(message)
 			if !ok || position.Before(before) || position.After(time.Now().UTC()) || prepared.DispatchID == uuid.Nil {
 				t.Fatalf("dispatched input position = %v, want server time after %v", position, before)
+			}
+		})
+	}
+}
+
+func TestInitialMessageIDDeduplicationScope(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		contextID    string
+		taskID       a2atype.TaskID
+		continuation bool
+		internal     bool
+		wantID       bool
+	}{
+		{name: "initial message", wantID: true},
+		{name: "user conversation", contextID: "session"},
+		{name: "user continuation prefix", contextID: "session", continuation: true},
+		{name: "controller conversation", contextID: "session", internal: true},
+		{name: "controller continuation", contextID: "session", continuation: true, internal: true, wantID: true},
+		{name: "existing task", contextID: "session", taskID: "task", continuation: true, internal: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := serviceTestContext("alice")
+			if test.internal {
+				ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
+			}
+			message := &a2atype.Message{ID: "message", ContextID: test.contextID, TaskID: test.taskID}
+			if test.continuation {
+				message.ID = "kagent-continuation-" + uuid.NewString()
+			}
+			want := ""
+			if test.wantID {
+				want = message.ID
+			}
+			if got := initialMessageID(ctx, &a2atype.SendMessageRequest{Message: message}); got != want {
+				t.Fatalf("initialMessageID() = %q, want %q", got, want)
 			}
 		})
 	}
@@ -200,7 +245,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			want   error
 		}{
 			{name: "unauthenticated", ctx: context.Background(), agent: agent, want: a2atype.ErrUnauthenticated},
-			{name: "missing Agent", ctx: serviceTestContext("visitor"), want: a2atype.ErrInvalidRequest},
+			{name: "missing Agent", ctx: serviceTestContext("owner"), want: a2atype.ErrInvalidRequest},
 			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
 			{name: "missing session", ctx: serviceTestContext("visitor"), agent: agent, getErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
 			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent},
@@ -218,6 +263,9 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false)
 				want := test.want
+				if operation.name == "get" && test.name == "missing Agent" {
+					want = nil
+				}
 				_, shared := auth.ShareContextFrom(test.ctx)
 				if shared && operation.verb != auth.VerbGet {
 					want = a2atype.ErrUnauthorized
