@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!kagent/runtime/v1/bootstrap.proto\x12\x11kagent.runtime.v1\"+\n)BootstrapServiceGetBootstrapConfigRequest\"\xd0\x01\n*BootstrapServiceGetBootstrapConfigResponse\x12%\n\x0e\x66ormat_version\x18\x01 \x01(\rR\rformatVersion\x12\x1a\n\x08revision\x18\x02 \x01(\tR\x08revision\x12\x1f\n\x0b\x63onfig_json\x18\x03 \x01(\x0cR\nconfigJson\x12&\n\x0f\x61gent_card_json\x18\x04 \x01(\x0cR\ragentCardJson\x12\x16\n\x06sha256\x18\x05 \x01(\tR\x06sha2562\xa6\x01\n\x10\x42ootstrapService\x12\x91\x01\n\x12GetBootstrapConfig\x12<.kagent.runtime.v1.BootstrapServiceGetBootstrapConfigRequest\x1a=.kagent.runtime.v1.BootstrapServiceGetBootstrapConfigResponseBEZCgithub.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!kagent/runtime/v1/bootstrap.proto\x12\x11kagent.runtime.v1\"+\n)BootstrapServiceGetBootstrapConfigRequest\"h\n*BootstrapServiceGetBootstrapConfigResponse\x12:\n\x06\x62undle\x18\x01 \x01(\x0b\x32\".kagent.runtime.v1.BootstrapBundleR\x06\x62undle\"\xb5\x01\n\x0f\x42ootstrapBundle\x12%\n\x0e\x66ormat_version\x18\x01 \x01(\rR\rformatVersion\x12\x1a\n\x08revision\x18\x02 \x01(\tR\x08revision\x12\x1f\n\x0b\x63onfig_json\x18\x03 \x01(\x0cR\nconfigJson\x12&\n\x0f\x61gent_card_json\x18\x04 \x01(\x0cR\ragentCardJson\x12\x16\n\x06sha256\x18\x05 \x01(\tR\x06sha2562\xa6\x01\n\x10\x42ootstrapService\x12\x91\x01\n\x12GetBootstrapConfig\x12<.kagent.runtime.v1.BootstrapServiceGetBootstrapConfigRequest\x1a=.kagent.runtime.v1.BootstrapServiceGetBootstrapConfigResponseBEZCgithub.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,8 +34,10 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._serialized_options = b'ZCgithub.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1'
   _globals['_BOOTSTRAPSERVICEGETBOOTSTRAPCONFIGREQUEST']._serialized_start=56
   _globals['_BOOTSTRAPSERVICEGETBOOTSTRAPCONFIGREQUEST']._serialized_end=99
-  _globals['_BOOTSTRAPSERVICEGETBOOTSTRAPCONFIGRESPONSE']._serialized_start=102
-  _globals['_BOOTSTRAPSERVICEGETBOOTSTRAPCONFIGRESPONSE']._serialized_end=310
-  _globals['_BOOTSTRAPSERVICE']._serialized_start=313
-  _globals['_BOOTSTRAPSERVICE']._serialized_end=479
+  _globals['_BOOTSTRAPSERVICEGETBOOTSTRAPCONFIGRESPONSE']._serialized_start=101
+  _globals['_BOOTSTRAPSERVICEGETBOOTSTRAPCONFIGRESPONSE']._serialized_end=205
+  _globals['_BOOTSTRAPBUNDLE']._serialized_start=208
+  _globals['_BOOTSTRAPBUNDLE']._serialized_end=389
+  _globals['_BOOTSTRAPSERVICE']._serialized_start=392
+  _globals['_BOOTSTRAPSERVICE']._serialized_end=558
 # @@protoc_insertion_point(module_scope)

@@ -24,13 +24,13 @@ import (
 )
 
 // FromEnvironment reads only the controller descriptor and SDK trust interface.
-func FromEnvironment(ctx context.Context, getenv func(string) string) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
+func FromEnvironment(ctx context.Context, getenv func(string) string) (*runtimev1.BootstrapBundle, error) {
 	return Load(ctx, getenv(contract.Environment), contract.Directory, getenv("SSL_CERT_FILE"))
 }
 
 // Load uses a validated local bundle or fetches and atomically commits it. The
 // directory is caller-owned durable storage; it must not be shared with untrusted writers.
-func Load(ctx context.Context, rawDescriptor, directory, caFile string) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
+func Load(ctx context.Context, rawDescriptor, directory, caFile string) (*runtimev1.BootstrapBundle, error) {
 	var descriptor contract.Descriptor
 	if err := json.Unmarshal([]byte(rawDescriptor), &descriptor); err != nil {
 		return nil, fmt.Errorf("decode bootstrap descriptor: %w", err)
@@ -56,6 +56,8 @@ func Load(ctx context.Context, rawDescriptor, directory, caFile string) (*runtim
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("read durable bootstrap bundle: %w", err)
 	}
+	// Leave headroom within the 30-second wakeup probe. If UID binding stays
+	// unavailable, fail startup; the controller golden retry recreates the template.
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	options := []client.ClientOption{client.WithGRPCMaxMessageSize(contract.MaxBundleBytes)}
@@ -80,9 +82,10 @@ func Load(ctx context.Context, rawDescriptor, directory, caFile string) (*runtim
 	ctx = metadata.NewOutgoingContext(ctx, values)
 	for {
 		attempt, stop := context.WithTimeout(ctx, 3*time.Second)
-		bundle, err = stub.GetBootstrapConfig(attempt, &runtimev1.BootstrapServiceGetBootstrapConfigRequest{})
+		response, err := stub.GetBootstrapConfig(attempt, &runtimev1.BootstrapServiceGetBootstrapConfigRequest{})
 		stop()
 		if err == nil {
+			bundle = response.GetBundle()
 			break
 		}
 		if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
@@ -105,7 +108,7 @@ func Load(ctx context.Context, rawDescriptor, directory, caFile string) (*runtim
 	return bundle, nil
 }
 
-func readBundle(path string) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
+func readBundle(path string) (*runtimev1.BootstrapBundle, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
@@ -122,14 +125,14 @@ func readBundle(path string) (*runtimev1.BootstrapServiceGetBootstrapConfigRespo
 	if err != nil {
 		return nil, err
 	}
-	b := &runtimev1.BootstrapServiceGetBootstrapConfigResponse{}
+	b := &runtimev1.BootstrapBundle{}
 	if err := proto.Unmarshal(raw, b); err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-func saveBundle(path string, bundle *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error {
+func saveBundle(path string, bundle *runtimev1.BootstrapBundle) error {
 	directory := filepath.Dir(path)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create bootstrap directory: %w", err)

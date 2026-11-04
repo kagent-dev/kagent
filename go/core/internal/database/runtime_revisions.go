@@ -239,7 +239,7 @@ func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runtim
 	return queryMany(ctx, c.db, `
 		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_failure_uid, deleted_at
 		FROM runtime_revision r WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
- AND NOT EXISTS (SELECT 1 FROM runtime_bootstrap b WHERE b.revision = r.revision AND b.preparing_until > statement_timestamp())
+ AND NOT EXISTS (SELECT 1 FROM agent_revision b WHERE b.revision = r.revision AND b.preparing_until > statement_timestamp())
 	`, pgx.RowToStructByName[RuntimeArtifact])
 }
 
@@ -333,7 +333,7 @@ func (c *Client) BeginRuntimeRevisionDeletion(ctx context.Context, revision stri
 			UPDATE runtime_revision
 			SET deleted_at = COALESCE(deleted_at, NOW())
 			WHERE revision = $1 AND revision IN (SELECT revision FROM unreferenced_runtime_revision)
- AND NOT EXISTS (SELECT 1 FROM runtime_bootstrap b WHERE b.revision = runtime_revision.revision AND b.preparing_until > statement_timestamp())
+ AND NOT EXISTS (SELECT 1 FROM agent_revision b WHERE b.revision = runtime_revision.revision AND b.preparing_until > statement_timestamp())
 		`, revision)
 		if err != nil || updated.RowsAffected() == 0 {
 			return err

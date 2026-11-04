@@ -212,7 +212,8 @@ before compute creation.
 
 The ActorTemplate carries a small `KAGENT_BOOTSTRAP_JSON` descriptor with the
 control-plane URL, revision, format version, and bundle digest. The URL and
-bootstrap version participate in revision identity. The controller publishes the
+bootstrap version participate in revision identity; changing the URL creates new
+revisions and golden snapshots for affected agents. The controller publishes the
 bundle before creating the template, then records the template's identity.
 The bootstrap service returns only the bundle bound to the authenticated actor's
 template. It uses a separate `kagent-bootstrap` JWT audience and requires no
@@ -231,6 +232,15 @@ Go ADK, Python ADK, Codex, Claude, and supported BYO images use this contract.
 Credentials and actor identity retain their separate delivery paths. Golden
 egress allows the control-plane origin with bootstrap authority; normal Session
 egress uses runtime authority.
+
+Managed startup explicitly materializes the bootstrap bundle before loading files.
+File loaders (`KAgentConfig.from_file()` in Python and `LoadAgentConfigs` in Go)
+only read and validate files, so standalone callers can supply configuration on disk.
+Python BYO entry points call `materialize_from_bootstrap("/config")` from `kagent.core`
+before loading their configuration.
+
+Bootstrap requires matching controller and runtime images; older runtimes that
+expect configuration in environment variables cannot consume the descriptor.
 
 ### WorkerPool sandbox selection
 

@@ -22,7 +22,7 @@ const (
 	Directory      = "/data/kagent/bootstrap"
 )
 
-// Descriptor pins the immutable response expected by a runtime.
+// Descriptor pins the immutable bundle expected by a runtime.
 type Descriptor struct {
 	FormatVersion   uint32 `json:"format_version"`
 	ControlPlaneURL string `json:"control_plane_url"`
@@ -47,8 +47,8 @@ func isDigest(s string) bool {
 }
 
 // NewBundle preserves the exact compiler-owned payload bytes.
-func NewBundle(revision string, config, card []byte) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
-	b := &runtimev1.BootstrapServiceGetBootstrapConfigResponse{FormatVersion: FormatVersion, Revision: revision, ConfigJson: config, AgentCardJson: card}
+func NewBundle(revision string, config, card []byte) (*runtimev1.BootstrapBundle, error) {
+	b := &runtimev1.BootstrapBundle{FormatVersion: FormatVersion, Revision: revision, ConfigJson: config, AgentCardJson: card}
 	b.Sha256 = Digest(b)
 	if err := ValidateBundle(b); err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func NewBundle(revision string, config, card []byte) (*runtimev1.BootstrapServic
 
 // Digest hashes the version followed by length-prefixed revision, config and card.
 // Lengths are unsigned 64-bit big endian; the version is unsigned 32-bit big endian.
-func Digest(b *runtimev1.BootstrapServiceGetBootstrapConfigResponse) string {
+func Digest(b *runtimev1.BootstrapBundle) string {
 	h := sha256.New()
 	_ = binary.Write(h, binary.BigEndian, b.GetFormatVersion())
 	for _, field := range [][]byte{[]byte(b.GetRevision()), b.GetConfigJson(), b.GetAgentCardJson()} {
@@ -68,7 +68,7 @@ func Digest(b *runtimev1.BootstrapServiceGetBootstrapConfigResponse) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func ValidateBundle(b *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error {
+func ValidateBundle(b *runtimev1.BootstrapBundle) error {
 	if b.GetFormatVersion() != FormatVersion || !isDigest(b.GetRevision()) {
 		return fmt.Errorf("invalid bootstrap bundle version or revision")
 	}
@@ -84,7 +84,7 @@ func ValidateBundle(b *runtimev1.BootstrapServiceGetBootstrapConfigResponse) err
 	return nil
 }
 
-func (d Descriptor) Verify(b *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error {
+func (d Descriptor) Verify(b *runtimev1.BootstrapBundle) error {
 	if err := d.Validate(); err != nil {
 		return err
 	}

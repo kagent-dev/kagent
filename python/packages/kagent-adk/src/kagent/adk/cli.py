@@ -12,8 +12,7 @@ from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig, bootstrap, configure_logging, instrument_app
-from kagent.core._config_materialize import materialize_from_bootstrap
+from kagent.core import KAgentConfig, bootstrap, configure_logging, instrument_app, materialize_from_bootstrap
 from kagent.core._runtime_config import RuntimeConfig, TokenPropagationConfig
 from kagent.core.telemetry import conv
 

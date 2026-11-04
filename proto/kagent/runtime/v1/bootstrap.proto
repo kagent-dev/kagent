@@ -13,6 +13,11 @@ service BootstrapService {
 message BootstrapServiceGetBootstrapConfigRequest {}
 
 message BootstrapServiceGetBootstrapConfigResponse {
+  BootstrapBundle bundle = 1;
+}
+
+// BootstrapBundle is the immutable payload pinned by a runtime descriptor.
+message BootstrapBundle {
   uint32 format_version = 1;
   string revision = 2;
   bytes config_json = 3;

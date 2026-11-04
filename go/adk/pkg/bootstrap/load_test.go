@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,8 @@ import (
 
 type server struct {
 	runtimev1.UnimplementedBootstrapServiceServer
-	bundle *runtimev1.BootstrapServiceGetBootstrapConfigResponse
+	bundle  *runtimev1.BootstrapBundle
+	pending atomic.Int32
 }
 
 func (s *server) GetBootstrapConfig(ctx context.Context, _ *runtimev1.BootstrapServiceGetBootstrapConfigRequest) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
@@ -29,16 +31,23 @@ func (s *server) GetBootstrapConfig(ctx context.Context, _ *runtimev1.BootstrapS
 	if values := md.Get("authorization"); len(values) != 1 || values[0] != "Bearer placeholder" {
 		return nil, status.Error(codes.Unauthenticated, "gateway credential placeholder is required")
 	}
-	return s.bundle, nil
+	if s.pending.Add(-1) >= 0 {
+		return nil, status.Error(codes.Unavailable, "template binding pending")
+	}
+	return &runtimev1.BootstrapServiceGetBootstrapConfigResponse{Bundle: s.bundle}, nil
 }
 
+// Given a pending template binding, when startup retries and then restores offline,
+// assert that both invocations load the pinned bundle.
 func TestFetchThenRestoreWithoutServer(t *testing.T) {
 	bundle, err := contract.NewBundle(strings.Repeat("a", 64), []byte(`{"instruction":"`+strings.Repeat("x", 40000)+`"}`), []byte(`{"name":"agent"}`))
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	svc := grpc.NewServer()
-	runtimev1.RegisterBootstrapServiceServer(svc, &server{bundle: bundle})
+	backend := &server{bundle: bundle}
+	backend.pending.Store(2)
+	runtimev1.RegisterBootstrapServiceServer(svc, backend)
 	go func() { _ = svc.Serve(listener) }()
 	t.Cleanup(svc.Stop)
 	descriptor := contract.Descriptor{FormatVersion: 1, ControlPlaneURL: "http://" + listener.Addr().String(), Revision: bundle.Revision, SHA256: bundle.Sha256}

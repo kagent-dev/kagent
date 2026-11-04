@@ -9,7 +9,7 @@ import (
 )
 
 func TestMaterializeBootstrapExpandsCredentialPlaceholder(t *testing.T) {
-	bundle := &runtimev1.BootstrapServiceGetBootstrapConfigResponse{ConfigJson: []byte(`{"headers":{"Authorization":"__KAGENT_ENV[KAGENT_CREDENTIAL_TEST]__"}}`), AgentCardJson: []byte(`{"name":"agent"}`)}
+	bundle := &runtimev1.BootstrapBundle{ConfigJson: []byte(`{"headers":{"Authorization":"__KAGENT_ENV[KAGENT_CREDENTIAL_TEST]__"}}`), AgentCardJson: []byte(`{"name":"agent"}`)}
 	t.Setenv("KAGENT_CREDENTIAL_TEST", "Bearer secret")
 	dir := t.TempDir()
 	if err := materializeBootstrapFiles(dir, bundle); err != nil {

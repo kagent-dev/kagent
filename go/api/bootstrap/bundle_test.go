@@ -63,3 +63,20 @@ func TestSharedDigestVector(t *testing.T) {
 	require.Equal(t, vector.Version, bundle.FormatVersion)
 	require.Equal(t, vector.SHA256, bundle.Sha256)
 }
+
+func TestSharedDescriptorURLs(t *testing.T) {
+	raw, err := os.ReadFile("testdata/urls.json")
+	require.NoError(t, err)
+	var scenarios []struct {
+		Name  string
+		URL   string
+		Valid bool
+	}
+	require.NoError(t, json.Unmarshal(raw, &scenarios))
+	for _, scenario := range scenarios {
+		t.Run("Given a descriptor with "+scenario.Name+", when validated, assert that URL acceptance matches the shared contract", func(t *testing.T) {
+			descriptor := Descriptor{FormatVersion: FormatVersion, ControlPlaneURL: scenario.URL, Revision: strings.Repeat("a", 64), SHA256: strings.Repeat("b", 64)}
+			require.Equal(t, scenario.Valid, descriptor.Validate() == nil)
+		})
+	}
+}

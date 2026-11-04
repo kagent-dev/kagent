@@ -3,7 +3,6 @@ from pathlib import Path
 
 from protovalidate import validate
 
-from ._config_materialize import materialize_from_bootstrap
 from ._runtime_config import RuntimeConfig, parse_runtime_config
 
 
@@ -49,13 +48,8 @@ class KAgentConfig:
 
     @classmethod
     def from_file(cls, path: str | Path = "/config/config.json") -> "KAgentConfig":
-        """Load root settings from the generated runtime document.
-
-        Substrate's private JSON payload is materialized before loading, just as
-        for the ADK. A standalone process can supply the same document on disk.
-        """
+        """Read and validate root settings from a runtime document on disk."""
         path = Path(path)
-        materialize_from_bootstrap(str(path.parent))
         document = json.loads(path.read_text())
         return cls(runtime=parse_runtime_config(document["runtime"]))
 

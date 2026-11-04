@@ -1,0 +1,62 @@
+[
+  {
+    "name": "HTTP",
+    "url": "http://controller:8083",
+    "valid": true
+  },
+  {
+    "name": "HTTPS",
+    "url": "https://controller",
+    "valid": true
+  },
+  {
+    "name": "root path",
+    "url": "https://controller/",
+    "valid": true
+  },
+  {
+    "name": "IPv6",
+    "url": "http://[::1]:8083",
+    "valid": true
+  },
+  {
+    "name": "credentials",
+    "url": "http://user:pass@controller",
+    "valid": false
+  },
+  {
+    "name": "user",
+    "url": "https://user@controller",
+    "valid": false
+  },
+  {
+    "name": "path",
+    "url": "http://controller/config",
+    "valid": false
+  },
+  {
+    "name": "query",
+    "url": "http://controller?x=1",
+    "valid": false
+  },
+  {
+    "name": "fragment",
+    "url": "http://controller#x",
+    "valid": false
+  },
+  {
+    "name": "missing host",
+    "url": "http:///config",
+    "valid": false
+  },
+  {
+    "name": "scheme",
+    "url": "ftp://controller",
+    "valid": false
+  },
+  {
+    "name": "relative",
+    "url": "controller:8083",
+    "valid": false
+  }
+]

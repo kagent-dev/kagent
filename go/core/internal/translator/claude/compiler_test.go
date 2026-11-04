@@ -622,7 +622,11 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	template, _, err := substrate.ActorTemplateForRevision(&revision.Revision, revisionID)
+	bundle, err := revision.BootstrapBundle(revisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := substrate.ActorTemplateForRevision(&revision.Revision, revisionID, bundle)
 	if err != nil {
 		t.Fatalf("worst-case Claude actor does not fit Substrate: %v", err)
 	}

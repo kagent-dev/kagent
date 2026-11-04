@@ -20,7 +20,7 @@ import (
 
 type store interface {
 	GetBootstrapBinding(context.Context, string, string) (*database.BootstrapBinding, error)
-	GetBootstrapBundle(context.Context, database.BootstrapBinding) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error)
+	GetBootstrapBundle(context.Context, database.BootstrapBinding) (*runtimev1.BootstrapBundle, error)
 }
 type backend interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
@@ -62,7 +62,7 @@ func (s *Service) Authenticate(ctx context.Context, headers http.Header) (contex
 }
 
 // Get returns only the authenticated actor's associated template bundle.
-func (s *Service) Get(ctx context.Context) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
+func (s *Service) Get(ctx context.Context) (*runtimev1.BootstrapBundle, error) {
 	identity, ok := ctx.Value(actorKey{}).(substrate.ActorIdentity)
 	if !ok {
 		return nil, serviceerrors.NewUnauthenticated("Bootstrap actor identity is required", nil)

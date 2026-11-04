@@ -1,10 +1,11 @@
 -- +goose Up
-CREATE TABLE runtime_bootstrap (
-    revision TEXT PRIMARY KEY REFERENCES agent_revision(revision) ON DELETE CASCADE,
-    -- 256 KiB combined JSON payload plus 1 KiB for protobuf metadata.
-    bundle BYTEA NOT NULL CHECK (octet_length(bundle) <= 263168),
-    preparing_until TIMESTAMPTZ NOT NULL
-);
+ALTER TABLE agent_revision
+    ADD COLUMN bootstrap_bundle BYTEA CHECK (octet_length(bootstrap_bundle) <= 263168),
+    ADD COLUMN preparing_until TIMESTAMPTZ,
+    ADD CONSTRAINT bootstrap_publication CHECK ((bootstrap_bundle IS NULL) = (preparing_until IS NULL));
 
 -- +goose Down
-DROP TABLE runtime_bootstrap;
+ALTER TABLE agent_revision
+    DROP CONSTRAINT bootstrap_publication,
+    DROP COLUMN preparing_until,
+    DROP COLUMN bootstrap_bundle;

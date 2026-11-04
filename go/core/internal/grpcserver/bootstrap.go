@@ -15,5 +15,9 @@ type bootstrapServer struct {
 var _ runtimev1.BootstrapServiceServer = (*bootstrapServer)(nil)
 
 func (s *bootstrapServer) GetBootstrapConfig(ctx context.Context, _ *runtimev1.BootstrapServiceGetBootstrapConfigRequest) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
-	return s.service.Get(ctx)
+	bundle, err := s.service.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &runtimev1.BootstrapServiceGetBootstrapConfigResponse{Bundle: bundle}, nil
 }

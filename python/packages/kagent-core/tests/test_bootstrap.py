@@ -13,7 +13,7 @@ from kagent.core import _bootstrap
 def bundle_and_descriptor():
     vector_path = Path(__file__).resolve().parents[4] / "go/api/bootstrap/testdata/digest.json"
     vector = json.loads(vector_path.read_text())
-    bundle = bootstrap_pb2.BootstrapServiceGetBootstrapConfigResponse(
+    bundle = bootstrap_pb2.BootstrapBundle(
         format_version=vector["format_version"],
         revision=vector["revision"],
         config_json=vector["config_json"].encode(),
@@ -36,7 +36,7 @@ def test_fetch_then_restore_without_network(tmp_path, monkeypatch, bundle_and_de
     bundle, descriptor = bundle_and_descriptor
     channel = MagicMock()
     stub = MagicMock()
-    stub.GetBootstrapConfig.return_value = bundle
+    stub.GetBootstrapConfig.return_value = bootstrap_pb2.BootstrapServiceGetBootstrapConfigResponse(bundle=bundle)
     monkeypatch.setattr(_bootstrap.grpc, "insecure_channel", lambda *args, **kwargs: channel)
     monkeypatch.setattr(_bootstrap.bootstrap_pb2_grpc, "BootstrapServiceStub", lambda _: stub)
     directory = tmp_path / "bootstrap"
@@ -102,3 +102,34 @@ def test_combined_payload_limit_is_256_kib(tmp_path, bundle_and_descriptor):
     (tmp_path / "bundle.pb").write_bytes(bundle.SerializeToString())
     with pytest.raises(ValueError, match="exceed size limit"):
         _bootstrap.load_bundle(json.dumps(descriptor), tmp_path)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    json.loads((Path(__file__).resolve().parents[4] / "go/api/bootstrap/testdata/urls.json").read_text()),
+    ids=lambda scenario: scenario["name"],
+)
+def test_shared_descriptor_urls(tmp_path, bundle_and_descriptor, scenario):
+    bundle, descriptor = bundle_and_descriptor
+    descriptor["control_plane_url"] = scenario["url"]
+    (tmp_path / "bundle.pb").write_bytes(bundle.SerializeToString())
+    if scenario["valid"]:
+        assert _bootstrap.load_bundle(json.dumps(descriptor), tmp_path) == bundle
+    else:
+        with pytest.raises(ValueError):
+            _bootstrap.load_bundle(json.dumps(descriptor), tmp_path)
+
+
+def test_pending_binding_retries(tmp_path, monkeypatch, bundle_and_descriptor):
+    bundle, descriptor = bundle_and_descriptor
+    pending = _bootstrap.grpc.RpcError()
+    pending.code = lambda: _bootstrap.grpc.StatusCode.UNAVAILABLE
+    stub = MagicMock()
+    stub.GetBootstrapConfig.side_effect = [
+        pending,
+        bootstrap_pb2.BootstrapServiceGetBootstrapConfigResponse(bundle=bundle),
+    ]
+    monkeypatch.setattr(_bootstrap.grpc, "insecure_channel", lambda *args, **kwargs: MagicMock())
+    monkeypatch.setattr(_bootstrap.bootstrap_pb2_grpc, "BootstrapServiceStub", lambda _: stub)
+    assert _bootstrap.load_bundle(json.dumps(descriptor), tmp_path) == bundle
+    assert stub.GetBootstrapConfig.call_count == 2

@@ -19,7 +19,8 @@ const (
 )
 
 // MaterializeFromBootstrap bootstraps the configuration and writes the working files
-// expected by the Go ADK runtime. Legacy payload environment inputs are not read.
+// expected by managed Go ADK startup. A bootstrap descriptor is required.
+// Standalone callers can use LoadAgentConfigs directly with files on disk.
 func MaterializeFromBootstrap(ctx context.Context, configDir string) error {
 	bundle, err := bootstrap.FromEnvironment(ctx, os.Getenv) //nolint:forbidigo // Controller-generated descriptor and SDK trust.
 	if err != nil {
@@ -109,7 +110,7 @@ func writeConfigFile(path string, value []byte) error {
 	return os.Chmod(path, 0o600)
 }
 
-func materializeBootstrapFiles(configDir string, bundle *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error {
+func materializeBootstrapFiles(configDir string, bundle *runtimev1.BootstrapBundle) error {
 	var err error
 	value := string(bundle.ConfigJson)
 	if strings.Contains(value, "__KAGENT_ENV[") {

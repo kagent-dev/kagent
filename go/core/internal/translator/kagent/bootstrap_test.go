@@ -35,7 +35,9 @@ func TestLargeADKConfigurationBootstrap(t *testing.T) {
 			result.CPU, result.Memory = "1", "1Gi"
 			id, err := result.Digest()
 			require.NoError(t, err)
-			template, bundle, err := substrate.ActorTemplateForRevision(&result.Revision, id)
+			bundle, err := result.BootstrapBundle(id)
+			require.NoError(t, err)
+			template, err := substrate.ActorTemplateForRevision(&result.Revision, id, bundle)
 			require.NoError(t, err)
 			require.GreaterOrEqual(t, len(bundle.ConfigJson)+len(bundle.AgentCardJson), scenario.minimumBytes)
 			require.LessOrEqual(t, len(bundle.ConfigJson)+len(bundle.AgentCardJson), bootstrap.MaxPayloadBytes)
@@ -65,9 +67,9 @@ func TestOversizedADKConfigurationRejected(t *testing.T) {
 	result.CPU, result.Memory = "1", "1Gi"
 	id, err := result.Digest()
 	require.NoError(t, err)
-	template, _, err := substrate.ActorTemplateForRevision(&result.Revision, id)
+	bundle, err := result.BootstrapBundle(id)
 	require.ErrorContains(t, err, "configuration and Agent Card exceed")
-	require.Nil(t, template)
+	require.Nil(t, bundle)
 }
 
 func largeADKInput(rootBytes, children int) *translator.HarnessInput {

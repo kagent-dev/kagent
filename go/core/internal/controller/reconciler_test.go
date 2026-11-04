@@ -105,6 +105,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	require.Empty(t, store.retired, "active pairs must be replaced atomically by the store")
 	observed := reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName())
 	require.True(t, observed.Golden.ready())
+	require.Equal(t, 1, store.publishCalls, "observing pending or ready templates must not renew preparation protection")
 
 	if err := reconciler.reconcileAgentStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
@@ -180,10 +181,6 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			desired := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{
 				Atespace: "team-a", Name: "assistant-revision", Uid: "actor-uid",
 			}}
-			templates.template = proto.CloneOf(desired)
-			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
-				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
-			}}
 			bundle, err := revision.BootstrapBundle(id)
 			require.NoError(t, err)
 			state := AgentReconciliation{
@@ -191,6 +188,10 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired, Bootstrap: bundle},
 			}
 			states.UpdateObject(state)
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
+			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
+				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
+			}}
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 
 			request := &apiv1.Session{
@@ -346,6 +347,7 @@ type fakeRuntimeRevisionStore struct {
 	markedSuccessful  bool
 	retired           string
 	revisionErr       error
+	publishCalls      int
 	recordCalls       int
 	pairErr           error
 	pairCalls         int
@@ -609,7 +611,8 @@ func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
 	}
 }
 
-func (s *fakeRuntimeRevisionStore) PublishBootstrapRevision(_ context.Context, revision database.RuntimeRevision, bundle *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error {
+func (s *fakeRuntimeRevisionStore) PublishBootstrapRevision(_ context.Context, revision database.RuntimeRevision, bundle *runtimev1.BootstrapBundle) error {
+	s.publishCalls++
 	if err := bootstrap.ValidateBundle(bundle); err != nil {
 		return err
 	}

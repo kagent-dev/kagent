@@ -111,12 +111,14 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	revision.CPU, revision.Memory = "1", "1Gi"
 	id, err := revision.Digest()
 	require.NoError(t, err)
-	actor, _, err := substrate.ActorTemplateForRevision(&revision.Revision, id)
+	bundle, err := revision.BootstrapBundle(id)
+	require.NoError(t, err)
+	actor, err := substrate.ActorTemplateForRevision(&revision.Revision, id, bundle)
 	require.NoError(t, err)
 	require.Len(t, actor.GetContainers()[0].GetEnv(), 32)
 	require.Contains(t, revision.EgressDestinations, "http://collector:4317")
 	// Keep the actual Substrate boundary enforced after compaction.
 	revision.Environment = append(revision.Environment, corev1.EnvVar{Name: "ONE_MORE", Value: "value"})
-	_, _, err = substrate.ActorTemplateForRevision(&revision.Revision, id)
+	_, err = substrate.ActorTemplateForRevision(&revision.Revision, id, bundle)
 	require.ErrorContains(t, err, "Substrate supports at most 32")
 }

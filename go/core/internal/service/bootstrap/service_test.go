@@ -23,7 +23,7 @@ type fixture struct {
 	actor          *ateapipb.Actor
 	template       *ateapipb.ActorTemplate
 	binding        *database.BootstrapBinding
-	bundle         *runtimev1.BootstrapServiceGetBootstrapConfigResponse
+	bundle         *runtimev1.BootstrapBundle
 	changedBinding bool
 	reads          int
 }
@@ -43,7 +43,7 @@ func (f *fixture) GetBootstrapBinding(_ context.Context, atespace, name string) 
 	}
 	return f.binding, nil
 }
-func (f *fixture) GetBootstrapBundle(context.Context, database.BootstrapBinding) (*runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
+func (f *fixture) GetBootstrapBundle(context.Context, database.BootstrapBinding) (*runtimev1.BootstrapBundle, error) {
 	f.reads++
 	if f.changedBinding {
 		return nil, database.ErrNotFound
@@ -88,7 +88,7 @@ func TestBootstrapAuthorization(t *testing.T) {
 			}
 			service := NewService(verifier, f, f)
 			ctx, err := service.Authenticate(t.Context(), http.Header{"Authorization": {"Bearer " + issuer.Token(t, claims)}})
-			var got *runtimev1.BootstrapServiceGetBootstrapConfigResponse
+			var got *runtimev1.BootstrapBundle
 			if err == nil {
 				got, err = service.Get(ctx)
 			}

@@ -153,8 +153,10 @@ See repository LICENSE file.
 
 ### Runtime configuration file
 
-Managed runtimes receive `/config/config.json` from the controller. For a standalone
-process, create that file and load it with `KAgentConfig.from_file()`:
+Managed entry points call `materialize_from_bootstrap("/config")` from `kagent.core`
+to fetch and materialize the controller bundle before `KAgentConfig.from_file()`.
+The file loader does not bootstrap. For a standalone process, create the file and
+load it directly:
 
 ```json
 {"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}

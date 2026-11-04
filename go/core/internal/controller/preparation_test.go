@@ -34,6 +34,40 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
+// Given an expired preparation lease, when an existing template is observed or
+// recreated, assert that only recreation renews protection from collection.
+func TestPreparationLeaseOnlyRenewsForCreation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	ctx := t.Context()
+	dsn := dbtest.StartT(ctx, t)
+	dbtest.MigrateT(t, dsn, false)
+	pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	store := database.NewClient(pool, "public")
+	collections, _ := newPreparationTestCollections(t, "gvisor")
+	state := collections.Reconciliations.List()[0]
+	templates := &fakeActorTemplates{}
+	reconciler := &Reconciler{collections: collections, templates: templates, store: store, golden: defaultGoldenRetries}
+	require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
+	expirePreparationLease(t, pool, state.Target.RevisionID.String())
+	require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
+	require.NoError(t, store.RetireAgentIdentities(ctx, state.Agent.Namespace, state.Agent.Name))
+	candidates, err := store.ListUnreferencedRuntimeRevisions(ctx)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1, "observing an existing template must not extend the lease")
+
+	// The recorded UID still names the old incarnation when recreation starts.
+	templates.template = nil
+	require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
+	require.NoError(t, store.RetireAgentIdentities(ctx, state.Agent.Namespace, state.Agent.Name))
+	candidates, err = store.ListUnreferencedRuntimeRevisions(ctx)
+	require.NoError(t, err)
+	require.Empty(t, candidates, "recreation must protect the revision despite its old recorded UID")
+}
+
 func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database test in short mode")
@@ -588,7 +622,7 @@ func (p *preparationTestBackend) GetAgentEgressGrant(ctx context.Context, namesp
 	return p.store.GetAgentEgressGrant(ctx, namespace, uid)
 }
 
-func (p *preparationTestBackend) PublishBootstrapRevision(ctx context.Context, revision database.RuntimeRevision, bundle *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error {
+func (p *preparationTestBackend) PublishBootstrapRevision(ctx context.Context, revision database.RuntimeRevision, bundle *runtimev1.BootstrapBundle) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.store.PublishBootstrapRevision(ctx, revision, bundle)
@@ -597,6 +631,6 @@ func (p *preparationTestBackend) PublishBootstrapRevision(ctx context.Context, r
 // Advance the durable deadline without waiting two minutes in lifecycle tests.
 func expirePreparationLease(t *testing.T, pool *pgxpool.Pool, revision string) {
 	t.Helper()
-	_, err := pool.Exec(t.Context(), `UPDATE runtime_bootstrap SET preparing_until = statement_timestamp() - INTERVAL '1 second' WHERE revision = $1`, revision)
+	_, err := pool.Exec(t.Context(), `UPDATE agent_revision SET preparing_until = statement_timestamp() - INTERVAL '1 second' WHERE revision = $1`, revision)
 	require.NoError(t, err)
 }

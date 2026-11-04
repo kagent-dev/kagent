@@ -9,6 +9,7 @@ import struct
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import grpc
 from kagent.runtime.v1 import bootstrap_pb2, bootstrap_pb2_grpc
@@ -53,7 +54,10 @@ def load_bundle(raw_descriptor: str, directory: Path = BOOTSTRAP_DIRECTORY):
         or not _is_digest(descriptor.get("sha256"))
     ):
         raise ValueError("invalid bootstrap descriptor")
-    target, secure = _target_from_url(descriptor["control_plane_url"])
+    url = descriptor.get("control_plane_url", "")
+    if urlsplit(url).username is not None:
+        raise ValueError("bootstrap control plane URL must not contain userinfo")
+    target, secure = _target_from_url(url)
     path = directory / "bundle.pb"
     if path.is_symlink() or directory.is_symlink():
         raise ValueError("invalid bootstrap storage path")
@@ -64,7 +68,7 @@ def load_bundle(raw_descriptor: str, directory: Path = BOOTSTRAP_DIRECTORY):
             raw = file.read(MAX_BUNDLE_BYTES + 1)
         if len(raw) > MAX_BUNDLE_BYTES:
             raise ValueError("durable bootstrap bundle exceeds size limit")
-        bundle = bootstrap_pb2.BootstrapServiceGetBootstrapConfigResponse.FromString(raw)
+        bundle = bootstrap_pb2.BootstrapBundle.FromString(raw)
         _verify(bundle, descriptor)
         return bundle
     except FileNotFoundError:
@@ -77,6 +81,8 @@ def load_bundle(raw_descriptor: str, directory: Path = BOOTSTRAP_DIRECTORY):
         channel = grpc.secure_channel(target, grpc.ssl_channel_credentials(root_certificates=roots), options)
     else:
         channel = grpc.insecure_channel(target, options)
+    # Leave headroom within the 30-second wakeup probe. Exhaustion fails startup;
+    # the controller golden retry recreates the template if binding stays unavailable.
     deadline = time.monotonic() + 20
     with channel:
         stub = bootstrap_pb2_grpc.BootstrapServiceStub(channel)
@@ -90,7 +96,7 @@ def load_bundle(raw_descriptor: str, directory: Path = BOOTSTRAP_DIRECTORY):
                     timeout=min(3, remaining),
                     # The gateway replaces this header with the actor JWT.
                     metadata=(("authorization", "Bearer placeholder"),),
-                )
+                ).bundle
                 break
             except grpc.RpcError as error:
                 if error.code() not in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED):

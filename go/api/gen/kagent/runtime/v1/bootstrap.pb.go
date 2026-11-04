@@ -59,11 +59,7 @@ func (*BootstrapServiceGetBootstrapConfigRequest) Descriptor() ([]byte, []int) {
 
 type BootstrapServiceGetBootstrapConfigResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FormatVersion uint32                 `protobuf:"varint,1,opt,name=format_version,json=formatVersion,proto3" json:"format_version,omitempty"`
-	Revision      string                 `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
-	ConfigJson    []byte                 `protobuf:"bytes,3,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
-	AgentCardJson []byte                 `protobuf:"bytes,4,opt,name=agent_card_json,json=agentCardJson,proto3" json:"agent_card_json,omitempty"`
-	Sha256        string                 `protobuf:"bytes,5,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	Bundle        *BootstrapBundle       `protobuf:"bytes,1,opt,name=bundle,proto3" json:"bundle,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -98,35 +94,84 @@ func (*BootstrapServiceGetBootstrapConfigResponse) Descriptor() ([]byte, []int) 
 	return file_kagent_runtime_v1_bootstrap_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *BootstrapServiceGetBootstrapConfigResponse) GetFormatVersion() uint32 {
+func (x *BootstrapServiceGetBootstrapConfigResponse) GetBundle() *BootstrapBundle {
+	if x != nil {
+		return x.Bundle
+	}
+	return nil
+}
+
+// BootstrapBundle is the immutable payload pinned by a runtime descriptor.
+type BootstrapBundle struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FormatVersion uint32                 `protobuf:"varint,1,opt,name=format_version,json=formatVersion,proto3" json:"format_version,omitempty"`
+	Revision      string                 `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	ConfigJson    []byte                 `protobuf:"bytes,3,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	AgentCardJson []byte                 `protobuf:"bytes,4,opt,name=agent_card_json,json=agentCardJson,proto3" json:"agent_card_json,omitempty"`
+	Sha256        string                 `protobuf:"bytes,5,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BootstrapBundle) Reset() {
+	*x = BootstrapBundle{}
+	mi := &file_kagent_runtime_v1_bootstrap_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootstrapBundle) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootstrapBundle) ProtoMessage() {}
+
+func (x *BootstrapBundle) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_runtime_v1_bootstrap_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootstrapBundle.ProtoReflect.Descriptor instead.
+func (*BootstrapBundle) Descriptor() ([]byte, []int) {
+	return file_kagent_runtime_v1_bootstrap_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *BootstrapBundle) GetFormatVersion() uint32 {
 	if x != nil {
 		return x.FormatVersion
 	}
 	return 0
 }
 
-func (x *BootstrapServiceGetBootstrapConfigResponse) GetRevision() string {
+func (x *BootstrapBundle) GetRevision() string {
 	if x != nil {
 		return x.Revision
 	}
 	return ""
 }
 
-func (x *BootstrapServiceGetBootstrapConfigResponse) GetConfigJson() []byte {
+func (x *BootstrapBundle) GetConfigJson() []byte {
 	if x != nil {
 		return x.ConfigJson
 	}
 	return nil
 }
 
-func (x *BootstrapServiceGetBootstrapConfigResponse) GetAgentCardJson() []byte {
+func (x *BootstrapBundle) GetAgentCardJson() []byte {
 	if x != nil {
 		return x.AgentCardJson
 	}
 	return nil
 }
 
-func (x *BootstrapServiceGetBootstrapConfigResponse) GetSha256() string {
+func (x *BootstrapBundle) GetSha256() string {
 	if x != nil {
 		return x.Sha256
 	}
@@ -138,8 +183,10 @@ var File_kagent_runtime_v1_bootstrap_proto protoreflect.FileDescriptor
 const file_kagent_runtime_v1_bootstrap_proto_rawDesc = "" +
 	"\n" +
 	"!kagent/runtime/v1/bootstrap.proto\x12\x11kagent.runtime.v1\"+\n" +
-	")BootstrapServiceGetBootstrapConfigRequest\"\xd0\x01\n" +
-	"*BootstrapServiceGetBootstrapConfigResponse\x12%\n" +
+	")BootstrapServiceGetBootstrapConfigRequest\"h\n" +
+	"*BootstrapServiceGetBootstrapConfigResponse\x12:\n" +
+	"\x06bundle\x18\x01 \x01(\v2\".kagent.runtime.v1.BootstrapBundleR\x06bundle\"\xb5\x01\n" +
+	"\x0fBootstrapBundle\x12%\n" +
 	"\x0eformat_version\x18\x01 \x01(\rR\rformatVersion\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\x12\x1f\n" +
 	"\vconfig_json\x18\x03 \x01(\fR\n" +
@@ -161,19 +208,21 @@ func file_kagent_runtime_v1_bootstrap_proto_rawDescGZIP() []byte {
 	return file_kagent_runtime_v1_bootstrap_proto_rawDescData
 }
 
-var file_kagent_runtime_v1_bootstrap_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_kagent_runtime_v1_bootstrap_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_kagent_runtime_v1_bootstrap_proto_goTypes = []any{
 	(*BootstrapServiceGetBootstrapConfigRequest)(nil),  // 0: kagent.runtime.v1.BootstrapServiceGetBootstrapConfigRequest
 	(*BootstrapServiceGetBootstrapConfigResponse)(nil), // 1: kagent.runtime.v1.BootstrapServiceGetBootstrapConfigResponse
+	(*BootstrapBundle)(nil),                            // 2: kagent.runtime.v1.BootstrapBundle
 }
 var file_kagent_runtime_v1_bootstrap_proto_depIdxs = []int32{
-	0, // 0: kagent.runtime.v1.BootstrapService.GetBootstrapConfig:input_type -> kagent.runtime.v1.BootstrapServiceGetBootstrapConfigRequest
-	1, // 1: kagent.runtime.v1.BootstrapService.GetBootstrapConfig:output_type -> kagent.runtime.v1.BootstrapServiceGetBootstrapConfigResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: kagent.runtime.v1.BootstrapServiceGetBootstrapConfigResponse.bundle:type_name -> kagent.runtime.v1.BootstrapBundle
+	0, // 1: kagent.runtime.v1.BootstrapService.GetBootstrapConfig:input_type -> kagent.runtime.v1.BootstrapServiceGetBootstrapConfigRequest
+	1, // 2: kagent.runtime.v1.BootstrapService.GetBootstrapConfig:output_type -> kagent.runtime.v1.BootstrapServiceGetBootstrapConfigResponse
+	2, // [2:3] is the sub-list for method output_type
+	1, // [1:2] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_kagent_runtime_v1_bootstrap_proto_init() }
@@ -187,7 +236,7 @@ func file_kagent_runtime_v1_bootstrap_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_runtime_v1_bootstrap_proto_rawDesc), len(file_kagent_runtime_v1_bootstrap_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

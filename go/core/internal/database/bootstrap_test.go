@@ -118,6 +118,6 @@ func TestBootstrapPreparationLeaseExpiresAndRenews(t *testing.T) {
 // Advance the durable deadline without sleeping through the production lease.
 func expireBootstrapLease(t *testing.T, c *Client, revision string) {
 	t.Helper()
-	_, err := c.db.Exec(t.Context(), `UPDATE runtime_bootstrap SET preparing_until = statement_timestamp() - INTERVAL '1 second' WHERE revision = $1`, revision)
+	_, err := c.db.Exec(t.Context(), `UPDATE agent_revision SET preparing_until = statement_timestamp() - INTERVAL '1 second' WHERE revision = $1`, revision)
 	require.NoError(t, err)
 }

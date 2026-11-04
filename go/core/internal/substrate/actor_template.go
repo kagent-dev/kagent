@@ -46,30 +46,32 @@ var egressTrustEnvironment = map[string]struct{}{
 }
 
 // ActorTemplateForRevision constructs the immutable ate-api resource for a
-// compiled revision and returns the exact bundle referenced by its descriptor.
+// compiled revision and its immutable bootstrap bundle.
 // It performs no reads or writes, which makes it safe to use
 // inside a KRT transformation.
-func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID) (*ateapipb.ActorTemplate, *runtimev1.BootstrapServiceGetBootstrapConfigResponse, error) {
+func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID, bundle *runtimev1.BootstrapBundle) (*ateapipb.ActorTemplate, error) {
 	if revisionID.IsZero() {
-		return nil, nil, fmt.Errorf("runtime revision ID is required")
+		return nil, fmt.Errorf("runtime revision ID is required")
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentName, revisionID)
-	bundle, err := spec.BootstrapBundle(revisionID)
-	if err != nil {
-		return nil, nil, err
+	if err := bootstrap.ValidateBundle(bundle); err != nil {
+		return nil, err
+	}
+	if bundle.Revision != revisionID.String() {
+		return nil, fmt.Errorf("bootstrap revision mismatch")
 	}
 	descriptor := bootstrap.Descriptor{FormatVersion: bootstrap.FormatVersion, ControlPlaneURL: spec.ControlPlaneURL, Revision: revisionID.String(), SHA256: bundle.Sha256}
 	if err := descriptor.Validate(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	descriptorJSON, err := json.Marshal(descriptor)
 	if err != nil {
-		return nil, nil, fmt.Errorf("encode bootstrap descriptor: %w", err)
+		return nil, fmt.Errorf("encode bootstrap descriptor: %w", err)
 	}
 	goldenPolicy, err := bootstrapEgressPolicy(spec.Namespace, spec.ControlPlaneURL)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	environment := withServiceVersion(append([]corev1.EnvVar(nil), spec.Environment...), revisionID.Short())
@@ -77,8 +79,11 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	// variables tell each TLS client to trust it; mounting the file alone does
 	// not configure trust. The gateway intercepts HTTPS even without credentials.
 	for _, variable := range environment {
-		if _, owned := egressTrustEnvironment[variable.Name]; owned || variable.Name == bootstrap.Environment || variable.Name == "KAGENT_CONFIG_JSON" || variable.Name == "KAGENT_AGENT_CARD_JSON" {
-			return nil, nil, fmt.Errorf("runtime environment %q conflicts with gateway trust", variable.Name)
+		if variable.Name == bootstrap.Environment || variable.Name == "KAGENT_CONFIG_JSON" || variable.Name == "KAGENT_AGENT_CARD_JSON" {
+			return nil, fmt.Errorf("runtime environment %q conflicts with runtime bootstrap", variable.Name)
+		}
+		if _, owned := egressTrustEnvironment[variable.Name]; owned {
+			return nil, fmt.Errorf("runtime environment %q conflicts with gateway trust", variable.Name)
 		}
 	}
 	for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"} {
@@ -90,14 +95,14 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	)
 	actorEnv, err := actorTemplateEnvFromPodEnv(environment)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if len(actorEnv) > 32 {
-		return nil, nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
+		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
 	resources, err := actorResources(spec.CPU, spec.Memory)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	template := &ateapipb.ActorTemplate{
@@ -151,9 +156,9 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		})
 	}
 	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
-		return nil, nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
+		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
-	return template, bundle, nil
+	return template, nil
 }
 
 // ActorTemplateSpecEqual compares the client-owned immutable fields of two

@@ -30,7 +30,9 @@ func TestActorTemplateSkillVolumeLimit(t *testing.T) {
 			}
 			id, err := spec.Digest()
 			require.NoError(t, err)
-			actor, _, err := ActorTemplateForRevision(spec, id)
+			bundle, err := spec.BootstrapBundle(id)
+			require.NoError(t, err)
+			actor, err := ActorTemplateForRevision(spec, id, bundle)
 			if count > 29 {
 				require.ErrorContains(t, err, "33 volumes and 33 container mounts")
 				require.ErrorContains(t, err, "at most 32 volumes and 32 mounts per container")
@@ -69,7 +71,9 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	template, bundle, err := ActorTemplateForRevision(spec, revisionID)
+	bundle, err := spec.BootstrapBundle(revisionID)
+	require.NoError(t, err)
+	template, err := ActorTemplateForRevision(spec, revisionID, bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +134,9 @@ func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
 			}
 			revisionID, err := spec.Digest()
 			require.NoError(t, err)
-			template, _, err := ActorTemplateForRevision(spec, revisionID)
+			bundle, err := spec.BootstrapBundle(revisionID)
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, revisionID, bundle)
 			require.NoError(t, err)
 			require.Equal(t, test.environment, spec.Environment, "stamping the revision must not change the compiled revision")
 			for _, variable := range template.GetContainers()[0].Env {
@@ -192,6 +198,10 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 		{name: "Unicode overflow", instruction: strings.Repeat("日", 32769-configOverhead)},
 		{name: "JSON escaping", instruction: strings.Repeat("<>&", 2000)},
 		{name: "user environment", environment: []corev1.EnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}, wantError: `environment variable "EXTRA" is 32769 characters; Substrate supports at most 32768`},
+		{name: "reserved bootstrap", environment: []corev1.EnvVar{{Name: bootstrap.Environment}}, wantError: "conflicts with runtime bootstrap"},
+		{name: "reserved legacy config", environment: []corev1.EnvVar{{Name: "KAGENT_CONFIG_JSON"}}, wantError: "conflicts with runtime bootstrap"},
+		{name: "reserved legacy card", environment: []corev1.EnvVar{{Name: "KAGENT_AGENT_CARD_JSON"}}, wantError: "conflicts with runtime bootstrap"},
+		{name: "reserved trust", environment: []corev1.EnvVar{{Name: "SSL_CERT_FILE"}}, wantError: "conflicts with gateway trust"},
 		{name: "agent card", description: strings.Repeat("x", 32769)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -208,7 +218,9 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 			}
 			id, err := spec.Digest()
 			require.NoError(t, err)
-			template, _, err := ActorTemplateForRevision(spec, id)
+			bundle, err := spec.BootstrapBundle(id)
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, id, bundle)
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
 				require.Nil(t, template)

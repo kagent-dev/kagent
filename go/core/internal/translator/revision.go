@@ -12,7 +12,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/bootstrap"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
@@ -140,4 +142,19 @@ func (r *Revision) Digest() (RevisionID, error) {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision Agent Card: %w", err)
 	}
 	return RevisionID(sha256.Sum256(append(raw, card...))), nil
+}
+
+// BootstrapBundle renders the immutable payload served to a revision's actors.
+func (r *Revision) BootstrapBundle(id RevisionID) (*runtimev1.BootstrapBundle, error) {
+	card, err := apia2a.FromProtoAgentCard(r.AgentCard)
+	if err != nil {
+		return nil, fmt.Errorf("convert bootstrap Agent Card: %w", err)
+	}
+	// Keep the rendered bytes: re-rendering the structured card after an upgrade
+	// could change JSON encoding and invalidate the descriptor digest.
+	raw, err := json.Marshal(card)
+	if err != nil {
+		return nil, fmt.Errorf("render bootstrap Agent Card: %w", err)
+	}
+	return bootstrap.NewBundle(id.String(), r.ConfigJSON, raw)
 }

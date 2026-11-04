@@ -74,7 +74,7 @@ func TestBootstrapGeneratedClient(t *testing.T) {
 	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+issuer.Token(t, claims))
 	got, err := stub.GetBootstrapConfig(ctx, &runtimev1.BootstrapServiceGetBootstrapConfigRequest{})
 	require.NoError(t, err)
-	require.True(t, proto.Equal(bundle, got))
+	require.True(t, proto.Equal(bundle, got.GetBundle()))
 	_, err = stub.GetBootstrapConfig(t.Context(), &runtimev1.BootstrapServiceGetBootstrapConfigRequest{})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	claims["aud"] = []string{substrate.RuntimeJWTAudience}

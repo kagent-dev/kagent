@@ -7,7 +7,7 @@ from kagent.runtime.v1 import bootstrap_pb2
 
 
 def test_materializes_bootstrap_bundle(tmp_path, monkeypatch):
-    bundle = bootstrap_pb2.BootstrapServiceGetBootstrapConfigResponse(
+    bundle = bootstrap_pb2.BootstrapBundle(
         config_json=b'{"header":"__KAGENT_ENV[KAGENT_CREDENTIAL_TEST]__"}',
         agent_card_json=b'{"name":"test"}',
     )

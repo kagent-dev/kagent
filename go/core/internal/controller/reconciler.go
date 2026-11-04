@@ -57,7 +57,7 @@ type compiledTarget struct {
 	Revision      translator.Revision
 	RevisionID    translator.RevisionID
 	ActorTemplate *ateapipb.ActorTemplate
-	Bootstrap     *runtimev1.BootstrapServiceGetBootstrapConfigResponse
+	Bootstrap     *runtimev1.BootstrapBundle
 }
 
 func (c *compiledTarget) equals(other *compiledTarget) bool {
@@ -153,7 +153,11 @@ func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collectio
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
 	}
-	actorTemplate, bundle, err := substrate.ActorTemplateForRevision(revision, revisionID)
+	bundle, err := revision.BootstrapBundle(revisionID)
+	if err != nil {
+		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
+	}
+	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID, bundle)
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 	}
@@ -184,7 +188,7 @@ type runtimeRevisionStore interface {
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) (database.GoldenRetry, error)
-	PublishBootstrapRevision(context.Context, database.RuntimeRevision, *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error
+	PublishBootstrapRevision(context.Context, database.RuntimeRevision, *runtimev1.BootstrapBundle) error
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
@@ -419,11 +423,12 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		ActorTemplateAtespace:   desiredRef.GetAtespace(), ActorTemplateName: desiredRef.GetName(),
 		ActorTemplateSpecDigest: digest,
 	}
-	if err := r.store.PublishBootstrapRevision(ctx, revision, target.Bootstrap); err != nil {
-		return r.observePreparationError(*state, fmt.Errorf("publish runtime revision: %w", err))
-	}
 	observed, err := r.templates.GetActorTemplate(ctx, desiredRef.GetAtespace(), desiredRef.GetName())
 	if status.Code(err) == codes.NotFound {
+		// Renew protection only for creation, including recreation after a golden failure.
+		if err := r.store.PublishBootstrapRevision(ctx, revision, target.Bootstrap); err != nil {
+			return r.observePreparationError(*state, fmt.Errorf("publish runtime revision: %w", err))
+		}
 		if err := r.templates.EnsureAtespace(ctx, desiredRef.GetAtespace()); err != nil {
 			return r.observePreparationError(*state, fmt.Errorf("ensure Atespace %s: %w", desiredRef.GetAtespace(), err))
 		}
