@@ -3,11 +3,12 @@ import type { ReactNode } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import type { ChatController, ChatTurnPhase, Checkpoint } from "@/api";
+import type { AgentInstanceRecovery, ChatController, ChatTurnPhase, Checkpoint } from "@/api";
 import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
 import { CheckpointDivider } from "./CheckpointDivider";
 import { groupByCheckpoint } from "./messageCheckpoints";
+import { discardedMessages } from "./discardedTurns";
 import { scrollbarStyles } from "@/components/agent/controlStyles";
 
 /** Stable, so a transcript with no boundaries does not regroup on every render. */
@@ -53,6 +54,7 @@ const PHASE_LABEL: Partial<Record<ChatTurnPhase, string>> = {
  */
 export function ChatTranscript({
   chat,
+  recovery,
   readOnly = false,
   isLoading = false,
   sessionId,
@@ -66,6 +68,7 @@ export function ChatTranscript({
   checkpointByMessage,
 }: {
   chat: ChatController;
+  recovery?: AgentInstanceRecovery;
   /** Suppresses replies, approvals, cancellation, and retry controls. */
   readOnly?: boolean;
   /** Keeps the history skeleton visible while the conversation record is resolving. */
@@ -104,11 +107,20 @@ export function ChatTranscript({
   sessionId?: string;
 }) {
   const theme = useTheme();
+  // A history read may lag the runtime observation. A discarded task's old prompt
+  // cannot accept another answer, even after the recovery itself has finished.
+  const pendingQuestion = recovery?.needed === true || recovery?.failedMessages.some(
+    (message) => message.taskId === chat.pendingQuestion?.taskId,
+  ) ? undefined : chat.pendingQuestion;
   /* A boundary falls after the last message of the turn it was taken at, so the
      messages are grouped by turn before they are drawn and the line goes between. */
   const groups = useMemo(
     () => groupByCheckpoint(chat.messages, checkpointByMessage ?? EMPTY_CHECKPOINTS),
     [chat.messages, checkpointByMessage],
+  );
+  const discarded = useMemo(
+    () => discardedMessages(chat.messages, recovery),
+    [chat.messages, recovery],
   );
   const lastMessageByTask = useMemo(() => {
     const last = new Map<string, string>();
@@ -297,7 +309,10 @@ export function ChatTranscript({
     );
   }
 
-  const statusLabel = PHASE_LABEL[chat.turnPhase];
+  const statusLabel = recovery?.needed === true
+    || (chat.turnPhase === "awaiting_input" && !pendingQuestion)
+    ? undefined
+    : PHASE_LABEL[chat.turnPhase];
 
   return (
     <div
@@ -368,6 +383,7 @@ export function ChatTranscript({
               <ChatMessageItem
                 key={message.id}
                 message={message}
+                discarded={discarded.get(message.id)}
                 sessionId={sessionId}
                 isCheckpointed={Boolean(group.checkpointId)}
                 onManagePush={
@@ -418,14 +434,14 @@ export function ChatTranscript({
         </Tag>
       ) : null}
 
-      {chat.pendingQuestion && readOnly ? (
+      {pendingQuestion && readOnly ? (
         <Alert
           type="info"
           showIcon
           data-testid="chat-awaiting-owner"
           title="Waiting for the conversation owner to respond"
         />
-      ) : chat.pendingQuestion ? (
+      ) : pendingQuestion ? (
         /*
          * The conversation is holding a question, and that has to be said.
          *
@@ -437,7 +453,7 @@ export function ChatTranscript({
          * non-terminal on purpose. Colouring it red would be a visible lie.
          */
         <AskUserPrompt
-          request={chat.pendingQuestion}
+          request={pendingQuestion}
           isBusy={chat.phase === "streaming"}
           onAnswer={(answers) => void chat.answerQuestion(answers)}
           onToolApproval={(decisions) => void chat.answerToolApproval(decisions)}
@@ -446,7 +462,7 @@ export function ChatTranscript({
         />
       ) : null}
 
-      {chat.turnError && !chat.pendingQuestion ? (
+      {chat.turnError && !pendingQuestion ? (
         <Alert
           type="error"
           showIcon
