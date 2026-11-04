@@ -13,7 +13,7 @@ from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
 from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, bootstrap, configure_logging, instrument_app
-from kagent.core._config_materialize import materialize_from_env
+from kagent.core._config_materialize import materialize_from_bootstrap
 from kagent.core._runtime_config import RuntimeConfig, TokenPropagationConfig
 from kagent.core.telemetry import conv
 
@@ -67,9 +67,8 @@ def static(
     filepath: str = "/config",
     reload: Annotated[bool, typer.Option("--reload")] = False,
 ):
-    # On Agent Substrate the config is injected as env vars rather than mounted
-    # files; materialize them into `filepath` before loading. No-op on the Deployment path.
-    materialize_from_env(filepath)
+    # Bootstrap the revision bundle before loading the ADK working files.
+    materialize_from_bootstrap(filepath)
 
     with open(os.path.join(filepath, "config.json"), "r") as f:
         config = json.load(f)

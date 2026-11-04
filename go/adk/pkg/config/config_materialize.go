@@ -1,29 +1,32 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/bootstrap"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
 const (
-	envAgentConfigJSON = "KAGENT_CONFIG_JSON"
-	envAgentCardJSON   = "KAGENT_AGENT_CARD_JSON"
-	envKagentToken     = "KAGENT_TOKEN"
-	kagentTokenDir     = "/var/run/secrets/tokens"
-	kagentTokenFile    = "kagent-token"
+	envKagentToken  = "KAGENT_TOKEN"
+	kagentTokenDir  = "/var/run/secrets/tokens"
+	kagentTokenFile = "kagent-token"
 )
 
-// MaterializeFromEnv writes Agent Substrate environment variables to
-// the on-disk paths expected by the Go ADK runtime at startup.
-func MaterializeFromEnv(configDir string) error {
-	if err := materializeEnvToFile(envAgentConfigJSON, filepath.Join(configDir, "config.json")); err != nil {
-		return fmt.Errorf("materialize agent config: %w", err)
+// MaterializeFromBootstrap bootstraps the configuration and writes the working files
+// expected by the Go ADK runtime. Legacy payload environment inputs are not read.
+func MaterializeFromBootstrap(ctx context.Context, configDir string) error {
+	bundle, err := bootstrap.FromEnvironment(ctx, os.Getenv) //nolint:forbidigo // Controller-generated descriptor and SDK trust.
+	if err != nil {
+		return err
 	}
-	if err := materializeEnvToFile(envAgentCardJSON, filepath.Join(configDir, "agent-card.json")); err != nil {
-		return fmt.Errorf("materialize agent card: %w", err)
+	if err := materializeBootstrapFiles(configDir, bundle); err != nil {
+		return err
 	}
 	if err := materializeEnvToFile(envKagentToken, filepath.Join(kagentTokenDir, kagentTokenFile)); err != nil {
 		return fmt.Errorf("materialize kagent token: %w", err)
@@ -35,13 +38,6 @@ func materializeEnvToFile(envKey, path string) error {
 	value := strings.TrimSpace(os.Getenv(envKey)) //nolint:forbidigo // Controller-generated payloads and credentials, not user configuration.
 	if value == "" {
 		return nil
-	}
-	if envKey == envAgentConfigJSON && strings.Contains(value, "__KAGENT_ENV[") {
-		expanded, err := expandConfigEnv(value)
-		if err != nil {
-			return err
-		}
-		value = expanded
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create directory for %s: %w", path, err)
@@ -101,4 +97,32 @@ func expandConfigEnv(raw string) (string, error) {
 		return "", fmt.Errorf("encode config JSON: %w", err)
 	}
 	return string(encoded), nil
+}
+
+func writeConfigFile(path string, value []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, value, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+func materializeBootstrapFiles(configDir string, bundle *runtimev1.BootstrapServiceGetBootstrapConfigResponse) error {
+	var err error
+	value := string(bundle.ConfigJson)
+	if strings.Contains(value, "__KAGENT_ENV[") {
+		value, err = expandConfigEnv(value)
+		if err != nil {
+			return err
+		}
+	}
+	if err := writeConfigFile(filepath.Join(configDir, "config.json"), []byte(value)); err != nil {
+		return err
+	}
+	if err := writeConfigFile(filepath.Join(configDir, "agent-card.json"), bundle.AgentCardJson); err != nil {
+		return err
+	}
+	return nil
 }

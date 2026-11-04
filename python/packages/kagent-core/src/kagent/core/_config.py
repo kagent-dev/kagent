@@ -3,7 +3,7 @@ from pathlib import Path
 
 from protovalidate import validate
 
-from ._config_materialize import materialize_from_env
+from ._config_materialize import materialize_from_bootstrap
 from ._runtime_config import RuntimeConfig, parse_runtime_config
 
 
@@ -55,7 +55,7 @@ class KAgentConfig:
         for the ADK. A standalone process can supply the same document on disk.
         """
         path = Path(path)
-        materialize_from_env(str(path.parent))
+        materialize_from_bootstrap(str(path.parent))
         document = json.loads(path.read_text())
         return cls(runtime=parse_runtime_config(document["runtime"]))
 

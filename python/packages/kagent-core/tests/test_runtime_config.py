@@ -60,7 +60,13 @@ def test_load_generated_root_settings(tmp_path, monkeypatch):
         "name": "test",
         "namespace": "team",
     }
-    monkeypatch.setenv("KAGENT_CONFIG_JSON", json.dumps({"runtime": runtime}))
+    from kagent.runtime.v1 import bootstrap_pb2
+
+    monkeypatch.setenv("KAGENT_BOOTSTRAP_JSON", "descriptor")
+    bundle = bootstrap_pb2.BootstrapServiceGetBootstrapConfigResponse(
+        config_json=json.dumps({"runtime": runtime}).encode(), agent_card_json=b'{"name":"agent"}'
+    )
+    monkeypatch.setattr("kagent.core._config_materialize.load_bundle", lambda _: bundle)
     cfg = KAgentConfig.from_file(tmp_path / "config.json")
     assert cfg.api_url == runtime["control_plane_url"]
     assert cfg.app_name == "team__NS__test"
