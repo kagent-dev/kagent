@@ -6,11 +6,9 @@ import (
 	"slices"
 	"time"
 
-	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 )
 
@@ -43,60 +41,21 @@ func (l *Launcher) collect(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		l.collectSandbox(ctx, sessionID)
+		operationCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*collectionTimeout)
+		l.collectSandbox(operationCtx, sessionID)
+		cancel()
 	}
 }
 
-func (l *Launcher) collectSandbox(ctx context.Context, sessionID string) {
+func (l *Launcher) collectSandbox(ctx context.Context, sessionID string) error {
+	ctx, stop := context.WithTimeout(ctx, 3*collectionTimeout)
+	defer stop()
 	entry, err := l.lockSandbox(ctx, sessionID)
 	if err != nil {
-		return
+		return safeRecoveryError("managed agents collection gate failed", err)
 	}
 	defer l.unlockSandbox(sessionID, entry)
-	if len(entry.processIDs) == 0 {
-		return
-	}
-	sandboxID := entry.sandboxID
-	if !entry.suspending {
-		allExited := true
-		for processID := range entry.processIDs {
-			if ctx.Err() != nil {
-				return
-			}
-			callCtx, cancel := context.WithTimeout(ctx, collectionTimeout)
-			process, err := l.sandboxes.GetProcess(callCtx, sandboxID, &guestpb.GetProcessRequest{ProcessId: processID})
-			cancel()
-			if err != nil {
-				if !processNotFound(err) {
-					allExited = false
-					l.log.WarnContext(ctx, "failed to inspect managed agent process", "sandbox_id", sandboxID, "process_id", processID,
-						"grpc_code", status.Code(err).String(), "service_code", serviceerrors.CodeOf(err))
-				}
-			} else if process.GetState() != guestpb.ProcessState_PROCESS_STATE_EXITED {
-				allExited = false
-			}
-		}
-		if !allExited {
-			return
-		}
-		entry.suspending = true
-	}
-	if ctx.Err() != nil {
-		return
-	}
-	callCtx, cancel := context.WithTimeout(ctx, collectionTimeout)
-	suspended, err := l.sandboxes.Suspend(callCtx, sandboxID)
-	cancel()
-	if err != nil {
-		l.log.WarnContext(ctx, "failed to suspend idle managed agent sandbox", "sandbox_id", sandboxID,
-			"grpc_code", status.Code(err).String(), "service_code", serviceerrors.CodeOf(err))
-		return
-	}
-	if suspended.GetId() != sandboxID || suspended.GetState() != apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED ||
-		suspended.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
-		return
-	}
-	entry.processIDs = nil
+	return l.finishWorker(ctx, entry)
 }
 
 func processNotFound(err error) bool {

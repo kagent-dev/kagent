@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -19,6 +18,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/cenkalti/backoff/v5"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -32,8 +32,6 @@ const (
 	sandboxLifetime  = time.Hour
 	provisionTimeout = 2 * time.Minute
 	startTimeout     = 10 * time.Second
-	shutdownTimeout  = 60 * time.Second
-	forceStopTimeout = 20 * time.Second
 	noHeartbeat      = "NO_HEARTBEAT"
 )
 
@@ -68,6 +66,7 @@ func (c Config) Validate() error {
 
 // SandboxService is the in-process sandbox lifecycle and guest process boundary.
 type SandboxService interface {
+	Get(context.Context, string) (*apiv1.Sandbox, error)
 	Create(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
 	Resume(context.Context, string) (*apiv1.Sandbox, error)
 	StartProcess(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error)
@@ -83,16 +82,16 @@ type Launcher struct {
 	anthropic anthropic.Client
 	log       *slog.Logger
 	processMu sync.Mutex
-	// Session IDs identify sandboxes before Create returns their runtime IDs.
-	processes map[string]*sandboxProcesses
+	// Keep sandbox associations even when a session has no running worker.
+	processes map[string]*sandboxWorker
 }
 
-type sandboxProcesses struct {
-	sandboxID  string
-	processIDs map[string]string // Process ID to handed-off work ID; never credentials.
-	busy       chan struct{}
-	// A partial Suspend can disable guest access; retry it without GetProcess.
-	suspending bool
+type sandboxWorker struct {
+	sandboxID    string
+	workID       string
+	processID    string
+	staleWorkIDs []string
+	busy         chan struct{}
 }
 
 func New(cfg Config, sandboxes SandboxService, log *slog.Logger) (*Launcher, error) {
@@ -116,11 +115,11 @@ func New(cfg Config, sandboxes SandboxService, log *slog.Logger) (*Launcher, err
 	)
 	return &Launcher{
 		config: cfg, sandboxes: sandboxes, anthropic: anthropicClient, log: log,
-		processes: make(map[string]*sandboxProcesses),
+		processes: make(map[string]*sandboxWorker),
 	}, nil
 }
 
-func (l *Launcher) lockSandbox(ctx context.Context, sessionID string) (*sandboxProcesses, error) {
+func (l *Launcher) lockSandbox(ctx context.Context, sessionID string) (*sandboxWorker, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -128,7 +127,7 @@ func (l *Launcher) lockSandbox(ctx context.Context, sessionID string) (*sandboxP
 		l.processMu.Lock()
 		entry := l.processes[sessionID]
 		if entry == nil {
-			entry = &sandboxProcesses{processIDs: make(map[string]string)}
+			entry = &sandboxWorker{}
 			l.processes[sessionID] = entry
 		}
 		if entry.busy == nil {
@@ -148,29 +147,31 @@ func (l *Launcher) lockSandbox(ctx context.Context, sessionID string) (*sandboxP
 	}
 }
 
-func (l *Launcher) unlockSandbox(sessionID string, entry *sandboxProcesses) {
+func (l *Launcher) unlockSandbox(sessionID string, entry *sandboxWorker) {
 	l.processMu.Lock()
 	defer l.processMu.Unlock()
 	close(entry.busy)
 	entry.busy = nil
-	if len(entry.processIDs) == 0 {
+	if entry.sandboxID == "" {
 		delete(l.processes, sessionID)
 	}
 }
 
 func (l *Launcher) Start(ctx context.Context) error {
-	originalCtx := ctx
-	ctx, cancel := context.WithCancel(ctx)
+	pollCtx, cancel := context.WithCancel(ctx)
 	var launches sync.WaitGroup
 	defer func() {
 		cancel()
 		launches.Wait()
-		// Join launches before taking the snapshot: a successful StartProcess
-		// response still owns its work even if cancellation raced the response.
-		l.shutdown(context.WithoutCancel(originalCtx), shutdownTimeout, forceStopTimeout)
 	}()
-	launches.Go(func() { l.collectPeriodically(ctx) })
-	poller := environments.NewWorkPoller(ctx, l.anthropic, environments.WorkPollerOptions{
+	if err := l.recoverWorkers(ctx); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+	launches.Go(func() { l.collectPeriodically(pollCtx) })
+	poller := environments.NewWorkPoller(pollCtx, l.anthropic, environments.WorkPollerOptions{
 		EnvironmentID:      l.config.EnvironmentID,
 		EnvironmentKey:     l.config.EnvironmentKey,
 		AutoStop:           param.NewOpt(false),
@@ -183,16 +184,23 @@ func (l *Launcher) Start(ctx context.Context) error {
 		}
 	}()
 	for poller.Next() {
+		if ctx.Err() != nil {
+			break
+		}
 		work := poller.Current()
 		launches.Go(func() {
-			if err := l.launch(ctx, work); err != nil {
+			// Preserve authentication values while allowing an accepted operation
+			// to finish when the manager requests a graceful drain.
+			operationCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), provisionTimeout+2*collectionTimeout)
+			defer stop()
+			if err := l.launch(operationCtx, work); err != nil {
 				// SDK errors may contain request/response bodies, including scoped
 				// credentials. Log only their category and stable work identity.
 				l.log.ErrorContext(ctx, "failed to launch managed agent", "work_id", work.ID, "http_status", upstreamStatus(err), "grpc_code", status.Code(err).String(), "service_code", serviceerrors.CodeOf(err))
 			}
 		})
 	}
-	if err := poller.Err(); err != nil {
+	if err := poller.Err(); err != nil && ctx.Err() == nil {
 		return fmt.Errorf("managed agents poller stopped (HTTP status %d)", upstreamStatus(err))
 	}
 	return nil
@@ -232,9 +240,28 @@ func safeSDKAttr(attr slog.Attr) slog.Attr {
 }
 
 func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWork) error {
+	ctx, operationCancel := context.WithTimeout(ctx, provisionTimeout+2*collectionTimeout)
+	defer operationCancel()
 	attemptCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
 	defer cancel()
-	if work.EnvironmentID != l.config.EnvironmentID || work.Data.ID == "" || work.Secret == "" || work.Data.Type != "session" {
+	entry, err := l.lockSandbox(attemptCtx, work.Data.ID)
+	if err != nil {
+		return err
+	}
+	defer l.unlockSandbox(work.Data.ID, entry)
+	if entry.workID != "" && entry.workID == work.ID {
+		if work.EnvironmentID != l.config.EnvironmentID || work.Data.Type != "session" {
+			return errors.New("invalid managed agents tracked assignment")
+		}
+		state, err := l.inspectWorker(attemptCtx, entry)
+		if err != nil {
+			return err
+		}
+		if state == workerLive {
+			return l.retryWorkerMetadata(attemptCtx, entry)
+		}
+	}
+	if work.ID == "" || work.EnvironmentID != l.config.EnvironmentID || work.Data.ID == "" || work.Secret == "" || work.Data.Type != "session" {
 		return errors.Join(errors.New("invalid managed agents assignment"), l.stopWork(ctx, work.ID))
 	}
 	lease, err := l.heartbeat(attemptCtx, work.ID, leaseState{token: noHeartbeat, ttl: 30 * time.Second})
@@ -246,11 +273,33 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	halt := make(chan struct{})
 	done := make(chan heartbeatResult, 1)
 	go l.keepAlive(attemptCtx, cancel, work.ID, lease, halt, done)
-	entry, provisionErr := l.lockSandbox(attemptCtx, work.Data.ID)
+	_, provisionErr := backoff.Retry(attemptCtx, func() (struct{}, error) {
+		err := l.updateMetadata(attemptCtx, work.ID, map[string]*string{managedByKey: new(managedByValue)})
+		if err != nil && !recoveryRetryable(err) {
+			return struct{}{}, backoff.Permanent(err)
+		}
+		return struct{}{}, err
+	}, backoff.WithMaxElapsedTime(0))
+	blockedByWorker := entry.workID != ""
+	if provisionErr == nil && blockedByWorker {
+		_, provisionErr = backoff.Retry(attemptCtx, func() (struct{}, error) {
+			err := l.finishWorker(attemptCtx, entry)
+			if err != nil {
+				if !recoveryRetryable(err) {
+					return struct{}{}, backoff.Permanent(err)
+				}
+				return struct{}{}, err
+			}
+			if entry.workID != "" {
+				return struct{}{}, errors.New("previous managed agent CLI is still active")
+			}
+			return struct{}{}, nil
+		}, backoff.WithBackOff(backoff.NewConstantBackOff(100*time.Millisecond)), backoff.WithMaxElapsedTime(0))
+		blockedByWorker = provisionErr != nil
+	}
 	var sandbox *apiv1.Sandbox
 	if provisionErr == nil {
-		defer l.unlockSandbox(work.Data.ID, entry)
-		sandbox, provisionErr = l.provision(attemptCtx, work.Data.ID)
+		sandbox, provisionErr = l.provision(attemptCtx, work, entry)
 	}
 	close(halt)
 	result := <-done
@@ -258,13 +307,13 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 		return result.err
 	}
 	if provisionErr != nil {
-		if time.Now().Before(result.lease.expiresAt()) {
+		if !blockedByWorker && ctx.Err() == nil && time.Now().Before(result.lease.expiresAt()) {
 			return errors.Join(provisionErr, l.stopWork(ctx, work.ID))
 		}
 		return provisionErr
 	}
 	// Leave time for the CLI's first heartbeat; never start on an expired lease.
-	remaining := time.Until(result.lease.expiresAt()) - time.Second
+	remaining := time.Until(result.lease.expiresAt()) - 2*time.Second
 	if remaining <= 0 {
 		return errors.New("managed agents lease expired before handoff")
 	}
@@ -289,7 +338,7 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	if err != nil {
 		// Prototype assumption: StartProcess returns a definitive outcome.
 		// Do not retry it; ambiguous response recovery is deferred.
-		if time.Now().Before(result.lease.expiresAt()) {
+		if ctx.Err() == nil && time.Now().Before(result.lease.expiresAt()) {
 			err = errors.Join(err, l.stopWork(ctx, work.ID))
 		}
 		return fmt.Errorf("failed to start managed agent CLI: %w", err)
@@ -298,58 +347,30 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 		return errors.Join(errors.New("managed agent CLI did not start successfully"), l.stopWork(ctx, work.ID))
 	}
 	entry.sandboxID = sandbox.GetId()
-	entry.processIDs[process.GetProcessId()] = work.ID
-	entry.suspending = false
+	entry.workID = work.ID
+	entry.processID = process.GetProcessId()
+	// A definitive successful start must survive a cancellation racing its response.
+	publishDeadline := time.Now().Add(collectionTimeout)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(publishDeadline) {
+		publishDeadline = deadline
+	}
+	publishCtx, publishCancel := context.WithDeadline(context.WithoutCancel(ctx), publishDeadline)
+	publishErr := l.retryWorkerMetadata(publishCtx, entry)
+	publishCancel()
+	if publishErr != nil {
+		l.log.ErrorContext(ctx, "managed agent CLI is running without durable process metadata",
+			"work_id", work.ID, "sandbox_id", sandbox.GetId(), "process_id", process.GetProcessId())
+		return fmt.Errorf("managed agent CLI is running but its metadata handoff is incomplete: %w", publishErr)
+	}
 	l.log.InfoContext(ctx, "started managed agent CLI", "work_id", work.ID, "sandbox_id", sandbox.GetId(), "process_id", process.GetProcessId())
 	return nil
 }
 
-// The caller must first join launches and collection.
-func (l *Launcher) stopWorkers(ctx context.Context, force bool) map[string]bool {
-	l.processMu.Lock()
-	workIDs := make(map[string]struct{})
-	for _, entry := range l.processes {
-		for _, workID := range entry.processIDs {
-			workIDs[workID] = struct{}{}
-		}
-	}
-	l.processMu.Unlock()
-
-	stopped := make(map[string]bool)
-	var mu sync.Mutex
-	var stops sync.WaitGroup
-	for workID := range workIDs {
-		stops.Go(func() {
-			_, err := l.anthropic.Beta.Environments.Work.Stop(ctx, workID, anthropic.BetaEnvironmentWorkStopParams{
-				EnvironmentID:                 l.config.EnvironmentID,
-				BetaSelfHostedWorkStopRequest: anthropic.BetaSelfHostedWorkStopRequestParam{Force: param.NewOpt(force)},
-			})
-			if err == nil || upstreamStatus(err) == http.StatusConflict {
-				mu.Lock()
-				stopped[workID] = true
-				mu.Unlock()
-			} else {
-				// Never log the SDK error: it may contain upstream bodies or credentials.
-				category := "request_failed"
-				switch {
-				case errors.Is(err, context.DeadlineExceeded):
-					category = "deadline_exceeded"
-				case errors.Is(err, context.Canceled):
-					category = "canceled"
-				case upstreamStatus(err) != 0:
-					category = "upstream"
-				}
-				l.log.ErrorContext(ctx, "failed to request managed agent stop", "work_id", workID, "force", force,
-					"http_status", upstreamStatus(err), "error_category", category)
-			}
-		})
-	}
-	stops.Wait()
-	return stopped
-}
-
 func (l *Launcher) stopWork(ctx context.Context, workID string) error {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	if ctx.Err() != nil {
+		return nil
+	}
+	cleanupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_, err := l.anthropic.Beta.Environments.Work.Stop(cleanupCtx, workID, anthropic.BetaEnvironmentWorkStopParams{
 		EnvironmentID:                 l.config.EnvironmentID,
@@ -437,9 +458,23 @@ func createRequest(cfg Config, sessionID string) *apiv1.CreateSandboxRequest {
 	}
 }
 
-func (l *Launcher) provision(ctx context.Context, sessionID string) (*apiv1.Sandbox, error) {
-	request := createRequest(l.config, sessionID)
+func replacementRequest(cfg Config, sessionID, expiredID string) *apiv1.CreateSandboxRequest {
+	request := createRequest(cfg, sessionID)
+	request.RequestId += "-" + expiredID
+	request.Name += "-" + expiredID
+	return request
+}
+
+func sandboxExpired(instance *apiv1.Sandbox) bool {
+	expires := instance.GetExpiresAt()
+	return expires != nil && expires.IsValid() && !time.Now().Before(expires.AsTime())
+}
+
+func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHostedWork, entry *sandboxWorker) (*apiv1.Sandbox, error) {
+	request := createRequest(l.config, work.Data.ID)
 	var sandbox *apiv1.Sandbox
+	discovered := false
+	publishedID := ""
 	retryBackoff := backoff.NewExponentialBackOff()
 	// Jitter spans 0.5-1 seconds initially and stays capped at 5 seconds.
 	retryBackoff.InitialInterval = 750 * time.Millisecond
@@ -447,43 +482,104 @@ func (l *Launcher) provision(ctx context.Context, sessionID string) (*apiv1.Sand
 	retryBackoff.Multiplier = 2
 	retryBackoff.MaxInterval = 3750 * time.Millisecond
 	return backoff.Retry(ctx, func() (*apiv1.Sandbox, error) {
+		if !discovered {
+			found, err := l.savedSandbox(ctx, entry)
+			if err != nil {
+				if !recoveryRetryable(err) {
+					return nil, backoff.Permanent(err)
+				}
+				return nil, err
+			}
+			sandbox = found
+			discovered = true
+		}
+		if sandboxExpired(sandbox) {
+			request = replacementRequest(l.config, work.Data.ID, sandbox.GetId())
+			sandbox = nil
+			publishedID = ""
+		}
+		if sandbox != nil && sandboxUnavailable(sandbox) {
+			return nil, backoff.Permanent(errors.New("managed agents sandbox is unavailable"))
+		}
 		var err error
 		callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		if sandbox != nil && (sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED ||
+		defer cancel()
+		if sandbox == nil {
+			created, createErr := l.sandboxes.Create(callCtx, request)
+			if createErr != nil {
+				// Failed receipts convey no resource or expiry evidence. A lost
+				// creation can be recovered only while that receipt remains live.
+				if !retryable(createErr) {
+					return nil, backoff.Permanent(fmt.Errorf("managed agents sandbox receipt unavailable without saved successor expiry evidence: %w", createErr))
+				}
+				return nil, createErr
+			}
+			if uuid.Validate(created.GetId()) != nil {
+				return nil, backoff.Permanent(errors.New("sandbox API returned an invalid sandbox"))
+			}
+			sandbox = created
+			entry.sandboxID = created.GetId()
+			entry.staleWorkIDs = nil
+		}
+		if publishedID != sandbox.GetId() {
+			if err := l.saveSandbox(callCtx, work.ID, entry, sandbox.GetId()); err != nil {
+				if !recoveryRetryable(err) {
+					return nil, backoff.Permanent(err)
+				}
+				return nil, err
+			}
+			publishedID = sandbox.GetId()
+		}
+		if sandboxExpired(sandbox) {
+			return nil, errors.New("managed agents sandbox expired during provisioning")
+		}
+		if sandboxUnavailable(sandbox) {
+			return nil, backoff.Permanent(errors.New("managed agents sandbox is unavailable"))
+		}
+		if !sandboxExpired(sandbox) && sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY && sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+			return sandbox, nil
+		}
+		if sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED ||
 			sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME ||
-			sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND) {
+			sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND {
 			var resumed *apiv1.Sandbox
 			resumed, err = l.sandboxes.Resume(callCtx, sandbox.GetId())
 			if err == nil {
+				if resumed.GetId() != sandbox.GetId() {
+					return nil, backoff.Permanent(errors.New("managed agents resumed sandbox identity mismatch"))
+				}
 				sandbox = resumed
 			}
 		} else {
-			var created *apiv1.Sandbox
-			created, err = l.sandboxes.Create(callCtx, request)
+			var observed *apiv1.Sandbox
+			observed, err = l.sandboxes.Get(callCtx, sandbox.GetId())
 			if err == nil {
-				sandbox = created
+				if identityErr := l.validateSavedSandbox(observed, sandbox.GetId()); identityErr != nil {
+					return nil, backoff.Permanent(identityErr)
+				}
+				sandbox = observed
 			}
 		}
-		cancel()
 		if err != nil && !retryable(err) {
 			return nil, backoff.Permanent(fmt.Errorf("failed to provision managed agents sandbox: %w", err))
 		}
 		if err == nil {
-			if sandbox.GetId() == "" {
-				return nil, backoff.Permanent(errors.New("sandbox API returned no sandbox"))
-			}
 			if sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY && sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 				return sandbox, nil
 			}
-			if sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE ||
-				sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_DELETED || sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_DELETING ||
-				(sandbox.GetState() == apiv1.RuntimeState_RUNTIME_STATE_FAILED && sandbox.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE) {
+			if sandboxUnavailable(sandbox) && !sandboxExpired(sandbox) {
 				return nil, backoff.Permanent(errors.New("managed agents sandbox is unavailable"))
 			}
 			return nil, errors.New("managed agents sandbox is not ready")
 		}
 		return nil, err
 	}, backoff.WithBackOff(retryBackoff), backoff.WithMaxElapsedTime(0))
+}
+
+func sandboxUnavailable(instance *apiv1.Sandbox) bool {
+	return instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE ||
+		instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_DELETED || instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_DELETING ||
+		(instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_FAILED && instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE)
 }
 
 func retryable(err error) bool {

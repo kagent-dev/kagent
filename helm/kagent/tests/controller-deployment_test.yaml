@@ -16,7 +16,7 @@ tests:
           value: 1
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
-          value: 120
+          value: 180
       - hasDocuments:
           count: 1
 

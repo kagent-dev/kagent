@@ -146,7 +146,10 @@ translating Kubernetes inputs.
 
 The shipped controller can poll an Anthropic self-hosted environment and start
 the stock Anthropic CLI in a Sandbox. Enable it with
-`KAGENT_MANAGED_AGENTS_ENABLED=true`. Every enabled replica polls independently.
+`KAGENT_MANAGED_AGENTS_ENABLED=true`. The launcher runs only on the controller
+manager's elected leader; standby replicas do not poll, launch, or collect.
+Keep `config.kubernetes.leaderElection` enabled (the default) when running
+multiple replicas.
 The bundled launcher calls the same top-level Sandbox service operations as the
 gRPC handlers, in-process; it does not call a loopback API or access Substrate
 and persistence internals directly.
@@ -179,16 +182,95 @@ are never passed to the worker. The CLI owns streaming, tools, results, and
 subsequent heartbeats.
 
 Each claimed assignment launches in its own goroutine, so provisioning does not
-block polling or other launches. There is no per-replica launch concurrency cap.
-Shutdown cancels and joins pending launches without stopping established workers.
+block polling or other launches. There is no launch concurrency cap.
+The leader tags claimed work with `kagent.dev/managed-by=kagent`. After a
+successful launch, it records `kagent.dev/sandbox-id` and `kagent.dev/process-id`
+on the Anthropic work item. All three values are plain strings; no credentials
+are stored. Each session's Sandbox runs at most one managed CLI at a time.
+Successive work items can reuse it, but a new assignment waits for the previous
+CLI to exit and its process metadata to be cleared before starting another.
+Tool subprocesses belong to the CLI and are not individually tracked by the
+launcher. Unrelated metadata is preserved.
 
-A deterministic creation receipt reuses one Sandbox per environment/session,
-including resuming a suspended instance. Its absolute lifetime is fixed at one
-hour; expiration can interrupt active work and delete files. There is no idle
-collector or automatic replacement of expired workspaces. Established workers
-continue when their launching controller stops. Process startup is not retried:
-this prototype assumes a definitive response and does not reconcile ambiguous
-starts, crashes during handoff, or exactly-once execution.
+Before polling or scheduling GC, a new leader paginates through tagged work,
+including stopped work, and validates its Sandbox identities and lifecycle
+states. It rebuilds a session-to-Sandbox index, including references without a
+process ID, and restores process tracking without resuming sandboxes, starting
+another CLI, or taking over worker heartbeats. Recovery finishes pending
+suspension and clears stale process tracking for suspended, missing, deleted,
+or expired sandboxes. Conflicting versions of the same Work ID produce a warning;
+the last observed record is used. Per-record validation, lookup, worker conflict,
+cleanup, and initial collection failures are logged without blocking recovery of
+other records or polling. Skipped records can leave existing workers untracked.
+Transient failures listing work still retry before polling begins.
+
+Shutdown stops polling and scheduling GC, then joins in-flight provisioning,
+resume, launch, collection, and metadata operations without canceling them.
+Established CLI workers continue independently: shutdown does not call
+Anthropic Work.Stop, signal workers, or suspend healthy sandboxes. Definitive
+startup failures retain work cleanup. The manager allows a 150-second drain
+when this integration is enabled, and the chart defaults to a 180-second pod
+termination grace period. Operators must preserve sufficient pod grace when
+overriding this value; hard termination can still interrupt in-flight work.
+
+Each launcher retains one in-memory Sandbox association per session, with an
+optional work/process pair while a worker is tracked.
+Every 30 seconds, its collector checks that CLI process through the Sandbox
+service and suspends the Sandbox only when it has exited or is definitively
+not found.
+Other lookup errors retain tracking for a later sweep. Failed or incomplete
+suspension is retried. The persisted Sandbox operation, not a local flag,
+determines whether a pending suspension can bypass process inspection.
+The suspend operation deletes only `kagent.dev/process-id` using a null metadata
+patch and retains the ownership tag and Sandbox ID after successful suspension.
+Local work/process tracking is cleared once the sandbox is confirmed inactive,
+even if its metadata cleanup fails; the Sandbox association remains for reuse.
+Metadata retries belong to launch and suspend operations, not the
+collector. Each operation retries transient metadata failures within its
+deadline. The collector does not publish pending process IDs for live workers
+or retry metadata-only cleanup after suspension has completed.
+
+If process-ID publication times out after startup, launch reports an incomplete
+handoff and leaves the CLI running and tracked locally. An explicit duplicate
+launch can retry publication without starting another CLI; periodic GC does not.
+Until publication succeeds, a controller restart can lose that process tracking.
+If metadata deletion times out after suspension, the sandbox stays suspended and
+the stale process ID remains in Anthropic metadata. The session index retains the
+affected Work IDs so provisioning can clear those references before resuming the sandbox or starting a new
+CLI; startup recovery can also clear them. No local lifecycle flags are retained.
+A per-session gate serializes launches, duplicate checks, and collection so
+a new launch cannot race with suspension or another launch.
+
+The active leader's in-memory gates coordinate its launches and collection;
+metadata provides discovery after leadership changes, not a distributed lock.
+The manager retains leadership while local routines finish. Process start and
+metadata publication are not atomic: a crash in that window can still leave an
+untracked worker. Abrupt leadership loss does not fence already-running guest
+commands, and the one-hour Sandbox lifetime remains the final resource bound.
+
+At startup, the launcher discovers saved Sandbox IDs from tagged Anthropic work,
+including records whose process ID was cleared by GC, and selects each session's
+newest generation. New creations and replacements update the in-memory index.
+Provisioning uses that index rather than listing Work again. Ordinary Sandbox Get calls
+provide lifecycle state and expiration, including deletion tombstones. A suspended
+instance is resumed without extending its fixed one-hour lifetime. Expiration can
+interrupt active work and delete files.
+
+On the next assignment after a known expiration, the launcher creates a replacement
+with a fresh one-hour lifetime; the expired workspace is not restored. Each
+successor receipt is derived from the expired Sandbox ID, so retries reuse the
+same replacement. The launcher publishes its Sandbox ID before starting a CLI.
+Replacement decisions belong entirely to the launcher: Sandbox Create retains
+its ordinary error contract, with no result-on-error dependency or special store
+behavior. Deleting a sandbox before expiration does not trigger replacement.
+
+Creation and metadata publication are separate operations. A retry can recover an
+unpublished creation through its deterministic receipt while that sandbox remains
+live. If it expires before any successful publication, the launcher cannot
+recover its ID through Create and fails closed rather than assuming that an
+arbitrary precondition error means expiration. Process startup is not retried:
+this prototype assumes a definitive response and does not provide exactly-once
+execution or reconcile ambiguous starts and crashes during handoff.
 
 ## Lifecycle and recovery
 

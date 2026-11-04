@@ -273,8 +273,8 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 	var gracefulShutdownTimeout *time.Duration
 	if opts.ManagedAgents != nil {
-		// Leave room to join launches, drain workers, and force-suspend stragglers.
-		gracefulShutdownTimeout = new(110 * time.Second)
+		// Finish bounded provisioning and metadata writes before releasing leadership.
+		gracefulShutdownTimeout = new(150 * time.Second)
 	}
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme:                  managerScheme,

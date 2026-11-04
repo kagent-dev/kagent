@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -42,6 +44,7 @@ func testWork(id string) *anthropic.BetaSelfHostedWork {
 }
 
 type sandboxFixture struct {
+	lookup  func(context.Context, string) (*apiv1.Sandbox, error)
 	create  func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
 	resume  func(context.Context, string) (*apiv1.Sandbox, error)
 	start   func(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error)
@@ -50,6 +53,15 @@ type sandboxFixture struct {
 }
 
 var _ SandboxService = (*sandboxFixture)(nil)
+
+func (s *sandboxFixture) Get(ctx context.Context, id string) (*apiv1.Sandbox, error) {
+	if s.lookup != nil {
+		return s.lookup(ctx, id)
+	}
+	instance := readySandbox()
+	instance.Id = id
+	return instance, nil
+}
 
 func (s *sandboxFixture) Create(ctx context.Context, req *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
 	if s.create != nil {
@@ -86,7 +98,18 @@ func (s *sandboxFixture) Suspend(ctx context.Context, id string) (*apiv1.Sandbox
 }
 
 func readySandbox() *apiv1.Sandbox {
-	return &apiv1.Sandbox{Id: testSandboxID, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}
+	return &apiv1.Sandbox{Id: testSandboxID, Creator: auth.PrincipalID("kagent:managed-agents", testConfig().EnvironmentID),
+		SandboxTemplate: &apiv1.ResourceReference{Namespace: "test", Name: "claude"},
+		State:           apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}
+}
+
+func requireIdleSandbox(t *testing.T, launcher *Launcher, sessionID string) {
+	t.Helper()
+	require.Contains(t, launcher.processes, sessionID)
+	entry := launcher.processes[sessionID]
+	require.NotEmpty(t, entry.sandboxID)
+	assert.Empty(t, entry.workID)
+	assert.Empty(t, entry.processID)
 }
 
 type workAPI struct {
@@ -103,6 +126,12 @@ type workAPI struct {
 	stoppedWork        []string
 	stopForces         []bool
 	stop               func(http.ResponseWriter, *http.Request)
+	list               func(http.ResponseWriter, *http.Request)
+	update             func(http.ResponseWriter, *http.Request, map[string]*string)
+	metadata           map[string]map[string]string
+	workData           map[string]anthropic.BetaSessionWorkData
+	updates            int
+	lists              int
 }
 
 func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +141,90 @@ func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	f.mu.Lock()
 	switch {
+	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/work"):
+		f.lists++
+		f.mu.Unlock()
+		if f.list != nil {
+			response := httptest.NewRecorder()
+			f.list(response, r)
+			var page struct {
+				Data     []anthropic.BetaSelfHostedWork `json:"data"`
+				NextPage *string                        `json:"next_page"`
+			}
+			if response.Code == http.StatusOK {
+				assert.NoError(f.t, json.Unmarshal(response.Body.Bytes(), &page))
+				f.mu.Lock()
+				if f.metadata == nil {
+					f.metadata = make(map[string]map[string]string)
+				}
+				if f.workData == nil {
+					f.workData = make(map[string]anthropic.BetaSessionWorkData)
+				}
+				for i, work := range page.Data {
+					if f.metadata[work.ID] == nil {
+						f.metadata[work.ID] = maps.Clone(work.Metadata)
+					}
+					f.workData[work.ID] = work.Data
+					page.Data[i].Metadata = maps.Clone(f.metadata[work.ID])
+				}
+				f.mu.Unlock()
+				response.Body.Reset()
+				assert.NoError(f.t, json.NewEncoder(response.Body).Encode(page))
+			}
+			w.WriteHeader(response.Code)
+			_, _ = w.Write(response.Body.Bytes())
+		} else {
+			f.mu.Lock()
+			works := make([]*anthropic.BetaSelfHostedWork, 0, len(f.metadata))
+			for id, metadata := range f.metadata {
+				work := testWork(id)
+				if data, ok := f.workData[id]; ok {
+					work.Data = data
+				}
+				work.Metadata = maps.Clone(metadata)
+				work.Secret = ""
+				works = append(works, work)
+			}
+			f.mu.Unlock()
+			writeWorkPage(f.t, w, works, "")
+		}
+	case r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/ack") && !strings.HasSuffix(r.URL.Path, "/heartbeat") && !strings.HasSuffix(r.URL.Path, "/stop"):
+		var body struct {
+			Metadata map[string]*string `json:"metadata"`
+		}
+		assert.NoError(f.t, json.NewDecoder(r.Body).Decode(&body))
+		for key := range body.Metadata {
+			assert.Contains(f.t, []string{managedByKey, sandboxIDKey, processIDKey}, key)
+		}
+		f.updates++
+		if f.metadata == nil {
+			f.metadata = make(map[string]map[string]string)
+		}
+		parts := strings.Split(r.URL.Path, "/")
+		f.mu.Unlock()
+		response := httptest.NewRecorder()
+		if f.update != nil {
+			f.update(response, r, body.Metadata)
+		} else {
+			_, _ = io.WriteString(response, `{}`)
+		}
+		if response.Code >= 200 && response.Code < 300 {
+			f.mu.Lock()
+			id := parts[len(parts)-1]
+			if f.metadata[id] == nil {
+				f.metadata[id] = make(map[string]string)
+			}
+			for key, value := range body.Metadata {
+				if value == nil {
+					delete(f.metadata[id], key)
+				} else {
+					f.metadata[id][key] = *value
+				}
+			}
+			f.mu.Unlock()
+		}
+		w.WriteHeader(response.Code)
+		_, _ = w.Write(response.Body.Bytes())
 	case strings.HasSuffix(r.URL.Path, "/poll"):
 		assert.Equal(f.t, http.MethodGet, r.Method)
 		assert.Equal(f.t, "30000", r.URL.Query().Get("reclaim_older_than_ms"))
@@ -132,6 +245,10 @@ func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		work := f.queue[0]
 		f.queue = f.queue[1:]
+		if f.workData == nil {
+			f.workData = make(map[string]anthropic.BetaSessionWorkData)
+		}
+		f.workData[work.ID] = work.Data
 		f.mu.Unlock()
 		assert.NoError(f.t, json.NewEncoder(w).Encode(work))
 	case strings.HasSuffix(r.URL.Path, "/ack"):
@@ -231,11 +348,7 @@ func TestServicePollAndHandoff(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			creates = append(creates, proto.Clone(req).(*apiv1.CreateSandboxRequest))
-			sb := readySandbox()
-			if len(creates) == 2 {
-				sb.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
-			}
-			return sb, nil
+			return readySandbox(), nil
 		},
 		resume: func(ctx context.Context, id string) (*apiv1.Sandbox, error) {
 			assertSession(ctx)
@@ -275,8 +388,7 @@ func TestServicePollAndHandoff(t *testing.T) {
 	}
 	launcher := newTestLauncher(t, fixture, api)
 	require.NoError(t, launcher.Start(ctx))
-	require.Len(t, creates, 2)
-	require.True(t, proto.Equal(creates[0], creates[1]))
+	require.Len(t, creates, 1, "later work reuses the saved session sandbox via Get")
 	assert.Equal(t, time.Hour, creates[0].GetTtl().AsDuration())
 	require.Len(t, starts, 2)
 	workIDs := make([]string, 0, len(starts))
@@ -296,8 +408,7 @@ func TestServicePollAndHandoff(t *testing.T) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	assert.Equal(t, 2, api.acks)
-	assert.ElementsMatch(t, []string{"work_one", "work_two"}, api.stoppedWork)
-	assert.Equal(t, []bool{false, false}, api.stopForces, "shutdown requests graceful stops only")
+	assert.Empty(t, api.stoppedWork, "workers survive shutdown")
 	assert.NotEqual(t, creates[0].RequestId, createRequest(testConfig(), "another-session").RequestId)
 	cfg := testConfig()
 	cfg.EnvironmentID = "another-env"
@@ -318,7 +429,6 @@ func TestServiceConcurrentProvisioningShutdown(t *testing.T) {
 			ctx, cancel := context.WithCancel(testCtx)
 			defer cancel()
 			firstProvisioning := make(chan struct{})
-			provisioningCanceled := make(chan struct{})
 			releaseProvisioning := make(chan struct{})
 			release := sync.OnceFunc(func() { close(releaseProvisioning) })
 			defer release()
@@ -332,13 +442,12 @@ func TestServiceConcurrentProvisioningShutdown(t *testing.T) {
 				create: func(ctx context.Context, req *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
 					if req.RequestId == firstRequestID {
 						close(firstProvisioning)
-						<-ctx.Done()
-						close(provisioningCanceled)
 						select {
 						case <-releaseProvisioning:
 						case <-testCtx.Done():
 						}
-						return nil, ctx.Err()
+						assert.NoError(t, ctx.Err(), "drain must not cancel accepted provisioning")
+						return readySandbox(), nil
 					}
 					select {
 					case <-firstProvisioning:
@@ -377,11 +486,6 @@ func TestServiceConcurrentProvisioningShutdown(t *testing.T) {
 			}
 			close(pollExit)
 			select {
-			case <-provisioningCanceled:
-			case <-testCtx.Done():
-				t.Fatal("shutdown did not cancel pending provisioning")
-			}
-			select {
 			case err := <-done:
 				t.Fatalf("launcher returned before pending provisioning finished: %v", err)
 			case <-time.After(50 * time.Millisecond):
@@ -396,18 +500,18 @@ func TestServiceConcurrentProvisioningShutdown(t *testing.T) {
 					require.NoError(t, ctx.Err(), "terminal poll failure must cancel its derived context, not its caller")
 				}
 			case <-testCtx.Done():
-				t.Fatal("launcher did not join canceled provisioning")
+				t.Fatal("launcher did not join draining provisioning")
 			}
 			select {
 			case workID := <-started:
-				t.Fatalf("canceled provisioning handed off a worker: %s", workID)
+				assert.Equal(t, firstWork.ID, workID, "accepted provisioning must finish handoff")
 			default:
+				t.Fatal("draining provisioning did not hand off its worker")
 			}
 			api.mu.Lock()
 			defer api.mu.Unlock()
 			assert.Equal(t, 2, api.acks)
-			assert.Equal(t, []string{firstWork.ID, secondWork.ID}, api.stoppedWork)
-			assert.Equal(t, []bool{true, false}, api.stopForces, "only failed provisioning is force-stopped")
+			assert.Empty(t, api.stoppedWork, "controller shutdown leaves leases and running workers alone")
 		})
 	}
 }
@@ -422,7 +526,9 @@ func TestLaunchFailureCleanup(t *testing.T) {
 		stops, starts   int
 	}{
 		{name: "definitive start failure", startError: status.Error(codes.InvalidArgument, "cannot exec"), stops: 1, starts: 1},
+		{name: "independent canceled start", startError: context.Canceled, stops: 1, starts: 1},
 		{name: "provisioning denied", createError: status.Error(codes.PermissionDenied, "denied"), stops: 1},
+		{name: "independent canceled provisioning", createError: context.Canceled, stops: 1},
 		{name: "service provisioning denied despite transient backend", createError: serviceerrors.NewPermissionDenied("denied", status.Error(codes.Unavailable, "backend")), stops: 1},
 		{name: "service start unavailable is not retried", startError: serviceerrors.NewUnavailable("cannot start", nil), stops: 1, starts: 1},
 		{name: "lease ownership lost", heartbeatStatus: http.StatusPreconditionFailed},
@@ -466,7 +572,7 @@ func TestLaunchFailureCleanup(t *testing.T) {
 	}
 }
 
-func TestShutdownCleansOnlyProvisioningWork(t *testing.T) {
+func TestShutdownLeavesProvisioningLeaseToExpire(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	fixture := &sandboxFixture{
@@ -482,7 +588,7 @@ func TestShutdownCleansOnlyProvisioningWork(t *testing.T) {
 	api := &workAPI{}
 	launcher := newTestLauncher(t, fixture, api)
 	require.Error(t, launcher.launch(ctx, testWork("work_test")))
-	assert.Equal(t, 1, api.stops, "cleanup must use a live context after shutdown")
+	assert.Zero(t, api.stops, "shutdown must not terminally stop a pending tool assignment")
 }
 
 func TestProvisionRejectsUnavailableSandbox(t *testing.T) {
@@ -503,10 +609,126 @@ func TestProvisionRejectsUnavailableSandbox(t *testing.T) {
 				},
 			}
 			launcher := newTestLauncher(t, fixture, &workAPI{})
-			_, err := launcher.provision(t.Context(), "session_test")
+			_, err := provisionTestSandbox(t, t.Context(), launcher)
 			require.ErrorContains(t, err, "unavailable")
 		})
 	}
+}
+
+func TestProvisionReplacesExpiredReceiptsAcrossRestarts(t *testing.T) {
+	base := createRequest(testConfig(), "session_test")
+	original := readySandbox()
+	original.State = apiv1.RuntimeState_RUNTIME_STATE_DELETED
+	original.ExpiresAt = timestamppb.New(time.Now().Add(-2 * time.Hour))
+	receipts := map[string]*apiv1.Sandbox{base.RequestId: original}
+	instances := map[string]*apiv1.Sandbox{original.Id: original}
+	inputs := map[string]*apiv1.CreateSandboxRequest{base.RequestId: proto.Clone(base).(*apiv1.CreateSandboxRequest)}
+	replacementIDs := []string{"00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003"}
+	creations := 0
+	fixture := &sandboxFixture{
+		lookup: func(_ context.Context, id string) (*apiv1.Sandbox, error) {
+			return instances[id], nil
+		},
+		create: func(_ context.Context, req *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
+			if existing := receipts[req.RequestId]; existing != nil {
+				require.True(t, proto.Equal(inputs[req.RequestId], req), "receipt retries must preserve all inputs")
+				if sandboxExpired(existing) {
+					return nil, serviceerrors.NewFailedPrecondition("expired", nil)
+				}
+				return existing, nil
+			}
+			require.Less(t, creations, len(replacementIDs))
+			sb := readySandbox()
+			sb.Id = replacementIDs[creations]
+			sb.ExpiresAt = timestamppb.New(time.Now().Add(time.Hour))
+			creations++
+			receipts[req.RequestId] = sb
+			instances[sb.Id] = sb
+			inputs[req.RequestId] = proto.Clone(req).(*apiv1.CreateSandboxRequest)
+			if creations == 1 {
+				return nil, status.Error(codes.Unavailable, "replacement response lost after creation")
+			}
+			return sb, nil
+		},
+	}
+	api := &workAPI{metadata: map[string]map[string]string{
+		"old-work": {managedByKey: managedByValue, sandboxIDKey: original.Id},
+	}}
+	launcher := newTestLauncher(t, fixture, api)
+	require.NoError(t, launcher.adopt(t.Context()))
+	first, err := provisionTestSandbox(t, t.Context(), launcher)
+	require.NoError(t, err)
+	require.Equal(t, replacementIDs[0], first.Id)
+	assert.Equal(t, time.Hour, inputs[replacementRequest(testConfig(), "session_test", original.Id).RequestId].Ttl.AsDuration())
+
+	launcher = newTestLauncher(t, fixture, api)
+	require.NoError(t, launcher.adopt(t.Context()))
+	recovered, err := provisionTestSandbox(t, t.Context(), launcher)
+	require.NoError(t, err)
+	assert.Equal(t, first.Id, recovered.Id)
+	assert.Equal(t, 1, creations, "restart must discover the same replacement through saved Work metadata")
+
+	first.ExpiresAt = timestamppb.New(time.Now().Add(-time.Minute))
+	first.State = apiv1.RuntimeState_RUNTIME_STATE_DELETED
+	launcher = newTestLauncher(t, fixture, api)
+	require.NoError(t, launcher.adopt(t.Context()))
+	next, err := provisionTestSandbox(t, t.Context(), launcher)
+	require.NoError(t, err)
+	assert.Equal(t, replacementIDs[1], next.Id)
+	assert.Equal(t, 2, creations)
+}
+
+func TestProvisionDoesNotReplaceUnexpiredDeletedSandbox(t *testing.T) {
+	calls := 0
+	launcher := newTestLauncher(t, &sandboxFixture{
+		create: func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
+			calls++
+			return nil, serviceerrors.NewFailedPrecondition("deleted", nil)
+		},
+	}, &workAPI{})
+	result, err := provisionTestSandbox(t, t.Context(), launcher)
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Equal(t, 1, calls)
+}
+
+func TestLaunchReplacementDropsExpiredProcessTracking(t *testing.T) {
+	expired := readySandbox()
+	expired.ExpiresAt = timestamppb.New(time.Now().Add(-time.Minute))
+	replacement := readySandbox()
+	replacement.Id = "00000000-0000-4000-8000-000000000002"
+	replacement.ExpiresAt = timestamppb.New(time.Now().Add(time.Hour))
+	api := &workAPI{metadata: map[string]map[string]string{
+		"new-work": {managedByKey: managedByValue, sandboxIDKey: expired.Id, processIDKey: "stale-current"},
+	}}
+	launcher := newTestLauncher(t, &sandboxFixture{
+		lookup: func(_ context.Context, id string) (*apiv1.Sandbox, error) {
+			if id == expired.Id {
+				return expired, nil
+			}
+			return replacement, nil
+		},
+		create: func(_ context.Context, req *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
+			assert.Equal(t, replacementRequest(testConfig(), "session_test", expired.Id).RequestId, req.RequestId)
+			return replacement, nil
+		},
+		start: func(_ context.Context, id string, _ *guestpb.StartProcessRequest) (*guestpb.Process, error) {
+			assert.Equal(t, replacement.Id, id)
+			assert.Equal(t, replacement.Id, api.metadata["new-work"][sandboxIDKey])
+			assert.NotContains(t, api.metadata["new-work"], processIDKey, "prelaunch publication must not attach an old process to a new sandbox")
+			return &guestpb.Process{ProcessId: "new-worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+		},
+	}, api)
+	trackTestProcesses(t, launcher, "old-worker")
+	require.NoError(t, launcher.launch(t.Context(), testWork("new-work")))
+	entry := launcher.processes["session_test"]
+	require.NotNil(t, entry)
+	assert.Equal(t, replacement.Id, entry.sandboxID)
+	assert.Equal(t, "new-worker", entry.processID)
+	assert.Equal(t, "new-work", entry.workID)
+	assert.NotContains(t, api.metadata["work_old-worker"], processIDKey, "old generation metadata must not rebind expired process IDs")
+	assert.Equal(t, "new-worker", api.metadata["new-work"][processIDKey])
+	assert.Equal(t, replacement.Id, api.metadata["new-work"][sandboxIDKey])
 }
 
 func TestHeartbeatHandoffJoinsInFlightRequest(t *testing.T) {
@@ -631,7 +853,7 @@ func TestProvisionRetriesMutations(t *testing.T) {
 			launcher := newTestLauncher(t, fixture, &workAPI{})
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			sandbox, err := launcher.provision(ctx, "session_test")
+			sandbox, err := provisionTestSandbox(t, ctx, launcher)
 			require.NoError(t, err)
 			assert.Equal(t, testSandboxID, sandbox.Id)
 			require.Len(t, requests, 2)
@@ -656,6 +878,14 @@ func TestProvisionStopsRetrying(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			calls := 0
 			fixture := &sandboxFixture{
+				lookup: func(context.Context, string) (*apiv1.Sandbox, error) {
+					if tt.sandbox != nil {
+						instance := readySandbox()
+						instance.State = tt.sandbox.State
+						return instance, nil
+					}
+					return nil, errors.New("unexpected sandbox lookup")
+				},
 				create: func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
 					calls++
 					return tt.sandbox, tt.err
@@ -664,7 +894,7 @@ func TestProvisionStopsRetrying(t *testing.T) {
 			launcher := newTestLauncher(t, fixture, &workAPI{})
 			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 			defer cancel()
-			_, err := launcher.provision(ctx, "session_test")
+			_, err := provisionTestSandbox(t, ctx, launcher)
 			require.ErrorIs(t, err, tt.wantErr)
 			assert.Equal(t, 1, calls)
 		})
