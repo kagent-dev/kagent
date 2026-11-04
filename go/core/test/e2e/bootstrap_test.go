@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -60,10 +61,16 @@ func TestLargeConfigurationBootstrap(t *testing.T) {
 		require.Equal(t, a2atype.TaskStateCompleted, forkTask.Status.State, "fork task failed: %s", taskText(forkTask))
 		recorder.mu.Lock()
 		defer recorder.mu.Unlock()
-		require.NotEmpty(t, recorder.requests)
+		modelCalls := 0
 		for _, request := range recorder.requests {
-			require.True(t, bytes.Contains(request.Body, []byte(marker)), "every invocation must retain the pinned large prompt")
+			// Claude also probes the endpoint without a model request body.
+			if request.Method != http.MethodPost {
+				continue
+			}
+			modelCalls++
+			require.True(t, bytes.Contains(request.Body, []byte(marker)), "every model invocation must retain the pinned large prompt")
 		}
+		require.GreaterOrEqual(t, modelCalls, 3, "startup, restore, and fork must each invoke the model")
 	})
 }
 
