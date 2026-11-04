@@ -8,6 +8,30 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class ToolActivity(_message.Message):
+    __slots__ = ("id", "name", "args", "response", "mcp_server")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ARGS_FIELD_NUMBER: _ClassVar[int]
+    RESPONSE_FIELD_NUMBER: _ClassVar[int]
+    MCP_SERVER_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    name: str
+    args: _struct_pb2.Value
+    response: ToolResponse
+    mcp_server: str
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., args: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., response: _Optional[_Union[ToolResponse, _Mapping]] = ..., mcp_server: _Optional[str] = ...) -> None: ...
+
+class ToolResponse(_message.Message):
+    __slots__ = ("output", "error", "pending")
+    OUTPUT_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    PENDING_FIELD_NUMBER: _ClassVar[int]
+    output: _struct_pb2.Value
+    error: _struct_pb2.Value
+    pending: _struct_pb2.Value
+    def __init__(self, output: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., error: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., pending: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ...) -> None: ...
+
 class HitlTool(_message.Message):
     __slots__ = ("id", "call_id", "name", "args")
     ID_FIELD_NUMBER: _ClassVar[int]

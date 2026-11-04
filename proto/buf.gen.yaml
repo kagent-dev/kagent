@@ -25,6 +25,8 @@ plugins:
       - kagent.runtime.v1.MemoryService
       - kagent.runtime.v1.TaskStoreService
       - kagent.api.v1.StructuredObject
+      - kagent.api.v1.ToolActivity
+      - kagent.api.v1.ToolResponse
       - kagent.api.v1.HitlTool
       - kagent.api.v1.NestedHitlRequest
       - kagent.api.v1.ToolApprovalRequest
@@ -41,6 +43,8 @@ plugins:
       - kagent.runtime.v1.MemoryService
       - kagent.runtime.v1.TaskStoreService
       - kagent.api.v1.StructuredObject
+      - kagent.api.v1.ToolActivity
+      - kagent.api.v1.ToolResponse
       - kagent.api.v1.HitlTool
       - kagent.api.v1.NestedHitlRequest
       - kagent.api.v1.ToolApprovalRequest

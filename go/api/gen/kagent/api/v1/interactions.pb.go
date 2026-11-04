@@ -23,6 +23,188 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ToolActivity is the DataPart payload for function_call and function_response.
+// The part kind is carried by kagent.dev/a2a/part-type metadata.
+type ToolActivity struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Exact tool name, without a harness-specific MCP server prefix.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// The tool's arguments, without SDK transport envelopes.
+	Args     *structpb.Value `protobuf:"bytes,3,opt,name=args,proto3" json:"args,omitempty"`
+	Response *ToolResponse   `protobuf:"bytes,4,opt,name=response,proto3" json:"response,omitempty"`
+	// Configured MCP server identity; together with name, identifies the tool.
+	McpServer     string `protobuf:"bytes,5,opt,name=mcp_server,proto3" json:"mcp_server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ToolActivity) Reset() {
+	*x = ToolActivity{}
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ToolActivity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ToolActivity) ProtoMessage() {}
+
+func (x *ToolActivity) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ToolActivity.ProtoReflect.Descriptor instead.
+func (*ToolActivity) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ToolActivity) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ToolActivity) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ToolActivity) GetArgs() *structpb.Value {
+	if x != nil {
+		return x.Args
+	}
+	return nil
+}
+
+func (x *ToolActivity) GetResponse() *ToolResponse {
+	if x != nil {
+		return x.Response
+	}
+	return nil
+}
+
+func (x *ToolActivity) GetMcpServer() string {
+	if x != nil {
+		return x.McpServer
+	}
+	return ""
+}
+
+// ToolResponse distinguishes a result, a tool failure, and deferred user input.
+// MCP results prefer structuredContent, then text content; other content is
+// retained as the original MCP CallToolResult.
+type ToolResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Outcome:
+	//
+	//	*ToolResponse_Output
+	//	*ToolResponse_Error
+	//	*ToolResponse_Pending
+	Outcome       isToolResponse_Outcome `protobuf_oneof:"outcome"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ToolResponse) Reset() {
+	*x = ToolResponse{}
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ToolResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ToolResponse) ProtoMessage() {}
+
+func (x *ToolResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ToolResponse.ProtoReflect.Descriptor instead.
+func (*ToolResponse) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ToolResponse) GetOutcome() isToolResponse_Outcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return nil
+}
+
+func (x *ToolResponse) GetOutput() *structpb.Value {
+	if x != nil {
+		if x, ok := x.Outcome.(*ToolResponse_Output); ok {
+			return x.Output
+		}
+	}
+	return nil
+}
+
+func (x *ToolResponse) GetError() *structpb.Value {
+	if x != nil {
+		if x, ok := x.Outcome.(*ToolResponse_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+func (x *ToolResponse) GetPending() *structpb.Value {
+	if x != nil {
+		if x, ok := x.Outcome.(*ToolResponse_Pending); ok {
+			return x.Pending
+		}
+	}
+	return nil
+}
+
+type isToolResponse_Outcome interface {
+	isToolResponse_Outcome()
+}
+
+type ToolResponse_Output struct {
+	Output *structpb.Value `protobuf:"bytes,1,opt,name=output,proto3,oneof"`
+}
+
+type ToolResponse_Error struct {
+	Error *structpb.Value `protobuf:"bytes,2,opt,name=error,proto3,oneof"`
+}
+
+type ToolResponse_Pending struct {
+	Pending *structpb.Value `protobuf:"bytes,3,opt,name=pending,proto3,oneof"`
+}
+
+func (*ToolResponse_Output) isToolResponse_Outcome() {}
+
+func (*ToolResponse_Error) isToolResponse_Outcome() {}
+
+func (*ToolResponse_Pending) isToolResponse_Outcome() {}
+
 // HitlTool identifies a tool invocation awaiting a human decision.
 type HitlTool struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -36,7 +218,7 @@ type HitlTool struct {
 
 func (x *HitlTool) Reset() {
 	*x = HitlTool{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[0]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -48,7 +230,7 @@ func (x *HitlTool) String() string {
 func (*HitlTool) ProtoMessage() {}
 
 func (x *HitlTool) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[0]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61,7 +243,7 @@ func (x *HitlTool) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HitlTool.ProtoReflect.Descriptor instead.
 func (*HitlTool) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{0}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *HitlTool) GetId() string {
@@ -104,7 +286,7 @@ type NestedHitlRequest struct {
 
 func (x *NestedHitlRequest) Reset() {
 	*x = NestedHitlRequest{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[1]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -116,7 +298,7 @@ func (x *NestedHitlRequest) String() string {
 func (*NestedHitlRequest) ProtoMessage() {}
 
 func (x *NestedHitlRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[1]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -129,7 +311,7 @@ func (x *NestedHitlRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NestedHitlRequest.ProtoReflect.Descriptor instead.
 func (*NestedHitlRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{1}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *NestedHitlRequest) GetSubagentName() string {
@@ -174,7 +356,7 @@ type ToolApprovalRequest struct {
 
 func (x *ToolApprovalRequest) Reset() {
 	*x = ToolApprovalRequest{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[2]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -186,7 +368,7 @@ func (x *ToolApprovalRequest) String() string {
 func (*ToolApprovalRequest) ProtoMessage() {}
 
 func (x *ToolApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[2]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -199,7 +381,7 @@ func (x *ToolApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolApprovalRequest.ProtoReflect.Descriptor instead.
 func (*ToolApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{2}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ToolApprovalRequest) GetType() string {
@@ -241,7 +423,7 @@ type ToolApproval struct {
 
 func (x *ToolApproval) Reset() {
 	*x = ToolApproval{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[3]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -253,7 +435,7 @@ func (x *ToolApproval) String() string {
 func (*ToolApproval) ProtoMessage() {}
 
 func (x *ToolApproval) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[3]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -266,7 +448,7 @@ func (x *ToolApproval) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolApproval.ProtoReflect.Descriptor instead.
 func (*ToolApproval) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{3}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ToolApproval) GetId() string {
@@ -300,7 +482,7 @@ type ToolApprovalResponse struct {
 
 func (x *ToolApprovalResponse) Reset() {
 	*x = ToolApprovalResponse{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[4]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -312,7 +494,7 @@ func (x *ToolApprovalResponse) String() string {
 func (*ToolApprovalResponse) ProtoMessage() {}
 
 func (x *ToolApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[4]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -325,7 +507,7 @@ func (x *ToolApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolApprovalResponse.ProtoReflect.Descriptor instead.
 func (*ToolApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{4}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ToolApprovalResponse) GetType() string {
@@ -353,7 +535,7 @@ type HitlQuestion struct {
 
 func (x *HitlQuestion) Reset() {
 	*x = HitlQuestion{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[5]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -365,7 +547,7 @@ func (x *HitlQuestion) String() string {
 func (*HitlQuestion) ProtoMessage() {}
 
 func (x *HitlQuestion) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[5]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -378,7 +560,7 @@ func (x *HitlQuestion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HitlQuestion.ProtoReflect.Descriptor instead.
 func (*HitlQuestion) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{5}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *HitlQuestion) GetQuestion() string {
@@ -414,7 +596,7 @@ type AskUserRequest struct {
 
 func (x *AskUserRequest) Reset() {
 	*x = AskUserRequest{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[6]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -426,7 +608,7 @@ func (x *AskUserRequest) String() string {
 func (*AskUserRequest) ProtoMessage() {}
 
 func (x *AskUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[6]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -439,7 +621,7 @@ func (x *AskUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AskUserRequest.ProtoReflect.Descriptor instead.
 func (*AskUserRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{6}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *AskUserRequest) GetType() string {
@@ -479,7 +661,7 @@ type AskUserAnswer struct {
 
 func (x *AskUserAnswer) Reset() {
 	*x = AskUserAnswer{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[7]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -491,7 +673,7 @@ func (x *AskUserAnswer) String() string {
 func (*AskUserAnswer) ProtoMessage() {}
 
 func (x *AskUserAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[7]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -504,7 +686,7 @@ func (x *AskUserAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AskUserAnswer.ProtoReflect.Descriptor instead.
 func (*AskUserAnswer) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{7}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *AskUserAnswer) GetAnswer() []string {
@@ -525,7 +707,7 @@ type AskUserResponse struct {
 
 func (x *AskUserResponse) Reset() {
 	*x = AskUserResponse{}
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[8]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -537,7 +719,7 @@ func (x *AskUserResponse) String() string {
 func (*AskUserResponse) ProtoMessage() {}
 
 func (x *AskUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1_interactions_proto_msgTypes[8]
+	mi := &file_kagent_api_v1_interactions_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -550,7 +732,7 @@ func (x *AskUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AskUserResponse.ProtoReflect.Descriptor instead.
 func (*AskUserResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{8}
+	return file_kagent_api_v1_interactions_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AskUserResponse) GetType() string {
@@ -578,7 +760,20 @@ var File_kagent_api_v1_interactions_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_interactions_proto_rawDesc = "" +
 	"\n" +
-	" kagent/api/v1/interactions.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\"~\n" +
+	" kagent/api/v1/interactions.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xb7\x01\n" +
+	"\fToolActivity\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12*\n" +
+	"\x04args\x18\x03 \x01(\v2\x16.google.protobuf.ValueR\x04args\x127\n" +
+	"\bresponse\x18\x04 \x01(\v2\x1b.kagent.api.v1.ToolResponseR\bresponse\x12\x1e\n" +
+	"\n" +
+	"mcp_server\x18\x05 \x01(\tR\n" +
+	"mcp_server\"\xb6\x01\n" +
+	"\fToolResponse\x120\n" +
+	"\x06output\x18\x01 \x01(\v2\x16.google.protobuf.ValueH\x00R\x06output\x12.\n" +
+	"\x05error\x18\x02 \x01(\v2\x16.google.protobuf.ValueH\x00R\x05error\x122\n" +
+	"\apending\x18\x03 \x01(\v2\x16.google.protobuf.ValueH\x00R\apendingB\x10\n" +
+	"\aoutcome\x12\x05\xbaH\x02\b\x01\"~\n" +
 	"\bHitlTool\x12\x17\n" +
 	"\x02id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x02id\x12\x18\n" +
 	"\acall_id\x18\x02 \x01(\tR\acall_id\x12\x12\n" +
@@ -636,33 +831,41 @@ func file_kagent_api_v1_interactions_proto_rawDescGZIP() []byte {
 	return file_kagent_api_v1_interactions_proto_rawDescData
 }
 
-var file_kagent_api_v1_interactions_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_kagent_api_v1_interactions_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_kagent_api_v1_interactions_proto_goTypes = []any{
-	(*HitlTool)(nil),             // 0: kagent.api.v1.HitlTool
-	(*NestedHitlRequest)(nil),    // 1: kagent.api.v1.NestedHitlRequest
-	(*ToolApprovalRequest)(nil),  // 2: kagent.api.v1.ToolApprovalRequest
-	(*ToolApproval)(nil),         // 3: kagent.api.v1.ToolApproval
-	(*ToolApprovalResponse)(nil), // 4: kagent.api.v1.ToolApprovalResponse
-	(*HitlQuestion)(nil),         // 5: kagent.api.v1.HitlQuestion
-	(*AskUserRequest)(nil),       // 6: kagent.api.v1.AskUserRequest
-	(*AskUserAnswer)(nil),        // 7: kagent.api.v1.AskUserAnswer
-	(*AskUserResponse)(nil),      // 8: kagent.api.v1.AskUserResponse
-	(*structpb.Struct)(nil),      // 9: google.protobuf.Struct
+	(*ToolActivity)(nil),         // 0: kagent.api.v1.ToolActivity
+	(*ToolResponse)(nil),         // 1: kagent.api.v1.ToolResponse
+	(*HitlTool)(nil),             // 2: kagent.api.v1.HitlTool
+	(*NestedHitlRequest)(nil),    // 3: kagent.api.v1.NestedHitlRequest
+	(*ToolApprovalRequest)(nil),  // 4: kagent.api.v1.ToolApprovalRequest
+	(*ToolApproval)(nil),         // 5: kagent.api.v1.ToolApproval
+	(*ToolApprovalResponse)(nil), // 6: kagent.api.v1.ToolApprovalResponse
+	(*HitlQuestion)(nil),         // 7: kagent.api.v1.HitlQuestion
+	(*AskUserRequest)(nil),       // 8: kagent.api.v1.AskUserRequest
+	(*AskUserAnswer)(nil),        // 9: kagent.api.v1.AskUserAnswer
+	(*AskUserResponse)(nil),      // 10: kagent.api.v1.AskUserResponse
+	(*structpb.Value)(nil),       // 11: google.protobuf.Value
+	(*structpb.Struct)(nil),      // 12: google.protobuf.Struct
 }
 var file_kagent_api_v1_interactions_proto_depIdxs = []int32{
-	9, // 0: kagent.api.v1.HitlTool.args:type_name -> google.protobuf.Struct
-	0, // 1: kagent.api.v1.NestedHitlRequest.tools:type_name -> kagent.api.v1.HitlTool
-	0, // 2: kagent.api.v1.ToolApprovalRequest.tools:type_name -> kagent.api.v1.HitlTool
-	1, // 3: kagent.api.v1.ToolApprovalRequest.nested:type_name -> kagent.api.v1.NestedHitlRequest
-	3, // 4: kagent.api.v1.ToolApprovalResponse.approvals:type_name -> kagent.api.v1.ToolApproval
-	5, // 5: kagent.api.v1.AskUserRequest.questions:type_name -> kagent.api.v1.HitlQuestion
-	1, // 6: kagent.api.v1.AskUserRequest.nested:type_name -> kagent.api.v1.NestedHitlRequest
-	7, // 7: kagent.api.v1.AskUserResponse.answers:type_name -> kagent.api.v1.AskUserAnswer
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	11, // 0: kagent.api.v1.ToolActivity.args:type_name -> google.protobuf.Value
+	1,  // 1: kagent.api.v1.ToolActivity.response:type_name -> kagent.api.v1.ToolResponse
+	11, // 2: kagent.api.v1.ToolResponse.output:type_name -> google.protobuf.Value
+	11, // 3: kagent.api.v1.ToolResponse.error:type_name -> google.protobuf.Value
+	11, // 4: kagent.api.v1.ToolResponse.pending:type_name -> google.protobuf.Value
+	12, // 5: kagent.api.v1.HitlTool.args:type_name -> google.protobuf.Struct
+	2,  // 6: kagent.api.v1.NestedHitlRequest.tools:type_name -> kagent.api.v1.HitlTool
+	2,  // 7: kagent.api.v1.ToolApprovalRequest.tools:type_name -> kagent.api.v1.HitlTool
+	3,  // 8: kagent.api.v1.ToolApprovalRequest.nested:type_name -> kagent.api.v1.NestedHitlRequest
+	5,  // 9: kagent.api.v1.ToolApprovalResponse.approvals:type_name -> kagent.api.v1.ToolApproval
+	7,  // 10: kagent.api.v1.AskUserRequest.questions:type_name -> kagent.api.v1.HitlQuestion
+	3,  // 11: kagent.api.v1.AskUserRequest.nested:type_name -> kagent.api.v1.NestedHitlRequest
+	9,  // 12: kagent.api.v1.AskUserResponse.answers:type_name -> kagent.api.v1.AskUserAnswer
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1_interactions_proto_init() }
@@ -670,13 +873,18 @@ func file_kagent_api_v1_interactions_proto_init() {
 	if File_kagent_api_v1_interactions_proto != nil {
 		return
 	}
+	file_kagent_api_v1_interactions_proto_msgTypes[1].OneofWrappers = []any{
+		(*ToolResponse_Output)(nil),
+		(*ToolResponse_Error)(nil),
+		(*ToolResponse_Pending)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1_interactions_proto_rawDesc), len(file_kagent_api_v1_interactions_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
