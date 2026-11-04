@@ -114,7 +114,7 @@ func gatherRuntimeRevisionGCMetrics(t *testing.T, reader *sdkmetric.ManualReader
 }
 
 func TestRuntimeRevisionGCMetricsDiscoveryAndRestart(t *testing.T) {
-	store := &fakeGCStore{revisions: []database.RuntimeArtifact{{Revision: "failed", ActorTemplateName: "failed"}}}
+	store := &fakeGCStore{revisions: []database.RuntimeArtifact{gcRevision("failed")}}
 	templates := &fakeGCTemplates{deleteErr: errors.New("Substrate unavailable")}
 	collector, registry := newTestRuntimeRevisionGC(t, store, templates)
 	require.NotContains(t, gatherRuntimeRevisionGCMetrics(t, registry).gauges, gcPendingMetric)
@@ -192,7 +192,7 @@ func TestRuntimeRevisionGCMetricsRuntimeKinds(t *testing.T) {
 func TestRuntimeRevisionGCMetricsAttemptDuration(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := &fakeGCStore{
-			revisions: []database.RuntimeArtifact{{Revision: "candidate"}},
+			revisions: []database.RuntimeArtifact{gcRevision("candidate")},
 			listDelay: 10 * time.Millisecond, beginDelay: 250 * time.Millisecond,
 			finalizeDelay: 2 * time.Second,
 		}
@@ -299,8 +299,7 @@ func TestRuntimeRevisionGCMetricsCancellationStopsDispatch(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			store := &fakeGCStore{revisions: []database.RuntimeArtifact{
-				{Revision: "first"},
-				{Revision: "next"},
+				gcRevision("first"), gcRevision("next"),
 			}}
 			templates := &cancelingGCDeletion{cancel: cancel, err: test.err}
 			collector, registry := newTestRuntimeRevisionGC(t, store, templates)
@@ -345,6 +344,7 @@ func TestRuntimeRevisionGCMetricsCollectionFailures(t *testing.T) {
 		changedUID       bool
 		skipClaim        bool
 		skipFinalization bool
+		absent           bool
 		wantErrorType    string
 		wantPending      int64
 	}{
@@ -363,15 +363,18 @@ func TestRuntimeRevisionGCMetricsCollectionFailures(t *testing.T) {
 		{name: "out of range gRPC code", deleteErr: status.Error(codes.Code(999), "private details"), wantErrorType: "_OTHER", wantPending: 1},
 		{name: "nil claim", skipClaim: true, wantPending: 1},
 		{name: "nil finalization", skipFinalization: true, wantPending: 1},
-		{name: "already absent compute", wantPending: 0},
+		{name: "already absent compute", absent: true, wantPending: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeGCStore{
-				revisions: []database.RuntimeArtifact{{Revision: "failed", ActorTemplateName: "failed", ActorTemplateUID: "expected"}},
+				revisions: []database.RuntimeArtifact{gcRevision("failed")},
 				beginErr:  test.beginErr, finalizeErr: test.finalizeErr,
 				skipClaim: test.skipClaim, skipFinalization: test.skipFinalization,
 			}
 			templates := &fakeGCTemplates{deleteErr: test.deleteErr}
+			if test.absent {
+				store.revisions[0].ActorTemplateName = ""
+			}
 			var client runtimeRevisionGCClient = templates
 			if test.getErr != nil {
 				client = &failingGCRead{err: test.getErr}
@@ -480,7 +483,7 @@ func TestRuntimeRevisionGCMetricsShapeAndScrape(t *testing.T) {
 
 func TestRuntimeRevisionGCFailureLogsRetainIdentity(t *testing.T) {
 	store := &fakeGCStore{revisions: []database.RuntimeArtifact{{
-		Revision: "revision-digest", ActorTemplateAtespace: "team-a", ActorTemplateName: "failed",
+		Revision: "revision-digest", ActorTemplateAtespace: "team-a", ActorTemplateName: "failed", ActorTemplateUID: "failed",
 	}}}
 	collector, registry := newTestRuntimeRevisionGC(t, store, &fakeGCTemplates{deleteErr: errors.New("backend unavailable")})
 	var output bytes.Buffer
@@ -522,14 +525,14 @@ func (f *failingGCRead) GetActorTemplate(context.Context, string, string) (*atea
 }
 
 type cancelingGCDeletion struct {
-	fakeActorTemplates
+	fakeGCTemplates
 	cancel context.CancelFunc
 	err    error
 }
 
 var _ runtimeRevisionGCClient = (*cancelingGCDeletion)(nil)
 
-func (c *cancelingGCDeletion) DeleteActorTemplate(context.Context, string, string) error {
+func (c *cancelingGCDeletion) DeleteActorTemplate(context.Context, string, string, string) error {
 	c.cancel()
 	return c.err
 }

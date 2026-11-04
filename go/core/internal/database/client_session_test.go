@@ -400,14 +400,14 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
+	if err := recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})); err != nil {
 		t.Fatal(err)
 	}
 
 	source, _, err := client.CreateSession(ctx, &apiv1.Session{
 		Id: sourceID, Creator: "alice", Name: "Namespace explanation",
 
-		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}, "source-request")
 	if err != nil {
 		t.Fatal(err)
@@ -491,7 +491,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	}
 	if fork.GetId() != forkID || fork.GetPreparedRevision() != revision.Revision || fork.GetA2AAuthority() != "" ||
 		fork.GetState() != apiv1.RuntimeState_RUNTIME_STATE_CREATING ||
-		fork.GetAgent().GetName() != "assistant" {
+		fork.GetAgent().GetRef().GetName() != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
 	sessions, err := client.ListSessions(ctx, SessionQuery{
@@ -567,7 +567,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
-		ActorTemplateUID: "actor-template-uid",
+		ActorTemplateUID: "actor-template-uid", ActorTemplateSpecDigest: "spec-digest",
 	}
 	pair := AgentDefinition{
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
@@ -576,7 +576,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
+	if err := recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -587,11 +587,14 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if storedRevision.AgentCard.GetName() != "assistant" {
 		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
 	}
+	if storedRevision.ActorTemplateSpecDigest != "spec-digest" {
+		t.Fatalf("GetRuntimeRevision() ActorTemplateSpecDigest = %q", storedRevision.ActorTemplateSpecDigest)
+	}
 
 	request := &apiv1.Session{
 		Id: "11111111-1111-4111-8111-111111111111", Creator: "alice",
 
-		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}
 	created, wasCreated, err := client.CreateSession(ctx, request, "request-1")
 	if err != nil || !wasCreated {
@@ -627,7 +630,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
 
-	request.Agent.Name = "different"
+	request.Agent.Ref.Name = "different"
 	if _, _, err := client.CreateSession(ctx, request, "request-1"); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting request error = %v", err)
 	}
@@ -678,7 +681,7 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
+	if err := recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -687,7 +690,7 @@ func newSessionRequest(id, template, harness, name string) *apiv1.Session {
 	return &apiv1.Session{
 		Id: id, Creator: "alice", Name: name,
 
-		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: template},
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: template}},
 	}
 }
 
@@ -702,7 +705,7 @@ func TestSessionsUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
 	require.NoError(t, err)
 	second := proto.CloneOf(first)
 	second.Id = uuid.NewString()
-	second.Agent.Namespace = "team-b"
+	second.Agent.Ref.Namespace = "team-b"
 	_, _, err = c.CreateSession(ctx, second, "request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict, "request IDs belong to the caller, across targets")
 	other, _, err := c.CreateSession(ctx, second, "other-request")
@@ -710,13 +713,13 @@ func TestSessionsUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
 	rows, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
-	filtered, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Agent: second.Agent})
+	filtered, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Agent: second.Agent.Ref})
 	require.NoError(t, err)
 	require.Len(t, filtered, 1)
 	require.Equal(t, other.Id, filtered[0].Id)
 	loaded, err := c.GetSession(ctx, created.Id, "alice")
 	require.NoError(t, err)
-	require.Equal(t, "team-a", loaded.Agent.Namespace)
+	require.Equal(t, "team-a", loaded.Agent.Ref.Namespace)
 	_, err = c.GetSession(ctx, created.Id, "bob")
 	require.ErrorIs(t, err, ErrNotFound)
 }
@@ -988,7 +991,7 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	_, created, err := client.CreateSession(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	require.False(t, created)
-	request.Agent.Name = "different"
+	request.Agent.Ref.Name = "different"
 	_, _, err = client.CreateSession(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 	// Tombstones release the revision FK and no longer block runtime cleanup.

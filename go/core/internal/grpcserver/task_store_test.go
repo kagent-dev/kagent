@@ -191,7 +191,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	_, err = controller.MemoryService().List(authenticated, &runtimev1.MemoryServiceListRequest{AgentName: "forged/agent"})
 	require.NoError(t, err)
-	require.Equal(t, session.Agent.Namespace+"/"+session.Agent.Name, memories.agentName)
+	require.Equal(t, "team-a/assistant", memories.agentName)
 	require.Equal(t, session.Creator, memories.userID)
 	_, err = private.GetTask(authenticated, &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: uuid.NewString(), TaskId: "absent"})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
@@ -313,7 +313,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, httpTransport.Destroy()) })
 		}
 	}
-	publicCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice"))
+	publicCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice", a2a.SvcParamVersion, string(a2a.Version)))
 	observer, stopObserver := context.WithTimeout(publicCtx, 10*time.Second)
 	defer stopObserver()
 	input := &a2apb.SendMessageRequest{Tenant: "team-a/assistant", Message: &a2apb.Message{
@@ -425,7 +425,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.Equal(t, "managed-grpc", grpcConfig.GetId())
 	require.Empty(t, grpcConfig.GetToken())
 	require.Nil(t, grpcConfig.GetAuthentication())
-	params := a2aclient.ServiceParams{"x-user-id": {"alice"}}
+	params := a2aclient.ServiceParams{"x-user-id": {"alice"}, a2a.SvcParamVersion: {string(a2a.Version)}}
 	jsonConfig, err := httpTransport.CreateTaskPushConfig(publicCtx, params, &a2a.PushConfig{
 		TaskID: a2a.TaskID(parkedID), ID: "managed-json", URL: receiver.URL,
 	})
@@ -596,7 +596,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	t.Run("HTTP and gRPC share durable tasks", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
-		params := a2aclient.ServiceParams{"x-user-id": {"alice"}}
+		params := a2aclient.ServiceParams{"x-user-id": {"alice"}, a2a.SvcParamVersion: {string(a2a.Version)}}
 		message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("work"))
 		message.ContextID = id
 		result, err := httpTransport.SendMessage(ctx, params, &a2a.SendMessageRequest{Message: message})
@@ -692,22 +692,17 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 // pins, authority and actor identity invariants as a real runtime session.
 func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session {
 	t.Helper()
-	revision := database.RuntimeRevision{
-		Revision: "revision-1", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
+	revision := database.RuntimeRevision{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", Revision: "revision-1",
 		SourceSnapshot: []byte("{}"),
 		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
-	upsertErr := store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
-		Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID,
-		DesiredRevision: revision.Revision,
-	})
+	upsertErr := store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID, DesiredRevision: revision.Revision})
 	require.NoError(t, upsertErr)
-	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, database.RecordRevisionOptions{Ready: true}))
+	_, err := store.RecordRuntimeRevision(t.Context(), revision, database.RecordRevisionOptions{Ready: true})
+	require.NoError(t, err)
 	session, _, err := store.CreateSession(t.Context(), &apiv1.Session{
-		Id: uuid.NewString(), Creator: "alice",
-
-		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}, uuid.NewString())
 	require.NoError(t, err)
 	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)

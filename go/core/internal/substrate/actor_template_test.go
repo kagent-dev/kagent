@@ -160,10 +160,25 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	if !ActorTemplateSpecEqual(left, right) {
 		t.Fatal("server-owned fields changed the immutable spec comparison")
 	}
+	if mustSpecDigest(t, left) != mustSpecDigest(t, right) {
+		t.Fatal("server-owned fields changed the immutable spec digest")
+	}
 	right.Containers[0].Image = "agent:v2"
 	if ActorTemplateSpecEqual(left, right) {
 		t.Fatal("different container image was accepted")
 	}
+	if mustSpecDigest(t, left) == mustSpecDigest(t, right) {
+		t.Fatal("different container image kept the immutable spec digest")
+	}
+}
+
+func mustSpecDigest(t *testing.T, template *ateapipb.ActorTemplate) string {
+	t.Helper()
+	digest, err := ActorTemplateSpecDigest(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
 
 func TestActorTemplateEnvironmentValueSize(t *testing.T) {

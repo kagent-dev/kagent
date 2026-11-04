@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -122,6 +123,12 @@ type Options struct {
 	// its own surface here; letting it reclassify core's would turn a config
 	// field into a way to make an authenticated method public.
 	MethodPolicies map[string]auth.AccessMode
+	// MCPExtensions receives core's /mcp server after core registers its own
+	// tools and before the handler is built, so a consumer can add tools and
+	// resources that share core's endpoint and authenticator. Core's tools are
+	// not protected: the SDK replaces a tool or resource registered under an
+	// existing name or URI. Returning an error aborts startup.
+	MCPExtensions func(*mcpsdk.Server) error
 	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
 	// all must be bound. Authenticator must not forward the caller token.
 	EgressPolicyCompilers []egresspolicy.Compiler
@@ -361,7 +368,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
-		cfg.GetSubstrate().GetRouterUrl(),
+		cfg.GetSubstrate(),
 		authenticator,
 	)
 	if err != nil {
@@ -393,7 +400,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
-	guests, err := sandboxservice.NewGuestDialer(cfg.GetSubstrate().GetRouterUrl(), authenticator)
+	guests, err := sandboxservice.NewGuestDialer(cfg.GetSubstrate(), authenticator)
 	if err != nil {
 		return err
 	}
@@ -418,7 +425,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := manager.Add(sandboxes); err != nil {
 		return err
 	}
-	mcpHandler, err := mcp.New(sessions, checkpoints, gateway, sandboxes, sandboxTemplates)
+	mcpHandler, err := mcp.New(mcp.Config{
+		Agents: agents, Sessions: sessions, Checkpoints: checkpoints, Gateway: gateway,
+		Sandboxes: sandboxes, SandboxTemplates: sandboxTemplates,
+		Extensions: opts.MCPExtensions,
+	})
 	if err != nil {
 		return err
 	}

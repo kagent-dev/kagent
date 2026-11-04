@@ -1,5 +1,5 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
-import { ActorState, SnapshotStorageStatus } from "@/generated/api/ateapi/v1/ateapi_pb";
+import { ActorState, SnapshotStorageState } from "@/generated/api/ateapi/v1/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -428,8 +428,8 @@ describe("the cluster", () => {
                 workerPodIps: ["10.0.0.1", "fd00::1"],
               },
               snapshots: [
-                { generation: 2, uuid: "next-snapshot", durableSnapshot: { status: SnapshotStorageStatus.PENDING } },
-                { generation: 1, durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: "s3://snapshot" } } },
+                { generation: 2, uuid: "next-snapshot", durableSnapshot: { state: SnapshotStorageState.PENDING } },
+                { generation: 1, durableSnapshot: { state: SnapshotStorageState.COMPLETED, object: { snapshotUri: "s3://snapshot" } } },
               ],
             },
           }],
@@ -539,7 +539,7 @@ describe("the cluster", () => {
             state,
             snapshots: [
               { generation: 2, locality: "node-1" },
-              { generation: 1, durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: "s3://old" } } },
+              { generation: 1, durableSnapshot: { state: SnapshotStorageState.COMPLETED, object: { snapshotUri: "s3://old" } } },
             ],
           } }],
         }),
@@ -794,7 +794,7 @@ describe("agent instances", () => {
       id: INSTANCE_ID,
       contextId: INSTANCE_ID,
       creator: "alice@example.com",
-      agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+      agent: { ref: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, uid: "agent-uid" },
       preparedRevision: "rev-7f3a91c",
       a2aAuthority: "k8s-agent.kagent.svc:8080",
       state: RuntimeState.READY,

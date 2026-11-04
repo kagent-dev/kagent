@@ -53,6 +53,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		require.NoError(t, err)
 		var names []string
 		for _, resource := range resources.APIResources {
+			require.NotEqual(t, "harnesses/status", resource.Name, "Harness must not expose a status subresource")
 			if !strings.Contains(resource.Name, "/") {
 				names = append(names, resource.Name)
 			}
@@ -72,6 +73,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 
+	t.Run("model discovery configuration", func(t *testing.T) { testModelDiscoveryValidation(t, cl, namespace) })
 	t.Run("Actor JWT credentials", func(t *testing.T) { testActorJWTValidation(t, cl, namespace) })
 	t.Run("cross namespace references survive admission", func(t *testing.T) {
 		for _, ref := range []ObjectReference{{Name: "model"}, {Name: "model", Namespace: namespace}, {Name: "model", Namespace: "shared"}} {

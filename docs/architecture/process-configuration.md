@@ -267,6 +267,5 @@ Controller overrides apply only to the controller. Managed runtimes use
 supports `controller.env` and `controller.envFrom` for controller OTEL and
 external SDK inputs. See [telemetry](telemetry.md) for exporter and capture details.
 
-Other remaining public env interfaces are documented in [the generated
-reference](../env.md): provider credentials, SDK trust, `KUBECONFIG`, UI settings,
+Other remaining public env interfaces are registered in `go/core/pkg/env`: provider credentials, SDK trust, `KUBECONFIG`, UI settings,
 and test inputs. Application settings have no env fallback.

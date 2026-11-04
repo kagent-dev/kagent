@@ -17,6 +17,7 @@ type ApiV1alpha3Interface interface {
 	EgressPoliciesGetter
 	HarnessesGetter
 	ModelConfigsGetter
+	ModelProviderConfigsGetter
 	RemoteMCPServersGetter
 	SandboxTemplatesGetter
 }
@@ -44,6 +45,10 @@ func (c *ApiV1alpha3Client) Harnesses(namespace string) HarnessInterface {
 
 func (c *ApiV1alpha3Client) ModelConfigs(namespace string) ModelConfigInterface {
 	return newModelConfigs(c, namespace)
+}
+
+func (c *ApiV1alpha3Client) ModelProviderConfigs(namespace string) ModelProviderConfigInterface {
+	return newModelProviderConfigs(c, namespace)
 }
 
 func (c *ApiV1alpha3Client) RemoteMCPServers(namespace string) RemoteMCPServerInterface {

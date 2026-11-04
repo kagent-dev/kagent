@@ -525,9 +525,9 @@ func (x *MemoryServiceSearchResponse) GetMemories() []*MemorySearchResult {
 
 type MemoryServiceListRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// User calls must supply the stored agent key. Actor-created memories use
-	// "namespace/name"; legacy keys remain valid for managing older memories.
-	// Actor calls ignore this field and use the agent from their persisted session.
+	// User calls must supply the Agent key, "namespace/name".
+	// Actor calls ignore this field and use the Agent
+	// from their persisted session.
 	AgentName     string `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -616,9 +616,9 @@ func (x *MemoryServiceListResponse) GetMemories() []*MemorySummary {
 
 type MemoryServiceDeleteRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// User calls must supply the stored agent key. Actor-created memories use
-	// "namespace/name"; legacy keys remain valid for managing older memories.
-	// Actor calls ignore this field and use the agent from their persisted session.
+	// User calls must supply the Agent key, "namespace/name".
+	// Actor calls ignore this field and use the Agent
+	// from their persisted session.
 	AgentName     string `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -85,7 +85,8 @@ flowchart LR
 Database, Substrate, finalizer, and status writes run outside KRT transforms in
 queued workers. The configured guest digest is an immutable compilation input;
 changing it produces a new prepared revision. Only pending preparation and
-cleanup work is polled, including recovery from transient failures.
+cleanup work is polled, including recovery from transient failures, except a
+golden retry before its retry time (see below).
 
 The controller persists a deletion finalizer before allocating inputs, then
 persists the desired revision before backend creation. It publishes a ready
@@ -103,6 +104,22 @@ revision. Existing Sandboxes and
 creation retries retain their revision when a template changes.
 Template deletion retires preparation; retained instances continue to
 pin the runtime artifacts they need.
+
+A golden build that fails for any reason is rebuilt without a template edit,
+because Substrate never works on a template again once it records a golden
+error. The controller deletes the failed ActorTemplate by UID and creates it
+again after 15 seconds, 1 minute, 4 minutes, then every 10 minutes, each with up
+to 20% jitter and no retry cap. The database records the attempt count and when
+the build failed, in the same transaction as the revision. The controller
+computes the retry time from them, and the jitter comes from the failed
+template's UID, so a controller restart keeps the schedule. While a retry waits,
+`Ready` is `False` with reason `ActorTemplateRetrying`, and the message names
+the retry number, its time and the failure reason. Substrate's full error is
+logged by the controller, not copied into status, because it can quote
+configuration. While the rebuild is pending, the
+`Preparing` message names the retry number. A successful build resets the
+count. The 1-second poll wakes a waiting retry once its retry time passes;
+after a failed delete, queue backoff wakes it instead.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
 replica; expiration workers coordinate through PostgreSQL.

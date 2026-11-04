@@ -6,15 +6,16 @@ import (
 	"iter"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"google.golang.org/grpc"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -265,16 +266,17 @@ func (e *settledExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorCon
 	if version == 0 {
 		return
 	}
-	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
+	// Settlement retries within the store's retry budget instead of a shared
+	// cleanup deadline, so it can outlast a controller restart.
+	finish := context.WithoutCancel(ctx)
 	// Export the final save before settlement permits suspension. The settlement
 	// RPC's own span is flushed afterwards, but suspension can race that flush.
 	if e.flush != nil {
-		if err := e.flush(finish); err != nil {
+		if err := e.flushWithin(finish); err != nil {
 			logging.FromContext(finish).ErrorContext(finish, "flush telemetry before task settlement", "task_id", input.TaskID, "error", err)
 		}
 		defer func() {
-			if err := e.flush(finish); err != nil {
+			if err := e.flushWithin(finish); err != nil {
 				logging.FromContext(finish).ErrorContext(finish, "flush telemetry after task settlement", "task_id", input.TaskID, "error", err)
 			}
 		}()
@@ -283,13 +285,21 @@ func (e *settledExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorCon
 	if settleErr == nil {
 		request := &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: id, TaskId: string(input.TaskID), Version: version}
 		settleErr = e.store.retry(finish, func(ctx context.Context) error {
-			_, err := e.store.client.TaskStoreService().SettleTask(ctx, request)
+			_, err := e.store.client.TaskStoreService().SettleTask(ctx, request, grpc.WaitForReady(true))
 			return err
 		})
 	}
 	if settleErr != nil {
 		logging.FromContext(finish).ErrorContext(finish, "settle runtime task boundary", "task_id", input.TaskID, "error", settleErr)
 	}
+}
+
+// flushWithin bounds one flush: settlement's context has no deadline, and a
+// flush callback may block until its context ends.
+func (e *settledExecutor) flushWithin(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, telemetry.FlushTimeout)
+	defer cancel()
+	return e.flush(ctx)
 }
 
 func settledEvents(events iter.Seq2[a2a.Event, error]) iter.Seq2[a2a.Event, error] {

@@ -53,7 +53,7 @@ func NewActorJWTVerifier(ctx context.Context, issuer, caFile, audience string) (
 	if err := validateIssuerURL(issuer); err != nil {
 		return nil, err
 	}
-	tlsConfig, err := ateAPITLSConfig(Config{CAFile: caFile})
+	tlsConfig, err := clientTLSConfig(caFile, "")
 	if err != nil {
 		return nil, err
 	}

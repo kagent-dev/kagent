@@ -378,7 +378,7 @@ func TestSessionCheckpoint(t *testing.T) {
 			}
 		})
 		forkCtx, forkCancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(),
-			"x-user-id", "e2e",
+			"x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version),
 		), 4*time.Minute)
 		t.Cleanup(forkCancel)
 		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fork.GetContextId(), PageSize: 10})
@@ -424,7 +424,7 @@ func TestSessionCheckpoint(t *testing.T) {
 				t.Errorf("delete nested fork: %v", err)
 			}
 		})
-		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e")
+		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version))
 		nestedFixture := &interactionFixture{ctx: nestedCtx, client: fixture.client, tenant: fixture.tenant, sessionID: nestedID, contextID: nestedID}
 		_, _, nestedTask := nestedFixture.send(t, "What was the answer before the checkpoint?")
 		if nestedTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(nestedTask), "The answer is 4.") {
@@ -572,7 +572,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 			t.Fatalf("list Sessions: %v", err)
 		}
 		for _, session := range sessions.GetSessions() {
-			if session.GetAgent().GetName() == fixture.childTemplate {
+			if session.GetAgent().GetRef().GetName() == fixture.childTemplate {
 				t.Fatalf("Shared child created Session %q", session.GetId())
 			}
 		}
@@ -791,7 +791,7 @@ func newInteractionFixtureForTemplate(t *testing.T, harness testHarness, target,
 func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, templateName string) *interactionFixture {
 	t.Helper()
 	conn := newControllerConn(t, target)
-	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version)), 4*time.Minute)
 	t.Cleanup(cancel)
 	sessions := apiv1.NewSessionServiceClient(conn)
 	request := &apiv1.CreateSessionRequest{
@@ -824,7 +824,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	}
 	return &interactionFixture{
 		ctx:         ctx,
-		tenant:      session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName(),
+		tenant:      session.GetAgent().GetRef().GetNamespace() + "/" + session.GetAgent().GetRef().GetName(),
 		client:      a2apb.NewA2AServiceClient(conn),
 		sessions:    sessions,
 		checkpoints: apiv1.NewCheckpointServiceClient(conn),

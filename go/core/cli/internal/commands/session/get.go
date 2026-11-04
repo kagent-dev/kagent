@@ -125,7 +125,7 @@ func writeSessionsTable(w io.Writer, sessions []*apiv1.Session, nextPageToken st
 		}
 		tw.AppendRow(table.Row{
 			session.GetId(),
-			resourceName(session.GetAgent()),
+			session.GetAgent().GetRef().GetNamespace() + "/" + session.GetAgent().GetRef().GetName(),
 			strings.TrimPrefix(session.GetState().String(), "RUNTIME_STATE_"),
 			formatTimestamp(session.GetCreatedAt()),
 		})
@@ -138,13 +138,6 @@ func writeSessionsTable(w io.Writer, sessions []*apiv1.Session, nextPageToken st
 		return fmt.Errorf("write Session output: %w", err)
 	}
 	return nil
-}
-
-func resourceName(reference *apiv1.ResourceReference) string {
-	if reference == nil {
-		return ""
-	}
-	return reference.GetName()
 }
 
 func formatTimestamp(timestamp *timestamppb.Timestamp) string {

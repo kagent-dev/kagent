@@ -1,6 +1,8 @@
 package substrate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -149,6 +151,17 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 // templates, excluding server-owned metadata and golden-snapshot status.
 func ActorTemplateSpecEqual(left, right *ateapipb.ActorTemplate) bool {
 	return proto.Equal(actorTemplateSpec(left), actorTemplateSpec(right))
+}
+
+// ActorTemplateSpecDigest hashes the same fields ActorTemplateSpecEqual compares,
+// so a stored digest can recognize a recreated template without its UID.
+func ActorTemplateSpecDigest(template *ateapipb.ActorTemplate) (string, error) {
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(actorTemplateSpec(template))
+	if err != nil {
+		return "", fmt.Errorf("encode ActorTemplate spec: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate {

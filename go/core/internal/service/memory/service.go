@@ -229,10 +229,10 @@ func (s *Service) scope(ctx context.Context, verb auth.Verb) (string, string, er
 	if err != nil {
 		return "", "", err
 	}
-	if session.GetAgent().GetNamespace() == "" || session.GetAgent().GetName() == "" || session.Creator == "" {
+	if session.GetAgent().GetRef().GetNamespace() == "" || session.GetAgent().GetRef().GetName() == "" || session.Creator == "" {
 		return "", "", serviceerrors.NewPermissionDenied("actor has no memory scope", nil)
 	}
-	agentName := session.Agent.Namespace + "/" + session.Agent.Name
+	agentName := session.Agent.Ref.Namespace + "/" + session.Agent.Ref.Name
 	return agentName, session.Creator, s.authorize(ctx, verb, agentName)
 }
 

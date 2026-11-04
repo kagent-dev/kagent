@@ -42,7 +42,7 @@ func (p *Provider) Authenticate(ctx context.Context, headers http.Header, query 
 	if err != nil {
 		return nil, err
 	}
-	if session.Creator == "" || session.GetAgent().GetNamespace() == "" || session.GetAgent().GetName() == "" {
+	if session.Creator == "" || session.GetAgent().GetRef().GetNamespace() == "" || session.GetAgent().GetRef().GetName() == "" {
 		return nil, fmt.Errorf("actor session has no owner or agent")
 	}
 	bound := identity.(runtimeSession)
