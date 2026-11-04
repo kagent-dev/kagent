@@ -22,10 +22,11 @@ while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
 The ActorTemplate carries a golden egress policy for the revision's compiled
-destinations, including skill sources needed during preparation. It contains no
-session Secret credentials. Session egress and credentials are applied separately
-before execution. The golden policy participates in immutable-template equality,
-and its template format version participates in the revision digest.
+destinations, including skill sources needed during preparation. The policy is an
+allowlist without header effects; Session egress, credentials, and Actor JWTs are
+applied separately before execution. The golden policy participates in
+immutable-template equality, and its template format version participates in the
+revision digest.
 
 Substrate v1.0.0-rc1 requires protocol-specific egress policies and permits
 DNS queries only for hostnames matched by those policies. Kagent allows

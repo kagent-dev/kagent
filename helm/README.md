@@ -92,10 +92,11 @@ recreated Actors, Tags, and WorkerPools; Substrate does not migrate the older
 snapshot metadata. WorkerPools use
 `spec.sandboxClasses[]`, with an existing `configRef` of the same runtime class.
 
-Kagent configures snapshot storage per Harness or SandboxTemplate. Substrate
-v1.0.0-rc1 requires `preview: [PerTemplateSnapshotLocation]` in its Helm values to
-honor those locations. `kagent install` enables this gate by default; retain it
-when supplying your own `preview` list or installing Substrate directly.
+Kagent configures snapshot storage per Harness or SandboxTemplate and gives golden
+Actors egress to the revision's destinations during preparation. Substrate
+v1.0.0-rc1 requires `preview: [GoldenEgressPolicy, PerTemplateSnapshotLocation]`
+in its Helm values for both. `kagent install` enables these gates by default;
+retain them when supplying your own `preview` list or installing Substrate directly.
 
 Runtime-facing URLs must use full DNS names because Substrate only permits DNS
 queries matching the egress policy. The chart generates controller and API tool

@@ -203,6 +203,7 @@ func postgresClientValues(namespace, serviceAccount string, includeBundledPostgr
 func substrateInstallValues(namespace, serviceAccount string) string {
 	controllerIdentity := strconv.Quote("spiffe://cluster.local/ns/" + namespace + "/sa/" + serviceAccount)
 	return fmt.Sprintf(`preview:
+  - GoldenEgressPolicy
   - PerTemplateSnapshotLocation
 ateApi:
   authorization:
