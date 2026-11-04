@@ -55,7 +55,8 @@ func (l *Launcher) collectSandbox(ctx context.Context, sessionID string) error {
 		return safeRecoveryError("managed agents collection gate failed", err)
 	}
 	defer l.unlockSandbox(sessionID, entry)
-	return l.finishWorker(ctx, entry)
+	_, err = l.finishWorker(ctx, entry)
+	return err
 }
 
 func processNotFound(err error) bool {

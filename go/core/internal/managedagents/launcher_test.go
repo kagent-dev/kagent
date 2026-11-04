@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -44,6 +45,8 @@ func testWork(id string) *anthropic.BetaSelfHostedWork {
 }
 
 type sandboxFixture struct {
+	list    func(context.Context, *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error)
+	output  func(context.Context, string, *guestpb.StreamProcessOutputRequest, func(*guestpb.ProcessOutput) error) error
 	lookup  func(context.Context, string) (*apiv1.Sandbox, error)
 	create  func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
 	resume  func(context.Context, string) (*apiv1.Sandbox, error)
@@ -53,6 +56,20 @@ type sandboxFixture struct {
 }
 
 var _ SandboxService = (*sandboxFixture)(nil)
+
+func (s *sandboxFixture) List(ctx context.Context, req *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error) {
+	if s.list != nil {
+		return s.list(ctx, req)
+	}
+	return &apiv1.ListSandboxesResponse{}, nil
+}
+
+func (s *sandboxFixture) StreamProcessOutput(ctx context.Context, id string, req *guestpb.StreamProcessOutputRequest, send func(*guestpb.ProcessOutput) error) error {
+	if s.output != nil {
+		return s.output(ctx, id, req, send)
+	}
+	return send(&guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Exit{Exit: &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}}})
+}
 
 func (s *sandboxFixture) Get(ctx context.Context, id string) (*apiv1.Sandbox, error) {
 	if s.lookup != nil {
@@ -98,7 +115,7 @@ func (s *sandboxFixture) Suspend(ctx context.Context, id string) (*apiv1.Sandbox
 }
 
 func readySandbox() *apiv1.Sandbox {
-	return &apiv1.Sandbox{Id: testSandboxID, Creator: auth.PrincipalID("kagent:managed-agents", testConfig().EnvironmentID),
+	return &apiv1.Sandbox{Id: testSandboxID, Name: sandboxNamePrefix + "session_test", Creator: auth.PrincipalID("kagent:managed-agents", testConfig().EnvironmentID),
 		SandboxTemplate: &apiv1.ResourceReference{Namespace: "test", Name: "claude"},
 		State:           apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}
 }
@@ -126,12 +143,6 @@ type workAPI struct {
 	stoppedWork        []string
 	stopForces         []bool
 	stop               func(http.ResponseWriter, *http.Request)
-	list               func(http.ResponseWriter, *http.Request)
-	update             func(http.ResponseWriter, *http.Request, map[string]*string)
-	metadata           map[string]map[string]string
-	workData           map[string]anthropic.BetaSessionWorkData
-	updates            int
-	lists              int
 }
 
 func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
@@ -141,90 +152,6 @@ func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	f.mu.Lock()
 	switch {
-	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/work"):
-		f.lists++
-		f.mu.Unlock()
-		if f.list != nil {
-			response := httptest.NewRecorder()
-			f.list(response, r)
-			var page struct {
-				Data     []anthropic.BetaSelfHostedWork `json:"data"`
-				NextPage *string                        `json:"next_page"`
-			}
-			if response.Code == http.StatusOK {
-				assert.NoError(f.t, json.Unmarshal(response.Body.Bytes(), &page))
-				f.mu.Lock()
-				if f.metadata == nil {
-					f.metadata = make(map[string]map[string]string)
-				}
-				if f.workData == nil {
-					f.workData = make(map[string]anthropic.BetaSessionWorkData)
-				}
-				for i, work := range page.Data {
-					if f.metadata[work.ID] == nil {
-						f.metadata[work.ID] = maps.Clone(work.Metadata)
-					}
-					f.workData[work.ID] = work.Data
-					page.Data[i].Metadata = maps.Clone(f.metadata[work.ID])
-				}
-				f.mu.Unlock()
-				response.Body.Reset()
-				assert.NoError(f.t, json.NewEncoder(response.Body).Encode(page))
-			}
-			w.WriteHeader(response.Code)
-			_, _ = w.Write(response.Body.Bytes())
-		} else {
-			f.mu.Lock()
-			works := make([]*anthropic.BetaSelfHostedWork, 0, len(f.metadata))
-			for id, metadata := range f.metadata {
-				work := testWork(id)
-				if data, ok := f.workData[id]; ok {
-					work.Data = data
-				}
-				work.Metadata = maps.Clone(metadata)
-				work.Secret = ""
-				works = append(works, work)
-			}
-			f.mu.Unlock()
-			writeWorkPage(f.t, w, works, "")
-		}
-	case r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/ack") && !strings.HasSuffix(r.URL.Path, "/heartbeat") && !strings.HasSuffix(r.URL.Path, "/stop"):
-		var body struct {
-			Metadata map[string]*string `json:"metadata"`
-		}
-		assert.NoError(f.t, json.NewDecoder(r.Body).Decode(&body))
-		for key := range body.Metadata {
-			assert.Contains(f.t, []string{managedByKey, sandboxIDKey, processIDKey}, key)
-		}
-		f.updates++
-		if f.metadata == nil {
-			f.metadata = make(map[string]map[string]string)
-		}
-		parts := strings.Split(r.URL.Path, "/")
-		f.mu.Unlock()
-		response := httptest.NewRecorder()
-		if f.update != nil {
-			f.update(response, r, body.Metadata)
-		} else {
-			_, _ = io.WriteString(response, `{}`)
-		}
-		if response.Code >= 200 && response.Code < 300 {
-			f.mu.Lock()
-			id := parts[len(parts)-1]
-			if f.metadata[id] == nil {
-				f.metadata[id] = make(map[string]string)
-			}
-			for key, value := range body.Metadata {
-				if value == nil {
-					delete(f.metadata[id], key)
-				} else {
-					f.metadata[id][key] = *value
-				}
-			}
-			f.mu.Unlock()
-		}
-		w.WriteHeader(response.Code)
-		_, _ = w.Write(response.Body.Bytes())
 	case strings.HasSuffix(r.URL.Path, "/poll"):
 		assert.Equal(f.t, http.MethodGet, r.Method)
 		assert.Equal(f.t, "30000", r.URL.Query().Get("reclaim_older_than_ms"))
@@ -245,10 +172,6 @@ func (f *workAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		work := f.queue[0]
 		f.queue = f.queue[1:]
-		if f.workData == nil {
-			f.workData = make(map[string]anthropic.BetaSessionWorkData)
-		}
-		f.workData[work.ID] = work.Data
 		f.mu.Unlock()
 		assert.NoError(f.t, json.NewEncoder(w).Encode(work))
 	case strings.HasSuffix(r.URL.Path, "/ack"):
@@ -389,14 +312,14 @@ func TestServicePollAndHandoff(t *testing.T) {
 	launcher := newTestLauncher(t, fixture, api)
 	require.NoError(t, launcher.Start(ctx))
 	require.Len(t, creates, 1, "later work reuses the saved session sandbox via Get")
-	assert.Equal(t, time.Hour, creates[0].GetTtl().AsDuration())
+	assert.Equal(t, 12*time.Hour, creates[0].GetTtl().AsDuration())
 	require.Len(t, starts, 2)
 	workIDs := make([]string, 0, len(starts))
 	for _, start := range starts {
 		workIDs = append(workIDs, start.Env["ANTHROPIC_WORK_ID"])
-		assert.Equal(t, []string{"ant", "beta:worker", "run", "--workdir", "/data/workspace", "--log-format", "json"}, start.Command)
+		assert.Equal(t, []string{"ant", "beta:worker", "run", "--workdir", "/data/workspace", "--log-format", "json", "--max-idle", "5m"}, start.Command)
 		assert.Equal(t, "/data/workspace", start.Cwd)
-		assert.Equal(t, time.Hour, start.Timeout.AsDuration())
+		assert.Equal(t, 12*time.Hour, start.Timeout.AsDuration())
 		assert.Equal(t, map[string]string{
 			"ANTHROPIC_SESSION_ID": "session_test", "ANTHROPIC_ENVIRONMENT_ID": "env_test",
 			"ANTHROPIC_WORK_ID":             start.Env["ANTHROPIC_WORK_ID"],
@@ -626,6 +549,9 @@ func TestProvisionReplacesExpiredReceiptsAcrossRestarts(t *testing.T) {
 	replacementIDs := []string{"00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003"}
 	creations := 0
 	fixture := &sandboxFixture{
+		list: func(context.Context, *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error) {
+			return &apiv1.ListSandboxesResponse{Sandboxes: slices.Collect(maps.Values(instances))}, nil
+		},
 		lookup: func(_ context.Context, id string) (*apiv1.Sandbox, error) {
 			return instances[id], nil
 		},
@@ -651,22 +577,20 @@ func TestProvisionReplacesExpiredReceiptsAcrossRestarts(t *testing.T) {
 			return sb, nil
 		},
 	}
-	api := &workAPI{metadata: map[string]map[string]string{
-		"old-work": {managedByKey: managedByValue, sandboxIDKey: original.Id},
-	}}
+	api := &workAPI{}
 	launcher := newTestLauncher(t, fixture, api)
 	require.NoError(t, launcher.adopt(t.Context()))
 	first, err := provisionTestSandbox(t, t.Context(), launcher)
 	require.NoError(t, err)
 	require.Equal(t, replacementIDs[0], first.Id)
-	assert.Equal(t, time.Hour, inputs[replacementRequest(testConfig(), "session_test", original.Id).RequestId].Ttl.AsDuration())
+	assert.Equal(t, 12*time.Hour, inputs[replacementRequest(testConfig(), "session_test", original.Id).RequestId].Ttl.AsDuration())
 
 	launcher = newTestLauncher(t, fixture, api)
 	require.NoError(t, launcher.adopt(t.Context()))
 	recovered, err := provisionTestSandbox(t, t.Context(), launcher)
 	require.NoError(t, err)
 	assert.Equal(t, first.Id, recovered.Id)
-	assert.Equal(t, 1, creations, "restart must discover the same replacement through saved Work metadata")
+	assert.Equal(t, 1, creations, "restart must discover the same replacement through Sandbox List")
 
 	first.ExpiresAt = timestamppb.New(time.Now().Add(-time.Minute))
 	first.State = apiv1.RuntimeState_RUNTIME_STATE_DELETED
@@ -698,9 +622,7 @@ func TestLaunchReplacementDropsExpiredProcessTracking(t *testing.T) {
 	replacement := readySandbox()
 	replacement.Id = "00000000-0000-4000-8000-000000000002"
 	replacement.ExpiresAt = timestamppb.New(time.Now().Add(time.Hour))
-	api := &workAPI{metadata: map[string]map[string]string{
-		"new-work": {managedByKey: managedByValue, sandboxIDKey: expired.Id, processIDKey: "stale-current"},
-	}}
+	api := &workAPI{}
 	launcher := newTestLauncher(t, &sandboxFixture{
 		lookup: func(_ context.Context, id string) (*apiv1.Sandbox, error) {
 			if id == expired.Id {
@@ -714,8 +636,6 @@ func TestLaunchReplacementDropsExpiredProcessTracking(t *testing.T) {
 		},
 		start: func(_ context.Context, id string, _ *guestpb.StartProcessRequest) (*guestpb.Process, error) {
 			assert.Equal(t, replacement.Id, id)
-			assert.Equal(t, replacement.Id, api.metadata["new-work"][sandboxIDKey])
-			assert.NotContains(t, api.metadata["new-work"], processIDKey, "prelaunch publication must not attach an old process to a new sandbox")
 			return &guestpb.Process{ProcessId: "new-worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
 		},
 	}, api)
@@ -726,9 +646,6 @@ func TestLaunchReplacementDropsExpiredProcessTracking(t *testing.T) {
 	assert.Equal(t, replacement.Id, entry.sandboxID)
 	assert.Equal(t, "new-worker", entry.processID)
 	assert.Equal(t, "new-work", entry.workID)
-	assert.NotContains(t, api.metadata["work_old-worker"], processIDKey, "old generation metadata must not rebind expired process IDs")
-	assert.Equal(t, "new-worker", api.metadata["new-work"][processIDKey])
-	assert.Equal(t, replacement.Id, api.metadata["new-work"][sandboxIDKey])
 }
 
 func TestHeartbeatHandoffJoinsInFlightRequest(t *testing.T) {

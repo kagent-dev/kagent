@@ -47,15 +47,6 @@ func (l *Launcher) savedSandbox(ctx context.Context, entry *sandboxWorker) (*api
 	if err := l.validateSavedSandbox(instance, entry.sandboxID); err != nil {
 		return nil, err
 	}
-	if instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED &&
-		instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
-		for len(entry.staleWorkIDs) != 0 {
-			if err := l.retryMetadata(ctx, entry.staleWorkIDs[0], map[string]*string{processIDKey: nil}); err != nil {
-				return nil, err
-			}
-			entry.staleWorkIDs = entry.staleWorkIDs[1:]
-		}
-	}
 	return instance, nil
 }
 
@@ -97,19 +88,4 @@ func sandboxGeneration(instance *apiv1.Sandbox) (time.Time, error) {
 		return expires.AsTime().Add(-sandboxLifetime), nil
 	}
 	return time.Time{}, errors.New("managed agents sandbox generation time is missing")
-}
-
-func (l *Launcher) saveSandbox(ctx context.Context, workID string, entry *sandboxWorker, id string) error {
-	if entry.workID != "" {
-		return errors.New("managed agents prior worker cleanup is incomplete")
-	}
-	if err := l.updateMetadata(ctx, workID, map[string]*string{
-		managedByKey: new(managedByValue),
-		sandboxIDKey: new(id),
-		processIDKey: nil,
-	}); err != nil {
-		return err
-	}
-	entry.sandboxID = id
-	return nil
 }

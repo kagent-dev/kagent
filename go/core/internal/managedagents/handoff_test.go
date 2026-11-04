@@ -76,7 +76,6 @@ func TestDifferentWorkWaitsForCLIExitAndMaintainsIncomingLease(t *testing.T) {
 					t.Error("new CLI overlapped its predecessor")
 				}
 				assert.Equal(t, "incoming-final", req.Env["ANTHROPIC_WORK_LAST_HEARTBEAT"])
-				assert.NotContains(t, api.metadata["old"], processIDKey, "old metadata cleanup must precede handoff")
 			}
 			return &guestpb.Process{ProcessId: "proc-" + req.Env["ANTHROPIC_WORK_ID"], State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
 		},
@@ -95,7 +94,6 @@ func TestDifferentWorkWaitsForCLIExitAndMaintainsIncomingLease(t *testing.T) {
 	}
 	assert.EqualValues(t, 1, starts.Load())
 	api.mu.Lock()
-	assert.Equal(t, "proc-old", api.metadata["old"][processIDKey])
 	assert.Zero(t, api.stops)
 	api.mu.Unlock()
 	close(exited)
@@ -103,8 +101,6 @@ func TestDifferentWorkWaitsForCLIExitAndMaintainsIncomingLease(t *testing.T) {
 	assert.EqualValues(t, 2, starts.Load())
 	assert.Equal(t, "new", launcher.processes["session_test"].workID)
 	assert.Equal(t, "proc-new", launcher.processes["session_test"].processID)
-	assert.Equal(t, testSandboxID, api.metadata["old"][sandboxIDKey])
-	assert.NotContains(t, api.metadata["old"], processIDKey)
 	assert.Zero(t, api.stops)
 }
 
@@ -145,79 +141,53 @@ func TestBlockedHandoffLeavesIncomingLeaseToExpire(t *testing.T) {
 			assert.Equal(t, 1, starts)
 			assert.Equal(t, "old", launcher.processes["session_test"].workID)
 			assert.Equal(t, "old-process", launcher.processes["session_test"].processID)
-			assert.Equal(t, "old-process", api.metadata["old"][processIDKey])
-			assert.NotContains(t, api.metadata["incoming"], sandboxIDKey)
 			assert.Zero(t, api.stops, "neither healthy old work nor timed-out incoming work may be stopped")
 		})
 	}
 }
 
-func TestFailedCleanupBlocksHandoffWithoutOverwritingOldMetadata(t *testing.T) {
-	for _, phase := range []string{"suspend", "metadata"} {
-		t.Run(phase, func(t *testing.T) {
-			instance := readySandbox()
-			fail := true
-			starts, gets := 0, 0
-			api := &workAPI{update: func(w http.ResponseWriter, _ *http.Request, values map[string]*string) {
-				if _, cleanup := values[processIDKey]; cleanup && values[processIDKey] == nil && values[sandboxIDKey] == nil && phase == "metadata" && fail {
-					w.WriteHeader(http.StatusServiceUnavailable)
-					return
-				}
-				_, _ = io.WriteString(w, `{}`)
-			}}
-			launcher := newTestLauncher(t, &sandboxFixture{
-				lookup: func(context.Context, string) (*apiv1.Sandbox, error) { return instance, nil },
-				get: func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error) {
-					gets++
-					return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
-				},
-				suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
-					if phase == "suspend" && fail {
-						instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND
-						return nil, serviceerrors.NewUnavailable("secret-body", nil)
-					}
-					instance.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
-					instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
-					return instance, nil
-				},
-				resume: func(context.Context, string) (*apiv1.Sandbox, error) {
-					instance.State = apiv1.RuntimeState_RUNTIME_STATE_READY
-					return instance, nil
-				},
-				start: func(_ context.Context, _ string, req *guestpb.StartProcessRequest) (*guestpb.Process, error) {
-					starts++
-					if starts > 1 {
-						assert.NotContains(t, api.metadata["old"], processIDKey)
-					}
-					return &guestpb.Process{ProcessId: req.Env["ANTHROPIC_WORK_ID"], State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
-				},
-			}, api)
-			require.NoError(t, launcher.launch(t.Context(), testWork("old")))
-			ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
-			defer cancel()
-			require.Error(t, launcher.launch(ctx, testWork("blocked")))
-			entry := launcher.processes["session_test"]
-			if phase == "suspend" {
-				require.NotNil(t, entry)
-				assert.Equal(t, "old", entry.workID)
-				assert.Equal(t, "old", entry.processID)
-			} else {
-				requireIdleSandbox(t, launcher, "session_test")
-				retryCtx, retryCancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
-				defer retryCancel()
-				require.Error(t, launcher.launch(retryCtx, testWork("still_blocked")))
-				assert.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, instance.State)
-				assert.NotContains(t, api.metadata["still_blocked"], sandboxIDKey)
+func TestFailedSuspensionBlocksHandoff(t *testing.T) {
+	instance := readySandbox()
+	fail := true
+	starts, gets := 0, 0
+	api := &workAPI{}
+	launcher := newTestLauncher(t, &sandboxFixture{
+		lookup: func(context.Context, string) (*apiv1.Sandbox, error) { return instance, nil },
+		get: func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error) {
+			gets++
+			return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
+		},
+		suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
+			if fail {
+				instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND
+				return nil, serviceerrors.NewUnavailable("secret-body", nil)
 			}
-			assert.Equal(t, "old", api.metadata["old"][processIDKey])
-			assert.Equal(t, 1, starts)
-			assert.Zero(t, api.stops)
-			fail = false
-			require.NoError(t, launcher.launch(t.Context(), testWork("next")))
-			assert.Equal(t, 2, starts)
-			assert.Equal(t, 1, gets, "pending cleanup must not inspect the old guest again")
-			assert.NotContains(t, api.metadata["old"], processIDKey)
-			assert.Equal(t, "next", launcher.processes["session_test"].workID)
-		})
-	}
+			instance.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
+			instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
+			return instance, nil
+		},
+		resume: func(context.Context, string) (*apiv1.Sandbox, error) {
+			instance.State = apiv1.RuntimeState_RUNTIME_STATE_READY
+			return instance, nil
+		},
+		start: func(_ context.Context, _ string, req *guestpb.StartProcessRequest) (*guestpb.Process, error) {
+			starts++
+			return &guestpb.Process{ProcessId: req.Env["ANTHROPIC_WORK_ID"], State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+		},
+	}, api)
+	require.NoError(t, launcher.launch(t.Context(), testWork("old")))
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	require.Error(t, launcher.launch(ctx, testWork("blocked")))
+	entry := launcher.processes["session_test"]
+	require.NotNil(t, entry)
+	assert.Equal(t, "old", entry.workID)
+	assert.Equal(t, "old", entry.processID)
+	assert.Equal(t, 1, starts)
+	assert.Zero(t, api.stops)
+	fail = false
+	require.NoError(t, launcher.launch(t.Context(), testWork("next")))
+	assert.Equal(t, 2, starts)
+	assert.Equal(t, 1, gets, "pending cleanup must not inspect the old guest again")
+	assert.Equal(t, "next", launcher.processes["session_test"].workID)
 }

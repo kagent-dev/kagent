@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	sandboxLifetime  = time.Hour
+	sandboxLifetime  = 12 * time.Hour
 	provisionTimeout = 2 * time.Minute
 	startTimeout     = 10 * time.Second
 	noHeartbeat      = "NO_HEARTBEAT"
@@ -67,10 +67,12 @@ func (c Config) Validate() error {
 // SandboxService is the in-process sandbox lifecycle and guest process boundary.
 type SandboxService interface {
 	Get(context.Context, string) (*apiv1.Sandbox, error)
+	List(context.Context, *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error)
 	Create(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
 	Resume(context.Context, string) (*apiv1.Sandbox, error)
 	StartProcess(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error)
 	GetProcess(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error)
+	StreamProcessOutput(context.Context, string, *guestpb.StreamProcessOutputRequest, func(*guestpb.ProcessOutput) error) error
 	Suspend(context.Context, string) (*apiv1.Sandbox, error)
 }
 
@@ -87,11 +89,10 @@ type Launcher struct {
 }
 
 type sandboxWorker struct {
-	sandboxID    string
-	workID       string
-	processID    string
-	staleWorkIDs []string
-	busy         chan struct{}
+	sandboxID string
+	workID    string
+	processID string
+	busy      chan struct{}
 }
 
 func New(cfg Config, sandboxes SandboxService, log *slog.Logger) (*Launcher, error) {
@@ -258,7 +259,7 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 			return err
 		}
 		if state == workerLive {
-			return l.retryWorkerMetadata(attemptCtx, entry)
+			return nil
 		}
 	}
 	if work.ID == "" || work.EnvironmentID != l.config.EnvironmentID || work.Data.ID == "" || work.Secret == "" || work.Data.Type != "session" {
@@ -273,24 +274,18 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	halt := make(chan struct{})
 	done := make(chan heartbeatResult, 1)
 	go l.keepAlive(attemptCtx, cancel, work.ID, lease, halt, done)
-	_, provisionErr := backoff.Retry(attemptCtx, func() (struct{}, error) {
-		err := l.updateMetadata(attemptCtx, work.ID, map[string]*string{managedByKey: new(managedByValue)})
-		if err != nil && !recoveryRetryable(err) {
-			return struct{}{}, backoff.Permanent(err)
-		}
-		return struct{}{}, err
-	}, backoff.WithMaxElapsedTime(0))
-	blockedByWorker := entry.workID != ""
-	if provisionErr == nil && blockedByWorker {
+	var provisionErr error
+	blockedByWorker := entry.sandboxID != ""
+	if blockedByWorker {
 		_, provisionErr = backoff.Retry(attemptCtx, func() (struct{}, error) {
-			err := l.finishWorker(attemptCtx, entry)
+			state, err := l.finishWorker(attemptCtx, entry)
 			if err != nil {
 				if !recoveryRetryable(err) {
 					return struct{}{}, backoff.Permanent(err)
 				}
 				return struct{}{}, err
 			}
-			if entry.workID != "" {
+			if state == workerLive {
 				return struct{}{}, errors.New("previous managed agent CLI is still active")
 			}
 			return struct{}{}, nil
@@ -330,7 +325,7 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 		env["ANTHROPIC_BASE_URL"] = l.config.BaseURL
 	}
 	process, err := l.sandboxes.StartProcess(startCtx, sandbox.GetId(), &guestpb.StartProcessRequest{
-		Command: []string{"ant", "beta:worker", "run", "--workdir", "/data/workspace", "--log-format", "json"},
+		Command: []string{"ant", "beta:worker", "run", "--workdir", "/data/workspace", "--log-format", "json", "--max-idle", "5m"},
 		Cwd:     "/data/workspace",
 		Env:     env,
 		Timeout: durationpb.New(sandboxLifetime),
@@ -349,19 +344,6 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	entry.sandboxID = sandbox.GetId()
 	entry.workID = work.ID
 	entry.processID = process.GetProcessId()
-	// A definitive successful start must survive a cancellation racing its response.
-	publishDeadline := time.Now().Add(collectionTimeout)
-	if deadline, ok := ctx.Deadline(); ok && deadline.Before(publishDeadline) {
-		publishDeadline = deadline
-	}
-	publishCtx, publishCancel := context.WithDeadline(context.WithoutCancel(ctx), publishDeadline)
-	publishErr := l.retryWorkerMetadata(publishCtx, entry)
-	publishCancel()
-	if publishErr != nil {
-		l.log.ErrorContext(ctx, "managed agent CLI is running without durable process metadata",
-			"work_id", work.ID, "sandbox_id", sandbox.GetId(), "process_id", process.GetProcessId())
-		return fmt.Errorf("managed agent CLI is running but its metadata handoff is incomplete: %w", publishErr)
-	}
 	l.log.InfoContext(ctx, "started managed agent CLI", "work_id", work.ID, "sandbox_id", sandbox.GetId(), "process_id", process.GetProcessId())
 	return nil
 }
@@ -452,7 +434,7 @@ func createRequest(cfg Config, sessionID string) *apiv1.CreateSandboxRequest {
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(cfg.EnvironmentID+"\x00"+sessionID)))
 	return &apiv1.CreateSandboxRequest{
 		RequestId:       "anthropic-v1-" + hash,
-		Name:            "anthropic-" + hash[:16],
+		Name:            sandboxNamePrefix + sessionID,
 		SandboxTemplate: &apiv1.ResourceReference{Namespace: cfg.TemplateNamespace, Name: cfg.TemplateName},
 		Ttl:             durationpb.New(sandboxLifetime),
 	}
@@ -461,7 +443,6 @@ func createRequest(cfg Config, sessionID string) *apiv1.CreateSandboxRequest {
 func replacementRequest(cfg Config, sessionID, expiredID string) *apiv1.CreateSandboxRequest {
 	request := createRequest(cfg, sessionID)
 	request.RequestId += "-" + expiredID
-	request.Name += "-" + expiredID
 	return request
 }
 
@@ -474,7 +455,6 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 	request := createRequest(l.config, work.Data.ID)
 	var sandbox *apiv1.Sandbox
 	discovered := false
-	publishedID := ""
 	retryBackoff := backoff.NewExponentialBackOff()
 	// Jitter spans 0.5-1 seconds initially and stays capped at 5 seconds.
 	retryBackoff.InitialInterval = 750 * time.Millisecond
@@ -496,7 +476,6 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 		if sandboxExpired(sandbox) {
 			request = replacementRequest(l.config, work.Data.ID, sandbox.GetId())
 			sandbox = nil
-			publishedID = ""
 		}
 		if sandbox != nil && sandboxUnavailable(sandbox) {
 			return nil, backoff.Permanent(errors.New("managed agents sandbox is unavailable"))
@@ -519,16 +498,6 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 			}
 			sandbox = created
 			entry.sandboxID = created.GetId()
-			entry.staleWorkIDs = nil
-		}
-		if publishedID != sandbox.GetId() {
-			if err := l.saveSandbox(callCtx, work.ID, entry, sandbox.GetId()); err != nil {
-				if !recoveryRetryable(err) {
-					return nil, backoff.Permanent(err)
-				}
-				return nil, err
-			}
-			publishedID = sandbox.GetId()
 		}
 		if sandboxExpired(sandbox) {
 			return nil, errors.New("managed agents sandbox expired during provisioning")

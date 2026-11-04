@@ -2,20 +2,16 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -62,14 +58,32 @@ func (f *managedSandboxFixture) Create(ctx context.Context, req *apiv1.CreateSan
 	return &apiv1.Sandbox{Id: managedSandboxID, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}, nil
 }
 
+func (f *managedSandboxFixture) List(ctx context.Context, req *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error) {
+	f.checkOwner(ctx)
+	assert.Equal(f.t, "test", req.GetSandboxTemplate().GetNamespace())
+	assert.Equal(f.t, "claude", req.GetSandboxTemplate().GetName())
+	page := &apiv1.ListSandboxesResponse{}
+	if f.name != "" {
+		instance, err := f.Get(ctx, managedSandboxID)
+		if err != nil {
+			return nil, err
+		}
+		page.Sandboxes = []*apiv1.Sandbox{instance}
+	}
+	return page, nil
+}
+
 func (f *managedSandboxFixture) Resume(ctx context.Context, id string) (*apiv1.Sandbox, error) {
 	f.checkOwner(ctx)
 	assert.Equal(f.t, managedSandboxID, id)
 	return &apiv1.Sandbox{Id: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}, nil
 }
 
-func (f *managedSandboxFixture) StartProcess(ctx context.Context, id string, _ *guestpb.StartProcessRequest) (*guestpb.Process, error) {
+func (f *managedSandboxFixture) StartProcess(ctx context.Context, id string, req *guestpb.StartProcessRequest) (*guestpb.Process, error) {
 	f.checkOwner(ctx)
+	if req.GetCommand()[0] == "ps" {
+		return &guestpb.Process{ProcessId: "ps", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+	}
 	assert.NoError(f.t, ctx.Err(), "shutdown must drain the in-flight launch")
 	assert.Equal(f.t, managedSandboxID, id)
 	if f.onStart != nil {
@@ -78,6 +92,16 @@ func (f *managedSandboxFixture) StartProcess(ctx context.Context, id string, _ *
 	f.starts++
 	close(f.started)
 	return &guestpb.Process{ProcessId: "worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+}
+
+func (f *managedSandboxFixture) StreamProcessOutput(ctx context.Context, id string, req *guestpb.StreamProcessOutputRequest, send func(*guestpb.ProcessOutput) error) error {
+	f.checkOwner(ctx)
+	assert.Equal(f.t, managedSandboxID, id)
+	assert.Equal(f.t, "ps", req.GetProcessId())
+	if err := send(&guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Stdout{Stdout: []byte("guest-server\nant\nps\n")}}); err != nil {
+		return err
+	}
+	return send(&guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Exit{Exit: &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}}})
 }
 
 func (f *managedSandboxFixture) Get(ctx context.Context, id string) (*apiv1.Sandbox, error) {
@@ -115,10 +139,7 @@ func TestManagedAgentsAdoptsWorkerAcrossControllerRestart(t *testing.T) {
 	defer cancel()
 	var polls atomic.Int32
 	var stops atomic.Int32
-	var writes atomic.Int32
 	var recovering atomic.Bool
-	var metadataMu sync.Mutex
-	metadata := map[string]string{"operator": "preserve"}
 	started := make(chan struct{})
 	provisioning := make(chan struct{})
 	service := &managedSandboxFixture{
@@ -128,13 +149,6 @@ func TestManagedAgentsAdoptsWorkerAcrossControllerRestart(t *testing.T) {
 			<-ctx.Done()
 			assert.NoError(t, launchCtx.Err(), "normal shutdown must not cancel provisioning")
 		},
-		onStart: func() {
-			metadataMu.Lock()
-			defer metadataMu.Unlock()
-			assert.Equal(t, "kagent", metadata["kagent.dev/managed-by"])
-			assert.Equal(t, managedSandboxID, metadata["kagent.dev/sandbox-id"], "persist the sandbox identity before launching its worker")
-			assert.NotContains(t, metadata, "kagent.dev/process-id")
-		},
 	}
 	recoveryCtx, finishRecovery := context.WithTimeout(t.Context(), 5*time.Second)
 	defer finishRecovery()
@@ -142,42 +156,6 @@ func TestManagedAgentsAdoptsWorkerAcrossControllerRestart(t *testing.T) {
 		assert.Equal(t, "Bearer environment-key", r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/work"):
-			metadataMu.Lock()
-			saved := maps.Clone(metadata)
-			metadataMu.Unlock()
-			response := struct {
-				Data []anthropic.BetaSelfHostedWork `json:"data"`
-			}{Data: []anthropic.BetaSelfHostedWork{{
-				ID: "work_test", EnvironmentID: "env_test",
-				State: anthropic.BetaSelfHostedWorkStateActive, Metadata: saved,
-				Data: anthropic.BetaSessionWorkData{ID: "session_test", Type: "session"},
-			}}}
-			assert.NoError(t, json.NewEncoder(w).Encode(response))
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/work/work_test"):
-			assert.NoError(t, r.Context().Err())
-			var body struct {
-				Metadata map[string]*string `json:"metadata"`
-			}
-			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-			metadataMu.Lock()
-			for key, value := range body.Metadata {
-				if value == nil {
-					delete(metadata, key)
-				} else {
-					metadata[key] = *value
-					assert.NotContains(t, *value, "environment-key")
-					assert.NotContains(t, *value, "scoped-secret")
-				}
-			}
-			saved := maps.Clone(metadata)
-			metadataMu.Unlock()
-			writes.Add(1)
-			assert.NoError(t, json.NewEncoder(w).Encode(anthropic.BetaSelfHostedWork{
-				ID: "work_test", EnvironmentID: "env_test",
-				State: anthropic.BetaSelfHostedWorkStateActive, Metadata: saved,
-				Data: anthropic.BetaSessionWorkData{ID: "session_test", Type: "session"},
-			}))
 		case strings.HasSuffix(r.URL.Path, "/poll"):
 			if recovering.Load() {
 				assert.Positive(t, service.reads.Load(), "restore sandbox tracking before polling")
@@ -219,13 +197,6 @@ func TestManagedAgentsAdoptsWorkerAcrossControllerRestart(t *testing.T) {
 	assert.Equal(t, first.session.Principal().ID, second.session.Principal().ID, "replicas and restarts must reuse the same owner")
 	require.NoError(t, first.Start(ctx))
 	assert.Equal(t, 1, service.starts)
-	assert.Positive(t, writes.Load())
-	metadataMu.Lock()
-	assert.Equal(t, "preserve", metadata["operator"])
-	assert.Equal(t, "kagent", metadata["kagent.dev/managed-by"])
-	assert.Equal(t, managedSandboxID, metadata["kagent.dev/sandbox-id"])
-	assert.Equal(t, "worker", metadata["kagent.dev/process-id"])
-	metadataMu.Unlock()
 	recovering.Store(true)
 	require.NoError(t, second.Start(recoveryCtx))
 	assert.Positive(t, service.reads.Load())
