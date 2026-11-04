@@ -103,7 +103,7 @@ func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 	const appName = "test-app"
 	decision := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type:      HITLTypeToolApprovalResponse,
-		Approvals: []apia2a.ToolApproval{{ID: "confirm-1", Approved: true}},
+		Approvals: []*apia2a.ToolApproval{{Id: "confirm-1", Approved: true}},
 	})
 	storedTask := &a2atype.Task{
 		ID:        "task-1",
@@ -112,9 +112,9 @@ func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 			State: a2atype.TaskStateInputRequired,
 			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &apia2a.ToolApprovalRequest{
 				Type: HITLTypeToolApprovalRequest,
-				Tools: []apia2a.HITLTool{{
-					ID: "confirm-1", CallID: "call-1", Name: "delete_file",
-					Args: map[string]any{"path": "/tmp/x"},
+				Tools: []*apia2a.HITLTool{{
+					Id: "confirm-1", CallId: "call-1", Name: "delete_file",
+					Args: testArgs(t, map[string]any{"path": "/tmp/x"}),
 				}},
 			}),
 		},
@@ -766,13 +766,13 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 	if _, ok := pause.Status.Message.Metadata[apia2a.TimelinePositionMetadataKey].(string); !ok {
 		t.Fatalf("pause metadata = %#v, want timeline position", pause.Status.Message.Metadata)
 	}
-	if len(req.Tools) != 1 || req.Tools[0].ID != "confirmation-call" {
+	if len(req.Tools) != 1 || req.Tools[0].Id != "confirmation-call" {
 		t.Fatalf("pause tools = %#v, want per-approval correlation", req.Tools)
 	}
 
 	decision := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type:      HITLTypeToolApprovalResponse,
-		Approvals: []apia2a.ToolApproval{{ID: "confirmation-call", Approved: true}},
+		Approvals: []*apia2a.ToolApproval{{Id: "confirmation-call", Approved: true}},
 	})
 	decision.TaskID, decision.ContextID = "hitl-task", contextID
 	stored := &a2atype.Task{

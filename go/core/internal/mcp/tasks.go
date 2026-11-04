@@ -411,9 +411,10 @@ func elicitationMessage(task *a2atype.Task, response *mcp.ElicitResult) (*a2atyp
 	}
 	message := a2atype.NewMessageForTask(a2atype.MessageRoleUser, task, a2atype.NewTextPart("Tool approval response."))
 	if request := adka2a.GetAskUserRequest(task.Status.Message); request != nil {
-		answers := make([]apia2a.AskUserAnswer, len(request.Questions))
+		answers := make([]*apia2a.AskUserAnswer, len(request.Questions))
 		var text []string
 		for i := range request.Questions {
+			answers[i] = &apia2a.AskUserAnswer{}
 			if response.Action == "accept" {
 				values := stringSlice(response.Content[answerKey(i, len(request.Questions))])
 				if len(values) == 0 {
@@ -431,17 +432,17 @@ func elicitationMessage(task *a2atype.Task, response *mcp.ElicitResult) (*a2atyp
 		}
 		message.Parts = []*a2atype.Part{a2atype.NewTextPart(strings.Join(text, "\n"))}
 		return adka2a.AttachHitlExtension(message, &apia2a.AskUserResponse{
-			Type: adka2a.HITLTypeAskUserResponse, ID: request.ID, Answers: answers,
+			Type: adka2a.HITLTypeAskUserResponse, Id: request.Id, Answers: answers,
 		}), nil
 	}
 	if request := adka2a.GetToolApprovalRequest(task.Status.Message); request != nil {
-		approvals := make([]apia2a.ToolApproval, len(request.Tools))
+		approvals := make([]*apia2a.ToolApproval, len(request.Tools))
 		for i, tool := range request.Tools {
 			approved, ok := response.Content[fmt.Sprintf("approve_%d", i+1)].(bool)
 			if response.Action == "accept" && !ok {
 				return nil, fmt.Errorf("accepted elicitation must decide every approval")
 			}
-			approvals[i] = apia2a.ToolApproval{ID: tool.ID, Approved: response.Action == "accept" && approved}
+			approvals[i] = &apia2a.ToolApproval{Id: tool.Id, Approved: response.Action == "accept" && approved}
 		}
 		return adka2a.AttachHitlExtension(message, &apia2a.ToolApprovalResponse{
 			Type: adka2a.HITLTypeToolApprovalResponse, Approvals: approvals,

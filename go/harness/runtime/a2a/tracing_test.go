@@ -315,8 +315,8 @@ func TestResumeLinksToTheOriginatingSegment(t *testing.T) {
 	}
 	decision := a2atype.NewMessage(a2atype.MessageRoleUser)
 	decision.TaskID, decision.ContextID = first.TaskID, first.ContextID
-	if err := apia2a.AttachHITL(decision, apia2a.ToolApprovalResponse{
-		Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{{ID: "7", Approved: true}},
+	if err := apia2a.AttachHITL(decision, &apia2a.ToolApprovalResponse{
+		Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []*apia2a.ToolApproval{{Id: "7", Approved: true}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -523,14 +523,14 @@ func approvalDecision(t *testing.T, first *a2asrv.ExecutorContext, parked *a2aty
 
 func approvalVerdict(t *testing.T, first *a2asrv.ExecutorContext, parked *a2atype.TaskStatusUpdateEvent, id string, approved bool) *a2asrv.ExecutorContext {
 	t.Helper()
-	approval := apia2a.ToolApproval{ID: id, Approved: approved}
+	approval := &apia2a.ToolApproval{Id: id, Approved: approved}
 	if !approved {
 		approval.RejectionReason = "denied"
 	}
 	decision := a2atype.NewMessage(a2atype.MessageRoleUser)
 	decision.TaskID, decision.ContextID = first.TaskID, first.ContextID
-	if err := apia2a.AttachHITL(decision, apia2a.ToolApprovalResponse{
-		Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{approval},
+	if err := apia2a.AttachHITL(decision, &apia2a.ToolApprovalResponse{
+		Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []*apia2a.ToolApproval{approval},
 	}); err != nil {
 		t.Fatal(err)
 	}

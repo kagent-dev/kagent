@@ -111,8 +111,8 @@ func TestRejectionReasonReachesTheModelOnResume(t *testing.T) {
 		a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Decision")),
 		&apia2a.ToolApprovalResponse{
 			Type: kagenta2a.HITLTypeToolApprovalResponse,
-			Approvals: []apia2a.ToolApproval{{
-				ID: approval.Tools[0].ID, Approved: false, RejectionReason: "What does this tool do?",
+			Approvals: []*apia2a.ToolApproval{{
+				Id: approval.Tools[0].Id, Approved: false, RejectionReason: "What does this tool do?",
 			}},
 		},
 	)
