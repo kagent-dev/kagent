@@ -1,4 +1,4 @@
-package managedagents
+package anthropicselfhostedsandboxes
 
 import (
 	"bytes"
@@ -28,51 +28,35 @@ func suspendedSandbox() *apiv1.Sandbox {
 	}
 }
 
-func trackTestProcesses(t *testing.T, launcher *Launcher, processID string) {
+func trackTestProcesses(t *testing.T, launcher *Launcher, workID string) {
 	t.Helper()
 	entry, err := launcher.lockSandbox(t.Context(), "session_test")
 	require.NoError(t, err)
 	defer launcher.unlockSandbox("session_test", entry)
 	entry.sandboxID = testSandboxID
-	entry.processID = processID
-	entry.workID = "work_" + processID
+	entry.workID = "work_" + workID
 }
 
-func TestCollectorProcessStates(t *testing.T) {
+func TestCollectorProcessListing(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
-		process *guestpb.Process
-		err     error
+		output  string
 		suspend bool
 	}{
-		{name: "running", process: &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_RUNNING}},
-		{name: "unknown", process: &guestpb.Process{}},
-		{name: "empty response"},
-		{name: "exited zero", process: &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, suspend: true},
-		{name: "exited nonzero", process: &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED, ExitCode: 1}, suspend: true},
-		{name: "guest not found", err: fmt.Errorf("guest: %w", status.Error(codes.NotFound, "secret-body")), suspend: true},
-		{name: "service not found", err: serviceerrors.NewNotFound("secret-body", nil), suspend: true},
-		{name: "service not found overrides guest", err: serviceerrors.NewNotFound("secret-body", status.Error(codes.Unavailable, "secret-body")), suspend: true},
-		{name: "unavailable", err: status.Error(codes.Unavailable, "secret-body")},
-		{name: "deadline", err: context.DeadlineExceeded},
-		{name: "canceled", err: context.Canceled},
-		{name: "permission denied", err: status.Error(codes.PermissionDenied, "secret-body")},
-		{name: "unauthenticated", err: serviceerrors.NewUnauthenticated("secret-body", nil)},
-		{name: "expired or suspended", err: serviceerrors.NewFailedPrecondition("secret-body", nil)},
-		{name: "permission overrides guest not found", err: serviceerrors.NewPermissionDenied("secret-body", status.Error(codes.NotFound, "secret-body"))},
-		{name: "unavailable overrides guest not found", err: serviceerrors.NewUnavailable("secret-body", status.Error(codes.NotFound, "secret-body"))},
-		{name: "outer service overrides inner service", err: serviceerrors.NewUnavailable("secret-body", serviceerrors.NewNotFound("secret-body", nil))},
+		{name: "running", output: "guest-server\nant\nps\n"},
+		{name: "absent", output: "guest-server\nps\n", suspend: true},
+		{name: "empty listing", suspend: true},
+		{name: "different command", output: "ant-helper\n", suspend: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			suspends := 0
 			fixture := &sandboxFixture{
-				get: func(ctx context.Context, id string, req *guestpb.GetProcessRequest) (*guestpb.Process, error) {
+				scan: func(ctx context.Context, id string) (string, error) {
 					assert.Equal(t, testSandboxID, id)
-					assert.Equal(t, "worker", req.GetProcessId())
 					deadline, ok := ctx.Deadline()
 					assert.True(t, ok)
 					assert.LessOrEqual(t, time.Until(deadline), collectionTimeout)
-					return tt.process, tt.err
+					return tt.output, nil
 				},
 				suspend: func(ctx context.Context, id string) (*apiv1.Sandbox, error) {
 					assert.Equal(t, testSandboxID, id)
@@ -83,19 +67,116 @@ func TestCollectorProcessStates(t *testing.T) {
 				},
 			}
 			launcher := newTestLauncher(t, fixture, &workAPI{})
-			var logs bytes.Buffer
-			launcher.log = slog.New(slog.NewTextHandler(&logs, nil))
 			trackTestProcesses(t, launcher, "worker")
-			launcher.collect(t.Context())
-			assert.NotContains(t, logs.String(), "secret-body")
+			require.NoError(t, launcher.collectSandbox(t.Context(), "session_test"))
 			if tt.suspend {
 				assert.Equal(t, 1, suspends)
 				requireIdleSandbox(t, launcher, "session_test")
 			} else {
 				assert.Zero(t, suspends)
-				assert.Contains(t, launcher.processes, "session_test")
+				assert.Equal(t, "work_worker", launcher.processes["session_test"].workID)
 			}
+			assert.Equal(t, testSandboxID, launcher.processes["session_test"].sandboxID)
 		})
+	}
+}
+
+func TestCollectorSandboxLookupErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		err     error
+		missing bool
+	}{
+		{name: "grpc missing", err: fmt.Errorf("lookup: %w", status.Error(codes.NotFound, "secret-body")), missing: true},
+		{name: "service missing overrides backend", err: serviceerrors.NewNotFound("secret-body", status.Error(codes.Unavailable, "secret-body")), missing: true},
+		{name: "permission denied", err: serviceerrors.NewPermissionDenied("secret-body", nil)},
+		{name: "unavailable overrides backend missing", err: serviceerrors.NewUnavailable("secret-body", status.Error(codes.NotFound, "secret-body"))},
+		{name: "outer service overrides inner missing", err: serviceerrors.NewUnavailable("secret-body", serviceerrors.NewNotFound("secret-body", nil))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			launcher := newTestLauncher(t, &sandboxFixture{
+				lookup: func(context.Context, string) (*apiv1.Sandbox, error) { return nil, tt.err },
+				scan: func(context.Context, string) (string, error) {
+					t.Error("failed lookup must not inspect the guest")
+					return "", nil
+				},
+				suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
+					t.Error("failed lookup must not suspend the sandbox")
+					return nil, errors.New("unexpected suspension")
+				},
+			}, &workAPI{})
+			trackTestProcesses(t, launcher, "worker")
+			err := launcher.collectSandbox(t.Context(), "session_test")
+			if tt.missing {
+				require.NoError(t, err)
+				requireIdleSandbox(t, launcher, "session_test")
+			} else {
+				require.Error(t, err)
+				assert.NotContains(t, err.Error(), "secret-body")
+				assert.Equal(t, "work_worker", launcher.processes["session_test"].workID)
+			}
+			assert.Equal(t, testSandboxID, launcher.processes["session_test"].sandboxID)
+		})
+	}
+}
+
+func TestCollectorContinuesAfterLookupError(t *testing.T) {
+	otherID := "00000000-0000-4000-8000-000000000002"
+	instances := map[string]*apiv1.Sandbox{
+		testSandboxID: readySandbox(),
+		otherID:       readySandbox(),
+	}
+	instances[otherID].Id = otherID
+	instances[otherID].Name = sandboxNamePrefix + "other_session"
+	lookups, suspends := map[string]int{}, map[string]int{}
+	failedID := ""
+	recovered := false
+	launcher := newTestLauncher(t, &sandboxFixture{
+		lookup: func(_ context.Context, id string) (*apiv1.Sandbox, error) {
+			lookups[id]++
+			if failedID == "" {
+				failedID = id
+			}
+			if id == failedID && !recovered {
+				return nil, serviceerrors.NewUnavailable("temporary lookup failure", nil)
+			}
+			return instances[id], nil
+		},
+		scan: func(_ context.Context, id string) (string, error) {
+			if !recovered {
+				assert.NotEqual(t, failedID, id, "failed lookup must not inspect the guest")
+			}
+			return "", nil
+		},
+		suspend: func(_ context.Context, id string) (*apiv1.Sandbox, error) {
+			suspends[id]++
+			instances[id].State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
+			return instances[id], nil
+		},
+	}, &workAPI{})
+	trackTestProcesses(t, launcher, "worker")
+	launcher.processes["other_session"] = &sandboxWorker{sandboxID: otherID, workID: "work_other"}
+
+	launcher.collect(t.Context())
+	require.Len(t, lookups, 2, "the first lookup failure must not abort the sweep")
+	require.Len(t, launcher.processes, 2)
+	for _, entry := range launcher.processes {
+		if entry.sandboxID == failedID {
+			assert.NotEmpty(t, entry.workID, "retain the failed sandbox for another sweep")
+			assert.Zero(t, suspends[entry.sandboxID])
+		} else {
+			assert.Empty(t, entry.workID, "still collect the other sandbox")
+			assert.Equal(t, 1, suspends[entry.sandboxID])
+		}
+	}
+
+	recovered = true
+	launcher.collect(t.Context())
+	require.Len(t, launcher.processes, 2)
+	for sessionID, entry := range launcher.processes {
+		requireIdleSandbox(t, launcher, sessionID)
+		assert.Equal(t, 2, lookups[entry.sandboxID], "later sweeps must retry lookup failures")
+		assert.Equal(t, 1, suspends[entry.sandboxID], "suspend each idle sandbox once")
 	}
 }
 
@@ -126,9 +207,9 @@ func TestCollectorRetriesUnfinishedSuspensionWithoutGuestAccess(t *testing.T) {
 					}
 					return instance, nil
 				},
-				get: func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error) {
+				scan: func(context.Context, string) (string, error) {
 					gets++
-					return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
+					return "", nil
 				},
 				suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
 					suspends++
@@ -180,7 +261,6 @@ func TestLaunchTracksOnlySuccessfulCLIStarts(t *testing.T) {
 				require.NoError(t, err)
 				require.Contains(t, launcher.processes, "session_test")
 				assert.Equal(t, "work_test", launcher.processes["session_test"].workID)
-				assert.Equal(t, "worker", launcher.processes["session_test"].processID)
 				assert.Nil(t, launcher.processes["session_test"].busy)
 			} else {
 				require.Error(t, err)
@@ -188,44 +268,6 @@ func TestLaunchTracksOnlySuccessfulCLIStarts(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestLaunchFinishesPendingSuspensionBeforeHandoff(t *testing.T) {
-	starts, gets, suspends := 0, 0, 0
-	instance := readySandbox()
-	launcher := newTestLauncher(t, &sandboxFixture{
-		lookup: func(context.Context, string) (*apiv1.Sandbox, error) { return instance, nil },
-		start: func(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error) {
-			starts++
-			return &guestpb.Process{ProcessId: fmt.Sprintf("worker-%d", starts), State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
-		},
-		get: func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error) {
-			gets++
-			if starts == 1 {
-				return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
-			}
-			return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
-		},
-		suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
-			suspends++
-			if suspends == 1 {
-				instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND
-				return nil, serviceerrors.NewUnavailable("pending", nil)
-			}
-			instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
-			return suspendedSandbox(), nil
-		},
-	}, &workAPI{})
-	require.NoError(t, launcher.launch(t.Context(), testWork("work_first")))
-	launcher.collect(t.Context())
-	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, instance.Operation)
-	require.NoError(t, launcher.launch(t.Context(), testWork("work_second")))
-	assert.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, instance.Operation)
-	assert.Equal(t, "worker-2", launcher.processes["session_test"].processID)
-	assert.Equal(t, "work_second", launcher.processes["session_test"].workID)
-	launcher.collect(t.Context())
-	assert.Equal(t, 2, gets)
-	assert.Equal(t, 2, suspends, "handoff must finish the pending suspension rather than replace its state")
 }
 
 func TestCollectorExcludesConcurrentLaunchUntilSuspended(t *testing.T) {
@@ -244,13 +286,13 @@ func TestCollectorExcludesConcurrentLaunchUntilSuspended(t *testing.T) {
 			}
 			return instance, nil
 		},
-		get: func(ctx context.Context, _ string, _ *guestpb.GetProcessRequest) (*guestpb.Process, error) {
+		scan: func(ctx context.Context, _ string) (string, error) {
 			close(inspecting)
 			select {
 			case <-finishInspect:
-				return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
+				return "", nil
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return "", ctx.Err()
 			}
 		},
 		suspend: func(ctx context.Context, _ string) (*apiv1.Sandbox, error) {
@@ -326,7 +368,6 @@ func TestCollectorExcludesConcurrentLaunchUntilSuspended(t *testing.T) {
 	assert.EqualValues(t, 1, resumes.Load())
 	assert.EqualValues(t, 1, starts.Load())
 	require.Contains(t, launcher.processes, "session_test")
-	assert.Equal(t, "new-worker", launcher.processes["session_test"].processID)
 	assert.Equal(t, "work_new", launcher.processes["session_test"].workID)
 	assert.Nil(t, launcher.processes["session_test"].busy)
 }
@@ -346,12 +387,11 @@ func TestCollectorWaitsForInFlightStartToBeTracked(t *testing.T) {
 				return nil, ctx.Err()
 			}
 		},
-		get: func(_ context.Context, _ string, req *guestpb.GetProcessRequest) (*guestpb.Process, error) {
-			gets.Add(1)
-			if req.GetProcessId() == "new-worker" {
-				return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+		scan: func(context.Context, string) (string, error) {
+			if gets.Add(1) > 1 {
+				return "ant\n", nil
 			}
-			return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
+			return "", nil
 		},
 		suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
 			suspends.Add(1)
@@ -389,7 +429,7 @@ func TestCollectorWaitsForInFlightStartToBeTracked(t *testing.T) {
 	assert.EqualValues(t, 2, gets.Load())
 	assert.EqualValues(t, 1, suspends.Load(), "only the previous exited CLI may have been suspended")
 	require.Contains(t, launcher.processes, "session_test")
-	assert.Equal(t, "new-worker", launcher.processes["session_test"].processID)
+	assert.Equal(t, "work_new", launcher.processes["session_test"].workID)
 	assert.Nil(t, launcher.processes["session_test"].busy)
 }
 
@@ -446,13 +486,13 @@ func TestCollectorCancellation(t *testing.T) {
 			defer cancel()
 			calling := make(chan struct{})
 			launcher := newTestLauncher(t, &sandboxFixture{
-				get: func(ctx context.Context, _ string, _ *guestpb.GetProcessRequest) (*guestpb.Process, error) {
+				scan: func(ctx context.Context, _ string) (string, error) {
 					if phase == "lookup" {
 						close(calling)
 						<-ctx.Done()
-						return nil, ctx.Err()
+						return "", ctx.Err()
 					}
-					return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
+					return "", nil
 				},
 				suspend: func(ctx context.Context, _ string) (*apiv1.Sandbox, error) {
 					assert.Equal(t, "suspend", phase)
@@ -528,12 +568,12 @@ func TestCollectorDrainFinishesActiveSandboxOnly(t *testing.T) {
 				}
 			}
 			launcher := newTestLauncher(t, &sandboxFixture{
-				get: func(operationCtx context.Context, _ string, _ *guestpb.GetProcessRequest) (*guestpb.Process, error) {
+				scan: func(operationCtx context.Context, _ string) (string, error) {
 					calls.Add(1)
 					if phase == "inspect" {
 						wait(operationCtx)
 					}
-					return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
+					return "", nil
 				},
 				suspend: func(operationCtx context.Context, id string) (*apiv1.Sandbox, error) {
 					if phase == "suspend" {
@@ -548,7 +588,6 @@ func TestCollectorDrainFinishesActiveSandboxOnly(t *testing.T) {
 				entry, err := launcher.lockSandbox(t.Context(), sessionID)
 				require.NoError(t, err)
 				entry.sandboxID = fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1)
-				entry.processID = "proc-" + sessionID
 				entry.workID = "work-" + sessionID
 				launcher.unlockSandbox(sessionID, entry)
 			}

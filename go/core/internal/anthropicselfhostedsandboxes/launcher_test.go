@@ -1,4 +1,4 @@
-package managedagents
+package anthropicselfhostedsandboxes
 
 import (
 	"bytes"
@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -34,7 +32,7 @@ import (
 const testSandboxID = "ffed5612-907d-451a-86b8-24821da8e4ec"
 
 func testConfig() Config {
-	return Config{EnvironmentID: "env_test", EnvironmentKey: "standing-environment-secret", TemplateNamespace: "test", TemplateName: "claude"}
+	return Config{EnvironmentID: "env_test", EnvironmentKey: "standing-environment-secret", TemplateNamespace: "test", TemplateName: "claude", SandboxTTL: 12 * time.Hour}
 }
 
 func testWork(id string) *anthropic.BetaSelfHostedWork {
@@ -51,7 +49,7 @@ type sandboxFixture struct {
 	create  func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
 	resume  func(context.Context, string) (*apiv1.Sandbox, error)
 	start   func(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error)
-	get     func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error)
+	scan    func(context.Context, string) (string, error)
 	suspend func(context.Context, string) (*apiv1.Sandbox, error)
 }
 
@@ -67,6 +65,15 @@ func (s *sandboxFixture) List(ctx context.Context, req *apiv1.ListSandboxesReque
 func (s *sandboxFixture) StreamProcessOutput(ctx context.Context, id string, req *guestpb.StreamProcessOutputRequest, send func(*guestpb.ProcessOutput) error) error {
 	if s.output != nil {
 		return s.output(ctx, id, req, send)
+	}
+	if s.scan != nil {
+		output, err := s.scan(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := send(&guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Stdout{Stdout: []byte(output)}}); err != nil {
+			return err
+		}
 	}
 	return send(&guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Exit{Exit: &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}}})
 }
@@ -92,17 +99,13 @@ func (s *sandboxFixture) Resume(ctx context.Context, id string) (*apiv1.Sandbox,
 }
 
 func (s *sandboxFixture) StartProcess(ctx context.Context, id string, req *guestpb.StartProcessRequest) (*guestpb.Process, error) {
+	if req.Command[0] == "ps" && s.output == nil {
+		return &guestpb.Process{ProcessId: "ps"}, nil
+	}
 	if s.start != nil {
 		return s.start(ctx, id, req)
 	}
 	return &guestpb.Process{ProcessId: "process-test", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
-}
-
-func (s *sandboxFixture) GetProcess(ctx context.Context, id string, req *guestpb.GetProcessRequest) (*guestpb.Process, error) {
-	if s.get != nil {
-		return s.get(ctx, id, req)
-	}
-	return &guestpb.Process{ProcessId: req.GetProcessId(), State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
 }
 
 func (s *sandboxFixture) Suspend(ctx context.Context, id string) (*apiv1.Sandbox, error) {
@@ -126,7 +129,6 @@ func requireIdleSandbox(t *testing.T, launcher *Launcher, sessionID string) {
 	entry := launcher.processes[sessionID]
 	require.NotEmpty(t, entry.sandboxID)
 	assert.Empty(t, entry.workID)
-	assert.Empty(t, entry.processID)
 }
 
 type workAPI struct {
@@ -310,16 +312,17 @@ func TestServicePollAndHandoff(t *testing.T) {
 		}))
 	}
 	launcher := newTestLauncher(t, fixture, api)
+	launcher.config.SandboxTTL = 3 * time.Hour
 	require.NoError(t, launcher.Start(ctx))
 	require.Len(t, creates, 1, "later work reuses the saved session sandbox via Get")
-	assert.Equal(t, 12*time.Hour, creates[0].GetTtl().AsDuration())
+	assert.Equal(t, 3*time.Hour, creates[0].GetTtl().AsDuration())
 	require.Len(t, starts, 2)
 	workIDs := make([]string, 0, len(starts))
 	for _, start := range starts {
 		workIDs = append(workIDs, start.Env["ANTHROPIC_WORK_ID"])
 		assert.Equal(t, []string{"ant", "beta:worker", "run", "--workdir", "/data/workspace", "--log-format", "json", "--max-idle", "5m"}, start.Command)
 		assert.Equal(t, "/data/workspace", start.Cwd)
-		assert.Equal(t, 12*time.Hour, start.Timeout.AsDuration())
+		assert.Equal(t, 3*time.Hour, start.Timeout.AsDuration())
 		assert.Equal(t, map[string]string{
 			"ANTHROPIC_SESSION_ID": "session_test", "ANTHROPIC_ENVIRONMENT_ID": "env_test",
 			"ANTHROPIC_WORK_ID":             start.Env["ANTHROPIC_WORK_ID"],
@@ -332,10 +335,6 @@ func TestServicePollAndHandoff(t *testing.T) {
 	defer api.mu.Unlock()
 	assert.Equal(t, 2, api.acks)
 	assert.Empty(t, api.stoppedWork, "workers survive shutdown")
-	assert.NotEqual(t, creates[0].RequestId, createRequest(testConfig(), "another-session").RequestId)
-	cfg := testConfig()
-	cfg.EnvironmentID = "another-env"
-	assert.NotEqual(t, creates[0].RequestId, createRequest(cfg, "session_test").RequestId)
 }
 
 func TestServiceConcurrentProvisioningShutdown(t *testing.T) {
@@ -360,10 +359,9 @@ func TestServiceConcurrentProvisioningShutdown(t *testing.T) {
 			firstWork, secondWork := testWork("work_first"), testWork("work_second")
 			firstWork.Data.ID = "session_first"
 			secondWork.Data.ID = "session_second"
-			firstRequestID := createRequest(testConfig(), firstWork.Data.ID).RequestId
 			fixture := &sandboxFixture{
 				create: func(ctx context.Context, req *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
-					if req.RequestId == firstRequestID {
+					if req.Name == sandboxNamePrefix+firstWork.Data.ID {
 						close(firstProvisioning)
 						select {
 						case <-releaseProvisioning:
@@ -550,7 +548,13 @@ func TestProvisionReplacesExpiredReceiptsAcrossRestarts(t *testing.T) {
 	creations := 0
 	fixture := &sandboxFixture{
 		list: func(context.Context, *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error) {
-			return &apiv1.ListSandboxesResponse{Sandboxes: slices.Collect(maps.Values(instances))}, nil
+			page := &apiv1.ListSandboxesResponse{}
+			for _, instance := range instances {
+				if instance.GetState() != apiv1.RuntimeState_RUNTIME_STATE_DELETED {
+					page.Sandboxes = append(page.Sandboxes, instance)
+				}
+			}
+			return page, nil
 		},
 		lookup: func(_ context.Context, id string) (*apiv1.Sandbox, error) {
 			return instances[id], nil
@@ -564,6 +568,7 @@ func TestProvisionReplacesExpiredReceiptsAcrossRestarts(t *testing.T) {
 				return existing, nil
 			}
 			require.Less(t, creations, len(replacementIDs))
+			assert.Equal(t, base.Name, req.Name, "replacement keeps the session's sandbox name")
 			sb := readySandbox()
 			sb.Id = replacementIDs[creations]
 			sb.ExpiresAt = timestamppb.New(time.Now().Add(time.Hour))
@@ -583,7 +588,7 @@ func TestProvisionReplacesExpiredReceiptsAcrossRestarts(t *testing.T) {
 	first, err := provisionTestSandbox(t, t.Context(), launcher)
 	require.NoError(t, err)
 	require.Equal(t, replacementIDs[0], first.Id)
-	assert.Equal(t, 12*time.Hour, inputs[replacementRequest(testConfig(), "session_test", original.Id).RequestId].Ttl.AsDuration())
+	assert.Len(t, receipts, 2, "creation retries must reuse one fresh receipt")
 
 	launcher = newTestLauncher(t, fixture, api)
 	require.NoError(t, launcher.adopt(t.Context()))
@@ -600,20 +605,7 @@ func TestProvisionReplacesExpiredReceiptsAcrossRestarts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, replacementIDs[1], next.Id)
 	assert.Equal(t, 2, creations)
-}
-
-func TestProvisionDoesNotReplaceUnexpiredDeletedSandbox(t *testing.T) {
-	calls := 0
-	launcher := newTestLauncher(t, &sandboxFixture{
-		create: func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
-			calls++
-			return nil, serviceerrors.NewFailedPrecondition("deleted", nil)
-		},
-	}, &workAPI{})
-	result, err := provisionTestSandbox(t, t.Context(), launcher)
-	require.Error(t, err)
-	assert.Nil(t, result)
-	assert.Equal(t, 1, calls)
+	assert.Len(t, receipts, 3, "a deleted generation must not pin the session to its old receipt")
 }
 
 func TestLaunchReplacementDropsExpiredProcessTracking(t *testing.T) {
@@ -631,7 +623,7 @@ func TestLaunchReplacementDropsExpiredProcessTracking(t *testing.T) {
 			return replacement, nil
 		},
 		create: func(_ context.Context, req *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
-			assert.Equal(t, replacementRequest(testConfig(), "session_test", expired.Id).RequestId, req.RequestId)
+			assert.Equal(t, expired.Name, req.Name)
 			return replacement, nil
 		},
 		start: func(_ context.Context, id string, _ *guestpb.StartProcessRequest) (*guestpb.Process, error) {
@@ -644,7 +636,6 @@ func TestLaunchReplacementDropsExpiredProcessTracking(t *testing.T) {
 	entry := launcher.processes["session_test"]
 	require.NotNil(t, entry)
 	assert.Equal(t, replacement.Id, entry.sandboxID)
-	assert.Equal(t, "new-worker", entry.processID)
 	assert.Equal(t, "new-work", entry.workID)
 }
 

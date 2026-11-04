@@ -1,9 +1,8 @@
-// Package managedagents launches stock Anthropic workers through kagent services.
-package managedagents
+// Package anthropicselfhostedsandboxes launches stock Anthropic workers through kagent services.
+package anthropicselfhostedsandboxes
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -29,7 +28,6 @@ import (
 )
 
 const (
-	sandboxLifetime  = 12 * time.Hour
 	provisionTimeout = 2 * time.Minute
 	startTimeout     = 10 * time.Second
 	noHeartbeat      = "NO_HEARTBEAT"
@@ -42,9 +40,13 @@ type Config struct {
 	BaseURL           string
 	TemplateNamespace string
 	TemplateName      string
+	SandboxTTL        time.Duration
 }
 
 func (c Config) Validate() error {
+	if c.SandboxTTL <= 0 {
+		return errors.New("managed agents sandbox TTL must be positive")
+	}
 	for _, field := range []struct{ name, value string }{
 		{"environment ID", c.EnvironmentID},
 		{"environment key", c.EnvironmentKey},
@@ -71,7 +73,6 @@ type SandboxService interface {
 	Create(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error)
 	Resume(context.Context, string) (*apiv1.Sandbox, error)
 	StartProcess(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error)
-	GetProcess(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error)
 	StreamProcessOutput(context.Context, string, *guestpb.StreamProcessOutputRequest, func(*guestpb.ProcessOutput) error) error
 	Suspend(context.Context, string) (*apiv1.Sandbox, error)
 }
@@ -91,7 +92,6 @@ type Launcher struct {
 type sandboxWorker struct {
 	sandboxID string
 	workID    string
-	processID string
 	busy      chan struct{}
 }
 
@@ -328,7 +328,7 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 		Command: []string{"ant", "beta:worker", "run", "--workdir", "/data/workspace", "--log-format", "json", "--max-idle", "5m"},
 		Cwd:     "/data/workspace",
 		Env:     env,
-		Timeout: durationpb.New(sandboxLifetime),
+		Timeout: durationpb.New(l.config.SandboxTTL),
 	})
 	if err != nil {
 		// Prototype assumption: StartProcess returns a definitive outcome.
@@ -343,7 +343,6 @@ func (l *Launcher) launch(ctx context.Context, work *anthropic.BetaSelfHostedWor
 	}
 	entry.sandboxID = sandbox.GetId()
 	entry.workID = work.ID
-	entry.processID = process.GetProcessId()
 	l.log.InfoContext(ctx, "started managed agent CLI", "work_id", work.ID, "sandbox_id", sandbox.GetId(), "process_id", process.GetProcessId())
 	return nil
 }
@@ -431,19 +430,12 @@ func (l *Launcher) keepAlive(ctx context.Context, cancel context.CancelFunc, wor
 }
 
 func createRequest(cfg Config, sessionID string) *apiv1.CreateSandboxRequest {
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(cfg.EnvironmentID+"\x00"+sessionID)))
 	return &apiv1.CreateSandboxRequest{
-		RequestId:       "anthropic-v1-" + hash,
+		RequestId:       "anthropic-" + uuid.NewString(),
 		Name:            sandboxNamePrefix + sessionID,
 		SandboxTemplate: &apiv1.ResourceReference{Namespace: cfg.TemplateNamespace, Name: cfg.TemplateName},
-		Ttl:             durationpb.New(sandboxLifetime),
+		Ttl:             durationpb.New(cfg.SandboxTTL),
 	}
-}
-
-func replacementRequest(cfg Config, sessionID, expiredID string) *apiv1.CreateSandboxRequest {
-	request := createRequest(cfg, sessionID)
-	request.RequestId += "-" + expiredID
-	return request
 }
 
 func sandboxExpired(instance *apiv1.Sandbox) bool {
@@ -474,7 +466,7 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 			discovered = true
 		}
 		if sandboxExpired(sandbox) {
-			request = replacementRequest(l.config, work.Data.ID, sandbox.GetId())
+			request = createRequest(l.config, work.Data.ID)
 			sandbox = nil
 		}
 		if sandbox != nil && sandboxUnavailable(sandbox) {
@@ -486,10 +478,8 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 		if sandbox == nil {
 			created, createErr := l.sandboxes.Create(callCtx, request)
 			if createErr != nil {
-				// Failed receipts convey no resource or expiry evidence. A lost
-				// creation can be recovered only while that receipt remains live.
 				if !retryable(createErr) {
-					return nil, backoff.Permanent(fmt.Errorf("managed agents sandbox receipt unavailable without saved successor expiry evidence: %w", createErr))
+					return nil, backoff.Permanent(fmt.Errorf("failed to create managed agents sandbox: %w", createErr))
 				}
 				return nil, createErr
 			}

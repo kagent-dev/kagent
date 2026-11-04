@@ -6,23 +6,23 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/kagent-dev/kagent/go/core/internal/managedagents"
+	"github.com/kagent-dev/kagent/go/core/internal/anthropicselfhostedsandboxes"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 // ManagedAgentsConfig configures the optional environment-driven launcher.
-type ManagedAgentsConfig = managedagents.Config
+type ManagedAgentsConfig = anthropicselfhostedsandboxes.Config
 
 type managedAgentsRunnable struct {
-	launcher *managedagents.Launcher
+	launcher *anthropicselfhostedsandboxes.Launcher
 	session  auth.Session
 }
 
 var _ manager.Runnable = (*managedAgentsRunnable)(nil)
 var _ manager.LeaderElectionRunnable = (*managedAgentsRunnable)(nil)
 
-func newManagedAgentsRunnable(cfg ManagedAgentsConfig, sandboxes managedagents.SandboxService, log *slog.Logger) (*managedAgentsRunnable, error) {
-	launcher, err := managedagents.New(cfg, sandboxes, log)
+func newManagedAgentsRunnable(cfg ManagedAgentsConfig, sandboxes anthropicselfhostedsandboxes.SandboxService, log *slog.Logger) (*managedAgentsRunnable, error) {
+	launcher, err := anthropicselfhostedsandboxes.New(cfg, sandboxes, log)
 	if err != nil {
 		return nil, err
 	}

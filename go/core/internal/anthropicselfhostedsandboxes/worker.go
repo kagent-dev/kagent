@@ -1,4 +1,4 @@
-package managedagents
+package anthropicselfhostedsandboxes
 
 import (
 	"context"
@@ -47,22 +47,7 @@ func (l *Launcher) inspectWorker(ctx context.Context, entry *sandboxWorker) (wor
 		instance.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return workerLive, &recoveryError{message: "managed agents sandbox is not ready for inspection", transient: true}
 	}
-	if entry.processID == "" {
-		return l.discoverWorker(ctx, entry.sandboxID)
-	}
-	callCtx, cancel = context.WithTimeout(ctx, collectionTimeout)
-	process, err := l.sandboxes.GetProcess(callCtx, entry.sandboxID, &guestpb.GetProcessRequest{ProcessId: entry.processID})
-	cancel()
-	if processNotFound(err) {
-		return workerExited, nil
-	}
-	if err != nil {
-		return workerLive, safeRecoveryError("managed agents process inspection failed", err)
-	}
-	if process.GetState() == guestpb.ProcessState_PROCESS_STATE_EXITED {
-		return workerExited, nil
-	}
-	return workerLive, nil
+	return l.discoverWorker(ctx, entry.sandboxID)
 }
 
 func (l *Launcher) finishWorker(ctx context.Context, entry *sandboxWorker) (workerState, error) {
@@ -94,7 +79,7 @@ func (l *Launcher) finishWorker(ctx context.Context, entry *sandboxWorker) (work
 			return state, &recoveryError{message: "managed agents suspension is incomplete", transient: true}
 		}
 	}
-	entry.workID, entry.processID = "", ""
+	entry.workID = ""
 	return state, nil
 }
 

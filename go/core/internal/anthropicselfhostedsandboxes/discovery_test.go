@@ -1,4 +1,4 @@
-package managedagents
+package anthropicselfhostedsandboxes
 
 import (
 	"context"
@@ -97,8 +97,8 @@ func TestDiscoveredSandboxResumesWithoutRecreation(t *testing.T) {
 			starts++
 			return &guestpb.Process{ProcessId: "worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
 		},
-		get: func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error) {
-			return &guestpb.Process{ProcessId: "worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+		scan: func(context.Context, string) (string, error) {
+			return "ant\n", nil
 		},
 	}
 	launcher := newTestLauncher(t, fixture, &workAPI{})
@@ -111,18 +111,29 @@ func TestDiscoveredSandboxResumesWithoutRecreation(t *testing.T) {
 }
 
 func TestProcessDiscoveryFailsClosed(t *testing.T) {
-	for _, phase := range []string{"start", "stream", "missing exit", "failed ps", "unknown exit"} {
+	for _, phase := range []string{"start", "missing process ID", "stream", "stream not found", "missing exit", "failed ps", "unknown exit"} {
 		t.Run(phase, func(t *testing.T) {
 			launcher := newTestLauncher(t, &sandboxFixture{
-				start: func(context.Context, string, *guestpb.StartProcessRequest) (*guestpb.Process, error) {
+				start: func(ctx context.Context, id string, req *guestpb.StartProcessRequest) (*guestpb.Process, error) {
+					assert.Equal(t, testSandboxID, id)
+					assert.Equal(t, []string{"ps", "-eo", "comm="}, req.Command)
+					assert.Equal(t, collectionTimeout, req.Timeout.AsDuration())
+					_, bounded := ctx.Deadline()
+					assert.True(t, bounded)
 					if phase == "start" {
 						return nil, serviceerrors.NewUnavailable("secret-body", nil)
+					}
+					if phase == "missing process ID" {
+						return &guestpb.Process{}, nil
 					}
 					return &guestpb.Process{ProcessId: "ps"}, nil
 				},
 				output: func(_ context.Context, _ string, _ *guestpb.StreamProcessOutputRequest, send func(*guestpb.ProcessOutput) error) error {
 					if phase == "stream" {
 						return errors.New("secret-body")
+					}
+					if phase == "stream not found" {
+						return serviceerrors.NewNotFound("secret-body", nil)
 					}
 					if phase == "missing exit" {
 						return nil
@@ -141,10 +152,11 @@ func TestProcessDiscoveryFailsClosed(t *testing.T) {
 					return nil, errors.New("unexpected suspend")
 				},
 			}, &workAPI{})
-			entry := &sandboxWorker{sandboxID: testSandboxID}
-			state, err := launcher.finishWorker(t.Context(), entry)
+			trackTestProcesses(t, launcher, "worker")
+			err := launcher.collectSandbox(t.Context(), "session_test")
 			require.Error(t, err)
-			assert.Equal(t, workerLive, state)
+			assert.Equal(t, "work_worker", launcher.processes["session_test"].workID)
+			assert.Equal(t, testSandboxID, launcher.processes["session_test"].sandboxID)
 			assert.NotContains(t, err.Error(), "secret-body")
 		})
 	}
@@ -198,9 +210,11 @@ func TestDiscoverySelectsNewestExpiredGeneration(t *testing.T) {
 	for _, reverse := range []bool{false, true} {
 		t.Run(map[bool]string{false: "old first", true: "latest first"}[reverse], func(t *testing.T) {
 			old, latest := readySandbox(), readySandbox()
+			old.CreatedAt = timestamppb.New(time.Now().Add(-12 * time.Hour))
 			old.ExpiresAt = timestamppb.New(time.Now().Add(-2 * time.Hour))
 			latest.Id = "00000000-0000-4000-8000-000000000002"
 			latest.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
+			latest.CreatedAt = timestamppb.New(time.Now().Add(-time.Hour))
 			latest.ExpiresAt = timestamppb.New(time.Now().Add(time.Hour))
 			instances := []*apiv1.Sandbox{old, latest}
 			if reverse {

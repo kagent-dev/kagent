@@ -1,4 +1,4 @@
-package managedagents
+package anthropicselfhostedsandboxes
 
 import (
 	"context"

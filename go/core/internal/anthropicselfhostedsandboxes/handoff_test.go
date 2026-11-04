@@ -1,4 +1,4 @@
-package managedagents
+package anthropicselfhostedsandboxes
 
 import (
 	"context"
@@ -44,14 +44,13 @@ func TestDifferentWorkWaitsForCLIExitAndMaintainsIncomingLease(t *testing.T) {
 	}}
 	launcher := newTestLauncher(t, &sandboxFixture{
 		lookup: func(context.Context, string) (*apiv1.Sandbox, error) { return instance, nil },
-		get: func(_ context.Context, _ string, req *guestpb.GetProcessRequest) (*guestpb.Process, error) {
-			assert.Equal(t, "proc-old", req.ProcessId)
+		scan: func(context.Context, string) (string, error) {
 			markInspected()
 			select {
 			case <-exited:
-				return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
+				return "", nil
 			default:
-				return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+				return "ant\n", nil
 			}
 		},
 		suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
@@ -100,19 +99,16 @@ func TestDifferentWorkWaitsForCLIExitAndMaintainsIncomingLease(t *testing.T) {
 	require.NoError(t, <-done)
 	assert.EqualValues(t, 2, starts.Load())
 	assert.Equal(t, "new", launcher.processes["session_test"].workID)
-	assert.Equal(t, "proc-new", launcher.processes["session_test"].processID)
 	assert.Zero(t, api.stops)
 }
 
 func TestBlockedHandoffLeavesIncomingLeaseToExpire(t *testing.T) {
 	for _, tt := range []struct {
-		name    string
-		process *guestpb.Process
-		err     error
+		name   string
+		output string
+		err    error
 	}{
-		{name: "running", process: &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_RUNNING}},
-		{name: "unknown", process: &guestpb.Process{}},
-		{name: "empty response"},
+		{name: "running", output: "ant\n"},
 		{name: "transient", err: serviceerrors.NewUnavailable("secret-body", nil)},
 		{name: "permanent", err: status.Error(codes.PermissionDenied, "secret-body")},
 	} {
@@ -120,8 +116,8 @@ func TestBlockedHandoffLeavesIncomingLeaseToExpire(t *testing.T) {
 			starts := 0
 			api := &workAPI{}
 			launcher := newTestLauncher(t, &sandboxFixture{
-				get: func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error) {
-					return tt.process, tt.err
+				scan: func(context.Context, string) (string, error) {
+					return tt.output, tt.err
 				},
 				suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
 					t.Error("uncertain or live CLI must not be suspended")
@@ -140,54 +136,85 @@ func TestBlockedHandoffLeavesIncomingLeaseToExpire(t *testing.T) {
 			assert.NotContains(t, err.Error(), "secret-body")
 			assert.Equal(t, 1, starts)
 			assert.Equal(t, "old", launcher.processes["session_test"].workID)
-			assert.Equal(t, "old-process", launcher.processes["session_test"].processID)
 			assert.Zero(t, api.stops, "neither healthy old work nor timed-out incoming work may be stopped")
 		})
 	}
 }
 
-func TestFailedSuspensionBlocksHandoff(t *testing.T) {
-	instance := readySandbox()
-	fail := true
-	starts, gets := 0, 0
-	api := &workAPI{}
-	launcher := newTestLauncher(t, &sandboxFixture{
-		lookup: func(context.Context, string) (*apiv1.Sandbox, error) { return instance, nil },
-		get: func(context.Context, string, *guestpb.GetProcessRequest) (*guestpb.Process, error) {
-			gets++
-			return &guestpb.Process{State: guestpb.ProcessState_PROCESS_STATE_EXITED}, nil
-		},
-		suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
-			if fail {
-				instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND
-				return nil, serviceerrors.NewUnavailable("secret-body", nil)
+func TestHandoffCompletesPendingSuspensionBeforeResume(t *testing.T) {
+	for _, initiator := range []string{"collector", "incoming assignment"} {
+		t.Run(initiator, func(t *testing.T) {
+			instance := readySandbox()
+			fail, live := true, true
+			scans := 0
+			var transitions []string
+			api := &workAPI{}
+			launcher := newTestLauncher(t, &sandboxFixture{
+				lookup: func(context.Context, string) (*apiv1.Sandbox, error) { return instance, nil },
+				create: func(context.Context, *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
+					transitions = append(transitions, "create")
+					return instance, nil
+				},
+				scan: func(context.Context, string) (string, error) {
+					require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, instance.State)
+					require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, instance.Operation)
+					scans++
+					if live {
+						return "ant\n", nil
+					}
+					return "", nil
+				},
+				suspend: func(context.Context, string) (*apiv1.Sandbox, error) {
+					require.False(t, live, "never suspend a running worker")
+					instance.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
+					if fail {
+						instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND
+						return nil, serviceerrors.NewUnavailable("secret-body", nil)
+					}
+					transitions = append(transitions, "suspend")
+					instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
+					return instance, nil
+				},
+				resume: func(context.Context, string) (*apiv1.Sandbox, error) {
+					require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, instance.State)
+					require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, instance.Operation)
+					transitions = append(transitions, "resume")
+					instance.State = apiv1.RuntimeState_RUNTIME_STATE_READY
+					return instance, nil
+				},
+				start: func(_ context.Context, _ string, req *guestpb.StartProcessRequest) (*guestpb.Process, error) {
+					require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, instance.State)
+					require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, instance.Operation)
+					transitions = append(transitions, "start "+req.Env["ANTHROPIC_WORK_ID"])
+					live = true
+					return &guestpb.Process{ProcessId: "worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+				},
+			}, api)
+			require.NoError(t, launcher.launch(t.Context(), testWork("old")))
+			live = false
+			if initiator == "collector" {
+				require.Error(t, launcher.collectSandbox(t.Context(), "session_test"))
+			} else {
+				ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+				defer cancel()
+				require.Error(t, launcher.launch(ctx, testWork("blocked")))
 			}
-			instance.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
-			instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
-			return instance, nil
-		},
-		resume: func(context.Context, string) (*apiv1.Sandbox, error) {
-			instance.State = apiv1.RuntimeState_RUNTIME_STATE_READY
-			return instance, nil
-		},
-		start: func(_ context.Context, _ string, req *guestpb.StartProcessRequest) (*guestpb.Process, error) {
-			starts++
-			return &guestpb.Process{ProcessId: req.Env["ANTHROPIC_WORK_ID"], State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
-		},
-	}, api)
-	require.NoError(t, launcher.launch(t.Context(), testWork("old")))
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
-	defer cancel()
-	require.Error(t, launcher.launch(ctx, testWork("blocked")))
-	entry := launcher.processes["session_test"]
-	require.NotNil(t, entry)
-	assert.Equal(t, "old", entry.workID)
-	assert.Equal(t, "old", entry.processID)
-	assert.Equal(t, 1, starts)
-	assert.Zero(t, api.stops)
-	fail = false
-	require.NoError(t, launcher.launch(t.Context(), testWork("next")))
-	assert.Equal(t, 2, starts)
-	assert.Equal(t, 1, gets, "pending cleanup must not inspect the old guest again")
-	assert.Equal(t, "next", launcher.processes["session_test"].workID)
+			assert.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, instance.Operation)
+			assert.Equal(t, "old", launcher.processes["session_test"].workID)
+			assert.Equal(t, []string{"create", "start old"}, transitions)
+			assert.Zero(t, api.stops)
+
+			fail = false
+			require.NoError(t, launcher.launch(t.Context(), testWork("next")))
+			assert.Equal(t, []string{"create", "start old", "suspend", "resume", "start next"}, transitions)
+			assert.Equal(t, 1, scans, "pending cleanup must not inspect the old guest again")
+			assert.Equal(t, "next", launcher.processes["session_test"].workID)
+			assert.Equal(t, testSandboxID, launcher.processes["session_test"].sandboxID)
+			require.NoError(t, launcher.collectSandbox(t.Context(), "session_test"))
+			assert.Equal(t, 2, scans)
+			assert.Equal(t, "next", launcher.processes["session_test"].workID)
+			assert.Len(t, transitions, 5, "collection must leave the replacement worker running")
+			assert.Zero(t, api.stops)
+		})
+	}
 }

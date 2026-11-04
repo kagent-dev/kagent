@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,8 +43,13 @@ func TestManagedAgentsConfiguration(t *testing.T) {
 		changes   map[string]string
 		wantError string
 		enabled   bool
+		wantTTL   time.Duration
 	}{
-		{name: "enabled", enabled: true},
+		{name: "enabled", enabled: true, wantTTL: 12 * time.Hour},
+		{name: "custom sandbox TTL", enabled: true, changes: map[string]string{"KAGENT_MANAGED_AGENTS_SANDBOX_TTL": " 2h30m "}, wantTTL: 150 * time.Minute},
+		{name: "invalid sandbox TTL", changes: map[string]string{"KAGENT_MANAGED_AGENTS_SANDBOX_TTL": "forever"}, wantError: "expected duration"},
+		{name: "zero sandbox TTL", changes: map[string]string{"KAGENT_MANAGED_AGENTS_SANDBOX_TTL": "0"}, wantError: "sandbox TTL must be positive"},
+		{name: "negative sandbox TTL", changes: map[string]string{"KAGENT_MANAGED_AGENTS_SANDBOX_TTL": "-1h"}, wantError: "sandbox TTL must be positive"},
 		{name: "disabled ignores incomplete config", changes: map[string]string{"KAGENT_MANAGED_AGENTS_ENABLED": "false", "ANTHROPIC_ENVIRONMENT_ID": ""}},
 		{name: "invalid boolean", changes: map[string]string{"KAGENT_MANAGED_AGENTS_ENABLED": "yes"}, wantError: "expected boolean"},
 		{name: "missing key", changes: map[string]string{"ANTHROPIC_ENVIRONMENT_KEY": ""}, wantError: "environment key"},
@@ -63,6 +69,7 @@ func TestManagedAgentsConfiguration(t *testing.T) {
 			assert.Equal(t, tt.enabled, cfg != nil)
 			if cfg != nil {
 				assert.Equal(t, "env_test", cfg.EnvironmentID)
+				assert.Equal(t, tt.wantTTL, cfg.SandboxTTL)
 			}
 		})
 	}

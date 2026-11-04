@@ -1,4 +1,4 @@
-package managedagents
+package anthropicselfhostedsandboxes
 
 import (
 	"context"
@@ -83,9 +83,6 @@ func sandboxGeneration(instance *apiv1.Sandbox) (time.Time, error) {
 			return time.Time{}, errors.New("managed agents sandbox lifetime is invalid")
 		}
 		return created.AsTime(), nil
-	}
-	if expires := instance.GetExpiresAt(); expires != nil && expires.IsValid() {
-		return expires.AsTime().Add(-sandboxLifetime), nil
 	}
 	return time.Time{}, errors.New("managed agents sandbox generation time is missing")
 }
