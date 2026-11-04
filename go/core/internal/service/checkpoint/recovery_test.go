@@ -105,7 +105,7 @@ func recoverySourceForActor(t *testing.T, store *database.Client, actor *ateapip
 	ctx := t.Context()
 	space := actor.GetMetadata().GetAtespace()
 	snapshot := substrate.LatestActorSnapshot(actor)
-	revision := "revision-" + actor.GetMetadata().GetUid()
+	revision := "revision-" + snapshot.GetActorTemplateUid()
 	sessionID := strings.TrimPrefix(actor.GetMetadata().GetName(), "session-")
 	_, err := uuid.Parse(sessionID)
 	require.NoError(t, err)
@@ -197,7 +197,7 @@ func TestCheckpointRecoveryWithPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires PostgreSQL")
 	}
-	conn := dbtest.StartT(t.Context(), t)
+	conn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
 	require.NoError(t, dbtest.Migrate(conn, false))
 	pool, err := database.Connect(t.Context(), &database.PostgresConfig{Pool: dbtest.PoolConfig(conn), Schema: "public"})
 	require.NoError(t, err)

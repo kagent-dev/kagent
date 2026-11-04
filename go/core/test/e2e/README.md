@@ -132,6 +132,22 @@ request, and forks the retained snapshot to verify conversation continuity.
 The response loss is caller-side after success; interrupted tag copying,
 publication and compensation are exercised with PostgreSQL-backed workflow fault
 tests. This test does not inject live Substrate packet loss.
+
+`bash core/test/e2e/checkpoint-recovery.sh` (from `go/`) runs the checkpoint
+lifecycle service against real PostgreSQL and the installed Substrate. Set
+`KAGENT_E2E_RUNTIME_IMAGE` to the digest-pinned Go ADK image. The script reads the
+test controller's projected identity into temporary private files and forwards
+the Substrate service; it leaves controller configuration unchanged. Both CI
+runtime jobs run it before the public API E2E suite, and a configured environment
+must fail rather than skip on missing prerequisites. It owns its ActorTemplate,
+Actors and Tags. Cases cover abandoned reservations, lost successful tag replies,
+copy completion before database publication,
+a source deleted before tag creation, failed compensation after a real source
+change, and lost successful deletion replies. Transport faults are injected at
+the service's client boundary around real calls; backend responses and database
+phases are not fabricated. The deterministic PostgreSQL tests separately cover
+pending-copy leases and overlapping/expired executors. These are not claims of
+live object-store outage or mid-copy packet-loss coverage.
 The scheduled-run restart test starts all selected harness executions before one
 shared controller restart, then releases their model responses and checks recovery
 in parallel. Each harness retains its own Session, task, and prompt-count assertions.
