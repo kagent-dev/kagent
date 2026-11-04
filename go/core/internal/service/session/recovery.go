@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -18,6 +20,35 @@ import (
 // Substrate and database failures must not wrap it, so they stay retryable.
 var errRuntimeUnrecoverable = fmt.Errorf("runtime cannot be recovered: %w", database.ErrFailedPrecondition)
 
+// Recovery reports whether the Session's runtime needs a revert, from the same
+// checks Revert admits one by. A failed observation leaves needed unknown, so a
+// control-plane outage can neither offer recovery nor prevent history reads.
+func (w *ActorWorkflow) Recovery(ctx context.Context, session *apiv1.Session) (*apiv1.SessionRecovery, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	recovery := proto.CloneOf(session.GetRecovery())
+	if recovery == nil {
+		recovery = &apiv1.SessionRecovery{}
+	}
+	recovery.Needed = nil
+	if database.CrashRecoveryAdmitted(session) {
+		recovery.Needed = new(true)
+		return recovery, nil
+	}
+	if !lifecycleIdle(session) {
+		recovery.Needed = new(false)
+		return recovery, nil
+	}
+	observed, err := w.observeCrash(ctx, session)
+	if err != nil {
+		return recovery, fmt.Errorf("observe Session recovery: %w", err)
+	}
+	recovery.Needed = new(observed.crashed())
+	return recovery, nil
+}
+
+// lifecycleIdle reports a Session with no lifecycle operation in flight. Only an
+// idle Session can admit a new revert; any other operation owns the Actor.
 func lifecycleIdle(session *apiv1.Session) bool {
 	return session.State == apiv1.RuntimeState_RUNTIME_STATE_READY && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
 }
@@ -32,7 +63,8 @@ func (o crashObservation) crashed() bool {
 }
 
 // observeCrash treats a missing, replaced, or retemplated Actor as unrecoverable,
-// never as a crash: reverting it would restore the wrong runtime.
+// never as a crash: reverting it would restore the wrong runtime. Recovery and Revert
+// share it, so chat offers a revert exactly when Revert would admit one.
 //
 // The generation is read before the Actor. A concurrent revert keeps the Actor UID
 // and returns to READY, so only the generation shows that an observation predates

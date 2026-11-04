@@ -152,7 +152,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		Authenticator:    runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL),
 		TaskStoreService: tasks,
 		MemoryService:    memoryservice.NewService(memories, policy),
-		SessionService:   sessionsvc.NewService(store, policy, nil),
+		SessionService:   sessionsvc.NewService(store, policy, storedRecoveryWorkflow{}),
 	})
 	require.NoError(t, err)
 	serverCtx, stopServer := context.WithCancel(t.Context())
