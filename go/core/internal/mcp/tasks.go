@@ -16,6 +16,7 @@ import (
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 )
 
 const tasksExtension = "io.modelcontextprotocol/tasks"
@@ -294,7 +295,7 @@ func taskToMCP(id string, task *a2atype.Task) taskFields {
 		updated = task.Status.Timestamp.UTC()
 	}
 	return taskFields{
-		TaskID: id, Status: taskStatus(task), StatusMessage: taskText(task),
+		TaskID: id, Status: taskStatus(task), StatusMessage: a2a.TaskText(task),
 		CreatedAt: created.Format(time.RFC3339Nano), LastUpdatedAt: updated.Format(time.RFC3339Nano),
 		TTLMS: nil, PollIntervalMS: defaultTaskPollInterval,
 	}

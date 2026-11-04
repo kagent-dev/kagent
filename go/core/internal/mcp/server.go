@@ -2,10 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -17,6 +15,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
@@ -203,6 +202,11 @@ func (h *Handler) invoke(ctx context.Context, input InvokeAgentInput, async bool
 	}
 	// Direct gateway calls carry the Agent tenant on the request, like A2A transports do.
 	routed := interactionContext(ctx)
+	if origin := runtimeauth.Origin(ctx); !async && origin != nil {
+		// Admission persists the dependency before dispatch, so the caller resumes
+		// when the delegated task settles after a pause for input.
+		routed = sessionsvc.WithDelegatingSession(routed, origin.SessionID)
+	}
 	var taskID a2atype.TaskID
 	for event, err := range h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Tenant: tenant, Message: message}) {
 		if err != nil {
@@ -231,7 +235,7 @@ func interactionContext(ctx context.Context) context.Context {
 }
 
 func invocationResult(task *a2atype.Task) (*mcp.CallToolResult, InvokeAgentOutput) {
-	text := taskText(task)
+	text := a2a.TaskText(task)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 		IsError: task.Status.State == a2atype.TaskStateFailed ||
@@ -242,33 +246,6 @@ func invocationResult(task *a2atype.Task) (*mcp.CallToolResult, InvokeAgentOutpu
 		TaskID:    string(task.ID), ContextID: task.ContextID,
 		State: task.Status.State.String(), Text: text,
 	}
-}
-
-func taskText(task *a2atype.Task) string {
-	var text strings.Builder
-	if task.Status.Message != nil {
-		text.WriteString(a2a.ExtractText(task.Status.Message))
-	}
-	for _, artifact := range task.Artifacts {
-		for _, part := range artifact.Parts {
-			if part != nil {
-				text.WriteString(part.Text())
-			}
-		}
-	}
-	if text.Len() == 0 {
-		for _, message := range slices.Backward(task.History) {
-			if message.Role == a2atype.MessageRoleAgent {
-				text.WriteString(a2a.ExtractText(message))
-				break
-			}
-		}
-	}
-	if text.Len() == 0 {
-		data, _ := json.Marshal(task)
-		return string(data)
-	}
-	return text.String()
 }
 
 func toolError(err error) *mcp.CallToolResult {
