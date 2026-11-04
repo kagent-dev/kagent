@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -23,16 +23,10 @@ type modelResult struct {
 }
 
 // buildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
-	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
-	if resolved == nil {
-		return nil, fmt.Errorf("model config %q not found", name)
-	}
-	if failures := resolved.SemanticFailures; len(failures) > 0 {
-		return nil, translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
-	}
-	if failures := resolved.ReferenceFailures; len(failures) > 0 {
-		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
+func (c *Builder) buildModel(namespace string, ref v1alpha3.ObjectReference) (*modelResult, error) {
+	resolved, err := translator.ResolveModelReference(c.ctx, c.collections, namespace, ref)
+	if err != nil {
+		return nil, err
 	}
 	runtime, err := resolveModel(resolved)
 	if err != nil {
@@ -70,8 +64,8 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	}
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
-		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
-			model, err := c.buildModel(harness.Namespace, ref.Name)
+		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.NamespacedName(harness.Namespace)) {
+			model, err := c.buildModel(harness.Namespace, *ref)
 			if err != nil {
 				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
 			}
@@ -85,8 +79,8 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	return nil
 }
 
-func isAgentModel(template *translator.TemplateConfiguration, name string) bool {
-	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
+func isAgentModel(template *translator.TemplateConfiguration, key types.NamespacedName) bool {
+	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.NamespacedName(template.Namespace) == key
 }
 
 func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.ResolvedOutputSchema) error {
@@ -142,7 +136,7 @@ func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfigu
 		return nil
 	}
 	name := memory.ModelConfigRef.Name
-	model, err := c.buildModel(harness.Namespace, name)
+	model, err := c.buildModel(harness.Namespace, memory.ModelConfigRef)
 	if err != nil {
 		return fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 	}

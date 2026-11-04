@@ -335,7 +335,7 @@ func (g scopedControllerGateway) SendStreamingMessage(ctx context.Context, reque
 }
 func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
-	store := &scopedControllerStore{session: &apiv1.Session{Id: id, ContextId: id, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}}
+	store := &scopedControllerStore{session: &apiv1.Session{Id: id, ContextId: id, Creator: "owner", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}}, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}}
 	policy := &controllerSessionPolicy{}
 	sessions := sessionsvc.NewService(store, policy, nil)
 	interactions := sessionsvc.NewInteractionService(store, nil, sessions, false)

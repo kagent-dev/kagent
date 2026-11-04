@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -49,12 +48,9 @@ func (a *Authenticator) Authenticate(ctx context.Context, headers http.Header, _
 		logging.FromContext(ctx).WarnContext(ctx, "runtime actor authentication failed", "error", err)
 		return nil, err
 	}
-	id, ok := strings.CutPrefix(identity.ActorName, "session-")
-	if !ok || identity.Atespace == "" || identity.ActorUID == "" {
-		return nil, fmt.Errorf("incomplete Substrate actor identity")
-	}
-	if _, err := uuid.Parse(id); err != nil {
-		return nil, fmt.Errorf("invalid runtime session identity: %w", err)
+	id, err := identity.SessionID()
+	if err != nil {
+		return nil, err
 	}
 	return runtimeSession{sessionID: id, atespace: identity.Atespace, actorUID: identity.ActorUID}, nil
 }

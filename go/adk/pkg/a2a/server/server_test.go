@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
@@ -125,6 +126,10 @@ func TestHTTPAndGRPCHealthSharePort(t *testing.T) {
 	}
 }
 
+func a2aTestContext(ctx context.Context) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, a2atype.SvcParamVersion, string(a2atype.Version))
+}
+
 func TestGRPCAndJSONRPCShareRequestHandler(t *testing.T) {
 	testServer, conn := startTestServer(t)
 	client := a2apb.NewA2AServiceClient(conn)
@@ -135,7 +140,7 @@ func TestGRPCAndJSONRPCShareRequestHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert request: %v", err)
 	}
-	result, err := client.SendMessage(t.Context(), pbReq)
+	result, err := client.SendMessage(a2aTestContext(t.Context()), pbReq)
 	if err != nil {
 		t.Fatalf("gRPC SendMessage: %v", err)
 	}
@@ -153,7 +158,13 @@ func TestGRPCAndJSONRPCShareRequestHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal GetTask: %v", err)
 	}
-	httpResp, err := testServer.Client().Post(testServer.URL, "application/json", bytes.NewReader(body))
+	httpRequest, err := http.NewRequestWithContext(t.Context(), http.MethodPost, testServer.URL, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	httpRequest.Header.Set(a2atype.SvcParamVersion, string(a2atype.Version))
+	httpResp, err := testServer.Client().Do(httpRequest)
 	if err != nil {
 		t.Fatalf("JSON-RPC GetTask: %v", err)
 	}
@@ -168,7 +179,7 @@ func TestGRPCAndJSONRPCShareRequestHandler(t *testing.T) {
 		t.Errorf("JSON-RPC task ID = %q, want %q", getTaskResp.Result.ID, task.GetId())
 	}
 
-	stream, err := client.SendStreamingMessage(t.Context(), pbReq)
+	stream, err := client.SendStreamingMessage(a2aTestContext(t.Context()), pbReq)
 	if err != nil {
 		t.Fatalf("gRPC SendStreamingMessage: %v", err)
 	}
@@ -421,7 +432,7 @@ func TestRequestSpanExportedBeforeQuiescentEvent(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(t.Context(), request)
+			stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(a2aTestContext(t.Context()), request)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -580,7 +591,7 @@ func TestGRPCServerSpanExportedBeforeStreamEnds(t *testing.T) {
 	const calls = 300
 	missed := 0
 	for i := range calls {
-		stream, err := client.SendStreamingMessage(t.Context(), request)
+		stream, err := client.SendStreamingMessage(a2aTestContext(t.Context()), request)
 		if err != nil {
 			t.Fatal(err)
 		}

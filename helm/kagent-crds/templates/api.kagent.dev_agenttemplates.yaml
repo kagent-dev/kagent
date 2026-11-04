@@ -52,16 +52,17 @@ spec:
                   for BYO harnesses.
                 properties:
                   name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
+                  namespace:
+                    maxLength: 63
+                    pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                    type: string
+                required:
+                - name
                 type: object
-                x-kubernetes-map-type: atomic
                 x-kubernetes-validations:
                 - message: name must not be empty
                   rule: has(self.name) && self.name != ''
@@ -319,8 +320,8 @@ spec:
                     source.
                   properties:
                     mcp:
-                      description: MCPToolBinding binds tools from a same-namespace
-                        MCP server.
+                      description: MCPToolBinding binds tools from an authorized MCP
+                        server.
                       properties:
                         requireApproval:
                           description: |-
@@ -329,9 +330,8 @@ spec:
                             Tools is omitted or empty.
                           type: boolean
                         server:
-                          description: |-
-                            TypedLocalObjectReference contains enough information to let you locate the
-                            typed referenced object inside the same namespace.
+                          description: TypedObjectReference contains enough information
+                            to let you locate the typed referenced object
                           properties:
                             apiGroup:
                               description: |-
@@ -345,16 +345,28 @@ spec:
                             name:
                               description: Name is the name of resource being referenced
                               type: string
+                            namespace:
+                              description: |-
+                                Namespace is the namespace of resource being referenced
+                                Note that when a namespace is specified, a gateway.networking.k8s.io/ReferenceGrant object is required in the referent namespace to allow that namespace's owner to accept the reference. See the ReferenceGrant documentation for details.
+                                (Alpha) This field requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
+                              type: string
                           required:
                           - kind
                           - name
                           type: object
-                          x-kubernetes-map-type: atomic
                           x-kubernetes-validations:
                           - message: kind must be RemoteMCPServer
                             rule: self.kind == 'RemoteMCPServer'
                           - message: apiGroup must be omitted
                             rule: '!has(self.apiGroup)'
+                          - fieldPath: .name
+                            message: name must contain between 1 and 253 characters
+                            rule: size(self.name) > 0 && size(self.name) <= 253
+                          - fieldPath: .namespace
+                            message: namespace must contain at most 63 characters
+                            rule: '!has(self.namespace) || size(self.namespace) <=
+                              63'
                         tools:
                           description: |-
                             Tools optionally limits which server tools are exposed. An omitted or empty

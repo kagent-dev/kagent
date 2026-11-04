@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,8 +64,8 @@ func TestSandboxAgentMCP(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "scratch-caller-", Namespace: f.template.Namespace},
 		Spec: v1alpha3.AgentTemplateSpec{
-			Description: "Scratch sandbox MCP caller", SystemPrompt: "Use create_sandbox to create the requested workspace.", ModelConfig: &corev1.LocalObjectReference{Name: model.Name},
-			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"create_sandbox"}}}},
+			Description: "Scratch sandbox MCP caller", SystemPrompt: "Use create_sandbox to create the requested workspace.", ModelConfig: &v1alpha3.ObjectReference{Name: model.Name},
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"create_sandbox"}}}},
 		},
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)
@@ -80,7 +81,7 @@ func TestSandboxAgentMCP(t *testing.T) {
 		err := deleteIdleSession(ctx, instances, created.Session.Id)
 		require.NoError(t, err)
 	})
-	agent := &interactionFixture{ctx: f.ctx, client: a2apb.NewA2AServiceClient(conn), tenant: template.Namespace + "/" + template.Name, sessionID: created.Session.Id, contextID: created.Session.ContextId}
+	agent := &interactionFixture{ctx: metadata.AppendToOutgoingContext(f.ctx, a2atype.SvcParamVersion, string(a2atype.Version)), client: a2apb.NewA2AServiceClient(conn), tenant: template.Namespace + "/" + template.Name, sessionID: created.Session.Id, contextID: created.Session.ContextId}
 	_, _, task := agent.send(t, "Create a scratch sandbox.")
 	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "%s", taskText(task))
 	require.Contains(t, taskText(task), "Created the scratch sandbox")

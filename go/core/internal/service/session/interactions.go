@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -17,6 +18,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -75,7 +77,7 @@ func (s *InteractionService) storedSession(ctx context.Context, verb auth.Verb, 
 	if err != nil {
 		return nil, interactionError(ctx, err)
 	}
-	if session.GetAgent().GetNamespace() != agent.Namespace || session.GetAgent().GetName() != agent.Name {
+	if session.GetAgent().GetRef().GetNamespace() != agent.Namespace || session.GetAgent().GetRef().GetName() != agent.Name {
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "context does not belong to this Agent")
 	}
 	return session, nil
@@ -326,7 +328,25 @@ func (s *InteractionService) messageSession(ctx context.Context, agent types.Nam
 	if message.ContextID != "" && message.ContextID != session.ContextId {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match task")
 	}
+	if err := checkReservedMessageID(ctx, message); err != nil {
+		return nil, err
+	}
 	return session, nil
+}
+
+// checkReservedMessageID rejects scheduler message IDs from every caller but the
+// in-process control plane. Scheduled-run recovery adopts the task holding that
+// ID, so a Session's creator must not be able to plant it.
+func checkReservedMessageID(ctx context.Context, message *a2atype.Message) error {
+	if !strings.HasPrefix(string(message.ID), scheduling.MessageIDPrefix) {
+		return nil
+	}
+	if caller, _ := auth.AuthSessionFrom(ctx); caller != nil {
+		if _, controlPlane := caller.(auth.ControlPlaneSession); controlPlane {
+			return nil
+		}
+	}
+	return a2atype.NewError(a2atype.ErrInvalidParams, "message ID prefix is reserved for scheduled runs")
 }
 
 func (s *InteractionService) awaitBoundary(ctx context.Context, sessionID string, taskID a2atype.TaskID, historyLength *int) (*a2atype.Task, error) {
@@ -396,6 +416,9 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 	case req.Message.TaskID != "" || req.Message.ContextID != "":
 		session, err = s.messageSession(ctx, agent, req.Message)
 	default:
+		if err = checkReservedMessageID(ctx, req.Message); err != nil {
+			return nil, err
+		}
 		if _, err = s.agents.Get(ctx, agent); err != nil {
 			return nil, interactionError(ctx, err)
 		}

@@ -52,8 +52,7 @@ func TestSandboxProcessExitCode(t *testing.T) {
 
 func TestSandboxToolsRegisteredAndValidateBeforeDispatch(t *testing.T) {
 	// A service without dependencies proves invalid input never reaches I/O.
-	handler, err := New(testSessionService(), testCheckpointService(),
-		&a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, &sandbox.Service{}, nil)
+	handler, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, Sandboxes: &sandbox.Service{}})
 	require.NoError(t, err)
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -145,8 +144,8 @@ func TestReadFileContent(t *testing.T) {
 	}
 }
 
-// The MCP template discovery path must apply the same scope as the CRUD API.
-type templateListAuthorizer struct {
+// MCP discovery must apply the same scope as the CRUD API.
+type collectionListAuthorizer struct {
 	auth.NoopAuthorizer
 	scope        apiauthorization.AuthorizationScope
 	scopeErr     error
@@ -154,9 +153,9 @@ type templateListAuthorizer struct {
 	resourceType string
 }
 
-var _ auth.CollectionAuthorizer = (*templateListAuthorizer)(nil)
+var _ auth.CollectionAuthorizer = (*collectionListAuthorizer)(nil)
 
-func (a *templateListAuthorizer) Scope(_ context.Context, _ auth.Principal, verb auth.Verb, resourceType string) (apiauthorization.AuthorizationScope, error) {
+func (a *collectionListAuthorizer) Scope(_ context.Context, _ auth.Principal, verb auth.Verb, resourceType string) (apiauthorization.AuthorizationScope, error) {
 	a.verb, a.resourceType = verb, resourceType
 	return a.scope, a.scopeErr
 }
@@ -193,9 +192,9 @@ func TestSandboxTemplateToolFiltersAuthorizedTemplates(t *testing.T) {
 				&v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "hidden"}},
 				&v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "scratch"}},
 			).Build()
-			authorizer := &templateListAuthorizer{scope: test.scope, scopeErr: test.scopeErr}
+			authorizer := &collectionListAuthorizer{scope: test.scope, scopeErr: test.scopeErr}
 			templates := kubecrud.NewService(kube, authorizer, &v1alpha3.SandboxTemplate{}, &v1alpha3.SandboxTemplateList{}, v1alpha3.SandboxTemplateKind)
-			handler, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, nil, templates)
+			handler, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, SandboxTemplates: templates})
 			require.NoError(t, err)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				handler.ServeHTTP(w, r.WithContext(auth.AuthSessionTo(r.Context(), testSession{})))

@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1";
 
-// Memory is scoped to an agent and a user. Actor calls derive both from the
+// Memory is scoped to an Agent and a user. Actor calls derive both from the
 // persisted session bound to the verified Actor JWT. List and Delete also
 // accept user authentication and use the authenticated user's identity.
 service MemoryService {
@@ -73,9 +73,9 @@ message MemoryServiceSearchResponse {
 }
 
 message MemoryServiceListRequest {
-  // User calls must supply the stored agent key. Actor-created memories use
-  // "namespace/name"; legacy keys remain valid for managing older memories.
-  // Actor calls ignore this field and use the agent from their persisted session.
+  // User calls must supply the Agent key, "namespace/name".
+  // Actor calls ignore this field and use the Agent
+  // from their persisted session.
   string agent_name = 1;
 }
 
@@ -84,9 +84,9 @@ message MemoryServiceListResponse {
 }
 
 message MemoryServiceDeleteRequest {
-  // User calls must supply the stored agent key. Actor-created memories use
-  // "namespace/name"; legacy keys remain valid for managing older memories.
-  // Actor calls ignore this field and use the agent from their persisted session.
+  // User calls must supply the Agent key, "namespace/name".
+  // Actor calls ignore this field and use the Agent
+  // from their persisted session.
   string agent_name = 1;
 }
 

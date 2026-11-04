@@ -47,7 +47,6 @@ func TestModelServiceCRUD(t *testing.T) {
 				Type:   v1alpha3.ModelProviderConfigConditionTypeReady,
 				Status: metav1.ConditionTrue,
 			}},
-			DiscoveredModels: []string{"cached-model"},
 		},
 	}).Build()
 	refresher := &recordingModelRefresher{}
@@ -180,13 +179,8 @@ func TestModelServiceCRUD(t *testing.T) {
 		t.Fatalf("ListConfiguredProviders() = %+v", configuredProviders.GetProviders())
 	}
 
-	cachedModels, err := client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider-config"})
-	if err != nil {
-		t.Fatalf("ListProviderModels(cached) error = %v", err)
-	}
-	if cachedModels.GetProvider() != "provider-config" || len(cachedModels.GetModels()) != 1 || cachedModels.GetModels()[0] != "cached-model" {
-		t.Fatalf("ListProviderModels(cached) = %+v", cachedModels)
-	}
+	_, err = client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider-config"})
+	assertGRPCCode(t, err, codes.NotFound)
 
 	refreshedModels, err := client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider-config", Refresh: true})
 	if err != nil {

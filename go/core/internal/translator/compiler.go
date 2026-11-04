@@ -9,6 +9,7 @@ import (
 
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -255,32 +256,16 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 }
 
 func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) (*HarnessInput, error) {
-	outputSchema, err := c.resolveOutputSchema(ctx, tree.Root.Template)
-	if err != nil {
-		return nil, err
-	}
-	if outputSchema != nil && harnessType(tree.Harness) != HarnessTypeKagent {
-		return nil, NewValidationError("Harness runtime %q does not support structured output", harnessType(tree.Harness))
-	}
 	var build func(*resolvedTemplate) (*AgentInput, error)
 	build = func(agent *resolvedTemplate) (*AgentInput, error) {
 		template := agent.Template
-		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
-		if err != nil {
-			return nil, err
-		}
-		input := &AgentInput{Template: template, Instruction: instruction}
+		input := &AgentInput{Template: template}
 		if template.Spec.ModelConfig != nil {
-			input.ResolvedModelConfig = krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}))
-			if input.ResolvedModelConfig == nil {
-				return nil, fmt.Errorf("resolve ModelConfig %q: not found", template.Spec.ModelConfig.Name)
+			resolved, err := ResolveModelReference(c.ctx, c.collections, template.Namespace, *template.Spec.ModelConfig)
+			if err != nil {
+				return nil, err
 			}
-			if failures := input.ResolvedModelConfig.SemanticFailures; len(failures) > 0 {
-				return nil, NewValidationError("ModelConfig %q: %s", template.Spec.ModelConfig.Name, failures[0].Message)
-			}
-			if failures := input.ResolvedModelConfig.ReferenceFailures; len(failures) > 0 {
-				return nil, fmt.Errorf("resolve ModelConfig %q: %s", template.Spec.ModelConfig.Name, failures[0].Message)
-			}
+			input.ResolvedModelConfig = resolved
 		}
 		toolNames := make([]string, 0)
 		for _, tool := range template.Spec.Tools {
@@ -293,14 +278,22 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 			if tool.MCP.Server.Kind != "RemoteMCPServer" {
 				return nil, NewValidationError("unsupported MCP server kind %q", tool.MCP.Server.Kind)
 			}
-			key := types.NamespacedName{Namespace: template.Namespace, Name: tool.MCP.Server.Name}
+			key := (v1alpha3.ObjectReference{Name: tool.MCP.Server.Name, Namespace: ptr.Deref(tool.MCP.Server.Namespace, "")}).NamespacedName(template.Namespace)
 			server := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(key))
 			if server == nil {
 				return nil, fmt.Errorf("resolve %s %q: not found", tool.MCP.Server.Kind, tool.MCP.Server.Name)
 			}
+			if err := authorizeReference(c.ctx, c.collections, template.Namespace, key, (*server).Spec.AllowedNamespaces); err != nil {
+				return nil, fmt.Errorf("resolve RemoteMCPServer %q: %w", key, err)
+			}
 			input.MCPTools = append(input.MCPTools, ResolvedMCPTool{Binding: *tool.MCP.DeepCopy(), Server: *server})
 			toolNames = append(toolNames, tool.MCP.Tools...)
 		}
+		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
+		if err != nil {
+			return nil, err
+		}
+		input.Instruction = instruction
 		if template.Spec.PromptTemplate != nil {
 			refs := make([]promptSourceRef, 0, len(template.Spec.PromptTemplate.DataSources))
 			for _, source := range template.Spec.PromptTemplate.DataSources {
@@ -331,6 +324,13 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 	root, err := build(tree.Root)
 	if err != nil {
 		return nil, err
+	}
+	outputSchema, err := c.resolveOutputSchema(ctx, tree.Root.Template)
+	if err != nil {
+		return nil, err
+	}
+	if outputSchema != nil && harnessType(tree.Harness) != HarnessTypeKagent {
+		return nil, NewValidationError("Harness runtime %q does not support structured output", harnessType(tree.Harness))
 	}
 	return &HarnessInput{Harness: tree.Harness, Root: root, OutputSchema: outputSchema}, nil
 }

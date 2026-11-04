@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +38,12 @@ import (
 
 // Every harness executes this same foreground skill through its normal shell
 // tool. The test changes policy while the invocation is waiting for the probe.
+//
+// The control channel shares the always-allowed model origin and the egress
+// gateway with the traffic under test, so a single request can stall while the
+// gateway applies policy updates. Control requests are test plumbing, not the
+// behavior under test: retry them, and tag results with the iteration so a
+// retried report is counted once.
 const egressProbeScript = `#!/bin/sh
 control=$1
 target=$2
@@ -44,11 +51,15 @@ run=$3
 control_log=$(mktemp)
 trap 'rm -f "$control_log"' EXIT
 control_get() {
-  if wget -T 5 -O- "$control/$1" 2>"$control_log"; then
-    return 0
-  fi
+  for attempt in 1 2 3 4 5 6; do
+    if wget -T 5 -O- "$control/$1" 2>"$control_log"; then
+      return 0
+    fi
+    echo "EGRESS_CONTROL_RETRY_$attempt" >&2
+    cat "$control_log" >&2
+    sleep 1
+  done
   echo "EGRESS_CONTROL_FAILED_$1" >&2
-  cat "$control_log" >&2
   return 1
 }
 echo "EGRESS_PROBE_STARTED_$run"
@@ -65,7 +76,7 @@ for i in $(seq 1 900); do
     result=DENIED
   fi
   echo "EGRESS_RESULT_${phase}_$result"
-  control_get "result?phase=$phase&result=$result" >/dev/null || exit 1
+  control_get "result?phase=$phase&result=$result&seq=$i" >/dev/null || exit 1
   sleep 0.2
 done
 exit 1
@@ -82,7 +93,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 		modelURL, model, runs := startEgressSkillMock(t, harness.skillsRoot(), destination, "live", "checkpoint", "fresh", "resumed", "fork")
 		config := harness.createModel(t, kube, modelURL, nil)
 		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "live-egress-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: config.Name}, SystemPrompt: "Load the egress skill and run its probe.",
+			ModelConfig: &v1alpha3.ObjectReference{Name: config.Name}, SystemPrompt: "Load the egress skill and run its probe.",
 			Skills: []v1alpha3.AgentTemplateSkill{{Name: "egress", Source: v1alpha3.ArtifactSource{OCI: image, Path: "egress"}}},
 		}}
 		createAndWaitInteractionTemplate(t, harness, kube, template)
@@ -116,7 +127,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 		require.Positive(t, requests("live_allowed"))
 		waitEgressCondition := func(reason string) {
 			t.Helper()
-			require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+			require.NoError(t, wait.PollUntilContextTimeout(t.Context(), 200*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
 				if err := kube.Get(ctx, key, agent); err != nil {
 					return false, err
 				}
@@ -177,7 +188,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 			require.NoError(t, err)
 		})
 		require.NoError(t, kube.Delete(t.Context(), grant))
-		require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+		require.NoError(t, wait.PollUntilContextTimeout(t.Context(), 200*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
 			if err := kube.Get(ctx, key, agent); err != nil {
 				return false, err
 			}
@@ -231,6 +242,7 @@ type egressProbeRun struct {
 	mu                    sync.Mutex
 	phase                 string
 	lastPhase, lastResult string
+	lastSeq               int
 	consecutive           int
 	stopped               chan struct{}
 	stopOnce              sync.Once
@@ -302,7 +314,8 @@ func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecor
 	}()
 	return func() *a2atype.Task {
 		t.Helper()
-		stopCtx, stop := context.WithTimeout(ctx, 15*time.Second)
+		// Allow the probe to finish a retried control request before it sees stop.
+		stopCtx, stop := context.WithTimeout(ctx, time.Minute)
 		defer stop()
 		require.NoError(t, run.finish(stopCtx))
 		var result egressInvocationResult
@@ -325,6 +338,9 @@ func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecor
 			last, err := lastEgressModelInput(request.Body)
 			require.NoError(t, err)
 			outputs = append(outputs, last...)
+		}
+		if retries := strings.Count(string(outputs), "EGRESS_CONTROL_RETRY_"); retries > 0 {
+			t.Logf("egress %s probe retried %d control requests", run.name, retries)
 		}
 		for _, marker := range []string{"SKILL_BODY_EGRESS", "EGRESS_PROBE_STARTED_" + run.name, "EGRESS_PROBE_FINISHED_" + run.name} {
 			require.Contains(t, string(outputs), marker)
@@ -405,7 +421,18 @@ func startEgressSkillMock(t *testing.T, root, destination string, runNames ...st
 				_, _ = io.WriteString(w, phase)
 			case strings.HasSuffix(r.URL.Path, "/result"):
 				phase, result := r.URL.Query().Get("phase"), r.URL.Query().Get("result")
+				seq, err := strconv.Atoi(r.URL.Query().Get("seq"))
+				if err != nil {
+					http.Error(w, "invalid seq", http.StatusBadRequest)
+					return
+				}
 				run.mu.Lock()
+				if seq <= run.lastSeq {
+					// Retried report whose earlier attempt already arrived.
+					run.mu.Unlock()
+					return
+				}
+				run.lastSeq = seq
 				if phase == run.lastPhase && result == run.lastResult {
 					run.consecutive++
 				} else {

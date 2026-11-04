@@ -30,7 +30,7 @@ func TestBuiltinHarnessDefaultImages(t *testing.T) {
 		harness.Spec.Workload.Image = nil
 		agent := &v1alpha3.Agent{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "default-image-", Namespace: source.Namespace},
-			Spec:       v1alpha3.AgentSpec{Template: v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Be helpful."}}},
+			Spec:       v1alpha3.AgentSpec{Template: v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Be helpful."}}},
 		}
 		require.NoError(t, kube.Create(t.Context(), harness))
 		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), harness)) })

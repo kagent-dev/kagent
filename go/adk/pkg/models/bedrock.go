@@ -96,6 +96,21 @@ type BedrockConfig struct {
 	GuardrailTrace      string
 }
 
+// BedrockRuntimeOrigin returns the HTTPS origin of Bedrock's runtime endpoint
+// for a region.
+//
+// The endpoint is derived from the region rather than stored on the model
+// spec, so every consumer has to reconstruct it: credential compilation binds
+// the bearer token to this origin, the harness compilers allowlist it, and the
+// ADK builder puts it on the agent's egress list. Copying the format at each
+// site let the credential binding and the allowlist drift apart, and a request
+// those two disagreed on was rejected before it left the pod. This is the one
+// definition they all call; a consumer that needs the egress form appends
+// ":443".
+func BedrockRuntimeOrigin(region string) string {
+	return "https://bedrock-runtime." + region + ".amazonaws.com"
+}
+
 // DecodeBedrockRequestFields preserves provider JSON numbers using the AWS
 // document decoder, whose number type is understood by the Converse encoder.
 func DecodeBedrockRequestFields(raw []byte) (map[string]any, error) {

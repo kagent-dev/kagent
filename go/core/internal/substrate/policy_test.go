@@ -137,7 +137,7 @@ func TestActorPolicyInjectsRuntimeJWTOnlyAtControlPlane(t *testing.T) {
 	require.Equal(t, "authorization", headers[0].Header)
 	require.Equal(t, "Bearer ", headers[0].Prefix)
 	require.Empty(t, headers[0].CredentialUri)
-	require.Equal(t, []string{runtimeJWTAudience}, headers[0].ActorJwt.Audiences)
+	require.Equal(t, []string{RuntimeJWTAudience}, headers[0].ActorJwt.Audiences)
 	require.EqualValues(t, 300, headers[0].ActorJwt.ExpirationSeconds)
 	require.Empty(t, policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders())
 	policy, err = ActorEgressPolicy("team", nil, nil, controlPlane)
@@ -164,7 +164,7 @@ func TestActorJWTHeaderUsesGatewayMinting(t *testing.T) {
 			require.Empty(t, outbound.CredentialUri)
 			require.Equal(t, "Bearer ", outbound.Prefix)
 			internal := headers[testControlPlaneURL+"\x00authorization"]
-			require.Equal(t, []string{runtimeJWTAudience}, internal.ActorJwt.Audiences)
+			require.Equal(t, []string{RuntimeJWTAudience}, internal.ActorJwt.Audiences)
 		})
 	}
 }

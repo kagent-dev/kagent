@@ -49,7 +49,7 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 			}
 			effects[origin].ReplaceHeaders = append(effects[origin].ReplaceHeaders, &ateapipb.CredentialHeader{
 				Header: "authorization", Prefix: "Bearer ",
-				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{runtimeJWTAudience}, ExpirationSeconds: 300},
+				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{RuntimeJWTAudience}, ExpirationSeconds: 300},
 			})
 		}
 		target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess

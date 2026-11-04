@@ -144,8 +144,9 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	}
 	upsertErr := client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision})
 	require.NoError(t, upsertErr)
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, database.RecordRevisionOptions{Ready: true}))
-	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
+	_, err = client.RecordRuntimeRevision(t.Context(), *revision, database.RecordRevisionOptions{Ready: true})
+	require.NoError(t, err)
+	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, uuid.NewString())
 	require.NoError(t, err)
 	return &lifecycleTestStore{Client: client, revision: revision}, session
 }
@@ -202,7 +203,7 @@ func (a *lifecycleTestActors) CreateActorFromTag(_ context.Context, atespace, na
 		SourceTag:     &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
 		Status: &ateapipb.ActorStatus{
 			State:     ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
+			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
 		},
 	}
 	a.actors[actorKey(atespace, name)] = actor
@@ -222,7 +223,7 @@ func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name str
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}}
+	actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}}
 	return proto.CloneOf(actor), nil
 }
 
@@ -276,7 +277,7 @@ func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
 		t.Run(fidelity.String(), func(t *testing.T) {
 			actors.snapshots = []*ateapipb.Snapshot{{Generation: 2, Fidelity: fidelity,
 				DurableSnapshot: &ateapipb.SnapshotStorage{
-					Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED,
+					State:  ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED,
 					Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"},
 				}}}
 			boundary, err := workflow.Quiesce(t.Context(), created)
@@ -291,7 +292,7 @@ func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
 
 			older := proto.CloneOf(actors.snapshots[0])
 			older.Generation = 1
-			actors.snapshots[0].DurableSnapshot.Status = ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING
+			actors.snapshots[0].DurableSnapshot.State = ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING
 			actors.snapshots = append(actors.snapshots, older)
 			_, err = workflow.Quiesce(t.Context(), created)
 			require.ErrorContains(t, err, "returned no snapshot", "a previous durable snapshot cannot cover the current boundary")
@@ -447,12 +448,12 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
 	service := NewService(store, serviceTestAuthorizer{}, NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second))
 	ctx := serviceTestContext("alice")
-	session, err := service.Create(ctx, fixture.Agent, "retry-request", "conversation")
+	session, err := service.Create(ctx, fixture.Agent.Ref, "retry-request", "conversation")
 	require.NoError(t, err)
 	renamed, err := service.Rename(ctx, session.Id, "renamed conversation")
 	require.NoError(t, err)
 	mutations := actors.mutations.Load()
-	retried, err := service.Create(ctx, fixture.Agent, "retry-request", "ignored retry name")
+	retried, err := service.Create(ctx, fixture.Agent.Ref, "retry-request", "ignored retry name")
 	require.NoError(t, err)
 	require.Equal(t, renamed.Id, retried.Id)
 	require.Equal(t, renamed.Name, retried.Name)
@@ -463,7 +464,7 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
 	mutations = actors.mutations.Load()
-	_, err = service.Create(ctx, fixture.Agent, "retry-request", "")
+	_, err = service.Create(ctx, fixture.Agent.Ref, "retry-request", "")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
 	_, err = service.Get(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))

@@ -399,14 +399,12 @@ func (s *Service) GetProviderModels(ctx context.Context, request GetProviderMode
 		}
 		models = refreshedModels
 	} else {
-		providerConfig, err := s.providerConfigs.Get(ctx, ref)
+		_, err := s.providerConfigs.Get(ctx, ref)
 		if err != nil {
 			return ProviderModelsResult{}, err
 		}
-		if len(providerConfig.Status.DiscoveredModels) == 0 {
-			return ProviderModelsResult{}, serviceerrors.NewNotFound("No models discovered for model provider, try refreshing", nil)
-		}
-		models = providerConfig.Status.DiscoveredModels
+		// ModelProviderConfig status no longer stores a model inventory.
+		return ProviderModelsResult{}, serviceerrors.NewNotFound("No cached model inventory is available for model provider", nil)
 	}
 
 	return ProviderModelsResult{Provider: request.Name, Models: models}, nil

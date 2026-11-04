@@ -9,29 +9,12 @@ Node is pinned in [`.nvmrc`](.nvmrc); Yarn ships via corepack.
 
 ## Running locally
 
+By default, the UI connects to a live backend. Run the following commands from
+the `ui` directory:
+
 ```bash
 yarn install
-yarn dev          # http://localhost:8001
 ```
-
-**No cluster is required.** By default the app runs against an in-browser mock
-backend, so a fresh checkout is usable immediately.
-
-### Driving states in mock mode
-
-Append `?mock=<scenario>` to any route to force a state that is otherwise hard to
-reach by hand:
-
-| Scenario | Effect |
-| --- | --- |
-| `ok` | normal data (the default) |
-| `empty` | every collection comes back empty |
-| `error` | requests fail, so error handling is visible |
-| `slow` | responses are delayed, so loading states are visible |
-
-The choice persists across in-app navigation, e.g. `/agents?mock=error`.
-
-### Running against a real backend
 
 The quickest way from nothing to this app running on real data is
 [`scripts/setup-cluster`](../scripts/setup-cluster/README.md). One command builds a Kind
@@ -42,10 +25,11 @@ cluster, installs **this checkout** on it, and leaves an agent there to talk to:
 ```
 
 It ends by holding two port-forwards open — the UI on `8080` and the controller on
-`8083` — so the dev server needs no configuration at all:
+`8083` — so the dev server needs no configuration at all. Keep that terminal
+running. In another terminal, from the `ui` directory, start the dev server:
 
 ```bash
-yarn dev
+yarn dev          # http://localhost:8001
 ```
 
 For any other way of getting kagent running — an existing cluster, a different install —
@@ -62,6 +46,33 @@ takes; and `KAGENT_UI_API_BASE_URL` calls a backend directly, bypassing the prox
 
 Which backend is serving is decided in exactly one place, `src/api/config.ts`.
 Nothing above the data layer knows or cares.
+
+### Driving states in mock mode
+
+To use the in-browser mock backend, start the dev server with mock mode enabled.
+**No cluster is required.**
+
+```bash
+KAGENT_UI_ENABLE_MOCK=true yarn dev # http://localhost:8001
+```
+
+To keep mock mode enabled across runs, copy [`.env.example`](.env.example) to
+`.env` and uncomment `KAGENT_UI_ENABLE_MOCK=true`.
+
+With mock mode enabled, append `?mock=<scenario>` to any route to force a state
+that is otherwise hard to reach by hand:
+
+| Scenario | Effect |
+| --- | --- |
+| `ok` | normal data (the default) |
+| `empty` | every collection comes back empty |
+| `error` | requests fail, so error handling is visible |
+| `slow` | responses are delayed, so loading states are visible |
+
+The choice persists across in-app navigation, e.g. `/agents?mock=error`.
+
+To return to a live backend, stop the dev server and unset `KAGENT_UI_ENABLE_MOCK`
+or set it to `false` in your shell and `.env`, then start it again with `yarn dev`.
 
 ### Deployment settings
 

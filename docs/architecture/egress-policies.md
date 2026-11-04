@@ -240,6 +240,12 @@ while a configuration edit is unresolved, preparing, or failed. Initial creation
 still requires a successful revision. Existing instances and checkpoint forks
 retain their runtime configuration.
 
+[Shared model/MCP namespace policies](cross-namespace-references.md) constrain
+compilation. If `allowedNamespaces` no longer permits a reference, recompilation
+fails but the Agent's last successful revision remains available for new sessions.
+Existing sessions retain their pinned revision. An Agent without a successful
+revision cannot create sessions.
+
 Create, creation retries, and resume load and apply the effective policy from
 persisted revision inputs and source grants. They do not read or translate
 Kubernetes policy. The workflow creates a suspended Actor and installs its

@@ -26,6 +26,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -57,6 +58,7 @@ type Config struct {
 	Authenticator          auth.AuthProvider
 	ShareStore             sessionsvc.ShareStore
 	AgentService           *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
+	AgentIdentityService   *agentidentity.Service
 	AgentTemplateService   *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	HarnessService         *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService           *modelservice.Service
@@ -111,14 +113,14 @@ func New(config Config) (*Server, error) {
 		grpc.ChainUnaryInterceptor(
 			loggingUnaryInterceptor,
 			recoverUnaryInterceptor,
-			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies, config.AgentIdentityService),
 			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
 			loggingStreamInterceptor,
 			recoverStreamInterceptor,
-			authenticationStreamInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			authenticationStreamInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies, config.AgentIdentityService),
 			protovalidatemiddleware.StreamServerInterceptor(validator),
 			errorMappingStreamInterceptor,
 		),
@@ -134,6 +136,7 @@ func New(config Config) (*Server, error) {
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 	apiv1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
 	apiv1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
+	apiv1.RegisterAgentIdentityServiceServer(grpcServer, &agentIdentityServer{service: config.AgentIdentityService})
 	apiv1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
 	apiv1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
 	apiv1.RegisterSandboxServiceServer(grpcServer, &sandboxServer{service: config.SandboxService})

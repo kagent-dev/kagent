@@ -95,8 +95,8 @@ func TestDetailedTaskIncludesInvocationOutput(t *testing.T) {
 		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &now},
 	}
-	result := detailedTask("task-ref", taskReference{SessionID: testSessionID}, task)
-	output, ok := result.Result.StructuredContent.(InvokeSessionOutput)
+	result := detailedTask("task-ref", task)
+	output, ok := result.Result.StructuredContent.(InvokeAgentOutput)
 	if !ok || output.TaskID != testTaskID || output.ContextID != testSessionID {
 		t.Fatalf("structured invocation output = %#v", result.Result.StructuredContent)
 	}
@@ -232,7 +232,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 
 func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 	gateway := &fakeGateway{}
-	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway}, nil, nil)
+	h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: gateway}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 
 func TestToolCallWithoutTasksWaitsForResult(t *testing.T) {
 	gateway := &fakeGateway{completeOnDrain: true}
-	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway}, nil, nil)
+	h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: gateway}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,6 +386,8 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 	req.Header.Set("Mcp-Method", method)
 	if method == "tools/call" {
 		req.Header.Set("Mcp-Name", params["name"].(string))
+	} else if method == "resources/read" {
+		req.Header.Set("Mcp-Name", params["uri"].(string))
 	} else if strings.HasPrefix(method, "tasks/") {
 		req.Header.Set("Mcp-Name", params["taskId"].(string))
 	}
@@ -530,7 +532,7 @@ func (*fakeSessionStore) GetSession(_ context.Context, id, _ string) (*apiv1.Ses
 	if id != testSessionID {
 		return nil, database.ErrNotFound
 	}
-	return &apiv1.Session{Id: id, ContextId: id, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
+	return &apiv1.Session{Id: id, ContextId: id, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, nil
 }
 
 func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1.Session, error) {
@@ -540,7 +542,7 @@ func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv
 func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error) {
 	return []*apiv1.Session{{
 		Id: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
-		Agent: &apiv1.ResourceReference{Name: "assistant"},
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Name: "assistant"}},
 	}}, nil
 }
 

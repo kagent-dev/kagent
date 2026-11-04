@@ -28,7 +28,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -543,7 +542,7 @@ func createTracingTemplate(t *testing.T, harnessName, runtimeLabel, modelName st
 			Labels: map[string]string{"kagent.dev/e2e-runtime": runtimeLabel},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: modelName},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: modelName},
 			Description:  "Completed-chat trace flush E2E fixture",
 			SystemPrompt: "Reply concisely and follow the requested output format exactly.",
 		},

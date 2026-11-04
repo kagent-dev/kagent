@@ -73,7 +73,7 @@ func settlementContext(t *testing.T, session *apiv1.Session) context.Context {
 	t.Helper()
 	headers := http.Header{}
 	i := jwttest.New(t)
-	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	headers.Set("authorization", "Bearer "+i.Token(t, i.Claims("team-a", substrate.ActorName(session.Id), "actor-uid")))
 	identity, err := runtimeauth.NewAuthenticator(v).Authenticate(t.Context(), headers, nil)
@@ -114,7 +114,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		session := first
 		if i != 0 {
 			var err error
-			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.Agent}, uuid.NewString())
+			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.GetAgent()}, uuid.NewString())
 			require.NoError(t, err)
 		}
 		session, err := creator.Create(t.Context(), session)
