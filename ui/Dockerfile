@@ -1,6 +1,5 @@
 ### STAGE 1: Dependencies
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-ARG NGINX_DIGEST=sha256:16d0e55ffe62f55744d9b903d8eb57e533d0f660332a9fbb967d78b4e77c8bdb
 ARG GO_IMAGE=golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c
 ARG NODE_IMAGE=node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
 ARG BUILDPLATFORM
@@ -36,25 +35,21 @@ COPY . .
 RUN yarn build \
     && rm -f dist/mockServiceWorker.js
 
-### STAGE 3: Entrypoint
-# A static binary, so the runtime image needs no shell to render settings at start.
-FROM --platform=$BUILDPLATFORM $GO_IMAGE AS entrypoint
+### STAGE 3: Server
+# A static binary, so the runtime image needs no shell or libc.
+FROM --platform=$BUILDPLATFORM $GO_IMAGE AS server
 ARG TARGETARCH
 WORKDIR /src
 COPY entrypoint/ .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /entrypoint . \
-    # nginx opens its compiled-in error log before reading the config; on a read-only root that logs an alert.
-    && mkdir -p /logs && ln -s /dev/stderr /logs/error.log
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /server .
 
 ### STAGE 4: Runtime
-# Distroless nginx: no shell or package manager. The entrypoint renders
-# env-config.js from env on every start into /tmp, the writable emptyDir under a
-# read-only root filesystem, then execs nginx.
-FROM $BASE_IMAGE_REGISTRY/chainguard/nginx:latest@${NGINX_DIGEST} AS final
+# The server renders env-config.js from env into memory on every start, so it
+# runs under a read-only root filesystem.
+FROM $BASE_IMAGE_REGISTRY/chainguard/static AS final
 
-COPY --from=entrypoint /entrypoint /usr/local/bin/entrypoint
-COPY --from=entrypoint /logs/ /var/lib/nginx/logs/
-COPY --from=builder /app/ui/dist /usr/share/nginx/html
+COPY --from=server /server /usr/local/bin/server
+COPY --from=builder /app/ui/dist /app/html
 
 EXPOSE 8080
 ARG VERSION
@@ -66,5 +61,5 @@ LABEL org.opencontainers.image.version="$VERSION"
 
 USER 1001
 
-ENTRYPOINT ["/usr/local/bin/entrypoint"]
+ENTRYPOINT ["/usr/local/bin/server"]
 CMD []
