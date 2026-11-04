@@ -256,7 +256,7 @@ func TestActorSuspendRequiresDurableVolumesSnapshot(t *testing.T) {
 func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 	durable := func(generation int32, uri string) *ateapipb.Snapshot {
 		return &ateapipb.Snapshot{Generation: generation, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, Locality: "lost-node",
-			DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: uri}}}
+			DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: uri}}}
 	}
 	for _, test := range []struct {
 		name           string
