@@ -81,7 +81,7 @@ func TestConvertDataPartToGenAI_FunctionCall_AdkPrefix(t *testing.T) {
 func TestConvertDataPartToGenAI_FunctionResponse(t *testing.T) {
 	data := map[string]any{
 		"name":     "my_func",
-		"response": map[string]any{"result": "ok"},
+		"response": map[string]any{"output": map[string]any{"result": "ok"}},
 		"id":       "call_2",
 	}
 	meta := map[string]any{
@@ -192,7 +192,7 @@ func TestA2APartConverter_PublicFunctionResponse(t *testing.T) {
 	dp := convDataPart(map[string]any{
 		"name":     "my_func",
 		"id":       "call_1",
-		"response": map[string]any{"result": "ok"},
+		"response": map[string]any{"output": map[string]any{"result": "ok"}},
 	}, map[string]any{
 		kagenta2a.PartTypeMetadataKey: A2ADataPartMetadataTypeFunctionResponse,
 	})

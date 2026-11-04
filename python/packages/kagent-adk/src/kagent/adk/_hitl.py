@@ -12,7 +12,6 @@ import uuid
 from typing import Annotated, Any
 
 from a2a.types import Message, Part, Role, Task, TaskState
-from google.adk.a2a.converters.part_converter import convert_genai_part_to_a2a_part
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.genai import types as genai_types
@@ -35,6 +34,8 @@ from kagent.core.a2a import (
     require_tool_approval_response,
 )
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from .converters.part_converter import convert_genai_part_to_a2a_part
 
 logger = logging.getLogger(__name__)
 
