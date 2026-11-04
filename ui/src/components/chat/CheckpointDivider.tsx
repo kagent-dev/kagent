@@ -3,7 +3,7 @@ import { Button, Popconfirm, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { useThemeMode } from "@/theme/useThemeMode";
-import type { Checkpoint } from "@/api";
+import { canForkFrom, type Checkpoint } from "@/api";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
 import { snapshotLabel } from "./snapshotLabel";
 
@@ -63,6 +63,16 @@ export function CheckpointDivider({
    * does nothing: the page looks the record up by id and finds nothing to open.
    */
   const open = checkpoint ? onOpen : undefined;
+  /*
+   * Forking needs a READY record, for the same reason and one more.
+   *
+   * A boundary whose record has not arrived cannot be checked, and a record that is
+   * failed or still being removed cannot start a fork: the controller refuses it, and
+   * the reader sees an error for a button the page offered. This line is also the
+   * only fork control a crashed conversation shows, so it has to make the same check
+   * the recovery banner used to make.
+   */
+  const fork = checkpoint && canForkFrom(checkpoint) ? onFork : undefined;
 
   // One shape for all three, so the row reads as a set of controls rather than as one
   // button with others bolted beside it.
@@ -223,7 +233,7 @@ export function CheckpointDivider({
           </Text>
         </div>
       </Tooltip>
-      {onFork || onRename || onDelete ? (
+      {fork || onRename || onDelete ? (
         <div
           css={{
             display: "flex",
@@ -236,7 +246,7 @@ export function CheckpointDivider({
             paddingInlineStart: theme.space(2),
           }}
         >
-          {onFork ? (
+          {fork ? (
             <Tooltip title="Fork the chat from this snapshot." placement="bottom">
               <Button
                 size="small"
@@ -244,7 +254,7 @@ export function CheckpointDivider({
                 data-testid={`chat-checkpoint-fork-${checkpointId}`}
                 aria-label="Fork the chat from this snapshot."
                 icon={<GitFork size={13} />}
-                onClick={onFork}
+                onClick={fork}
                 css={filled}
               >
                 Fork

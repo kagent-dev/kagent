@@ -13,6 +13,7 @@ import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsM
 import { SnapshotDetailsModal } from "@/components/chat/SnapshotDetailsModal";
 import { SnapshotRenameDialog } from "@/components/chat/SnapshotRenameDialog";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
+import { SessionRecoveryAlert } from "@/components/chat/SessionRecoveryAlert";
 import { TaskPushNotificationsModal } from "@/components/chat/TaskPushNotificationsModal";
 import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
@@ -24,7 +25,7 @@ import {
   useChat,
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
-import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
+import { refreshConversation, useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
 import type { Checkpoint } from "@/api";
@@ -114,8 +115,17 @@ export function AgentChatPage() {
   const chat = useChat(conversation);
   const [pushTask, setPushTask] = useState<{ conversationId: string; taskId: string }>();
 
-  // Keep up with messages sent from other tabs or clients.
-  useLiveTranscript(chat.refreshTranscript, {
+  /*
+   * Keep up with messages sent from other tabs or clients, and with the Session itself.
+   *
+   * The Session is re-read on the same tick because a runtime can crash while nothing
+   * here is watching: a turn settles, the lifecycle poll below stops, and the Actor
+   * crashes during automatic suspension. A transcript-only refresh would never learn
+   * that, so the composer would stay enabled and the recovery choices hidden until the
+   * reader reloaded. Riding this refresh costs one read per tick while the tab is
+   * visible, rather than widening the one-second lifecycle poll to every idle page.
+   */
+  useLiveTranscript(() => refreshConversation(chat.refreshTranscript, instance.refresh), {
     enabled: Boolean(conversation),
     isBusy: chat.phase === "streaming",
   });
@@ -305,7 +315,8 @@ export function AgentChatPage() {
 
   // Automatic runtime quiescence leaves the conversation ready for its next turn.
   const state = instance.data?.state;
-  const canSend = state === "ready";
+  const recovery = instance.data?.recovery;
+  const canSend = state === "ready" && recovery?.needed !== true;
 
   /*
    * Watching the instance while it is doing something.
@@ -427,7 +438,36 @@ export function AgentChatPage() {
     // and depending on it would re-run this on each one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, chat.isLoadingHistory]);
-  const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply);
+  const [isReverting, setReverting] = useState(false);
+  const revertRuntime = useCallback(async () => {
+    if (!id) return;
+    setReverting(true);
+    let reverted = false;
+    try {
+      await apiClient.agentInstances.revert(id);
+      reverted = true;
+      await instance.refresh();
+      await chat.refreshTranscript();
+    } catch (cause: unknown) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      toast.error(reverted
+        ? `Recovery completed. Could not refresh the conversation: ${reason}`
+        : `Could not recover the conversation: ${reason}`);
+    } finally {
+      setReverting(false);
+    }
+  }, [id, instance, chat]);
+
+  /*
+   * A crashed conversation waiting on the reader is idle, so `recovery.needed` alone does
+   * not keep the one-second poll running: every read of a crashed Session also asks
+   * Substrate for its Actor, and a page left open would do that until someone acted.
+   * The poll runs while a revert is in flight or the controller has claimed a resume,
+   * which `isLifecycleBusy` already reads. The live refresh above still notices a
+   * recovery made from another tab or by the controller.
+   */
+  const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply)
+    || isReverting;
 
   /*
    * The conversation list is deliberately not re-read when this one's state changes.
@@ -620,7 +660,14 @@ export function AgentChatPage() {
             />
           ) : null}
 
-          {instance.data && !canSend ? (
+          <SessionRecoveryAlert
+            recovery={recovery}
+            checkpoints={checkpoints.data ?? []}
+            isRecovering={isReverting || instance.data?.operation === "resume"}
+            onRevert={revertRuntime}
+          />
+
+          {instance.data && !canSend && recovery?.needed !== true ? (
             <Alert
               type="warning"
               showIcon
@@ -639,6 +686,8 @@ export function AgentChatPage() {
             chat={chat}
             isLoading={instance.isLoading}
             sessionId={id}
+            recovery={recovery}
+            readOnly={recovery?.needed === true}
             onOpenCheckpoint={openSnapshot}
             onRenameCheckpoint={renameSnapshot}
             onFork={forkCheckpoint}
