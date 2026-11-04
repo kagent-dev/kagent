@@ -218,9 +218,10 @@ millicores and memory bytes for every harness, rounding positive fractions up
 to the next unit. Standalone sandbox limits remain under `sandboxes` configuration.
 
 Harness and SandboxTemplate snapshot locations require Substrate's
-`PerTemplateSnapshotLocation` preview gate. The CLI installer enables it; direct
-Substrate installations must include it in their Helm `preview` list. The
-Substrate client opts ActorTemplate creation requests into preview features.
+`PerTemplateSnapshotLocation` preview gate, and golden preparation egress requires
+its `GoldenEgressPolicy` gate. The CLI installer enables both; direct Substrate
+installations must include them in their Helm `preview` list. The Substrate
+client opts ActorTemplate creation requests into preview features.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates

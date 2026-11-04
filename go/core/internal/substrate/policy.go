@@ -52,18 +52,20 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{RuntimeJWTAudience}, ExpirationSeconds: 300},
 			})
 		}
-		target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess
-		port, _ := strconv.ParseInt(target.Port(), 10, 32)
-		ports := &ateapipb.Ports{Numbers: []int32{int32(port)}}
-		// One rule per origin: exact matches win over wildcard rules, keeping
-		// credentials on their exact origin even when a wildcard also grants access.
-		if target.Scheme == "https" {
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Https: &ateapipb.HttpsRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
-		} else {
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Http: &ateapipb.HttpRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
-		}
+		policy.Rules = append(policy.Rules, originEgressRule(origin, effects[origin]))
 	}
 	return policy, nil
+}
+
+// originEgressRule keeps each canonical origin's credentials on its exact route.
+func originEgressRule(origin string, effects *ateapipb.HttpRuleEffects) *ateapipb.EgressRule {
+	target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess
+	port, _ := strconv.ParseInt(target.Port(), 10, 32)
+	ports := &ateapipb.Ports{Numbers: []int32{int32(port)}}
+	if target.Scheme == "https" {
+		return &ateapipb.EgressRule{Https: &ateapipb.HttpsRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects}}
+	}
+	return &ateapipb.EgressRule{Http: &ateapipb.HttpRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects}}
 }
 
 // defaultEgressPolicyCompiler adds the allowlist, Secret credentials, and Actor JWTs. It runs first.

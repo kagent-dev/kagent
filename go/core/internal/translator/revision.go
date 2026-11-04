@@ -96,6 +96,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		return RevisionID{}, fmt.Errorf("unsupported sandbox class %q", sandboxClass)
 	}
 	raw, err := json.Marshal(struct {
+		ActorTemplateVersion    int                          `json:"actorTemplateVersion"`
 		AgentName               string                       `json:"agentName"`
 		AgentUID                string                       `json:"agentUID"`
 		Namespace               string                       `json:"namespace"`
@@ -118,7 +119,8 @@ func (r *Revision) Digest() (RevisionID, error) {
 		// Hash it explicitly so existing immutable templates do not conflict after upgrades.
 		WorkerPoolNamespace string `json:"workerPoolNamespace"`
 	}{
-		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
+		ActorTemplateVersion: 1,
+		AgentName:            r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		CPU: r.CPU, Memory: r.Memory,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		SkillImages:    r.SkillImages,
