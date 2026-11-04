@@ -2,7 +2,7 @@
 
 `api/ateapi/v1/ateapi.proto` is an unmodified copy of
 `api/ateapi/v1/ateapi.proto` from `github.com/kagent-dev/substrate` at
-`v1.0.0-rc1`, matching the replacement in `go/go.mod`. Update them together.
+`v1.0.0-rc2`, matching the replacement in `go/go.mod`. Update them together.
 Go uses the upstream generated package; Buf generates the imported TypeScript
 types for the UI. Do not edit the vendored schema. Upstream API changes are
 included in kagent's protobuf compatibility check and must be reviewed with the
