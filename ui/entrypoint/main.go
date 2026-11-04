@@ -1,16 +1,24 @@
 // Command entrypoint is the UI image's entrypoint: it renders the browser settings
-// from the environment into env-config.js, sets <base href>, then execs nginx.
+// from the environment into env-config.js, sets <base href>, then serves the bundle and proxies the API.
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
-	"os/exec"
+	"os/signal"
 	"regexp"
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 )
+
+// bundleRoot holds the built UI in the image.
+const bundleRoot = "/app/html"
 
 // Keep in sync with the ui.basePath check in helm/kagent/templates/ui-configmap.yaml.
 var (
@@ -21,23 +29,47 @@ var (
 )
 
 func main() {
-	// /tmp is an empty volume under a read-only root filesystem, so nginx's temp dirs are made on every start.
-	for _, dir := range []string{"client_temp", "proxy_temp", "fastcgi_temp", "uwsgi_temp", "scgi_temp"} {
-		must(os.MkdirAll("/tmp/nginx/"+dir, 0o755))
-	}
-	must(os.MkdirAll("/tmp/kagent", 0o755))
-
-	config, basePath := render(os.Environ())
-	must(os.WriteFile("/tmp/kagent/env-config.js", []byte(config), 0o644))
-
-	html, err := os.ReadFile("/usr/share/nginx/html/index.html")
+	environ := os.Environ()
+	config, basePath := render(environ)
+	// The bundle is read-only and the settings are rendered in memory, so a read-only root filesystem works.
+	html, err := os.ReadFile(bundleRoot + "/index.html")
 	must(err)
 	html = setBaseHref(html, basePath)
-	must(os.WriteFile("/tmp/kagent/index.html", html, 0o644))
 
-	nginx, err := exec.LookPath("nginx")
+	// Without IPv6 the server listens on IPv4 only, as the chart's ipv6.enabled=false did before.
+	network := "tcp4"
+	if envValue("KAGENT_UI_IPV6", environ) == "true" {
+		network = "tcp"
+	}
+	listener, err := net.Listen(network, ":8080")
 	must(err)
-	must(syscall.Exec(nginx, []string{"nginx", "-g", "daemon off;"}, os.Environ()))
+
+	srv := &http.Server{
+		Handler:           accessLog(newServer(loadConfig(environ), bundleRoot, config, html, basePath)),
+		ReadHeaderTimeout: time.Minute,
+		IdleTimeout:       75 * time.Second,
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdown)
+	}()
+	if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+		must(err)
+	}
+}
+
+// envValue returns the value of name in environ.
+func envValue(name string, environ []string) string {
+	for _, kv := range environ {
+		if v, ok := strings.CutPrefix(kv, name+"="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // render returns env-config.js for the given environment, and the validated base path.
