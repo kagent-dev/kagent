@@ -81,8 +81,9 @@ func (c *Client) BeginIdleSessionDeletion(ctx context.Context, id string, before
 	return deletion, nil
 }
 
-// requireIdleSession runs under the session lock, before lifecycle admission
-// checks dispatch, native cleanup, quiescence, and checkpoint creation.
+// requireIdleSession runs under the session lock. Unlike explicit deletion,
+// expiration must wait for native cleanup. Lifecycle admission additionally
+// checks dispatch, claimed idle work, and checkpoint creation.
 func requireIdleSession(ctx context.Context, tx pgx.Tx, row sessionRow, idleSince, before time.Time) error {
 	if idleSince.After(before) || row.State == "RUNTIME_STATE_DELETED" || row.State == "RUNTIME_STATE_DELETING" || row.Operation != "RUNTIME_OPERATION_NONE" {
 		return ErrConflict
@@ -91,6 +92,7 @@ func requireIdleSession(ctx context.Context, tx pgx.Tx, row sessionRow, idleSinc
 		SELECT EXISTS (SELECT 1 FROM session_task WHERE history_id = $1
 		    AND state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED', 'TASK_STATE_FAILED',
 		        'TASK_STATE_REJECTED', 'TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED'))
+		    OR EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1 AND NOT published)
 	`, pgx.RowTo[bool], row.HistoryID)
 	if err != nil {
 		return err

@@ -32,6 +32,8 @@ func TestCheckpointCreationBlocksSessionTaskWrites(t *testing.T) {
 	next.ContextID = session.GetContextId()
 	_, err = client.CreateRuntimeTask(ctx, session.GetId(), taskMutationHash("next-request"), next, "")
 	require.ErrorIs(t, err, ErrConflict)
+	_, err = client.BeginSessionOperation(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	require.ErrorIs(t, err, ErrConflict, "explicit deletion must not supersede checkpoint creation")
 	require.ErrorIs(t, saveRuntimeTask(t, client, session.GetId(), task, task, nil), ErrFailedPrecondition)
 	_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
 	require.ErrorIs(t, err, ErrNotFound)

@@ -255,7 +255,7 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 		if pending {
 			return fmt.Errorf("checkpoint requires all tasks to be terminal: %w", ErrFailedPrecondition)
 		}
-		if err := requireSettledRuntime(ctx, tx, session.HistoryID, ""); err != nil {
+		if err := requireRuntimeAdmission(ctx, tx, session.HistoryID, "", false); err != nil {
 			if errors.Is(err, ErrFailedPrecondition) {
 				return ErrSnapshotPending
 			}
