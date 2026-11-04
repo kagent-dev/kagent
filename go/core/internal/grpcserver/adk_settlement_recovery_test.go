@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -46,13 +47,16 @@ import (
 
 type unavailableSettlementStore struct {
 	*database.Client
-	fail     atomic.Bool
-	attempts atomic.Int32
+	fail      atomic.Bool
+	attempts  atomic.Int32
+	attempted chan struct{}
+	once      sync.Once
 }
 
 func (s *unavailableSettlementStore) SettleSessionTask(ctx context.Context, sessionID, taskID string, version int64) error {
 	s.attempts.Add(1)
 	if s.fail.Load() {
+		s.once.Do(func() { close(s.attempted) })
 		return status.Error(codes.Unavailable, "injected settlement outage")
 	}
 	return s.Client.SettleSessionTask(ctx, sessionID, taskID, version)
@@ -102,7 +106,7 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			db, err := database.Connect(t.Context(), &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
 			require.NoError(t, err)
 			t.Cleanup(db.Close)
-			store := &unavailableSettlementStore{Client: database.NewClient(db, "public")}
+			store := &unavailableSettlementStore{Client: database.NewClient(db, "public"), attempted: make(chan struct{})}
 			store.fail.Store(fail)
 			session := createTaskStoreSession(t, store.Client)
 			issuer := jwttest.New(t)
@@ -171,15 +175,23 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, conn.Close()) })
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 			defer cancel()
+			ctx = metadata.AppendToOutgoingContext(ctx, a2a.SvcParamVersion, string(a2a.Version))
 			response, err := a2apb.NewA2AServiceClient(conn).SendMessage(ctx, &a2apb.SendMessageRequest{
 				Message: &a2apb.Message{MessageId: uuid.NewString(), ContextId: session.ContextId, Role: a2apb.Role_ROLE_USER,
 					Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "finish one turn"}}}},
 			})
 			require.NoError(t, err)
+			// A settlement outage can outlast this request's deadline: the
+			// production retry budget is independent of it. Observe the failed
+			// boundary instead of assuming a fixed number of cleanup retries.
+			boundaryObserved := observed.cleaned
+			if fail {
+				boundaryObserved = store.attempted
+			}
 			select {
-			case <-observed.cleaned:
+			case <-boundaryObserved:
 			case <-ctx.Done():
-				t.Fatal("ADK cleanup did not finish", ctx.Err())
+				t.Fatal("ADK boundary was not observed", ctx.Err())
 			}
 			require.EqualValues(t, 1, llm.calls.Load())
 			taskID := response.GetTask().GetId()
@@ -190,10 +202,8 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			public, err := store.GetSessionTask(t.Context(), session.Id, taskID, nil)
 			require.NoError(t, err)
 			if fail {
-				require.EqualValues(t, 4, store.attempts.Load())
+				require.GreaterOrEqual(t, store.attempts.Load(), int32(1))
 				require.Equal(t, a2a.TaskStateWorking, public.Status.State)
-				// Restoring availability after Cleanup cannot retry the boundary.
-				store.fail.Store(false)
 				_, err = store.GetSettledSessionTask(t.Context(), session.Id, taskID, nil)
 				require.ErrorIs(t, err, database.ErrConflict)
 				require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), ""), database.ErrConflict)
@@ -203,16 +213,25 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 				require.EqualValues(t, 1, store.attempts.Load())
 				require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
 			}
-			t.Logf("Go ADK calls=%d; SettleTask attempts=%d; stored=%s; public=%s; cleanup finished", llm.calls.Load(), store.attempts.Load(), stored.Status.State, public.Status.State)
+			t.Logf("Go ADK calls=%d; SettleTask attempts=%d; stored=%s; public=%s; boundary observed", llm.calls.Load(), store.attempts.Load(), stored.Status.State, public.Status.State)
 			_, err = store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			t.Logf("DELETE admission: %v", err)
-			require.NoError(t, err, "explicit deletion must remain available after settlement retries are exhausted")
+			require.NoError(t, err, "explicit deletion must remain available while settlement is unavailable")
+			// Restore availability only after deletion owns the Session, so
+			// neither the runtime's retry nor an explicit late acknowledgement
+			// can publish the unconfirmed boundary.
+			store.fail.Store(false)
 			privateCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", runtimeToken))
 			_, err = controller.TaskStoreService().SettleTask(privateCtx, &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: session.Id, TaskId: taskID, Version: version})
 			if fail {
 				require.Equal(t, codes.Aborted, status.Code(err), "late cleanup cannot publish after deletion admission")
 			} else {
 				require.NoError(t, err, "an already published acknowledgement remains idempotent")
+			}
+			select {
+			case <-observed.cleaned:
+			case <-ctx.Done():
+				t.Fatal("ADK cleanup did not finish after deletion", ctx.Err())
 			}
 		})
 	}
