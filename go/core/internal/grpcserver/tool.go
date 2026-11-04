@@ -51,8 +51,8 @@ func (s *toolServer) ListTools(ctx context.Context, _ *apiv1.ListToolsRequest) (
 	return &apiv1.ListToolsResponse{Tools: tools}, nil
 }
 
-func (s *toolServer) ListToolServers(ctx context.Context, _ *apiv1.ListToolServersRequest) (*apiv1.ListToolServersResponse, error) {
-	result, err := s.service.ListToolServers(ctx)
+func (s *toolServer) ListToolServers(ctx context.Context, request *apiv1.ListToolServersRequest) (*apiv1.ListToolServersResponse, error) {
+	result, err := s.service.ListToolServers(ctx, request.GetReferenceNamespace())
 	if err != nil {
 		return nil, err
 	}

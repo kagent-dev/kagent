@@ -37,6 +37,14 @@ for (const template of CASES) {
 
       if (template === "inline") {
         await chooseTemplateSource(page, "inline");
+        await page.getByTestId("template-form-add-mcp").click();
+        const binding = page.getByTestId("template-form-mcp-0");
+        await binding.getByRole("combobox").first().click();
+        await expect(page.getByTitle("platform/grafana-mcp", { exact: true })).toHaveCount(0);
+        await page.getByTitle("kagent/kagent-tool-server", { exact: true }).click();
+        await selectOption(page, "agent-form-namespace", "platform");
+        await expect(binding).toHaveCount(0);
+        await selectOption(page, "agent-form-namespace", "kagent");
         await expect(submit).toBeDisabled();
         await expect(problems).toHaveText("Choose a model configuration for the inline template.");
         await selectOption(page, "template-form-model", "kagent/default-model-config");

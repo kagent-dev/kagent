@@ -46,6 +46,7 @@ type MCPClient interface {
 
 type Service struct {
 	kubeClient       client.Client
+	namespaceReader  client.Reader
 	discoveryStore   DiscoveryStore
 	authorizer       auth.CollectionAuthorizer
 	defaultNamespace string
@@ -79,6 +80,7 @@ type MCPAppTool struct {
 
 func NewService(
 	kubeClient client.Client,
+	namespaceReader client.Reader,
 	discoveryStore DiscoveryStore,
 	authorizer auth.CollectionAuthorizer,
 	defaultNamespace string,
@@ -89,6 +91,7 @@ func NewService(
 	}
 	return &Service{
 		kubeClient:       kubeClient,
+		namespaceReader:  namespaceReader,
 		discoveryStore:   discoveryStore,
 		authorizer:       authorizer,
 		defaultNamespace: defaultNamespace,
@@ -121,10 +124,16 @@ func (s *Service) ListTools(ctx context.Context) ([]database.Tool, error) {
 	return result, nil
 }
 
-func (s *Service) ListToolServers(ctx context.Context) ([]ToolServer, error) {
+func (s *Service) ListToolServers(ctx context.Context, referenceNamespace string) ([]ToolServer, error) {
 	servers, err := s.visibleServers(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if referenceNamespace != "" {
+		servers, err = s.referenceableServers(ctx, servers, referenceNamespace)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(servers) == 0 {
 		return []ToolServer{}, nil
@@ -145,6 +154,46 @@ func (s *Service) ListToolServers(ctx context.Context) ([]ToolServer, error) {
 			discovered = []*v1alpha3.MCPTool{}
 		}
 		result = append(result, ToolServer{Ref: server.Name, GroupKind: server.GroupKind, DiscoveredTools: discovered})
+	}
+	return result, nil
+}
+
+// Reference use is separate from management visibility. Reuse the compiler's
+// namespace policy and read labels only when a Selector policy needs them.
+func (s *Service) referenceableServers(ctx context.Context, servers []database.ToolServer, source string) ([]database.ToolServer, error) {
+	result := make([]database.ToolServer, 0, len(servers))
+	var namespace *corev1.Namespace
+	for _, server := range servers {
+		if server.GroupKind != remoteMCPServerGVK.GroupKind().String() {
+			continue
+		}
+		targetNamespace, name, _ := strings.Cut(server.Name, "/")
+		remote := &v1alpha3.RemoteMCPServer{}
+		if err := s.kubeClient.Get(ctx, types.NamespacedName{Namespace: targetNamespace, Name: name}, remote); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue // Discovery can briefly outlive a deleted server.
+			}
+			return nil, serviceerrors.NewInternal("Failed to get RemoteMCPServer "+server.Name, err)
+		}
+		policy := remote.Spec.AllowedNamespaces
+		if policy != nil && policy.From == v1alpha3.NamespacesFromSelector && namespace == nil {
+			observed := &corev1.NamespaceList{}
+			// Match the compiler's resourceNames-compatible Namespace list access.
+			if err := s.namespaceReader.List(ctx, observed, client.MatchingFields{"metadata.name": source}); err != nil {
+				return nil, serviceerrors.NewInternal("Failed to observe reference namespace "+source, err)
+			}
+			if len(observed.Items) != 1 {
+				return nil, serviceerrors.NewFailedPrecondition("Reference namespace could not be observed", nil)
+			}
+			namespace = &observed.Items[0]
+		}
+		allowed, err := policy.AllowsNamespaceMetadata(source, targetNamespace, namespace)
+		if err != nil {
+			return nil, serviceerrors.NewFailedPrecondition("Failed to evaluate RemoteMCPServer namespace policy", err)
+		}
+		if allowed {
+			result = append(result, server)
+		}
 	}
 	return result, nil
 }

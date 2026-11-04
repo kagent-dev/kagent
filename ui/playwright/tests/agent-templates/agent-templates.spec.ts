@@ -87,6 +87,26 @@ test("agent templates: a template is created, read, edited and deleted", async (
       await page.getByTestId("template-form-mcp-remove-0").click();
     });
 
+    await test.step("MCP choices follow the namespace and changing it clears bindings", async () => {
+      await page.getByTestId("template-form-add-mcp").click();
+      const binding = page.getByTestId("template-form-mcp-0");
+      await binding.getByRole("combobox").first().click();
+      await expect(page.getByTitle("kagent/kagent-tool-server", { exact: true })).toBeVisible();
+      await expect(page.getByTitle("platform/grafana-mcp", { exact: true })).toHaveCount(0);
+      await expect(page.getByTitle("analytics/warehouse-mcp", { exact: true })).toHaveCount(0);
+      await page.getByTitle("kagent/kagent-tool-server", { exact: true }).click();
+
+      await selectOption(page, "template-form-namespace", "platform");
+      await expect(binding).toHaveCount(0);
+      await page.getByTestId("template-form-add-mcp").click();
+      await binding.getByRole("combobox").first().click();
+      await expect(page.getByTitle("platform/grafana-mcp", { exact: true })).toBeVisible();
+      await expect(page.getByTitle("kagent/kagent-tool-server", { exact: true })).toHaveCount(0);
+      await page.getByTitle("platform/grafana-mcp", { exact: true }).click();
+      await selectOption(page, "template-form-namespace", "kagent");
+      await expect(binding).toHaveCount(0);
+    });
+
     await test.step("a namespace can select a visible model from another namespace", async () => {
       await selectOption(page, "template-form-namespace", "default");
       await selectOption(page, "template-form-model", "kagent/default-model-config");

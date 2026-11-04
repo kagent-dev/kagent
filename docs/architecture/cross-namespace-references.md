@@ -147,8 +147,10 @@ for destination-scoped header injection and Secret rotation behavior.
 
 `All` grants reference use, not management visibility or direct tool invocation.
 List/get/update APIs and direct MCP inspection retain their existing management
-authorization. UI selection displays namespace-qualified shared resources and
-preserves namespaces when saving references.
+authorization. The MCP picker lists only visible servers whose namespace policy
+permits the template's namespace. Shared resources retain namespace-qualified
+labels and references when saved. Changing the template namespace clears MCP
+bindings so selections from the previous namespace are not submitted.
 
 ## Rollout
 

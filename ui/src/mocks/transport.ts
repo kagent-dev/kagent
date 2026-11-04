@@ -489,11 +489,14 @@ on(ModelService.method.listProviderModels, (input) => ({
 // Tool servers
 // ---------------------------------------------------------------------------
 
-on(ToolService.method.listToolServers, (_input, call) => ({
+on(ToolService.method.listToolServers, (input, call) => ({
   toolServers:
     call.scenario === "empty"
       ? []
-      : allToolServers().map((server) => ({
+      : allToolServers()
+        // Fixture servers use the default same-namespace reference policy.
+        .filter((server) => !input.referenceNamespace || server.ref.startsWith(`${input.referenceNamespace}/`))
+        .map((server) => ({
           ref: server.ref,
           groupKind: server.groupKind,
           discoveredTools: server.discoveredTools,

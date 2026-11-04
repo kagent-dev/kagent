@@ -108,7 +108,7 @@ export function AgentTemplateForm({
 }) {
   const theme = useTheme();
   const models = useModels();
-  const servers = useMcpServers();
+  const servers = useMcpServers(namespace);
   const tools = useTools();
 
   const set = <K extends keyof AgentTemplateDraft>(
@@ -401,9 +401,12 @@ export function AgentTemplateForm({
         {/* Tools — MCP servers */}
         <Form.Item
           label="Tools from MCP servers"
-          extra="Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server. Require approval pauses before each of those tools runs."
+          extra="Servers must allow this template's namespace. Each binding optionally limits which tools to expose; an empty selection exposes every tool from that server. Require approval pauses before each tool runs."
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
+            {!readOnly && servers.error ? (
+              <Alert type="error" showIcon title="Could not load MCP servers" description={servers.error.message} />
+            ) : null}
             {readOnly && draft.mcpTools.length === 0
               ? none("No MCP tools.")
               : null}
@@ -427,7 +430,7 @@ export function AgentTemplateForm({
                     };
                     set("mcpTools", next);
                   }}
-                  options={(servers.data ?? []).map((server) => {
+                  options={(namespace ? servers.data ?? [] : []).map((server) => {
                     const bindable = server.groupKind.startsWith("RemoteMCPServer");
                     return {
                       value: server.ref,

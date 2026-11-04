@@ -209,6 +209,22 @@ describe("model configurations", () => {
 });
 
 describe("tool servers and tools", () => {
+  it("requests servers that allow references from the template namespace", async () => {
+    const namespaces: string[] = [];
+    serve(({ service }) => {
+      service(ToolService, {
+        listToolServers: (request) => {
+          namespaces.push(request.referenceNamespace);
+          return { toolServers: [] };
+        },
+      });
+    });
+
+    await apiClient.mcpServers.list({ referenceNamespace: "team-a" });
+    await apiClient.mcpServers.list();
+    expect(namespaces).toEqual(["team-a", ""]);
+  });
+
   it("lists tool servers with the tools the controller discovered", async () => {
     serve(({ service }) => {
       service(ToolService, {
