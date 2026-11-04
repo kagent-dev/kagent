@@ -313,7 +313,7 @@ func TestAnswerInputRequests(t *testing.T) {
 		}
 		require.Equal(t, map[string]string{"a": "decline", "b": "accept", "d": "decline"}, actions)
 
-		_, _, err = answerInputRequests(&mcpsdk.CallToolResult{InputRequests: mcpsdk.InputRequestMap{"roots": &mcpsdk.ListRootsParams{}}})
+		_, _, err = answerInputRequests(&mcpsdk.CallToolResult{InputRequests: mcpsdk.InputRequestMap{"other": unsupportedInputRequest{}}})
 		require.True(t, err != nil && strings.Contains(err.Error(), "unsupported"), "err = %v", err)
 	})
 }
@@ -340,3 +340,6 @@ func TestElicitationHandlerRelaysOnlyASafeURL(t *testing.T) {
 		Message: "Sign in", URL: "https://gateway.example/s", ElicitationID: "e1",
 	}, elicitation.request)
 }
+
+// unsupportedInputRequest is an input request kind other than an elicitation.
+type unsupportedInputRequest struct{ mcpsdk.InputRequest }
