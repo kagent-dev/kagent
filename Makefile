@@ -1,4 +1,4 @@
-# Load local overrides (gitignored) — e.g. HELM_ARGS=--set config.logging.level=debug
+# Load local overrides (gitignored) — e.g. HELM_ARGS=--set ui.replicas=0
 -include .env
 
 # Image configuration
@@ -75,17 +75,20 @@ KAGENT_POSTGRES_OWNER_SECRET ?= kagent-postgres-owner
 KAGENT_POSTGRES_READWRITE_SECRET ?= kagent-postgres-readwrite
 
 CONTROLLER_IMAGE_NAME ?= controller
+UI_IMAGE_NAME ?= ui
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 
 CLAUDE_HARNESS_IMAGE_NAME ?= claude-harness
 CODEX_HARNESS_IMAGE_NAME ?= codex-harness
 SANDBOX_GUEST_IMAGE_NAME ?= sandbox-guest
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
+UI_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 CLAUDE_HARNESS_IMAGE_TAG ?= $(VERSION)
 CODEX_HARNESS_IMAGE_TAG ?= $(VERSION)
 SANDBOX_GUEST_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
+UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 CLAUDE_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CLAUDE_HARNESS_IMAGE_NAME):$(CLAUDE_HARNESS_IMAGE_TAG)
 CODEX_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CODEX_HARNESS_IMAGE_NAME):$(CODEX_HARNESS_IMAGE_TAG)
@@ -294,13 +297,14 @@ build-all: buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/claude/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/codex/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/sandbox/guest/Dockerfile ./go
-	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target controller --build-context ui=./ui -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-golang-adk build-claude-harness build-codex-harness build-sandbox-guest build-controller
+build: buildx-create build-ui build-golang-adk build-claude-harness build-codex-harness build-sandbox-guest build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
+	@echo "UI Image: $(UI_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 	@echo "Claude Harness Image: $(CLAUDE_HARNESS_IMG)"
 	@echo "Codex Harness Image: $(CODEX_HARNESS_IMG)"
@@ -327,6 +331,7 @@ build-cli-local: ## Build the kagent CLI binary for the local machine
 .PHONY: build-img-versions
 build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo controller=$(CONTROLLER_IMG)
+	@echo ui=$(UI_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
 	@echo claude-harness=$(CLAUDE_HARNESS_IMG)
 	@echo codex-harness=$(CODEX_HARNESS_IMG)
@@ -341,9 +346,14 @@ build-controller: ## Build and push the controller image
 build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
 		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
-		--target controller --build-context ui=./ui \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
+
+.PHONY: build-ui
+build-ui: ## Build and push the UI image
+build-ui: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_PUSH) $(UI_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
@@ -479,6 +489,7 @@ helm-install-provider: helm-dev check-api-key
 		--set tag=$(VERSION) \
 		--set config.logging.level=debug \
 		--set controller.image.pullPolicy=Always \
+		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZURE_OPENAI_API_KEY) \
@@ -673,6 +684,7 @@ report/image-cve: ## Scan built images with grype and write CVE CSV reports to r
 report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
+	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
 
 
 ##@ Cleanup

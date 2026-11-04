@@ -177,6 +177,14 @@ Call with a dict: (dict "pdb" .Values.controller.pdb "path" "controller.pdb")
 {{- end -}}
 
 {{/*
+UI selector labels
+*/}}
+{{- define "kagent.ui.selectorLabels" -}}
+{{ include "kagent.selectorLabels" . }}
+app.kubernetes.io/component: ui
+{{- end }}
+
+{{/*
 Controller selector labels
 */}}
 {{- define "kagent.controller.selectorLabels" -}}
@@ -415,6 +423,16 @@ Call with (dict "root" $ "image" <reference>).
 {{- else -}}
   {{- $ref -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The ui container image. Same tag precedence as the controller: the top-level
+tag wins over the component tag.
+*/}}
+{{- define "kagent.uiImage" -}}
+{{- $root := dict "registry" (.Values.ui.image.registry | default .Values.registry) "repository" .Values.ui.image.repository "tag" (coalesce .Values.tag .Values.ui.image.tag .Chart.Version) -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
 
 {{/* "true" when the controller skips migrations and so needs no owner login. */}}

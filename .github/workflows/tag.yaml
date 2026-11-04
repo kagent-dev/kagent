@@ -49,6 +49,7 @@ jobs:
       matrix:
         image:
           - controller
+          - ui
           - golang-adk
           - claude-harness
           - codex-harness

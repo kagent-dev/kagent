@@ -1,6 +1,6 @@
 # Web interface
 
-A Vite single-page app. It is a static bundle served by the kagent controller: there is no server
+A Vite single-page app. It is a static bundle served by nginx: there is no server
 process, so there are no server components, no server-side data fetching and no
 file-system routing.
 

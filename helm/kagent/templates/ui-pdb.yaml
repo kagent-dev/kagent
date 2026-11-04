@@ -1,0 +1,32 @@
+{{- $pdb := .Values.ui.pdb | default dict }}
+{{- include "kagent.pdb.validate" (dict "pdb" $pdb "path" "ui.pdb") }}
+{{- if $pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui
+  namespace: {{ include "kagent.namespace" . }}
+  {{- with $pdb.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- include "kagent.ui.labels" . | nindent 4 }}
+    {{- with $pdb.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if include "kagent.pdb.isSet" $pdb.minAvailable }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ $pdb.maxUnavailable }}
+  {{- end }}
+  {{- with $pdb.unhealthyPodEvictionPolicy }}
+  unhealthyPodEvictionPolicy: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- /* Same helper the UI Deployment uses for spec.selector, so the budget
+           can never drift from the pods it is meant to protect. */}}
+      {{- include "kagent.ui.selectorLabels" . | nindent 6 }}
+{{- end }}

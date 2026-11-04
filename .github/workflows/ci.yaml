@@ -172,6 +172,8 @@ jobs:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
                 metrics:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+          ui:
+            replicas: 0
           kagent-tools:
             enabled: false
           substrateWorkerPool:
@@ -462,6 +464,10 @@ jobs:
           TESTCONTAINERS_RYUK_DISABLED: "true"
         run: make test
 
+      - name: Run UI entrypoint tests
+        working-directory: ui/entrypoint
+        run: go test ./...
+
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
@@ -552,6 +558,7 @@ jobs:
       matrix:
         image:
           - controller
+          - ui
           - cli
           - golang-adk
           - claude-harness

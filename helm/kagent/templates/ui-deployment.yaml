@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui
+  namespace: {{ include "kagent.namespace" . }}
+  {{- $annotations := mergeOverwrite (dict) (default dict .Values.annotations) (default dict .Values.ui.annotations) }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.ui.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kagent.ui.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
+        checksum/ui-config: {{ include (print $.Template.BasePath "/ui-nginx-configmap.yaml") . | sha256sum }}
+        {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- /* extra pod labels: component merged over global, selector labels
+             applied last so they can never be overridden */}}
+        {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.ui.podLabels | default dict) (include "kagent.ui.selectorLabels" . | fromYaml) }}
+        {{- toYaml $podLabels | nindent 8 }}
+    spec:
+      {{- with include "kagent.imagePullSecrets" (dict "root" .) }}{{- . | nindent 6 }}{{- end }}
+      {{- with (.Values.ui.podSecurityContext | default .Values.podSecurityContext) }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kagent.fullname" . }}-ui
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.ui.volumes.tmp }}
+        - name: ui-config
+          configMap:
+            name: {{ include "kagent.fullname" . }}-ui-config
+      {{- with .Values.ui.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ui.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ui.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ui.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ui
+          {{- with (.Values.ui.securityContext | default .Values.securityContext) }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ include "kagent.uiImage" . | quote }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.ui.image.pullPolicy) }}
+          {{- with .Values.ui.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "kagent.fullname" . }}-ui
+          ports:
+            - name: http
+              containerPort: {{ .Values.ui.service.ports.targetPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: ui-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
+          {{- if .Values.ui.startupProbe }}
+          startupProbe:
+            {{- toYaml .Values.ui.startupProbe | nindent 12 }}
+          {{- else }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 1
+            initialDelaySeconds: 1
+          {{- end }}
+          {{- if .Values.ui.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.ui.readinessProbe | nindent 12 }}
+          {{- else }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+          {{- end }}

@@ -17,4 +17,4 @@ spec:
       protocol: TCP
       name: ui
   selector:
-    {{- include "kagent.controller.selectorLabels" . | nindent 4 }}
+    {{- include "kagent.ui.selectorLabels" . | nindent 4 }}

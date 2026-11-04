@@ -145,7 +145,7 @@ Helm `--set` overrides:
 
 ```shell
 # .env
-HELM_ARGS=--set config.logging.level=debug
+HELM_ARGS=--set ui.replicas=0 --set config.logging.level=debug
 ```
 
 The Substrate chart version defaults to the `github.com/kagent-dev/substrate`

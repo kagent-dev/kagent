@@ -41,7 +41,7 @@ kubectl -n kagent port-forward svc/kagent-controller 8083:8083
 
 Either way `8083` is where the proxy looks, so neither case needs a `.env` entry. Two
 settings change that when you want them to: `KAGENT_UI_DEV_CONTROLLER_URL=http://127.0.0.1:8080`
-sends the proxy through the controller's UI listener instead, which is the hop a deployed build
+sends the proxy through the UI pod's nginx instead, which is the hop a deployed build
 takes; and `KAGENT_UI_API_BASE_URL` calls a backend directly, bypassing the proxy.
 
 Which backend is serving is decided in exactly one place, `src/api/config.ts`.
@@ -79,7 +79,7 @@ or set it to `false` in your shell and `.env`, then start it again with `yarn de
 Settings an operator configures per deployment cannot travel in the bundle — the
 bundler inlines `import.meta.env` at build time, which would freeze the chart's
 values as of the image build. They arrive on `window.environmentVariables`
-instead, rendered from the controller's environment by `go/core/internal/uiserver` on every start
+instead, rendered from the pod's environment by the `entrypoint/` program on every start
 and loaded by a script tag ahead of the app, so they are readable synchronously
 by the first module that runs. `src/env.ts` lists them; `.env.example` documents
 setting them locally.

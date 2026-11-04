@@ -127,6 +127,7 @@ updates:
     directories:
       - "/go"
       - "/python"
+      - "/ui"
       - "/.devcontainer"
     schedule:
       interval: "weekly"
