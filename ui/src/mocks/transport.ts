@@ -644,6 +644,7 @@ function agentInstanceMessage(
     // turns it back into "not reported".
     preparedRevision: row.preparedRevision ?? "",
     a2aAuthority: row.a2aAuthority ?? "",
+    recovery: row.recovery,
     state: PB_STATE_BY_NAME[row.state],
     operation: PB_OPERATION_BY_NAME[row.operation],
     failure: row.failure
@@ -824,6 +825,12 @@ on(SessionService.method.getSession, (input, call) => ({
     ),
   ),
 }));
+
+// Fixtures have no Substrate runtime whose crashed state can authorize a revert.
+on(SessionService.method.revertSession, (input, call) => {
+  instanceFor(requireInstanceId(input.sessionId), call);
+  throw new ConnectError("The fixture runtime is not crashed", Code.FailedPrecondition);
+});
 
 on(SessionService.method.createSession, (input, call) => {
   const namespace = requireNamespace(input.agent?.namespace ?? "");
