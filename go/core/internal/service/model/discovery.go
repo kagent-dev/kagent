@@ -263,6 +263,13 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "us.anthropic.claude-3-5-haiku-20241022-v1:0", FunctionCalling: true},
 			// Amazon Nova
 			{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false},
+			// xAI Grok on Bedrock. These are bedrock-runtime cross-Region
+			// inference profiles, not the Microsoft Foundry model names.
+			// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-xai-grok-4-7.html
+			{Name: "us.xai.grok-4.7", FunctionCalling: true},
+			{Name: "global.xai.grok-4.7", FunctionCalling: true},
+			{Name: "us.xai.grok-4.6", FunctionCalling: true},
+			{Name: "global.xai.grok-4.6", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderSAPAICore: {
 			// Anthropic (via SAP Generative AI Hub proxy naming)
