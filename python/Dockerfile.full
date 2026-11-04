@@ -6,14 +6,14 @@
 # executeCodeBlocks) and for sandboxed BYO agents.
 
 ### STAGE 1: uv binary
-ARG UV_VERSION=0.12.3
+ARG UV_VERSION=0.13.7
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 ### STAGE 2: base os + sandbox runtime
 # node:26-bookworm-slim is a digest-pinnable debian-bookworm base that ships Node 26 (the
 # sandbox-runtime requires node >= 20; debian's own nodejs package is still on 18).
 # Digest = multi-arch index resolved via `docker buildx imagetools inspect node:26-bookworm-slim`.
-FROM node:26-bookworm-slim@sha256:2d49d876e96237d76de412761cf05dbfe5aee325cc4406a4d41d5824c5bb8beb AS python-os
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS python-os
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8
@@ -51,19 +51,21 @@ RUN groupadd -g 1001 pythongroup \
     && mkdir -p $UV_PYTHON_DOWNLOADS_DIR $UV_TOOL_DIR $UV_CACHE_DIR /python \
     && chown -R 1001:1001 /.kagent /python
 
+# Upgrade the base image's npm, whose bundled deps lag behind npm releases.
 # Install the Anthropic sandbox runtime from a pinned revision. Replace its vulnerable locked
 # transitive deps, build, then prune dev deps (matches the previous Chainguard-based image).
 # Fetch the pinned revision via init+fetch (debian's git predates `git clone --revision`).
 # GitHub allows fetching an arbitrary commit SHA directly.
 RUN --mount=type=cache,target=/root/.npm \
-    mkdir -p /opt/sandbox-runtime && cd /opt/sandbox-runtime \
+    npm install -g --ignore-scripts npm@11.21.1 \
+    && mkdir -p /opt/sandbox-runtime && cd /opt/sandbox-runtime \
     && git init -q \
     && git remote add origin https://github.com/anthropic-experimental/sandbox-runtime.git \
     && git fetch --depth 1 origin ef4afdef4d711ba21a507d7f7369e305f7d3dbfa \
     && git checkout -q FETCH_HEAD \
     && npm pkg delete scripts.prepare \
-    && npm install --ignore-scripts --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 shell-quote@1.9.0 \
-    && npm install --ignore-scripts --save-exact brace-expansion@5.0.9 \
+    && npm install --ignore-scripts --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 shell-quote@1.11.0 \
+    && npm install --ignore-scripts --save-exact brace-expansion@5.0.12 \
     && npm run build \
     && npm prune --omit=dev \
     && npm install -g --ignore-scripts

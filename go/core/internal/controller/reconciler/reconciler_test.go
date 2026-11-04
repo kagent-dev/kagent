@@ -1452,6 +1452,12 @@ func TestUpsertToolServer_EvictsSnapshotBeforeFailedWrite(t *testing.T) {
 		return mcpServer
 	}, nil))
 	t.Cleanup(httpServer.Close)
+	// Server sessions outlive the client's Close; end them so goleak passes.
+	t.Cleanup(func() {
+		for ss := range mcpServer.Sessions() {
+			_ = ss.Close()
+		}
+	})
 
 	rms := &v1alpha2.RemoteMCPServer{Spec: v1alpha2.RemoteMCPServerSpec{URL: httpServer.URL}}
 	old := &database.ToolServer{Name: "ns/s", GroupKind: "kagent.dev/RemoteMCPServer", Description: "old"}
