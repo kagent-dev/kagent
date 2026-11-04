@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -61,9 +62,7 @@ func (w *RecoveryWorker) sweep(ctx context.Context) error {
 		group.SetLimit(4)
 		for _, op := range operations {
 			group.Go(func() error {
-				attempt, cancel := context.WithTimeout(ctx, 2*time.Minute)
-				defer cancel()
-				if err := w.service.recoverOperation(attempt, op); err != nil && ctx.Err() == nil {
+				if err := w.service.recoverOperation(ctx, op); err != nil && ctx.Err() == nil {
 					logging.FromContext(ctx).ErrorContext(ctx, "recover checkpoint operation", "checkpoint_id", op.Checkpoint.Id, "error", err)
 				}
 				return nil
@@ -80,17 +79,42 @@ func (w *RecoveryWorker) sweep(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *Service) recoverOperation(ctx context.Context, op *database.CheckpointOperation) error {
+func (s *Service) recoverOperation(ctx context.Context, observed *database.CheckpointOperation) (err error) {
+	// Establish the attempt deadline before claiming. A paused executor cannot
+	// issue another RPC after its claim expires; unfinished copies synchronize
+	// through Substrate's tag lease when the replacement retries CreateTag.
+	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+	defer cancel()
+	executor := uuid.New()
+	id := observed.Checkpoint.Id
+	// The claim reply can be lost after the UPDATE committed. Release by the
+	// known executor even when acquisition returns an error; this cannot revoke
+	// another attempt and avoids waiting for expiry on graceful cancellation.
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		err = errors.Join(err, s.store.ReleaseCheckpointOperation(releaseCtx, id, executor))
+	}()
+	op, err := s.store.ClaimCheckpointOperation(ctx, id, observed.Creator, executor)
+	if errors.Is(err, database.ErrConflict) {
+		return nil // Another executor owns it, or the listed phase already ended.
+	}
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	switch op.Checkpoint.State {
 	case apiv1.CheckpointState_CHECKPOINT_STATE_DELETING:
-		return s.finishDelete(ctx, op)
+		return s.finishDelete(ctx, op, executor)
 	case apiv1.CheckpointState_CHECKPOINT_STATE_CREATING:
 		if op.Checkpoint.Failure != nil {
-			return s.finishCleanup(ctx, op)
+			return s.finishCleanup(ctx, op, executor)
 		}
 		tag, err := s.ensureTag(ctx, op.Checkpoint, op.Snapshot)
 		if err == nil {
-			_, err = s.store.FinalizeSessionCheckpoint(ctx, op.Checkpoint.Id,
+			_, err = s.store.FinalizeClaimedSessionCheckpoint(ctx, op.Checkpoint.Id, executor,
 				tag.GetMetadata().GetUid(), substrate.SnapshotURI(tag.GetStatus().GetSnapshot()), "")
 			return err
 		}
@@ -101,7 +125,7 @@ func (s *Service) recoverOperation(ctx context.Context, op *database.CheckpointO
 			return fmt.Errorf("refuse cleanup of an unverified checkpoint tag: %w", err)
 		}
 		uid := tag.GetMetadata().GetUid()
-		if recordErr := s.store.BeginCheckpointCleanup(ctx, op.Checkpoint.Id, uid, err.Error()); recordErr != nil {
+		if recordErr := s.store.BeginCheckpointCleanup(ctx, op.Checkpoint.Id, executor, uid, err.Error()); recordErr != nil {
 			return recordErr
 		}
 		// Persist the exact phase before external cleanup. A restart must not
@@ -110,13 +134,13 @@ func (s *Service) recoverOperation(ctx context.Context, op *database.CheckpointO
 		if err != nil {
 			return err
 		}
-		return s.finishCleanup(ctx, op)
+		return s.finishCleanup(ctx, op, executor)
 	default:
 		return nil
 	}
 }
 
-func (s *Service) finishCleanup(ctx context.Context, op *database.CheckpointOperation) error {
+func (s *Service) finishCleanup(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) error {
 	name := tagName(op.Checkpoint.Id)
 	tag, err := s.tags.GetTag(ctx, op.Snapshot.Atespace, name)
 	if err != nil && status.Code(err) != codes.NotFound {
@@ -130,6 +154,6 @@ func (s *Service) finishCleanup(ctx context.Context, op *database.CheckpointOper
 			return err
 		}
 	}
-	_, err = s.store.FinalizeSessionCheckpoint(ctx, op.Checkpoint.Id, "", "", op.Checkpoint.Failure.Message)
+	_, err = s.store.FinalizeClaimedSessionCheckpoint(ctx, op.Checkpoint.Id, executor, "", "", op.Checkpoint.Failure.Message)
 	return err
 }

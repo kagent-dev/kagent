@@ -333,6 +333,19 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 // checkpoint; a different terminal result returns ErrNotFound. This internal operation
 // does not check ownership or create the external snapshot.
 func (c *Client) FinalizeSessionCheckpoint(ctx context.Context, id, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
+	return c.finalizeSessionCheckpoint(ctx, id, uuid.Nil, tagUID, snapshotURI, failure)
+}
+
+// FinalizeClaimedSessionCheckpoint publishes a creation outcome only while the
+// given executor still owns its bounded attempt. Stale completion returns ErrConflict.
+func (c *Client) FinalizeClaimedSessionCheckpoint(ctx context.Context, id string, executor uuid.UUID, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
+	if executor == uuid.Nil {
+		return nil, ErrFailedPrecondition
+	}
+	return c.finalizeSessionCheckpoint(ctx, id, executor, tagUID, snapshotURI, failure)
+}
+
+func (c *Client) finalizeSessionCheckpoint(ctx context.Context, id string, executor uuid.UUID, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
 	if (tagUID == "") == (failure == "") || (tagUID == "") != (snapshotURI == "") {
 		return nil, fmt.Errorf("finalize Session checkpoint requires tag UID and snapshot URI, or failure")
 	}
@@ -341,6 +354,9 @@ func (c *Client) FinalizeSessionCheckpoint(ctx context.Context, id, tagUID, snap
 		row, err := lockCheckpoint(ctx, tx, id, true, "", nil)
 		if err != nil {
 			return notFoundOr(err)
+		}
+		if err := checkCheckpointExecutor(ctx, tx, id, executor); err != nil {
+			return err
 		}
 		result, err = toSessionCheckpoint(row)
 		if err != nil {
@@ -535,10 +551,36 @@ func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID st
 // DeleteSessionCheckpoint removes an owned DELETING checkpoint after the caller
 // cleans up its external tag. No matching row is a successful no-op.
 func (c *Client) DeleteSessionCheckpoint(ctx context.Context, id, userID string) error {
-	_, err := c.db.Exec(ctx, `
-		DELETE FROM session_checkpoint
-		WHERE id = $1 AND user_id = $2 AND state = 'DELETING'
-	`, id, userID)
+	return c.deleteSessionCheckpoint(ctx, id, userID, uuid.Nil)
+}
+
+// DeleteClaimedSessionCheckpoint removes an owned DELETING checkpoint only for
+// its current executor, after external cleanup. A missing row is a successful retry.
+func (c *Client) DeleteClaimedSessionCheckpoint(ctx context.Context, id, userID string, executor uuid.UUID) error {
+	if executor == uuid.Nil {
+		return ErrFailedPrecondition
+	}
+	return c.deleteSessionCheckpoint(ctx, id, userID, executor)
+}
+
+func (c *Client) deleteSessionCheckpoint(ctx context.Context, id, userID string, executor uuid.UUID) error {
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		_, err := lockCheckpoint(ctx, tx, id, false, userID, nil)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := checkCheckpointExecutor(ctx, tx, id, executor); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `
+			DELETE FROM session_checkpoint
+			WHERE id = $1 AND user_id = $2 AND state = 'DELETING'
+		`, id, userID)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("delete Session checkpoint: %w", err)
 	}

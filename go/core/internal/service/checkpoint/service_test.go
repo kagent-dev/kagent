@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -82,7 +83,7 @@ func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv
 	return checkpoint, s.snapshot, nil
 }
 
-func (s *testStore) FinalizeSessionCheckpoint(_ context.Context, _ string, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
+func (s *testStore) FinalizeClaimedSessionCheckpoint(_ context.Context, _ string, _ uuid.UUID, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
 	if s.finalizeErr != nil {
 		return nil, s.finalizeErr
 	}
@@ -130,7 +131,7 @@ func (s *testStore) BeginDeleteSessionCheckpoint(context.Context, string, string
 	return s.snapshot, s.tagUID, nil
 }
 
-func (s *testStore) DeleteSessionCheckpoint(context.Context, string, string) error {
+func (s *testStore) DeleteClaimedSessionCheckpoint(context.Context, string, string, uuid.UUID) error {
 	s.deleted = true
 	return nil
 }
@@ -859,7 +860,7 @@ func (*testStore) ListPendingCheckpoints(context.Context, string, int) ([]*datab
 	return nil, nil
 }
 
-func (s *testStore) BeginCheckpointCleanup(_ context.Context, _, uid, failure string) error {
+func (s *testStore) BeginCheckpointCleanup(_ context.Context, _ string, _ uuid.UUID, uid, failure string) error {
 	s.prepared.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: failure}
 	s.tagUID = uid
 	return nil
@@ -954,4 +955,12 @@ func TestCreationRefusesUnrelatedTag(t *testing.T) {
 	require.NotNil(t, tags.created)
 	require.Nil(t, store.prepared.Failure)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
+}
+
+func (s *testStore) ClaimCheckpointOperation(ctx context.Context, id, owner string, _ uuid.UUID) (*database.CheckpointOperation, error) {
+	return s.GetCheckpointOperation(ctx, id, owner)
+}
+
+func (*testStore) ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error {
+	return nil
 }

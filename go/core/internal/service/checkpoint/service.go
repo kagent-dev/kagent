@@ -29,14 +29,16 @@ const (
 type store interface {
 	GetCheckpointOperation(context.Context, string, string) (*database.CheckpointOperation, error)
 	ListPendingCheckpoints(context.Context, string, int) ([]*database.CheckpointOperation, error)
-	BeginCheckpointCleanup(context.Context, string, string, string) error
+	ClaimCheckpointOperation(context.Context, string, string, uuid.UUID) (*database.CheckpointOperation, error)
+	ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error
+	BeginCheckpointCleanup(context.Context, string, uuid.UUID, string, string) error
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
-	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
+	FinalizeClaimedSessionCheckpoint(context.Context, string, uuid.UUID, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpointForkSource(context.Context, string, string) (*database.SessionCheckpointForkSource, error)
 	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error)
 	BeginDeleteSessionCheckpoint(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
-	DeleteSessionCheckpoint(context.Context, string, string) error
+	DeleteClaimedSessionCheckpoint(context.Context, string, string, uuid.UUID) error
 	ForkSession(context.Context, string, string, string, string) (*apiv1.Session, bool, error)
 	UpdateCheckpointName(context.Context, string, string, string) (*apiv1.Checkpoint, error)
 }
@@ -294,7 +296,7 @@ func (s *Service) beginDelete(ctx context.Context, checkpointID string) (string,
 	return userID, nil
 }
 
-func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOperation) error {
+func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) error {
 	checkpointID, userID := op.Checkpoint.Id, op.Creator
 	snapshot, tagUID := op.Snapshot, op.TagUID
 	tag, err := s.tags.GetTag(ctx, snapshot.Atespace, tagName(checkpointID))
@@ -313,7 +315,7 @@ func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOpera
 			return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
 		}
 	}
-	if err := s.store.DeleteSessionCheckpoint(ctx, checkpointID, userID); err != nil {
+	if err := s.store.DeleteClaimedSessionCheckpoint(ctx, checkpointID, userID, executor); err != nil {
 		return serviceerrors.NewInternal("Failed to delete checkpoint", err)
 	}
 	return nil

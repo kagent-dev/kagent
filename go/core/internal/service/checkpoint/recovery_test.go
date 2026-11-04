@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
@@ -21,6 +21,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -88,17 +89,36 @@ func startRecovery(t *testing.T, service *Service) func() {
 
 func recoverySource(t *testing.T, store *database.Client) (*apiv1.Session, string) {
 	t.Helper()
+	return recoverySourceForActor(t, store, &ateapipb.Actor{
+		Metadata:      &ateapipb.ResourceMetadata{Atespace: "team-a", Name: substrate.ActorName(uuid.NewString()), Uid: "actor-uid"},
+		ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "runtime"},
+		Status: &ateapipb.ActorStatus{Snapshots: []*ateapipb.Snapshot{{
+			Generation: 1, ActorTemplateUid: "template-uid", Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
+			DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED,
+				Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/source"}},
+		}}},
+	})
+}
+
+func recoverySourceForActor(t *testing.T, store *database.Client, actor *ateapipb.Actor) (*apiv1.Session, string) {
+	t.Helper()
 	ctx := t.Context()
+	space := actor.GetMetadata().GetAtespace()
+	snapshot := substrate.LatestActorSnapshot(actor)
+	revision := "revision-" + actor.GetMetadata().GetUid()
+	sessionID := strings.TrimPrefix(actor.GetMetadata().GetName(), "session-")
+	_, err := uuid.Parse(sessionID)
+	require.NoError(t, err)
 	require.NoError(t, store.UpsertAgentDefinition(ctx, database.AgentDefinition{
-		Namespace: "team-a", AgentName: "assistant", AgentUID: "agent-uid", DesiredRevision: "revision"}))
-	_, err := store.RecordRuntimeRevision(ctx, database.RuntimeRevision{
-		Revision: "revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "agent-uid",
+		Namespace: space, AgentName: "assistant", AgentUID: "agent-uid", DesiredRevision: revision}))
+	_, err = store.RecordRuntimeRevision(ctx, database.RuntimeRevision{
+		Revision: revision, Namespace: space, AgentName: "assistant", AgentUID: "agent-uid",
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
-		ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", ActorTemplateUID: "template-uid",
+		ActorTemplateAtespace: space, ActorTemplateName: actor.GetActorTemplate().GetName(), ActorTemplateUID: snapshot.GetActorTemplateUid(),
 	}, database.RecordRevisionOptions{Ready: true})
 	require.NoError(t, err)
-	session, _, err := store.CreateSession(ctx, &apiv1.Session{Id: uuid.NewString(), Creator: "alice",
-		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, uuid.NewString())
+	session, _, err := store.CreateSession(ctx, &apiv1.Session{Id: sessionID, Creator: "alice",
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: space, Name: "assistant"}}}, uuid.NewString())
 	require.NoError(t, err)
 	op, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 	require.NoError(t, err)
@@ -106,7 +126,7 @@ func recoverySource(t *testing.T, store *database.Client) (*apiv1.Session, strin
 	claimed, err := store.ClaimSessionOperation(ctx, session.Id, op.ID, executor)
 	require.NoError(t, err)
 	require.True(t, claimed)
-	session, err = store.FinishSessionOperation(ctx, session.Id, op.ID, executor, "runtime", "actor-uid", "")
+	session, err = store.FinishSessionOperation(ctx, session.Id, op.ID, executor, actor.GetActorTemplate().GetName(), actor.GetMetadata().GetUid(), "")
 	require.NoError(t, err)
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
 	message.ContextID = session.ContextId
@@ -119,7 +139,7 @@ func recoverySource(t *testing.T, store *database.Client) (*apiv1.Session, strin
 	boundary, err := store.ClaimSessionQuiescence(ctx)
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(ctx, boundary,
-		&database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
+		&database.SessionTaskSnapshot{Atespace: space, URI: substrate.SnapshotURI(snapshot), Fidelity: snapshot.GetFidelity().String()}))
 	return session, string(task.ID)
 }
 
@@ -140,10 +160,37 @@ type failedCheckpointPublish struct {
 	once    sync.Once
 }
 
-func (s *failedCheckpointPublish) FinalizeSessionCheckpoint(ctx context.Context, _, _, _, _ string) (*apiv1.Checkpoint, error) {
+func (s *failedCheckpointPublish) FinalizeClaimedSessionCheckpoint(ctx context.Context, _ string, _ uuid.UUID, _, _, _ string) (*apiv1.Checkpoint, error) {
 	s.once.Do(func() { close(s.entered) })
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+// pausedCheckpointClaim models an executor paused after its successful database
+// reply. Its attempt deadline still elapses while a replacement makes progress.
+type pausedCheckpointClaim struct {
+	*database.Client
+	claimed chan struct{}
+	resume  <-chan struct{}
+}
+
+type lostCheckpointClaim struct{ *database.Client }
+
+func (s *lostCheckpointClaim) ClaimCheckpointOperation(ctx context.Context, id, owner string, executor uuid.UUID) (*database.CheckpointOperation, error) {
+	if _, err := s.Client.ClaimCheckpointOperation(ctx, id, owner, executor); err != nil {
+		return nil, err
+	}
+	return nil, status.Error(codes.Unavailable, "committed claim response lost")
+}
+
+func (s *pausedCheckpointClaim) ClaimCheckpointOperation(ctx context.Context, id, owner string, executor uuid.UUID) (*database.CheckpointOperation, error) {
+	op, err := s.Client.ClaimCheckpointOperation(ctx, id, owner, executor)
+	if err != nil {
+		return nil, err
+	}
+	close(s.claimed)
+	<-s.resume
+	return op, nil
 }
 
 func TestCheckpointRecoveryWithPostgres(t *testing.T) {
@@ -152,7 +199,7 @@ func TestCheckpointRecoveryWithPostgres(t *testing.T) {
 	}
 	conn := dbtest.StartT(t.Context(), t)
 	require.NoError(t, dbtest.Migrate(conn, false))
-	pool, err := pgxpool.New(t.Context(), conn)
+	pool, err := database.Connect(t.Context(), &database.PostgresConfig{Pool: dbtest.PoolConfig(conn), Schema: "public"})
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	newStore := func() *database.Client { return database.NewClient(pool, "public") }
@@ -207,6 +254,7 @@ func TestCheckpointRecoveryWithPostgres(t *testing.T) {
 		require.ErrorIs(t, <-result, context.Canceled)
 		// Another replica shares durable admission, not local singleflight.
 		follower := NewService(newStore(), testAuthorizer{}, tags, nil)
+		stopFollower := startRecovery(t, follower)
 		results := make(chan *apiv1.Checkpoint, 8)
 		errors := make(chan error, 8)
 		for range 8 {
@@ -226,6 +274,7 @@ func TestCheckpointRecoveryWithPostgres(t *testing.T) {
 			require.NoError(t, <-errors)
 			require.Equal(t, pending[0].Checkpoint.Id, (<-results).Id)
 		}
+		stopFollower()
 		stop()
 		tags.mu.Lock()
 		defer tags.mu.Unlock()
@@ -295,6 +344,92 @@ func TestCheckpointRecoveryWithPostgres(t *testing.T) {
 		hash := sha256.Sum256([]byte(task.ID))
 		_, err = store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
 		require.NoError(t, err)
+	})
+
+	t.Run("Given compensation already deleted the tag, when stale creation resumes, assert that source admission reopens without another copy", func(t *testing.T) {
+		store := newStore()
+		session, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		service := NewService(store, testAuthorizer{}, tags, nil)
+		cp, _, err := service.beginCreate(ownerContext(t.Context()), session.Id, uuid.NewString(), head)
+		require.NoError(t, err)
+		stale, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+		require.NoError(t, err)
+		tag, err := tags.CreateTag(t.Context(), "team-a", tagName(cp.Id), substrate.ActorName(session.Id))
+		require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(t.Context(), database.RuntimeOperationTimeout)
+		defer cancel()
+		executor := uuid.New()
+		_, err = store.ClaimCheckpointOperation(ctx, cp.Id, "alice", executor)
+		require.NoError(t, err)
+		require.NoError(t, store.BeginCheckpointCleanup(ctx, cp.Id, executor, tag.Metadata.Uid, "copy interrupted"))
+		require.NoError(t, tags.DeleteTag(ctx, "team-a", tagName(cp.Id), tag.Metadata.Uid))
+		require.NoError(t, store.ReleaseCheckpointOperation(ctx, cp.Id, executor))
+
+		require.NoError(t, service.recoverOperation(t.Context(), stale))
+		require.Nil(t, tags.created, "a stale discovery result must not recreate a compensated tag")
+		require.Equal(t, 1, tags.createCalls)
+		waitCheckpointPhase(t, store, cp.Id, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED)
+		_, err = store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+		require.NoError(t, err)
+		_, err = service.beginDelete(ownerContext(t.Context()), cp.Id)
+		require.NoError(t, err)
+		require.NoError(t, service.recoverOperation(t.Context(), stale))
+		require.NoError(t, service.recoverOperation(t.Context(), stale), "deleted work must not recreate an orphan tag")
+		_, err = store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+		require.ErrorIs(t, err, database.ErrNotFound)
+		require.Nil(t, tags.created)
+		require.Equal(t, 1, tags.createCalls)
+	})
+
+	t.Run("Given a paused executor, when its attempt expires and recovery succeeds, assert that its late continuation cannot create a tag", func(t *testing.T) {
+		store := newStore()
+		session, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		resume := make(chan struct{})
+		paused := &pausedCheckpointClaim{Client: store, claimed: make(chan struct{}), resume: resume}
+		old := NewService(paused, testAuthorizer{}, tags, nil)
+		cp, _, err := old.beginCreate(ownerContext(t.Context()), session.Id, uuid.NewString(), head)
+		require.NoError(t, err)
+		op, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+		require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- old.recoverOperation(ctx, op) }()
+		select {
+		case <-paused.claimed:
+		case <-time.After(time.Second):
+			t.Fatal("old worker never claimed the operation")
+		}
+		<-ctx.Done()
+		replacement := NewService(newStore(), testAuthorizer{}, tags, nil)
+		require.Eventually(t, func() bool {
+			require.NoError(t, replacement.recoverOperation(t.Context(), op))
+			current, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+			return err == nil && current.Checkpoint.State == apiv1.CheckpointState_CHECKPOINT_STATE_READY
+		}, time.Second, 10*time.Millisecond)
+		close(resume)
+		require.ErrorIs(t, <-done, context.DeadlineExceeded)
+		require.Equal(t, 1, tags.createCalls, "the expired worker must issue no backend mutation")
+		require.Zero(t, tags.deleteCalls)
+	})
+
+	t.Run("Given a lost committed claim reply, when a replacement retries, assert that it can immediately resume", func(t *testing.T) {
+		store := newStore()
+		session, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		service := NewService(&lostCheckpointClaim{Client: store}, testAuthorizer{}, tags, nil)
+		cp, _, err := service.beginCreate(ownerContext(t.Context()), session.Id, uuid.NewString(), head)
+		require.NoError(t, err)
+		op, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+		require.NoError(t, err)
+		require.Error(t, service.recoverOperation(t.Context(), op))
+		require.Zero(t, tags.createCalls)
+		replacement := NewService(newStore(), testAuthorizer{}, tags, nil)
+		require.NoError(t, replacement.recoverOperation(t.Context(), op))
+		waitCheckpointPhase(t, store, cp.Id, apiv1.CheckpointState_CHECKPOINT_STATE_READY)
+		require.Equal(t, 1, tags.createCalls)
 	})
 
 	t.Run("restart finishes deletion after backend failure", func(t *testing.T) {

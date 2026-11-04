@@ -72,6 +72,15 @@ periodic scans resume `CREATING` and `DELETING` work without requiring the calle
 to return. The worker polls once per second so admission on another API replica does not
 wait for a caller-local signal; local API requests also wake it immediately.
 
+Each attempt obtains a database execution claim before reading its current phase.
+The claim and every backend call share a deadline of at most two minutes, starting
+before claim acquisition. An overlapping worker cannot claim live work; after an
+expired attempt, the replacement reads the persisted phase again. Cleanup,
+publication, and deletion require the current executor identity under the row
+lock, and a delayed release cannot revoke a replacement's claim. Leader election
+reduces duplicate scans but is not the execution fence. A slow remote copy is
+still synchronized through Substrate's tag lease after a client attempt expires.
+
 A pending tag is not evidence of abandonment. Substrate serializes `CreateTag`
 against both the source Actor and the tag, including a copy still finishing after
 an earlier controller disappeared. Recovery calls `CreateTag` under those leases
