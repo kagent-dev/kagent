@@ -47,7 +47,7 @@ func TestServerTelemetryShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a2apb.NewA2AServiceClient(conn).SendMessage(t.Context(), request); err != nil {
+	if _, err := a2apb.NewA2AServiceClient(conn).SendMessage(a2aTestContext(t.Context()), request); err != nil {
 		t.Fatalf("gRPC SendMessage: %v", err)
 	}
 	if _, err := grpc_health_v1.NewHealthClient(conn).Check(t.Context(), &grpc_health_v1.HealthCheckRequest{}); err != nil {

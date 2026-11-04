@@ -215,6 +215,7 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
     })) {
       void event;
     }
+    expect(headers?.["a2a-version"]).toBe("1.0");
     expect(headers?.["a2a-extensions"]).toBe("https://kagent.dev/extensions/hitl/v1");
   });
 
@@ -1222,6 +1223,36 @@ describe("A2AGrpcChatClient.history", () => {
               data({
                 name: "k8s_get_resources",
                 response: { error: 'error tool "k8s_get_resources" call is rejected' },
+              }),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages[0].parts).toEqual([
+      expect.objectContaining({ kind: "data", dataKind: "tool_not_run" }),
+    ]);
+  });
+
+  it("renders an unpaired rejection carrying the person's reason as not run", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [],
+        artifacts: [
+          {
+            artifactId: "rejected",
+            parts: [
+              data({
+                name: "k8s_get_resources",
+                response: {
+                  error: "Tool call was rejected by user. Reason: What does this tool do?",
+                  isError: true,
+                },
               }),
             ],
           },
