@@ -43,13 +43,13 @@ func TestActorSnapshotGenerationAndDurability(t *testing.T) {
 
 func TestRevertSnapshotSkipsIncompleteGenerations(t *testing.T) {
 	durable := &ateapipb.Snapshot{Generation: 2, DurableSnapshot: &ateapipb.SnapshotStorage{
-		Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED,
+		State:  ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED,
 		Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/durable"},
 	}}
 	for _, latest := range []*ateapipb.Snapshot{
 		{Generation: 3, Locality: "node-1"},
-		{Generation: 3, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING}},
-		{Generation: 3, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED}},
+		{Generation: 3, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING}},
+		{Generation: 3, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED}},
 	} {
 		actor := &ateapipb.Actor{Status: &ateapipb.ActorStatus{Snapshots: []*ateapipb.Snapshot{latest, durable}}}
 		require.Same(t, durable, LatestDurableActorSnapshot(actor))
