@@ -14,6 +14,13 @@ const (
 	UsageMetadataKey            = MetadataPrefix + "usage"
 	// ThoughtMetadataKey marks a text part that summarizes the model's reasoning, not its answer.
 	ThoughtMetadataKey = MetadataPrefix + "thought"
+	// NoticeMetadataKey marks a status message as a runtime notice to the
+	// person rather than the agent's reply; its value is the notice's kind.
+	NoticeMetadataKey = MetadataPrefix + "notice"
+	// WorkspaceSetupNotice is the kind of the notice a turn starts with when
+	// its workspace setup failed, set a returning session's directory up again,
+	// or left repositories unfetched.
+	WorkspaceSetupNotice = "workspace-setup"
 )
 
 // IsThought reports whether a part summarizes the model's reasoning rather than answering.

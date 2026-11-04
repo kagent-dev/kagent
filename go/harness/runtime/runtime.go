@@ -55,6 +55,7 @@ func (*AskUserResponse) isInputResponse() {}
 // returned as an Outcome from the runner rather than mixed into this stream.
 type EventSink interface {
 	SessionStarted(SessionStarted) error
+	Notice(Notice) error
 	TextDelta(TextDelta) error
 	ToolCall(ToolCall) error
 	ToolResult(ToolResult) error
@@ -69,6 +70,16 @@ type ModelCallSink interface {
 // SessionStarted reports the stable private continuation selected by a runtime.
 type SessionStarted struct {
 	ContinuationID string
+}
+
+// Notice is a status line the runtime reports to the person about the turn,
+// such as a workspace repository it could not fetch before the turn started.
+// It is not assistant text and never reaches the model.
+type Notice struct {
+	Text string
+	// Kind is the notice's kind, sent in the status message's metadata
+	// (apia2a.NoticeMetadataKey); empty sends none.
+	Kind string
 }
 
 // TextDelta is one ordered fragment of assistant text.

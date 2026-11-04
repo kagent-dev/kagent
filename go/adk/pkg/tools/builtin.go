@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 )
 
 const (
@@ -22,7 +25,7 @@ Usage:
 - Results are capped at 64 KiB; use offset to continue a truncated read
 - Lines longer than 2000 characters are truncated
 - Always read a file before editing it
-- Paths are relative to /data/workspace unless absolute`
+- Paths are relative to the working directory unless absolute`
 
 	writeFileDescription = `Writes content to a file on the filesystem.
 
@@ -44,7 +47,7 @@ Usage:
 - old_string must be unique unless replace_all=true
 - Use replace_all to rename variables/strings throughout the file
 - old_string and new_string must be different
-- Paths are relative to /data/workspace unless absolute`
+- Paths are relative to the working directory unless absolute`
 
 	listFilesDescription = `Lists files and directories at a given path.
 
@@ -52,7 +55,7 @@ Usage:
 - Provide a path (absolute or relative to your working directory); defaults to the working directory
 - Results are capped at 64 KiB; narrow the path for large directories
 - Directories are listed with a trailing "/"; files are followed by their size in bytes
-- Paths are relative to /data/workspace unless absolute`
+- Paths are relative to the working directory unless absolute`
 
 	grepFileDescription = `Searches for a regular expression pattern in a file or directory.
 
@@ -62,11 +65,12 @@ Usage:
 - Recursion does not follow symlinked subdirectories; target a symlink directly to search it
 - Set ignore_case=true for case-insensitive matching
 - Returns matching lines as path:line_number:content, capped at 64 KiB
-- Paths are relative to /data/workspace unless absolute`
+- Paths are relative to the working directory unless absolute`
 
 	bashDescription = `Execute a bash command inside the agent sandbox.
 
 - Working directory: /data/workspace. Files there survive suspend/resume and checkpoints.
+- In a session with a workspace the working directory is the session's own directory instead: its top level holds one <owner>/<repository> directory per repository and an AGENTS.md that says how to start work in one.
 - Each call starts a new shell; use cd inside a command or absolute paths.
 - Default timeout: 60 seconds. Set timeout_seconds up to 600 for longer commands.
 - Returns combined stdout and stderr, capped at 64 KiB with a truncation marker.
@@ -148,7 +152,7 @@ func NewBuiltinTools(cfg BuiltinToolsConfig) ([]tool.Tool, error) {
 		if err := prepareWorkspace(); err != nil {
 			return "Error: " + err.Error(), nil
 		}
-		path, err := resolveToolPath(workspace, in.FilePath)
+		path, err := resolveToolPath(workingDirectory(ctx, workspace), in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error reading file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
@@ -170,7 +174,7 @@ func NewBuiltinTools(cfg BuiltinToolsConfig) ([]tool.Tool, error) {
 		if err := prepareWorkspace(); err != nil {
 			return "Error: " + err.Error(), nil
 		}
-		path, err := resolveToolPath(workspace, in.FilePath)
+		path, err := resolveToolPath(workingDirectory(ctx, workspace), in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error writing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
@@ -191,7 +195,7 @@ func NewBuiltinTools(cfg BuiltinToolsConfig) ([]tool.Tool, error) {
 		if err := prepareWorkspace(); err != nil {
 			return "Error: " + err.Error(), nil
 		}
-		path, err := resolveToolPath(workspace, in.FilePath)
+		path, err := resolveToolPath(workingDirectory(ctx, workspace), in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error editing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
@@ -221,7 +225,7 @@ func NewBuiltinTools(cfg BuiltinToolsConfig) ([]tool.Tool, error) {
 			if err := prepareWorkspace(); err != nil {
 				return "Error: " + err.Error(), nil
 			}
-			path, err := resolveToolPath(workspace, requestedPath)
+			path, err := resolveToolPath(workingDirectory(ctx, workspace), requestedPath)
 			if err != nil {
 				return fmt.Sprintf("Error listing %s: %v", requestedPath, err), nil
 			}
@@ -250,7 +254,7 @@ func NewBuiltinTools(cfg BuiltinToolsConfig) ([]tool.Tool, error) {
 			if err := prepareWorkspace(); err != nil {
 				return "Error: " + err.Error(), nil
 			}
-			path, err := resolveToolPath(workspace, in.Path)
+			path, err := resolveToolPath(workingDirectory(ctx, workspace), in.Path)
 			if err != nil {
 				return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
 			}
@@ -300,7 +304,7 @@ func NewBuiltinTools(cfg BuiltinToolsConfig) ([]tool.Tool, error) {
 			return "Error: " + err.Error(), nil
 		}
 		result, err := executeCommand(ctx, command, commandConfig{
-			directory: workspace, skillsDirectory: cfg.SkillsDirectory,
+			directory: workingDirectory(ctx, workspace), skillsDirectory: cfg.SkillsDirectory,
 			bashVenvPath: cfg.BashVenvPath, timeout: timeout,
 		})
 		if err != nil {
@@ -315,6 +319,15 @@ func NewBuiltinTools(cfg BuiltinToolsConfig) ([]tool.Tool, error) {
 	tools = append(tools, bashTool)
 
 	return tools, nil
+}
+
+// workingDirectory is the directory the tools of the turn ctx belongs to work
+// in: the one its dispatch names, or workspace when it names none.
+func workingDirectory(ctx context.Context, workspace string) string {
+	if dir := turn.Directory(ctx); dir != "" {
+		return dir
+	}
+	return workspace
 }
 
 // resolveToolPath applies ordinary filesystem semantics inside the sandbox.
