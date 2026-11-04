@@ -62,6 +62,7 @@ import type {
   DescService,
   MessageInitShape,
 } from "@bufbuild/protobuf";
+import { A2AService } from "@/generated/a2a_pb";
 import { REQUEST_TIMEOUT_MS, apiBaseUrl } from "./config";
 import {
   applyRequestTransforms,
@@ -216,6 +217,14 @@ const transformInterceptor: Interceptor = (next) => async (request) => {
   return { ...response, message: body as typeof response.message };
 };
 
+// Generated A2A v1 clients do not negotiate the protocol version themselves.
+const a2aVersionInterceptor: Interceptor = (next) => (request) => {
+  if (request.service.typeName === A2AService.typeName) {
+    request.header.set("A2A-Version", "1.0");
+  }
+  return next(request);
+};
+
 /**
  * Every interceptor a call goes through, outermost first.
  *
@@ -224,7 +233,7 @@ const transformInterceptor: Interceptor = (next) => async (request) => {
  * array read the way the request travels: the token is attached, and then a
  * deployment's own transforms see it already there and can replace it.
  */
-const API_INTERCEPTORS: Interceptor[] = [authInterceptor, transformInterceptor];
+const API_INTERCEPTORS: Interceptor[] = [authInterceptor, transformInterceptor, a2aVersionInterceptor];
 
 /** What an interceptor wraps: one call, in and out. Connect's `AnyFn` is internal. */
 type CallFn = (

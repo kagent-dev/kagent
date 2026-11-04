@@ -63,4 +63,15 @@ contains the authorized Session and A2A task identity.
 same durable A2A task, including `input-required` continuation. There is no
 separate MCP task or session store.
 
+## Extending the server
+
+A program that runs core as a library sets `app.Options.MCPExtensions` to add
+tools and resources to this server. The hook receives the `*mcp.Server` after
+core registers its own tools. Added tools and resources are served from the same
+endpoint, behind the same authenticator, as core's.
+
+The hook can do anything the SDK allows, including middleware. Core's tools are
+not protected: registering a name or URI core already uses replaces it.
+Authorization inside an added tool stays with the program that adds it.
+
 The implementation is in [`go/core/internal/mcp`](../../go/core/internal/mcp).

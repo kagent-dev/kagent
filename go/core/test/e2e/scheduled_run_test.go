@@ -194,7 +194,7 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 	t.Helper()
 	template := createInteractionTemplate(t, harness, modelURL)
 	conn := newControllerConn(t, target)
-	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version)), 5*time.Minute)
 	t.Cleanup(cancel)
 	f := &scheduledFixture{ctx: ctx, schedules: apiv1.NewScheduledRunServiceClient(conn), sessions: apiv1.NewSessionServiceClient(conn), system: apiv1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn)}
 	created, err := f.schedules.CreateScheduledRun(ctx, &apiv1.CreateScheduledRunRequest{

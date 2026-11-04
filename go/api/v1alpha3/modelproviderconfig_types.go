@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha3
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -24,12 +25,6 @@ import (
 const (
 	// ModelProviderConfigConditionTypeReady indicates whether the model provider config is ready for use
 	ModelProviderConfigConditionTypeReady = "Ready"
-
-	// ModelProviderConfigConditionTypeSecretResolved indicates whether the model provider config's secret reference is valid
-	ModelProviderConfigConditionTypeSecretResolved = "SecretResolved"
-
-	// ModelProviderConfigConditionTypeModelsDiscovered indicates whether model discovery has succeeded
-	ModelProviderConfigConditionTypeModelsDiscovered = "ModelsDiscovered"
 )
 
 // DefaultModelProviderEndpoint returns the default API endpoint for a given model provider type.
@@ -52,33 +47,74 @@ func DefaultModelProviderEndpoint(providerType ModelProvider) string {
 	}
 }
 
-// SecretReference references a Kubernetes Secret that must contain exactly one data key
-// holding the API key or credential.
-type SecretReference struct {
-	// Name is the name of the secret in the same namespace as the ModelProviderConfig.
-	// +required
-	Name string `json:"name"`
-}
-
 // ModelProviderConfigSpec defines the desired state of ModelProviderConfig.
 //
 // +kubebuilder:validation:XValidation:message="endpoint must be a valid URL starting with http:// or https://",rule="!has(self.endpoint) || size(self.endpoint) == 0 || self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')"
-// +kubebuilder:validation:XValidation:message="secretRef is required for providers that need authentication (not Ollama)",rule="self.type == 'Ollama' || (has(self.secretRef) && has(self.secretRef.name) && size(self.secretRef.name) > 0)"
 type ModelProviderConfigSpec struct {
-	// Type is the model provider type (OpenAI, Anthropic, etc.)
+	// Type is the discovery protocol. OpenAI-compatible endpoints are supported.
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == 'OpenAI'",message="only OpenAI-compatible discovery is supported"
 	Type ModelProvider `json:"type"`
 
 	// Endpoint is the API endpoint URL for the provider.
 	// If not specified, the default endpoint for the provider type will be used.
 	// +optional
-	// +kubebuilder:validation:Pattern=`^https?://.*`
+	// +kubebuilder:validation:Pattern=`^https?://[^/?#@]+(/[^?#]*)?$`
 	Endpoint string `json:"endpoint,omitempty"`
 
-	// SecretRef references the Kubernetes Secret containing the API key.
-	// Optional for providers that don't require authentication (e.g., local Ollama).
+	// DiscoveryAuth authenticates requests to list models. Omit for unauthenticated discovery.
+	// These credentials are never used to invoke discovered models.
 	// +optional
-	SecretRef *SecretReference `json:"secretRef,omitempty"`
+	DiscoveryAuth *ModelDiscoveryAuth `json:"discoveryAuth,omitempty"`
+
+	// ModelConfigTemplate configures the ModelConfigs created for discovered models
+	// in this ModelProviderConfig's namespace.
+	// +optional
+	ModelConfigTemplate *DiscoveredModelConfigTemplate `json:"modelConfigTemplate,omitempty"`
+}
+
+// ModelDiscoveryAuth supplies a Bearer token for discovery requests.
+type ModelDiscoveryAuth struct {
+	// SecretRef selects the discovery Bearer token from a Secret in the
+	// ModelProviderConfig's namespace. The selected value must be nonempty.
+	// +required
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != '' && self.key != ''",message="secretRef requires a name and key"
+	// +kubebuilder:validation:XValidation:rule="!has(self.optional) || !self.optional",message="discovery credentials cannot be optional"
+	SecretRef corev1.SecretKeySelector `json:"secretRef"`
+}
+
+// DiscoveredModelConfigTemplate supplies shared settings for discovered ModelConfigs.
+type DiscoveredModelConfigTemplate struct {
+	// Auth configures invocation credentials. Omit to add no explicit credentials.
+	// Discovery credentials are not inherited.
+	// +optional
+	Auth *ModelInvocationAuth `json:"auth,omitempty"`
+
+	// AllowedNamespaces controls which namespaces may reference discovered models
+	// and their invocation credentials. Omitted policy permits only the same namespace.
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+}
+
+// ModelInvocationAuth selects invocation credentials using ModelConfig auth semantics.
+// Secret references resolve in the ModelProviderConfig and generated ModelConfig namespace.
+//
+// +kubebuilder:validation:AtMostOneOf=actorJwt;secretRef;tokenPassthrough
+type ModelInvocationAuth struct {
+	// ActorJWT authenticates as the executing Actor. Substrate mints and injects the token.
+	// +optional
+	ActorJWT *ActorJWT `json:"actorJwt,omitempty"`
+
+	// SecretRef selects the invocation API key from a Secret in the
+	// ModelProviderConfig and generated ModelConfig namespace.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != '' && self.key != ''",message="secretRef requires a name and key"
+	// +kubebuilder:validation:XValidation:rule="!has(self.optional) || !self.optional",message="invocation credentials cannot be optional"
+	SecretRef *corev1.SecretKeySelector `json:"secretRef,omitempty"`
+
+	// TokenPassthrough forwards the incoming A2A bearer token to the model provider.
+	// +optional
+	TokenPassthrough *bool `json:"tokenPassthrough,omitempty"`
 }
 
 // GetEndpoint returns the endpoint, or the default endpoint if not specified.
@@ -87,11 +123,6 @@ func (p *ModelProviderConfigSpec) GetEndpoint() string {
 		return p.Endpoint
 	}
 	return DefaultModelProviderEndpoint(p.Type)
-}
-
-// RequiresSecret returns true if this model provider type requires a secret for authentication.
-func (p *ModelProviderConfigSpec) RequiresSecret() bool {
-	return p.Type != ModelProviderOllama
 }
 
 // ModelProviderConfigStatus defines the observed state of ModelProviderConfig.
@@ -106,23 +137,12 @@ type ModelProviderConfigStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// DiscoveredModels is the cached list of model IDs available from this model provider
-	// +optional
-	DiscoveredModels []string `json:"discoveredModels,omitempty"`
-
 	// ModelCount is the number of discovered models (for kubectl display)
 	// +optional
 	ModelCount int `json:"modelCount,omitempty"`
-
-	// LastDiscoveryTime is the timestamp of the last successful model discovery
-	// +optional
-	LastDiscoveryTime *metav1.Time `json:"lastDiscoveryTime,omitempty"`
-
-	// SecretHash is a hash of the referenced secret data, used to detect secret changes
-	// +optional
-	SecretHash string `json:"secretHash,omitempty"`
 }
 
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:resource:categories=kagent,shortName=mprov
