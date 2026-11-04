@@ -19,6 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (
@@ -40,6 +41,7 @@ type store interface {
 type sessionWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Revert(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Recovery(context.Context, *apiv1.Session) (*apiv1.SessionRecovery, error)
 	Delete(context.Context, *apiv1.Session, bool) (*apiv1.Session, error)
 }
 
@@ -139,8 +141,41 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 	return session, nil
 }
 
+// Get reads an authorized Session as stored. MCP resolves a Session's Agent
+// through it before every invoke and task call, so it must not wait on Substrate.
 func (s *Service) Get(ctx context.Context, id string) (*apiv1.Session, error) {
 	return s.getAuthorized(ctx, id, auth.VerbGet)
+}
+
+// Observe reads an authorized Session with its recovery observation. It is the
+// only Session read that calls Substrate, and GetSession is its only caller: a
+// slow control plane then delays opening one conversation, not every MCP call.
+// A failed observation leaves needed unset rather than failing the read, so an
+// unavailable control plane cannot hide the history it would let a user recover.
+func (s *Service) Observe(ctx context.Context, id string) (*apiv1.Session, error) {
+	session, err := s.getAuthorized(ctx, id, auth.VerbGet)
+	if err != nil {
+		return nil, err
+	}
+	session = proto.CloneOf(session)
+	session.Recovery, err = s.workflow.Recovery(ctx, session)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "observe session recovery", "session_id", session.Id, "error", err)
+	}
+	return session, nil
+}
+
+// withoutRecovery drops recovery from every response but GetSession. The
+// annotations live in the Session record and grow with each revert that
+// discards input, so a list response would otherwise carry them for every
+// conversation, and every other response would report needed as unknown.
+func withoutRecovery(session *apiv1.Session) *apiv1.Session {
+	if session.GetRecovery() == nil {
+		return session
+	}
+	session = proto.CloneOf(session)
+	session.Recovery = nil
+	return session
 }
 
 // getAuthorized loads a Session authorized for the requested operation. Reads are
@@ -193,7 +228,7 @@ func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1.Session, 
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to rename Session", err)
 	}
-	return session, nil
+	return withoutRecovery(session), nil
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
@@ -217,7 +252,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		result := ListResult{Sessions: []*apiv1.Session{}}
 		if session.Id > afterID && (request.Agent == nil ||
 			proto.Equal(session.GetAgent().GetRef(), request.Agent)) {
-			result.Sessions = append(result.Sessions, session)
+			result.Sessions = append(result.Sessions, withoutRecovery(session))
 		}
 		return result, nil
 	}
@@ -250,7 +285,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 				}
 				return ListResult{}, err
 			}
-			result.Sessions = append(result.Sessions, session)
+			result.Sessions = append(result.Sessions, withoutRecovery(session))
 			if len(result.Sessions) > pageSize {
 				result.Sessions = result.Sessions[:pageSize]
 				result.NextPageToken = encodePageToken(result.Sessions[pageSize-1].Id)
@@ -278,7 +313,7 @@ func (s *Service) Delete(ctx context.Context, id string, force bool) (*apiv1.Ses
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to delete Session", err)
 	}
-	return session, nil
+	return withoutRecovery(session), nil
 }
 
 func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error) {
@@ -296,7 +331,7 @@ func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error)
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to revert Session", err)
 	}
-	return session, nil
+	return withoutRecovery(session), nil
 }
 
 // CreateShare mints a read-only share of the caller's session. A positive ttl bounds how long its

@@ -123,7 +123,15 @@ func (s *serviceTestStore) DeleteSessionShare(_ context.Context, id, _ string) e
 	return nil
 }
 
-type serviceTestWorkflow struct{ err error }
+type serviceTestWorkflow struct {
+	err         error
+	recovery    *apiv1.SessionRecovery
+	recoveryErr error
+}
+
+func (w serviceTestWorkflow) Recovery(context.Context, *apiv1.Session) (*apiv1.SessionRecovery, error) {
+	return w.recovery, w.recoveryErr
+}
 
 func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, w.err
@@ -522,7 +530,7 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 			stored := &apiv1.Session{Id: id, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED}
 			store := &serviceTestStore{getResult: stored}
 			authorizer := &recordingAuthorizer{denied: map[string]bool{id: test.denied}}
-			// A suspended read must never touch a workflow.
+			// Get never touches a workflow: MCP resolves every invoke through it.
 			service := NewService(store, authorizer, nil)
 			result, err := service.Get(ctx, id)
 			if test.code != "" {
