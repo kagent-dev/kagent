@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -28,6 +30,33 @@ var (
 	errRuntimeUnrecoverable = fmt.Errorf("runtime cannot be recovered: %w", database.ErrFailedPrecondition)
 )
 
+// Recovery reports whether the Session's runtime needs a revert, from the same
+// checks Revert admits one by. A failed observation leaves needed unknown, so a
+// control-plane outage can neither offer recovery nor prevent history reads.
+func (w *ActorWorkflow) Recovery(ctx context.Context, session *apiv1.Session) (*apiv1.SessionRecovery, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	recovery := proto.CloneOf(session.GetRecovery())
+	if recovery == nil {
+		recovery = &apiv1.SessionRecovery{}
+	}
+	recovery.Needed = nil
+	if database.CrashRecoveryAdmitted(session) {
+		recovery.Needed = new(true)
+		return recovery, nil
+	}
+	if !lifecycleIdle(session) {
+		recovery.Needed = new(false)
+		return recovery, nil
+	}
+	observed, err := w.observeCrash(ctx, session)
+	if err != nil {
+		return recovery, fmt.Errorf("observe Session recovery: %w", err)
+	}
+	recovery.Needed = new(observed.crashed())
+	return recovery, nil
+}
+
 // lifecycleIdle reports a Session with no lifecycle operation in flight. Only an
 // idle Session can admit a new revert; any other operation owns the Actor.
 func lifecycleIdle(session *apiv1.Session) bool {
@@ -46,7 +75,9 @@ func (o crashObservation) crashed() bool {
 }
 
 // observeCrash reads the Session's recorded Actor and reports whether Substrate
-// confirms it crashed. Revert admits recovery only through this check. An Actor
+// confirms it crashed. Recovery offers a revert and Revert admits one through
+// this one check, so chat cannot offer a revert that Revert refuses, nor hide
+// one it would accept. An Actor
 // that is missing, replaced, or from another template is an error, never a
 // crash: reverting it would restore the wrong runtime. Those errors wrap
 // errRuntimeUnrecoverable; transient read failures do not.

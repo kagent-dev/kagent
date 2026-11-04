@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -93,7 +94,7 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 		{Id: bobID, Creator: "bob", Agent: &apiv1.AgentProvenance{Ref: agent}},
 	}}
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
-		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, nil)
+		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, storedRecoveryWorkflow{})
 		config.ShareStore = &testShareStore{sessionShare: &apiv1.SessionShare{SessionId: aliceID}, ownerUserID: "alice"}
 	})
 	client := apiv1.NewSessionServiceClient(connection)
@@ -206,4 +207,31 @@ func TestSessionCreateNamespaceThroughGeneratedClient(t *testing.T) {
 			}
 		})
 	}
+}
+
+// storedRecoveryWorkflow stands in for the Actor workflow in transport tests
+// that never reach Substrate. GetSession reports stored recovery annotations
+// with needed unknown; lifecycle calls fail, because no test may reach them.
+type storedRecoveryWorkflow struct{}
+
+var errNoRuntimeWorkflow = errors.New("transport test has no runtime workflow")
+
+func (storedRecoveryWorkflow) Create(context.Context, *apiv1.Session) (*apiv1.Session, error) {
+	return nil, errNoRuntimeWorkflow
+}
+
+func (storedRecoveryWorkflow) Revert(context.Context, *apiv1.Session) (*apiv1.Session, error) {
+	return nil, errNoRuntimeWorkflow
+}
+
+func (storedRecoveryWorkflow) Delete(context.Context, *apiv1.Session) (*apiv1.Session, error) {
+	return nil, errNoRuntimeWorkflow
+}
+
+func (storedRecoveryWorkflow) Recovery(_ context.Context, session *apiv1.Session) (*apiv1.SessionRecovery, error) {
+	recovery := proto.CloneOf(session.GetRecovery())
+	if recovery != nil {
+		recovery.Needed = nil
+	}
+	return recovery, nil
 }

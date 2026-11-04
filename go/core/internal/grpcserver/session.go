@@ -21,7 +21,7 @@ func (s *sessionServer) CreateSession(ctx context.Context, request *apiv1.Create
 }
 
 func (s *sessionServer) GetSession(ctx context.Context, request *apiv1.GetSessionRequest) (*apiv1.GetSessionResponse, error) {
-	session, err := s.service.Get(ctx, request.GetSessionId())
+	session, err := s.service.Observe(ctx, request.GetSessionId())
 	if err != nil {
 		return nil, err
 	}
