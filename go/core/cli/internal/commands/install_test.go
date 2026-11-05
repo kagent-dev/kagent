@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -70,7 +71,7 @@ func TestInstallProfileCleansTemporaryValuesOnFailure(t *testing.T) {
 }
 
 func TestConfirmWorkerPoolDeletionWithoutTerminal(t *testing.T) {
-	pools := &installer.SelfManagedWorkerPoolsError{Pools: []string{"team/http"}}
+	pools := &installer.SelfManagedWorkerPoolsError{Pools: []types.NamespacedName{{Namespace: "team", Name: "http"}}}
 	cmd := NewUninstallCmd()
 	cmd.SetIn(bytes.NewBufferString("y\n"))
 	cmd.SetOut(&bytes.Buffer{})

@@ -197,7 +197,10 @@ func confirmWorkerPoolDeletion(cmd *cobra.Command, pools *installer.SelfManagedW
 	if !prompt.IsTerminal(cmd.InOrStdin()) || !prompt.IsTerminal(cmd.OutOrStdout()) {
 		return fmt.Errorf("%w, or rerun with --delete-worker-pools", pools)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "These self-managed WorkerPools run on the Substrate that uninstall removes:\n  %s\n", strings.Join(pools.Pools, "\n  "))
+	fmt.Fprintln(cmd.OutOrStdout(), "These self-managed WorkerPools run on the Substrate that uninstall removes:")
+	for _, pool := range pools.Pools {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", pool)
+	}
 	ok, err := prompt.Confirm(cmd.InOrStdin(), cmd.OutOrStdout(), "Delete them and continue?")
 	if err != nil {
 		return err

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // UninstallResult records releases that were already absent.
@@ -58,37 +60,51 @@ func (c *Client) deleteServed(ctx context.Context, resource string, args ...stri
 }
 
 // SelfManagedWorkerPoolsError stops an uninstall before anything is deleted.
-// Pools lists the WorkerPools outside the kagent release as namespace/name.
-// DeleteWorkerPools removes them so a rerun can proceed.
-type SelfManagedWorkerPoolsError struct{ Pools []string }
+// Pools lists the WorkerPools outside the kagent release. DeleteWorkerPools
+// removes them so a rerun can proceed.
+type SelfManagedWorkerPoolsError struct{ Pools []types.NamespacedName }
 
 func (e *SelfManagedWorkerPoolsError) Error() string {
-	return fmt.Sprintf("self-managed WorkerPools %s run on the Substrate that uninstall removes; delete them first", strings.Join(e.Pools, ", "))
+	names := make([]string, 0, len(e.Pools))
+	for _, pool := range e.Pools {
+		names = append(names, pool.String())
+	}
+	return fmt.Sprintf("self-managed WorkerPools %s run on the Substrate that uninstall removes; delete them first", strings.Join(names, ", "))
 }
 
-// selfManagedWorkerPools lists WorkerPools outside the kagent release as
-// namespace/name. A cluster that no longer serves WorkerPools has none.
-func (c *Client) selfManagedWorkerPools(ctx context.Context) ([]string, error) {
-	out, err := c.kubectl(ctx, "", "get", "workerpools.ate.dev", "--all-namespaces", "-l", "app.kubernetes.io/instance!="+kagentRelease,
-		"-o", "jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name} {end}")
+// selfManagedWorkerPools lists WorkerPools outside the kagent release. A
+// cluster that no longer serves WorkerPools has none.
+func (c *Client) selfManagedWorkerPools(ctx context.Context) ([]types.NamespacedName, error) {
+	out, err := c.kubectl(ctx, "", "get", "workerpools.ate.dev", "--all-namespaces", "-l", "app.kubernetes.io/instance!="+kagentRelease, "-o", "json")
 	if err != nil {
 		if strings.Contains(out+err.Error(), "doesn't have a resource type") {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("list Substrate worker pools: %w", err)
 	}
-	return strings.Fields(out), nil
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Namespace string `json:"namespace"`
+				Name      string `json:"name"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		return nil, fmt.Errorf("decode Substrate worker pools: %w", err)
+	}
+	pools := make([]types.NamespacedName, 0, len(list.Items))
+	for _, item := range list.Items {
+		pools = append(pools, types.NamespacedName{Namespace: item.Metadata.Namespace, Name: item.Metadata.Name})
+	}
+	return pools, nil
 }
 
-// DeleteWorkerPools deletes namespace/name WorkerPools and waits for
-// atecontroller to finalize them.
-func (c *Client) DeleteWorkerPools(ctx context.Context, pools []string) error {
+// DeleteWorkerPools deletes WorkerPools and waits for atecontroller to
+// finalize them.
+func (c *Client) DeleteWorkerPools(ctx context.Context, pools []types.NamespacedName) error {
 	for _, pool := range pools {
-		namespace, name, ok := strings.Cut(pool, "/")
-		if !ok {
-			return fmt.Errorf("worker pool %q is not namespace/name", pool)
-		}
-		if err := c.deleteServed(ctx, "workerpools.ate.dev", "--namespace", namespace, name); err != nil {
+		if err := c.deleteServed(ctx, "workerpools.ate.dev", "--namespace", pool.Namespace, pool.Name); err != nil {
 			return fmt.Errorf("delete worker pool %s: %w", pool, err)
 		}
 	}
