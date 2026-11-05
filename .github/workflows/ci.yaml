@@ -204,7 +204,9 @@ jobs:
               version: "${VERSION}"
               valuesFiles: ["${RUNNER_TEMP}/kagent-values.yaml"]
             substrate:
-              valuesFiles: ["${RUNNER_TEMP}/substrate-values.yaml"]
+              valuesFiles:
+                - "${RUNNER_TEMP}/substrate-values.yaml"
+                - "${GITHUB_WORKSPACE}/go/core/test/e2e/manifests/substrate-values.yaml"
           EOF
           ./go/core/bin/kagent-local --config "$RUNNER_TEMP/kagent-cli.yaml" install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
