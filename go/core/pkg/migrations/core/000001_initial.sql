@@ -136,7 +136,7 @@ CREATE TABLE runtime_instance (
     request_id TEXT NOT NULL,
     prepared_revision TEXT REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
     state TEXT NOT NULL CHECK (state IN ('RUNTIME_STATE_CREATING', 'RUNTIME_STATE_READY', 'RUNTIME_STATE_SUSPENDED', 'RUNTIME_STATE_FAILED', 'RUNTIME_STATE_DELETING', 'RUNTIME_STATE_DELETED')),
-    operation TEXT NOT NULL DEFAULT 'RUNTIME_OPERATION_NONE' CHECK (operation IN ('RUNTIME_OPERATION_NONE', 'RUNTIME_OPERATION_CREATE', 'RUNTIME_OPERATION_SUSPEND', 'RUNTIME_OPERATION_RESUME', 'RUNTIME_OPERATION_DELETE', 'RUNTIME_OPERATION_REVERT')),
+    operation TEXT NOT NULL DEFAULT 'RUNTIME_OPERATION_NONE' CHECK (operation IN ('RUNTIME_OPERATION_NONE', 'RUNTIME_OPERATION_CREATE', 'RUNTIME_OPERATION_SUSPEND', 'RUNTIME_OPERATION_RESUME', 'RUNTIME_OPERATION_DELETE')),
     operation_id UUID,
     executor_id UUID,
     executor_expires_at TIMESTAMPTZ,
@@ -164,13 +164,6 @@ CREATE TABLE session (
     dispatch_id          UUID,
     dispatch_expires_at  TIMESTAMPTZ,
     CHECK ((dispatch_id IS NULL) = (dispatch_expires_at IS NULL)),
-    -- The durable snapshot a crash recovery admitted, for the REVERT operation
-    -- named by recovery_operation_id. It is valid only while that operation is
-    -- the Session's current one, so a later operation needs no cleanup. The URI
-    -- is empty when the crashed Actor had no durable snapshot.
-    recovery_operation_id UUID,
-    recovery_snapshot_uri TEXT,
-    CHECK ((recovery_operation_id IS NULL) = (recovery_snapshot_uri IS NULL)),
     history_id           UUID        NOT NULL,
     CONSTRAINT session_context_binding_fkey
         FOREIGN KEY (history_id, context_id) REFERENCES a2a_context(id, context_id) ON DELETE RESTRICT,
