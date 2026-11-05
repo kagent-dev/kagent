@@ -120,10 +120,19 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 	assertGRPCCode(t, err, codes.PermissionDenied)
 	require.Equal(t, before, store.lists.Load())
 
-	for namespace, want := range map[string]int{"team-a": 2, "team-b": 0} {
-		inNamespace, err := client.ListSessions(caller("operator", false), &apiv1.ListSessionsRequest{AllCreators: true, Namespace: namespace})
-		require.NoError(t, err)
-		require.Len(t, inNamespace.GetSessions(), want, namespace)
+	for _, scenario := range []struct {
+		name      string
+		namespace string
+		want      int
+	}{
+		{name: "Given two sessions in team-a, when an all-creators caller lists team-a, assert that both are returned", namespace: "team-a", want: 2},
+		{name: "Given two sessions in team-a, when an all-creators caller lists team-b, assert that none is returned", namespace: "team-b"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			listed, err := client.ListSessions(caller("operator", false), &apiv1.ListSessionsRequest{AllCreators: true, Namespace: scenario.namespace})
+			require.NoError(t, err)
+			require.Len(t, listed.GetSessions(), scenario.want)
+		})
 	}
 
 	wide, err := client.ListSessions(caller("operator", false), &apiv1.ListSessionsRequest{AllCreators: true, Page: &apiv1.PageRequest{Limit: 1}})

@@ -478,17 +478,6 @@ func TestServiceListPassesAgentToStore(t *testing.T) {
 	}
 }
 
-func TestServiceListPassesNamespaceToStore(t *testing.T) {
-	store := &serviceTestStore{}
-	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-	if _, err := service.List(serviceTestContext("alice"), ListRequest{Namespace: "team-a"}); err != nil {
-		t.Fatal(err)
-	}
-	if store.listQuery.Namespace != "team-a" {
-		t.Fatal("namespace filter was lost")
-	}
-}
-
 func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
 	store := &serviceTestStore{shareErr: database.ErrNotFound}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})

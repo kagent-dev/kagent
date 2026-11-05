@@ -812,23 +812,45 @@ func TestListSessionsFiltersByNamespace(t *testing.T) {
 		require.NoError(t, err)
 		ids[namespace] = created.GetId()
 	}
-	// A deleted Agent's sessions keep their pinned revision, so the filter still finds them.
 	require.NoError(t, c.RetireAgentIdentities(ctx, "team-a", "reviewer"))
 
-	for namespace, want := range map[string][]string{"team-a": {ids["team-a"]}, "team-b": {ids["team-b"]}, "team-c": nil} {
-		got, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Namespace: namespace})
-		require.NoError(t, err)
-		var gotIDs []string
-		for _, session := range got {
-			gotIDs = append(gotIDs, session.GetId())
-		}
-		require.Equal(t, want, gotIDs, namespace)
+	scenarios := []struct {
+		name  string
+		query SessionQuery
+		want  []string
+	}{
+		{
+			name:  "Given a session of a retired Agent in team-a and one in team-b, when listing team-a, assert that only the retired Agent's session is returned",
+			query: SessionQuery{Namespace: "team-a"},
+			want:  []string{ids["team-a"]},
+		},
+		{
+			name:  "Given sessions in team-a and team-b, when listing team-b, assert that only team-b's session is returned",
+			query: SessionQuery{Namespace: "team-b"},
+			want:  []string{ids["team-b"]},
+		},
+		{
+			name:  "Given sessions in team-a and team-b, when listing team-c, assert that no session is returned",
+			query: SessionQuery{Namespace: "team-c"},
+		},
+		{
+			name:  "Given sessions in team-a and team-b, when listing team-a for team-b's Agent, assert that no session is returned",
+			query: SessionQuery{Namespace: "team-a", Agent: &apiv1.ResourceReference{Namespace: "team-b", Name: "reviewer"}},
+		},
 	}
-
-	got, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Namespace: "team-a",
-		Agent: &apiv1.ResourceReference{Namespace: "team-b", Name: "reviewer"}})
-	require.NoError(t, err)
-	require.Empty(t, got, "an Agent outside the namespace matches nothing")
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			query := scenario.query
+			query.UserID, query.Limit = "alice", 10
+			got, err := c.ListSessions(ctx, query)
+			require.NoError(t, err)
+			var gotIDs []string
+			for _, session := range got {
+				gotIDs = append(gotIDs, session.GetId())
+			}
+			require.Equal(t, scenario.want, gotIDs)
+		})
+	}
 }
 
 func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
