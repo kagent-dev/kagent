@@ -205,16 +205,24 @@ def _function_response_item_text(item: Any) -> Optional[str]:
 
 def _extract_function_response_content(func_response: FunctionResponse) -> str:
     """Extract text content from a genai FunctionResponse for the model to consume."""
+    if func_response.response is None:
+        return ""
     if isinstance(func_response.response, str):
         return func_response.response
-    if func_response.response and "content" in func_response.response:
-        content_list = func_response.response["content"]
-        if len(content_list) > 0:
-            texts = (_function_response_item_text(item) for item in content_list)
-            return "\n".join(t for t in texts if t is not None)
-    elif func_response.response and "result" in func_response.response:
-        return str(func_response.response["result"])
-    return ""
+    if isinstance(func_response.response, dict):
+        if "content" in func_response.response:
+            content_list = func_response.response["content"]
+            if len(content_list) > 0:
+                texts = (_function_response_item_text(item) for item in content_list)
+                return "\n".join(t for t in texts if t is not None)
+            return ""
+        if "result" in func_response.response:
+            return str(func_response.response["result"])
+        try:
+            return json.dumps(func_response.response)
+        except Exception:
+            return str(func_response.response)
+    return str(func_response.response)
 
 
 def _convert_content_to_openai_messages(

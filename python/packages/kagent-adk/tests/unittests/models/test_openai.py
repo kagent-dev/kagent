@@ -1126,3 +1126,25 @@ class TestConvertOpenAIResponseToLlmResponse:
         tool_messages = [m for m in messages if m["role"] == "tool"]
         assert len(tool_messages) == 1
         assert tool_messages[0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}
+
+
+def test_extract_function_response_content_dict():
+    from google.genai.types import FunctionResponse
+    from kagent.adk.models._openai import _extract_function_response_content
+    import json
+
+    # Standard tool dict
+    resp = FunctionResponse(name="get_weather", response={"status": "success", "temp": 72})
+    assert _extract_function_response_content(resp) == json.dumps({"status": "success", "temp": 72})
+
+    # ADK error response dict
+    err_resp = FunctionResponse(name="test", response={"error": "missing parameter"})
+    assert _extract_function_response_content(err_resp) == json.dumps({"error": "missing parameter"})
+
+    # Content list response (MCP style)
+    mcp_resp = FunctionResponse(name="tool", response={"content": [{"text": "result from mcp"}]})
+    assert _extract_function_response_content(mcp_resp) == "result from mcp"
+
+    # Result string
+    res_resp = FunctionResponse(name="tool", response={"result": "simple string"})
+    assert _extract_function_response_content(res_resp) == "simple string"

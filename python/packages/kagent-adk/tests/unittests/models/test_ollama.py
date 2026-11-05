@@ -231,3 +231,24 @@ class TestCreateOllamaLlm:
         # Options are type-coerced by _convert_ollama_options before reaching create_ollama_llm
         assert result.ollama_options["temperature"] == 0.8
         assert result.ollama_options["top_p"] == 0.9
+
+
+def test_extract_response_content_dict():
+    from kagent.adk.models._ollama import _extract_response_content
+    import json
+
+    # Standard tool dict
+    resp = {"status": "success", "report": "all good"}
+    assert _extract_response_content(resp) == json.dumps(resp)
+
+    # Error dict
+    err = {"error": "parameter missing"}
+    assert _extract_response_content(err) == json.dumps(err)
+
+    # MCP content list
+    mcp_resp = {"content": [{"text": "ollama mcp"}]}
+    assert _extract_response_content(mcp_resp) == "ollama mcp"
+
+    # Result key
+    res_resp = {"result": "success value"}
+    assert _extract_response_content(res_resp) == "success value"

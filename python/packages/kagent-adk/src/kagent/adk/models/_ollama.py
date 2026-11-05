@@ -1,6 +1,7 @@
 """Ollama model implementation using the native Ollama SDK."""
 
 from __future__ import annotations
+import json
 
 import logging
 import os
@@ -93,14 +94,23 @@ def _convert_content_to_ollama_messages(
 
 
 def _extract_response_content(response: object) -> str:
+    if response is None:
+        return ""
     if isinstance(response, str):
         return response
     if isinstance(response, dict):
         if "content" in response:
-            return "\n".join(item["text"] for item in response["content"] if "text" in item)
+            content_list = response["content"]
+            if len(content_list) > 0:
+                return "\n".join(item["text"] for item in content_list if "text" in item)
+            return ""
         if "result" in response:
             return str(response["result"])
-    return ""
+        try:
+            return json.dumps(response)
+        except Exception:
+            return str(response)
+    return str(response)
 
 
 def _convert_tools_to_ollama(tools: list[types.Tool]) -> list[ollama_sdk.Tool]:
