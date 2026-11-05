@@ -24,6 +24,7 @@ func TestUninstallReversesInstall(t *testing.T) {
 		"helm uninstall kagent --namespace kagent --wait",
 		"kubectl delete sandboxconfigs.ate.dev --all --ignore-not-found --timeout=5m",
 		"helm uninstall substrate --namespace ate-system --wait",
+		"helm uninstall substrate-atelet --namespace ate-system --wait",
 		"kubectl -n kagent get deployment/kagent-postgresql --ignore-not-found -o name",
 	}
 	after := []string{
@@ -84,7 +85,7 @@ func TestUninstallReversesInstall(t *testing.T) {
 				require.NoError(t, err)
 			}
 			if tc.alreadyGone {
-				require.Equal(t, []string{"kagent", "substrate", "substrate-podcert", "substrate-crds", "kagent-crds"}, result.MissingReleases)
+				require.Equal(t, []string{"kagent", "substrate", "substrate-atelet", "substrate-podcert", "substrate-crds", "kagent-crds"}, result.MissingReleases)
 			}
 			var commands []string
 			for _, cmd := range runner.commands {
@@ -99,7 +100,7 @@ func TestUninstallReversesInstall(t *testing.T) {
 }
 
 func TestUninstallStopsAtFailure(t *testing.T) {
-	for _, failAt := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12} {
+	for _, failAt := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13} {
 		t.Run(fmt.Sprintf("command_%d", failAt), func(t *testing.T) {
 			failure := errors.New("cluster unavailable")
 			calls := 0

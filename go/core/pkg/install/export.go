@@ -81,7 +81,7 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 			}
 		}
 	}
-	for _, chart := range []Chart{cfg.Kagent, cfg.KagentCRDs, cfg.Substrate, cfg.SubstrateCRDs, cfg.PodCertificate} {
+	for _, chart := range []Chart{cfg.Kagent, cfg.KagentCRDs, cfg.Substrate, cfg.SubstrateCRDs, cfg.PodCertificate, cfg.Atelet} {
 		if chart.Version == "" || chart.Version == "dev" {
 			return "", fmt.Errorf("chart %s requires an explicit released version in the CLI configuration", chart.Name)
 		}
@@ -115,7 +115,7 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 		chart   *Chart
 	}{
 		{kagentCRDsRelease, &cfg.KagentCRDs}, {substrateCRDsRelease, &cfg.SubstrateCRDs},
-		{podCertificateRelease, &cfg.PodCertificate}, {substrateRelease, &cfg.Substrate}, {kagentRelease, &cfg.Kagent},
+		{podCertificateRelease, &cfg.PodCertificate}, {ateletRelease, &cfg.Atelet}, {substrateRelease, &cfg.Substrate}, {kagentRelease, &cfg.Kagent},
 	}
 	for _, item := range charts {
 		// Keep local chart references usable when the script runs elsewhere.
@@ -267,6 +267,14 @@ func exportScript(releases []ChartInstall, refs []SecretReference) string {
 			}
 		}
 		script.WriteByte('\n')
+		if release.Release == ateletRelease {
+			wait := ateletRolloutCommand()
+			script.WriteString(shellQuote(wait.Program))
+			for _, arg := range wait.Args {
+				script.WriteString(" " + shellQuote(arg))
+			}
+			script.WriteByte('\n')
+		}
 	}
 	return script.String()
 }

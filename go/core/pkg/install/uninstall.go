@@ -179,6 +179,9 @@ func (c *Client) Uninstall(ctx context.Context, namespace, postgresImage string,
 	if err := release(substrateRelease, substrateNamespace); err != nil {
 		return result, err
 	}
+	if err := release(ateletRelease, substrateNamespace); err != nil {
+		return result, err
+	}
 	bundled, err := c.bundledPostgresExists(ctx, namespace)
 	if err != nil {
 		return result, err

@@ -1,12 +1,21 @@
 # kagent Helm installation export
 
-This directory contains the Helm commands and values that `kagent install` would apply. Each values file contains only the values that the CLI sets for that release. Chart defaults are not included.
+This directory contains the Helm commands, Atelet rollout check, and values that `kagent install` would apply. Each values file contains only the values that the CLI sets for that release. Chart defaults are not included.
 
 Review every values file before you commit or share this directory. User-provided values are copied as supplied, and secrets in them are not detected or removed.{{if .Secrets}} Only the credentials in the Environment references section are replaced.{{end}}
 
 ## Before you run the script
 
-Complete the prerequisite steps in the Helm installation guide: {{.Data.DocsURL}}. This export does not set up prerequisites.
+Complete the prerequisite steps in the Helm installation guide: {{.Data.DocsURL}}. This export does not set up prerequisites. The `substrate-atelet` release runs before the main `substrate` release and needs its object-store credentials in advance. With the exported development defaults, create them with:
+
+```sh
+kubectl create namespace ate-system
+kubectl create secret generic kagent-rustfs-credentials -n ate-system \
+  --from-literal=AWS_ACCESS_KEY_ID=rustfsadmin \
+  --from-literal=AWS_SECRET_ACCESS_KEY=rustfsadmin
+```
+
+If the namespace or Secret already exists, keep it. For another object store, update both releases' values and prepare the Secret referenced by `objectStore.credentialsSecret` in `values/substrate-atelet.yaml`.
 
 {{if .SkipDatabaseSetup -}}
 This export was generated with `--skip-database-setup`, so the values connect to your own database. Create the database and its connection Secrets before you run the script.

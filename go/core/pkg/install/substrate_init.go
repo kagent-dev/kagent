@@ -92,6 +92,13 @@ func ensureSubstratePrerequisites(ctx context.Context, client kubernetes.Interfa
 	if err := ensureNamespace(ctx, client, substrateNamespace, "", ""); err != nil {
 		return err
 	}
+	// Atelet starts before the Substrate chart creates the development store.
+	if err := createSecret(ctx, client, substrateNamespace, "kagent-rustfs-credentials", corev1.SecretTypeOpaque, map[string][]byte{
+		"AWS_ACCESS_KEY_ID":     []byte("rustfsadmin"),
+		"AWS_SECRET_ACCESS_KEY": []byte("rustfsadmin"),
+	}); err != nil {
+		return err
+	}
 	if err := ensureNamespace(ctx, client, podCertificateNamespace, podCertificateRelease, podCertificateNamespace); err != nil {
 		return err
 	}
