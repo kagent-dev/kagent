@@ -220,8 +220,8 @@ jobs:
         if: matrix.sandbox_class == 'microvm'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .cache/substrate/microvm-assets/amd64
-          key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
+          path: .cache/substrate/microvm-assets
+          key: microvm-assets-v2-amd64-${{ env.SUBSTRATE_VERSION }}
 
       - name: Install Cloud Hypervisor runtime
         if: matrix.sandbox_class == 'microvm'
