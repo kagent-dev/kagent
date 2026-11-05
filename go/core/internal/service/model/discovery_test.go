@@ -111,6 +111,29 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	encoded, err := json.Marshal(models[v1alpha3.ModelProviderOpenAI][0])
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"name":"gpt-5.6-terra","function_calling":true}`, string(encoded))
+
+	foundry := map[string]bool{}
+	for _, info := range models[v1alpha3.ModelProviderFoundry] {
+		foundry[info.Name] = info.FunctionCalling
+	}
+	for _, name := range []string{
+		"grok-3",
+		"grok-4.7",
+		"grok-4.6",
+		"grok-4.3",
+		"grok-4-20-reasoning",
+		"grok-4-20-non-reasoning",
+		"grok-4.1-fast-reasoning",
+		"grok-4.1-fast-non-reasoning",
+		"grok-4",
+		"grok-code-fast-1",
+	} {
+		calling, ok := foundry[name]
+		require.Truef(t, ok, "Foundry catalog missing %s", name)
+		assert.True(t, calling, name)
+	}
+	_, hasGrok5 := foundry["grok-5"]
+	assert.False(t, hasGrok5, "grok-5 is not a published Foundry model ID")
 }
 
 func TestDiscoveryConfiguredProviders(t *testing.T) {
