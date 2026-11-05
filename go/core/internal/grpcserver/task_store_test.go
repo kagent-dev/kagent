@@ -686,6 +686,9 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		})
 		require.NoError(t, err)
 	})
+	t.Run("runtime failures settle after cleanup", func(t *testing.T) {
+		testRuntimeFailuresSettle(t, store.Client, runtimeStore, id)
+	})
 }
 
 // Create through the lifecycle store so the fixture exercises the same resource
