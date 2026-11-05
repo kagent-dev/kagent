@@ -1,0 +1,788 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"iter"
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+)
+
+// sessionStore keeps the Sessions it creates, keyed by request ID as the
+// database does.
+type sessionStore struct {
+	fakeSessionStore
+	mu        sync.Mutex
+	byID      map[string]*apiv1.Session
+	byRequest map[string]*apiv1.Session
+}
+
+func newSessionStore(sessions ...*apiv1.Session) *sessionStore {
+	store := &sessionStore{byID: map[string]*apiv1.Session{}, byRequest: map[string]*apiv1.Session{}}
+	for _, session := range sessions {
+		store.byID[session.Id] = session
+	}
+	return store
+}
+
+func (s *sessionStore) CreateSession(_ context.Context, session *apiv1.Session, requestID string) (*apiv1.Session, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.byRequest[requestID]; ok {
+		return existing, false, nil
+	}
+	session.State = apiv1.RuntimeState_RUNTIME_STATE_READY
+	s.byID[session.Id], s.byRequest[requestID] = session, session
+	return session, true, nil
+}
+
+func (s *sessionStore) GetSession(_ context.Context, id, _ string) (*apiv1.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if session, ok := s.byID[id]; ok {
+		return session, nil
+	}
+	return nil, database.ErrNotFound
+}
+
+func (s *sessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1.Session, error) {
+	return s.GetSession(ctx, id, "")
+}
+
+func (s *sessionStore) UpdateSessionName(_ context.Context, id, _, name string) (*apiv1.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.byID[id]
+	if !ok {
+		return nil, database.ErrNotFound
+	}
+	session.Name = name
+	return session, nil
+}
+
+func (s *sessionStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*apiv1.Session
+	for _, session := range s.byID {
+		if query.Agent == nil || proto.Equal(session.GetAgent(), query.Agent) {
+			out = append(out, session)
+		}
+	}
+	return out, nil
+}
+
+// turnGateway serves a Session's turns from tasks and records every message
+// sent to it as a new turn. Like the gateway, it answers a resent
+// task-opening message with the turn it started.
+type turnGateway struct {
+	fakeGateway
+	mu    sync.Mutex
+	tasks []*a2atype.Task
+	sent  []*a2atype.Message
+}
+
+func (g *turnGateway) ListTasks(_ context.Context, request *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var matching []*a2atype.Task
+	for _, task := range g.tasks {
+		if task.ContextID == request.ContextID {
+			matching = append(matching, task)
+		}
+	}
+	start := 0
+	if request.PageToken != "" {
+		start, _ = strconv.Atoi(request.PageToken)
+	}
+	end := len(matching)
+	if request.PageSize > 0 {
+		end = min(start+request.PageSize, end)
+	}
+	response := &a2atype.ListTasksResponse{TotalSize: len(matching)}
+	for _, task := range matching[start:end] {
+		listed := *task
+		if request.HistoryLength != nil && *request.HistoryLength == 0 {
+			listed.History = nil
+		}
+		if !request.IncludeArtifacts {
+			listed.Artifacts = nil
+		}
+		response.Tasks = append(response.Tasks, &listed)
+	}
+	if end < len(matching) {
+		response.NextPageToken = strconv.Itoa(end)
+	}
+	return response, nil
+}
+
+func (g *turnGateway) GetTask(_ context.Context, request *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, task := range g.tasks {
+		if task.ID == request.ID {
+			return task, nil
+		}
+	}
+	return nil, a2atype.ErrTaskNotFound
+}
+
+func (g *turnGateway) SendStreamingMessage(_ context.Context, request *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if request.Message.TaskID == "" {
+		for _, task := range g.tasks {
+			if task.ContextID == request.Message.ContextID && slices.ContainsFunc(task.History, func(sent *a2atype.Message) bool { return sent.ID == request.Message.ID }) {
+				return func(yield func(a2atype.Event, error) bool) { yield(task, nil) }
+			}
+		}
+	}
+	g.sent = append(g.sent, request.Message)
+	task := &a2atype.Task{
+		ID: a2atype.TaskID(fmt.Sprintf("task-%d", len(g.tasks))), ContextID: request.Message.ContextID,
+		Status:  a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+		History: []*a2atype.Message{request.Message},
+	}
+	g.tasks = append(g.tasks, task)
+	return func(yield func(a2atype.Event, error) bool) { yield(task, nil) }
+}
+
+func callTool(t *testing.T, server *mcp.Server, name string, arguments map[string]any) *mcp.CallToolResult {
+	t.Helper()
+	result, err := sessionToolCall(t, server, name, arguments)
+	require.NoError(t, err)
+	return result
+}
+
+// sessionServer is the MCP server with the session tools, every call made as
+// the test user.
+func sessionServer(t *testing.T, store *sessionStore, gateway *turnGateway) *mcp.Server {
+	t.Helper()
+	h := &Handler{sessions: sessionsvc.NewService(store, &auth.NoopAuthorizer{}, &fakeSessionWorkflow{}), checkpoints: testCheckpointService(), gateway: gateway}
+	server := mcp.NewServer(&mcp.Implementation{Name: "kagent", Version: "test"}, nil)
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+			return next(auth.AuthSessionTo(ctx, testSession{}), method, request)
+		}
+	})
+	h.registerSessionTools(server)
+	mcp.AddTool(server, &mcp.Tool{Name: listToolName}, h.listSessions)
+	mcp.AddTool(server, &mcp.Tool{Name: invokeToolName}, h.invokeAgent)
+	return server
+}
+
+func jsonText(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(data)
+}
+
+func structured[T any](t *testing.T, result *mcp.CallToolResult) T {
+	t.Helper()
+	require.False(t, result.IsError, "tool error: %v", result.Content)
+	data, err := json.Marshal(result.StructuredContent)
+	require.NoError(t, err)
+	var out T
+	require.NoError(t, json.Unmarshal(data, &out))
+	return out
+}
+
+func TestCreateSessionSchema(t *testing.T) {
+	server := sessionServer(t, newSessionStore(), &turnGateway{})
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = serverSession.Close() })
+	session, err := client.Connect(t.Context(), clientTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+	tools, err := session.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	index := slices.IndexFunc(tools.Tools, func(tool *mcp.Tool) bool { return tool.Name == createSessionToolName })
+	require.GreaterOrEqual(t, index, 0)
+	data, err := json.Marshal(tools.Tools[index].InputSchema)
+	require.NoError(t, err)
+	var schema jsonschema.Schema
+	require.NoError(t, json.Unmarshal(data, &schema))
+	require.Equal(t, []string{"agent"}, schema.Required)
+	require.ElementsMatch(t, []string{"agent", "request_id", "name", "message"}, slices.Collect(maps.Keys(schema.Properties)))
+	require.ElementsMatch(t, []string{"name", "namespace"}, schema.Properties["agent"].Required)
+	require.NotEmpty(t, schema.Properties["agent"].Properties["namespace"].Description)
+}
+
+func TestCreateSessionSendsFirstMessageOncePerRequestID(t *testing.T) {
+	store, gateway := newSessionStore(), &turnGateway{}
+	server := sessionServer(t, store, gateway)
+	arguments := map[string]any{
+		"agent":      map[string]any{"namespace": "team-a", "name": "assistant"},
+		"request_id": "retry-me",
+		"name":       "Release notes",
+		"message":    "Summarize the release",
+	}
+
+	first := structured[CreateSessionOutput](t, callTool(t, server, createSessionToolName, arguments))
+	require.Equal(t, "team-a/assistant", first.Session.Agent)
+	require.Equal(t, "Release notes", first.Session.Name)
+	require.NotNil(t, first.Turn)
+	require.Equal(t, a2atype.TaskStateWorking.String(), first.Turn.State)
+
+	retry := structured[CreateSessionOutput](t, callTool(t, server, createSessionToolName, arguments))
+	require.Equal(t, first.Session.ID, retry.Session.ID)
+	require.Equal(t, first.Turn.TaskID, retry.Turn.TaskID)
+	require.Len(t, gateway.sent, 1)
+	require.Equal(t, first.Session.ID, gateway.sent[0].ContextID)
+
+	listed := structured[ListTasksOutput](t, callTool(t, server, listTasksToolName, map[string]any{"session_id": first.Session.ID}))
+	require.Equal(t, []Turn{*first.Turn}, listed.Tasks, "create_session answers its first turn as list_tasks does")
+}
+
+func TestCreateSessionWithoutMessageStartsNoTurn(t *testing.T) {
+	gateway := &turnGateway{}
+	server := sessionServer(t, newSessionStore(), gateway)
+	output := structured[CreateSessionOutput](t, callTool(t, server, createSessionToolName, map[string]any{
+		"agent": map[string]any{"namespace": "team-a", "name": "assistant"},
+	}))
+	require.Nil(t, output.Turn)
+	require.Empty(t, gateway.sent)
+}
+
+func TestCreateSessionRefusesInvalidArguments(t *testing.T) {
+	server := sessionServer(t, newSessionStore(), &turnGateway{})
+	for name, arguments := range map[string]map[string]any{
+		"unknown field": {"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "not_a_field": true},
+		"no agent":      {"name": "orphan"},
+		"blank message": {"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "message": "  "},
+		"long name":     {"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "name": strings.Repeat("n", 201)},
+		"long request":  {"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "request_id": strings.Repeat("r", 129)},
+		"empty agent":   {"agent": map[string]any{"namespace": "team-a", "name": ""}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := sessionToolCall(t, server, createSessionToolName, arguments)
+			require.True(t, err != nil || result.IsError, "accepted %v", arguments)
+		})
+	}
+}
+
+// sessionToolCall is callTool for calls the SDK itself may refuse against the
+// input schema.
+func sessionToolCall(t *testing.T, server *mcp.Server, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
+	t.Helper()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = serverSession.Close() })
+	session, err := client.Connect(t.Context(), clientTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+	return session.CallTool(t.Context(), &mcp.CallToolParams{Name: name, Arguments: arguments})
+}
+
+func toolTurn(id string, user, reply string, response any) *a2atype.Task {
+	userMessage := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(user))
+	call := a2atype.NewMessage(a2atype.MessageRoleAgent, apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"}))
+	result := a2atype.NewMessage(a2atype.MessageRoleAgent, apia2a.NewToolResultPart("call-1", "read_file", response))
+	return &a2atype.Task{
+		ID: a2atype.TaskID(id), ContextID: testSessionID,
+		Status: a2atype.TaskStatus{
+			State:   a2atype.TaskStateCompleted,
+			Message: a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(reply)),
+		},
+		History: []*a2atype.Message{userMessage, call, result},
+	}
+}
+
+// artifactTurn is a turn as the runtimes record it: the user's message in the
+// history, the tool call, its result and the reply as artifacts, every entry
+// with its timeline position. The history lists the reply's status message
+// before the artifacts that precede it.
+func artifactTurn(id string, response any) *a2atype.Task {
+	at := func(carrier a2atype.MetadataCarrier, second int) {
+		apia2a.SetTimelinePosition(carrier, time.Date(2026, 11, 2, 12, 0, second, 0, time.UTC))
+	}
+	user := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("read it"))
+	at(user, 0)
+	status := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("done"))
+	at(status, 4)
+	artifacts := []*a2atype.Artifact{
+		{ID: "a-call", Parts: a2atype.ContentParts{apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})}},
+		{ID: "a-result", Parts: a2atype.ContentParts{apia2a.NewToolResultPart("call-1", "read_file", response)}},
+		{ID: "a-text", Parts: a2atype.ContentParts{a2atype.NewTextPart("the file has two lines")}},
+	}
+	for i, artifact := range artifacts {
+		at(artifact, i+1)
+	}
+	return &a2atype.Task{
+		ID: a2atype.TaskID(id), ContextID: testSessionID,
+		Status:    a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Message: status},
+		History:   []*a2atype.Message{user, status},
+		Artifacts: artifacts,
+	}
+}
+
+func readySession() *apiv1.Session {
+	return &apiv1.Session{
+		Id: testSessionID, ContextId: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
+	}
+}
+
+func TestGetSessionReadsTurnsWithinBudget(t *testing.T) {
+	gateway := &turnGateway{}
+	for i := range 3 {
+		gateway.tasks = append(gateway.tasks, toolTurn(fmt.Sprintf("task-%d", i), fmt.Sprintf("question %d", i), strings.Repeat("r", 3000), "ok"))
+	}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	all := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID}))
+	require.Equal(t, 3, all.TotalTurns)
+	require.Len(t, all.Turns, 3)
+	require.Equal(t, "question 0", all.Turns[0].User)
+	require.Equal(t, []ToolCallStub{{Index: 0, ID: "call-1", Name: "read_file"}}, all.Turns[0].ToolCalls)
+	require.False(t, all.Truncated)
+
+	last := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID, "last_turns": 1}))
+	require.Len(t, last.Turns, 1)
+	require.Equal(t, "task-2", last.Turns[0].TaskID)
+	require.Equal(t, 3, last.TotalTurns)
+	require.Zero(t, last.OmittedTurns)
+
+	tight := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID, "max_bytes": minSessionMaxBytes}))
+	require.Equal(t, "task-2", tight.Turns[len(tight.Turns)-1].TaskID)
+	require.Positive(t, tight.OmittedTurns)
+	require.True(t, tight.Truncated)
+	require.NotEmpty(t, tight.Hint)
+}
+
+// itemMessage decodes a get_task item's message as A2A.
+func itemMessage(t *testing.T, item TaskItem) *a2atype.Message {
+	t.Helper()
+	require.NotNil(t, item.Message, "item %d is not a message", item.Index)
+	data, err := json.Marshal(item.Message)
+	require.NoError(t, err)
+	var message a2atype.Message
+	require.NoError(t, json.Unmarshal(data, &message))
+	return &message
+}
+
+func TestGetTaskAnswersToolCallParts(t *testing.T) {
+	response := map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"id":9007199254740993}`}}, "isError": true}
+	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "failed", response)}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	output := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0", "tool_call": "call-1",
+	}))
+	require.Equal(t, "task-0", output.TaskID)
+	require.NotNil(t, output.ToolCall)
+	require.False(t, output.Truncated)
+	require.JSONEq(t, jsonText(t, apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})), jsonText(t, output.ToolCall.Call))
+	require.Contains(t, jsonText(t, output.ToolCall.Result), `{\"id\":9007199254740993}`, "a tool's JSON text reaches the client as written")
+
+	items := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0",
+	}))
+	require.Equal(t, 4, items.TotalItems)
+	require.Len(t, items.Items, 4)
+	activity, ok := apia2a.ParseToolActivity(itemMessage(t, items.Items[1]).Parts[0])
+	require.True(t, ok)
+	require.Equal(t, apia2a.ToolCallKind, activity.Kind)
+	require.Equal(t, "failed", itemMessage(t, items.Items[3]).Parts[0].Text())
+}
+
+func TestGetSessionReadsToolCallsFromArtifacts(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{artifactTurn("task-0", map[string]any{"result": "127.0.0.1 localhost"})}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	summary := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID}))
+	require.Equal(t, []ToolCallStub{{Index: 0, ID: "call-1", Name: "read_file"}}, summary.Turns[0].ToolCalls)
+	require.Equal(t, "read it", summary.Turns[0].User)
+
+	call := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0", "tool_call": "call-1",
+	}))
+	require.NotNil(t, call.ToolCall)
+	require.False(t, call.ToolCall.Pending)
+	require.Contains(t, jsonText(t, call.ToolCall.Result), "127.0.0.1 localhost")
+
+	task := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0"}))
+	require.Equal(t, 5, task.TotalItems)
+	kinds := make([]string, 0, len(task.Items))
+	for _, item := range task.Items {
+		if item.Artifact != nil {
+			kinds = append(kinds, "artifact")
+		} else {
+			kinds = append(kinds, string(itemMessage(t, item).Role))
+		}
+	}
+	require.Equal(t, []string{string(a2atype.MessageRoleUser), "artifact", "artifact", "artifact", string(a2atype.MessageRoleAgent)}, kinds, "entries follow their timeline positions")
+}
+
+func TestReadTurnCountsActivityRecordedTwiceOnce(t *testing.T) {
+	task := toolTurn("task-0", "read it", "done", "ok")
+	task.Artifacts = []*a2atype.Artifact{
+		{ID: "a-call", Parts: a2atype.ContentParts{apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})}},
+		{ID: "a-result", Parts: a2atype.ContentParts{apia2a.NewToolResultPart("call-1", "read_file", "ok")}},
+	}
+	turn := readTurn(task)
+	require.Len(t, turn.calls, 1)
+	require.Same(t, task.History[1].Parts[0], turn.calls[0].call, "the first recording of a call is kept")
+	require.Same(t, task.History[2].Parts[0], turn.calls[0].result)
+	require.Equal(t, 6, turn.items(), "without timeline positions the artifacts follow the messages")
+	require.Equal(t, task.Artifacts[0], turn.item(4).Artifact)
+}
+
+func TestReadTurnSkipsNullEntries(t *testing.T) {
+	task := toolTurn("task-0", "read it", "done", "ok")
+	task.History = append(task.History, nil)
+	task.Artifacts = []*a2atype.Artifact{nil}
+	turn := readTurn(task)
+	require.Equal(t, 4, turn.items())
+	require.Equal(t, "read it", turn.summary().User)
+}
+
+func TestGetTaskTakesAnIntegerToolCallIndex(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "done", "ok")}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	output := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0", "tool_call": 0,
+	}))
+	require.Equal(t, "task-0", output.TaskID)
+	require.NotNil(t, output.ToolCall)
+	require.Equal(t, "call-1", output.ToolCall.ID)
+
+	require.True(t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0", "tool_call": 0.5}).IsError)
+}
+
+func TestGetSessionOfAnotherCallerIsNotFound(t *testing.T) {
+	server := sessionServer(t, newSessionStore(), &turnGateway{})
+	result := callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID})
+	require.True(t, result.IsError)
+	require.Equal(t, "not_found", result.Meta["kagent.dev/error-code"])
+
+	invoked := callTool(t, server, invokeToolName, map[string]any{"session_id": testSessionID, "message": "hello"})
+	require.True(t, invoked.IsError)
+	require.Equal(t, "not_found", invoked.Meta["kagent.dev/error-code"])
+	require.Equal(t, result.Content, invoked.Content, "invoke_agent words a missing Session as get_session does")
+}
+
+func TestListSessionsAllStatesShowsFailures(t *testing.T) {
+	failed := readySession()
+	failed.Id = "33333333-3333-4333-8333-333333333333"
+	failed.State = apiv1.RuntimeState_RUNTIME_STATE_FAILED
+	failed.Failure = &apiv1.Failure{Reason: "ImagePullBackOff", Message: "image not found"}
+	server := sessionServer(t, newSessionStore(readySession(), failed), &turnGateway{})
+
+	ready := structured[ListSessionsOutput](t, callTool(t, server, listToolName, map[string]any{}))
+	require.Len(t, ready.Sessions, 1)
+
+	all := structured[ListSessionsOutput](t, callTool(t, server, listToolName, map[string]any{"all_states": true}))
+	require.Len(t, all.Sessions, 2)
+	var found *SessionSummary
+	for i := range all.Sessions {
+		if all.Sessions[i].ID == failed.Id {
+			found = &all.Sessions[i]
+		}
+	}
+	require.NotNil(t, found)
+	require.Equal(t, "ImagePullBackOff", found.Failure.Reason)
+
+	other := structured[ListSessionsOutput](t, callTool(t, server, listToolName, map[string]any{
+		"all_states": true, "agent": map[string]any{"namespace": "team-b", "name": "assistant"},
+	}))
+	require.Empty(t, other.Sessions)
+
+	result, err := sessionToolCall(t, server, listToolName, map[string]any{"agent": map[string]any{"name": "assistant"}})
+	require.True(t, err != nil || result.IsError, "accepted an agent without namespace")
+}
+
+func TestDeleteSessionTool(t *testing.T) {
+	server := sessionServer(t, newSessionStore(readySession()), &turnGateway{})
+	output := structured[SessionOutput](t, callTool(t, server, deleteSessionToolName, map[string]any{"session_id": testSessionID}))
+	require.Equal(t, testSessionID, output.Session.ID)
+}
+
+func TestSessionToolsAnswerTheirJSONAsText(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "What is 2+2?", "The answer is 4.", "ok")}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	for _, call := range []struct {
+		tool      string
+		arguments map[string]any
+	}{
+		{createSessionToolName, map[string]any{"agent": map[string]any{"namespace": "team-a", "name": "assistant"}, "message": "hello"}},
+		{getSessionToolName, map[string]any{"session_id": testSessionID}},
+		{listTasksToolName, map[string]any{"session_id": testSessionID}},
+		{getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0"}},
+		{renameSessionToolName, map[string]any{"session_id": testSessionID, "name": "Arithmetic"}},
+		{deleteSessionToolName, map[string]any{"session_id": testSessionID}},
+	} {
+		t.Run(call.tool, func(t *testing.T) {
+			result := callTool(t, server, call.tool, call.arguments)
+			require.False(t, result.IsError, "tool error: %v", result.Content)
+			require.Len(t, result.Content, 1)
+			text, ok := result.Content[0].(*mcp.TextContent)
+			require.True(t, ok, "content is %T", result.Content[0])
+			structuredJSON, err := json.Marshal(result.StructuredContent)
+			require.NoError(t, err)
+			require.JSONEq(t, string(structuredJSON), text.Text)
+			if call.tool != createSessionToolName && call.tool != renameSessionToolName && call.tool != deleteSessionToolName {
+				require.Contains(t, text.Text, "The answer is 4.")
+			}
+		})
+	}
+}
+
+func TestSessionToolAnnotations(t *testing.T) {
+	server := sessionServer(t, newSessionStore(), &turnGateway{})
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = serverSession.Close() })
+	session, err := client.Connect(t.Context(), clientTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+	listed, err := session.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	annotations := map[string]*mcp.ToolAnnotations{}
+	for _, tool := range listed.Tools {
+		annotations[tool.Name] = tool.Annotations
+	}
+	require.True(t, annotations[getSessionToolName].ReadOnlyHint)
+	require.True(t, annotations[listTasksToolName].ReadOnlyHint)
+	require.True(t, annotations[getTaskToolName].ReadOnlyHint)
+	require.True(t, *annotations[deleteSessionToolName].DestructiveHint)
+	// create_session without request_id creates another Session, and its first
+	// message starts an agent turn that may run any tool.
+	if create := annotations[createSessionToolName]; create != nil {
+		require.False(t, create.IdempotentHint)
+		require.True(t, create.DestructiveHint == nil || *create.DestructiveHint)
+	}
+}
+
+func TestClipText(t *testing.T) {
+	require.Equal(t, "short", clipText("short", 10))
+	clipped := clipText(strings.Repeat("é", 100), 40)
+	require.LessOrEqual(t, len(clipped), 40)
+	require.Contains(t, clipped, "bytes clipped]")
+}
+
+func TestGetSessionAddressesTurnsPastOnePage(t *testing.T) {
+	gateway := &turnGateway{}
+	for i := range 1100 {
+		gateway.tasks = append(gateway.tasks, toolTurn(fmt.Sprintf("task-%d", i), fmt.Sprintf("question %d", i), "ok", "ok"))
+	}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	last := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID, "last_turns": 1}))
+	require.Equal(t, 1100, last.TotalTurns)
+	require.Equal(t, "task-1099", last.Turns[0].TaskID)
+	require.Equal(t, "question 1099", last.Turns[0].User)
+
+	task := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-120"}))
+	require.Equal(t, "task-120", task.TaskID)
+	require.True(t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-1100"}).IsError)
+}
+
+func TestRenameSession(t *testing.T) {
+	server := sessionServer(t, newSessionStore(readySession()), &turnGateway{})
+
+	named := structured[SessionOutput](t, callTool(t, server, renameSessionToolName, map[string]any{"session_id": testSessionID, "name": "Release notes"}))
+	require.Equal(t, "Release notes", named.Session.Name)
+
+	cleared := structured[SessionOutput](t, callTool(t, server, renameSessionToolName, map[string]any{"session_id": testSessionID, "name": ""}))
+	require.Empty(t, cleared.Session.Name)
+
+	require.True(t, callTool(t, server, renameSessionToolName, map[string]any{"session_id": testSessionID, "name": " leading space"}).IsError)
+}
+
+// longTurn is a turn of n agent messages of size bytes each after its user
+// message.
+func longTurn(n, size int) *a2atype.Task {
+	history := []*a2atype.Message{a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("go"))}
+	for i := range n {
+		history = append(history, a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(fmt.Sprintf("%d:%s", i, strings.Repeat("x", size)))))
+	}
+	return &a2atype.Task{ID: "task-0", ContextID: testSessionID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}, History: history}
+}
+
+func TestGetTaskPagesByItem(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{longTurn(12, 1000)}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	var seen int
+	from := 0
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 20, "paging does not advance")
+		result := callTool(t, server, getTaskToolName, map[string]any{
+			"session_id": testSessionID, "task_id": "task-0", "from_item": from, "max_bytes": minSessionMaxBytes,
+		})
+		page := structured[GetTaskOutput](t, result)
+		require.LessOrEqual(t, jsonSize(result.StructuredContent), minSessionMaxBytes)
+		require.Equal(t, 13, page.TotalItems)
+		for _, item := range page.Items {
+			require.Zero(t, item.OmittedBytes)
+		}
+		seen += len(page.Items)
+		if page.NextItem == 0 {
+			require.False(t, page.Truncated)
+			break
+		}
+		require.True(t, page.Truncated)
+		require.Greater(t, page.NextItem, from)
+		from = page.NextItem
+	}
+	require.Equal(t, 13, seen)
+}
+
+func TestGetTaskFlagsAnItemOverMaxBytes(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{longTurn(1, 10_000)}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	first := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
+		"session_id": testSessionID, "task_id": "task-0", "from_item": 1, "max_bytes": minSessionMaxBytes,
+	}))
+	require.Len(t, first.Items, 1)
+	require.Nil(t, first.Items[0].Message)
+	require.Greater(t, first.Items[0].OmittedBytes, 10_000)
+	require.Zero(t, first.NextItem, "no item is left for another page")
+	require.True(t, first.Truncated, "an omitted item makes the answer incomplete")
+	require.Contains(t, first.Hint, "omitted_bytes")
+}
+
+func TestGetTaskAnswersA2AMessages(t *testing.T) {
+	gateway := &turnGateway{tasks: []*a2atype.Task{toolTurn("task-0", "read it", "done", "ok")}}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	task := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{"session_id": testSessionID, "task_id": "task-0"}))
+	require.Len(t, task.Items, task.TotalItems)
+	require.Equal(t, "read it", itemMessage(t, task.Items[0]).Parts[0].Text())
+}
+
+func TestFitTurnStaysWithinBudget(t *testing.T) {
+	in := Turn{TaskID: "task-3", State: "TASK_STATE_COMPLETED", User: strings.Repeat("u", 5000), Reply: strings.Repeat("r", 5000),
+		ToolCalls: []ToolCallStub{{Index: 0, Name: "read_file"}}}
+	out, ok := fitTurn(in, 600)
+	require.True(t, ok)
+	require.LessOrEqual(t, jsonSize(out), 600)
+	require.True(t, out.Clipped)
+	require.Nil(t, out.ToolCalls)
+	require.Contains(t, out.Reply, "bytes clipped]")
+
+	_, ok = fitTurn(in, 10)
+	require.False(t, ok)
+}
+
+func TestToolCallPartsStayWithinBudget(t *testing.T) {
+	task := toolTurn("task-0", "read it", "done", map[string]any{"result": strings.Repeat("y", 20000)})
+	call := readTurn(task).calls[0]
+
+	whole, omitted := call.parts(1 << 20)
+	require.False(t, omitted)
+	require.NotNil(t, whole.Call)
+	require.NotNil(t, whole.Result)
+
+	small, omitted := call.parts(2000)
+	require.True(t, omitted)
+	require.LessOrEqual(t, jsonSize(small), 2000)
+	require.NotNil(t, small.Call, "the small call part stays")
+	require.Nil(t, small.Result)
+	require.Greater(t, small.OmittedBytes, 20000)
+}
+
+func TestGetSessionReplyFallsBackToHistory(t *testing.T) {
+	task := &a2atype.Task{
+		ID: "task-0", ContextID: testSessionID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+		History: []*a2atype.Message{
+			a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?")),
+			a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Let me think.")),
+			a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("The answer is 4.")),
+		},
+	}
+	server := sessionServer(t, newSessionStore(readySession()), &turnGateway{tasks: []*a2atype.Task{task}})
+
+	output := structured[GetSessionOutput](t, callTool(t, server, getSessionToolName, map[string]any{"session_id": testSessionID}))
+	require.Equal(t, "The answer is 4.", output.Turns[0].Reply)
+	_, invoked := invocationResult(task)
+	require.Equal(t, invoked.Text, output.Turns[0].Reply, "get_session answers the reply invoke_agent does")
+}
+
+func TestListTasksPagesThroughASession(t *testing.T) {
+	gateway := &turnGateway{}
+	for i := range 5 {
+		gateway.tasks = append(gateway.tasks, artifactTurn(fmt.Sprintf("task-%d", i), "ok"))
+	}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	var ids []string
+	token := ""
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 5, "paging does not advance")
+		page := structured[ListTasksOutput](t, callTool(t, server, listTasksToolName, map[string]any{
+			"session_id": testSessionID, "page_size": 2, "page_token": token,
+		}))
+		require.Equal(t, testSessionID, page.SessionID)
+		require.Equal(t, 5, page.TotalSize)
+		require.LessOrEqual(t, len(page.Tasks), 2)
+		for _, task := range page.Tasks {
+			ids = append(ids, task.TaskID)
+			require.Equal(t, []ToolCallStub{{Index: 0, ID: "call-1", Name: "read_file"}}, task.ToolCalls, "tool calls are read from artifacts")
+		}
+		if page.NextPageToken == "" {
+			break
+		}
+		token = page.NextPageToken
+	}
+	require.Equal(t, []string{"task-0", "task-1", "task-2", "task-3", "task-4"}, ids)
+}
+
+func TestListTasksClipsSummariesToMaxBytes(t *testing.T) {
+	gateway := &turnGateway{}
+	for i := range 4 {
+		gateway.tasks = append(gateway.tasks, toolTurn(fmt.Sprintf("task-%d", i), "go", strings.Repeat("r", 5000), "ok"))
+	}
+	server := sessionServer(t, newSessionStore(readySession()), gateway)
+
+	result := callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID, "page_size": 4, "max_bytes": minSessionMaxBytes})
+	page := structured[ListTasksOutput](t, result)
+	require.LessOrEqual(t, jsonSize(result.StructuredContent), minSessionMaxBytes)
+	require.Len(t, page.Tasks, 4)
+	require.True(t, page.Truncated)
+	require.NotEmpty(t, page.Hint)
+	for _, task := range page.Tasks {
+		require.True(t, task.Clipped)
+	}
+
+	refused := callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID, "page_size": 100, "max_bytes": minSessionMaxBytes})
+	require.True(t, refused.IsError, "a page that cannot fit max_bytes is refused")
+	require.True(t, callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID, "page_size": 101}).IsError)
+}
+
+func TestListTasksOfAnotherCallerIsNotFound(t *testing.T) {
+	server := sessionServer(t, newSessionStore(), &turnGateway{})
+	result := callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID})
+	require.True(t, result.IsError)
+	require.Equal(t, "not_found", result.Meta["kagent.dev/error-code"])
+}
