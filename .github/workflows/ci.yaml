@@ -425,7 +425,7 @@ jobs:
         uses: ./.github/actions/upgrade-test-setup
         with:
           upgrade-from: ${{ matrix.upgrade-from }}
-      - name: Run rolling upgrade tests
+      - name: Verify controller upgrade handoff and schema compatibility
         if: steps.prep.outputs.skip != 'true'
         env:
           OPENAI_API_KEY: fake

@@ -8,6 +8,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
@@ -31,18 +37,16 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
 	waitForPostgresSchema(t, env, 3*time.Minute)
 
-	// Run even when there is no migration delta: a rolling upgrade rolls the new
-	// image regardless of migrations, so the deploy can still break for
-	// non-schema reasons (a crashing new image, readiness, old pods against
-	// new-code-created resources). When the target build does add migrations, the
-	// same flow additionally exercises the old-code/new-schema window below.
-	// Keep multiple old controller pods around during the rollout. With a single
-	// replica the old-code/new-schema window can be too small to observe reliably.
+	// Multiple previous-generation API replicas must all exit before checkpoint
+	// recovery starts. Keep a terminating writer alive long enough that an unsafe
+	// RollingUpdate also has a visible overlap window.
 	kubectl(t, env, 2*time.Minute,
 		"scale", "deployment/kagent-controller",
 		"-n", env.namespace,
 		"--replicas=2",
 	)
+	kubectl(t, env, time.Minute, "patch", "deployment/kagent-controller", "-n", env.namespace,
+		"--type=strategic", "-p", `{"spec":{"template":{"spec":{"terminationGracePeriodSeconds":30,"containers":[{"name":"controller","lifecycle":{"preStop":{"sleep":{"seconds":5}}}}]}}}}`)
 	kubectl(t, env, 3*time.Minute,
 		"rollout", "status", "deployment/kagent-controller",
 		"-n", env.namespace,
@@ -51,15 +55,29 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	oldPods := podNamesForSelector(t, env, controllerSelector)
 	require.NotEmpty(t, oldPods, "expected old controller pods before rolling upgrade")
 
-	// Seed with the baseline schema before the target controller applies new
-	// migrations. The compatibility canary below verifies this row is still
-	// readable while old pods are alive against the target schema.
+	// Preserve old-shape SQL read/write canaries across the upgrade. The
+	// controller handoff itself is deliberately stop-before-start, not a claim
+	// that old per-request checkpoint writers support mixed-version execution.
 	pgExec(t, env, fmt.Sprintf(
 		"INSERT INTO tool (id, server_name, group_kind, description) VALUES (%s, %s, %s, 'rolling baseline tool')",
 		pgQuote(baselineToolID), pgQuote(toolServerName), pgQuote(groupKind)))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
 	defer cancel()
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{CurrentContext: env.kubeContext}).ClientConfig()
+	require.NoError(t, err)
+	client, err := kubernetes.NewForConfig(config)
+	require.NoError(t, err)
+	pods, err := client.CoreV1().Pods(env.namespace).List(ctx, metav1.ListOptions{LabelSelector: controllerSelector})
+	require.NoError(t, err)
+	require.NotEmpty(t, pods.Items, "expected previous controller pod UIDs before upgrade")
+	observer := newControllerHandoff(pods.Items)
+	events, err := client.CoreV1().Pods(env.namespace).Watch(ctx, metav1.ListOptions{
+		LabelSelector: controllerSelector, ResourceVersion: pods.ResourceVersion,
+	})
+	require.NoError(t, err)
+	defer events.Stop()
 	done := make(chan upgradeResult, 1)
 	cmd := upgradeCommand(ctx, env)
 	go func() {
@@ -67,36 +85,28 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 		done <- upgradeResult{out: string(out), err: err}
 	}()
 
-	// Wait until the target schema has landed while at least one previous-release
-	// controller pod is still ready. That is the rolling deploy hazard: old code
-	// can keep serving briefly after a new pod has applied migrations. Surface an
-	// upgrade failure immediately instead of letting it look like a
-	// schema-observation timeout.
-	var upgradeErr error
-	var upgradeOut string
-	require.Eventually(t, func() bool {
+	var result upgradeResult
+	finished := false
+	for !finished || !observer.sawReplacement {
 		select {
-		case r := <-done:
-			if r.err != nil {
-				upgradeErr, upgradeOut = r.err, r.out
-				return true
-			}
-			// The upgrade finished successfully before we caught the window; put the
-			// result back so the final read below still sees it, then keep polling.
-			done <- r
-		default:
+		case event, ok := <-events.ResultChan():
+			require.True(t, ok, "pod watch ended before the controller handoff was verified")
+			require.NoError(t, observer.observe(event))
+		case result = <-done:
+			require.NoError(t, result.err, "upgrade failed:\n%s", result.out)
+			finished = true
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
 		}
-		state, err := pgMigrationStateE(t, env)
-		if err != nil {
-			return false
-		}
-		return state.version == targetCoreVersion && anyPodsReady(t, env, oldPods)
-	}, 6*time.Minute, 500*time.Millisecond, "target schema was not observed while old controller pods were still ready")
-	require.NoError(t, upgradeErr, "upgrade failed before target schema was observed:\n%s", upgradeOut)
+	}
+	require.Empty(t, observer.old, "all previous writers must have exited")
+	strategy := kubectl(t, env, time.Minute, "get", "deployment/kagent-controller", "-n", env.namespace,
+		"-o", "jsonpath={.spec.strategy.type}")
+	require.Equal(t, "Recreate", strings.TrimSpace(strategy))
 
 	// These SQL canaries intentionally use the pre-upgrade column shape. They do
 	// not prove every previous-release code path works, but they catch migrations
-	// that break basic old read/write assumptions during a rolling deployment.
+	// that break basic old read/write assumptions after the controller handoff.
 	require.Equal(t, 1,
 		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s",
 			pgQuote(baselineToolID), pgQuote(toolServerName), pgQuote(groupKind))),
@@ -110,9 +120,6 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 			pgQuote(compatToolID), pgQuote(toolServerName), pgQuote(groupKind))),
 		"old-shape tool write did not survive against target schema",
 	)
-
-	result := <-done
-	require.NoError(t, result.err, "upgrade failed:\n%s", result.out)
 
 	kubectl(t, env, 3*time.Minute,
 		"rollout", "status", "deployment/kagent-controller",
@@ -159,18 +166,43 @@ func podNamesForSelectorE(t *testing.T, env upgradeEnv, selector string) ([]stri
 	return pods, nil
 }
 
-func anyPodsReady(t *testing.T, env upgradeEnv, pods []string) bool {
-	t.Helper()
+type controllerHandoff struct {
+	old            map[types.UID]bool
+	sawReplacement bool
+}
 
+func newControllerHandoff(pods []corev1.Pod) *controllerHandoff {
+	old := make(map[types.UID]bool, len(pods))
 	for _, pod := range pods {
-		out, err := kubectlOutput(t, env, 10*time.Second,
-			"get", "pod", pod,
-			"-n", env.namespace,
-			"-o", fmt.Sprintf("jsonpath={.status.containerStatuses[?(@.name==%q)].ready}", controllerContainer),
-		)
-		if err == nil && strings.TrimSpace(out) == "true" {
-			return true
+		if pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
+			old[pod.UID] = true
 		}
 	}
-	return false
+	return &controllerHandoff{old: old}
+}
+
+// Terminating and unready old pods can still issue checkpoint writes. Only
+// deletion or a terminal phase (all processes exited) releases the barrier,
+// matching the Deployment controller's Recreate condition.
+func (h *controllerHandoff) observe(event watch.Event) error {
+	if event.Type == watch.Error {
+		return fmt.Errorf("controller pod watch failed: %v", event.Object)
+	}
+	pod, ok := event.Object.(*corev1.Pod)
+	if !ok {
+		return fmt.Errorf("unexpected controller watch object %T", event.Object)
+	}
+	if h.old[pod.UID] {
+		if event.Type == watch.Deleted || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+			delete(h.old, pod.UID)
+		}
+		return nil
+	}
+	if event.Type == watch.Added || event.Type == watch.Modified {
+		if len(h.old) != 0 {
+			return fmt.Errorf("new controller %s started while %d previous writers still exist", pod.Name, len(h.old))
+		}
+		h.sawReplacement = true
+	}
+	return nil
 }

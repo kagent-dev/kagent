@@ -81,9 +81,14 @@ lock, and a delayed release cannot revoke a replacement's claim. Leader election
 reduces duplicate scans but is not the execution fence. A slow remote copy is
 still synchronized through Substrate's tag lease after a client attempt expires.
 
-Upgrading from per-request tag writers requires stopping the old controller
-replicas before starting this version. Those writers do not acquire checkpoint
-execution claims; mixed-version rolling operation is not fenced by this worker.
+The controller Helm Deployment uses `Recreate`: all previous replicas stop
+before a new controller starts. This introduces a controller API availability
+gap during upgrades; existing Substrate Actors are not restarted. Previous
+per-request tag writers do not acquire execution claims, so mixed-version
+checkpoint execution is unsafe. Custom deployment tooling must preserve this
+stop-before-start ordering, without force-deleting terminating writers. Before
+rolling back to a chart that uses `RollingUpdate`, stop all current controllers
+and wait for them to exit; the old chart does not enforce this handoff.
 
 A pending tag is not evidence of abandonment. Substrate serializes `CreateTag`
 against both the source Actor and the tag, including a copy still finishing after

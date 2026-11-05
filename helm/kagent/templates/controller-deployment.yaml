@@ -21,6 +21,11 @@ metadata:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controller.replicas }}
+  # Old checkpoint writers do not participate in recovery execution claims.
+  # Wait for their processes to exit before a new worker can start.
+  strategy:
+    type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels:
       {{- include "kagent.controller.selectorLabels" . | nindent 6 }}

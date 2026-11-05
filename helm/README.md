@@ -304,6 +304,17 @@ validation commands, defaults, and runtime configuration.
 
 ## Upgrading
 
+The controller Deployment uses `Recreate`: previous controller processes exit
+before the next generation starts. Plan for a controller API availability gap;
+existing Substrate Actors are not restarted. This ordering prevents legacy
+checkpoint writers from racing the new recovery worker. Custom deployment
+tooling must preserve it without force-deleting terminating writers.
+
+Before rolling back to an older chart that uses `RollingUpdate`, scale the
+current controller Deployment to zero and wait for its Pods to exit. Only then
+restore the old chart, which does not enforce this handoff. See the
+[checkpoint recovery contract](../docs/architecture/persistence-checkpoints-and-forks.md).
+
 When upgrading, make sure to upgrade both charts:
 
 ```bash

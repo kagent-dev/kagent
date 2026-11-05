@@ -3,6 +3,16 @@ templates:
   - controller-configmap.yaml
   - controller-deployment.yaml
 tests:
+  - it: stops previous controller writers before starting the new generation
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.strategy.rollingUpdate
+          value: null
+
   - it: configures Actor JWT discovery with the Substrate trust bundle
     template: controller-configmap.yaml
     set:

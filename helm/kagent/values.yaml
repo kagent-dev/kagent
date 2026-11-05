@@ -224,6 +224,9 @@ config:
 # ==============================================================================
 
 controller:
+  # Controller upgrades use Recreate so legacy checkpoint writers exit before
+  # recovery workers start. The control-plane API is briefly unavailable; runtime
+  # Actors are not restarted by this controller replacement.
   # Standard OTEL overrides and external SDK credentials for this process only.
   env: []
   envFrom: []
