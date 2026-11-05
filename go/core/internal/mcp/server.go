@@ -10,7 +10,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
@@ -109,15 +108,10 @@ func New(cfg Config) (*Handler, error) {
 		Name:        listToolName,
 		Description: "List ready Sessions visible to the caller",
 	}, h.listSessions)
-	invokeSchema, err := jsonschema.For[InvokeAgentInput](nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to infer invocation schema: %w", err)
-	}
-	invokeSchema.OneOf = []*jsonschema.Schema{{Required: []string{"session_id"}}, {Required: []string{"agent"}}}
+	// No top-level oneOf: Gemini rejects it. invokeAgent enforces exactly one of session_id or agent.
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        invokeToolName,
 		Description: "Send a message to an existing Session with session_id, or start a new Session by providing agent instead. Returns the Session and task IDs. Reuse message_id with identical inputs when retrying creation.",
-		InputSchema: invokeSchema,
 	}, h.invokeAgent)
 	h.registerCheckpointTools(server)
 	registerSandboxTools(server, cfg.Sandboxes, cfg.SandboxTemplates)
