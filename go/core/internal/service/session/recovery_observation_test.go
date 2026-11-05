@@ -19,12 +19,13 @@ import (
 
 func TestSessionRecoveryObservation(t *testing.T) {
 	for _, test := range []struct {
-		name                       string
-		crashed, replaced, missing bool
-		readErr                    error
-		want                       *bool
+		name                                string
+		running, crashed, replaced, missing bool
+		readErr                             error
+		want                                *bool
 	}{
 		{name: "healthy", want: new(false)},
+		{name: "running", running: true, want: new(false)},
 		{name: "crashed", crashed: true, want: new(true)},
 		{name: "missing", missing: true},
 		{name: "replaced", crashed: true, replaced: true},
@@ -33,11 +34,19 @@ func TestSessionRecoveryObservation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-			actors := &recoveryTestActors{lifecycleTestActors: base, revert: base.RevertActor}
+			reverts := 0
+			actors := &recoveryTestActors{lifecycleTestActors: base}
+			actors.revert = func(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+				reverts++
+				return base.RevertActor(ctx, atespace, name)
+			}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
 			session, err := workflow.Create(t.Context(), session)
 			require.NoError(t, err)
 			key := actorKey("team-a", substrate.ActorName(session.Id))
+			if test.running {
+				base.actors[key].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+			}
 			if test.crashed {
 				base.actors[key].Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
 			}
@@ -64,11 +73,13 @@ func TestSessionRecoveryObservation(t *testing.T) {
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, stored.State)
 			require.Nil(t, stored.Recovery, "reads do not admit recovery or persist observations")
 
-			// What chat offers is what Revert does: needed admits a revert,
-			// healthy refuses one, and an unknown observation admits nothing.
-			// A missing or replaced Actor is refused for good, so a client stops
-			// retrying; only a failed read stays retryable.
-			_, err = workflow.Revert(t.Context(), session)
+			// What chat offers is what Revert does: needed admits a revert, a
+			// healthy runtime is never reverted, and an unknown observation admits
+			// nothing. A suspended healthy runtime returns the Session unchanged,
+			// as a retry after a lost revert response does; a running one is
+			// refused. A missing or replaced Actor is refused for good, so a client
+			// stops retrying; only a failed read stays retryable.
+			reverted, err := workflow.Revert(t.Context(), session)
 			switch {
 			case test.missing || test.replaced:
 				require.ErrorIs(t, err, errRuntimeUnrecoverable)
@@ -78,8 +89,14 @@ func TestSessionRecoveryObservation(t *testing.T) {
 			case *test.want:
 				require.NoError(t, err)
 			default:
-				require.NoError(t, err, "a healthy runtime has nothing to recover")
+				require.NoError(t, err)
+				require.True(t, proto.Equal(session, reverted), "a healthy Session is returned unchanged")
 			}
+			wantReverts := 0
+			if test.want != nil && *test.want {
+				wantReverts = 1
+			}
+			require.Equal(t, wantReverts, reverts, "only a confirmed crash is reverted")
 		})
 	}
 }
