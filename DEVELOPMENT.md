@@ -173,9 +173,11 @@ make kagent-cli-install \
 For direct CLI use, configure `install.substrate`, `install.atelet`, and
 `install.podCertificate` in the [CLI config file](docs/architecture/process-configuration.md#cli).
 
-Put node settings such as `atelet.extraArgs` and `atelet.resources` in
-`install.atelet.valuesFiles`. The Make target supplies the Kind registry override
-there. Configure custom object storage for both releases as described in the
+Existing `install.substrate` values are inherited by Atelet, including
+`atelet.extraArgs` and `atelet.resources`. Use `install.atelet.valuesFiles` for
+node-specific overrides; these take precedence over the shared values. The Make
+target supplies the Kind registry override there. Configure custom object
+storage for both releases as described in the
 [Helm guide](helm/README.md#postgresql).
 
 To access the UI, port-forward to the UI port on the `kagent-ui` service:

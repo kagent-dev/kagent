@@ -6,16 +6,18 @@ Review every values file before you commit or share this directory. User-provide
 
 ## Before you run the script
 
-Complete the prerequisite steps in the Helm installation guide: {{.Data.DocsURL}}. This export does not set up prerequisites. The `substrate-atelet` release runs before the main `substrate` release and needs its object-store credentials in advance. With the exported development defaults, create them with:
+Complete the prerequisite steps in the Helm installation guide: {{.Data.DocsURL}}. This export does not set up prerequisites. The `substrate-atelet` release runs before the main `substrate` release and needs its object-store credentials in advance.
+
+When RustFS is enabled, set `RUSTFS_ACCESS_KEY` and `RUSTFS_SECRET_KEY` to the effective `rustfs.accessKey` and `rustfs.secretKey` for the Substrate release: use the selected chart's defaults with the overrides in `values/substrate.yaml` and any environment references below. Create the namespace if needed, then create the Secret if it does not already exist:
 
 ```sh
 kubectl create namespace ate-system
 kubectl create secret generic kagent-rustfs-credentials -n ate-system \
-  --from-literal=AWS_ACCESS_KEY_ID=rustfsadmin \
-  --from-literal=AWS_SECRET_ACCESS_KEY=rustfsadmin
+  --from-literal=AWS_ACCESS_KEY_ID="${RUSTFS_ACCESS_KEY:?Set the configured RustFS access key}" \
+  --from-literal=AWS_SECRET_ACCESS_KEY="${RUSTFS_SECRET_KEY:?Set the configured RustFS secret key}"
 ```
 
-If the namespace or Secret already exists, keep it. For another object store, update both releases' values and prepare the Secret referenced by `objectStore.credentialsSecret` in `values/substrate-atelet.yaml`.
+Preserve an existing Secret and verify that its keys match the Substrate values before continuing. `kagent install` checks this match; this exported script does not. When `rustfs.enabled=false`, skip the RustFS Secret. For another object store, configure both releases and prepare the Secret referenced by `objectStore.credentialsSecret` in `values/substrate-atelet.yaml`, if one is configured.
 
 {{if .SkipDatabaseSetup -}}
 This export was generated with `--skip-database-setup`, so the values connect to your own database. Create the database and its connection Secrets before you run the script.

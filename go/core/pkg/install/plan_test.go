@@ -37,6 +37,12 @@ func (r *recordingRunner) Run(ctx context.Context, cmd Command) (string, error) 
 	if r.run != nil {
 		return r.run(cmd)
 	}
+	if cmd.Program == "helm" && cmd.Args[0] == "show" {
+		return "{}", nil
+	}
+	if cmd.Program == "helm" && cmd.Args[0] == "template" && cmd.Args[1] == "kagent-install-values" {
+		return valuesManifest(map[string]any{}), nil
+	}
 	if cmd.Program == "helm" && cmd.Args[0] == "template" {
 		return "kind: Deployment\nspec: {template: {spec: {serviceAccountName: existing-controller}}}", nil
 	}
@@ -78,7 +84,11 @@ func TestPlanAndApply(t *testing.T) {
 				plan, err := client.Plan(t.Context(), cfg)
 				require.NoError(t, err)
 				require.Empty(t, kube.Actions(), "planning must not access or mutate identity pools")
-				require.Len(t, runner.commands, 1, "planning only renders the controller")
+				planningCommands := len(runner.commands)
+				for _, cmd := range runner.commands {
+					require.Equal(t, "helm", cmd.Program)
+					require.Contains(t, []string{"template", "show"}, cmd.Args[0])
+				}
 				render := runner.commands[0]
 				require.Equal(t, "template", render.Args[0])
 				require.Contains(t, render.Args, chartReference(cfg.Kagent))
@@ -140,7 +150,7 @@ func TestPlanAndApply(t *testing.T) {
 				require.NoError(t, err)
 
 				// Verify what execution actually received, including non-Helm operations.
-				next := 1
+				next := planningCommands
 				for _, step := range steps {
 					switch s := step.(type) {
 					case ChartInstall:
@@ -257,8 +267,9 @@ func TestApplyCancellationAndEmptyPlan(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
+	planningCommands := len(runner.commands)
 	require.ErrorIs(t, client.Apply(ctx, plan, nil), context.Canceled)
-	require.Len(t, runner.commands, 1)
+	require.Len(t, runner.commands, planningCommands)
 }
 
 func TestPlanValuesFilesMergeWithGeneratedDefaults(t *testing.T) {
@@ -277,6 +288,7 @@ func TestPlanValuesFilesMergeWithGeneratedDefaults(t *testing.T) {
 	require.NoError(t, os.WriteFile(profile, []byte("controller: {replicas: 1}\nk8s-agent: {enabled: false}\n"), 0o600))
 	require.NoError(t, os.WriteFile(operator, []byte("controller: {replicas: 2, serviceAccount: {name: custom-controller}}\nk8s-agent: {enabled: true}\n"), 0o600))
 	require.NoError(t, os.WriteFile(substrate, []byte("ateApi: {replicas: 3}\natelet: {enabled: true}\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "substrate", "values.yaml"), []byte(testSubstrateDefaults), 0o600))
 	cfg := testConfig()
 	cfg.SkipDatabaseSetup = true
 	cfg.Kagent.Repository, cfg.Substrate.Repository, cfg.Atelet.Repository = root, root, root
@@ -308,7 +320,7 @@ func TestPlanValuesFilesMergeWithGeneratedDefaults(t *testing.T) {
 			}, values["controller"])
 			require.Equal(t, map[string]any{"enabled": true}, values["k8s-agent"])
 		case "substrate":
-			require.Equal(t, map[string]any{"enabled": false}, values["atelet"])
+			require.Equal(t, false, values["atelet"].(map[string]any)["enabled"])
 			require.Equal(t, map[string]any{
 				"replicas": float64(3),
 				"authorization": map[string]any{"bootstrapOwners": []any{
@@ -341,15 +353,13 @@ func TestModelCredentialValuesPreserveHelmPrecedence(t *testing.T) {
 		{"combined caller override", "configured-key", "providers.default=ollama,providers.openAI.apiKey=caller-key", "caller-key"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
+			cfg := localInstallConfig(t)
+			root := cfg.Kagent.Repository
 			chart := filepath.Join(root, "kagent")
-			require.NoError(t, os.MkdirAll(filepath.Join(chart, "templates"), 0o700))
-			require.NoError(t, os.WriteFile(filepath.Join(chart, "Chart.yaml"), []byte("apiVersion: v2\nname: kagent\nversion: 1.0.0\n"), 0o600))
 			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates/controller-deployment.yaml"), []byte("kind: Deployment\nspec: {template: {spec: {serviceAccountName: test-controller}}}\n"), 0o600))
 			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates/credential.yaml"), []byte("apiVersion: v1\nkind: Secret\nmetadata: {name: test}\ndata:\n  key: {{ .Values.providers.openAI.apiKey | b64enc | quote }}\n"), 0o600))
 			file := filepath.Join(root, "operator.yaml")
 			require.NoError(t, os.WriteFile(file, []byte("providers: {openAI: {apiKey: file-key}}\n"), 0o600))
-			cfg := testConfig()
 			cfg.SkipDatabaseSetup, cfg.APIKey = true, tc.key
 			cfg.Kagent.Repository, cfg.Kagent.ValuesFiles = root, []string{file}
 			cfg.Kagent.Values = []string{tc.override}

@@ -110,30 +110,6 @@ func TestEnsureSubstratePrerequisites(t *testing.T) {
 	}
 }
 
-func TestSubstratePrerequisitesPrepareAteletStorage(t *testing.T) {
-	t.Run("Given a fresh cluster, when prerequisites are prepared, assert that Atelet can use the development store credentials", func(t *testing.T) {
-		client := fake.NewSimpleClientset()
-		require.NoError(t, ensureSubstratePrerequisites(t.Context(), client, "kagent"))
-		secret, err := client.CoreV1().Secrets(substrateNamespace).Get(t.Context(), "kagent-rustfs-credentials", metav1.GetOptions{})
-		require.NoError(t, err)
-		require.Equal(t, map[string][]byte{
-			"AWS_ACCESS_KEY_ID":     []byte("rustfsadmin"),
-			"AWS_SECRET_ACCESS_KEY": []byte("rustfsadmin"),
-		}, secret.Data)
-	})
-	t.Run("Given existing storage credentials, when prerequisites are prepared again, assert that the credentials are preserved", func(t *testing.T) {
-		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "kagent-rustfs-credentials", Namespace: substrateNamespace},
-			Data:       map[string][]byte{"AWS_ACCESS_KEY_ID": []byte("custom-key"), "AWS_SECRET_ACCESS_KEY": []byte("custom-secret")},
-		}
-		client := fake.NewSimpleClientset(secret)
-		require.NoError(t, ensureSubstratePrerequisites(t.Context(), client, "kagent"))
-		got, err := client.CoreV1().Secrets(substrateNamespace).Get(t.Context(), secret.Name, metav1.GetOptions{})
-		require.NoError(t, err)
-		require.Equal(t, secret.Data, got.Data)
-	})
-}
-
 func TestEnsureAPIAuthenticationPreservesProviders(t *testing.T) {
 	const providers = `jwtProviders:
 - name: custom

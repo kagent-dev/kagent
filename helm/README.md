@@ -52,21 +52,57 @@ The CLI installs `substrate-atelet` in `ate-system` and waits for it before
 installing the main `substrate` release with `atelet.enabled=false`. Both charts
 use the version and repository from `install.substrate` by default;
 `install.atelet` can override these and supply its own `valuesFiles`. Move node
-settings such as `atelet.extraArgs`, `atelet.resources`, and node object-store
-settings into those files. Shared settings such as `preview`, image registry, and
-telemetry must be supplied to both releases when overridden.
+settings there when they should apply only to Atelet. Existing
+`install.substrate.valuesFiles` and `values` are inherited by Atelet, including
+`atelet.extraArgs`, resources, credential provider paths, image registry,
+`imagePullSecrets`, `global`, `preview`, and telemetry. Atelet-specific files and
+then Atelet-specific `values` override the shared settings, including shared
+`--set` values. Exported installations use the same precedence.
 
 The development install prepares the `kagent-rustfs-credentials` Secret before
-Atelet starts, using the bundled RustFS defaults. For a different store, configure
-both charts: use the main chart's storage settings and the Atelet chart's
-`objectStore` settings. Point `objectStore.credentialsSecret` at your existing
-Secret, or set it to `""` to use the SDK credential chain. Supply matching
-credentials when overriding the main chart's `rustfs.accessKey` or
-`rustfs.secretKey`. See the [Atelet chart values](https://github.com/kagent-dev/substrate/blob/v1.0.0-rc4/charts/substrate-atelet/README.md#values).
+Atelet starts, using `rustfs.accessKey` and `rustfs.secretKey` from the selected
+Substrate chart's defaults plus your overrides. It preserves an existing Secret
+and stops if its credentials differ from the configured values. With
+`rustfs.enabled=false`, it skips this Secret and the RustFS endpoint defaults.
+The shared `atelet.storageBackend` becomes `objectStore.backend` for Atelet.
+For a different store, configure the main chart's storage settings and the
+Atelet chart's `objectStore` settings. Point `objectStore.credentialsSecret` at
+your existing Secret, or set it to `""` to use the SDK credential chain. See the
+[Atelet chart values](https://github.com/kagent-dev/substrate/blob/v1.0.0-rc4/charts/substrate-atelet/README.md#values).
 
-Existing installations with Atelet owned by the main Substrate release require
-a fresh install to adopt the separate release. Follow the [upstream migration
-instructions](https://github.com/kagent-dev/substrate/blob/v1.0.0-rc4/charts/substrate-atelet/README.md#existing-installs).
+Existing installations can move Atelet to the separate release in place. Use
+Helm 3.17 or later and follow [Moving atelet to substrate-atelet in the rc4
+release notes](https://github.com/kagent-dev/substrate/releases/tag/v1.0.0-rc4#moving-atelet-to-substrate-atelet)
+before running `kagent install` again, with these Kagent-specific adjustments:
+
+1. Name the RustFS credentials Secret `kagent-rustfs-credentials` and set
+   `objectStore.credentialsSecret` to that name in `atelet-values.yaml`. Use the
+   existing Substrate release's effective RustFS keys, including any overrides.
+2. Keep the upstream `helm.sh/resource-policy=keep` annotations during adoption.
+   `--take-ownership` alone does not prevent the base upgrade from deleting
+   Atelet. After step 3, wait for the full DaemonSet rollout before continuing:
+
+   ```sh
+   kubectl rollout status daemonset/atelet -n ate-system --timeout=5m
+   ```
+
+3. In step 4, update the WorkerPool through the Kagent release. Set
+   `KAGENT_CHART_VERSION` to the currently installed Kagent chart version so this
+   step changes only the worker image. Adjust the release and namespace if needed:
+
+   ```sh
+   helm upgrade kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+     --version "${KAGENT_CHART_VERSION:?Set the installed Kagent chart version}" \
+     -n kagent --reuse-values \
+     --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateworker-gvisor:v1.0.0-rc4 \
+     --wait
+   ```
+
+   For microVM WorkerPools, use `ateworker-microvm:v1.0.0-rc4` instead. Update any
+   other WorkerPools through their owning configuration as well.
+4. In step 5, pass `-n ate-system` when upgrading `substrate-crds` installed by
+   the CLI. Upgrade the base chart with `atelet.enabled=false`, then remove the
+   keep annotations as described in step 6.
 
 Runtime TaskStore calls require Actor JWTs injected by Substrate egress. Set
 `config.substrate.actorJwtIssuer` to Substrate's `ateApi.actorJWTIssuer` (both

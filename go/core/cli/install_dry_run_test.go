@@ -23,6 +23,7 @@ func installConfigWithLocalCharts(t *testing.T) string {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v2\nname: "+name+"\nversion: 0.0.0\n"), 0o600))
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "kagent", "templates", "controller-deployment.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: controller}\nspec: {template: {spec: {serviceAccountName: configured-controller}}}\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "substrate", "values.yaml"), []byte("rustfs: {enabled: true, accessKey: default-key, secretKey: default-secret}\natelet: {storageBackend: s3}\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "operator.yaml"), []byte("controller: {replicas: 2}\nuserProvidedValue: retained\n"), 0o600))
 	config := fmt.Sprintf(`install:
   defaultModelProvider: OpenAI

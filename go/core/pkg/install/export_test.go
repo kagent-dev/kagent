@@ -65,7 +65,7 @@ func TestExportOnlyWritesHelmArtifacts(t *testing.T) {
 			require.Len(t, values, 6)
 			for _, cmd := range runner.commands {
 				require.Equal(t, "helm", cmd.Program)
-				require.Equal(t, "template", cmd.Args[0], "export must never invoke mutating commands")
+				require.Contains(t, []string{"template", "show"}, cmd.Args[0], "export must never invoke mutating commands")
 				require.NotContains(t, strings.Join(cmd.Args, " ")+cmd.Stdin, cfg.APIKey)
 			}
 			require.Equal(t, "secret-provider-key", cfg.APIKey, "export must not mutate its input")
@@ -389,6 +389,70 @@ func TestExportMatchesHelmInstallInputs(t *testing.T) {
 			require.NotContains(t, string(script), token)
 			require.Contains(t, string(data), "userValue: retained")
 			require.NotContains(t, string(data), "userValue: changed")
+		})
+	}
+}
+
+func TestExportRedactsInheritedCredentials(t *testing.T) {
+	for _, scenario := range []struct {
+		name        string
+		setValues   bool
+		separateRef bool
+	}{
+		{"Given a shared values file, when exporting, assert that both releases redact the credential", false, false},
+		{"Given shared set values, when exporting, assert that both releases redact the credential", true, false},
+		{"Given a separate Atelet credential, when exporting, assert that its explicit reference takes precedence", true, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			cfg := localInstallConfig(t)
+			const token = "shared-credential-not-for-export"
+			const nodeToken = "node-credential-not-for-export"
+			if scenario.setValues {
+				cfg.Substrate.Values = []string{"otel.headers.authorization=" + token}
+			} else {
+				file := filepath.Join(t.TempDir(), "shared.yaml")
+				require.NoError(t, os.WriteFile(file, []byte("otel: {headers: {authorization: "+token+"}}\n"), 0o600))
+				cfg.Substrate.ValuesFiles = []string{file}
+			}
+			refs := []SecretReference{{Release: substrateRelease, Path: []string{"otel", "headers", "authorization"}, Environment: "SHARED_TOKEN"}}
+			nodeEnvironment := "SHARED_TOKEN"
+			if scenario.separateRef {
+				cfg.Atelet.Values = []string{"otel.headers.authorization=" + nodeToken}
+				nodeEnvironment = "NODE_TOKEN"
+				refs = append(refs, SecretReference{Release: ateletRelease, Path: []string{"otel", "headers", "authorization"}, Environment: nodeEnvironment})
+			}
+			originalRefs := slices.Clone(refs)
+			output := filepath.Join(t.TempDir(), "export")
+			_, err := Export(t.Context(), CommandRunner{}, cfg, ExportOptions{Directory: output, ReadmeTemplate: testReadmeTemplate, APIKeyEnvironment: "MODEL_KEY", Secrets: refs})
+			require.NoError(t, err)
+			require.Equal(t, originalRefs, refs)
+			require.NoError(t, filepath.WalkDir(output, func(path string, entry os.DirEntry, err error) error {
+				if err != nil || entry.IsDir() {
+					return err
+				}
+				data, err := os.ReadFile(path)
+				require.NoError(t, err)
+				require.NotContains(t, string(data), token)
+				require.NotContains(t, string(data), nodeToken)
+				return nil
+			}))
+			script, err := os.ReadFile(filepath.Join(output, "install.sh"))
+			require.NoError(t, err)
+			for release, environment := range map[string]string{substrateRelease: "SHARED_TOKEN", ateletRelease: nodeEnvironment} {
+				data, err := os.ReadFile(filepath.Join(output, "values", release+".yaml"))
+				require.NoError(t, err)
+				var values map[string]any
+				require.NoError(t, yaml.Unmarshal(data, &values))
+				require.Contains(t, values, "otel")
+				require.Equal(t, "${"+environment+"}", values["otel"].(map[string]any)["headers"].(map[string]any)["authorization"])
+				var command string
+				for line := range strings.SplitSeq(string(script), "\n") {
+					if strings.HasPrefix(line, "helm upgrade --install "+release+" ") {
+						command = line
+					}
+				}
+				require.Contains(t, command, "--set-file otel.headers.authorization=\"$secret_dir/"+environment+"\"")
+			}
 		})
 	}
 }

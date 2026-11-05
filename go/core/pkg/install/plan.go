@@ -40,6 +40,7 @@ type Step interface {
 // configuration, preserving existing private keys. Keys are generated only by Apply.
 type SubstratePrerequisites struct {
 	Namespace string
+	rustFS    rustFSValues
 }
 
 var _ Step = SubstratePrerequisites{}
@@ -129,10 +130,12 @@ config:
 	}
 	substrate := cloneChart(cfg.Substrate)
 	substrate.inlineValues = substrateInstallValues(cfg.Namespace, serviceAccount)
+	atelet, rustFS, err := resolveAteletValues(ctx, runner, substrate, cfg.Atelet)
+	if err != nil {
+		return Plan{}, err
+	}
 	// Atelet belongs to its own release and must finish rolling out first.
 	substrate.Values = append(substrate.Values, "atelet.enabled=false")
-	atelet := cloneChart(cfg.Atelet)
-	atelet.inlineValues = ateletInstallValues
 	podcert := cloneChart(cfg.PodCertificate)
 	podcert.Values = append(postgresClientValues(cfg.Namespace, serviceAccount, !cfg.SkipDatabaseSetup), podcert.Values...)
 	if !cfg.SkipDatabaseSetup {
@@ -141,7 +144,7 @@ config:
 	steps := []Step{
 		ChartInstall{Release: kagentCRDsRelease, Namespace: cfg.Namespace, Chart: cloneChart(cfg.KagentCRDs)},
 		ChartInstall{Release: substrateCRDsRelease, Namespace: substrateNamespace, Chart: cloneChart(cfg.SubstrateCRDs)},
-		SubstratePrerequisites{Namespace: cfg.Namespace},
+		SubstratePrerequisites{Namespace: cfg.Namespace, rustFS: rustFS},
 		ChartInstall{Release: podCertificateRelease, Namespace: podCertificateNamespace, Chart: podcert},
 	}
 	if !cfg.SkipDatabaseSetup {
@@ -192,6 +195,9 @@ func (c *Client) Apply(ctx context.Context, plan Plan, progress func(string)) er
 			if err := c.PrepareSubstrate(ctx, s.Namespace); err != nil {
 				return fmt.Errorf("failed to prepare Substrate prerequisites: %w", err)
 			}
+			if err := c.prepareRustFSCredentials(ctx, s.rustFS); err != nil {
+				return err
+			}
 		case Postgres:
 			if err := c.PreparePostgres(ctx, s); err != nil {
 				return err
@@ -229,18 +235,6 @@ credentialProvider:
       allowedNamespaces: [%s]
 `, controllerIdentity, controllerIdentity, strconv.Quote(namespace), strconv.Quote(namespace))
 }
-
-// Match the development RustFS store in the Substrate release. Callers using
-// another store must configure both charts through their own values files.
-const ateletInstallValues = `preview:
-  - PerTemplateSnapshotLocation
-objectStore:
-  backend: s3
-  endpoint: http://rustfs.ate-system.svc:9000
-  region: us-east-1
-  pathStyle: true
-  credentialsSecret: kagent-rustfs-credentials
-`
 
 func clonePostgres(p Postgres) Postgres {
 	p.ExtraHBA = slices.Clone(p.ExtraHBA)
