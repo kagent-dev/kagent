@@ -254,10 +254,12 @@ function AgentForm({ agent }: { agent?: Agent }) {
         <Form layout="vertical">
           <Form.Item
             label={egressCopy.agent.field}
+            htmlFor="agent-form-egress-refs"
             validateStatus={egressPolicies.error ? "error" : undefined}
             help={egressPolicies.error?.message}
           >
             <Select
+              id="agent-form-egress-refs"
               mode="multiple"
               allowClear
               data-testid="agent-form-egress-refs"
