@@ -245,15 +245,15 @@ func interactionContext(ctx context.Context) context.Context {
 func invocationResult(task *a2atype.Task) (*mcp.CallToolResult, InvokeAgentOutput) {
 	text := taskText(task)
 	return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: text}},
-			IsError: task.Status.State == a2atype.TaskStateFailed ||
-				task.Status.State == a2atype.TaskStateRejected ||
-				task.Status.State == a2atype.TaskStateAuthRequired,
-		}, InvokeAgentOutput{
-			SessionID: task.ContextID,
-			TaskID:    string(task.ID), ContextID: task.ContextID,
-			State: task.Status.State.String(), Text: text,
-		}
+		Content: []mcp.Content{&mcp.TextContent{Text: text}},
+		IsError: task.Status.State == a2atype.TaskStateFailed ||
+			task.Status.State == a2atype.TaskStateRejected ||
+			task.Status.State == a2atype.TaskStateAuthRequired,
+	}, InvokeAgentOutput{
+		SessionID: task.ContextID,
+		TaskID:    string(task.ID), ContextID: task.ContextID,
+		State: task.Status.State.String(), Text: text,
+	}
 }
 
 // taskText is taskReply, or the task as JSON when the task has no reply yet:
