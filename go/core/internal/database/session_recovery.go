@@ -161,19 +161,26 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 	return operation, err
 }
 
-// GetSessionRecoverySnapshot returns the durable snapshot URI pinned when the
-// Session's REVERT operation was admitted. The URI is empty when the crashed
-// Actor had no durable snapshot. Any other operation returns ErrNotFound.
-func (c *Client) GetSessionRecoverySnapshot(ctx context.Context, sessionID string, operationID uuid.UUID) (string, error) {
-	uri, err := queryOne(ctx, c.db, `
-		SELECT s.recovery_snapshot_uri FROM session s JOIN runtime_instance r USING (id)
-		WHERE s.id = $1 AND s.recovery_operation_id = $2
+// SessionRecoveryPin is what an admitted REVERT must restore: the recorded Actor
+// and the durable snapshot admission settled waits against. SnapshotURI is empty
+// when the crashed Actor had no durable snapshot.
+type SessionRecoveryPin struct {
+	ActorUID    string
+	SnapshotURI string
+}
+
+// GetSessionRecoveryPin returns the pin of the Session's current REVERT
+// operation. Any other operation returns ErrNotFound.
+func (c *Client) GetSessionRecoveryPin(ctx context.Context, sessionID string, operationID uuid.UUID) (SessionRecoveryPin, error) {
+	pin, err := queryOne(ctx, c.db, `
+		SELECT s.actor_uid, s.recovery_snapshot_uri AS snapshot_uri FROM session s JOIN runtime_instance r USING (id)
+		WHERE s.id = $1 AND s.recovery_operation_id = $2 AND s.actor_uid IS NOT NULL
 		  AND r.operation_id = $2 AND r.operation = 'RUNTIME_OPERATION_REVERT'
-	`, pgx.RowTo[string], sessionID, operationID)
+	`, pgx.RowToStructByName[SessionRecoveryPin], sessionID, operationID)
 	if err != nil {
-		return "", fmt.Errorf("read Session %s recovery snapshot: %w", sessionID, notFoundOr(err))
+		return SessionRecoveryPin{}, fmt.Errorf("read Session %s recovery pin: %w", sessionID, notFoundOr(err))
 	}
-	return uri, nil
+	return pin, nil
 }
 
 // AbandonSessionRecovery ends an admitted REVERT whose Actor can no longer be

@@ -17,7 +17,7 @@ import (
 type workflowStore interface {
 	GetSessionGeneration(context.Context, string) (*database.SessionGeneration, error)
 	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration, database.SessionTaskSnapshot) (*database.SessionOperation, error)
-	GetSessionRecoverySnapshot(context.Context, string, uuid.UUID) (string, error)
+	GetSessionRecoveryPin(context.Context, string, uuid.UUID) (database.SessionRecoveryPin, error)
 	AbandonSessionRecovery(context.Context, string, uuid.UUID, string) (*apiv1.Session, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
@@ -163,12 +163,12 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	}
 	var transition *substrate.ActorTransition
 	switch {
-	case kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT:
-		var pinned string
-		if pinned, err = w.store.GetSessionRecoverySnapshot(ctx, sessionID, operation.ID); err != nil {
-			return w.failPreparation(ctx, operation, fmt.Errorf("load admitted recovery snapshot: %w", err))
+	case database.CrashRecoveryAdmitted(session):
+		var pin database.SessionRecoveryPin
+		if pin, err = w.store.GetSessionRecoveryPin(ctx, sessionID, operation.ID); err != nil {
+			return w.failPreparation(ctx, operation, fmt.Errorf("load admitted recovery pin: %w", err))
 		}
-		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding, pinned)
+		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding, pin.ActorUID, pin.SnapshotURI)
 	case operation.ExecutorID != uuid.Nil:
 		transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
 	default:

@@ -129,11 +129,14 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 // PrepareActorRevert performs the read-only checks for crash recovery before
 // the store's durable claim. Reading first keeps a failed Actor read from
 // leaving a claim behind, so Delete can still supersede the unissued recovery.
-// snapshotURI is the durable snapshot admission pinned ("" for none). Admission
-// already settled the interrupted turn against it, so the revert must restore
-// exactly that snapshot rather than whatever Substrate holds when it runs.
-// A SUSPENDED Actor means an earlier revert completed and its response was lost.
-func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding, snapshotURI string) (*ActorTransition, error) {
+// actorUID is the recorded runtime and snapshotURI the durable snapshot admission
+// pinned ("" for none). Admission already settled the interrupted turn against
+// that snapshot, so the revert must restore exactly it rather than whatever
+// Substrate holds when it runs. Identity is checked before state: a replacement
+// in any state is unrecoverable, never a transient refusal that would keep a
+// claimed recovery, and with it Delete, blocked. A SUSPENDED Actor means an
+// earlier revert completed and its response was lost.
+func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding, actorUID, snapshotURI string) (*ActorTransition, error) {
 	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
 	if status.Code(err) == codes.NotFound {
 		return nil, fmt.Errorf("actor %s/%s is missing: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
@@ -141,7 +144,7 @@ func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding Act
 	if err != nil {
 		return nil, fmt.Errorf("get Actor %s/%s: %w", binding.Atespace, binding.Name, err)
 	}
-	if !binding.Matches(actor) {
+	if !binding.Matches(actor) || actor.GetMetadata().GetUid() != actorUID {
 		return nil, fmt.Errorf("actor %s/%s identity or template changed: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
 	}
 	switch actor.GetStatus().GetState() {

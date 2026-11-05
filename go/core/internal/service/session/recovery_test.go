@@ -497,14 +497,16 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 // gone can never finish, so it ends even after an earlier attempt claimed it.
 func TestDeleteSupersedesRecoveryThatCannotFinish(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		claimed bool
-		gone    bool
-		readErr error
+		name     string
+		claimed  bool
+		gone     bool
+		replaced bool
+		readErr  error
 	}{
 		{name: "actor read fails", readErr: status.Error(codes.Unavailable, "control plane unavailable")},
 		{name: "actor is gone", gone: true},
 		{name: "actor is gone after an issued attempt", claimed: true, gone: true},
+		{name: "running replacement after an issued attempt", claimed: true, replaced: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, base, session, _, _ := crashedTurnFixture(t)
@@ -524,6 +526,11 @@ func TestDeleteSupersedesRecoveryThatCannotFinish(t *testing.T) {
 			if test.gone {
 				delete(base.actors, key)
 			}
+			if test.replaced {
+				base.actors[key].Metadata.Uid = "replacement-uid"
+				base.actors[key].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+			}
+			unrecoverable := test.gone || test.replaced
 			actors := &recoveryTestActors{lifecycleTestActors: base, readErr: test.readErr}
 			actors.revert = func(context.Context, string, string) (*ateapipb.Actor, error) {
 				t.Fatal("an unread Actor was reverted")
@@ -535,19 +542,30 @@ func TestDeleteSupersedesRecoveryThatCannotFinish(t *testing.T) {
 				require.NoError(t, err)
 				_, err = workflow.Revert(t.Context(), admitted)
 				require.Error(t, err)
-				require.Equal(t, test.gone, errors.Is(err, errRuntimeUnrecoverable))
+				require.Equal(t, unrecoverable, errors.Is(err, errRuntimeUnrecoverable))
 			}
 
 			pending, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, pending.State)
-			if test.gone {
+			if unrecoverable {
 				require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, pending.Operation, "a recovery that cannot finish is abandoned")
 				require.Equal(t, database.SessionRuntimeUnrecoverable, pending.Failure.GetReason())
 			} else {
 				require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed read keeps the recovery for a retry")
 			}
 			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending, false)
+			if test.replaced {
+				// Delete is admitted, but never removes a same-name replacement.
+				require.NotErrorIs(t, err, database.ErrConflict)
+				deleting, err := store.GetSessionByID(t.Context(), session.Id)
+				require.NoError(t, err)
+				require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, deleting.State, "Delete closed admission")
+				replacement, err := base.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+				require.NoError(t, err)
+				require.Equal(t, "replacement-uid", replacement.GetMetadata().GetUid())
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 			_, err = base.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))

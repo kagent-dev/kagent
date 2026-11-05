@@ -277,6 +277,7 @@ func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 		revertUID      string
 		revertSnapshot *ateapipb.Snapshot
 		pinned         *string
+		recordedUID    string
 		wantPrepareErr bool
 		unrecoverable  bool
 		wantApplyErr   bool
@@ -287,6 +288,7 @@ func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 		{name: "earlier revert response lost", state: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
 		{name: "running actor", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, wantPrepareErr: true},
 		{name: "actor gone", missing: true, wantPrepareErr: true, unrecoverable: true},
+		{name: "running replacement", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, recordedUID: "recorded-uid", wantPrepareErr: true, unrecoverable: true},
 		{name: "snapshot changed after admission", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, pinned: new("s3://snapshots/admitted"), wantPrepareErr: true, unrecoverable: true},
 		{name: "replaced actor", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, revertUID: "another-actor", wantApplyErr: true, wantCalls: []string{"revert"}},
 		{name: "different snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, revertSnapshot: durable(1, "s3://snapshots/older"), wantApplyErr: true, wantCalls: []string{"revert"}},
@@ -308,7 +310,11 @@ func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 			if test.pinned != nil {
 				pinned = *test.pinned
 			}
-			transition, err := PrepareActorRevert(t.Context(), actors, binding, pinned)
+			recordedUID := "actor-uid"
+			if test.recordedUID != "" {
+				recordedUID = test.recordedUID
+			}
+			transition, err := PrepareActorRevert(t.Context(), actors, binding, recordedUID, pinned)
 			if test.wantPrepareErr {
 				require.Error(t, err)
 				require.Equal(t, test.unrecoverable, errors.Is(err, ErrActorUnrecoverable))

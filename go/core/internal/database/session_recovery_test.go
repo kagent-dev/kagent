@@ -52,7 +52,7 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			}
 			before, _, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
 			require.NoError(t, err)
-			_, err = client.GetSessionRecoverySnapshot(t.Context(), session.Id, uuid.New())
+			_, err = client.GetSessionRecoveryPin(t.Context(), session.Id, uuid.New())
 			require.ErrorIs(t, err, ErrNotFound)
 
 			operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, "actor-"+session.Id), snapshot)
@@ -85,9 +85,10 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), ErrConflict)
 			_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
 			require.ErrorIs(t, err, ErrConflict)
-			pinned, err := client.GetSessionRecoverySnapshot(t.Context(), session.Id, operation.ID)
+			pin, err := client.GetSessionRecoveryPin(t.Context(), session.Id, operation.ID)
 			require.NoError(t, err)
-			require.Equal(t, snapshot.URI, pinned, "the operation pins the snapshot that settlement judged waits against")
+			require.Equal(t, SessionRecoveryPin{ActorUID: "actor-" + session.Id, SnapshotURI: snapshot.URI}, pin,
+				"the operation pins the Actor and the snapshot that settlement judged waits against")
 		})
 	}
 }
