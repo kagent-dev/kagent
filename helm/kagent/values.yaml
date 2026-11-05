@@ -372,6 +372,7 @@ controller:
 
   # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
   # kagent generates per-harness ActorTemplates and references an existing WorkerPool.
+  # Not supported in kagent v0.10.x: enabling it fails the install.
   substrate:
     enabled: false
     ateApiEndpoint: ""
@@ -423,6 +424,7 @@ controller:
 
 # -- Optional Agent Substrate WorkerPool installed by this chart. This is platform
 # capacity and is not owned by individual AgentHarness resources.
+# Not supported in kagent v0.10.x: enabling it fails the install.
 substrateWorkerPool:
   create: false
   name: kagent-default
@@ -713,6 +715,7 @@ kmcp:
 # SUBSTRATE
 # ==============================================================================
 
+# Not supported in kagent v0.10.x: enabling it fails the install.
 substrate:
   enabled: false
 
