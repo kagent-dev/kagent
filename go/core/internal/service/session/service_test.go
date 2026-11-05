@@ -478,6 +478,17 @@ func TestServiceListPassesAgentToStore(t *testing.T) {
 	}
 }
 
+func TestServiceListPassesNamespaceToStore(t *testing.T) {
+	store := &serviceTestStore{}
+	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+	if _, err := service.List(serviceTestContext("alice"), ListRequest{Namespace: "team-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if store.listQuery.Namespace != "team-a" {
+		t.Fatal("namespace filter was lost")
+	}
+}
+
 func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
 	store := &serviceTestStore{shareErr: database.ErrNotFound}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
@@ -635,6 +646,8 @@ func TestServiceSharedListCannotBroadenAccess(t *testing.T) {
 		{name: "all creators", request: ListRequest{AllCreators: true}, count: 1},
 		{name: "matching Agent", request: ListRequest{Agent: agent}, count: 1},
 		{name: "other Agent", request: ListRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "other"}}},
+		{name: "matching namespace", request: ListRequest{Namespace: "team-a"}, count: 1},
+		{name: "other namespace", request: ListRequest{Namespace: "team-b"}},
 		{name: "past shared conversation", request: ListRequest{PageToken: encodePageToken(id)}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
