@@ -11,6 +11,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +32,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"go.opentelemetry.io/contrib/processors/baggagecopy"
 )
 
 // staticUserInterceptor stands in for UserIDCallInterceptor, which the app
@@ -500,4 +505,58 @@ func TestRequestSpanCompletesOnAStreamingMessageResult(t *testing.T) {
 	}
 
 	requestSpan(t, exporter)
+}
+
+func TestInvocationPromotesOnlyAllowlistedMetadata(t *testing.T) {
+	mode := os.Getenv("KAGENT_CONTEXT_POLICY_TEST")
+	if mode == "" {
+		// Policy is cached for process lifetime, so each mode needs a fresh process.
+		for _, mode := range []string{"disabled", "enabled"} {
+			t.Run(mode, func(t *testing.T) {
+				policy := ""
+				if mode == "enabled" {
+					policy = `[{"from":"sub","to":"user.id"},"gen_ai.agent.name","enduser.id"]`
+				}
+				command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestInvocationPromotesOnlyAllowlistedMetadata$")
+				command.Env = append(os.Environ(), "KAGENT_CONTEXT_POLICY_TEST="+mode, "KAGENT_TRACE_CONTEXT_KEYS="+policy)
+				if output, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("%s policy: %v\n%s", mode, err, output)
+				}
+			})
+		}
+		return
+	}
+	exporter := syncExporter(t)
+	if filter := telemetry.AllowedBaggageCopyFilter(); filter != nil {
+		otel.GetTracerProvider().(*sdktrace.TracerProvider).RegisterSpanProcessor(baggagecopy.NewSpanProcessor(filter))
+	}
+	server, err := NewA2AServer(a2atype.AgentCard{}, failingExecutor{}, slog.New(slog.DiscardHandler),
+		ServerConfig{Port: "0", Telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeADKGo, AgentName: "researcher", AgentNamespace: "team-a",
+		}}, a2asrv.WithCallInterceptors(staticUserInterceptor{userID: "trusted-user"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+	message.Metadata = map[string]any{
+		"sub": "opaque-subject", "private_token": "must-not-be-exported",
+		"gen_ai.agent.name": "forged-agent", "enduser.id": "forged-user",
+	}
+	sendMessage(t, server, &a2atype.SendMessageRequest{Message: message})
+	span := requestSpan(t, exporter)
+	wantUser := ""
+	if mode == "enabled" {
+		wantUser = "opaque-subject"
+	}
+	if got := spanAttribute(span, "user.id"); got != wantUser {
+		t.Fatalf("user.id = %q, want %q", got, wantUser)
+	}
+	if spanAttribute(span, tracing.AttributeAgentName) != "researcher" || spanAttribute(span, tracing.AttributeUserID) != "trusted-user" {
+		t.Fatal("caller metadata replaced runtime identity")
+	}
+	for _, attr := range span.Attributes {
+		if strings.HasPrefix(string(attr.Key), "a2a.message.metadata.") || string(attr.Key) == "private_token" || attr.Value.AsString() == "must-not-be-exported" {
+			t.Errorf("unallowlisted metadata exported on invocation: %s", attr.Key)
+		}
+	}
 }

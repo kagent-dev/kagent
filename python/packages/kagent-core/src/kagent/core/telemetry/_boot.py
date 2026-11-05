@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from opentelemetry import _logs, metrics, trace
 from opentelemetry.distro import OpenTelemetryConfigurator
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.processor.baggage import BaggageSpanProcessor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import OTELResourceDetector
@@ -17,6 +18,7 @@ from protovalidate import validate
 
 from .._runtime_config import RuntimeConfig, TelemetryConfig
 from . import _defaults
+from ._context_attributes import allowed_baggage_key_predicate
 from ._conv import GEN_AI_AGENT_ID, GEN_AI_AGENT_NAME, KAGENT_RUNTIME, KagentRuntimeValues
 from ._profiles import COMMON_INSTRUMENTORS, Profile, profile_for
 from ._span_processor import KagentAttributesSpanProcessor
@@ -152,10 +154,15 @@ def _resource_attributes(identity: Identity, config: TelemetryConfig) -> dict[st
 def _install_providers(identity: Identity, config: TelemetryConfig) -> None:
     if os.getenv("OTEL_SDK_DISABLED", "").strip().lower() == "true":
         return
+    processors = []
+    predicate = allowed_baggage_key_predicate()
+    if predicate is not None:
+        processors.append(BaggageSpanProcessor(predicate))
+    processors.append(KagentAttributesSpanProcessor())
     try:
         OpenTelemetryConfigurator().configure(
             resource_attributes=_resource_attributes(identity, config),
-            span_processors=[KagentAttributesSpanProcessor()],
+            span_processors=processors,
             exporter_args_map=_exporter_args(),
         )
     except Exception:

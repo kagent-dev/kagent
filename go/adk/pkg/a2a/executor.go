@@ -275,10 +275,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		defer e.runningUsage.track(reqCtx.TaskID, usage)()
 		// The invocation span started before this executor ran, so the request
 		// identity has to be recorded on it directly. ADK's own spans get it
-		// through the request attribute span processor.
+		// through the request attribute span processor. Promote here as well
+		// for invocations that bypass the transport interceptor.
 		resumed := reqCtx.StoredTask != nil &&
 			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
 		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
+		ctx = telemetry.ContextWithPromotedMetadata(ctx, reqCtx.Message.Metadata)
 		ctx = telemetry.WithRequestAttributes(ctx, requestSpanAttributes(sessionID, string(reqCtx.TaskID), trustedUserID)...)
 		// The identity replaces any caller members of the same name, so a caller
 		// cannot impersonate another conversation downstream.

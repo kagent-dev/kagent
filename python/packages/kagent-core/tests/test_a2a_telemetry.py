@@ -330,3 +330,68 @@ async def test_without_bootstrap_the_span_still_carries_request_identity(monkeyp
     assert span.name == "a2a.request"
     assert span.attributes["enduser.id"] == "alice"
     assert "flush" not in log
+
+
+@pytest.mark.parametrize(
+    "runtime",
+    [
+        KagentRuntimeValues.ADK_PYTHON,
+        KagentRuntimeValues.LANGGRAPH,
+        KagentRuntimeValues.OPENAI_AGENTS,
+        KagentRuntimeValues.CREWAI,
+    ],
+)
+@pytest.mark.parametrize(
+    "allowlist", ["", '[{"from":"sub","to":"user.id"},"gen_ai.agent.name","gen_ai.conversation.id","enduser.id"]']
+)
+async def test_metadata_policy_covers_invocation_and_model(monkeypatch, log, runtime, allowlist):
+    from google.protobuf.json_format import ParseDict
+    from opentelemetry import baggage
+    from opentelemetry import context as otel_context
+    from opentelemetry.processor.baggage import BaggageSpanProcessor
+
+    from kagent.core.telemetry._context_attributes import _allowed_context_mappings, allowed_baggage_key_predicate
+
+    monkeypatch.setenv("KAGENT_TRACE_CONTEXT_KEYS", allowlist)
+    _allowed_context_mappings.cache_clear()
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    predicate = allowed_baggage_key_predicate()
+    if predicate is not None:
+        provider.add_span_processor(BaggageSpanProcessor(predicate))
+    provider.add_span_processor(KagentAttributesSpanProcessor())
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(_telemetry, "_tracer", lambda: provider.get_tracer("kagent.core.a2a"))
+    use(monkeypatch, runtime)
+    handler = handler_for(Agent(provider.get_tracer("test"), log))
+    request = send("metadata-policy")
+    ParseDict(
+        {
+            "sub": "opaque-subject",
+            "private_token": "must-not-be-exported",
+            "gen_ai.agent.name": "forged-agent",
+            "gen_ai.conversation.id": "forged-context",
+            "enduser.id": "forged-user",
+        },
+        request.message.metadata,
+    )
+    original = otel_context.get_current()
+    try:
+        await stream(handler, request, log)
+        assert otel_context.get_current() is original
+        assert baggage.get_baggage("user.id") is None
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 2
+        for span in spans:
+            attrs = dict(span.attributes or {})
+            assert attrs.get("user.id") == ("opaque-subject" if allowlist else None)
+            if span.instrumentation_scope.name == "kagent.core.a2a":
+                assert attrs["gen_ai.agent.name"] == "researcher"
+            assert attrs["enduser.id"] == "alice"
+            assert attrs["gen_ai.conversation.id"] != "forged-context"
+            assert not any(key.startswith("a2a.message.metadata.") for key in attrs)
+            assert "private_token" not in attrs
+            assert "must-not-be-exported" not in attrs.values()
+    finally:
+        await handler.aclose()
+        provider.shutdown()

@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -71,11 +72,20 @@ func newInvocationInterceptor(logger *slog.Logger, telemetry tracing.RuntimeTele
 	return interceptor
 }
 
-func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
+func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
 	method := callCtx.Method()
 	if method != "SendMessage" && method != "SendStreamingMessage" {
 		return ctx, nil, nil
 	}
+	var metadata map[string]any
+	if request != nil {
+		if params, ok := request.Payload.(*a2atype.SendMessageRequest); ok && params != nil && params.Message != nil {
+			metadata = params.Message.Metadata
+		}
+	}
+	// Promote before the invocation starts, so the same baggage processor
+	// covers the invocation and every descendant span.
+	ctx = telemetry.ContextWithPromotedMetadata(ctx, metadata)
 	attributes := make([]attribute.KeyValue, 0, len(i.static)+2)
 	attributes = append(attributes, attribute.String(tracing.AttributeMethod, method))
 	attributes = append(attributes, i.static...)
@@ -85,6 +95,8 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 		attributes = append(attributes, attribute.String(tracing.AttributeUserID, userID))
 	}
 	ctx, invocation := tracing.StartInvocation(ctx, tracing.Tracer(invocationScope), i.name, i.flush, attributes...)
+	// Runtime identity remains authoritative after baggagecopy runs.
+	invocation.SetAttributes(attributes...)
 	invocation.MeasureDuration(i.duration, i.durationAttributes...)
 	// a2a-go runs no final After callback when a streaming consumer stops
 	// reading, so an invocation the transport still owns would otherwise never

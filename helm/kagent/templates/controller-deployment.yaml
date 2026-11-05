@@ -150,6 +150,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            {{- with .Values.controller.traceContextKeys }}
+            - name: KAGENT_TRACE_CONTEXT_KEYS
+              value: {{ include "kagent.traceContextKeys" . | quote }}
+            {{- end }}
             {{- with .Values.controller.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

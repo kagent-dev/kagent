@@ -17,6 +17,7 @@ from opentelemetry import metrics, trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from ..telemetry import _boot
+from ..telemetry._context_attributes import context_with_promoted_metadata
 from ..telemetry._conv import (
     A2A_METHOD,
     A2A_TASK_ID,
@@ -146,7 +147,8 @@ def _state_name(event: Any) -> str:
     return a2a_pb2.TaskState.Name(state) if state is not None else ""
 
 
-def _start(method: str, call_context: ServerCallContext) -> Invocation:
+def _start(method: str, call_context: ServerCallContext, message: a2a_pb2.Message | None = None) -> Invocation:
+    promoted = context_with_promoted_metadata(message=message)
     attributes: dict[str, str] = {A2A_METHOD: method}
     name = TRANSPORT_SPAN_NAME
     duration_attributes = None
@@ -167,10 +169,15 @@ def _start(method: str, call_context: ServerCallContext) -> Invocation:
         kind=SpanKind.INTERNAL,
         attributes=attributes,
         start_time=start_ns,
+        context=promoted,
         record_exception=False,
         set_status_on_exception=False,
     )
+    # Processors run after initial span attributes. Restore runtime identity
+    # in case an allowlisted baggage destination names the same attribute.
+    span.set_attributes(attributes)
     invocation = Invocation(span, start_ns, duration_attributes)
+    invocation.context = trace.set_span_in_context(span, promoted)
     call_context.state[_INVOCATION_STATE] = invocation
     return invocation
 
@@ -218,7 +225,12 @@ class TelemetryExecutor(AgentExecutor):
         state = context.call_context.state if context.call_context else {}
         invocation = state.get(_INVOCATION_STATE)
         if not isinstance(invocation, Invocation) or invocation.finished:
-            await self.executor.execute(context, event_queue)
+            promoted = context_with_promoted_metadata(message=context.message)
+            token = otel_context.attach(promoted)
+            try:
+                await self.executor.execute(context, event_queue)
+            finally:
+                otel_context.detach(token)
             return
         invocation.adopted = True
         identity = request_attributes(context)
@@ -245,7 +257,7 @@ class TelemetryRequestHandlerMixin:
     """Open the invocation span around message sends and close it when execution never adopts it."""
 
     async def on_message_send(self, params, context: ServerCallContext):
-        invocation = _start(A2aMethodValues.SEND_MESSAGE.value, context)
+        invocation = _start(A2aMethodValues.SEND_MESSAGE.value, context, params.message)
         token = otel_context.attach(invocation.context)
         try:
             result = await super().on_message_send(params, context)
@@ -261,7 +273,7 @@ class TelemetryRequestHandlerMixin:
         return result
 
     async def on_message_send_stream(self, params, context: ServerCallContext):
-        invocation = _start(A2aMethodValues.SEND_STREAMING_MESSAGE.value, context)
+        invocation = _start(A2aMethodValues.SEND_STREAMING_MESSAGE.value, context, params.message)
         events = super().on_message_send_stream(params, context)
         try:
             token = otel_context.attach(invocation.context)
