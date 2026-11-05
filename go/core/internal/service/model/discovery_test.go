@@ -112,6 +112,24 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"name":"gpt-5.6-terra","function_calling":true}`, string(encoded))
 
+	for _, provider := range []v1alpha3.ModelProvider{
+		v1alpha3.ModelProviderGemini,
+		v1alpha3.ModelProviderGeminiVertexAI,
+	} {
+		catalog := map[string]bool{}
+		for _, info := range models[provider] {
+			catalog[info.Name] = info.FunctionCalling
+		}
+		for _, name := range []string{
+			"gemini-4-argon",
+			"gemini-3.8-flash",
+		} {
+			calling, ok := catalog[name]
+			require.Truef(t, ok, "%s catalog missing %s", provider, name)
+			assert.True(t, calling, "%s %s function calling", provider, name)
+		}
+	}
+
 	foundry := map[string]bool{}
 	for _, info := range models[v1alpha3.ModelProviderFoundry] {
 		foundry[info.Name] = info.FunctionCalling

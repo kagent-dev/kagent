@@ -215,6 +215,9 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 		},
 		v1alpha3.ModelProviderOllama: ollamaCatalogModels(),
 		v1alpha3.ModelProviderGemini: {
+			// Gemini 4 and 3.8 family
+			{Name: "gemini-4-argon", FunctionCalling: true},
+			{Name: "gemini-3.8-flash", FunctionCalling: true},
 			// Gemini 3 family
 			{Name: "gemini-3.5-flash", FunctionCalling: true},
 			{Name: "gemini-3.5-flash-lite", FunctionCalling: true},
@@ -228,6 +231,8 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "gemini-2.5-flash-lite", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderGeminiVertexAI: {
+			{Name: "gemini-4-argon", FunctionCalling: true},
+			{Name: "gemini-3.8-flash", FunctionCalling: true},
 			{Name: "gemini-3.5-flash", FunctionCalling: true},
 			{Name: "gemini-3.5-flash-lite", FunctionCalling: true},
 			{Name: "gemini-3.1-pro", FunctionCalling: true},
