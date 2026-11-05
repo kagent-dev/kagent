@@ -67,6 +67,12 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1.SandboxTemplateService_ListSandboxTemplates_FullMethodName:  auth.AccessRead,
 		apiv1.SandboxTemplateService_CreateSandboxTemplate_FullMethodName: auth.AccessCreate,
 		apiv1.SandboxTemplateService_DeleteSandboxTemplate_FullMethodName: auth.AccessDelete,
+
+		apiv1.EgressPolicyService_ListEgressPolicies_FullMethodName: auth.AccessRead,
+		apiv1.EgressPolicyService_GetEgressPolicy_FullMethodName:    auth.AccessRead,
+		apiv1.EgressPolicyService_CreateEgressPolicy_FullMethodName: auth.AccessCreate,
+		apiv1.EgressPolicyService_UpdateEgressPolicy_FullMethodName: auth.AccessUpdate,
+		apiv1.EgressPolicyService_DeleteEgressPolicy_FullMethodName: auth.AccessDelete,
 	}
 	policies[apiv1.SessionService_CreateSession_FullMethodName] = auth.AccessCreate
 	policies[apiv1.SessionService_GetSession_FullMethodName] = auth.AccessRead

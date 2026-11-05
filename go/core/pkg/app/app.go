@@ -469,6 +469,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: sandboxTemplates,
+		EgressPolicyService:    kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.EgressPolicy{}, &kagentv1alpha3.EgressPolicyList{}, kagentv1alpha3.EgressPolicyKind),
 		SandboxService:         sandboxes,
 		CheckpointService:      checkpoints,
 		A2AHandler:             gateway,
