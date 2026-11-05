@@ -125,3 +125,28 @@ func TestInvokeAgentRejectsInvalidTargets(t *testing.T) {
 		}
 	}
 }
+
+func TestToolSchemasHaveNoTopLevelCombinators(t *testing.T) {
+	t.Run("Given the core MCP server, when a client lists its tools, assert that no input schema has a top-level oneOf, anyOf or allOf", func(t *testing.T) {
+		// Gemini rejects these, which fails every model request from an agent that binds the tool.
+		h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &fakeGateway{}})
+		require.NoError(t, err)
+		server := httptest.NewServer(h)
+		t.Cleanup(server.Close)
+
+		listed := rawMCPCall(t, server.URL, "tools/list", map[string]any{}, false)
+
+		tools := listed["result"].(map[string]any)["tools"].([]any)
+		require.NotEmpty(t, tools)
+		names := make([]string, 0, len(tools))
+		for _, value := range tools {
+			tool := value.(map[string]any)
+			names = append(names, tool["name"].(string))
+			schema := tool["inputSchema"].(map[string]any)
+			for _, combinator := range []string{"oneOf", "anyOf", "allOf"} {
+				require.NotContains(t, schema, combinator, "tool %s", tool["name"])
+			}
+		}
+		require.Contains(t, names, invokeToolName)
+	})
+}
