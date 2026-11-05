@@ -297,7 +297,7 @@ build-kagent-adk: buildx-create
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
 .PHONY: build-app
-build-app: ## Build and push the app image (distroless slim; depends on kagent-adk)
+build-app: ## Build and push the app image (slim; depends on kagent-adk)
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
 	$(DOCKER_PUSH) $(APP_IMG)

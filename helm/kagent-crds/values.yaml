@@ -11,5 +11,6 @@ kmcp:
 # SUBSTRATE
 # ==============================================================================
 
+# Not supported in kagent v0.10.x: enabling it fails the install.
 substrate:
   enabled: false

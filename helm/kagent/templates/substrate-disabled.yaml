@@ -1,0 +1,11 @@
+{{- /*
+Substrate is disabled on release/v0.10.x: the Wolfi-based Python ADK images can't be
+restored from a Substrate checkpoint on arm64 (google/gvisor#13542).
+*/}}
+{{- $endpointEnv := false }}
+{{- range .Values.controller.env }}
+{{- if eq .name "SUBSTRATE_ATE_API_ENDPOINT" }}{{ $endpointEnv = true }}{{ end }}
+{{- end }}
+{{- if or .Values.substrate.enabled .Values.controller.substrate.enabled .Values.substrateWorkerPool.create $endpointEnv }}
+{{- fail "Substrate is not supported in kagent v0.10.x. Unset substrate.enabled, controller.substrate.enabled, substrateWorkerPool.create and SUBSTRATE_ATE_API_ENDPOINT in controller.env." }}
+{{- end }}
