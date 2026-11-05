@@ -134,6 +134,18 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	}
 	_, hasGrok5 := foundry["grok-5"]
 	assert.False(t, hasGrok5, "grok-5 is not a published Foundry model ID")
+
+	for _, provider := range []v1alpha3.ModelProvider{v1alpha3.ModelProviderGemini, v1alpha3.ModelProviderGeminiVertexAI} {
+		names := map[string]bool{}
+		for _, info := range models[provider] {
+			names[info.Name] = info.FunctionCalling
+		}
+		for _, name := range []string{"gemini-4-argon", "gemini-3.8-flash"} {
+			calling, ok := names[name]
+			require.Truef(t, ok, "%s catalog missing %s", provider, name)
+			assert.True(t, calling, name)
+		}
+	}
 }
 
 func TestDiscoveryConfiguredProviders(t *testing.T) {
