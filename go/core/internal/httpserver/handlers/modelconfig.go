@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -293,8 +294,19 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	modelConfig.Spec = req.Spec
-	if err := h.KubeClient.Update(r.Context(), modelConfig); err != nil {
+	// The Secret writes above make the controller bump Status.SecretHash, so re-read before updating.
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1alpha2.ModelConfig{}
+		if err := h.KubeClient.Get(r.Context(), client.ObjectKeyFromObject(modelConfig), latest); err != nil {
+			return err
+		}
+		latest.Spec = req.Spec
+		if err := h.KubeClient.Update(r.Context(), latest); err != nil {
+			return err
+		}
+		modelConfig = latest
+		return nil
+	}); err != nil {
 		log.Error(err, "Failed to update ModelConfig resource")
 		w.RespondWithError(errors.NewInternalServerError("Failed to update ModelConfig", err))
 		return
