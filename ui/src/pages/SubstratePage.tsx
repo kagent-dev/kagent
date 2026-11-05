@@ -695,12 +695,53 @@ const PAGE_SIZE = 25;
 /**
  * When the list was read, as a clock time rather than a running age: an age that ticks
  * twice a second pulls the eye off the rows while saying nothing new.
+ *
+ * While polling, a list with no new read for `STALLED_AFTER_TICKS` intervals adds how
+ * long it has gone without one, in the warning colour. That is the stall the old age
+ * showed, now shown only when it is happening.
  */
-function PageAge({ computedAt }: { computedAt?: string }) {
+function PageAge({ computedAt, pollMs }: { computedAt?: string; pollMs?: number }) {
   const theme = useTheme();
+  const stalledMs = useStalledFor(computedAt, pollMs);
+  const at = readAt(computedAt);
+  if (stalledMs === undefined) {
+    return <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{at}</Text>;
+  }
   return (
-    <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{readAt(computedAt)}</Text>
+    <Text css={{ color: theme.color.warning, fontSize: 12 }}>
+      {`${at}, ${elapsed(stalledMs)} ago`}
+    </Text>
   );
+}
+
+const STALLED_AFTER_TICKS = 3;
+// A floor, so a half-second interval does not call one slow read a stall.
+const STALLED_FLOOR_MS = 5_000;
+
+/**
+ * How long a polled list has gone without a new read, once that is a stall.
+ *
+ * Measured on the browser's clock from when `computedAt` last changed, not from
+ * `computedAt` itself, so a skewed server clock cannot raise it.
+ */
+function useStalledFor(computedAt: string | undefined, pollMs: number | undefined) {
+  const [stall, setStall] = useState<{ key?: string; ms: number }>();
+
+  useEffect(() => {
+    if (pollMs === undefined) return;
+    const sinceMs = Date.now();
+    const limitMs = Math.max(STALLED_AFTER_TICKS * pollMs, STALLED_FLOOR_MS);
+    const timer = window.setInterval(() => {
+      const ms = Date.now() - sinceMs;
+      setStall(ms >= limitMs ? { key: computedAt, ms } : undefined);
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [computedAt, pollMs]);
+
+  // A stall belongs to the read it was measured against; a new read clears it at once.
+  return pollMs !== undefined && stall !== undefined && stall.key === computedAt
+    ? stall.ms
+    : undefined;
 }
 
 function readAt(computedAt: string | undefined): string {
@@ -712,6 +753,13 @@ function readAt(computedAt: string | undefined): string {
     minute: "2-digit",
     second: "2-digit",
   })}`;
+}
+
+/** `12s`, `3m 05s`. */
+function elapsed(ms: number): string {
+  const whole = Math.floor(ms / 1_000);
+  if (whole < 60) return `${whole}s`;
+  return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
 }
 
 function PageWarning({ message, testId }: { message: string; testId: string }) {
@@ -1485,7 +1533,7 @@ export function SubstratePage() {
               "& > [data-testid$='-pages']": { marginTop: 0 },
             }}
           >
-            <PageAge computedAt={actors.data?.computedAt} />
+            <PageAge computedAt={actors.data?.computedAt} pollMs={isTicking ? pollMs : undefined} />
 
             <PageControls
               testId="substrate-actors-pages"
@@ -1563,7 +1611,7 @@ export function SubstratePage() {
               "& > [data-testid$='-pages']": { marginTop: 0 },
             }}
           >
-            <PageAge computedAt={workers.data?.computedAt} />
+            <PageAge computedAt={workers.data?.computedAt} pollMs={isTicking ? pollMs : undefined} />
 
             <PageControls
               testId="substrate-workers-pages"
