@@ -15,9 +15,10 @@ import (
 )
 
 type workflowStore interface {
-	ListSessionRecoveryCandidates(context.Context, string, int) ([]*apiv1.Session, error)
 	GetSessionGeneration(context.Context, string) (*database.SessionGeneration, error)
 	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration, database.SessionTaskSnapshot) (*database.SessionOperation, error)
+	GetSessionRecoverySnapshot(context.Context, string, uuid.UUID) (string, error)
+	AbandonSessionRecovery(context.Context, string, uuid.UUID, string) (*apiv1.Session, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
@@ -162,8 +163,12 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	}
 	var transition *substrate.ActorTransition
 	switch {
-	case database.CrashRecoveryAdmitted(operation.Instance):
-		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding)
+	case kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT:
+		var pinned string
+		if pinned, err = w.store.GetSessionRecoverySnapshot(ctx, sessionID, operation.ID); err != nil {
+			return w.failPreparation(ctx, operation, fmt.Errorf("load admitted recovery snapshot: %w", err))
+		}
+		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding, pinned)
 	case operation.ExecutorID != uuid.Nil:
 		transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
 	default:
@@ -175,6 +180,9 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 
 	if uid := transition.ActorUID(); uid != "" && kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		if _, err := w.store.GetSessionForRuntime(ctx, session.Id, uid); err != nil {
+			if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT && errors.Is(err, database.ErrNotFound) {
+				err = fmt.Errorf("runtime Actor was replaced: %w", substrate.ErrActorUnrecoverable)
+			}
 			return w.failPreparation(ctx, operation, fmt.Errorf("verify runtime actor UID: %w", err))
 		}
 	}
@@ -218,14 +226,11 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 // the same generation instead. Completion returns current state; supersession
 // returns a conflict. A local preparation error cannot clear a newer operation.
 func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.SessionOperation, cause error) (*apiv1.Session, error) {
+	if database.CrashRecoveryAdmitted(admitted.Instance) {
+		return w.failRecoveryPreparation(ctx, admitted, cause)
+	}
 	if admitted.ExecutorID != uuid.Nil {
 		return nil, cause // An earlier attempt may have issued work; retain its intent.
-	}
-	if database.CrashRecoveryAdmitted(admitted.Instance) {
-		// Admission already failed the interrupted turn, so clearing the operation
-		// would leave a FAILED Session that nothing retries. Keep the intent for the
-		// next scan. No claim was taken, so Delete can still supersede it.
-		return nil, cause
 	}
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -238,6 +243,26 @@ func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.
 		return operationOutcome(operation)
 	}
 	return nil, errors.Join(cause, err)
+}
+
+// failRecoveryPreparation keeps an admitted REVERT unless its Actor can no
+// longer be restored. Admission already failed the interrupted turn, so clearing
+// the operation as a preparation failure would leave a FAILED Session that a
+// retried RevertSession could not continue. Without a claim, Delete can still
+// supersede the kept intent. An Actor that is missing, replaced, or holding
+// another snapshot shows that no revert of the recorded runtime can still be in
+// progress, so the store ends the operation even after a claim. Otherwise the
+// claim would block Delete forever.
+func (w *ActorWorkflow) failRecoveryPreparation(ctx context.Context, admitted *database.SessionOperation, cause error) (*apiv1.Session, error) {
+	if !errors.Is(cause, substrate.ErrActorUnrecoverable) {
+		return nil, cause
+	}
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := w.store.AbandonSessionRecovery(finishCtx, admitted.Instance.Id, admitted.ID, cause.Error()); err != nil {
+		return nil, errors.Join(cause, err)
+	}
+	return nil, fmt.Errorf("%w: %w", cause, errRuntimeUnrecoverable)
 }
 
 func operationOutcome(operation *database.SessionOperation) (*apiv1.Session, error) {

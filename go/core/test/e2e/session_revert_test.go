@@ -131,10 +131,11 @@ func TestSessionRevertCrashedRuntime(t *testing.T) {
 		reverted, err := fixture.sessions.RevertSession(fixture.ctx, request)
 		require.NoError(t, err)
 		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, reverted.Session.State)
-		// A client whose success response was lost retries and must learn that
-		// the runtime is healthy, not that it cannot be recovered.
-		_, err = fixture.sessions.RevertSession(fixture.ctx, request)
-		require.Equal(t, "KAGENT_SESSION_RUNTIME_NOT_CRASHED", revertRefusalReason(t, err), "a recovered runtime has nothing to revert")
+		// A client whose success response was lost retries and gets the
+		// recovered Session back, as Create and Delete retries do.
+		retried, err := fixture.sessions.RevertSession(fixture.ctx, request)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, retried.Session.State)
 		recovered, err := findSubstrateActor(fixture.ctx, fixture.system, namespace, name)
 		require.NoError(t, err)
 		require.Equal(t, running.GetMetadata().GetUid(), recovered.GetMetadata().GetUid())

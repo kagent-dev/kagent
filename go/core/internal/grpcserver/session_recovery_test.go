@@ -177,10 +177,11 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, ready.Session.State)
 			require.Nil(t, ready.Session.Failure)
-			// A client whose success response was lost retries and learns that
-			// the runtime is already healthy, not that it cannot be recovered.
-			_, err = client.RevertSession(owner, request)
-			requireRevertRefusal(t, err, "KAGENT_SESSION_RUNTIME_NOT_CRASHED", "a recovered runtime has nothing to revert")
+			// A client whose success response was lost retries and gets the
+			// recovered Session back, as Create and Delete retries do.
+			retried, err := client.RevertSession(owner, request)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, retried.Session.State)
 			if test.lostResponse {
 				require.Equal(t, 1, calls, "a lost response cannot repeat the revert")
 			} else {

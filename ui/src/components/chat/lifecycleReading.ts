@@ -60,6 +60,15 @@ export function lifecycleReading(
     };
   }
 
+  if (instance.operation === "revert") {
+    return {
+      active: "resuming",
+      summary: "Restoring this conversation",
+      source:
+        "The runtime crashed; the controller is restoring it to its last snapshot.",
+    };
+  }
+
   if (instance.operation === "suspend") {
     return {
       active: "suspending",

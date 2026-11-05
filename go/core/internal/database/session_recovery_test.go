@@ -52,14 +52,13 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			}
 			before, _, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
 			require.NoError(t, err)
-			page, err := client.ListSessionRecoveryCandidates(t.Context(), "", 100)
-			require.NoError(t, err)
-			require.Empty(t, page)
+			_, err = client.GetSessionRecoverySnapshot(t.Context(), session.Id, uuid.New())
+			require.ErrorIs(t, err, ErrNotFound)
 
 			operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, "actor-"+session.Id), snapshot)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, operation.Instance.State)
-			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, operation.Instance.Operation)
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, operation.Instance.Operation)
 			require.Equal(t, SessionRuntimeCrashed, operation.Instance.Failure.Reason)
 			stored, err := client.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 			require.NoError(t, err)
@@ -86,10 +85,9 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), ErrConflict)
 			_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
 			require.ErrorIs(t, err, ErrConflict)
-			page, err = client.ListSessionRecoveryCandidates(t.Context(), "", 100)
+			pinned, err := client.GetSessionRecoverySnapshot(t.Context(), session.Id, operation.ID)
 			require.NoError(t, err)
-			require.Len(t, page, 1)
-			require.Equal(t, session.Id, page[0].Id)
+			require.Equal(t, snapshot.URI, pinned, "the operation pins the snapshot that settlement judged waits against")
 		})
 	}
 }
@@ -172,7 +170,7 @@ func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 
 	operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, uid), SessionTaskSnapshot{})
 	require.NoError(t, err)
-	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, operation.Instance.Operation)
+	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, operation.Instance.Operation)
 	pending, err := queryOne(t.Context(), client.db, `SELECT quiescence_pending FROM session_task_event WHERE sequence = $1`, pgx.RowTo[bool], work.Version)
 	require.NoError(t, err)
 	require.False(t, pending, "admission retires the claim in its own transaction")
@@ -312,4 +310,51 @@ func TestSessionGenerationReadsRecordedActor(t *testing.T) {
 
 	_, err = client.GetSessionGeneration(t.Context(), uuid.NewString())
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestAbandonedRecoveryLetsDeleteProceed(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, _ := waitingTaskFixture(t, client)
+	uid := "actor-" + session.Id
+	operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, uid), SessionTaskSnapshot{})
+	require.NoError(t, err)
+	executor := uuid.New()
+	claimed, err := client.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	_, err = client.AbandonSessionRecovery(t.Context(), session.Id, operation.ID, "actor is missing")
+	require.ErrorIs(t, err, ErrConflict, "a live claim may still be issuing the revert")
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+	require.ErrorIs(t, err, ErrConflict, "a claimed recovery blocks Delete")
+
+	require.NoError(t, client.ReleaseRuntimeOperation(t.Context(), session.Id, operation.ID, executor))
+	abandoned, err := client.AbandonSessionRecovery(t.Context(), session.Id, operation.ID, "actor is missing")
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, abandoned.State)
+	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, abandoned.Operation)
+	require.Equal(t, SessionRuntimeUnrecoverable, abandoned.Failure.GetReason())
+	stored, err := client.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(abandoned, stored))
+	_, err = client.AbandonSessionRecovery(t.Context(), session.Id, operation.ID, "actor is missing")
+	require.ErrorIs(t, err, ErrConflict)
+
+	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, deletion.Instance.Operation)
+}
+
+func TestRevertCanOnlyJoinAnAdmittedRecovery(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, _ := waitingTaskFixture(t, client)
+	_, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, false)
+	require.ErrorIs(t, err, ErrConflict, "only a confirmed crash admits a revert")
+	admitted, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, "actor-"+session.Id), SessionTaskSnapshot{})
+	require.NoError(t, err)
+	joined, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, false)
+	require.NoError(t, err)
+	require.Equal(t, admitted.ID, joined.ID)
 }

@@ -48,8 +48,11 @@ It preserves durable terminal results and returns the Session to READY with its 
 It discards runtime changes since that snapshot and does not replay input.
 A runtime without a snapshot restarts from its initial state.
 
-Retry an interrupted revert against the same Session ID. Pending recovery retains its operation across API restarts.
-The lifecycle worker retries already admitted recoveries; it does not initiate recovery for other crashed Sessions.
+Retry an interrupted revert against the same Session ID; nothing retries it in the background.
+Pending recovery retains its operation across API restarts, and a retry joins it.
+While recovery is pending, `GetSession` reports state `FAILED`, operation `REVERT`, and failure reason `RuntimeCrashed`.
+Interactions fail because a lifecycle operation is in progress. Call `RevertSession` again to finish the recovery.
+A retry after a revert whose response was lost returns the recovered Session.
 Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.
 So does a revert while another lifecycle operation is active.
@@ -59,8 +62,8 @@ Its `google.rpc.ErrorInfo` detail, in domain `kagent.dev`, names one of two reas
 
 | Reason | Meaning | Client action |
 | --- | --- | --- |
-| `KAGENT_SESSION_RUNTIME_NOT_CRASHED` | The runtime is healthy or suspended. A retry after a revert whose response was lost lands here. | Treat as recovered and continue the conversation. |
-| `KAGENT_SESSION_RUNTIME_UNRECOVERABLE` | The recorded Actor is missing, or a same-name Actor replaced it. | Stop retrying. Start another Session, or fork one from a checkpoint. |
+| `KAGENT_SESSION_RUNTIME_NOT_CRASHED` | The runtime is running, or the Session is at rest outside READY. | Continue the conversation. |
+| `KAGENT_SESSION_RUNTIME_UNRECOVERABLE` | The recorded Actor is missing, a same-name Actor replaced it, or it no longer holds the snapshot recovery admitted. The Session stays `FAILED` with failure reason `RuntimeUnrecoverable`. | Stop retrying. Delete the Session, then start another or fork one from a checkpoint. |
 
 A `FAILED_PRECONDITION` without either reason follows the general table below.
 Read the reason rather than the message text, which is not stable.

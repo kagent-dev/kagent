@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -52,10 +53,13 @@ type ActorTransition struct {
 	operation apiv1.RuntimeOperation
 	actor     *ateapipb.Actor
 	creation  *ActorCreation
-	// revert restores a crashed Actor to its last durable snapshot. The
-	// operation stays RESUME because that is what the Session records.
-	revert bool
 }
+
+// ErrActorUnrecoverable reports that a crash recovery's Actor can no longer be
+// restored to the snapshot its admission pinned: the Actor is missing, was
+// replaced, or now reports a different durable snapshot. No retry changes that,
+// and no revert of the recorded Actor can still be in progress.
+var ErrActorUnrecoverable = errors.New("actor cannot be restored to the admitted snapshot")
 
 // ActorUID returns the observed runtime identity, including after creation.
 func (t *ActorTransition) ActorUID() string {
@@ -123,23 +127,32 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 }
 
 // PrepareActorRevert performs the read-only checks for crash recovery before
-// the store's durable claim. Reading first keeps a failed or missing Actor from
+// the store's durable claim. Reading first keeps a failed Actor read from
 // leaving a claim behind, so Delete can still supersede the unissued recovery.
+// snapshotURI is the durable snapshot admission pinned ("" for none). Admission
+// already settled the interrupted turn against it, so the revert must restore
+// exactly that snapshot rather than whatever Substrate holds when it runs.
 // A SUSPENDED Actor means an earlier revert completed and its response was lost.
-func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding) (*ActorTransition, error) {
+func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding, snapshotURI string) (*ActorTransition, error) {
 	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
+	if status.Code(err) == codes.NotFound {
+		return nil, fmt.Errorf("actor %s/%s is missing: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get Actor %s/%s: %w", binding.Atespace, binding.Name, err)
 	}
 	if !binding.Matches(actor) {
-		return nil, fmt.Errorf("actor %s/%s identity or template changed", binding.Atespace, binding.Name)
+		return nil, fmt.Errorf("actor %s/%s identity or template changed: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
 	}
 	switch actor.GetStatus().GetState() {
 	case ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_REVERTING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
 	default:
 		return nil, fmt.Errorf("crashed Actor %s/%s has unexpected state %s", binding.Atespace, binding.Name, actor.GetStatus().GetState())
 	}
-	return &ActorTransition{binding: binding, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, actor: actor, revert: true}, nil
+	if SnapshotURI(LatestDurableActorSnapshot(actor)) != snapshotURI {
+		return nil, fmt.Errorf("actor %s/%s durable snapshot changed after recovery was admitted: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
+	}
+	return &ActorTransition{binding: binding, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, actor: actor}, nil
 }
 
 // ApplyActorTransition requires durable execution authority. Errors retain the
@@ -149,9 +162,6 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 		return err
 	}
 	binding, actor := transition.binding, transition.actor
-	if transition.revert {
-		return transition.applyRevert(ctx, actors)
-	}
 	var err error
 	switch transition.operation {
 	case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
@@ -205,6 +215,8 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 				err = fmt.Errorf("suspended Actor requires a durable VOLUMES snapshot")
 			}
 		}
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT:
+		err = transition.applyRevert(ctx, actors)
 	case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 		if actor != nil {
 			// An interrupted resume must not make deletion depend on a successful
@@ -221,9 +233,10 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 	return nil
 }
 
-// applyRevert must not replace the Actor or roll it past the snapshot observed
-// before the claim. A changed UID or snapshot means something other than this
-// recovery acted on the runtime, so the Session must not adopt the result.
+// applyRevert must not replace the Actor or restore anything but the snapshot
+// PrepareActorRevert matched against admission's pin. A changed UID or snapshot
+// means something other than this recovery acted on the runtime, so the Session
+// must not adopt the result.
 func (t *ActorTransition) applyRevert(ctx context.Context, actors LifecycleClient) error {
 	binding, actor := t.binding, t.actor
 	before := proto.CloneOf(LatestDurableActorSnapshot(actor))
@@ -235,12 +248,12 @@ func (t *ActorTransition) applyRevert(ctx context.Context, actors LifecycleClien
 	if state := actor.GetStatus().GetState(); state == ateapipb.ActorState_ACTOR_STATE_CRASHED || state == ateapipb.ActorState_ACTOR_STATE_REVERTING {
 		reverted, err := actors.RevertActor(ctx, binding.Atespace, binding.Name)
 		if err != nil {
-			return fmt.Errorf("revert crashed Actor %s/%s: %w", binding.Atespace, binding.Name, err)
+			return err
 		}
 		actor = reverted
 	}
 	if t.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED) != nil || !proto.Equal(before, LatestActorSnapshot(actor)) {
-		return fmt.Errorf("revert Actor %s/%s returned unexpected identity or state", binding.Atespace, binding.Name)
+		return fmt.Errorf("revert returned unexpected identity or state")
 	}
 	return nil
 }
