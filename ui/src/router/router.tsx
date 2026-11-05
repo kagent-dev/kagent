@@ -35,9 +35,9 @@ import { ModelEditPage } from "@/pages/ModelEditPage";
 import { McpServersPage } from "@/pages/McpServersPage";
 import { McpServerNewPage } from "@/pages/McpServerNewPage";
 import { PromptsPage } from "@/pages/PromptsPage";
-import { EgressPoliciesPage } from "@/pages/EgressPoliciesPage";
-import { EgressPolicyDetailsPage } from "@/pages/EgressPolicyDetailsPage";
-import { EgressPolicyNewPage, EgressPolicyEditPage } from "@/pages/EgressPolicyFormPages";
+import { PoliciesPage } from "@/pages/policies/PoliciesPage";
+import { EgressPolicyDetailsPage } from "@/pages/policies/EgressPolicyDetailsPage";
+import { EgressPolicyNewPage, EgressPolicyEditPage } from "@/pages/policies/EgressPolicyFormPages";
 import { PromptNewPage } from "@/pages/PromptNewPage";
 import { PromptDetailPage } from "@/pages/PromptDetailPage";
 import { PromptEditPage } from "@/pages/PromptEditPage";
@@ -89,7 +89,7 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "modelEdit", path: paths.modelEdit, element: <ModelEditPage /> },
   { key: "mcpServers", path: paths.mcpServers, element: <McpServersPage /> },
   { key: "mcpServerNew", path: paths.mcpServerNew, element: <McpServerNewPage /> },
-  { key: "egressPolicies", path: paths.egressPolicies, element: <EgressPoliciesPage /> },
+  { key: "policies", path: paths.policies, element: <PoliciesPage /> },
   { key: "egressPolicyNew", path: paths.egressPolicyNew, element: <EgressPolicyNewPage /> },
   { key: "egressPolicyDetail", path: paths.egressPolicyDetail, element: <EgressPolicyDetailsPage /> },
   { key: "egressPolicyEdit", path: paths.egressPolicyEdit, element: <EgressPolicyEditPage /> },

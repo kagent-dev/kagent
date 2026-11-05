@@ -45,9 +45,9 @@ export const coreNavItems: NavItem[] = [
     order: 400,
   },
   {
-    key: "egressPolicies",
-    label: "Egress Policies",
-    path: paths.egressPolicies,
+    key: "policies",
+    label: "Policies",
+    path: paths.policies,
     icon: ShieldCheck,
     order: 450,
   },

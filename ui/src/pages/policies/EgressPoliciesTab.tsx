@@ -1,10 +1,9 @@
 import { useMemo } from "react";
 import { Alert, Button, Space, Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Pencil, Plus } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { Link } from "react-router-dom";
-import { PageFrame } from "@/components/Structure/PageFrame";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { FilterBar } from "@/components/table/FilterBar";
@@ -42,7 +41,7 @@ interface PolicyRow {
 
 // region Component
 
-export function EgressPoliciesPage() {
+export function EgressPoliciesTab() {
   const theme = useTheme();
   const view = useListView(FILTER_IDS);
   const policies = useEgressPolicies();
@@ -154,56 +153,46 @@ export function EgressPoliciesPage() {
   ];
 
   return (
-    <PageFrame
-      title={egressCopy.list.title}
-      description={`${egressCopy.list.intro} ${egressCopy.usedByScope}`}
-      actions={
-        <Space size={8}>
-          <RefreshButton onRefresh={invalidate} what="Egress policies" loading={policies.isLoading} />
-          <Link to={paths.egressPolicyNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="egress-policies-new">
-              {egressCopy.list.newButton}
-            </Button>
-          </Link>
-        </Space>
-      }
-    >
-      <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
-        {policies.error ? (
-          <Alert
-            type="error"
-            showIcon
-            title={egressCopy.list.loadError}
-            description={policies.error.message}
-            data-testid="egress-policies-error"
-            action={<Button size="small" onClick={() => void policies.refresh()}>Try again</Button>}
-          />
-        ) : null}
-        {!policies.error && usersFailed ? (
-          <Alert type="warning" showIcon title={egressCopy.list.usersError} data-testid="egress-policies-users-error" />
-        ) : null}
-
-        <FilterBar
-          testId="egress-policies-filters"
-          view={view}
-          search={{ label: egressCopy.list.search, placeholder: egressCopy.list.search }}
-          filters={[{ id: "ns", label: "Namespace", allLabel: "All namespaces", options: namespaceOptions }]}
+    <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
+      {policies.error ? (
+        <Alert
+          type="error"
+          showIcon
+          title={egressCopy.list.loadError}
+          description={policies.error.message}
+          data-testid="egress-policies-error"
+          action={<Button size="small" onClick={() => void policies.refresh()}>Try again</Button>}
         />
+      ) : null}
+      {!policies.error && usersFailed ? (
+        <Alert type="warning" showIcon title={egressCopy.list.usersError} data-testid="egress-policies-users-error" />
+      ) : null}
 
-        <Table<PolicyRow>
-          data-testid="egress-policies-table"
-          rowKey="key"
-          columns={columns}
-          dataSource={policies.error ? [] : filtered}
-          loading={policies.isLoading}
-          scroll={{ x: "max-content" }}
-          onChange={listTableChange<PolicyRow>(view)}
-          pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
-          locale={{
-            emptyText: policies.isEmpty ? egressCopy.list.empty : view.isNarrowed ? egressCopy.list.noMatch : " ",
-          }}
-        />
-      </Space>
-    </PageFrame>
+      <FilterBar
+        testId="egress-policies-filters"
+        view={view}
+        search={{ label: egressCopy.list.search, placeholder: egressCopy.list.search }}
+        filters={[{ id: "ns", label: "Namespace", allLabel: "All namespaces", options: namespaceOptions }]}
+        trailing={<RefreshButton onRefresh={invalidate} what="Egress policies" loading={policies.isLoading} />}
+      />
+
+      <Text css={{ color: theme.color.textMuted, fontSize: 12 }} data-testid="egress-policies-used-by-scope">
+        {egressCopy.usedByScope}
+      </Text>
+
+      <Table<PolicyRow>
+        data-testid="egress-policies-table"
+        rowKey="key"
+        columns={columns}
+        dataSource={policies.error ? [] : filtered}
+        loading={policies.isLoading}
+        scroll={{ x: "max-content" }}
+        onChange={listTableChange<PolicyRow>(view)}
+        pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
+        locale={{
+          emptyText: policies.isEmpty ? egressCopy.list.empty : view.isNarrowed ? egressCopy.list.noMatch : " ",
+        }}
+      />
+    </Space>
   );
 }

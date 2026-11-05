@@ -5,13 +5,15 @@ import { LIFECYCLE_TIMEOUT, dialog, expectLoading, optionNamed, pressOnce } from
 
 /**
  * Egress policies: list, create, attach to an agent, see it in "Used by", edit, delete.
+ * The created policy has a dotted name, which the API accepts as a DNS subdomain.
  *
  * The mock keeps writes in memory per page load, so after the first `goto` every step
  * moves in-app. The mock applies the CRD's rules, so a create it accepts is one a cluster
  * would accept too.
  */
 
-const CREATED = "suite-policy";
+const CREATED = "suite.example.com";
+const CREATED_URL = new RegExp(`/policies/egress/kagent/${CREATED.replace(/\./g, "\\.")}$`);
 const SEEDED = ["github-api", "internal-tools", "package-mirrors", "warehouse"];
 
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
@@ -23,27 +25,33 @@ async function expectUsersCounted(page: Page) {
 
 async function backToListSettled(page: Page) {
   await page.getByRole("link", { name: "Back to policies" }).click();
-  await expect(page).toHaveURL(/\/egress-policies$/);
+  await expect(page).toHaveURL(/\/policies\?tab=egress$/);
   await expectUsersCounted(page);
 }
 
 test("egress policies: a policy is created, attached, edited and deleted", async ({ page }) => {
   await test.step("1. an empty list and a failed read say different things", async () => {
-    await loadPage(page, routes.egressPolicies, { scenario: "empty" });
+    await loadPage(page, routes.policies, { scenario: "empty" });
     await expect(page.getByText("No egress policies yet.")).toBeVisible();
 
-    await loadPage(page, routes.egressPolicies, { scenario: "error" });
+    await loadPage(page, routes.policies, { scenario: "error" });
     await expect(page.getByTestId("egress-policies-error")).toBeVisible();
     await expect(page.getByText("No egress policies yet.")).toHaveCount(0);
+
+    // A dotted last segment still loads the app rather than a missing file.
+    await loadPage(page, "/policies/egress/kagent/missing.example.com");
+    await expect(page.getByTestId("egress-policy-not-found")).toContainText("kagent/missing.example.com");
   });
 
   // Last of the full loads: it ends on `?mock=ok`, which step 3 waits out before acting.
   await test.step("2. a loading state precedes the data", async () => {
-    await expectLoading(page, routes.egressPolicies);
+    await expectLoading(page, routes.policies);
   });
 
   await test.step("3. every policy is listed with its origins, auth and users", async () => {
-    await expectPageTitle(page, "Egress policies");
+    await expectPageTitle(page, "Policies");
+    await expect(page.getByTestId("policies-tabs").getByRole("tab", { name: "Egress Policies" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("img", { name: "An agent or sandbox template lists a policy, and the policy lets it reach HTTP(S) hosts." })).toBeVisible();
     await expect(dataRows(page)).toHaveCount(SEEDED.length);
     // github-api is used by the release-notes agent and the python-sandbox template.
     const github = rowNamed(page, "github-api");
@@ -63,7 +71,7 @@ test("egress policies: a policy is created, attached, edited and deleted", async
   });
 
   await test.step("5. the form checks the CRD's rules before saving", async () => {
-    await page.getByTestId("egress-policies-new").click();
+    await page.getByRole("button", { name: "Create egress policy" }).click();
     await expectPageTitle(page, "New egress policy");
     await page.getByTestId("egress-form-submit").click();
     await expect(page.getByTestId("egress-form-errors")).toContainText("Enter a name.");
@@ -76,7 +84,7 @@ test("egress policies: a policy is created, attached, edited and deleted", async
     await page.getByTestId("egress-destination-0-secret-key").fill("token");
     await page.getByTestId("egress-form-submit").click();
     await expect(page.getByTestId("egress-destination-0-problems")).toContainText("can't carry a credential");
-    await expect(page).toHaveURL(/\/egress-policies\/new$/);
+    await expect(page).toHaveURL(/\/policies\/egress\/new$/);
 
     // A wildcard origin offers no credential source.
     await page.getByTestId("egress-form-add-destination").click();
@@ -89,7 +97,7 @@ test("egress policies: a policy is created, attached, edited and deleted", async
     await page.getByTestId("egress-destination-0-header").fill("Authorization");
     await page.getByTestId("egress-destination-0-prefix").fill("Bearer ");
     await page.getByTestId("egress-form-submit").click();
-    await expect(page).toHaveURL(new RegExp(`/egress-policies/kagent/${CREATED}$`));
+    await expect(page).toHaveURL(CREATED_URL);
 
     const destinations = page.getByTestId("egress-policy-destinations");
     await expect(rowNamed(page, "https://api.example.com")).toContainText("example-credentials/token");
@@ -117,7 +125,8 @@ test("egress policies: a policy is created, attached, edited and deleted", async
   });
 
   await test.step("8. the policy lists the agent, and the agent applied it", async () => {
-    await page.getByRole("link", { name: "Egress Policies" }).click();
+    await page.getByRole("link", { name: "Policies", exact: true }).click();
+    await expect(page).toHaveURL(/\/policies$/);
     await expectUsersCounted(page);
     await rowNamed(page, CREATED).getByRole("link", { name: CREATED, exact: true }).click();
     const user = rowNamed(page, "release-notes");
@@ -145,7 +154,7 @@ test("egress policies: a policy is created, attached, edited and deleted", async
     await expect(page.getByTestId("egress-form-add-destination")).toBeFocused();
     await page.getByTestId("egress-destination-0-origin").fill("https://api2.example.com");
     await page.getByTestId("egress-form-submit").click();
-    await expect(page).toHaveURL(new RegExp(`/egress-policies/kagent/${CREATED}$`));
+    await expect(page).toHaveURL(CREATED_URL);
     await expect(rowNamed(page, "https://api2.example.com")).toHaveCount(1);
     await expect(page.getByTestId("egress-policy-destinations")).not.toContainText("example.org");
   });
@@ -155,7 +164,7 @@ test("egress policies: a policy is created, attached, edited and deleted", async
     // release-notes attached it in step 7.
     await expect(dialog(page)).toContainText("This policy is in use by 1 agent or sandbox template you can see.");
     await pressOnce(dialog(page).getByRole("button", { name: "Delete" }));
-    await expect(page).toHaveURL(/\/egress-policies$/);
+    await expect(page).toHaveURL(/\/policies\?tab=egress$/);
     await expectSettled(page);
     await expect(rowNamed(page, CREATED)).toHaveCount(0);
     await expect(dataRows(page)).toHaveCount(SEEDED.length);

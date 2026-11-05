@@ -58,7 +58,7 @@ export const CORE_NAV_ORDER = [
   "nav-scheduledRuns",
   "nav-models",
   "nav-mcpServers",
-  "nav-egressPolicies",
+  "nav-policies",
   "nav-prompts",
   "nav-substrate",
 ];

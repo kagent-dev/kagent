@@ -21,7 +21,7 @@ import {
   type EgressDestination,
   type EgressPolicyUser,
 } from "@/api";
-import { buildPath, paths } from "@/router/routes";
+import { buildPath, egressPoliciesTab, paths } from "@/router/routes";
 
 const { Text } = Typography;
 
@@ -154,12 +154,12 @@ export function EgressPolicyDetailsPage() {
                 onDelete={() => apiClient.egressPolicies.remove(namespace, name)}
                 onDeleted={async () => {
                   await invalidate().catch(() => {});
-                  await navigate(paths.egressPolicies);
+                  await navigate(egressPoliciesTab);
                 }}
               />
             </>
           ) : null}
-          <Link to={paths.egressPolicies}>
+          <Link to={egressPoliciesTab}>
             <Button>{egressCopy.details.back}</Button>
           </Link>
           <RefreshButton onRefresh={policy.refresh} what="Egress policy" loading={policy.isLoading} disabled={missing} />
@@ -175,7 +175,7 @@ export function EgressPolicyDetailsPage() {
             description={egressCopy.details.notFound(`${namespace}/${name}`)}
             data-testid="egress-policy-not-found"
             action={
-              <Link to={paths.egressPolicies}>
+              <Link to={egressPoliciesTab}>
                 <Button size="small">{egressCopy.details.back}</Button>
               </Link>
             }

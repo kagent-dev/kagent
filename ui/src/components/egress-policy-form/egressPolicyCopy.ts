@@ -1,11 +1,26 @@
 /** Every user-facing string for the egress policy pages, in one place. */
 export const egressCopy = {
-  nav: "Egress Policies",
+  page: {
+    title: "Policies",
+    tab: "Egress Policies",
+    createButton: "Create egress policy",
+    notFoundHint: "which hosts agents can reach",
+  },
+  concepts: {
+    title: "Overview",
+    what: "A policy lists extra HTTP(S) hosts that agents and sandbox templates can reach.",
+    credential: "The gateway can add a credential to requests. The agent never sees it.",
+    noPolicyNeeded: "Model and MCP server hosts work without a policy.",
+    diagramLabel: "An agent or sandbox template lists a policy, and the policy lets it reach HTTP(S) hosts.",
+    boxes: {
+      agent: { kind: "Agent", detail: "Lists the policies it needs." },
+      sandboxTemplate: { kind: "SandboxTemplate", detail: "Lists the policies its sandboxes need." },
+      policy: { kind: "EgressPolicy", detail: "Origins it allows, and any credential." },
+      hosts: { kind: "HTTP(S) hosts", detail: "What the agent can now reach." },
+    },
+  },
   list: {
     title: "Egress policies",
-    intro:
-      "A policy lets the agents and sandbox templates that list it reach more HTTP(S) hosts. You don't need one for models or MCP servers. Those are reachable already.",
-    newButton: "New policy",
     search: "Search by name or origin",
     loadError: "Could not load egress policies",
     empty: "No egress policies yet.",
@@ -27,7 +42,7 @@ export const egressCopy = {
     actorJwt: "Actor JWT",
   },
   details: {
-    description: (namespace: string) => `Extra hosts that agents and sandboxes in ${namespace} can reach.`,
+    description: (namespace: string) => `Egress policy in ${namespace}.`,
     back: "Back to policies",
     edit: "Edit",
     destinations: "Destinations",
@@ -64,6 +79,11 @@ export const egressCopy = {
     name: "Name",
     namespace: "Namespace",
     identityLocked: "Fixed once the policy exists.",
+    nameRequired: "Enter a name.",
+    nameInvalid: "Use lowercase letters, numbers, hyphens and dots. Start and end each part with a letter or number.",
+    nameTooLong: (max: number) => `Keep the name to ${max} characters or fewer.`,
+    namespaceRequired: "Choose a namespace.",
+    namespaceInvalid: "Choose a namespace made of lowercase letters, numbers and hyphens.",
     destinations: "Destinations",
     destinationsHelp: (max: number) => `Each destination allows one origin and all its paths. You can add up to ${max}.`,
     destinationTitle: (n: number) => `Destination ${n}`,

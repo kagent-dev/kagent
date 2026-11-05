@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { EgressPolicy } from "@/api";
-import { draftFromPolicy, draftIssues, emptyDestination, emptyPolicyDraft, resourceFromDraft } from "./egressPolicyDraft";
+import {
+  POLICY_NAME_MAX,
+  draftFromPolicy,
+  draftIssues,
+  emptyDestination,
+  emptyPolicyDraft,
+  policyNameProblem,
+  resourceFromDraft,
+} from "./egressPolicyDraft";
+import { egressCopy } from "./egressPolicyCopy";
 
 const policy: EgressPolicy = {
   ref: "kagent/github",
@@ -48,5 +57,55 @@ describe("egress policy draft", () => {
       "A wildcard origin can't use authentication.",
       "The Cookie header can't carry a credential.",
     ]);
+  });
+
+  it("accepts a dotted name on edit and sends it back unchanged", () => {
+    const dotted: EgressPolicy = {
+      ...policy,
+      ref: "kagent/api.github.com",
+      name: "api.github.com",
+      resource: { ...policy.resource, metadata: { ...policy.resource.metadata, name: "api.github.com" } },
+    };
+    const draft = draftFromPolicy(dotted);
+    expect(draftIssues(draft).count).toBe(0);
+    expect(resourceFromDraft(draft, dotted.resource)).toEqual(dotted.resource);
+  });
+
+  it("refuses a namespace that is not a single DNS label", () => {
+    const draft = emptyPolicyDraft("team.a");
+    draft.name = "github";
+    draft.destinations = [{ ...emptyDestination(), origin: "https://api.github.com" }];
+    expect(draftIssues(draft).policy).toEqual([egressCopy.form.namespaceInvalid]);
+  });
+});
+
+describe("policyNameProblem", () => {
+  it.each([
+    ["a single label", "github"],
+    ["dotted labels", "api.github.com"],
+    ["hyphens inside labels", "my-team.api-v2"],
+    ["the length limit", "a".repeat(POLICY_NAME_MAX)],
+  ])("accepts %s", (_case, name) => {
+    expect(policyNameProblem(name)).toBeUndefined();
+  });
+
+  it.each([
+    ["consecutive dots", "api..github"],
+    ["a leading dot", ".github"],
+    ["a trailing dot", "github."],
+    ["a leading hyphen", "-github"],
+    ["a trailing hyphen", "github-"],
+    ["a hyphen at a dot", "api-.github"],
+    ["uppercase", "GitHub"],
+  ])("refuses %s", (_case, name) => {
+    expect(policyNameProblem(name)).toBe(egressCopy.form.nameInvalid);
+  });
+
+  it("refuses a name past the length limit", () => {
+    expect(policyNameProblem("a".repeat(POLICY_NAME_MAX + 1))).toBe(egressCopy.form.nameTooLong(POLICY_NAME_MAX));
+  });
+
+  it("asks for a name when it is blank", () => {
+    expect(policyNameProblem("  ")).toBe(egressCopy.form.nameRequired);
   });
 });

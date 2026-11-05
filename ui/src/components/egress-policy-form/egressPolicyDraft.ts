@@ -7,6 +7,7 @@ import {
 } from "@/api/domain/egressPolicies";
 import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import { DEFAULT_NAMESPACE, isValidResourceName } from "@/components/common/resourceName";
+import { egressCopy } from "./egressPolicyCopy";
 
 export type AuthChoice = "none" | "secret" | "actorJwt";
 
@@ -108,6 +109,20 @@ export function resourceFromDraft(
   };
 }
 
+// The proto's ResourceReference rules: a DNS-1123 subdomain name and a DNS-1123 label namespace.
+const DNS_1123_SUBDOMAIN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
+export const POLICY_NAME_MAX = 253;
+const NAMESPACE_MAX = 63;
+
+/** Why a policy name is refused, or undefined when the API would accept it. */
+export function policyNameProblem(value: string): string | undefined {
+  const name = value.trim();
+  if (!name) return egressCopy.form.nameRequired;
+  if (name.length > POLICY_NAME_MAX) return egressCopy.form.nameTooLong(POLICY_NAME_MAX);
+  if (!DNS_1123_SUBDOMAIN.test(name)) return egressCopy.form.nameInvalid;
+  return undefined;
+}
+
 export interface DraftIssues {
   /** Name, namespace and spec-level problems. */
   policy: string[];
@@ -118,11 +133,13 @@ export interface DraftIssues {
 
 export function draftIssues(draft: EgressPolicyDraft): DraftIssues {
   const policy: string[] = [];
-  if (!draft.name.trim()) policy.push("Enter a name.");
-  else if (!isValidResourceName(draft.name) || draft.name.trim().length > 253) {
-    policy.push("Use lowercase letters, numbers and hyphens in the name.");
+  const nameProblem = policyNameProblem(draft.name);
+  if (nameProblem) policy.push(nameProblem);
+  const namespace = draft.namespace.trim();
+  if (!namespace) policy.push(egressCopy.form.namespaceRequired);
+  else if (namespace.length > NAMESPACE_MAX || !isValidResourceName(namespace)) {
+    policy.push(egressCopy.form.namespaceInvalid);
   }
-  if (!draft.namespace.trim()) policy.push("Choose a namespace.");
   const spec = { destinations: draft.destinations.map(destinationFromDraft) };
   policy.push(...specProblems(spec));
 

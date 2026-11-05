@@ -8,7 +8,7 @@ import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 import { draftFromPolicy, emptyPolicyDraft } from "@/components/egress-policy-form/egressPolicyDraft";
 import { DEFAULT_NAMESPACE } from "@/components/common/resourceName";
 import { apiClient, isNotFound, useEgressPolicy, useInvalidateEgressPolicies, type EgressPolicyResource } from "@/api";
-import { buildPath, paths } from "@/router/routes";
+import { buildPath, egressPoliciesTab, paths } from "@/router/routes";
 
 // region Component
 
@@ -29,7 +29,7 @@ export function EgressPolicyNewPage() {
       <EgressPolicyForm
         initial={emptyPolicyDraft(DEFAULT_NAMESPACE)}
         onSubmit={create}
-        onCancel={() => void navigate(paths.egressPolicies)}
+        onCancel={() => void navigate(egressPoliciesTab)}
       />
     </PageFrame>
   );
@@ -43,7 +43,7 @@ export function EgressPolicyEditPage() {
   // Bumped after a stale save, so the form remounts on the reloaded policy.
   const [generation, setGeneration] = useState(0);
   const missing = policy.error !== undefined && isNotFound(policy.error);
-  const detail = namespace && name ? buildPath(paths.egressPolicyDetail, { namespace, name }) : paths.egressPolicies;
+  const detail = namespace && name ? buildPath(paths.egressPolicyDetail, { namespace, name }) : egressPoliciesTab;
 
   async function save(resource: EgressPolicyResource) {
     if (!namespace || !name) throw new Error("An egress policy needs a namespace and a name.");
