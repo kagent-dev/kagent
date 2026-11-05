@@ -19,27 +19,6 @@ const (
 	sessionDeletionIdleTimeout   sessionDeletionReason = "idle_timeout"
 )
 
-// BeginSessionDeletion checks eligibility and records DELETING in one
-// transaction under the session row lock. Force bypasses active turns, pending
-// dispatch, and unfinished runtime cleanup; checkpoint and lifecycle guards remain.
-// Accepted deletion stays retryable without force. Callers authorize access;
-// a missing session returns ErrNotFound.
-func (c *Client) BeginSessionDeletion(ctx context.Context, sessionID string, force bool) (*SessionOperation, error) {
-	var operation *SessionOperation
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockSession(ctx, tx, sessionID)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		operation, err = beginSessionDeletion(ctx, tx, row, sessionDeletionUserRequested, force)
-		return err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("begin Session deletion: %w", err)
-	}
-	return operation, nil
-}
-
 // beginSessionDeletion starts deletion or returns its existing operation.
 // The caller holds the session lock and has checked any reason-specific policy,
 // such as the idle-expiration deadline.

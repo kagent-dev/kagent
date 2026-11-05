@@ -9,12 +9,32 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
+func TestSessionOperationRejectsForceForNonDelete(t *testing.T) {
+	for _, kind := range []apiv1.RuntimeOperation{
+		apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+		apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
+		apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME,
+		apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND,
+	} {
+		t.Run("Given a ready session, when "+kind.String()+" is forced, assert that admission is rejected without changing state", func(t *testing.T) {
+			client, session := deletionSessionFixture(t)
+			operation, err := client.BeginSessionOperation(t.Context(), session.Id, kind, true)
+			require.ErrorIs(t, err, ErrFailedPrecondition)
+			require.Nil(t, operation)
+			current, err := client.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, session.State, current.State)
+			require.Equal(t, session.Operation, current.Operation)
+		})
+	}
+}
+
 func TestSessionOperationGenerationAndTombstone(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
-	create, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	create, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, create.Instance.Operation)
 	creator := uuid.New()
@@ -29,7 +49,7 @@ func TestSessionOperationGenerationAndTombstone(t *testing.T) {
 	_, err = client.GetSessionForRuntime(t.Context(), session.Id, "replacement-uid")
 	require.ErrorIs(t, err, ErrNotFound)
 
-	suspend, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	suspend, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, suspend.Instance.Operation)
 	executor := uuid.New()
@@ -42,7 +62,7 @@ func TestSessionOperationGenerationAndTombstone(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "renamed during suspend", suspended.Name)
 
-	resume, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+	resume, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, resume.Instance.Operation)
 	resumer := uuid.New()
@@ -59,7 +79,7 @@ func TestSessionOperationGenerationAndTombstone(t *testing.T) {
 	_, err = client.GetSessionOperation(t.Context(), session.Id, suspend.ID)
 	require.ErrorIs(t, err, ErrConflict)
 
-	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, deletion.Instance.Operation)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, deletion.Instance.State)
@@ -78,7 +98,7 @@ func TestSessionOperationGenerationAndTombstone(t *testing.T) {
 	current, err := client.GetSessionOperation(t.Context(), session.Id, deletion.ID)
 	require.NoError(t, err)
 	require.Equal(t, deleted.State, current.Instance.State)
-	current, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	current, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.NoError(t, err)
 	require.Equal(t, deletion.ID, current.ID)
 	require.Equal(t, deleted.State, current.Instance.State)
@@ -91,14 +111,14 @@ func TestSessionOperationClaimsAndPreparationRecovery(t *testing.T) {
 	require.NoError(t, err)
 	session, err = markSessionReady(t.Context(), client, session.Id, "runtime.example")
 	require.NoError(t, err)
-	first, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	first, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
 	// Success requires a claim, even when there is no competing executor.
 	_, err = client.FinishSessionOperation(t.Context(), session.Id, first.ID, uuid.Nil, "", "", "")
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = client.FinishSessionOperation(t.Context(), session.Id, first.ID, uuid.Nil, "", "", "preparation unavailable")
 	require.NoError(t, err)
-	second, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	second, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, second.ID)
 	claimed, err := client.ClaimSessionOperation(t.Context(), session.Id, first.ID, uuid.New())
@@ -130,11 +150,11 @@ func TestSessionOperationClaimsAndPreparationRecovery(t *testing.T) {
 		}
 	}
 	require.NotEqual(t, uuid.Nil, winner)
-	joined, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	joined, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
 	require.Equal(t, winner, joined.ExecutorID)
 	require.Equal(t, second.Instance.Operation, joined.Instance.Operation)
-	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = client.FinishSessionOperation(t.Context(), session.Id, second.ID, uuid.New(), "", "", "")
 	require.ErrorIs(t, err, ErrConflict)
@@ -152,9 +172,9 @@ func TestDeleteSupersedesOnlyUnissuedCreation(t *testing.T) {
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
-	creation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	creation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 	require.NoError(t, err)
-	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.NoError(t, err)
 	claimed, err := client.ClaimSessionOperation(t.Context(), session.Id, creation.ID, uuid.New())
 	require.NoError(t, err)
@@ -167,7 +187,7 @@ func TestDeleteSupersedesOnlyUnissuedCreation(t *testing.T) {
 	require.True(t, claimed)
 	_, err = client.FinishSessionOperation(t.Context(), session.Id, deletion.ID, executor, "", "", "")
 	require.NoError(t, err)
-	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = client.GetSessionOperation(t.Context(), session.Id, uuid.New())
 	require.ErrorIs(t, err, ErrConflict)
@@ -186,7 +206,7 @@ func TestLifecycleABARejectsOldClaimAndCompletion(t *testing.T) {
 		apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND,
 		apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME,
 	} {
-		operation, err := client.BeginSessionOperation(t.Context(), session.Id, kind)
+		operation, err := client.BeginSessionOperation(t.Context(), session.Id, kind, false)
 		require.NoError(t, err)
 		if first == nil {
 			first = operation
@@ -197,7 +217,7 @@ func TestLifecycleABARejectsOldClaimAndCompletion(t *testing.T) {
 		_, err = client.FinishSessionOperation(t.Context(), session.Id, operation.ID, executor, "", "", "")
 		require.NoError(t, err)
 	}
-	later, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	later, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, later.ID)
 	require.Equal(t, first.Instance.State, later.Instance.State)
@@ -219,7 +239,7 @@ func TestLifecycleObservationUsesCurrentFields(t *testing.T) {
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
-	operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 	require.NoError(t, err)
 	executor := uuid.New()
 	claimed, err := client.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)
@@ -233,7 +253,7 @@ func TestLifecycleObservationUsesCurrentFields(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, renamed.Name, current.Instance.Name)
 	// Already at target is successful without needing a previous Resume receipt.
-	resumed, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+	resumed, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, false)
 	require.NoError(t, err)
 	require.Equal(t, renamed.Name, resumed.Instance.Name)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, resumed.Instance.Operation)

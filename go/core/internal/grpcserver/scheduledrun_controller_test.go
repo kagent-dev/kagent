@@ -442,7 +442,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 }
 
 func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kind apiv1.RuntimeOperation, authority string) (*apiv1.Session, error) {
-	operation, err := w.store.BeginSessionOperation(ctx, id, kind)
+	operation, err := w.store.BeginSessionOperation(ctx, id, kind, false)
 	if err != nil {
 		return nil, err
 	}

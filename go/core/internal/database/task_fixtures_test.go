@@ -51,7 +51,7 @@ func saveRuntimeTask(t *testing.T, client *Client, sessionID string, task *a2a.T
 // finishSessionOperation simulates successful runtime work through the same
 // lifecycle operations used by the service, preserving their checks and fencing.
 func finishSessionOperation(ctx context.Context, client *Client, id string, kind apiv1.RuntimeOperation, authority string) (*apiv1.Session, error) {
-	work, err := client.BeginSessionOperation(ctx, id, kind)
+	work, err := client.BeginSessionOperation(ctx, id, kind, false)
 	if err != nil {
 		return nil, err
 	}

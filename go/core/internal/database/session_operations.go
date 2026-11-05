@@ -21,12 +21,18 @@ type SessionOperation struct {
 	SourceCheckpointID *uuid.UUID
 }
 
-// BeginSessionOperation admits or joins current lifecycle work under the
-// session lock. Creation retries and already-at-target requests return current
-// state. Delete alone may supersede unclaimed work; uncertain work blocks it.
+// BeginSessionOperation admits or joins lifecycle work under the session row
+// lock in one transaction. Force is valid only for Delete: it bypasses active
+// turns, pending dispatch, and unfinished runtime cleanup, while checkpoint and
+// lifecycle guards remain. Accepted deletion stays retryable without force.
+// Creation retries and already-at-target requests return current state. Delete
+// may supersede unclaimed work; uncertain lifecycle work blocks it.
 // Callers authorize access. Deleted sessions return ErrNotFound, except Delete
 // can observe the tombstone for a caller already authorized before deletion.
-func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, kind apiv1.RuntimeOperation) (*SessionOperation, error) {
+func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, kind apiv1.RuntimeOperation, force bool) (*SessionOperation, error) {
+	if force && kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+		return nil, fmt.Errorf("force is only supported for Session deletion: %w", ErrFailedPrecondition)
+	}
 	var operation *SessionOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSession(ctx, tx, sessionID)
@@ -34,7 +40,7 @@ func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, ki
 			return notFoundOr(err)
 		}
 		if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
-			operation, err = beginSessionDeletion(ctx, tx, row, sessionDeletionUserRequested, false)
+			operation, err = beginSessionDeletion(ctx, tx, row, sessionDeletionUserRequested, force)
 			return err
 		}
 		operation, err = beginSessionOperation(ctx, tx, row, kind)

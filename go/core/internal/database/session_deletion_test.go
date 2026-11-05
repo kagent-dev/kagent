@@ -15,7 +15,7 @@ func TestNormalDeletionErrorsDuringActiveTurns(t *testing.T) {
 	for _, state := range []a2a.TaskState{a2a.TaskStateSubmitted, a2a.TaskStateWorking} {
 		t.Run("Given a "+string(state)+" turn, when deletion is requested, assert that admission stays open", func(t *testing.T) {
 			client, session, _, _ := deletionTaskFixture(t, state)
-			_, err := client.BeginSessionDeletion(t.Context(), session.Id, false)
+			_, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 			require.ErrorIs(t, err, ErrConflict)
 			current, err := client.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
@@ -30,7 +30,7 @@ func TestNormalDeletionAllowsSettledTurns(t *testing.T) {
 		t.Run("Given a settled "+string(state)+" turn, when deletion is requested, assert that it is admitted", func(t *testing.T) {
 			client, session, task, version := deletionTaskFixture(t, state)
 			require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-			operation, err := client.BeginSessionDeletion(t.Context(), session.Id, false)
+			operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, operation.Instance.State)
 		})
@@ -41,7 +41,7 @@ func TestForceDeletionFencesTurnsAndSurvivesPreparationFailure(t *testing.T) {
 	client, session, task, version := deletionTaskFixture(t, a2a.TaskStateWorking)
 	row, err := readSession(t.Context(), client.db, session.Id)
 	require.NoError(t, err)
-	operation, err := client.BeginSessionDeletion(t.Context(), session.Id, true)
+	operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
 	require.NoError(t, err)
 	_, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash("late update"), task, task, "")
 	require.ErrorIs(t, err, ErrConflict)
@@ -53,7 +53,7 @@ func TestForceDeletionFencesTurnsAndSurvivesPreparationFailure(t *testing.T) {
 	require.NoError(t, err)
 	// A new controller/client can continue durable deletion without the force flag.
 	restarted := NewClient(client.db, "public")
-	operation, err = restarted.BeginSessionDeletion(t.Context(), session.Id, false)
+	operation, err = restarted.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.NoError(t, err)
 	finishAdmittedDeletion(t, restarted, operation)
 	stored, err := readSessionTask(t.Context(), client.db, row.HistoryID, string(task.ID))
@@ -64,7 +64,7 @@ func TestForceDeletionFencesTurnsAndSurvivesPreparationFailure(t *testing.T) {
 	finalVersion, err := taskVersion(t.Context(), client.db, row.HistoryID, string(task.ID))
 	require.NoError(t, err)
 	require.Greater(t, finalVersion, version, "cancellation must be recorded in task history")
-	joined, err := restarted.BeginSessionDeletion(t.Context(), session.Id, false)
+	joined, err := restarted.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, joined.Instance.State)
 	unchangedVersion, err := taskVersion(t.Context(), client.db, row.HistoryID, string(task.ID))
@@ -80,9 +80,9 @@ func TestForceDeletionPreservesSavedBoundary(t *testing.T) {
 			client, session, task, version := deletionTaskFixture(t, state)
 			row, err := readSession(t.Context(), client.db, session.Id)
 			require.NoError(t, err)
-			_, err = client.BeginSessionDeletion(t.Context(), session.Id, false)
+			_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 			require.ErrorIs(t, err, ErrFailedPrecondition)
-			operation, err := client.BeginSessionDeletion(t.Context(), session.Id, true)
+			operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
 			require.NoError(t, err)
 			finishAdmittedDeletion(t, client, operation)
 			stored, err := readSessionTask(t.Context(), client.db, row.HistoryID, string(task.ID))
@@ -99,7 +99,7 @@ func TestForceDeletionPreservesConcurrentRuntimeSettlement(t *testing.T) {
 	client, session, task, version := deletionTaskFixture(t, a2a.TaskStateCompleted)
 	row, err := readSession(t.Context(), client.db, session.Id)
 	require.NoError(t, err)
-	operation, err := client.BeginSessionDeletion(t.Context(), session.Id, true)
+	operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
 	require.NoError(t, err)
 
 	// The runtime acknowledges its saved result while actor deletion is in progress.
@@ -118,7 +118,7 @@ func TestForceDeletionPreservesConcurrentRuntimeSettlement(t *testing.T) {
 
 func TestForceDeletionFinalizationRollsBackOnIdentityConflict(t *testing.T) {
 	client, session, task, version := deletionTaskFixture(t, a2a.TaskStateWorking)
-	operation, err := client.BeginSessionDeletion(t.Context(), session.Id, true)
+	operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
 	require.NoError(t, err)
 	executor := uuid.New()
 	claimed, err := client.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)
@@ -154,9 +154,9 @@ func TestForceDeletionRevokesDispatch(t *testing.T) {
 	client, session := deletionSessionFixture(t)
 	dispatchID := uuid.New()
 	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, "pending"))
-	_, err := client.BeginSessionDeletion(t.Context(), session.Id, false)
+	_, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.ErrorIs(t, err, ErrFailedPrecondition)
-	operation, err := client.BeginSessionDeletion(t.Context(), session.Id, true)
+	operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
 	require.NoError(t, err)
 	late := newSessionTask(uuid.NewString(), "pending")
 	late.ContextID = session.ContextId
@@ -171,7 +171,7 @@ func TestForceDeletionRetainsIdleLifecycleOwnership(t *testing.T) {
 	work, err := client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, session.Id, work.Session.Id)
-	_, err = client.BeginSessionDeletion(t.Context(), session.Id, true)
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
 	require.ErrorIs(t, err, ErrConflict)
 	current, err := client.GetSessionByID(t.Context(), session.Id)
 	require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestDeletionSerializesWithMessageAdmission(t *testing.T) {
 	var workers sync.WaitGroup
 	workers.Go(func() {
 		<-start
-		_, err := client.BeginSessionDeletion(t.Context(), session.Id, false)
+		_, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 		results <- err
 	})
 	workers.Go(func() {
