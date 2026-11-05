@@ -692,25 +692,26 @@ function SectionSearch({
 
 const PAGE_SIZE = 25;
 
+/**
+ * When the list was read, as a clock time rather than a running age: an age that ticks
+ * twice a second pulls the eye off the rows while saying nothing new.
+ */
 function PageAge({ computedAt }: { computedAt?: string }) {
   const theme = useTheme();
-  const age = useDataAge(computedAt);
-  return <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{age}</Text>;
+  return (
+    <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{readAt(computedAt)}</Text>
+  );
 }
 
-function useDataAge(computedAt: string | undefined): string {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(timer);
-  }, []);
-
+function readAt(computedAt: string | undefined): string {
   if (!computedAt) return "";
-  const at = new Date(computedAt).getTime();
-  if (Number.isNaN(at)) return "";
-  const seconds = Math.max(0, (now - at) / 1000);
-  if (seconds < 1) return "read just now";
-  return `read ${seconds.toFixed(1)}s ago`;
+  const at = new Date(computedAt);
+  if (Number.isNaN(at.getTime())) return "";
+  return `Read at ${at.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  })}`;
 }
 
 function PageWarning({ message, testId }: { message: string; testId: string }) {
