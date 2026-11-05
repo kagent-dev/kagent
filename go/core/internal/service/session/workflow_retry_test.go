@@ -76,9 +76,9 @@ func (a *retryTestActors) SuspendActor(ctx context.Context, space, name string) 
 	return actor, err
 }
 
-func (a *retryTestActors) DeleteActor(ctx context.Context, space, name string) error {
+func (a *retryTestActors) DeleteActor(ctx context.Context, space, name, uid string) error {
 	a.mutations.Add(1)
-	if err := a.lifecycleTestActors.DeleteActor(ctx, space, name); err != nil {
+	if err := a.lifecycleTestActors.DeleteActor(ctx, space, name, uid); err != nil {
 		return err
 	}
 	return a.mutationErr
@@ -110,7 +110,9 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 			case "suspend":
 				call = workflow.Suspend
 			case "delete":
-				call = workflow.Delete
+				call = func(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+					return workflow.Delete(ctx, session, false)
+				}
 			}
 			_, err = call(t.Context(), session)
 			require.Equal(t, codes.Unavailable, status.Code(err))
@@ -118,7 +120,7 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 			require.NoError(t, err, "uncertainty must preserve the session and its resource pins")
 			require.NotEqual(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
 			if name != "delete" {
-				_, err = setup.Delete(t.Context(), current)
+				_, err = setup.Delete(t.Context(), current, false)
 				require.ErrorIs(t, err, database.ErrConflict, "Delete must not erase uncertain work")
 			}
 			if checkpointID != "" {
@@ -136,7 +138,9 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 			case "suspend":
 				retryCall = restarted.Suspend
 			case "delete":
-				retryCall = restarted.Delete
+				retryCall = func(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+					return restarted.Delete(ctx, session, false)
+				}
 			}
 			result, err := retryCall(t.Context(), current)
 			require.NoError(t, err)
@@ -174,7 +178,7 @@ func TestDelayedCreationCannotResurrectDeletedActor(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	_, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second).Delete(ctx, session)
+	_, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second).Delete(ctx, session, false)
 	require.NoError(t, err)
 	close(release)
 	require.ErrorIs(t, <-result, database.ErrConflict)
@@ -215,7 +219,7 @@ func TestDeletePreparationFailureKeepsAdmissionClosed(t *testing.T) {
 				require.NoError(t, err)
 			}
 			actors := &retryTestActors{lifecycleTestActors: base, readErr: status.Error(codes.Unavailable, "lookup unavailable")}
-			_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Delete(t.Context(), session)
+			_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Delete(t.Context(), session, false)
 			require.Equal(t, codes.Unavailable, status.Code(err))
 			require.Zero(t, actors.mutations.Load())
 			current, err := store.GetSessionByID(t.Context(), session.Id)
@@ -227,7 +231,7 @@ func TestDeletePreparationFailureKeepsAdmissionClosed(t *testing.T) {
 			require.NoError(t, err)
 			require.ErrorIs(t, worker.expire(t.Context(), session.Id, time.Now()), database.ErrConflict,
 				"explicit deletion still requires a client retry")
-			deleted, err := workflow.Delete(t.Context(), session)
+			deleted, err := workflow.Delete(t.Context(), session, false)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 			require.Empty(t, base.actors)
@@ -297,8 +301,10 @@ func TestClaimedCreationBlocksDeletionBeforeRuntimeCall(t *testing.T) {
 	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 	_, err := workflow.Create(ctx, session)
 	require.ErrorIs(t, err, database.ErrConflict)
-	_, err = workflow.Delete(ctx, session)
+	_, err = workflow.Delete(ctx, session, false)
 	require.ErrorIs(t, err, database.ErrConflict)
+	_, err = workflow.Delete(ctx, session, true)
+	require.ErrorIs(t, err, database.ErrConflict, "force must preserve issued lifecycle ownership")
 	require.Zero(t, actors.mutations.Load())
 	close(release)
 	require.NoError(t, <-result)
@@ -404,7 +410,7 @@ func TestDelayedCreationObservesOnlyCurrentGeneration(t *testing.T) {
 			ready, err := workflow.Create(ctx, session)
 			require.NoError(t, err)
 			if test.supersede {
-				_, err = workflow.Delete(ctx, ready)
+				_, err = workflow.Delete(ctx, ready, false)
 				require.NoError(t, err)
 			}
 			close(release)

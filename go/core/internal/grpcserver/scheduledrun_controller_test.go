@@ -81,7 +81,7 @@ func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, session *apiv
 	return session, err
 }
 
-func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return w.finish(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 }
 

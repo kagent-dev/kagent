@@ -136,6 +136,8 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 			}, "alice", "checkpoint")
 			require.NoError(t, err)
 			require.ErrorIs(t, deleteSession(ctx, client, session.GetId()), ErrConflict)
+			_, err = client.BeginSessionDeletion(ctx, session.GetId(), true)
+			require.ErrorIs(t, err, ErrConflict, "force must preserve checkpoint ownership")
 
 			// A checkpoint retains the runtime throughout creation, use, and deletion,
 			// even after the source session and active template pair are gone.

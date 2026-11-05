@@ -886,7 +886,7 @@ const agentInstances: Pick<
   "agentInstances.delete": async (input, options) => {
     await rpc("SessionService/DeleteSession", options.signal, () =>
       serviceClient(SessionService).deleteSession(
-        { sessionId: input.id },
+        { sessionId: input.id, force: input.force ?? false },
         call("agentInstances.delete", options),
       ),
     );

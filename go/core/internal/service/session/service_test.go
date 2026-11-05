@@ -129,7 +129,7 @@ func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (
 	return session, w.err
 }
 
-func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return session, w.err
 }
 
@@ -211,7 +211,7 @@ func TestServiceDeletePreservesContentionErrors(t *testing.T) {
 	} {
 		conflict := fmt.Errorf("Session has an operation in progress: %w", failure.cause)
 		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
-		_, err := service.Delete(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+		_, err := service.Delete(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", false)
 		if !serviceerrors.IsCode(err, failure.code) {
 			t.Fatalf("error = %v, want code %s", err, failure.code)
 		}
@@ -553,7 +553,7 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},
+		{name: "delete", call: func() error { _, err := service.Delete(ctx, id, false); return err }},
 		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
 		{name: "share listing", call: func() error { _, err := service.ListShares(ctx, id, 0, ""); return err }},
 		{name: "share revocation", call: func() error { return service.RevokeShare(ctx, id) }},

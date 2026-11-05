@@ -41,7 +41,7 @@ type controllerTestCleanup struct {
 	deletes, expires int
 }
 
-func (c *controllerTestCleanup) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (c *controllerTestCleanup) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	c.deletes++
 	return session, c.err
 }

@@ -271,7 +271,7 @@ export interface OperationMap {
    * Irreversible, and it takes the conversation with it: the instance *is* the
    * conversation, so its tasks go too. Every caller confirms first.
    */
-  "agentInstances.delete": { input: AgentInstanceRef; output: void };
+  "agentInstances.delete": { input: AgentInstanceRef & { force?: boolean }; output: void };
 
   "agentInstances.shares.list": {
     input: AgentInstanceRef;

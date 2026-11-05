@@ -22,6 +22,7 @@ type workflowStore interface {
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation) (*database.SessionOperation, error)
+	BeginSessionDeletion(context.Context, string, bool) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
 	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1.Session, error)
@@ -105,8 +106,14 @@ func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*a
 
 // Delete closes admission before stopping and deleting compute. It can supersede
 // unissued creation, but never deletes a session while a prior call is uncertain.
-func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session, force bool) (*apiv1.Session, error) {
+	ctx, cancelAttempt := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+	defer cancelAttempt()
+	operation, err := w.store.BeginSessionDeletion(ctx, session.GetId(), force)
+	if err != nil {
+		return nil, err
+	}
+	return w.execute(ctx, operation)
 }
 
 func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1.RuntimeOperation) (*apiv1.Session, error) {

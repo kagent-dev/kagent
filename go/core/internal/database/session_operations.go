@@ -34,7 +34,7 @@ func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, ki
 			return notFoundOr(err)
 		}
 		if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
-			operation, err = beginSessionDeletion(ctx, tx, row, sessionDeletionUserRequested)
+			operation, err = beginSessionDeletion(ctx, tx, row, sessionDeletionUserRequested, false)
 			return err
 		}
 		operation, err = beginSessionOperation(ctx, tx, row, kind)
@@ -53,33 +53,38 @@ func beginSessionOperation(ctx context.Context, tx pgx.Tx, row sessionRow, kind 
 	if err != nil {
 		return nil, err
 	}
-	if needed {
-		if err := admitAgentLifecycle(ctx, tx, row, kind); err != nil {
-			return nil, err
-		}
-		if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
-			// Deletion keeps task admission closed even if preparation fails
-			// and releases this operation. Only a delete retry can finish it.
-			row.State = apiv1.RuntimeState_RUNTIME_STATE_DELETING.String()
-		}
-		row.runtimeInstanceRow, err = beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent, kind)
-		if err != nil {
-			return nil, err
-		}
+	if !needed {
+		return toSessionOperation(row)
 	}
+	if err := admitAgentLifecycle(ctx, tx, row, kind); err != nil {
+		return nil, err
+	}
+	return startSessionOperation(ctx, tx, row, kind)
+}
+
+// startSessionOperation persists newly admitted work under the session lock.
+// Its caller has checked lifecycle, task, and checkpoint admission.
+func startSessionOperation(ctx context.Context, tx pgx.Tx, row sessionRow, kind apiv1.RuntimeOperation) (*SessionOperation, error) {
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+		// Keep admission closed even if preparation fails and releases the claim.
+		row.State = apiv1.RuntimeState_RUNTIME_STATE_DELETING.String()
+	}
+	next, err := beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent, kind)
+	if err != nil {
+		return nil, err
+	}
+	row.runtimeInstanceRow = next
 	operation, err := toSessionOperation(row)
 	if err != nil {
 		return nil, err
 	}
-	if needed {
-		operation.Instance.UpdatedAt = timestamppb.Now()
-		data, err := marshalSession(operation.Instance)
-		if err != nil {
-			return nil, err
-		}
-		if err := execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, data); err != nil {
-			return nil, err
-		}
+	operation.Instance.UpdatedAt = timestamppb.Now()
+	data, err := marshalSession(operation.Instance)
+	if err != nil {
+		return nil, err
+	}
+	if err := execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, data); err != nil {
+		return nil, err
 	}
 	return operation, nil
 }
@@ -92,7 +97,7 @@ func admitAgentLifecycle(ctx context.Context, tx pgx.Tx, row sessionRow, kind ap
 	}
 	busy, err := queryOne(ctx, tx, `
   SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
-   OR ($2::text = 'RUNTIME_OPERATION_SUSPEND' AND EXISTS (
+   OR ($2::text IN ('RUNTIME_OPERATION_SUSPEND', 'RUNTIME_OPERATION_DELETE') AND EXISTS (
     SELECT 1 FROM session_task WHERE history_id = $3
      AND state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED', 'TASK_STATE_FAILED',
       'TASK_STATE_REJECTED', 'TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')))
@@ -146,6 +151,9 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 				result.A2AAuthority = authority
 			case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 				result.A2AAuthority = ""
+				if err := finishDeletedSessionTasks(ctx, tx, row); err != nil {
+					return err
+				}
 				if err := releaseAgentRuntimeReferences(ctx, tx, row.ID); err != nil {
 					return err
 				}

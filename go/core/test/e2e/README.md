@@ -50,6 +50,13 @@ Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.
 
+`TestSessionDeletionAfterInterruptedResume` delays restored Go ADK startup by
+20 seconds and sends a message through kagent. With the test router's default
+5-second parking budget, resume times out before a turn is accepted. The test
+requires the actor to remain `RESUMING` before ordinary Session deletion, then
+verifies Session and Actor absence through kagent APIs. Backend cleanup retries
+are allowed only after the actor reaches `DELETING` or is absent.
+
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness
 fixtures, and each test owns the templates and API resources it creates.
