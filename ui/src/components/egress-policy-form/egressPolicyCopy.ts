@@ -101,4 +101,11 @@ export const egressCopy = {
     none: "None",
   },
   kind: "egress policy",
+  /** Undefined when nothing uses the policy or the count is unknown, so the generic warning shows. */
+  deleteWarning: (users: number | undefined) =>
+    users === undefined || users === 0
+      ? undefined
+      : users === 1
+        ? "This policy is in use by 1 agent or sandbox template. It will immediately lose access to the hosts it allows. This action cannot be undone."
+        : `This policy is in use by ${users} agents and sandbox templates. They will immediately lose access to the hosts it allows. This action cannot be undone.`,
 } as const;

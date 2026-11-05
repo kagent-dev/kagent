@@ -80,6 +80,7 @@ test("egress policies: a policy is created, attached, edited and deleted", async
 
     // A wildcard origin offers no credential source.
     await page.getByTestId("egress-form-add-destination").click();
+    await expect(page.getByTestId("egress-destination-1-origin")).toBeFocused();
     await page.getByTestId("egress-destination-1-origin").fill("https://*.example.org");
     await expect(page.getByTestId("egress-destination-1-auth").getByRole("radio", { name: "Secret key" })).toBeDisabled();
   });
@@ -140,6 +141,8 @@ test("egress policies: a policy is created, attached, edited and deleted", async
     await expect(page.getByTestId("egress-form-name")).toHaveAttribute("readonly", "");
     await expect(page.getByTestId("egress-destination-0-origin")).toHaveValue("https://api.example.com");
     await page.getByTestId("egress-destination-1-remove").click();
+    // One row is left and it has no remove button, so focus moves to "Add destination".
+    await expect(page.getByTestId("egress-form-add-destination")).toBeFocused();
     await page.getByTestId("egress-destination-0-origin").fill("https://api2.example.com");
     await page.getByTestId("egress-form-submit").click();
     await expect(page).toHaveURL(new RegExp(`/egress-policies/kagent/${CREATED}$`));
@@ -149,6 +152,8 @@ test("egress policies: a policy is created, attached, edited and deleted", async
 
   await test.step("11. deleting the policy removes it from the list", async () => {
     await page.getByTestId(`delete-${CREATED}`).click();
+    // release-notes attached it in step 7.
+    await expect(dialog(page)).toContainText("This policy is in use by 1 agent or sandbox template.");
     await pressOnce(dialog(page).getByRole("button", { name: "Delete" }));
     await expect(page).toHaveURL(/\/egress-policies$/);
     await expectSettled(page);

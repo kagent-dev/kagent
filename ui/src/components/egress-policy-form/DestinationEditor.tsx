@@ -1,4 +1,5 @@
-import { Button, Card, Form, Input, Radio, Select, Typography } from "antd";
+import type { Ref } from "react";
+import { Button, Card, Form, Input, Radio, Select, Typography, type InputRef } from "antd";
 import { useTheme } from "@emotion/react";
 import { Trash2 } from "lucide-react";
 import { isWildcardOrigin } from "@/api";
@@ -17,6 +18,8 @@ export function DestinationEditor({
   onChange,
   onRemove,
   disabled,
+  originRef,
+  removeRef,
 }: {
   index: number;
   row: DestinationDraft;
@@ -24,11 +27,15 @@ export function DestinationEditor({
   onChange: (next: DestinationDraft) => void;
   onRemove?: () => void;
   disabled?: boolean;
+  originRef?: Ref<InputRef>;
+  removeRef?: Ref<HTMLButtonElement>;
 }) {
   const theme = useTheme();
   const update = (patch: Partial<DestinationDraft>) => onChange({ ...row, ...patch });
   const wildcard = isWildcardOrigin(row.origin);
   const testId = (field: string) => `egress-destination-${index}-${field}`;
+  // Keyed on the row id, not the index, so an id stays with its row after a removal.
+  const fieldId = (field: string) => `egress-destination-${row.id}-${field}-input`;
 
   return (
     <Card
@@ -42,6 +49,7 @@ export function DestinationEditor({
             danger
             size="small"
             icon={<Trash2 size={14} />}
+            ref={removeRef}
             onClick={onRemove}
             disabled={disabled}
             aria-label={egressCopy.form.removeDestination(index + 1)}
@@ -51,8 +59,10 @@ export function DestinationEditor({
       }
     >
       <Form layout="vertical" component="div">
-        <Form.Item label={egressCopy.form.origin} required extra={egressCopy.form.originHelp}>
+        <Form.Item htmlFor={fieldId("origin")} label={egressCopy.form.origin} required extra={egressCopy.form.originHelp}>
           <Input
+            id={fieldId("origin")}
+            ref={originRef}
             data-testid={testId("origin")}
             value={row.origin}
             placeholder="https://api.example.com"
@@ -63,11 +73,14 @@ export function DestinationEditor({
         </Form.Item>
 
         <Form.Item
+          htmlFor={fieldId("auth")}
           label={egressCopy.form.authentication}
           extra={wildcard ? egressCopy.form.wildcardNoAuth : egressCopy.form.authenticationHelp}
         >
           <Radio.Group
             optionType="button"
+            id={fieldId("auth")}
+            aria-label={egressCopy.form.authentication}
             data-testid={testId("auth")}
             value={row.auth}
             disabled={disabled}
@@ -82,8 +95,9 @@ export function DestinationEditor({
 
         {row.auth !== "none" ? (
           <div css={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", columnGap: theme.space(4) }}>
-            <Form.Item label={egressCopy.form.header} required>
+            <Form.Item htmlFor={fieldId("header")} label={egressCopy.form.header} required>
               <Input
+                id={fieldId("header")}
                 data-testid={testId("header")}
                 value={row.header}
                 placeholder="Authorization"
@@ -92,8 +106,9 @@ export function DestinationEditor({
                 css={{ fontFamily: theme.font.mono }}
               />
             </Form.Item>
-            <Form.Item label={egressCopy.form.prefix} extra={egressCopy.form.prefixHelp}>
+            <Form.Item htmlFor={fieldId("prefix")} label={egressCopy.form.prefix} extra={egressCopy.form.prefixHelp}>
               <Input
+                id={fieldId("prefix")}
                 data-testid={testId("prefix")}
                 value={row.prefix}
                 placeholder="Bearer "
@@ -104,8 +119,9 @@ export function DestinationEditor({
             </Form.Item>
             {row.auth === "secret" ? (
               <>
-                <Form.Item label={egressCopy.form.secretName} required extra={egressCopy.form.secretHelp}>
+                <Form.Item htmlFor={fieldId("secret-name")} label={egressCopy.form.secretName} required extra={egressCopy.form.secretHelp}>
                   <Input
+                    id={fieldId("secret-name")}
                     data-testid={testId("secret-name")}
                     value={row.secretName}
                     placeholder="api-credentials"
@@ -113,8 +129,9 @@ export function DestinationEditor({
                     onChange={(event) => update({ secretName: event.target.value })}
                   />
                 </Form.Item>
-                <Form.Item label={egressCopy.form.secretKey} required>
+                <Form.Item htmlFor={fieldId("secret-key")} label={egressCopy.form.secretKey} required>
                   <Input
+                    id={fieldId("secret-key")}
                     data-testid={testId("secret-key")}
                     value={row.secretKey}
                     placeholder="token"
@@ -125,9 +142,10 @@ export function DestinationEditor({
               </>
             ) : (
               <>
-                <Form.Item label={egressCopy.form.audiences} required extra={egressCopy.form.audiencesHelp}>
+                <Form.Item htmlFor={fieldId("audiences")} label={egressCopy.form.audiences} required extra={egressCopy.form.audiencesHelp}>
                   <Select
                     mode="tags"
+                    id={fieldId("audiences")}
                     data-testid={testId("audiences")}
                     value={row.audiences}
                     disabled={disabled}
@@ -138,8 +156,9 @@ export function DestinationEditor({
                     suffixIcon={null}
                   />
                 </Form.Item>
-                <Form.Item label={egressCopy.form.lifetime} extra={egressCopy.form.lifetimeHelp}>
+                <Form.Item htmlFor={fieldId("lifetime")} label={egressCopy.form.lifetime} extra={egressCopy.form.lifetimeHelp}>
                   <Input
+                    id={fieldId("lifetime")}
                     data-testid={testId("lifetime")}
                     value={row.expirationSeconds}
                     inputMode="numeric"

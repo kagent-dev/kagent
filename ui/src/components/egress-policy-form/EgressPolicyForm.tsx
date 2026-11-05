@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Alert, Button, Form, Input, Select, Space, Typography } from "antd";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Button, Form, Input, Select, Space, Typography, type InputRef } from "antd";
 import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
 import { EGRESS_LIMITS, isApiError, useNamespaces, type EgressPolicyResource } from "@/api";
@@ -21,6 +21,9 @@ const { Text } = Typography;
 function isStale(error: unknown): boolean {
   return isApiError(error) && error.code === "Aborted";
 }
+
+/** Where focus goes after a destination is added or removed. */
+type FocusTarget = { field: "origin" | "remove"; rowId: number } | { field: "add" };
 
 // region Component
 
@@ -48,6 +51,24 @@ export function EgressPolicyForm({
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
   const issues = useMemo(() => draftIssues(draft), [draft]);
+  const pendingFocus = useRef<FocusTarget>(undefined);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const originInputs = useRef(new Map<number, InputRef>());
+  const removeButtons = useRef(new Map<number, HTMLButtonElement>());
+
+  // Runs once the add or remove has rendered, so the target element exists.
+  useEffect(() => {
+    const focusTarget = pendingFocus.current;
+    if (!focusTarget) return;
+    pendingFocus.current = undefined;
+    const target =
+      focusTarget.field === "origin"
+        ? originInputs.current.get(focusTarget.rowId)
+        : focusTarget.field === "remove"
+          ? removeButtons.current.get(focusTarget.rowId)
+          : undefined;
+    (target ?? addButton.current)?.focus();
+  }, [draft.destinations]);
 
   const update = (patch: Partial<EgressPolicyDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
@@ -70,6 +91,20 @@ export function EgressPolicyForm({
 
   const full = draft.destinations.length >= EGRESS_LIMITS.destinations;
 
+  function addDestination() {
+    const next = emptyDestination();
+    update({ destinations: [...draft.destinations, next] });
+    pendingFocus.current = { field: "origin", rowId: next.id };
+  }
+
+  function removeDestination(index: number) {
+    const remaining = draft.destinations.filter((_, at) => at !== index);
+    update({ destinations: remaining });
+    // A lone row has no remove button, so focus falls back to "Add destination".
+    pendingFocus.current =
+      index > 0 && remaining.length > 1 ? { field: "remove", rowId: remaining[index - 1].id } : { field: "add" };
+  }
+
   return (
     <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 860 }}>
       <Form
@@ -77,8 +112,9 @@ export function EgressPolicyForm({
         component="div"
         css={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: theme.space(4) }}
       >
-        <Form.Item label={egressCopy.form.name} required={!editing} extra={editing ? egressCopy.form.identityLocked : undefined}>
+        <Form.Item htmlFor="egress-form-name-input" label={egressCopy.form.name} required={!editing} extra={editing ? egressCopy.form.identityLocked : undefined}>
           <Input
+            id="egress-form-name-input"
             data-testid="egress-form-name"
             value={draft.name}
             readOnly={editing}
@@ -87,8 +123,9 @@ export function EgressPolicyForm({
             css={{ fontFamily: theme.font.mono }}
           />
         </Form.Item>
-        <Form.Item label={egressCopy.form.namespace} required={!editing} extra={editing ? egressCopy.form.identityLocked : undefined}>
+        <Form.Item htmlFor="egress-form-namespace-input" label={egressCopy.form.namespace} required={!editing} extra={editing ? egressCopy.form.identityLocked : undefined}>
           <Select
+            id="egress-form-namespace-input"
             data-testid="egress-form-namespace"
             value={draft.namespace || undefined}
             disabled={editing}
@@ -117,19 +154,24 @@ export function EgressPolicyForm({
           onChange={(next) =>
             update({ destinations: draft.destinations.map((entry) => (entry.id === row.id ? next : entry)) })
           }
-          onRemove={
-            draft.destinations.length > 1
-              ? () => update({ destinations: draft.destinations.filter((entry) => entry.id !== row.id) })
-              : undefined
-          }
+          onRemove={draft.destinations.length > 1 ? () => removeDestination(index) : undefined}
+          originRef={(input) => {
+            if (input) originInputs.current.set(row.id, input);
+            else originInputs.current.delete(row.id);
+          }}
+          removeRef={(button) => {
+            if (button) removeButtons.current.set(row.id, button);
+            else removeButtons.current.delete(row.id);
+          }}
         />
       ))}
 
       <Button
         icon={<Plus size={14} />}
+        ref={addButton}
         data-testid="egress-form-add-destination"
         disabled={full || saving}
-        onClick={() => update({ destinations: [...draft.destinations, emptyDestination()] })}
+        onClick={addDestination}
         css={{ alignSelf: "flex-start" }}
       >
         {egressCopy.form.addDestination}

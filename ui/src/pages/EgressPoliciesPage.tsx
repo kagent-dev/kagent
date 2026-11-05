@@ -143,7 +143,8 @@ export function EgressPoliciesPage() {
           </Link>
           <DeleteResourceButton
             kind={egressCopy.kind}
-            name={row.policy.name}
+            name={row.policy.ref}
+            description={egressCopy.deleteWarning(row.usedBy)}
             onDelete={() => apiClient.egressPolicies.remove(row.policy.namespace, row.policy.name)}
             onDeleted={invalidate}
           />

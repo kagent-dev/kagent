@@ -149,6 +149,8 @@ export function EgressPolicyDetailsPage() {
                 outlined
                 confirmation="modal"
                 label="Delete"
+                // A refused namespace would undercount, so the warning falls back to the generic one.
+                description={egressCopy.deleteWarning(agents.data?.refused.length ? undefined : users?.length)}
                 onDelete={() => apiClient.egressPolicies.remove(namespace, name)}
                 onDeleted={async () => {
                   await invalidate().catch(() => {});
