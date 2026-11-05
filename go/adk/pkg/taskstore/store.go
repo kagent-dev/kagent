@@ -93,6 +93,9 @@ func (s *Store) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVe
 	request := &runtimev1.TaskStoreServiceCreateTaskRequest{SessionId: id, Task: wire}
 	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
 		request.DispatchId = state.dispatchID
+		// Finish admitted writes within the retry budget, even if the SDK
+		// cancels its writer. Native work still waits for this initial save.
+		ctx = context.WithoutCancel(ctx)
 	}
 	var response *runtimev1.TaskStoreServiceCreateTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
@@ -127,6 +130,10 @@ func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) 
 	request := &runtimev1.TaskStoreServiceUpdateTaskRequest{SessionId: id, Task: task, Event: event, ExpectedVersion: int64(update.PrevVersion)}
 	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
 		request.DispatchId = state.dispatchID
+		// a2a-go cancels its writer when an executor fails. Finish any in-flight
+		// save and the failure update within our retry budget, preserving a known
+		// version for finalization. Cleanup still gates publication and suspension.
+		ctx = context.WithoutCancel(ctx)
 	}
 	var response *runtimev1.TaskStoreServiceUpdateTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
