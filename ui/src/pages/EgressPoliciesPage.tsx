@@ -65,8 +65,11 @@ export function EgressPoliciesPage() {
           key: policy.ref,
           origins: policy.resource.spec.destinations.map((entry) => entry.origin),
           auth: sources.length ? sources.map((source) => egressCopy.auth[source]).join(", ") : egressCopy.auth.none,
+          // A refused namespace would undercount its policies, so they show no count.
           usedBy:
-            agents.data && sandboxTemplates.data
+            agents.data &&
+            sandboxTemplates.data &&
+            !agents.data.refused.some((entry) => entry.namespace === policy.namespace)
               ? policyUsers(policy, agents.data.agents, sandboxTemplates.data).length
               : undefined,
         };

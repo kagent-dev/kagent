@@ -111,7 +111,7 @@ describe("policyUsers", () => {
           conditions: [{ type: "EgressPoliciesApplied", status: "True", reason: "Applied" }],
         }),
         agent("kagent", "alpha", ["github", "other"], {
-          conditions: [{ type: "EgressPoliciesApplied", status: "False", reason: "EgressPolicyNotFound", message: "other not found" }],
+          conditions: [{ type: "EgressPoliciesApplied", status: "False", reason: "EgressPolicyNotFound", message: "kagent/github: not found" }],
         }),
         agent("other-team", "same-name", ["github"]),
         agent("kagent", "unrelated", ["gitlab"]),
@@ -120,14 +120,61 @@ describe("policyUsers", () => {
     );
 
     expect(users).toEqual([
-      { kind: "Agent", namespace: "kagent", name: "alpha", applied: "notApplied", detail: "EgressPolicyNotFound: other not found" },
+      { kind: "Agent", namespace: "kagent", name: "alpha", applied: "notApplied", detail: "EgressPolicyNotFound: kagent/github: not found" },
       { kind: "Agent", namespace: "kagent", name: "zeta", applied: "applied" },
       { kind: "SandboxTemplate", namespace: "kagent", name: "box", applied: "notReported" },
     ]);
   });
 
   it("reports a missing condition as not reported rather than applied", () => {
-    expect(appliedState(undefined)).toEqual({ applied: "notReported" });
-    expect(appliedState([{ type: "Ready", status: "True" }])).toEqual({ applied: "notReported" });
+    expect(appliedState(undefined, github)).toEqual({ applied: "notReported" });
+    expect(appliedState([{ type: "Ready", status: "True" }], github)).toEqual({ applied: "notReported" });
+  });
+
+  it("shows a policy as applied when the agent's only issue is another policy", () => {
+    const users = policyUsers(
+      github,
+      [
+        agent("kagent", "a", ["github", "retired"], {
+          conditions: [falseCondition("EgressPolicyNotFound", 'kagent/retired: egresspolicies.api.kagent.dev "retired" not found')],
+        }),
+      ],
+      [],
+    );
+
+    expect(users).toEqual([{ kind: "Agent", namespace: "kagent", name: "a", applied: "applied" }]);
+  });
+});
+
+const github = { namespace: "kagent", name: "github" };
+const falseCondition = (reason: string, message: string) => ({ type: "EgressPoliciesApplied", status: "False", reason, message });
+
+describe("appliedState", () => {
+  it("marks every policy not applied while a conflict holds back new grants", () => {
+    const message = "new grants are held until the conflict is resolved; first conflict: duplicate origin";
+    const state = appliedState([falseCondition("EgressGrantConflict", message)], github);
+
+    expect(state).toEqual({ applied: "notApplied", detail: `EgressGrantConflict: ${message}` });
+  });
+
+  it("marks the policy not applied when the message names it, first or later", () => {
+    const first = appliedState([falseCondition("InvalidEgressPolicy", "kagent/github: bad origin")], github);
+    const later = appliedState([falseCondition("EgressPolicyNotFound", "kagent/a: not found; kagent/github: bad origin")], github);
+
+    expect(first).toEqual({ applied: "notApplied", detail: "InvalidEgressPolicy: kagent/github: bad origin" });
+    expect(later.applied).toBe("notApplied");
+  });
+
+  it("matches the namespace and name exactly", () => {
+    const message = "other-kagent/github: not found; kagent/github-old: not found";
+    const state = appliedState([falseCondition("EgressPolicyNotFound", message)], github);
+
+    expect(state).toEqual({ applied: "applied" });
+  });
+
+  it("marks the policy not applied when no issue names a policy", () => {
+    const state = appliedState([falseCondition("InvalidEgressPolicy", "at most 16 egressPolicyRefs are supported")], github);
+
+    expect(state.applied).toBe("notApplied");
   });
 });

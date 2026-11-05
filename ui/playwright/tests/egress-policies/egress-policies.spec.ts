@@ -124,14 +124,14 @@ test("egress policies: a policy is created, attached, edited and deleted", async
     await expect(page.getByTestId("egress-user-applied-release-notes")).toHaveText("Applied");
   });
 
-  await test.step("9. sandbox templates show as text, with why a grant was refused", async () => {
+  await test.step("9. sandbox templates show as text, applied when only another policy failed", async () => {
     await backToListSettled(page);
     await rowNamed(page, "github-api").getByRole("link", { name: "github-api", exact: true }).click();
     const sandbox = rowNamed(page, "python-sandbox");
     await expect(sandbox).toContainText("SandboxTemplate");
     await expect(sandbox.getByRole("link")).toHaveCount(0);
-    await expect(page.getByTestId("egress-user-applied-python-sandbox")).toContainText("Not applied");
-    await expect(page.getByTestId("egress-user-applied-python-sandbox")).toContainText("retired-mirror not found");
+    // Its condition is False only for retired-mirror, so github-api was admitted.
+    await expect(page.getByTestId("egress-user-applied-python-sandbox")).toHaveText("Applied");
   });
 
   await test.step("10. an edit replaces the destinations", async () => {

@@ -1668,9 +1668,11 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
 function egressCondition(namespace: string, spec: Agent["resource"]["spec"]) {
   const refs = spec.egressPolicyRefs ?? [];
   if (refs.length === 0) return [];
-  const missing = refs.find((ref) => !allEgressPolicies().some((row) => row.namespace === namespace && row.name === ref.name));
-  return [missing
-    ? { type: "EgressPoliciesApplied", status: "False", reason: "EgressPolicyNotFound", message: `EgressPolicy ${missing.name} not found` }
+  const missing = refs.filter((ref) => !allEgressPolicies().some((row) => row.namespace === namespace && row.name === ref.name));
+  // Matches the controller: one issue per missing policy, each prefixed with its namespace/name.
+  const message = missing.map((ref) => `${namespace}/${ref.name}: egresspolicies.api.kagent.dev "${ref.name}" not found`).join("; ");
+  return [missing.length
+    ? { type: "EgressPoliciesApplied", status: "False", reason: "EgressPolicyNotFound", message }
     : { type: "EgressPoliciesApplied", status: "True", reason: "Applied", message: "All egress grants are admitted" }];
 }
 function stableHash(text: string): string {

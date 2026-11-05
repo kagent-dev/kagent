@@ -962,7 +962,7 @@ export const mockSandboxTemplates: SandboxTemplate[] = [
   sandboxTemplate("kagent", "python-sandbox", ["github-api", "retired-mirror"], {
     status: "False",
     reason: "EgressPolicyNotFound",
-    message: "EgressPolicy retired-mirror not found",
+    message: 'kagent/retired-mirror: egresspolicies.api.kagent.dev "retired-mirror" not found',
   }),
   sandboxTemplate("analytics", "report-sandbox", ["warehouse"], {
     status: "True",

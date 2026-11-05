@@ -178,15 +178,28 @@ export interface EgressPolicyUser {
 }
 
 export const EGRESS_POLICIES_APPLIED = "EgressPoliciesApplied";
+const EGRESS_GRANT_CONFLICT = "EgressGrantConflict";
 
-/** Reads the `EgressPoliciesApplied` condition shared by Agents and SandboxTemplates. */
-export function appliedState(conditions: readonly AgentCondition[] | undefined): {
-  applied: EgressAppliedState;
-  detail?: string;
-} {
+// The controller prefixes each issue with `<namespace>/<name>: ` and joins issues with "; ".
+const POLICY_ISSUE = /(?:^|; )[a-z0-9.-]+\/[a-z0-9.-]+: /;
+
+/**
+ * Reads one policy's share of the `EgressPoliciesApplied` condition, which covers all of an owner's policies.
+ * A conflict holds back every grant, and an issue naming no policy cannot be attributed, so both count against this one.
+ */
+export function appliedState(
+  conditions: readonly AgentCondition[] | undefined,
+  policy: { namespace: string; name: string },
+): { applied: EgressAppliedState; detail?: string } {
   const condition = conditions?.find((entry) => entry.type === EGRESS_POLICIES_APPLIED);
   if (!condition) return { applied: "notReported" };
   if (condition.status === "True") return { applied: "applied" };
+  const message = condition.message ?? "";
+  const tag = `${policy.namespace}/${policy.name}: `;
+  const namesThis = message.startsWith(tag) || message.includes(`; ${tag}`);
+  if (condition.reason !== EGRESS_GRANT_CONFLICT && !namesThis && POLICY_ISSUE.test(message)) {
+    return { applied: "applied" };
+  }
   return {
     applied: "notApplied",
     detail: [condition.reason, condition.message].filter(Boolean).join(": ") || undefined,
@@ -214,7 +227,7 @@ export function policyUsers(
         kind: "Agent" as const,
         namespace: agent.namespace,
         name: agent.name,
-        ...appliedState(agent.resource.status?.conditions),
+        ...appliedState(agent.resource.status?.conditions, policy),
       })),
     ...sandboxTemplates
       .filter((template) => references({ namespace: template.namespace, refs: template.resource.spec?.egressPolicyRefs }, policy))
@@ -222,7 +235,7 @@ export function policyUsers(
         kind: "SandboxTemplate" as const,
         namespace: template.namespace,
         name: template.name,
-        ...appliedState(template.resource.status?.conditions),
+        ...appliedState(template.resource.status?.conditions, policy),
       })),
   ];
   return users.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
