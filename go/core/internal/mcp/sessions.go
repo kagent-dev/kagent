@@ -188,10 +188,10 @@ func (h *Handler) registerSessionTools(server *mcp.Server) {
 	}, h.getSessionTask)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        deleteSessionToolName,
-		Description: "Delete a Session and its runtime state. Fails with a conflict while another operation on the Session is in flight; retry it.",
+		Description: "Delete a Session and its runtime state. Fails while the Session has active turns, or with a conflict while another operation on the Session is in flight; retry it.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true), IdempotentHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SessionIDInput) (*mcp.CallToolResult, SessionOutput, error) {
-		session, err := h.sessions.Delete(ctx, input.SessionID)
+		session, err := h.sessions.Delete(ctx, input.SessionID, false)
 		if err != nil {
 			return sessionToolError(err), SessionOutput{}, nil
 		}
