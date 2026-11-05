@@ -5,10 +5,15 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -16,6 +21,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -26,7 +32,8 @@ import (
 
 // This suite uses real Actors, snapshot copies, UID-conditional deletion and
 // PostgreSQL. Faults discard actual RPC results or prevent one RPC from being
-// delivered; no backend response or persisted lifecycle state is fabricated.
+// delivered, or deny reads/deletes in an exclusively owned object-store bucket;
+// no backend response or persisted lifecycle state is fabricated.
 // The configuration is test-only; CI runs this after installing Substrate.
 func TestCheckpointRecoveryWithSubstrate(t *testing.T) {
 	path := os.Getenv("KAGENT_E2E_CHECKPOINT_SUBSTRATE_CONFIG")
@@ -34,12 +41,15 @@ func TestCheckpointRecoveryWithSubstrate(t *testing.T) {
 		t.Skip("requires real Substrate; run core/test/e2e/checkpoint-recovery.sh")
 	}
 	var config struct {
-		Endpoint       string `json:"endpoint"`
-		ServerName     string `json:"serverName"`
-		CAFile         string `json:"caFile"`
-		ClientCertFile string `json:"clientCertFile"`
-		Atespace       string `json:"atespace"`
-		Image          string `json:"image"`
+		Endpoint             string `json:"endpoint"`
+		ServerName           string `json:"serverName"`
+		CAFile               string `json:"caFile"`
+		ClientCertFile       string `json:"clientCertFile"`
+		Atespace             string `json:"atespace"`
+		Image                string `json:"image"`
+		ObjectStoreEndpoint  string `json:"objectStoreEndpoint"`
+		ObjectStoreAccessKey string `json:"objectStoreAccessKey"`
+		ObjectStoreSecretKey string `json:"objectStoreSecretKey"`
 	}
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -85,7 +95,7 @@ func TestCheckpointRecoveryWithSubstrate(t *testing.T) {
 	t.Cleanup(pool.Close)
 	newStore := func() *database.Client { return database.NewClient(pool, "public") }
 	owner := auth.AuthSessionTo(ctx, testSession{userID: "alice"})
-	newSource := func(t *testing.T) (*database.Client, *apiv1.Session, string) {
+	newSourceForTemplate := func(t *testing.T, template *ateapipb.ActorTemplate) (*database.Client, *apiv1.Session, string) {
 		t.Helper()
 		name := substrate.ActorName(uuid.NewString())
 		_, err := client.CreateActor(ctx, config.Atespace, name, config.Atespace, template.Metadata.Name)
@@ -106,6 +116,9 @@ func TestCheckpointRecoveryWithSubstrate(t *testing.T) {
 		store := newStore()
 		session, head := recoverySourceForActor(t, store, actor)
 		return store, session, head
+	}
+	newSource := func(t *testing.T) (*database.Client, *apiv1.Session, string) {
+		return newSourceForTemplate(t, template)
 	}
 	deleteCheckpoint := func(t *testing.T, service *Service, id string) {
 		t.Helper()
@@ -262,6 +275,87 @@ func TestCheckpointRecoveryWithSubstrate(t *testing.T) {
 		require.Equal(t, codes.NotFound, status.Code(err))
 		_, err = store.BeginSessionOperation(ctx, source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 		require.NoError(t, err)
+		deleteCheckpoint(t, replacement, cp.Id)
+	})
+
+	t.Run("Given a partially copied tag and denied object cleanup, when recovery restarts after storage repair, assert that cleanup precedes releasing source references", func(t *testing.T) {
+		objects, bucket := checkpointObjectStore(t, config.ObjectStoreEndpoint, config.ObjectStoreAccessKey, config.ObjectStoreSecretKey)
+		privateTemplate := proto.Clone(template).(*ateapipb.ActorTemplate)
+		privateTemplate.Metadata = &ateapipb.ResourceMetadata{Atespace: config.Atespace, Name: "checkpoint-partial-" + uuid.NewString()}
+		privateTemplate.Status = nil
+		privateTemplate.SnapshotConfig.StorageLocation = "gs://" + bucket
+		privateTemplate, err := client.CreateActorTemplate(ctx, privateTemplate)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			cleanup, stop := context.WithTimeout(context.Background(), time.Minute)
+			defer stop()
+			require.NoError(t, client.DeleteActorTemplate(cleanup, config.Atespace, privateTemplate.Metadata.Name, privateTemplate.Metadata.Uid))
+		})
+		store, source, head := newSourceForTemplate(t, privateTemplate)
+		actor, err := client.GetActor(ctx, config.Atespace, substrate.ActorName(source.Id))
+		require.NoError(t, err)
+		snapshot, err := url.Parse(substrate.SnapshotURI(substrate.LatestActorSnapshot(actor)))
+		require.NoError(t, err)
+		require.Equal(t, bucket, snapshot.Host)
+		prefix := strings.Trim(snapshot.Path, "/") + "/"
+		// Substrate copies in sorted order with eight workers. More than eight
+		// preceding objects make the final denied read occur after real copies.
+		for i := range 64 {
+			_, err := objects.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(fmt.Sprintf("%szz-copy-probe/%04d", prefix, i)), Body: strings.NewReader("partial-copy-proof")})
+			require.NoError(t, err)
+		}
+		deniedKey := prefix + "zz-copy-probe/9999-denied"
+		_, err = objects.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(deniedKey), Body: strings.NewReader("deny this read")})
+		require.NoError(t, err)
+		policy, err := json.Marshal(map[string]any{
+			"Version": "2012-10-17", "Statement": []any{
+				map[string]any{"Effect": "Deny", "Principal": "*", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::" + bucket + "/" + deniedKey},
+				map[string]any{"Effect": "Deny", "Principal": "*", "Action": "s3:DeleteObject", "Resource": "arn:aws:s3:::" + bucket + "/atespaces/" + config.Atespace + "/tags/*"},
+			},
+		})
+		require.NoError(t, err)
+		service := NewService(store, testAuthorizer{}, client, nil)
+		cp, _, err := service.beginCreate(owner, source.Id, uuid.NewString(), head)
+		require.NoError(t, err)
+		cleanupTag(t, cp.Id)
+		_, err = objects.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{Bucket: aws.String(bucket), Policy: aws.String(string(policy))})
+		require.NoError(t, err)
+		// Remove the denial before any Actor/tag/template cleanup, even on failure.
+		t.Cleanup(func() {
+			cleanup, stop := context.WithTimeout(context.Background(), time.Minute)
+			defer stop()
+			_, err := objects.DeleteBucketPolicy(cleanup, &s3.DeleteBucketPolicyInput{Bucket: aws.String(bucket)})
+			require.NoError(t, err)
+		})
+		op, err := store.GetCheckpointOperation(ctx, cp.Id, "alice")
+		require.NoError(t, err)
+		copyErr := service.recoverOperation(ctx, op)
+		require.Error(t, copyErr, "the actual object read must fail")
+		t.Logf("expected object-store copy failure: %v", copyErr)
+		tag, err := client.GetTag(ctx, config.Atespace, tagName(cp.Id))
+		require.NoError(t, err)
+		require.Empty(t, substrate.SnapshotURI(tag.GetStatus().GetSnapshot()))
+		tagPrefix := "atespaces/" + config.Atespace + "/tags/" + tag.Metadata.Uid + "/"
+		require.NotEmpty(t, checkpointObjectKeys(t, ctx, objects, bucket, tagPrefix), "copy failure must leave actual destination objects")
+		replacement := NewService(newStore(), testAuthorizer{}, client, nil)
+		cleanupErr := replacement.recoverOperation(ctx, op)
+		require.Error(t, cleanupErr, "the real object deletion must also fail")
+		t.Logf("expected object-store cleanup failure: %v", cleanupErr)
+		pending, err := store.GetCheckpointOperation(ctx, cp.Id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
+		require.NotNil(t, pending.Checkpoint.Failure)
+		require.Equal(t, tag.Metadata.Uid, pending.TagUID)
+		_, err = store.BeginSessionOperation(ctx, source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+		require.ErrorIs(t, err, database.ErrConflict, "partial tag cleanup must retain source admission")
+		_, err = objects.DeleteBucketPolicy(ctx, &s3.DeleteBucketPolicyInput{Bucket: aws.String(bucket)})
+		require.NoError(t, err)
+		replacement = NewService(newStore(), testAuthorizer{}, client, nil)
+		require.NoError(t, replacement.recoverOperation(ctx, pending))
+		waitCheckpointPhase(t, store, cp.Id, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED)
+		require.Empty(t, checkpointObjectKeys(t, ctx, objects, bucket, tagPrefix), "all partially copied objects must be collected")
+		_, err = store.BeginSessionOperation(ctx, source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+		require.NoError(t, err, "storage repair and cleanup must reopen the source")
 		deleteCheckpoint(t, replacement, cp.Id)
 	})
 
