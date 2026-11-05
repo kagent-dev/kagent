@@ -33,7 +33,7 @@ func TestSessionDeletionAfterInterruptedResume(t *testing.T) {
 		Spec:       *base.Spec.DeepCopy(),
 	}
 	// The golden actor boots normally and snapshots the marker. Restored startup
-	// exceeds the chart's 5s parking budget and the router's 10s backend timeout.
+	// exceeds the E2E fixture's 5s parking budget and 10s backend timeout.
 	harness.Spec.Workload.Command = []string{"/bin/sh", "-c"}
 	harness.Spec.Workload.Args = []string{`if [ -f /data/interrupted-resume ]; then sleep 20; fi; touch /data/interrupted-resume; exec /app`}
 	require.NoError(t, kube.Create(t.Context(), harness))
