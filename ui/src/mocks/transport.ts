@@ -1653,7 +1653,7 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
       condition("ResolvedRefs", false, "ReferenceResolutionFailed", missing),
       condition("Compatible", false, "Blocked", "blocked by ResolvedRefs"),
       condition("Ready", false, "Blocked", "blocked by ResolvedRefs"),
-      ...egressCondition(namespace, spec),
+      ...egressCondition(namespace, spec, generation),
     ]};
   }
   return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: desiredRevision, conditions: [
@@ -1661,19 +1661,19 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
     condition("ResolvedRefs", true, "Resolved", "All runtime references resolved"),
     condition("Compatible", true, "Compatible", "Resolved configuration is compatible with the Harness"),
     condition("Ready", true, "Ready", "ActorTemplate golden snapshot is ready"),
-    ...egressCondition(namespace, spec),
+    ...egressCondition(namespace, spec, generation),
   ]};
 }
 /** `EgressPoliciesApplied`, set only when the Agent references policies. Never affects Ready. */
-function egressCondition(namespace: string, spec: Agent["resource"]["spec"]) {
+function egressCondition(namespace: string, spec: Agent["resource"]["spec"], observedGeneration: number) {
   const refs = spec.egressPolicyRefs ?? [];
   if (refs.length === 0) return [];
   const missing = refs.filter((ref) => !allEgressPolicies().some((row) => row.namespace === namespace && row.name === ref.name));
   // Matches the controller: one issue per missing policy, each prefixed with its namespace/name.
   const message = missing.map((ref) => `${namespace}/${ref.name}: egresspolicies.api.kagent.dev "${ref.name}" not found`).join("; ");
   return [missing.length
-    ? { type: "EgressPoliciesApplied", status: "False", reason: "EgressPolicyNotFound", message }
-    : { type: "EgressPoliciesApplied", status: "True", reason: "Applied", message: "All egress grants are admitted" }];
+    ? { type: "EgressPoliciesApplied", status: "False", reason: "EgressPolicyNotFound", message, observedGeneration }
+    : { type: "EgressPoliciesApplied", status: "True", reason: "Applied", message: "All egress grants are admitted", observedGeneration }];
 }
 function stableHash(text: string): string {
   let hash = 0;

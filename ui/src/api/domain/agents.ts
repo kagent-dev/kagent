@@ -16,6 +16,8 @@ export interface AgentCondition {
   status: string;
   reason?: string;
   message?: string;
+  /** The `metadata.generation` the controller evaluated when it set this condition. */
+  observedGeneration?: number;
 }
 
 export interface AgentStatus {

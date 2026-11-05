@@ -12,6 +12,8 @@ export const egressCopy = {
     noMatch: "No egress policies match those filters.",
     usersError: "Could not load what uses each policy, so the Used by column is blank.",
   },
+  /** The server leaves out what the signed-in user cannot read, so counts can be low. */
+  usedByScope: "Used by counts only the agents and sandbox templates you can see.",
   columns: {
     name: "Name",
     namespace: "Namespace",
@@ -106,6 +108,6 @@ export const egressCopy = {
     users === undefined || users === 0
       ? undefined
       : users === 1
-        ? "This policy is in use by 1 agent or sandbox template. It will immediately lose access to the hosts it allows. This action cannot be undone."
-        : `This policy is in use by ${users} agents and sandbox templates. They will immediately lose access to the hosts it allows. This action cannot be undone.`,
+        ? "This policy is in use by 1 agent or sandbox template you can see. It will immediately lose access to the hosts it allows. This action cannot be undone."
+        : `This policy is in use by ${users} agents and sandbox templates you can see. They will immediately lose access to the hosts it allows. This action cannot be undone.`,
 } as const;

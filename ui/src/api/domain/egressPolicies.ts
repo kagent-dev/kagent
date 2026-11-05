@@ -186,13 +186,17 @@ const POLICY_ISSUE = /(?:^|; )[a-z0-9.-]+\/[a-z0-9.-]+: /;
 /**
  * Reads one policy's share of the `EgressPoliciesApplied` condition, which covers all of an owner's policies.
  * A conflict holds back every grant, and an issue naming no policy cannot be attributed, so both count against this one.
+ * A condition recorded for an older `generation` has not evaluated the current refs, so it is not reported yet.
  */
 export function appliedState(
   conditions: readonly AgentCondition[] | undefined,
   policy: { namespace: string; name: string },
+  generation?: number,
 ): { applied: EgressAppliedState; detail?: string } {
   const condition = conditions?.find((entry) => entry.type === EGRESS_POLICIES_APPLIED);
   if (!condition) return { applied: "notReported" };
+  const stale = generation !== undefined && condition.observedGeneration !== undefined && condition.observedGeneration < generation;
+  if (stale) return { applied: "notReported" };
   if (condition.status === "True") return { applied: "applied" };
   const message = condition.message ?? "";
   const tag = `${policy.namespace}/${policy.name}: `;
@@ -227,7 +231,7 @@ export function policyUsers(
         kind: "Agent" as const,
         namespace: agent.namespace,
         name: agent.name,
-        ...appliedState(agent.resource.status?.conditions, policy),
+        ...appliedState(agent.resource.status?.conditions, policy, agent.resource.metadata.generation),
       })),
     ...sandboxTemplates
       .filter((template) => references({ namespace: template.namespace, refs: template.resource.spec?.egressPolicyRefs }, policy))
@@ -235,7 +239,7 @@ export function policyUsers(
         kind: "SandboxTemplate" as const,
         namespace: template.namespace,
         name: template.name,
-        ...appliedState(template.resource.status?.conditions, policy),
+        ...appliedState(template.resource.status?.conditions, policy, template.resource.metadata.generation),
       })),
   ];
   return users.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));

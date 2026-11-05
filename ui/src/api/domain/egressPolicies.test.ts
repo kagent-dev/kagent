@@ -177,4 +177,21 @@ describe("appliedState", () => {
 
     expect(state.applied).toBe("notApplied");
   });
+
+  const applied = { type: "EgressPoliciesApplied", status: "True", reason: "Applied" };
+  const failed = falseCondition("InvalidEgressPolicy", "kagent/github: bad origin");
+  it.each([
+    ["True, behind", applied, 3, 4, "notReported"],
+    ["True, current", applied, 4, 4, "applied"],
+    ["True, no observed generation", applied, undefined, 4, "applied"],
+    ["True, no owner generation", applied, 3, undefined, "applied"],
+    ["False, behind", failed, 3, 4, "notReported"],
+    ["False, current", failed, 4, 4, "notApplied"],
+    ["False, no observed generation", failed, undefined, 4, "notApplied"],
+    ["False, no owner generation", failed, 3, undefined, "notApplied"],
+  ] as const)("reads %s", (_name, condition, observedGeneration, generation, expected) => {
+    const state = appliedState([{ ...condition, observedGeneration }], github, generation);
+
+    expect(state.applied).toBe(expected);
+  });
 });

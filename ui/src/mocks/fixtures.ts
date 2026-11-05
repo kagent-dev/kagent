@@ -884,7 +884,13 @@ function withEgressApplied(status: AgentStatus): AgentStatus {
     ...status,
     conditions: [
       ...(status.conditions ?? []),
-      { type: "EgressPoliciesApplied", status: "True", reason: "Applied", message: "All egress grants are admitted" },
+      {
+        type: "EgressPoliciesApplied",
+        status: "True",
+        reason: "Applied",
+        message: "All egress grants are admitted",
+        observedGeneration: status.observedGeneration,
+      },
     ],
   };
 }
@@ -952,7 +958,7 @@ function sandboxTemplate(
     resource: {
       metadata: { name, namespace, generation: 1 },
       spec: { egressPolicyRefs: refs.map((ref) => ({ name: ref })) },
-      status: { conditions: [{ type: "EgressPoliciesApplied", ...condition }] },
+      status: { conditions: [{ type: "EgressPoliciesApplied", ...condition, observedGeneration: 1 }] },
     },
   };
 }

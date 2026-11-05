@@ -9,13 +9,13 @@ describe("deleteWarning", () => {
 
   it("names one user in the singular", () => {
     expect(egressCopy.deleteWarning(1)).toBe(
-      "This policy is in use by 1 agent or sandbox template. It will immediately lose access to the hosts it allows. This action cannot be undone.",
+      "This policy is in use by 1 agent or sandbox template you can see. It will immediately lose access to the hosts it allows. This action cannot be undone.",
     );
   });
 
   it("counts several users", () => {
     expect(egressCopy.deleteWarning(3)).toBe(
-      "This policy is in use by 3 agents and sandbox templates. They will immediately lose access to the hosts it allows. This action cannot be undone.",
+      "This policy is in use by 3 agents and sandbox templates you can see. They will immediately lose access to the hosts it allows. This action cannot be undone.",
     );
   });
 });

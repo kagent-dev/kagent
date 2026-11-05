@@ -211,7 +211,7 @@ export function EgressPolicyDetailsPage() {
         {!missing && !policy.error ? (
           <Card title={egressCopy.details.usedBy} data-testid="egress-policy-users">
             <Text css={{ display: "block", marginBottom: theme.space(3), color: theme.color.textMuted }}>
-              {egressCopy.details.usedByHelp}
+              {egressCopy.details.usedByHelp} {egressCopy.usedByScope}
             </Text>
             {usersError ? (
               <Alert type="error" showIcon title={egressCopy.details.usedByError} description={usersError.message} />

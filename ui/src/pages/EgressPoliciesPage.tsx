@@ -156,7 +156,7 @@ export function EgressPoliciesPage() {
   return (
     <PageFrame
       title={egressCopy.list.title}
-      description={egressCopy.list.intro}
+      description={`${egressCopy.list.intro} ${egressCopy.usedByScope}`}
       actions={
         <Space size={8}>
           <RefreshButton onRefresh={invalidate} what="Egress policies" loading={policies.isLoading} />

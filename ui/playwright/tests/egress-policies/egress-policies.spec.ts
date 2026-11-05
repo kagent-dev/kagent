@@ -153,7 +153,7 @@ test("egress policies: a policy is created, attached, edited and deleted", async
   await test.step("11. deleting the policy removes it from the list", async () => {
     await page.getByTestId(`delete-${CREATED}`).click();
     // release-notes attached it in step 7.
-    await expect(dialog(page)).toContainText("This policy is in use by 1 agent or sandbox template.");
+    await expect(dialog(page)).toContainText("This policy is in use by 1 agent or sandbox template you can see.");
     await pressOnce(dialog(page).getByRole("button", { name: "Delete" }));
     await expect(page).toHaveURL(/\/egress-policies$/);
     await expectSettled(page);
