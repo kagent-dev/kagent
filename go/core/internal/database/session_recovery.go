@@ -18,6 +18,16 @@ import (
 // that the recorded Actor crashed. Transport failures cannot admit this work.
 const SessionRuntimeCrashed = "RuntimeCrashed"
 
+// CrashRecoveryAdmitted reports a Session whose crash recovery was admitted and
+// has not finished: FAILED for a confirmed crash, with the recovery's RESUME
+// still in flight. A retry joins that operation instead of observing Substrate
+// again, and execution reverts the recorded Actor in place instead of resuming it.
+func CrashRecoveryAdmitted(session *apiv1.Session) bool {
+	return session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED &&
+		session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME &&
+		session.Failure.GetReason() == SessionRuntimeCrashed
+}
+
 // ListSessionRecoveryCandidates finds recoveries admitted by an explicit request.
 // Retrying durable work cannot admit recovery for a READY Session.
 func (c *Client) ListSessionRecoveryCandidates(ctx context.Context, afterID string, limit int) ([]*apiv1.Session, error) {
@@ -43,24 +53,26 @@ func (c *Client) ListSessionRecoveryCandidates(ctx context.Context, afterID stri
 	return result, nil
 }
 
-// SessionRecoveryFence is what crash recovery reads before it observes Substrate.
-// Generation is the ID of the Session's latest lifecycle operation, or uuid.Nil
-// when none is recorded. Every operation replaces it, and completion keeps it.
-// ActorUID is the recorded runtime Actor, or "" when none is recorded. The
-// template identifies where that Actor lives and what it must run.
-type SessionRecoveryFence struct {
-	Generation       uuid.UUID
+// SessionGeneration is a live Session's lifecycle generation and the runtime it
+// recorded, read together before crash recovery observes Substrate. OperationID
+// is the Session's latest lifecycle operation, or uuid.Nil when none is recorded:
+// every operation replaces it, and completion keeps it. ActorUID is the recorded
+// runtime Actor, or "" when none is recorded. The template identifies where that
+// Actor lives and what it must run.
+type SessionGeneration struct {
+	SessionID        string
+	OperationID      uuid.UUID
 	ActorUID         string
 	TemplateAtespace string
 	TemplateName     string
 }
 
-// SessionRecoveryFence reads the lifecycle generation, recorded Actor UID, and
+// GetSessionGeneration reads the lifecycle generation, recorded Actor UID, and
 // Actor template of a live Session in one statement. Deleted or missing Sessions
 // return ErrNotFound. Callers authorize access. The read takes no lock: admission
 // re-checks the generation and Actor UID under the Session lock.
-func (c *Client) SessionRecoveryFence(ctx context.Context, id string) (*SessionRecoveryFence, error) {
-	type fenceRow struct {
+func (c *Client) GetSessionGeneration(ctx context.Context, id string) (*SessionGeneration, error) {
+	type generationRow struct {
 		OperationID           *uuid.UUID
 		ActorUID              *string
 		ActorTemplateAtespace string
@@ -70,29 +82,30 @@ func (c *Client) SessionRecoveryFence(ctx context.Context, id string) (*SessionR
 		SELECT i.operation_id, i.actor_uid, r.actor_template_atespace, r.actor_template_name
 		FROM session_record i JOIN runtime_revision r ON r.revision = i.prepared_revision
 		WHERE i.id = $1 AND i.state <> 'RUNTIME_STATE_DELETED'
-	`, pgx.RowToStructByName[fenceRow], id)
+	`, pgx.RowToStructByName[generationRow], id)
 	if err != nil {
-		return nil, fmt.Errorf("read Session %s recovery fence: %w", id, notFoundOr(err))
+		return nil, fmt.Errorf("read Session %s generation: %w", id, notFoundOr(err))
 	}
-	fence := &SessionRecoveryFence{TemplateAtespace: row.ActorTemplateAtespace, TemplateName: row.ActorTemplateName}
+	generation := &SessionGeneration{SessionID: id, TemplateAtespace: row.ActorTemplateAtespace, TemplateName: row.ActorTemplateName}
 	if row.OperationID != nil {
-		fence.Generation = *row.OperationID
+		generation.OperationID = *row.OperationID
 	}
 	if row.ActorUID != nil {
-		fence.ActorUID = *row.ActorUID
+		generation.ActorUID = *row.ActorUID
 	}
-	return fence, nil
+	return generation, nil
 }
 
-// BeginCrashedSessionRecovery fences confirmed-crash recovery under the Session lock.
-// It preserves durable results; obsolete Actors and conflicting operations fail.
-// generation is the caller's SessionRecoveryFence generation, read before it
-// observed the crash. A lifecycle operation begun since then makes the observation
-// stale, because a concurrent revert keeps the Actor UID and returns to READY.
-func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, generation uuid.UUID, actorUID string, snapshot SessionTaskSnapshot) (*SessionOperation, error) {
+// BeginCrashedSessionRecovery admits confirmed-crash recovery under the Session
+// lock. It preserves durable results; obsolete Actors and conflicting operations
+// fail. generation is the caller's GetSessionGeneration read, taken before it
+// observed the crash. The Session must still record its Actor UID, and a
+// lifecycle operation begun since then makes the observation stale, because a
+// concurrent revert keeps the Actor UID and returns to READY.
+func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *SessionGeneration, snapshot SessionTaskSnapshot) (*SessionOperation, error) {
 	var operation *SessionOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockSession(ctx, tx, id)
+		row, err := lockSession(ctx, tx, generation.SessionID)
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -106,18 +119,18 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, gen
 			SELECT actor_uid = $2 AS matches,
 			    EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING') AS busy
 			FROM session WHERE id = $1
-		`, pgx.RowToStructByName[guards], row.ID, actorUID)
+		`, pgx.RowToStructByName[guards], row.ID, generation.ActorUID)
 		if err != nil {
 			return err
 		}
-		if !guard.Matches || actorUID == "" {
+		if !guard.Matches || generation.ActorUID == "" {
 			return ErrConflict
 		}
 		session, err := toSession(row)
 		if err != nil {
 			return err
 		}
-		if session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME && session.Failure.GetReason() == SessionRuntimeCrashed {
+		if CrashRecoveryAdmitted(session) {
 			operation, err = toSessionOperation(row)
 			return err
 		}
@@ -128,7 +141,7 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, id string, gen
 		if row.OperationID != nil {
 			current = *row.OperationID
 		}
-		if current != generation {
+		if current != generation.OperationID {
 			return ErrConflict
 		}
 		// An issued idle suspension does not exclude recovery here. It cannot finish

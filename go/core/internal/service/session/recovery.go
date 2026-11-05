@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,12 +28,6 @@ var (
 	errRuntimeUnrecoverable = fmt.Errorf("runtime cannot be recovered: %w", database.ErrFailedPrecondition)
 )
 
-// crashRecoveryAdmitted reports a revert already admitted for a confirmed crash.
-// Revert continues it without observing Substrate again.
-func crashRecoveryAdmitted(session *apiv1.Session) bool {
-	return session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED && session.Failure.GetReason() == database.SessionRuntimeCrashed
-}
-
 // lifecycleIdle reports a Session with no lifecycle operation in flight. Only an
 // idle Session can admit a new revert; any other operation owns the Actor.
 func lifecycleIdle(session *apiv1.Session) bool {
@@ -44,7 +37,7 @@ func lifecycleIdle(session *apiv1.Session) bool {
 // crashObservation is the Substrate state of a Session's recorded Actor, taken
 // after the lifecycle generation it is valid for.
 type crashObservation struct {
-	generation uuid.UUID
+	generation *database.SessionGeneration
 	actor      *ateapipb.Actor
 }
 
@@ -58,21 +51,21 @@ func (o crashObservation) crashed() bool {
 // crash: reverting it would restore the wrong runtime. Those errors wrap
 // errRuntimeUnrecoverable; transient read failures do not.
 //
-// The fence is read before the Actor. A concurrent revert keeps the Actor UID
+// The generation is read before the Actor. A concurrent revert keeps the Actor UID
 // and returns to READY, so only the generation shows that a crash observation
 // predates it. The recorded UID changes only through a lifecycle operation,
 // which also replaces the generation, so admission's locked generation check
 // rejects an observation compared against a stale UID.
 func (w *ActorWorkflow) observeCrash(ctx context.Context, session *apiv1.Session) (crashObservation, error) {
-	fence, err := w.store.SessionRecoveryFence(ctx, session.Id)
+	generation, err := w.store.GetSessionGeneration(ctx, session.Id)
 	if errors.Is(err, database.ErrNotFound) {
 		return crashObservation{}, fmt.Errorf("runtime Session was deleted: %w", errRuntimeUnrecoverable)
 	}
 	if err != nil {
 		return crashObservation{}, err
 	}
-	binding := substrate.ActorBinding{Atespace: fence.TemplateAtespace, Name: substrate.ActorName(session.Id),
-		TemplateAtespace: fence.TemplateAtespace, TemplateName: fence.TemplateName}
+	binding := substrate.ActorBinding{Atespace: generation.TemplateAtespace, Name: substrate.ActorName(session.Id),
+		TemplateAtespace: generation.TemplateAtespace, TemplateName: generation.TemplateName}
 	actor, err := w.actors.GetActor(ctx, binding.Atespace, binding.Name)
 	if status.Code(err) == codes.NotFound {
 		return crashObservation{}, fmt.Errorf("runtime Actor is missing: %w", errRuntimeUnrecoverable)
@@ -83,10 +76,10 @@ func (w *ActorWorkflow) observeCrash(ctx context.Context, session *apiv1.Session
 	if !binding.Matches(actor) {
 		return crashObservation{}, fmt.Errorf("runtime Actor identity or template changed: %w", errRuntimeUnrecoverable)
 	}
-	if actor.GetMetadata().GetUid() != fence.ActorUID {
+	if actor.GetMetadata().GetUid() != generation.ActorUID {
 		return crashObservation{}, fmt.Errorf("runtime Actor was replaced: %w", errRuntimeUnrecoverable)
 	}
-	return crashObservation{generation: fence.Generation, actor: actor}, nil
+	return crashObservation{generation: generation, actor: actor}, nil
 }
 
 // scanRecovery runs one recovery interval and returns the cursor for the next.
@@ -142,11 +135,12 @@ func (w *ActorWorkflow) recoverSessionCandidate(ctx context.Context, session *ap
 // Revert restores a confirmed crashed runtime without replaying its interrupted turn.
 // Retries join the same durable operation and preserve the Actor identity.
 func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
-	defer cancel()
-	if crashRecoveryAdmitted(session) {
+	if database.CrashRecoveryAdmitted(session) {
 		return w.run(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, false)
 	}
+	// run bounds a joined attempt. Admission bounds its own reads and execution.
+	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+	defer cancel()
 	// Only an active lifecycle operation is contention: a retry converges once it
 	// finishes. A Session at rest in another state, such as one suspended by
 	// deadline cleanup, stays there until an interaction resumes it, so a retry
@@ -166,7 +160,7 @@ func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*ap
 	}
 	actor := observed.actor
 	snapshot := substrate.LatestDurableActorSnapshot(actor)
-	operation, err := w.store.BeginCrashedSessionRecovery(ctx, session.Id, observed.generation, actor.GetMetadata().GetUid(), database.SessionTaskSnapshot{
+	operation, err := w.store.BeginCrashedSessionRecovery(ctx, observed.generation, database.SessionTaskSnapshot{
 		Atespace: actor.GetMetadata().GetAtespace(), URI: substrate.SnapshotURI(snapshot),
 		Fidelity: snapshot.GetFidelity().String(),
 	})

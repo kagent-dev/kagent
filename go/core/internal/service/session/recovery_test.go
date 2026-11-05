@@ -64,11 +64,13 @@ func (a *recoveryTestActors) GetActor(ctx context.Context, atespace, name string
 	return actor, err
 }
 
-func revertGeneration(t *testing.T, store *lifecycleTestStore, sessionID string) uuid.UUID {
+// revertGeneration is a current generation from a caller that observed actorUID.
+func revertGeneration(t *testing.T, store *lifecycleTestStore, sessionID, actorUID string) *database.SessionGeneration {
 	t.Helper()
-	fence, err := store.SessionRecoveryFence(t.Context(), sessionID)
+	generation, err := store.GetSessionGeneration(t.Context(), sessionID)
 	require.NoError(t, err)
-	return fence.Generation
+	generation.ActorUID = actorUID
+	return generation
 }
 
 func crashedTurnFixture(t *testing.T) (*lifecycleTestStore, *lifecycleTestActors, *apiv1.Session, *a2a.Task, int64) {
@@ -295,7 +297,7 @@ func TestSessionRecoveryCandidatePolicy(t *testing.T) {
 	require.Empty(t, page, "manual recovery does not inspect idle or active runtimes")
 	actor, err := actors.GetActor(t.Context(), "team-a", substrate.ActorName(active.Id))
 	require.NoError(t, err)
-	_, err = store.BeginCrashedSessionRecovery(t.Context(), active.Id, revertGeneration(t, store, active.Id), actor.GetMetadata().GetUid(), database.SessionTaskSnapshot{})
+	_, err = store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, active.Id, actor.GetMetadata().GetUid()), database.SessionTaskSnapshot{})
 	require.NoError(t, err)
 	page, err = store.ListSessionRecoveryCandidates(t.Context(), "", 100)
 	require.NoError(t, err)
@@ -549,7 +551,7 @@ func TestSessionRecoveryPagesPastUnavailableActors(t *testing.T) {
 	for _, id := range ids {
 		actor, err := base.GetActor(t.Context(), "team-a", substrate.ActorName(id))
 		require.NoError(t, err)
-		_, err = store.BeginCrashedSessionRecovery(t.Context(), id, revertGeneration(t, store, id), actor.GetMetadata().GetUid(), database.SessionTaskSnapshot{})
+		_, err = store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, id, actor.GetMetadata().GetUid()), database.SessionTaskSnapshot{})
 		require.NoError(t, err)
 	}
 	slices.Sort(ids)
@@ -640,7 +642,7 @@ func TestDeleteSupersedesUnissuedCrashRecovery(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store, base, session, _, _ := crashedTurnFixture(t)
 			key := actorKey("team-a", substrate.ActorName(session.Id))
-			_, err := store.BeginCrashedSessionRecovery(t.Context(), session.Id, revertGeneration(t, store, session.Id), base.actors[key].GetMetadata().GetUid(), database.SessionTaskSnapshot{})
+			_, err := store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, session.Id, base.actors[key].GetMetadata().GetUid()), database.SessionTaskSnapshot{})
 			require.NoError(t, err)
 			if test.gone {
 				delete(base.actors, key)

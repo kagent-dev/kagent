@@ -241,10 +241,10 @@ crash, or fails nonterminal work absent from the retained snapshot. Waiting task
 captured by that snapshot remain available. Checkpoint creation excludes competing
 recovery.
 
-The caller reads a recovery fence before it observes Substrate: the Session's
-lifecycle generation, its recorded Actor UID, and the Actor template, in one
-statement. The observed Actor must match that template and UID. Admission
-rejects the crash when another lifecycle operation began after that read, and
+The caller reads the Session's generation before it observes Substrate: its
+lifecycle generation, recorded Actor UID, and Actor template, in one statement.
+The observed Actor must match that template and UID. Admission takes the read
+back, rejects the crash when another lifecycle operation began after it, and
 re-checks the Actor UID under the Session lock. A concurrent revert keeps the
 Actor UID and returns the Session to READY, so only the generation exposes a
 stale observation. The recorded UID changes only through a lifecycle operation,
