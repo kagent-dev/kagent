@@ -1169,10 +1169,15 @@ type SubstrateConfig struct {
 	CaFile         string                 `protobuf:"bytes,2,opt,name=ca_file,json=caFile,proto3" json:"ca_file,omitempty"`
 	ClientCertFile string                 `protobuf:"bytes,3,opt,name=client_cert_file,json=clientCertFile,proto3" json:"client_cert_file,omitempty"`
 	RouterUrl      *string                `protobuf:"bytes,4,opt,name=router_url,json=routerUrl,proto3,oneof" json:"router_url,omitempty"`
-	// Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file.
+	// Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file
+	// and actor_jwks_ca_file.
 	ActorJwtIssuer *string `protobuf:"bytes,5,opt,name=actor_jwt_issuer,json=actorJwtIssuer,proto3,oneof" json:"actor_jwt_issuer,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// PEM CA bundle trusted, in addition to ca_file, only for TLS when fetching
+	// the Actor JWT issuer's discovery document and JWKS. It is never used for
+	// ate-api or router connections.
+	ActorJwksCaFile string `protobuf:"bytes,6,opt,name=actor_jwks_ca_file,json=actorJwksCaFile,proto3" json:"actor_jwks_ca_file,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SubstrateConfig) Reset() {
@@ -1236,6 +1241,13 @@ func (x *SubstrateConfig) GetRouterUrl() string {
 func (x *SubstrateConfig) GetActorJwtIssuer() string {
 	if x != nil && x.ActorJwtIssuer != nil {
 		return *x.ActorJwtIssuer
+	}
+	return ""
+}
+
+func (x *SubstrateConfig) GetActorJwksCaFile() string {
+	if x != nil {
+		return x.ActorJwksCaFile
 	}
 	return ""
 }
@@ -2224,14 +2236,15 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0fmaxConnLifetime:z\xbaHw\x1au\n" +
 	"\x14postgres_pool.bounds\x12#min_conns must not exceed max_conns\x1a8!has(this.max_conns) || this.min_conns <= this.max_connsB\f\n" +
 	"\n" +
-	"_max_conns\"\xc6\x02\n" +
+	"_max_conns\"\xf3\x02\n" +
 	"\x0fSubstrateConfig\x12/\n" +
 	"\fapi_endpoint\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\vapiEndpoint\x88\x01\x01\x12\x17\n" +
 	"\aca_file\x18\x02 \x01(\tR\x06caFile\x12(\n" +
 	"\x10client_cert_file\x18\x03 \x01(\tR\x0eclientCertFile\x12?\n" +
 	"\n" +
 	"router_url\x18\x04 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\trouterUrl\x88\x01\x01\x12I\n" +
-	"\x10actor_jwt_issuer\x18\x05 \x01(\tB\x1a\xbaH\x17r\x152\x10^https://[^/?#]+\x88\x01\x01H\x02R\x0eactorJwtIssuer\x88\x01\x01B\x0f\n" +
+	"\x10actor_jwt_issuer\x18\x05 \x01(\tB\x1a\xbaH\x17r\x152\x10^https://[^/?#]+\x88\x01\x01H\x02R\x0eactorJwtIssuer\x88\x01\x01\x12+\n" +
+	"\x12actor_jwks_ca_file\x18\x06 \x01(\tR\x0factorJwksCaFileB\x0f\n" +
 	"\r_api_endpointB\r\n" +
 	"\v_router_urlB\x13\n" +
 	"\x11_actor_jwt_issuer\"\xf6\x02\n" +

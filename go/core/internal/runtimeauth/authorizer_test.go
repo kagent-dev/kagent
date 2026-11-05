@@ -29,7 +29,7 @@ func (denyUsers) Scope(context.Context, auth.Principal, auth.Verb, string) (auth
 
 func TestActorPolicyDoesNotInheritOwnerPermissions(t *testing.T) {
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.RootCAs, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	store := newBinding()
 	provider := runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)

@@ -2,11 +2,14 @@ package substrate
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -44,19 +47,19 @@ type ActorJWTVerifier struct {
 	audience string
 }
 
-// NewActorJWTVerifier loads discovery over verified TLS. The context owns key
+// NewActorJWTVerifier loads discovery over verified roots. The context owns key
 // refreshes; callers must cancel it when the verifier is no longer used.
-func NewActorJWTVerifier(ctx context.Context, issuer, caFile, audience string) (*ActorJWTVerifier, error) {
+func NewActorJWTVerifier(ctx context.Context, issuer string, roots *x509.CertPool, audience string) (*ActorJWTVerifier, error) {
 	if audience == "" || strings.TrimSpace(audience) != audience {
 		return nil, fmt.Errorf("actor JWT audience must not be empty or have surrounding whitespace")
 	}
 	if err := validateIssuerURL(issuer); err != nil {
 		return nil, err
 	}
-	tlsConfig, err := clientTLSConfig(caFile, "")
-	if err != nil {
-		return nil, err
+	if roots == nil {
+		return nil, fmt.Errorf("actor JWT trust roots must not be nil")
 	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = tlsConfig
 	client := &http.Client{
@@ -182,4 +185,40 @@ func (v *ActorJWTVerifier) Verify(ctx context.Context, raw string) (ActorIdentit
 		return ActorIdentity{}, fmt.Errorf("actor JWT has incomplete or inconsistent identity claims")
 	}
 	return a, nil
+}
+
+// ActorJWKSRoots returns the CAs trusted only for fetching the Actor JWT
+// issuer's signing keys (the discovery document that locates the JWKS, and the
+// JWKS itself): caFile, or the system roots when caFile is empty, plus every
+// certificate in jwksCAFile. The pool is built here so jwksCAFile never reaches
+// the ate-api or router connections.
+func ActorJWKSRoots(caFile, jwksCAFile string) (*x509.CertPool, error) {
+	roots := x509.NewCertPool()
+	if caFile == "" {
+		var err error
+		if roots, err = x509.SystemCertPool(); err != nil {
+			return nil, fmt.Errorf("load system CA pool: %w", err)
+		}
+	} else if err := appendCertsFromFile(roots, caFile); err != nil {
+		return nil, err
+	}
+	if jwksCAFile != "" {
+		if err := appendCertsFromFile(roots, jwksCAFile); err != nil {
+			return nil, fmt.Errorf("actor JWT CA: %w", err)
+		}
+	}
+	return roots, nil
+}
+
+// appendCertsFromFile adds every PEM certificate in path to pool and rejects a
+// file that holds none.
+func appendCertsFromFile(pool *x509.CertPool, path string) error {
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read CA file: %w", err)
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return fmt.Errorf("CA file %q contains no certificates", path)
+	}
+	return nil
 }

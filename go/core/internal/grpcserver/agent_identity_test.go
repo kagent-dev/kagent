@@ -49,7 +49,7 @@ func TestAgentIdentityGeneratedClient(t *testing.T) {
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent).Build()
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.RootCAs, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	connection := newConfigurationConnection(t, kube, func(config *Config) {
 		config.Authenticator = runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)

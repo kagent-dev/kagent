@@ -222,11 +222,16 @@ message SubstrateConfig {
     uri: true
     pattern: "^https?://[^/?#]+"
   }];
-  // Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file.
+  // Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file
+  // and actor_jwks_ca_file.
   optional string actor_jwt_issuer = 5 [(buf.validate.field).string = {
     uri: true
     pattern: "^https://[^/?#]+"
   }];
+  // PEM CA bundle trusted, in addition to ca_file, only for TLS when fetching
+  // the Actor JWT issuer's discovery document and JWKS. It is never used for
+  // ate-api or router connections.
+  string actor_jwks_ca_file = 6;
 }
 
 message SessionsConfig {

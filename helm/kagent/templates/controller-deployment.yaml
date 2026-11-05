@@ -112,6 +112,16 @@ spec:
               keyType: ECDSAP256
               credentialBundlePath: credential-bundle.pem
       {{- end }}
+      {{- with .Values.controller.actorJwksCA.configMap }}
+      {{- if .name }}
+      - name: actor-jwks-ca
+        configMap:
+          name: {{ .name }}
+          items:
+          - key: {{ .key | default "ca.crt" }}
+            path: ca.pem
+      {{- end }}
+      {{- end }}
       {{- with .Values.controller.volumes }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -211,6 +221,11 @@ spec:
               readOnly: true
             - name: substrate-podidentity
               mountPath: /run/substrate-podidentity
+              readOnly: true
+            {{- end }}
+            {{- if .Values.controller.actorJwksCA.configMap.name }}
+            - name: actor-jwks-ca
+              mountPath: /run/kagent-actor-jwks-ca
               readOnly: true
             {{- end }}
             {{- with .Values.controller.volumeMounts }}
