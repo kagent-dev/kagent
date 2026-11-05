@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"slices"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -121,7 +119,7 @@ func TestCrashedSessionRecoveryRetriesWithoutLosingState(t *testing.T) {
 			failed, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, failed.State)
-			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, failed.Operation)
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, failed.Operation)
 			require.Equal(t, database.SessionRuntimeCrashed, failed.Failure.Reason)
 			interrupted, interruptedVersion, err := store.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
 			require.NoError(t, err)
@@ -131,9 +129,9 @@ func TestCrashedSessionRecoveryRetriesWithoutLosingState(t *testing.T) {
 			require.Equal(t, a2a.TaskStateFailed, published.Status.State)
 			require.Len(t, published.History, 1)
 			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()), database.ErrConflict)
-			// A new workflow instance discovers the admitted operation from PostgreSQL.
+			// A client retry on a new workflow instance joins the admitted operation.
 			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
-			_, err = restarted.recoverSessionPage(t.Context(), "")
+			_, err = restarted.Revert(t.Context(), failed)
 			require.NoError(t, err)
 			ready, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
@@ -147,8 +145,10 @@ func TestCrashedSessionRecoveryRetriesWithoutLosingState(t *testing.T) {
 			_, recoveredVersion, err := store.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
 			require.NoError(t, err)
 			require.Equal(t, interruptedVersion, recoveredVersion, "retries do not append another terminal event")
-			_, err = restarted.Revert(t.Context(), ready)
-			require.ErrorIs(t, err, database.ErrFailedPrecondition)
+			// A retry after the recovery's response was lost finds the restored Actor.
+			again, err := restarted.Revert(t.Context(), ready)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, again.State)
 			require.Equal(t, test.wantReverts, calls, "completed recovery cannot discard another execution")
 		})
 	}
@@ -268,41 +268,6 @@ func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSessionRecoveryCandidatePolicy(t *testing.T) {
-	store, actors, active, _, _ := crashedTurnFixture(t)
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
-	for _, state := range []a2a.TaskState{"", a2a.TaskStateInputRequired, a2a.TaskStateAuthRequired, a2a.TaskStateWorking} {
-		session, _, err := store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: active.Agent}, uuid.NewString())
-		require.NoError(t, err)
-		session, err = workflow.Create(t.Context(), session)
-		require.NoError(t, err)
-		if state == "" {
-			continue
-		}
-		message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("input"))
-		message.ContextID = session.ContextId
-		task := a2a.NewSubmittedTask(message, message)
-		task.Status.State = state
-		hash := sha256.Sum256([]byte(task.ID))
-		version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
-		require.NoError(t, err)
-		if state != a2a.TaskStateWorking {
-			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-		}
-	}
-	page, err := store.ListSessionRecoveryCandidates(t.Context(), "", 100)
-	require.NoError(t, err)
-	require.Empty(t, page, "manual recovery does not inspect idle or active runtimes")
-	actor, err := actors.GetActor(t.Context(), "team-a", substrate.ActorName(active.Id))
-	require.NoError(t, err)
-	_, err = store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, active.Id, actor.GetMetadata().GetUid()), database.SessionTaskSnapshot{})
-	require.NoError(t, err)
-	page, err = store.ListSessionRecoveryCandidates(t.Context(), "", 100)
-	require.NoError(t, err)
-	require.Len(t, page, 1, "explicitly admitted recovery remains eligible for retry")
-	require.Equal(t, active.Id, page[0].Id)
 }
 
 func TestCrashedSessionRecoversAnOlderResumedTask(t *testing.T) {
@@ -526,152 +491,152 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 	require.Equal(t, a2a.TaskStateCompleted, retained.Status.State)
 }
 
-func TestSessionRecoveryPagesPastUnavailableActors(t *testing.T) {
-	store, base, first, _, _ := crashedTurnFixture(t)
-	actors := &recoveryTestActors{lifecycleTestActors: base, revert: base.RevertActor, readErr: status.Error(codes.Unavailable, "control plane unavailable")}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
-	ids := []string{first.Id}
-	for range 100 {
-		session, _, err := store.CreateSession(t.Context(), &apiv1.Session{
-			Id: uuid.NewString(), Creator: first.Creator, Agent: first.Agent,
-		}, uuid.NewString())
-		require.NoError(t, err)
-		session, err = NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Create(t.Context(), session)
-		require.NoError(t, err)
-		message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("accepted turn"))
-		message.ContextID = session.ContextId
-		task := a2a.NewSubmittedTask(message, message)
-		task.Status.State = a2a.TaskStateWorking
-		hash := sha256.Sum256([]byte(task.ID))
-		_, err = store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
-		require.NoError(t, err)
-		base.actors[actorKey("team-a", substrate.ActorName(session.Id))].Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
-		ids = append(ids, session.Id)
-	}
-	for _, id := range ids {
-		actor, err := base.GetActor(t.Context(), "team-a", substrate.ActorName(id))
-		require.NoError(t, err)
-		_, err = store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, id, actor.GetMetadata().GetUid()), database.SessionTaskSnapshot{})
-		require.NoError(t, err)
-	}
-	slices.Sort(ids)
-	after, err := workflow.recoverSessionPage(t.Context(), "")
-	require.NoError(t, err)
-	require.Equal(t, ids[99], after, "failed Actor reads still advance the bounded page")
-	actors.readErr = nil
-	after, err = workflow.recoverSessionPage(t.Context(), after)
-	require.NoError(t, err)
-	require.Empty(t, after, "the short second page resets the cursor")
-	last, err := base.GetActor(t.Context(), "team-a", substrate.ActorName(ids[100]))
-	require.NoError(t, err)
-	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, last.GetStatus().GetState(), "the second page recovers the 101st candidate")
-	firstActor, err := base.GetActor(t.Context(), "team-a", substrate.ActorName(ids[0]))
-	require.NoError(t, err)
-	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_CRASHED, firstActor.GetStatus().GetState(), "unavailable first-page Actors still need recovery")
-	after, err = workflow.recoverSessionPage(t.Context(), after)
-	require.NoError(t, err)
-	require.Equal(t, ids[99], after, "the wrapped scan revisits previously unavailable Actors")
-	after, err = workflow.recoverSessionPage(t.Context(), after)
-	require.NoError(t, err)
-	require.Empty(t, after, "an empty page resets the cursor")
-	for _, id := range ids {
-		actor, err := base.GetActor(t.Context(), "team-a", substrate.ActorName(id))
-		require.NoError(t, err)
-		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
-	}
-}
-
-// blockedSuspendActors holds every idle suspension in runtime I/O until the
-// test ends, the way a slow Substrate upload would.
-type blockedSuspendActors struct {
-	*lifecycleTestActors
-	entered atomic.Int32
-}
-
-func (a *blockedSuspendActors) SuspendActor(ctx context.Context, _, _ string) (*ateapipb.Actor, error) {
-	a.entered.Add(1)
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-
-// Start retries an admitted recovery on its own ticker. Every quiescence worker
-// is blocked in an idle suspension for the whole test, so a scan that shared
-// those workers would never run.
-func TestStartRetriesAdmittedRecoveryWhileIdleWorkBlocks(t *testing.T) {
-	store, base, crashed, _, _ := crashedTurnFixture(t)
-	unavailable := &recoveryTestActors{lifecycleTestActors: base, revert: func(context.Context, string, string) (*ateapipb.Actor, error) {
-		return nil, status.Error(codes.Unavailable, "control plane unavailable")
-	}}
-	_, err := NewActorWorkflow(store, unavailable, make(chan struct{}, 1), time.Hour).Revert(t.Context(), crashed)
-	require.Error(t, err, "the first attempt leaves an admitted recovery for Start to retry")
-
-	const idleSessions = 4 // one per quiescence worker
-	for range idleSessions {
-		idle, _, err := store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: crashed.Creator, Agent: crashed.Agent}, uuid.NewString())
-		require.NoError(t, err)
-		idle, err = NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour).Create(t.Context(), idle)
-		require.NoError(t, err)
-		request := stageQuiescenceTask(t, store.Client, idle, a2a.TaskStateCompleted)
-		require.NoError(t, store.SettleSessionTask(t.Context(), idle.Id, request.TaskId, request.Version))
-	}
-
-	actors := &blockedSuspendActors{lifecycleTestActors: base}
-	startQuiescenceWorker(t, NewActorWorkflow(store, actors, make(chan struct{}, 1), 20*time.Millisecond))
-	require.Eventually(t, func() bool { return actors.entered.Load() == idleSessions }, 5*time.Second, 10*time.Millisecond)
-	require.Eventually(t, func() bool {
-		current, err := store.GetSessionByID(t.Context(), crashed.Id)
-		return err == nil && current.State == apiv1.RuntimeState_RUNTIME_STATE_READY
-	}, 5*time.Second, 10*time.Millisecond)
-	actor, err := base.GetActor(t.Context(), "team-a", substrate.ActorName(crashed.Id))
-	require.NoError(t, err)
-	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
-	require.EqualValues(t, idleSessions, actors.entered.Load(), "idle work stayed blocked while recovery completed")
-}
-
 // A recovery whose Actor cannot be read has issued nothing, so it must not take
 // a claim that would make Delete refuse the Session.
 func TestDeleteSupersedesUnissuedCrashRecovery(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		gone    bool
-		readErr error
+	t.Run("Given an admitted recovery whose Actor read fails, when the client deletes the Session, assert that deletion supersedes the recovery", func(t *testing.T) {
+		store, base, session, _, _ := crashedTurnFixture(t)
+		key := actorKey("team-a", substrate.ActorName(session.Id))
+		_, err := store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, session.Id, base.actors[key].GetMetadata().GetUid()))
+		require.NoError(t, err)
+		unreadable := &recoveryTestActors{lifecycleTestActors: base, readErr: status.Error(codes.Unavailable, "control plane unavailable")}
+		unreadable.revert = func(context.Context, string, string) (*ateapipb.Actor, error) {
+			t.Fatal("an unread Actor was reverted")
+			return nil, nil
+		}
+		admitted, err := store.GetSessionByID(t.Context(), session.Id)
+		require.NoError(t, err)
+		_, err = NewActorWorkflow(store, unreadable, make(chan struct{}, 1), time.Minute).Revert(t.Context(), admitted)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, database.ErrFailedPrecondition, "a transient read failure stays retryable")
+
+		pending, err := store.GetSessionByID(t.Context(), session.Id)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, pending.State)
+		require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed read keeps the recovery for a client retry")
+		deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending, false)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
+		_, err = base.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+		require.Equal(t, codes.NotFound, status.Code(err))
+	})
+}
+
+// No revert can be in progress against a missing or replaced Actor, even after
+// an attempt claimed the recovery, so the recovery closes and Delete proceeds.
+func TestLostActorClosesClaimedCrashRecovery(t *testing.T) {
+	// A replacement Actor belongs to someone else, so Delete still refuses to
+	// remove it after the recovery closes; only a deleted Actor lets Delete finish.
+	scenarios := []struct {
+		name      string
+		after     func(*lifecycleTestActors, string)
+		deletable bool
 	}{
-		{name: "actor read fails", readErr: status.Error(codes.Unavailable, "control plane unavailable")},
-		{name: "actor is gone", gone: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			store, base, session, _, _ := crashedTurnFixture(t)
-			key := actorKey("team-a", substrate.ActorName(session.Id))
-			_, err := store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, session.Id, base.actors[key].GetMetadata().GetUid()), database.SessionTaskSnapshot{})
-			require.NoError(t, err)
-			if test.gone {
-				delete(base.actors, key)
-			}
-			actors := &recoveryTestActors{lifecycleTestActors: base, readErr: test.readErr}
-			actors.revert = func(context.Context, string, string) (*ateapipb.Actor, error) {
-				t.Fatal("an unread Actor was reverted")
-				return nil, nil
-			}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+		{name: "the Actor is deleted", after: func(actors *lifecycleTestActors, key string) { delete(actors.actors, key) }, deletable: true},
+		{name: "the Actor is replaced", after: func(actors *lifecycleTestActors, key string) { actors.actors[key].Metadata.Uid = "replacement-actor" }},
+	}
+	for _, scenario := range scenarios {
+		t.Run("Given a claimed recovery whose revert failed and then "+scenario.name+", when the client retries RevertSession, assert that the recovery closes as unrecoverable", func(t *testing.T) {
+			store, base, session, key := claimedRecoveryFixture(t)
+			scenario.after(base, key)
 			admitted, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			_, err = workflow.Revert(t.Context(), admitted)
-			require.Error(t, err)
-			_, err = workflow.recoverSessionPage(t.Context(), "")
+
+			_, err = NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Revert(t.Context(), admitted)
+
+			require.ErrorIs(t, err, errRuntimeUnrecoverable)
+			closed, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, closed.State)
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, closed.Operation)
+			require.Equal(t, database.SessionRuntimeUnrecoverable, closed.Failure.GetReason())
+			_, err = NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Revert(t.Context(), closed)
+			require.ErrorIs(t, err, errRuntimeUnrecoverable, "later retries report the same refusal")
+		})
+		if !scenario.deletable {
+			continue
+		}
+		t.Run("Given a claimed recovery whose revert failed and then "+scenario.name+", when the client deletes the Session, assert that deletion completes", func(t *testing.T) {
+			store, base, session, key := claimedRecoveryFixture(t)
+			scenario.after(base, key)
+			admitted, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
 
-			pending, err := store.GetSessionByID(t.Context(), session.Id)
-			require.NoError(t, err)
-			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, pending.State)
-			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, pending.Operation, "a failed read keeps the recovery for the next scan")
-			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending, false)
+			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), admitted, false)
+
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
-			_, err = base.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
-			require.Equal(t, codes.NotFound, status.Code(err))
-			page, err := store.ListSessionRecoveryCandidates(t.Context(), "", 100)
-			require.NoError(t, err)
-			require.Empty(t, page)
 		})
 	}
+	t.Run("Given a claimed recovery whose revert failed, when the client deletes the Session while its Actor remains, assert that deletion waits for the recovery", func(t *testing.T) {
+		store, base, session, _ := claimedRecoveryFixture(t)
+		admitted, err := store.GetSessionByID(t.Context(), session.Id)
+		require.NoError(t, err)
+
+		_, err = NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), admitted, false)
+
+		require.ErrorIs(t, err, database.ErrConflict)
+		pending, err := store.GetSessionByID(t.Context(), session.Id)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation)
+	})
+}
+
+// claimedRecoveryFixture admits a crash recovery whose claimed revert failed, so
+// the Session records possibly issued work.
+func claimedRecoveryFixture(t *testing.T) (*lifecycleTestStore, *lifecycleTestActors, *apiv1.Session, string) {
+	t.Helper()
+	store, base, session, _, _ := crashedTurnFixture(t)
+	failing := &recoveryTestActors{lifecycleTestActors: base, revert: func(context.Context, string, string) (*ateapipb.Actor, error) {
+		return nil, status.Error(codes.Unavailable, "response unavailable")
+	}}
+	_, err := NewActorWorkflow(store, failing, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
+	require.Error(t, err)
+	operation, err := store.GetSessionOperation(t.Context(), session.Id, mustOperationID(t, store, session.Id))
+	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, operation.ExecutorID, "the failed attempt claimed the recovery")
+	return store, base, session, actorKey("team-a", substrate.ActorName(session.Id))
+}
+
+func mustOperationID(t *testing.T, store *lifecycleTestStore, sessionID string) uuid.UUID {
+	t.Helper()
+	generation, err := store.GetSessionGeneration(t.Context(), sessionID)
+	require.NoError(t, err)
+	return generation.OperationID
+}
+
+// Substrate restores whichever durable snapshot is newest when the revert runs.
+// One that completes after admission must decide which waits survive.
+func TestRevertSettlesWaitsAgainstTheRestoredSnapshot(t *testing.T) {
+	t.Run("Given a wait captured only by a snapshot that completes after admission, when the revert restores that snapshot, assert that the wait is retained", func(t *testing.T) {
+		store, base, session, task, version := crashedTurnFixture(t)
+		task.Status.State = a2a.TaskStateInputRequired
+		hash := sha256.Sum256([]byte("waiting"))
+		version, err := store.UpdateSessionTask(t.Context(), session.Id, version, hash[:], task, task, "")
+		require.NoError(t, err)
+		require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+		work, err := store.ClaimSessionQuiescence(t.Context())
+		require.NoError(t, err)
+		require.NoError(t, store.FinishSessionQuiescence(t.Context(), work, &database.SessionTaskSnapshot{
+			Atespace: "team-a", URI: "s3://snapshots/late-upload", Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES.String(),
+		}))
+		key := actorKey("team-a", substrate.ActorName(session.Id))
+		require.Nil(t, substrate.LatestDurableActorSnapshot(base.actors[key]), "admission observes no durable snapshot")
+		uploaded := &recoveryTestActors{lifecycleTestActors: base}
+		uploaded.revert = func(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+			base.mu.Lock()
+			base.actors[key].Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{
+				State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/late-upload"},
+			}}}
+			base.mu.Unlock()
+			return base.RevertActor(ctx, atespace, name)
+		}
+
+		_, err = NewActorWorkflow(store, uploaded, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
+
+		require.NoError(t, err)
+		retained, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
+		require.NoError(t, err)
+		require.Equal(t, a2a.TaskStateInputRequired, retained.Status.State)
+	})
 }

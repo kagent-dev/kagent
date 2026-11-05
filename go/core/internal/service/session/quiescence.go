@@ -28,15 +28,11 @@ func (w *ActorWorkflow) wakeQuiescence() {
 	}
 }
 
-// Start suspends idle sessions to VOLUMES independently of task publication and
-// retries crash recoveries admitted by explicit requests.
-// Startup and periodic scans discover idle work missed by local signals. Workers
-// drain claims with bounded concurrency. Crash recovery scans on its own ticker, so
-// a slow idle suspension cannot delay a recovery retry and a slow revert cannot
-// hold up idle work.
+// Start suspends idle sessions to VOLUMES independently of task publication.
+// Startup and periodic recovery scans discover work missed by local signals.
+// Workers drain claims with bounded concurrency; task reads never wait for them.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
 	var workers sync.WaitGroup
-	workers.Go(func() { w.recoverCrashedSessions(ctx) })
 	for range 4 {
 		workers.Go(func() {
 			timer := time.NewTimer(w.recoveryInterval)
@@ -74,24 +70,6 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 	}
 	workers.Wait()
 	return nil
-}
-
-// recoverCrashedSessions runs one recovery scan per tick.
-// The cursor carries across ticks, so a large backlog cannot starve the Sessions
-// after its first page, and an Actor that stays unreadable is revisited when the
-// scan wraps.
-func (w *ActorWorkflow) recoverCrashedSessions(ctx context.Context) {
-	ticker := time.NewTicker(w.recoveryInterval)
-	defer ticker.Stop()
-	var after string
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		after = w.scanRecovery(ctx, after)
-	}
 }
 
 func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.SessionQuiescence) {

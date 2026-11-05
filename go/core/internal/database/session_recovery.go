@@ -18,39 +18,15 @@ import (
 // that the recorded Actor crashed. Transport failures cannot admit this work.
 const SessionRuntimeCrashed = "RuntimeCrashed"
 
-// CrashRecoveryAdmitted reports a Session whose crash recovery was admitted and
-// has not finished: FAILED for a confirmed crash, with the recovery's RESUME
-// still in flight. A retry joins that operation instead of observing Substrate
-// again, and execution reverts the recorded Actor in place instead of resuming it.
-func CrashRecoveryAdmitted(session *apiv1.Session) bool {
-	return session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED &&
-		session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME &&
-		session.Failure.GetReason() == SessionRuntimeCrashed
-}
+// SessionRuntimeUnrecoverable identifies a crash recovery closed because its
+// Actor is gone or was replaced. No revert can restore that runtime.
+const SessionRuntimeUnrecoverable = "RuntimeUnrecoverable"
 
-// ListSessionRecoveryCandidates finds recoveries admitted by an explicit request.
-// Retrying durable work cannot admit recovery for a READY Session.
-func (c *Client) ListSessionRecoveryCandidates(ctx context.Context, afterID string, limit int) ([]*apiv1.Session, error) {
-	rows, err := queryMany(ctx, c.db, `
-		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id, operation_id, executor_id
-		FROM session_record i
-		WHERE ($1::text = '' OR i.id > $1::uuid)
-		  AND i.state = 'RUNTIME_STATE_FAILED' AND i.operation = 'RUNTIME_OPERATION_RESUME'
-		ORDER BY i.id LIMIT $2
-	`, pgx.RowToStructByName[sessionRow], afterID, limit)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]*apiv1.Session, 0, len(rows))
-	for _, row := range rows {
-		session, err := toSession(row)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, session)
-	}
-	return result, nil
+// CrashRecoveryAdmitted reports a Session whose crash recovery was admitted and
+// has not finished. A retry joins that REVERT instead of observing Substrate
+// again. The schema allows REVERT only on a FAILED agent Session.
+func CrashRecoveryAdmitted(session *apiv1.Session) bool {
+	return session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
 }
 
 // SessionGeneration is a live Session's lifecycle generation and the runtime it
@@ -102,7 +78,11 @@ func (c *Client) GetSessionGeneration(ctx context.Context, id string) (*SessionG
 // observed the crash. The Session must still record its Actor UID, and a
 // lifecycle operation begun since then makes the observation stale, because a
 // concurrent revert keeps the Actor UID and returns to READY.
-func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *SessionGeneration, snapshot SessionTaskSnapshot) (*SessionOperation, error) {
+//
+// Admission fails the turns that were running, which no snapshot captures.
+// Substrate picks the snapshot when the revert runs, so waits are settled by
+// FinishCrashedSessionRecovery against the snapshot it actually restored.
+func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *SessionGeneration) (*SessionOperation, error) {
 	var operation *SessionOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSession(ctx, tx, generation.SessionID)
@@ -154,11 +134,11 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 			return ErrConflict
 		}
 		row.State = apiv1.RuntimeState_RUNTIME_STATE_FAILED.String()
-		row.runtimeInstanceRow, err = beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+		row.runtimeInstanceRow, err = beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT)
 		if err != nil {
 			return err
 		}
-		session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME
+		session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
 		session.Failure = &apiv1.Failure{Reason: SessionRuntimeCrashed, Message: "Runtime crashed; recovery to its last snapshot is pending"}
 		session.UpdatedAt = timestamppb.Now()
 		row.Data, err = marshalSession(session)
@@ -168,7 +148,7 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if err := execSQL(ctx, tx, `UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL WHERE id = $1`, row.ID, row.Data); err != nil {
 			return err
 		}
-		if err := settleCrashedSessionTask(ctx, tx, row, snapshot); err != nil {
+		if err := settleCrashedSessionTask(ctx, tx, row, nil); err != nil {
 			return err
 		}
 		operation, err = toSessionOperation(row)
@@ -177,14 +157,73 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 	return operation, err
 }
 
-// settleCrashedSessionTask retains captured waits and fails discarded nonterminal work.
-// Callers hold the Session lock; recovery cannot checkpoint discarded state.
-func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, snapshot SessionTaskSnapshot) error {
+// FinishCrashedSessionRecovery publishes a claimed revert's success. restored is
+// the snapshot Substrate restored; waits it did not capture fail with the turns
+// admission already failed.
+func (c *Client) FinishCrashedSessionRecovery(ctx context.Context, sessionID string, id, executorID uuid.UUID, actorUID string, restored SessionTaskSnapshot) (*apiv1.Session, error) {
+	return c.finishSessionOperation(ctx, sessionID, id, executorID, "", actorUID, "", &restored)
+}
+
+// AbandonCrashedSessionRecovery closes a recovery whose Actor is gone or was
+// replaced, so no revert can restore it. An earlier attempt may have claimed the
+// recovery; the claim must have lapsed, because a live attempt still owns it.
+// The Session stays FAILED with no operation, so Delete can proceed. No restored
+// snapshot captures its waits, so they fail.
+func (c *Client) AbandonCrashedSessionRecovery(ctx context.Context, sessionID string, id uuid.UUID, cause string) (*apiv1.Session, error) {
+	var result *apiv1.Session
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := lockSession(ctx, tx, sessionID)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		tag, err := tx.Exec(ctx, `
+			UPDATE runtime_instance SET operation = 'RUNTIME_OPERATION_NONE', operation_id = NULL,
+			    executor_id = NULL, executor_expires_at = NULL
+			WHERE id = $1 AND kind = 'agent' AND operation_id = $2
+			    AND operation = 'RUNTIME_OPERATION_REVERT'
+			    AND (executor_id IS NULL OR executor_expires_at <= clock_timestamp())
+		`, row.ID, id)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return fmt.Errorf("crash recovery %s is finished, superseded, or still claimed: %w", id, ErrConflict)
+		}
+		row.Operation, row.OperationID, row.ExecutorID = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String(), nil, nil
+		result, err = toSession(row)
+		if err != nil {
+			return err
+		}
+		result.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
+		result.Failure = &apiv1.Failure{Reason: SessionRuntimeUnrecoverable, Message: cause}
+		result.UpdatedAt = timestamppb.Now()
+		row.Data, err = marshalSession(result)
+		if err != nil {
+			return err
+		}
+		if err := execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, row.Data); err != nil {
+			return err
+		}
+		return settleCrashedSessionTask(ctx, tx, row, &SessionTaskSnapshot{})
+	})
+	return result, err
+}
+
+// settleCrashedSessionTask fails work a crash discarded. Callers hold the Session
+// lock; recovery cannot checkpoint discarded state. Without restored, it settles
+// admission: it publishes saved boundaries and fails the running turns, which no
+// snapshot captures. With restored, it settles completion: the waits that
+// snapshot did not capture. An empty restored snapshot captures none.
+func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, restored *SessionTaskSnapshot) error {
 	type interruptedTask struct {
 		ID      string
 		Data    []byte
 		Version *int64
 		Pending bool
+	}
+	var snapshot SessionTaskSnapshot
+	if restored != nil {
+		snapshot = *restored
 	}
 	// The CTE clears the history's pending quiescence marker. The main query
 	// reads the pre-update snapshot, but pending only tests that a boundary was
@@ -200,14 +239,15 @@ func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow
 		    WHERE e.history_id = t.history_id AND e.task_id = t.id
 		    ORDER BY sequence DESC LIMIT 1) latest ON TRUE
 		WHERE t.history_id = $1
-		    AND (t.state IN ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING')
-		      OR (t.state IN ('TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')
+		    AND ((NOT $5 AND (t.state IN ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING')
+		        OR (NOT latest.published AND latest.quiescence_pending IS NOT NULL)))
+		      OR ($5 AND t.state IN ('TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')
 		        AND NOT EXISTS (SELECT 1 FROM session_task_event captured
 		          WHERE captured.history_id = t.history_id AND $2::text <> ''
 		            AND captured.snapshot_uri = $2 AND captured.snapshot_fidelity = $3
 		            AND captured.snapshot_atespace = $4
 		            AND captured.sequence >= latest.sequence)))
-	`, pgx.RowToStructByName[interruptedTask], session.HistoryID, snapshot.URI, snapshot.Fidelity, snapshot.Atespace)
+	`, pgx.RowToStructByName[interruptedTask], session.HistoryID, snapshot.URI, snapshot.Fidelity, snapshot.Atespace, restored != nil)
 	if err != nil {
 		return fmt.Errorf("read interrupted Session tasks: %w", err)
 	}
@@ -231,7 +271,8 @@ func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow
 		if err != nil {
 			return err
 		}
-		if !task.Status.State.Terminal() {
+		waiting := task.Status.State == a2a.TaskStateInputRequired || task.Status.State == a2a.TaskStateAuthRequired
+		if !task.Status.State.Terminal() && (restored != nil || !waiting) {
 			task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Timestamp: new(time.Now().UTC()),
 				Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("The runtime crashed before this turn completed. Send a new message to continue."))}
 			apia2a.SetTimelinePosition(task.Status.Message, *task.Status.Timestamp)

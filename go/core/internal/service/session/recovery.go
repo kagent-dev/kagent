@@ -12,14 +12,12 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // Revert refuses a Session with nothing to act on for one of two reasons. They
 // ask opposite things of a client, so the API reports them with distinct reasons.
-// errRuntimeNotCrashed means nothing needs recovering: the runtime is healthy or
-// suspended. A retry after a revert whose response was lost lands here, and the
-// next interaction proceeds.
+// errRuntimeNotCrashed means nothing needs recovering: the runtime is running or
+// the Session is in another lifecycle state.
 // errRuntimeUnrecoverable means the recorded Actor is gone or was replaced. No
 // retry restores it, and the client has to start another Session. Transient
 // Substrate and database failures wrap neither, so they stay retryable.
@@ -39,10 +37,6 @@ func lifecycleIdle(session *apiv1.Session) bool {
 type crashObservation struct {
 	generation *database.SessionGeneration
 	actor      *ateapipb.Actor
-}
-
-func (o crashObservation) crashed() bool {
-	return o.actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED
 }
 
 // observeCrash reads the Session's recorded Actor and reports whether Substrate
@@ -82,61 +76,16 @@ func (w *ActorWorkflow) observeCrash(ctx context.Context, session *apiv1.Session
 	return crashObservation{generation: generation, actor: actor}, nil
 }
 
-// scanRecovery runs one recovery interval and returns the cursor for the next.
-// Admitted recoveries page through PostgreSQL in ID order.
-func (w *ActorWorkflow) scanRecovery(ctx context.Context, afterID string) string {
-	scanCtx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
-	after, err := w.recoverSessionPage(scanCtx, afterID)
-	cancel()
-	if err != nil && ctx.Err() == nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "scan interrupted sessions", "error", err)
-	}
-	return after
-}
-
-// recoverSessionPage retries one ID-ordered page of admitted recoveries.
-// READY Sessions are excluded, so a background retry cannot admit new work.
-func (w *ActorWorkflow) recoverSessionPage(ctx context.Context, afterID string) (string, error) {
-	const pageSize = 100
-	sessions, err := w.store.ListSessionRecoveryCandidates(ctx, afterID, pageSize)
-	if err != nil {
-		return afterID, err
-	}
-	for _, session := range sessions {
-		w.recoverCandidate(ctx, session)
-		afterID = session.Id
-		if ctx.Err() != nil {
-			return afterID, ctx.Err()
-		}
-	}
-	if len(sessions) < pageSize {
-		afterID = ""
-	}
-	return afterID, nil
-}
-
-func (w *ActorWorkflow) recoverCandidate(ctx context.Context, session *apiv1.Session) {
-	attemptCtx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
-	err := w.recoverSessionCandidate(attemptCtx, session)
-	cancel()
-	if err != nil && !errors.Is(err, database.ErrConflict) && ctx.Err() == nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "recover crashed session", "session_id", session.Id, "error", err)
-	}
-}
-
-func (w *ActorWorkflow) recoverSessionCandidate(ctx context.Context, session *apiv1.Session) error {
-	_, err := w.Revert(ctx, session)
-	if errors.Is(err, database.ErrFailedPrecondition) {
-		return nil
-	}
-	return err
-}
-
 // Revert restores a confirmed crashed runtime without replaying its interrupted turn.
-// Retries join the same durable operation and preserve the Actor identity.
+// Retries join the same durable operation and preserve the Actor identity; a
+// client retry is what continues an interrupted recovery. A retry after a revert
+// whose response was lost finds the same Actor SUSPENDED and returns the Session.
 func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	if database.CrashRecoveryAdmitted(session) {
-		return w.run(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, false)
+		return w.run(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, false)
+	}
+	if session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED && session.Failure.GetReason() == database.SessionRuntimeUnrecoverable {
+		return nil, fmt.Errorf("%s: %w", session.Failure.GetMessage(), errRuntimeUnrecoverable)
 	}
 	// run bounds a joined attempt. Admission bounds its own reads and execution.
 	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
@@ -155,17 +104,56 @@ func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*ap
 	if err != nil {
 		return nil, err
 	}
-	if !observed.crashed() {
+	switch observed.actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_CRASHED:
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
+		// The recorded Actor rests at a snapshot, which is what a revert leaves.
+		return session, nil
+	default:
 		return nil, errRuntimeNotCrashed
 	}
-	actor := observed.actor
-	snapshot := substrate.LatestDurableActorSnapshot(actor)
-	operation, err := w.store.BeginCrashedSessionRecovery(ctx, observed.generation, database.SessionTaskSnapshot{
-		Atespace: actor.GetMetadata().GetAtespace(), URI: substrate.SnapshotURI(snapshot),
-		Fidelity: snapshot.GetFidelity().String(),
-	})
+	operation, err := w.store.BeginCrashedSessionRecovery(ctx, observed.generation)
 	if err != nil {
 		return nil, err
 	}
 	return w.execute(ctx, operation)
+}
+
+// closeLostRecovery lets Delete proceed past an admitted recovery that can never
+// finish because its Actor is gone or was replaced. An Actor that is still there,
+// or a failed read, leaves the recovery for Delete to supersede or wait for.
+func (w *ActorWorkflow) closeLostRecovery(ctx context.Context, sessionID string) error {
+	operation, err := w.store.BeginSessionOperation(ctx, sessionID, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, false)
+	if err != nil || !database.CrashRecoveryAdmitted(operation.Instance) {
+		return nil // Delete reports the Session's current state.
+	}
+	binding, err := w.actorBinding(ctx, operation.Instance)
+	if err != nil {
+		return nil
+	}
+	if _, err := w.prepareRevert(ctx, operation.Instance, binding); errors.Is(err, errRuntimeUnrecoverable) {
+		_, err = w.store.AbandonCrashedSessionRecovery(ctx, sessionID, operation.ID, err.Error())
+		return err
+	}
+	return nil
+}
+
+// prepareRevert reads the crashed Actor before any claim. A missing or replaced
+// Actor wraps errRuntimeUnrecoverable.
+func (w *ActorWorkflow) prepareRevert(ctx context.Context, session *apiv1.Session, binding substrate.ActorBinding) (*substrate.ActorTransition, error) {
+	transition, err := substrate.PrepareActorRevert(ctx, w.actors, binding)
+	if errors.Is(err, substrate.ErrActorLost) {
+		return nil, fmt.Errorf("%w: %w", err, errRuntimeUnrecoverable)
+	}
+	if err != nil {
+		return nil, err
+	}
+	_, err = w.store.GetSessionForRuntime(ctx, session.Id, transition.ActorUID())
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, fmt.Errorf("runtime Actor was replaced: %w", errRuntimeUnrecoverable)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("verify runtime actor UID: %w", err)
+	}
+	return transition, nil
 }

@@ -131,6 +131,12 @@ func (c *Client) ClaimSessionOperation(ctx context.Context, sessionID string, id
 // pins atomically. Explicit deletion retains a tombstone; idle deletion also
 // removes the session and creation receipt in this transaction.
 func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, id, executorID uuid.UUID, authority, actorUID, failure string) (*apiv1.Session, error) {
+	return c.finishSessionOperation(ctx, sessionID, id, executorID, authority, actorUID, failure, nil)
+}
+
+// finishSessionOperation also settles a revert's waits against the snapshot it
+// restored. Only FinishCrashedSessionRecovery can publish a revert's success.
+func (c *Client) finishSessionOperation(ctx context.Context, sessionID string, id, executorID uuid.UUID, authority, actorUID, failure string, restored *SessionTaskSnapshot) (*apiv1.Session, error) {
 	var result *apiv1.Session
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSession(ctx, tx, sessionID)
@@ -161,6 +167,13 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 					return err
 				}
 				if err := releaseAgentRuntimeReferences(ctx, tx, row.ID); err != nil {
+					return err
+				}
+			case apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT:
+				if restored == nil {
+					return fmt.Errorf("revert completion requires the restored snapshot")
+				}
+				if err := settleCrashedSessionTask(ctx, tx, row, restored); err != nil {
 					return err
 				}
 			}

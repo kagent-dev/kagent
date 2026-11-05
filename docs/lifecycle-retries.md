@@ -43,13 +43,16 @@ should likewise retain the `request_id` passed to `create_sandbox`.
 
 Call `SessionService.RevertSession` with the Session ID to restore its recorded runtime to the last durable snapshot.
 The caller needs Session update access. The operation verifies Substrate's CRASHED state and the recorded Actor identity.
-Recovery fails interrupted turns and waiting tasks absent from the retained snapshot.
+Recovery fails interrupted turns, and waiting tasks absent from the snapshot Substrate restores.
 It preserves durable terminal results and returns the Session to READY with its Actor suspended.
 It discards runtime changes since that snapshot and does not replay input.
 A runtime without a snapshot restarts from its initial state.
 
-Retry an interrupted revert against the same Session ID. Pending recovery retains its operation across API restarts.
-The lifecycle worker retries already admitted recoveries; it does not initiate recovery for other crashed Sessions.
+While recovery is pending, `GetSession` reports `RUNTIME_STATE_FAILED` with operation
+`RUNTIME_OPERATION_REVERT` and failure reason `RuntimeCrashed`, and interactions are refused
+because a lifecycle operation is in progress. Retry an interrupted revert against the same Session ID:
+the retry continues the pending recovery, which survives API restarts. Nothing retries it in the background.
+A retry after a successful revert whose response was lost returns the recovered Session.
 Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.
 So does a revert while another lifecycle operation is active.
@@ -59,8 +62,8 @@ Its `google.rpc.ErrorInfo` detail, in domain `kagent.dev`, names one of two reas
 
 | Reason | Meaning | Client action |
 | --- | --- | --- |
-| `KAGENT_SESSION_RUNTIME_NOT_CRASHED` | The runtime is healthy or suspended. A retry after a revert whose response was lost lands here. | Treat as recovered and continue the conversation. |
-| `KAGENT_SESSION_RUNTIME_UNRECOVERABLE` | The recorded Actor is missing, or a same-name Actor replaced it. | Stop retrying. Start another Session, or fork one from a checkpoint. |
+| `KAGENT_SESSION_RUNTIME_NOT_CRASHED` | The runtime is running, or the Session is not READY. | Continue the conversation. |
+| `KAGENT_SESSION_RUNTIME_UNRECOVERABLE` | The recorded Actor is missing, or a same-name Actor replaced it. A pending recovery that finds this closes, leaving the Session FAILED with reason `RuntimeUnrecoverable`. | Stop retrying. Delete the Session and start another, or fork one from a checkpoint. |
 
 A `FAILED_PRECONDITION` without either reason follows the general table below.
 Read the reason rather than the message text, which is not stable.

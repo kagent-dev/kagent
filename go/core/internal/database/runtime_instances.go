@@ -68,7 +68,8 @@ func runtimeOperationNeeded(row runtimeInstanceRow, requested apiv1.RuntimeOpera
 	if err != nil {
 		return false, err
 	}
-	if requested < apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE || requested > apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+	if (requested < apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE || requested > apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE) &&
+		requested != apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT {
 		return false, fmt.Errorf("invalid runtime operation %s: %w", requested, ErrFailedPrecondition)
 	}
 	if state == apiv1.RuntimeState_RUNTIME_STATE_DELETED {
@@ -100,6 +101,13 @@ func runtimeOperationNeeded(row runtimeInstanceRow, requested apiv1.RuntimeOpera
 		expected, target = apiv1.RuntimeState_RUNTIME_STATE_READY, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
 	case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 		expected = state
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT:
+		// Only crash admission starts a revert. A request joins one in flight
+		// (above) or observes that it finished.
+		if state == apiv1.RuntimeState_RUNTIME_STATE_READY && operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+			return false, nil
+		}
+		return false, ErrConflict
 	}
 	if target != apiv1.RuntimeState_RUNTIME_STATE_UNSPECIFIED && state == target && operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return false, nil
@@ -178,7 +186,8 @@ func completeRuntimeOperation(row runtimeInstanceRow, operationID, executorID uu
 			return row, ErrConflict
 		}
 		switch operation {
-		case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
+		case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME,
+			apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT:
 			row.State = apiv1.RuntimeState_RUNTIME_STATE_READY.String()
 		case apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
 			row.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED.String()

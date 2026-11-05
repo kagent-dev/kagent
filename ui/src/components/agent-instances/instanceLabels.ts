@@ -109,6 +109,7 @@ const OPERATIONS: Record<AgentInstanceOperation, OperationAppearance> = {
   suspend: { label: "Suspending", tone: "processing", inProgress: true },
   resume: { label: "Resuming", tone: "processing", inProgress: true },
   delete: { label: "Deleting", tone: "warning", inProgress: true },
+  revert: { label: "Recovering", tone: "processing", inProgress: true },
   unknown: { label: "Unrecognised operation", tone: "warning", inProgress: true },
 };
 

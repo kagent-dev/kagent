@@ -136,13 +136,15 @@ CREATE TABLE runtime_instance (
     request_id TEXT NOT NULL,
     prepared_revision TEXT REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
     state TEXT NOT NULL CHECK (state IN ('RUNTIME_STATE_CREATING', 'RUNTIME_STATE_READY', 'RUNTIME_STATE_SUSPENDED', 'RUNTIME_STATE_FAILED', 'RUNTIME_STATE_DELETING', 'RUNTIME_STATE_DELETED')),
-    operation TEXT NOT NULL DEFAULT 'RUNTIME_OPERATION_NONE' CHECK (operation IN ('RUNTIME_OPERATION_NONE', 'RUNTIME_OPERATION_CREATE', 'RUNTIME_OPERATION_SUSPEND', 'RUNTIME_OPERATION_RESUME', 'RUNTIME_OPERATION_DELETE')),
+    operation TEXT NOT NULL DEFAULT 'RUNTIME_OPERATION_NONE' CHECK (operation IN ('RUNTIME_OPERATION_NONE', 'RUNTIME_OPERATION_CREATE', 'RUNTIME_OPERATION_SUSPEND', 'RUNTIME_OPERATION_RESUME', 'RUNTIME_OPERATION_DELETE', 'RUNTIME_OPERATION_REVERT')),
     operation_id UUID,
     executor_id UUID,
     executor_expires_at TIMESTAMPTZ,
     UNIQUE (kind, user_id, request_id),
     CHECK (executor_id IS NULL OR (operation_id IS NOT NULL AND operation <> 'RUNTIME_OPERATION_NONE' AND state <> 'RUNTIME_STATE_DELETED')),
-    CHECK (state <> 'RUNTIME_STATE_DELETED' OR (prepared_revision IS NULL AND operation = 'RUNTIME_OPERATION_NONE'))
+    CHECK (state <> 'RUNTIME_STATE_DELETED' OR (prepared_revision IS NULL AND operation = 'RUNTIME_OPERATION_NONE')),
+    -- Only crash recovery of a FAILED Session reverts its runtime.
+    CHECK (operation <> 'RUNTIME_OPERATION_REVERT' OR (kind = 'agent' AND state = 'RUNTIME_STATE_FAILED'))
 );
 CREATE INDEX runtime_instance_owner_idx ON runtime_instance (kind, user_id, id)
     WHERE state <> 'RUNTIME_STATE_DELETED';

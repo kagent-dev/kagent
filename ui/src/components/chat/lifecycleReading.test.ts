@@ -144,6 +144,7 @@ describe("isLifecycleBusy", () => {
     // Two decisions taken separately would drift: a page polling on one rule while
     // the indicator changes on another either misses a stage or reads for nothing.
     expect(isLifecycleBusy(instance({ operation: "resume" }), "idle")).toBe(true);
+    expect(isLifecycleBusy(instance({ state: "failed", operation: "revert" }), "idle")).toBe(true);
     expect(isLifecycleBusy(instance(), "streaming")).toBe(true);
     expect(isLifecycleBusy(instance(), "idle")).toBe(false);
     expect(isLifecycleBusy(instance({ state: "suspended" }), "idle")).toBe(false);

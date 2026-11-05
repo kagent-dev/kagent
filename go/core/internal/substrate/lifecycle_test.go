@@ -74,6 +74,24 @@ func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateap
 
 // RevertActor restores the latest durable snapshot unless the test overrides
 // the identity or snapshot it returns.
+func (a *transitionActors) RevertActor(context.Context, string, string) (*ateapipb.Actor, error) {
+	a.calls = append(a.calls, "revert")
+	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	snapshot := proto.CloneOf(LatestDurableActorSnapshot(a.actor))
+	if a.revertSnapshot != nil {
+		snapshot = proto.CloneOf(a.revertSnapshot)
+	}
+	a.actor.Status.Snapshots = nil
+	if snapshot != nil {
+		snapshot.Locality = ""
+		a.actor.Status.Snapshots = []*ateapipb.Snapshot{snapshot}
+	}
+	if a.revertUID != "" {
+		a.actor.Metadata.Uid = a.revertUID
+	}
+	return proto.CloneOf(a.actor), nil
+}
+
 func (a *transitionActors) DeleteActor(context.Context, string, string, string) error {
 	a.calls = append(a.calls, "delete")
 	a.actor = nil
@@ -247,7 +265,9 @@ func TestActorSuspendRequiresDurableVolumesSnapshot(t *testing.T) {
 	}
 }
 
-func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
+// A revert keeps the Actor's identity. Substrate chooses the snapshot it
+// restores, so the transition reports it instead of requiring the one observed.
+func TestActorRevertRestoresInPlace(t *testing.T) {
 	durable := func(generation int32, uri string) *ateapipb.Snapshot {
 		return &ateapipb.Snapshot{Generation: generation, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, Locality: "lost-node",
 			DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: uri}}}
@@ -258,17 +278,21 @@ func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 		state          ateapipb.ActorState
 		revertUID      string
 		revertSnapshot *ateapipb.Snapshot
+		template       string
 		wantPrepareErr bool
+		wantLost       bool
 		wantApplyErr   bool
 		wantCalls      []string
+		wantRestored   string
 	}{
-		{name: "crashed", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, wantCalls: []string{"revert"}},
-		{name: "revert in progress", state: ateapipb.ActorState_ACTOR_STATE_REVERTING, wantCalls: []string{"revert"}},
-		{name: "earlier revert response lost", state: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
+		{name: "crashed", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, wantCalls: []string{"revert"}, wantRestored: "s3://snapshots/latest"},
+		{name: "revert in progress", state: ateapipb.ActorState_ACTOR_STATE_REVERTING, wantCalls: []string{"revert"}, wantRestored: "s3://snapshots/latest"},
+		{name: "earlier revert response lost", state: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, wantRestored: "s3://snapshots/latest"},
 		{name: "running actor", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, wantPrepareErr: true},
-		{name: "actor gone", missing: true, wantPrepareErr: true},
+		{name: "actor gone", missing: true, wantPrepareErr: true, wantLost: true},
+		{name: "template changed", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, template: "another-template", wantPrepareErr: true, wantLost: true},
 		{name: "replaced actor", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, revertUID: "another-actor", wantApplyErr: true, wantCalls: []string{"revert"}},
-		{name: "different snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, revertSnapshot: durable(1, "s3://snapshots/older"), wantApplyErr: true, wantCalls: []string{"revert"}},
+		{name: "another snapshot restored", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, revertSnapshot: durable(3, "s3://snapshots/newer"), wantCalls: []string{"revert"}, wantRestored: "s3://snapshots/newer"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &transitionActors{revertUID: test.revertUID, revertSnapshot: test.revertSnapshot}
@@ -281,11 +305,15 @@ func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 				if test.state == ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 					actors.actor.Status.Snapshots[0].Locality = ""
 				}
+				if test.template != "" {
+					actors.actor.ActorTemplate.Name = test.template
+				}
 			}
 			binding := ActorBinding{Revision: "revision", Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}
 			transition, err := PrepareActorRevert(t.Context(), actors, binding)
 			if test.wantPrepareErr {
 				require.Error(t, err)
+				require.Equal(t, test.wantLost, errors.Is(err, ErrActorLost))
 				require.Empty(t, actors.calls, "a failed read issues nothing")
 				return
 			}
@@ -296,6 +324,7 @@ func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
+				require.Equal(t, test.wantRestored, SnapshotURI(transition.RestoredSnapshot()))
 			}
 			require.Equal(t, test.wantCalls, actors.calls)
 		})

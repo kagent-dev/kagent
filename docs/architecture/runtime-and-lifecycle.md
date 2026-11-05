@@ -235,11 +235,15 @@ Only an active lifecycle operation returns `ABORTED`. A Session at rest outside
 READY returns `KAGENT_SESSION_RUNTIME_NOT_CRASHED`, so a client does not retry
 it until its deadline.
 
-Admission records FAILED/RESUME with a RuntimeCrashed failure under the Session
-lock. The same transaction publishes a durable terminal result saved before the
-crash, or fails nonterminal work absent from the retained snapshot. Waiting tasks
-captured by that snapshot remain available. Checkpoint creation excludes competing
-recovery.
+Admission records FAILED/REVERT with a RuntimeCrashed failure under the Session
+lock. `RUNTIME_OPERATION_REVERT` is only valid on a FAILED agent Session. The
+same transaction publishes durable results saved before the crash and fails the
+turns that were running, which no snapshot captures. Substrate restores its
+newest durable snapshot when the revert runs and takes no snapshot to pin, so a
+snapshot that completes after admission can be the one restored. Waiting tasks
+are therefore settled when the revert finishes, against the snapshot it restored:
+waits that snapshot captured remain available and the rest fail. Checkpoint
+creation excludes competing recovery.
 
 The caller reads the Session's generation before it observes Substrate: its
 lifecycle generation, recorded Actor UID, and Actor template, in one statement.
@@ -254,18 +258,21 @@ An issued idle suspension does not exclude recovery. It cannot finish against th
 crashed Actor, and its worker keeps the claim when suspension fails. Admission
 retires the claim in its transaction, so a late finish records nothing.
 
-The worker reverts the same Actor to its last durable snapshot without replaying
-input. A runtime without a durable snapshot returns to its initial state.
-An interrupted revert continues from REVERTING; a lost response can be reconciled
-from SUSPENDED. Already admitted recoveries survive API restarts and retry on the
-existing recovery interval in ID-ordered pages of at most 100. The worker does
-not inspect READY Sessions or initiate a new recovery.
+The revert restores the same Actor to its last durable snapshot without
+replaying input. A runtime without a durable snapshot returns to its initial
+state. An admitted recovery survives API restarts; a client retry of
+`RevertSession` joins it, as Create and Delete retries do, and nothing retries it
+in the background. An interrupted revert continues from REVERTING; a lost
+response is reconciled from SUSPENDED. A recovery whose Actor is missing or was
+replaced cannot be in progress, even after an earlier attempt claimed it, so a
+retry or a Delete closes it once the claim lapses. The Session stays FAILED with
+reason RuntimeUnrecoverable and no operation, its waits fail, and Delete proceeds.
 
 A successful revert returns the Session to READY with the same Actor suspended.
 The next authorized interaction resumes it through Substrate ingress. Runtime
 changes after the retained snapshot are lost; the discarded turn receives no
-checkpoint at that older snapshot. Another revert against the now-healthy Actor
-returns `FAILED_PRECONDITION` with `KAGENT_SESSION_RUNTIME_NOT_CRASHED`.
+checkpoint at that older snapshot. Another revert finds the same Actor SUSPENDED
+and returns the Session, so a retry after a lost response succeeds.
 
 ```mermaid
 sequenceDiagram

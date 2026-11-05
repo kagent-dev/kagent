@@ -15,9 +15,10 @@ import (
 )
 
 type workflowStore interface {
-	ListSessionRecoveryCandidates(context.Context, string, int) ([]*apiv1.Session, error)
 	GetSessionGeneration(context.Context, string) (*database.SessionGeneration, error)
-	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration, database.SessionTaskSnapshot) (*database.SessionOperation, error)
+	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration) (*database.SessionOperation, error)
+	FinishCrashedSessionRecovery(context.Context, string, uuid.UUID, uuid.UUID, string, database.SessionTaskSnapshot) (*apiv1.Session, error)
+	AbandonCrashedSessionRecovery(context.Context, string, uuid.UUID, string) (*apiv1.Session, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
@@ -108,7 +109,13 @@ func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*a
 
 // Delete closes admission before stopping and deleting compute. It can supersede
 // unissued creation, but never deletes a session while a prior call is uncertain.
+// A crash recovery whose Actor is gone cannot be in progress, so it is closed first.
 func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session, force bool) (*apiv1.Session, error) {
+	if database.CrashRecoveryAdmitted(session) {
+		if err := w.closeLostRecovery(ctx, session.GetId()); err != nil {
+			return nil, err
+		}
+	}
 	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, force)
 }
 
@@ -127,8 +134,7 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 // runtime mutations for a bounded attempt. Errors retain the operation and its
 // resource pins so a client retry can continue it. Session admission still
 // serializes lifecycle against runtime writes, idle work, and checkpoints.
-func (w *ActorWorkflow) execute(ctx context.Context, operation *database.SessionOperation) (_ *apiv1.Session, err error) {
-	sessionID := operation.Instance.Id
+func (w *ActorWorkflow) execute(ctx context.Context, operation *database.SessionOperation) (*apiv1.Session, error) {
 	if operation.Instance.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return operationOutcome(operation)
 	}
@@ -137,6 +143,14 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
 		return w.failPreparation(ctx, operation, fmt.Errorf("load prepared revision: %w", err))
+	}
+	binding := runtimeBinding(session, revision)
+	var transition *substrate.ActorTransition
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT {
+		if transition, err = w.prepareRevert(ctx, session, binding); err != nil {
+			return w.failPreparation(ctx, operation, err)
+		}
+		return w.issue(ctx, operation, binding, transition)
 	}
 	var snapshot *database.SessionTaskSnapshot
 	var tagName string
@@ -151,8 +165,6 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		tagName = "checkpoint-" + operation.SourceCheckpointID.String()
 	}
 
-	binding := substrate.ActorBinding{Revision: revision.Revision, Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(session.Id),
-		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
 	var creation *substrate.ActorCreation
 	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		creation = &substrate.ActorCreation{}
@@ -160,13 +172,9 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES}
 		}
 	}
-	var transition *substrate.ActorTransition
-	switch {
-	case database.CrashRecoveryAdmitted(operation.Instance):
-		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding)
-	case operation.ExecutorID != uuid.Nil:
+	if operation.ExecutorID != uuid.Nil {
 		transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
-	default:
+	} else {
 		transition, err = substrate.PrepareActorTransition(ctx, w.actors, binding, kind, creation)
 	}
 	if err != nil {
@@ -178,7 +186,12 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 			return w.failPreparation(ctx, operation, fmt.Errorf("verify runtime actor UID: %w", err))
 		}
 	}
+	return w.issue(ctx, operation, binding, transition)
+}
 
+// issue claims a prepared generation and applies its runtime work.
+func (w *ActorWorkflow) issue(ctx context.Context, operation *database.SessionOperation, binding substrate.ActorBinding, transition *substrate.ActorTransition) (_ *apiv1.Session, err error) {
+	sessionID, kind := operation.Instance.Id, operation.Instance.Operation
 	executorID := uuid.New()
 	claimed, err := w.store.ClaimSessionOperation(ctx, sessionID, operation.ID, executorID)
 	if err != nil {
@@ -211,6 +224,12 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	// A disconnected client must not discard an already known runtime outcome.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT {
+		restored := transition.RestoredSnapshot()
+		return w.store.FinishCrashedSessionRecovery(finishCtx, sessionID, operation.ID, executorID, transition.ActorUID(), database.SessionTaskSnapshot{
+			Atespace: binding.Atespace, URI: substrate.SnapshotURI(restored), Fidelity: restored.GetFidelity().String(),
+		})
+	}
 	return w.store.FinishSessionOperation(finishCtx, sessionID, operation.ID, executorID, authority, transition.ActorUID(), "")
 }
 
@@ -218,14 +237,25 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 // the same generation instead. Completion returns current state; supersession
 // returns a conflict. A local preparation error cannot clear a newer operation.
 func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.SessionOperation, cause error) (*apiv1.Session, error) {
+	if database.CrashRecoveryAdmitted(admitted.Instance) {
+		if errors.Is(cause, errRuntimeUnrecoverable) {
+			// No revert can be in progress against a missing or replaced Actor, even
+			// after an earlier claim, so close the recovery and let Delete proceed.
+			finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if _, err := w.store.AbandonCrashedSessionRecovery(finishCtx, admitted.Instance.Id, admitted.ID, cause.Error()); err != nil {
+				return nil, errors.Join(cause, err)
+			}
+			return nil, cause
+		}
+		// Admission already failed the interrupted turn, so clearing the operation
+		// would leave a FAILED Session with no way to continue. Keep the intent so a
+		// retried RevertSession can continue it. Without a claim, Delete can still
+		// supersede it.
+		return nil, cause
+	}
 	if admitted.ExecutorID != uuid.Nil {
 		return nil, cause // An earlier attempt may have issued work; retain its intent.
-	}
-	if database.CrashRecoveryAdmitted(admitted.Instance) {
-		// Admission already failed the interrupted turn, so clearing the operation
-		// would leave a FAILED Session that nothing retries. Keep the intent for the
-		// next scan. No claim was taken, so Delete can still supersede it.
-		return nil, cause
 	}
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -258,6 +288,20 @@ func (w *ActorWorkflow) verifyActor(ctx context.Context, session *apiv1.Session,
 		return fmt.Errorf("verify runtime actor UID: %w", err)
 	}
 	return nil
+}
+
+// actorBinding resolves the runtime a Session's prepared revision names.
+func (w *ActorWorkflow) actorBinding(ctx context.Context, session *apiv1.Session) (substrate.ActorBinding, error) {
+	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
+	if err != nil {
+		return substrate.ActorBinding{}, fmt.Errorf("load prepared revision: %w", err)
+	}
+	return runtimeBinding(session, revision), nil
+}
+
+func runtimeBinding(session *apiv1.Session, revision *database.RuntimeRevision) substrate.ActorBinding {
+	return substrate.ActorBinding{Revision: revision.Revision, Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(session.Id),
+		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
 }
 
 func validActorIdentity(actor *ateapipb.Actor, revision *database.RuntimeRevision, name string) bool {

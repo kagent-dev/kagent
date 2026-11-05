@@ -44,6 +44,7 @@ const ALL_OPERATIONS: AgentInstanceOperation[] = [
   "suspend",
   "resume",
   "delete",
+  "revert",
   "unknown",
 ];
 
