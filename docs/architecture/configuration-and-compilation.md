@@ -39,6 +39,21 @@ assume a fresh installation and use `kubectl get agent`. If both agent APIs are
 installed, use a qualified resource name such as
 `kubectl get agents.api.kagent.dev` to select this API.
 
+### MCP tool selection
+
+Bindings to one RemoteMCPServer can separate approved and unapproved tool groups.
+Mixed groups require explicit, disjoint selections and compile to distinct native
+server names. Native-name collisions fail compilation.
+
+Claude rejects selected names that cannot form literal permission rules. With
+current tool discovery, it also rejects unknown tools and hides the rest through
+Claude Code's native `--disallowedTools` flag. Servers without controller discovery,
+such as `actorJwt` servers, compile with a warning. The PreToolUse hook checks every
+MCP call against the compiled selection, including tools added after discovery.
+Selected unprotected tools execute directly; protected tools retain durable
+approval and resume behavior. Codex receives the corresponding `enabled_tools`
+selection for each native server.
+
 ### Model streaming
 
 For model endpoints that do not support streaming, set `spec.stream: false` on
