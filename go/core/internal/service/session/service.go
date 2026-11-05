@@ -46,7 +46,10 @@ type sessionWorkflow interface {
 type ListRequest struct {
 	AllCreators bool
 	// Agent narrows the page to one Agent's conversations.
-	Agent     *apiv1.ResourceReference
+	Agent *apiv1.ResourceReference
+	// Namespace narrows the page to the conversations of the Agents in one
+	// namespace, Agents that no longer exist included.
+	Namespace string
 	PageSize  int
 	PageToken string
 }
@@ -216,7 +219,8 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		}
 		result := ListResult{Sessions: []*apiv1.Session{}}
 		if session.Id > afterID && (request.Agent == nil ||
-			proto.Equal(session.GetAgent().GetRef(), request.Agent)) {
+			proto.Equal(session.GetAgent().GetRef(), request.Agent)) &&
+			(request.Namespace == "" || session.GetAgent().GetRef().GetNamespace() == request.Namespace) {
 			result.Sessions = append(result.Sessions, session)
 		}
 		return result, nil
@@ -231,7 +235,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		}
 	}
 	query := database.SessionQuery{
-		UserID: userID, AllUsers: request.AllCreators, Agent: request.Agent,
+		UserID: userID, AllUsers: request.AllCreators, Agent: request.Agent, Namespace: request.Namespace,
 		AfterID: afterID, Limit: pageSize + 1,
 	}
 	result := ListResult{Sessions: []*apiv1.Session{}}

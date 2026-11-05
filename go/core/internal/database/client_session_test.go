@@ -800,6 +800,37 @@ func TestListSessionsFiltersByAgent(t *testing.T) {
 	}
 }
 
+func TestListSessionsFiltersByNamespace(t *testing.T) {
+	c := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	ids := map[string]string{}
+	for _, namespace := range []string{"team-a", "team-b"} {
+		sessionFixture(t, c, ctx, namespace, namespace+"-revision", "reviewer", "")
+		request := newSessionRequest(uuid.NewString(), "reviewer", "", "")
+		request.Agent.Ref.Namespace = namespace
+		created, _, err := c.CreateSession(ctx, request, namespace)
+		require.NoError(t, err)
+		ids[namespace] = created.GetId()
+	}
+	// A deleted Agent's sessions keep their pinned revision, so the filter still finds them.
+	require.NoError(t, c.RetireAgentIdentities(ctx, "team-a", "reviewer"))
+
+	for namespace, want := range map[string][]string{"team-a": {ids["team-a"]}, "team-b": {ids["team-b"]}, "team-c": nil} {
+		got, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Namespace: namespace})
+		require.NoError(t, err)
+		var gotIDs []string
+		for _, session := range got {
+			gotIDs = append(gotIDs, session.GetId())
+		}
+		require.Equal(t, want, gotIDs, namespace)
+	}
+
+	got, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Namespace: "team-a",
+		Agent: &apiv1.ResourceReference{Namespace: "team-b", Name: "reviewer"}})
+	require.NoError(t, err)
+	require.Empty(t, got, "an Agent outside the namespace matches nothing")
+}
+
 func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()

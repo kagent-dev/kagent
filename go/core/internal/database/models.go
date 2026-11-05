@@ -81,8 +81,11 @@ type SessionQuery struct {
 	UserID   string
 	AllUsers bool
 	Agent    *apiv1.ResourceReference
-	AfterID  string
-	Limit    int
+	// Namespace is the namespace of the Agent of each session's pinned
+	// revision; empty matches every namespace.
+	Namespace string
+	AfterID   string
+	Limit     int
 }
 
 // SessionTaskSnapshot records the external snapshot at an A2A turn boundary.
