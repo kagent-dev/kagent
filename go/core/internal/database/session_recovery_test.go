@@ -56,7 +56,7 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, page)
 
-			operation, err := client.BeginCrashedSessionRecovery(t.Context(), session.Id, lifecycleGeneration(t, client, session.Id), "actor-"+session.Id, snapshot)
+			operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, "actor-"+session.Id), snapshot)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, operation.Instance.State)
 			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, operation.Instance.Operation)
@@ -71,7 +71,7 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			}
 			_, settledVersion, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
 			require.NoError(t, err)
-			replayed, err := client.BeginCrashedSessionRecovery(t.Context(), session.Id, lifecycleGeneration(t, client, session.Id), "actor-"+session.Id, snapshot)
+			replayed, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, "actor-"+session.Id), snapshot)
 			require.NoError(t, err)
 			require.Equal(t, operation.ID, replayed.ID)
 			_, replayedVersion, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
@@ -111,7 +111,7 @@ func TestCrashedRecoveryAdmissionRespectsFences(t *testing.T) {
 			session, task := waitingTaskFixture(t, client)
 			uid := "actor-" + session.Id
 			// Callers read the generation before they observe the crash.
-			generation := lifecycleGeneration(t, client, session.Id)
+			generation := sessionGeneration(t, client, session.Id)
 			switch {
 			case test.actorUID != "":
 				uid = test.actorUID
@@ -136,7 +136,8 @@ func TestCrashedRecoveryAdmissionRespectsFences(t *testing.T) {
 			}
 			before, err := client.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			_, err = client.BeginCrashedSessionRecovery(t.Context(), session.Id, generation, uid, SessionTaskSnapshot{})
+			generation.ActorUID = uid
+			_, err = client.BeginCrashedSessionRecovery(t.Context(), generation, SessionTaskSnapshot{})
 			require.ErrorIs(t, err, ErrConflict)
 			after, err := client.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
@@ -169,7 +170,7 @@ func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 	require.NoError(t, err)
 	uid := "actor-" + session.Id
 
-	operation, err := client.BeginCrashedSessionRecovery(t.Context(), session.Id, lifecycleGeneration(t, client, session.Id), uid, SessionTaskSnapshot{})
+	operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, uid), SessionTaskSnapshot{})
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, operation.Instance.Operation)
 	pending, err := queryOne(t.Context(), client.db, `SELECT quiescence_pending FROM session_task_event WHERE sequence = $1`, pgx.RowTo[bool], work.Version)
@@ -195,18 +196,27 @@ func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 	require.NoError(t, err, "the retired claim no longer blocks a new turn")
 }
 
-func lifecycleGeneration(t *testing.T, client *Client, sessionID string) uuid.UUID {
+// sessionGeneration reads what a caller reads before it observes a crash.
+func sessionGeneration(t *testing.T, client *Client, sessionID string) *SessionGeneration {
 	t.Helper()
-	fence, err := client.SessionRecoveryFence(t.Context(), sessionID)
+	generation, err := client.GetSessionGeneration(t.Context(), sessionID)
 	require.NoError(t, err)
-	return fence.Generation
+	return generation
+}
+
+// observedGeneration is a current generation from a caller that observed actorUID.
+func observedGeneration(t *testing.T, client *Client, sessionID, actorUID string) *SessionGeneration {
+	t.Helper()
+	generation := sessionGeneration(t, client, sessionID)
+	generation.ActorUID = actorUID
+	return generation
 }
 
 // completeCrashedRecovery admits and finishes a revert as a successful concurrent
 // caller would, leaving the Session READY on the same Actor UID.
 func completeCrashedRecovery(t *testing.T, client *Client, sessionID, actorUID string) {
 	t.Helper()
-	operation, err := client.BeginCrashedSessionRecovery(t.Context(), sessionID, lifecycleGeneration(t, client, sessionID), actorUID, SessionTaskSnapshot{})
+	operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, sessionID, actorUID), SessionTaskSnapshot{})
 	require.NoError(t, err)
 	finishCrashedRecovery(t, client, sessionID, operation, actorUID)
 }
@@ -241,7 +251,7 @@ func TestCrashedRecoveryAdmissionRollsBackOnMalformedTask(t *testing.T) {
 	// A corrupt projection makes settlement fail after the lifecycle write.
 	_, err = client.db.Exec(t.Context(), `UPDATE session_task SET data = $2 WHERE history_id = $1 AND id = $3`, row.HistoryID, []byte{0xff}, string(task.ID))
 	require.NoError(t, err)
-	_, err = client.BeginCrashedSessionRecovery(t.Context(), session.Id, lifecycleGeneration(t, client, session.Id), "actor-"+session.Id, SessionTaskSnapshot{})
+	_, err = client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, "actor-"+session.Id), SessionTaskSnapshot{})
 	require.Error(t, err)
 	current, err := client.GetSessionByID(t.Context(), session.Id)
 	require.NoError(t, err)
@@ -277,27 +287,29 @@ func TestCrashedRecoveryNotePinsItsTimelinePosition(t *testing.T) {
 	require.True(t, position.Equal(*failed.Status.Timestamp), "position %s, status timestamp %s", position, failed.Status.Timestamp)
 }
 
-// The fence reports the recorded Actor and the generation a crash observation
-// is valid for. Admitting a recovery replaces the generation and keeps the UID.
-func TestSessionRecoveryFenceReadsRecordedActor(t *testing.T) {
+// The generation reports the recorded Actor and the operation a crash
+// observation is valid for. Admitting a recovery replaces the operation and keeps
+// the UID.
+func TestSessionGenerationReadsRecordedActor(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _ := waitingTaskFixture(t, client)
 
-	fence, err := client.SessionRecoveryFence(t.Context(), session.Id)
+	generation, err := client.GetSessionGeneration(t.Context(), session.Id)
 	require.NoError(t, err)
-	require.Equal(t, "actor-"+session.Id, fence.ActorUID)
-	require.Equal(t, "team-a", fence.TemplateAtespace)
-	require.Equal(t, "revision-actor-template", fence.TemplateName)
-	require.NotEqual(t, uuid.Nil, fence.Generation, "creation recorded a lifecycle operation")
+	require.Equal(t, session.Id, generation.SessionID)
+	require.Equal(t, "actor-"+session.Id, generation.ActorUID)
+	require.Equal(t, "team-a", generation.TemplateAtespace)
+	require.Equal(t, "revision-actor-template", generation.TemplateName)
+	require.NotEqual(t, uuid.Nil, generation.OperationID, "creation recorded a lifecycle operation")
 
-	operation, err := client.BeginCrashedSessionRecovery(t.Context(), session.Id, fence.Generation, fence.ActorUID, SessionTaskSnapshot{})
+	operation, err := client.BeginCrashedSessionRecovery(t.Context(), generation, SessionTaskSnapshot{})
 	require.NoError(t, err)
-	admitted, err := client.SessionRecoveryFence(t.Context(), session.Id)
+	admitted, err := client.GetSessionGeneration(t.Context(), session.Id)
 	require.NoError(t, err)
-	require.Equal(t, operation.ID, admitted.Generation)
-	require.Equal(t, fence.ActorUID, admitted.ActorUID)
+	require.Equal(t, operation.ID, admitted.OperationID)
+	require.Equal(t, generation.ActorUID, admitted.ActorUID)
 
-	_, err = client.SessionRecoveryFence(t.Context(), uuid.NewString())
+	_, err = client.GetSessionGeneration(t.Context(), uuid.NewString())
 	require.ErrorIs(t, err, ErrNotFound)
 }
