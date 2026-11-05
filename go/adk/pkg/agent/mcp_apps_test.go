@@ -110,6 +110,130 @@ func TestMakeMCPAppModelResultCallbackPreservesIsError(t *testing.T) {
 	}
 }
 
+func TestMakeMCPAppModelResultCallbackPassesThroughPlainResultFromAppTool(t *testing.T) {
+	t.Parallel()
+
+	// An App-capable tool ("jenkins_monitor_build" is in appToolNames) can still
+	// return an ordinary text-only result: no structuredContent and no _meta.
+	// There is nothing to compact, so the text must reach the model unchanged.
+	const text = "No build found for job demo/1: it was deleted."
+	req := &adkmodel.LLMRequest{
+		Contents: []*genai.Content{{
+			Parts: []*genai.Part{{
+				FunctionResponse: &genai.FunctionResponse{
+					Name: "jenkins_monitor_build",
+					Response: map[string]any{
+						"content": []map[string]any{{
+							"type": "text",
+							"text": text,
+						}},
+					},
+				},
+			}},
+		}},
+	}
+
+	callback := MakeMCPAppModelResultCallback(map[string]bool{"jenkins_monitor_build": true})
+	if _, err := callback(nil, req); err != nil {
+		t.Fatalf("callback returned error: %v", err)
+	}
+
+	got := req.Contents[0].Parts[0].FunctionResponse.Response
+	content, ok := got["content"].([]map[string]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("content unexpectedly rewritten: %#v", got["content"])
+	}
+	if content[0]["text"] != text {
+		t.Fatalf("plain result text not preserved: %#v", content[0])
+	}
+}
+
+func TestMakeMCPAppModelResultCallbackPassesThroughDataOnlyResultFromAppTool(t *testing.T) {
+	t.Parallel()
+
+	// A UI-capable tool's result carrying data (structuredContent) but no UI
+	// resource of its own must pass through untouched, matching the Python fix
+	// in kagent-adk (#2579): the gate is the result's UI resource, not the
+	// presence of a payload.
+	req := &adkmodel.LLMRequest{
+		Contents: []*genai.Content{{
+			Parts: []*genai.Part{{
+				FunctionResponse: &genai.FunctionResponse{
+					Name: "jira_search",
+					Response: map[string]any{
+						"content": []map[string]any{{
+							"type": "text",
+							"text": `{"issues": [{"key": "GF-3687"}]}`,
+						}},
+						"structuredContent": map[string]any{
+							"issues": []any{map[string]any{"key": "GF-3687"}},
+						},
+						"_meta": map[string]any{},
+					},
+				},
+			}},
+		}},
+	}
+
+	callback := MakeMCPAppModelResultCallback(map[string]bool{"jira_search": true})
+	if _, err := callback(nil, req); err != nil {
+		t.Fatalf("callback returned error: %v", err)
+	}
+
+	got := req.Contents[0].Parts[0].FunctionResponse.Response
+	if _, ok := got["structuredContent"]; !ok {
+		t.Fatalf("structuredContent should be preserved on a non-UI result: %#v", got)
+	}
+	content, ok := got["content"].([]map[string]any)
+	if !ok || len(content) != 1 || content[0]["text"] == mcpAppRenderedNotice {
+		t.Fatalf("data-only result was collapsed into the render notice: %#v", got["content"])
+	}
+}
+
+func TestMakeMCPAppModelResultCallbackCompactsFlatUIResourceMetaShape(t *testing.T) {
+	t.Parallel()
+
+	// The flat `_meta["ui/resourceUri"]` shape parseMCPUIMetadata also accepts
+	// must trigger compaction, same as the nested `_meta.ui.resourceUri` form.
+	req := &adkmodel.LLMRequest{
+		Contents: []*genai.Content{{
+			Parts: []*genai.Part{{
+				FunctionResponse: &genai.FunctionResponse{
+					Name: "show_dashboard",
+					Response: map[string]any{
+						"content": []map[string]any{{
+							"type": "text",
+							"text": "rendered",
+						}},
+						"structuredContent": map[string]any{"x": 1},
+						"_meta": map[string]any{
+							"ui/resourceUri": "ui://server/dashboard",
+						},
+					},
+				},
+			}},
+		}},
+	}
+
+	callback := MakeMCPAppModelResultCallback(map[string]bool{"show_dashboard": true})
+	if _, err := callback(nil, req); err != nil {
+		t.Fatalf("callback returned error: %v", err)
+	}
+
+	got := req.Contents[0].Parts[0].FunctionResponse.Response
+	content, ok := got["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("content not replaced with notice: %#v", got["content"])
+	}
+	part, ok := content[0].(map[string]any)
+	if !ok || part["text"] != mcpAppRenderedNotice {
+		t.Fatalf("notice text missing: %#v", content[0])
+	}
+	if _, ok := got["structuredContent"]; ok {
+		t.Fatalf("structuredContent should be stripped, got: %#v", got)
+	}
+}
+
 func TestMakeMCPAppModelResultCallbackLeavesNonAppToolsAlone(t *testing.T) {
 	t.Parallel()
 
