@@ -74,25 +74,7 @@ func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateap
 
 // RevertActor restores the latest durable snapshot unless the test overrides
 // the identity or snapshot it returns.
-func (a *transitionActors) RevertActor(context.Context, string, string) (*ateapipb.Actor, error) {
-	a.calls = append(a.calls, "revert")
-	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	snapshot := proto.CloneOf(LatestDurableActorSnapshot(a.actor))
-	if a.revertSnapshot != nil {
-		snapshot = proto.CloneOf(a.revertSnapshot)
-	}
-	a.actor.Status.Snapshots = nil
-	if snapshot != nil {
-		snapshot.Locality = ""
-		a.actor.Status.Snapshots = []*ateapipb.Snapshot{snapshot}
-	}
-	if a.revertUID != "" {
-		a.actor.Metadata.Uid = a.revertUID
-	}
-	return proto.CloneOf(a.actor), nil
-}
-
-func (a *transitionActors) DeleteActor(context.Context, string, string) error {
+func (a *transitionActors) DeleteActor(context.Context, string, string, string) error {
 	a.calls = append(a.calls, "delete")
 	a.actor = nil
 	return nil
@@ -210,23 +192,35 @@ func TestActorTransitionChecksEgressPolicyBeforeStartup(t *testing.T) {
 	require.Equal(t, []string{"policy"}, actors.calls)
 }
 
-func TestActorDeleteStopsRunningCompute(t *testing.T) {
-	actors := &transitionActors{}
-	_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
-	require.NoError(t, err)
-	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
-	actors.calls = nil
-	binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
-	transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
-	require.NoError(t, err)
-	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
-	require.Equal(t, []string{"suspend", "delete"}, actors.calls)
+func TestActorDeletionDoesNotSuspend(t *testing.T) {
+	for _, state := range []ateapipb.ActorState{
+		ateapipb.ActorState_ACTOR_STATE_RESUMING,
+		ateapipb.ActorState_ACTOR_STATE_RUNNING,
+		ateapipb.ActorState_ACTOR_STATE_SUSPENDING,
+		ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+		ateapipb.ActorState_ACTOR_STATE_CRASHED,
+		ateapipb.ActorState_ACTOR_STATE_DELETING,
+	} {
+		t.Run("Given an actor in "+state.String()+", when deletion runs, assert that it deletes without suspension", func(t *testing.T) {
+			actors := &transitionActors{}
+			_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+			require.NoError(t, err)
+			actors.actor.Status.State = state
+			actors.calls = nil
+			binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+			transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
+			require.NoError(t, err)
+			require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
+			require.Equal(t, []string{"delete"}, actors.calls)
+			require.Nil(t, actors.actor)
 
-	actors.calls = nil
-	transition, err = PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
-	require.NoError(t, err)
-	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
-	require.Empty(t, actors.calls, "a missing Actor already satisfies deletion")
+			actors.calls = nil
+			transition, err = PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
+			require.NoError(t, err)
+			require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
+			require.Empty(t, actors.calls, "a missing Actor already satisfies deletion")
+		})
+	}
 }
 
 func TestActorSuspendRequiresDurableVolumesSnapshot(t *testing.T) {

@@ -664,7 +664,7 @@ func TestDeleteSupersedesUnissuedCrashRecovery(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, pending.State)
 			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, pending.Operation, "a failed read keeps the recovery for the next scan")
-			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending)
+			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending, false)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 			_, err = base.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))

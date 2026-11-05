@@ -387,6 +387,72 @@ func TestTaskStoreRetryReturnsTheCallersEnd(t *testing.T) {
 	}
 }
 
+func TestExecutionSavesSurviveCancellation(t *testing.T) {
+	for name, expired := range map[string]bool{"canceled": false, "deadline": true} {
+		t.Run(name, func(t *testing.T) {
+			for _, taskState := range []a2a.TaskState{a2a.TaskStateSubmitted, a2a.TaskStateWorking, a2a.TaskStateFailed} {
+				t.Run(string(taskState), func(t *testing.T) {
+					state := &execution{ready: make(chan struct{})}
+					ctx := context.WithValue(t.Context(), executionKey{}, state)
+					var cancel context.CancelFunc
+					if expired {
+						ctx, cancel = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+					} else {
+						ctx, cancel = context.WithCancel(ctx)
+					}
+					cancel()
+					api := &readinessServer{}
+					store := newReadinessStore(t, api, nil,
+						func(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
+							require.NoError(t, ctx.Err())
+							_, bounded := ctx.Deadline()
+							require.True(t, bounded, "persistence retains the retry deadline")
+							require.Same(t, state, ctx.Value(executionKey{}), "cleanup must see the saved version")
+							return invoke(ctx, method, req, reply, conn, options...)
+						})
+					api.rejectCalls(2)
+					update := completedUpdate()
+					update.Task.Status.State = taskState
+					update.Event = a2a.NewStatusUpdateEvent(update.Task, taskState, nil)
+					if taskState == a2a.TaskStateSubmitted {
+						version, err := store.Create(ctx, update.Task)
+						require.NoError(t, err)
+						require.EqualValues(t, 1, version)
+						require.Zero(t, state.boundary.Load())
+						return
+					}
+					version, err := store.Update(ctx, update)
+					require.NoError(t, err)
+					require.EqualValues(t, 2, version)
+					if taskState == a2a.TaskStateFailed {
+						require.EqualValues(t, version, state.boundary.Load())
+					} else {
+						require.Zero(t, state.boundary.Load())
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestFailedTaskSaveKeepsItsRetryBudget(t *testing.T) {
+	store := newReadinessStore(t, &readinessServer{}, nil,
+		func(ctx context.Context, _ string, _, _ any, _ *grpc.ClientConn, _ grpc.UnaryInvoker, _ ...grpc.CallOption) error {
+			<-ctx.Done()
+			return status.FromContextError(ctx.Err()).Err()
+		})
+	store.budget = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), executionKey{}, &execution{ready: make(chan struct{})}))
+	cancel()
+	update := completedUpdate()
+	update.Task.Status.State = a2a.TaskStateFailed
+	update.Event = a2a.NewStatusUpdateEvent(update.Task, a2a.TaskStateFailed, nil)
+	started := time.Now()
+	_, err := store.Update(ctx, update)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	require.Less(t, time.Since(started), time.Second)
+}
+
 func TestRetryJitterWaitsBetweenHalfAndAllOfTheDelay(t *testing.T) {
 	for range 1000 {
 		wait := jitter(time.Second)

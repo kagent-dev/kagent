@@ -21,7 +21,7 @@ type LifecycleClient interface {
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
 	RevertActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
-	DeleteActor(context.Context, string, string) error
+	DeleteActor(context.Context, string, string, string) error
 }
 
 var _ LifecycleClient = (*Client)(nil)
@@ -207,19 +207,11 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 		}
 	case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 		if actor != nil {
-			switch actor.GetStatus().GetState() {
-			case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_DELETING:
-			default:
-				actor, err = actors.SuspendActor(ctx, binding.Atespace, binding.Name)
-				if err == nil {
-					err = transition.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
-				}
-			}
-			if err == nil {
-				err = actors.DeleteActor(ctx, binding.Atespace, binding.Name)
-				if status.Code(err) == codes.NotFound {
-					err = nil
-				}
+			// An interrupted resume must not make deletion depend on a successful
+			// suspension or final snapshot.
+			err = actors.DeleteActor(ctx, binding.Atespace, binding.Name, actor.GetMetadata().GetUid())
+			if status.Code(err) == codes.NotFound {
+				err = nil
 			}
 		}
 	}

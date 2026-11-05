@@ -27,8 +27,9 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 	})
 }
 
-// settleSessionTask publishes an already saved boundary under the Session row lock.
-// Recovery uses the same publication after confirming the runtime crashed.
+// settleSessionTask publishes one saved boundary under the session lock. Runtime
+// acknowledgement, confirmed actor deletion, or confirmed crash recovery must
+// establish cleanup first.
 func settleSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, taskID string, version int64) error {
 	type boundary struct {
 		Data            []byte

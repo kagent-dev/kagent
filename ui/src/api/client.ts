@@ -251,7 +251,7 @@ export interface AgentInstancesApi {
    * The instance *is* the conversation, so this is not a tidy-up — it removes what
    * was said. Every caller confirms first.
    */
-  remove(id: string): Promise<void>;
+  remove(id: string, options?: { force?: boolean }): Promise<void>;
 
   shares: {
     list(id: string, options?: ReadOptions): Promise<AgentInstanceShare[]>;
@@ -356,7 +356,7 @@ export function createApiClient(): KagentApiClient {
       get: (id, options) =>
         invoke("agentInstances.get", { id }, options),
       create: (input) => invoke("agentInstances.create", input),
-      remove: (id) => invoke("agentInstances.delete", { id }),
+      remove: (id, options) => invoke("agentInstances.delete", { id, ...options }),
       fork: (id, name) =>
         invoke("agentInstances.fork", { id, requestId: randomId(), name }),
       checkpoints: {

@@ -100,6 +100,21 @@ TaskStore writes and automatic idle lifecycle work use durable task boundaries
 alongside these explicit lifecycle claims. Checkpoint reservations also block
 conflicting task writes and idle lifecycle work.
 
+`DeleteSession` without `force` returns an error if the session has active turns,
+outstanding dispatch, or unfinished native cleanup, without entering `DELETING`.
+`INPUT_REQUIRED` and `AUTH_REQUIRED` tasks are waiting; their state alone does not
+block deletion. Set `force: true` (CLI: `kagent session delete ID --force`) to
+bypass these activity checks. Authorization and checks for conflicting checkpoint
+or lifecycle work still apply.
+
+Both modes call Substrate `DeleteActor` directly with a UID precondition, without
+suspension or a final snapshot. An Actor in `RESUMING` does not need to resume first.
+
+When Substrate reports deletion or actor absence, kagent publishes saved task
+outcomes and marks remaining active tasks canceled. These changes and the Session
+tombstone commit atomically. Once deletion is admitted, client retries continue
+without repeating `force`; new turns remain blocked.
+
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without session-local execution claims. PostgreSQL tests with controlled
 Actor responses verify claim ordering, delayed callers, and lost responses; live

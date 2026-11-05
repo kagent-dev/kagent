@@ -82,6 +82,14 @@ before a conflicting operation can proceed. Sandboxes allow a new lifecycle
 intent to supersede a pending one after its active attempt ends; commands and
 file transfers can be interrupted.
 
+`DeleteSession` without `force` returns an error while the session has active
+turns, without entering `DELETING`. Use `force: true` (CLI:
+`kagent session delete ID --force`) to delete despite active turns. Authorization
+and checks for conflicting checkpoint or lifecycle work still apply. Once deletion
+is admitted, client retries do not require `force` again, including after a
+preparation failure or controller restart. Both modes call `DeleteActor` directly;
+suspension is not required.
+
 For example, a client creating a sandbox should follow this sequence:
 
 ```text

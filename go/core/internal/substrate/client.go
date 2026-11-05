@@ -283,10 +283,12 @@ func (c *Client) DeleteTag(ctx context.Context, atespace, name, uid string) erro
 // ActorName is the stable private Actor identity for a Session.
 func ActorName(sessionID string) string { return "session-" + strings.ToLower(sessionID) }
 
-func (c *Client) DeleteActor(ctx context.Context, atespace, actorID string) error {
+func (c *Client) DeleteActor(ctx context.Context, atespace, actorID, uid string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: actorRef(atespace, actorID)})
+	_, err := c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{
+		Actor: actorRef(atespace, actorID), Options: &ateapipb.DeleteOptions{Uid: uid},
+	})
 	return err
 }
 

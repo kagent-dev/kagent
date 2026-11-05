@@ -758,8 +758,11 @@ func (x *RevertSessionResponse) GetSession() *Session {
 }
 
 type DeleteSessionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Terminate ongoing turns instead of rejecting deletion while they are active.
+	// Authorization and conflicting lifecycle operations are still checked.
+	Force         bool `protobuf:"varint,2,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -799,6 +802,13 @@ func (x *DeleteSessionRequest) GetSessionId() string {
 		return x.SessionId
 	}
 	return ""
+}
+
+func (x *DeleteSessionRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
 }
 
 type DeleteSessionResponse struct {
@@ -1265,10 +1275,11 @@ const file_kagent_api_v1_sessions_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\"I\n" +
 	"\x15RevertSessionResponse\x120\n" +
-	"\asession\x18\x01 \x01(\v2\x16.kagent.api.v1.SessionR\asession\"?\n" +
+	"\asession\x18\x01 \x01(\v2\x16.kagent.api.v1.SessionR\asession\"U\n" +
 	"\x14DeleteSessionRequest\x12'\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\"I\n" +
+	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\x12\x14\n" +
+	"\x05force\x18\x02 \x01(\bR\x05force\"I\n" +
 	"\x15DeleteSessionResponse\x120\n" +
 	"\asession\x18\x01 \x01(\v2\x16.kagent.api.v1.SessionR\asession\"\xb3\x01\n" +
 	"\fSessionShare\x12\x0e\n" +

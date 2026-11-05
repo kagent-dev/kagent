@@ -60,7 +60,7 @@ func (s *sessionServer) RevertSession(ctx context.Context, request *apiv1.Revert
 }
 
 func (s *sessionServer) DeleteSession(ctx context.Context, request *apiv1.DeleteSessionRequest) (*apiv1.DeleteSessionResponse, error) {
-	session, err := s.service.Delete(ctx, request.GetSessionId())
+	session, err := s.service.Delete(ctx, request.GetSessionId(), request.GetForce())
 	if err != nil {
 		return nil, err
 	}

@@ -136,7 +136,7 @@ func (w *ActorWorkflow) recoverSessionCandidate(ctx context.Context, session *ap
 // Retries join the same durable operation and preserve the Actor identity.
 func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	if database.CrashRecoveryAdmitted(session) {
-		return w.run(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+		return w.run(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, false)
 	}
 	// run bounds a joined attempt. Admission bounds its own reads and execution.
 	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)

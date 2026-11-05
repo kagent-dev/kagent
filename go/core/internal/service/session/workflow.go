@@ -24,7 +24,7 @@ type workflowStore interface {
 	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
-	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation) (*database.SessionOperation, error)
+	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation, bool) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
 	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1.Session, error)
@@ -95,7 +95,7 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*d
 // Create provisions the persisted session once, using its pinned checkpoint for
 // forks. Retries return current state; an uncertain prior creation blocks execution.
 func (w *ActorWorkflow) Create(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 }
 
 // Suspend is used by controller-owned deadline cleanup when no scheduled task
@@ -103,19 +103,19 @@ func (w *ActorWorkflow) Create(ctx context.Context, session *apiv1.Session) (*ap
 // It returns after the Actor and Session are suspended; retries observe the same
 // operation rather than issuing a second mutation. It has no public Session RPC.
 func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 }
 
 // Delete closes admission before stopping and deleting compute. It can supersede
 // unissued creation, but never deletes a session while a prior call is uncertain.
-func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session, force bool) (*apiv1.Session, error) {
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, force)
 }
 
-func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1.RuntimeOperation) (*apiv1.Session, error) {
+func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1.RuntimeOperation, force bool) (*apiv1.Session, error) {
 	ctx, cancelAttempt := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancelAttempt()
-	operation, err := w.store.BeginSessionOperation(ctx, sessionID, requestedKind)
+	operation, err := w.store.BeginSessionOperation(ctx, sessionID, requestedKind, force)
 	if err != nil {
 		return nil, err
 	}

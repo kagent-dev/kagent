@@ -131,7 +131,7 @@ func TestCrashedRecoveryAdmissionRespectsFences(t *testing.T) {
 				_, err := client.CreateRuntimeTask(t.Context(), session.Id, taskMutationHash("next"), task, "")
 				require.NoError(t, err)
 			case test.lifecycle:
-				_, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+				_, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 				require.NoError(t, err)
 			}
 			before, err := client.GetSessionByID(t.Context(), session.Id)

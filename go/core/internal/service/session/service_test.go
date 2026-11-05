@@ -136,7 +136,7 @@ func (w serviceTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (
 	return session, w.err
 }
 
-func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return session, w.err
 }
 
@@ -236,7 +236,9 @@ func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
 		call func(*Service, context.Context, string) (*apiv1.Session, error)
 	}{
 		{name: "revert", call: (*Service).Revert},
-		{name: "delete", call: (*Service).Delete},
+		{name: "delete", call: func(s *Service, ctx context.Context, id string) (*apiv1.Session, error) {
+			return s.Delete(ctx, id, false)
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			for _, failure := range []struct {
@@ -593,7 +595,7 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		call func() error
 	}{
 		{name: "revert", call: func() error { _, err := service.Revert(ctx, id); return err }},
-		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},
+		{name: "delete", call: func() error { _, err := service.Delete(ctx, id, false); return err }},
 		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
 		{name: "share listing", call: func() error { _, err := service.ListShares(ctx, id, 0, ""); return err }},
 		{name: "share revocation", call: func() error { return service.RevokeShare(ctx, id) }},

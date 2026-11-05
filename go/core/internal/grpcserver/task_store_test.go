@@ -686,6 +686,9 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		})
 		require.NoError(t, err)
 	})
+	t.Run("runtime failures settle after cleanup", func(t *testing.T) {
+		testRuntimeFailuresSettle(t, store.Client, runtimeStore, id)
+	})
 }
 
 // Create through the lifecycle store so the fixture exercises the same resource
@@ -705,7 +708,7 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}, uuid.NewString())
 	require.NoError(t, err)
-	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 	require.NoError(t, err)
 	executor := uuid.New()
 	claimed, err := store.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)
