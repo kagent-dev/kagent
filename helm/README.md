@@ -285,6 +285,12 @@ Kagent reads the connection strings from their Secrets once, at startup. After a
 
 When the connection string names TLS certificate files, Kagent rereads them before each new physical connection. Rotated client certificates, such as Pod Certificates, take effect without a restart. `config.database.pool.maxConnLifetime` limits how long a connection opened with an older certificate stays in use.
 
+#### A database that pauses or restarts
+
+When the controller can't log in to PostgreSQL, for example while a serverless database resumes from a pause, a database call retries the login with backoff for `config.database.pool.connectRetryTimeout` (default `90s`, `0s` turns it off). No SQL has run before a login, so a retry repeats no work. The call returns `Unavailable` once the retry window ends.
+
+The retry also stops when the client stops waiting. The web UI waits 30 seconds for a request, so a resume longer than that fails the first request in the UI even though the controller would have waited longer. Set the retry window above your database's longest resume, and expect clients with shorter timeouts to retry.
+
 #### OIDC authentication
 
 Set `config.server.auth.mode: trusted-proxy` together with
