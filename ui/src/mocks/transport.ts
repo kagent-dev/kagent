@@ -87,6 +87,14 @@ import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_
 import { ModelService } from "@/generated/kagent/api/v1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
+import { EgressPolicyService } from "@/generated/kagent/api/v1/egress_policies_pb";
+import { SandboxTemplateService } from "@/generated/kagent/api/v1/sandbox_templates_pb";
+import {
+  destinationProblems,
+  specProblems,
+  type EgressPolicy,
+  type EgressPolicyResource,
+} from "@/api/domain/egressPolicies";
 import {
   SystemService,
 } from "@/generated/kagent/api/v1/system_pb";
@@ -124,6 +132,7 @@ import {
 import {
   MOCK_INSTANCE_CREATOR,
   mockNamespaces,
+  mockSandboxTemplates,
   mockProviderModels,
   mockProviders,
   mockSubstrateInventory,
@@ -135,6 +144,9 @@ import {
   allAgentTemplates,
   allAgents,
   saveAgent,
+  allEgressPolicies,
+  saveEgressPolicy,
+  deleteEgressPolicy,
   allModels,
   allPromptDetails,
   allPromptSummaries,
@@ -1641,6 +1653,7 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
       condition("ResolvedRefs", false, "ReferenceResolutionFailed", missing),
       condition("Compatible", false, "Blocked", "blocked by ResolvedRefs"),
       condition("Ready", false, "Blocked", "blocked by ResolvedRefs"),
+      ...egressCondition(namespace, spec),
     ]};
   }
   return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: desiredRevision, conditions: [
@@ -1648,7 +1661,17 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
     condition("ResolvedRefs", true, "Resolved", "All runtime references resolved"),
     condition("Compatible", true, "Compatible", "Resolved configuration is compatible with the Harness"),
     condition("Ready", true, "Ready", "ActorTemplate golden snapshot is ready"),
+    ...egressCondition(namespace, spec),
   ]};
+}
+/** `EgressPoliciesApplied`, set only when the Agent references policies. Never affects Ready. */
+function egressCondition(namespace: string, spec: Agent["resource"]["spec"]) {
+  const refs = spec.egressPolicyRefs ?? [];
+  if (refs.length === 0) return [];
+  const missing = refs.find((ref) => !allEgressPolicies().some((row) => row.namespace === namespace && row.name === ref.name));
+  return [missing
+    ? { type: "EgressPoliciesApplied", status: "False", reason: "EgressPolicyNotFound", message: `EgressPolicy ${missing.name} not found` }
+    : { type: "EgressPoliciesApplied", status: "True", reason: "Applied", message: "All egress grants are admitted" }];
 }
 function stableHash(text: string): string {
   let hash = 0;
@@ -1669,4 +1692,114 @@ on(AgentService.method.deleteAgent, input => {
   const agent = agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "");
   markDeleted(`Agent:${agent.ref}`);
   return {};
+});
+
+// ---------------------------------------------------------------------------
+// Egress policies and sandbox templates
+// ---------------------------------------------------------------------------
+
+const egressPolicyMessage = (policy: EgressPolicy) => ({
+  ref: { namespace: policy.namespace, name: policy.name },
+  resource: structured("EgressPolicy", policy.resource),
+});
+
+function egressPolicyFor(namespace: string, name: string): EgressPolicy {
+  const found = allEgressPolicies().find((row) => row.namespace === namespace && row.name === name);
+  if (!found) throw new ConnectError(`EgressPolicy ${namespace}/${name} not found`, Code.NotFound);
+  return found;
+}
+
+/** The CRD's schema and CEL rules, refused the way the API server refuses them. */
+function admittedEgressPolicy(
+  ref: { namespace?: string; name?: string } | undefined,
+  value: JsonObject | undefined,
+): EgressPolicy {
+  const namespace = requireNamespace(ref?.namespace ?? "");
+  const name = requireOptionalName("egress policy", ref?.name);
+  if (!name) throw new ConnectError("EgressPolicy name is required", Code.InvalidArgument);
+  const resource = value as unknown as EgressPolicyResource | undefined;
+  const spec = { destinations: resource?.spec?.destinations ?? [] };
+  const problems = [...specProblems(spec), ...spec.destinations.flatMap(destinationProblems)];
+  if (problems.length > 0) {
+    throw new ConnectError(`EgressPolicy.api.kagent.dev "${name}" is invalid: ${problems.join(" ")}`, Code.InvalidArgument);
+  }
+  return {
+    ref: `${namespace}/${name}`,
+    namespace,
+    name,
+    resource: {
+      apiVersion: "api.kagent.dev/v1alpha3",
+      kind: "EgressPolicy",
+      metadata: { ...resource?.metadata, name, namespace },
+      spec,
+    },
+  };
+}
+
+on(EgressPolicyService.method.listEgressPolicies, (input, call) => {
+  if (call.scenario === "empty") return { egressPolicies: [] };
+  const scope = input.namespace.trim();
+  return {
+    egressPolicies: allEgressPolicies()
+      .filter((row) => scope === "" || row.namespace === scope)
+      .map(egressPolicyMessage),
+  };
+});
+
+on(EgressPolicyService.method.getEgressPolicy, (input) => ({
+  egressPolicy: egressPolicyMessage(egressPolicyFor(input.ref?.namespace ?? "", input.ref?.name ?? "")),
+}));
+
+on(EgressPolicyService.method.createEgressPolicy, (input) => {
+  const policy = admittedEgressPolicy(input.ref, input.resource?.value);
+  if (allEgressPolicies().some((row) => row.ref === policy.ref)) {
+    throw new ConnectError(`EgressPolicy ${policy.ref} already exists`, Code.AlreadyExists);
+  }
+  const metadata = { ...policy.resource.metadata, resourceVersion: undefined, generation: 1 };
+  return { egressPolicy: egressPolicyMessage(saveEgressPolicy({ ...policy, resource: { ...policy.resource, metadata } })) };
+});
+
+// Replaces spec and labels only, and refuses a stale resourceVersion as the controller does.
+on(EgressPolicyService.method.updateEgressPolicy, (input) => {
+  const previous = egressPolicyFor(input.ref?.namespace ?? "", input.ref?.name ?? "");
+  const next = admittedEgressPolicy(input.ref, input.resource?.value);
+  const sent = next.resource.metadata.resourceVersion;
+  if (sent && sent !== previous.resource.metadata.resourceVersion) {
+    throw new ConnectError("EgressPolicy was modified; reload and retry", Code.Aborted);
+  }
+  return {
+    egressPolicy: egressPolicyMessage(
+      saveEgressPolicy({
+        ...previous,
+        resource: {
+          ...previous.resource,
+          metadata: {
+            ...previous.resource.metadata,
+            labels: next.resource.metadata.labels,
+            generation: (previous.resource.metadata.generation ?? 1) + 1,
+          },
+          spec: next.resource.spec,
+        },
+      }),
+    ),
+  };
+});
+
+on(EgressPolicyService.method.deleteEgressPolicy, (input) => {
+  deleteEgressPolicy(egressPolicyFor(input.ref?.namespace ?? "", input.ref?.name ?? ""));
+  return {};
+});
+
+on(SandboxTemplateService.method.listSandboxTemplates, (input, call) => {
+  if (call.scenario === "empty") return { sandboxTemplates: [] };
+  const scope = input.namespace.trim();
+  return {
+    sandboxTemplates: mockSandboxTemplates
+      .filter((row) => scope === "" || row.namespace === scope)
+      .map((row) => ({
+        ref: { namespace: row.namespace, name: row.name },
+        resource: structured("SandboxTemplate", row.resource),
+        workloadImage: "",
+      })),
+  };
 });

@@ -35,6 +35,9 @@ import { ModelEditPage } from "@/pages/ModelEditPage";
 import { McpServersPage } from "@/pages/McpServersPage";
 import { McpServerNewPage } from "@/pages/McpServerNewPage";
 import { PromptsPage } from "@/pages/PromptsPage";
+import { EgressPoliciesPage } from "@/pages/EgressPoliciesPage";
+import { EgressPolicyDetailsPage } from "@/pages/EgressPolicyDetailsPage";
+import { EgressPolicyNewPage, EgressPolicyEditPage } from "@/pages/EgressPolicyFormPages";
 import { PromptNewPage } from "@/pages/PromptNewPage";
 import { PromptDetailPage } from "@/pages/PromptDetailPage";
 import { PromptEditPage } from "@/pages/PromptEditPage";
@@ -86,6 +89,10 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "modelEdit", path: paths.modelEdit, element: <ModelEditPage /> },
   { key: "mcpServers", path: paths.mcpServers, element: <McpServersPage /> },
   { key: "mcpServerNew", path: paths.mcpServerNew, element: <McpServerNewPage /> },
+  { key: "egressPolicies", path: paths.egressPolicies, element: <EgressPoliciesPage /> },
+  { key: "egressPolicyNew", path: paths.egressPolicyNew, element: <EgressPolicyNewPage /> },
+  { key: "egressPolicyDetail", path: paths.egressPolicyDetail, element: <EgressPolicyDetailsPage /> },
+  { key: "egressPolicyEdit", path: paths.egressPolicyEdit, element: <EgressPolicyEditPage /> },
   { key: "prompts", path: paths.prompts, element: <PromptsPage /> },
   { key: "promptNew", path: paths.promptNew, element: <PromptNewPage /> },
   { key: "promptDetail", path: paths.promptDetail, element: <PromptDetailPage /> },

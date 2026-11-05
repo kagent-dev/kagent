@@ -72,6 +72,7 @@ type Config struct {
 	ScheduledRunService    *scheduledrun.Service
 	A2AHandler             a2asrv.RequestHandler
 	SandboxTemplateService *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
+	EgressPolicyService    *kubecrud.Service[*v1alpha3.EgressPolicy, *v1alpha3.EgressPolicyList]
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.
 	RegisterServices func(grpc.ServiceRegistrar)
@@ -144,6 +145,7 @@ func New(config Config) (*Server, error) {
 	guestpb.RegisterProcessServiceServer(grpcServer, guestServer)
 	guestpb.RegisterFileSystemServiceServer(grpcServer, guestServer)
 	apiv1.RegisterSandboxTemplateServiceServer(grpcServer, &sandboxTemplateServer{service: config.SandboxTemplateService, maxMessageBytes: config.MaxMessageBytes})
+	apiv1.RegisterEgressPolicyServiceServer(grpcServer, &egressPolicyServer{service: config.EgressPolicyService, maxMessageBytes: config.MaxMessageBytes})
 	apiv1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
 	apiv1.RegisterToolServiceServer(grpcServer, newToolServer(config.ToolService, config.MaxMessageBytes))
 	apiv1.RegisterPromptTemplateServiceServer(grpcServer, newPromptTemplateServer(config.PromptTemplateService))

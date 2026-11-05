@@ -78,6 +78,11 @@ export const paths = {
   mcpServers: "/mcp",
   mcpServerNew: "/mcp/new",
 
+  egressPolicies: "/egress-policies",
+  egressPolicyNew: "/egress-policies/new",
+  egressPolicyDetail: "/egress-policies/:namespace/:name",
+  egressPolicyEdit: "/egress-policies/:namespace/:name/edit",
+
   prompts: "/prompts",
   promptNew: "/prompts/new",
   promptDetail: "/prompts/:namespace/:name",

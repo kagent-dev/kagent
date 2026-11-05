@@ -16,6 +16,7 @@ import {
   apiClient,
   useAgent,
   useAgentTemplates,
+  useNamespaceEgressPolicies,
   useHarnesses,
   useInvalidateAgents,
   useNamespaces,
@@ -23,6 +24,7 @@ import {
   type AgentSpec,
 } from "@/api";
 import { paths } from "@/router/routes";
+import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 
 const { Text } = Typography;
 
@@ -93,9 +95,13 @@ function AgentForm({ agent }: { agent?: Agent }) {
   );
 
   const [harnessRef, setHarnessRef] = useState(spec?.harnessRef.name);
+  const [egressRefs, setEgressRefs] = useState<string[]>(
+    () => (spec?.egressPolicyRefs ?? []).map((ref) => ref.name),
+  );
 
   const templates = useAgentTemplates(namespace || undefined);
   const harnesses = useHarnesses(namespace || undefined);
+  const egressPolicies = useNamespaceEgressPolicies(namespace || undefined);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string>();
 
@@ -117,7 +123,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
     setSaving(true);
     setFailure(undefined);
     const agentSpec = {
-      ...(spec?.egressPolicyRefs ? { egressPolicyRefs: spec.egressPolicyRefs } : {}),
+      ...(egressRefs.length > 0 ? { egressPolicyRefs: egressRefs.map((ref) => ({ name: ref })) } : {}),
       template: templateSource === "reference"
         ? { ref: { name: templateRef! } }
         : { inline: specFromDraft(inlineTemplate, spec?.template.inline) },
@@ -169,6 +175,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
                 setNamespace(value);
                 setTemplateRef(undefined);
                 setHarnessRef(undefined);
+                setEgressRefs([]);
                 setTemplateDraft({ ...templateDraft, modelConfig: undefined, subAgentTools: [] });
               }}
               options={(namespaces.data ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
@@ -230,6 +237,40 @@ function AgentForm({ agent }: { agent?: Agent }) {
             </span>
           }
         />
+      </Card>
+
+      <Card
+        size="small"
+        data-testid="agent-form-egress"
+        title={
+          <div css={{ padding: `${theme.space(2)} 0` }}>
+            <div>{egressCopy.agent.field}</div>
+            <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
+              {egressCopy.agent.help}
+            </Text>
+          </div>
+        }
+      >
+        <Form layout="vertical">
+          <Form.Item
+            label={egressCopy.agent.field}
+            validateStatus={egressPolicies.error ? "error" : undefined}
+            help={egressPolicies.error?.message}
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              data-testid="agent-form-egress-refs"
+              placeholder={egressCopy.agent.placeholder}
+              value={egressRefs}
+              onChange={setEgressRefs}
+              loading={egressPolicies.isLoading}
+              maxCount={16}
+              options={(egressPolicies.data ?? []).map((policy) => ({ value: policy.name, label: policy.name }))}
+              notFoundContent={egressPolicies.isLoading ? undefined : egressCopy.agent.empty}
+            />
+          </Form.Item>
+        </Form>
       </Card>
 
       {failure ? (

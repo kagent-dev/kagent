@@ -120,10 +120,14 @@ func (s *Service[T, L]) Update(ctx context.Context, object T) (T, error) {
 		return zero, err
 	}
 	if err := s.client.Update(ctx, object); err != nil {
-		if apierrors.IsInvalid(err) {
+		switch {
+		case apierrors.IsInvalid(err):
 			return zero, serviceerrors.NewInvalidArgument(err.Error(), err)
+		case apierrors.IsConflict(err):
+			return zero, serviceerrors.NewAborted(s.resource+" was modified; reload and retry", err)
+		default:
+			return zero, serviceerrors.NewInternal("Failed to update "+s.resource, err)
 		}
-		return zero, serviceerrors.NewInternal("Failed to update "+s.resource, err)
 	}
 	return object, nil
 }
