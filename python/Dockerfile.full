@@ -1,20 +1,20 @@
 # Full Python ADK runtime image: includes the Anthropic sandbox-runtime (node, bubblewrap,
 # socat, ripgrep) and a bash tool venv for agents that execute code / run shell tools. Unlike
-# python/Dockerfile (distroless slim), this image needs a shell and package tooling, so it is
-# built on a digest-pinnable debian-slim base rather than distroless. The controller selects
+# python/Dockerfile, this image needs a shell and package tooling. The controller selects
 # this image (PythonADKFullImageDigest) for declarative agents that need SRT (skills,
 # executeCodeBlocks) and for sandboxed BYO agents.
 
 ### STAGE 1: uv binary
+ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG UV_VERSION=0.13.7
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 ### STAGE 2: base os + sandbox runtime
-# node:26-bookworm-slim is a digest-pinnable debian-bookworm base that ships Node 26 (the
-# sandbox-runtime requires node >= 20; debian's own nodejs package is still on 18).
-# Digest = multi-arch index resolved via `docker buildx imagetools inspect node:26-bookworm-slim`.
-FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS python-os
+# The apk package name encodes the Node major, so the sandbox-runtime's node >= 20
+# requirement is pinned by the package rather than by the base image tag.
+FROM ${BASE_IMAGE_REGISTRY}/chainguard/wolfi-base:latest AS python-os
 ARG TOOLS_PYTHON_VERSION=3.13
+ARG TOOLS_NODE_VERSION=26
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -37,32 +37,26 @@ ENV UV_PROJECT_ENVIRONMENT=/.kagent/.venv
 ENV UV_PYTHON_INSTALL_DIR=/python
 ENV UV_PYTHON_PREFERENCE=only-managed
 
-# node/npm come from the base image; add the remaining runtime tooling.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl openssl bash git ca-certificates \
+RUN apk add --no-cache \
+        curl openssl bash git ca-certificates tzdata \
         bubblewrap socat ripgrep \
-    && rm -rf /var/lib/apt/lists/*
+        nodejs-${TOOLS_NODE_VERSION} npm
 
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
 
-RUN groupadd -g 1001 pythongroup \
-    && useradd -u 1001 -g pythongroup -s /bin/bash -d /.kagent -m python \
+RUN addgroup -g 1001 pythongroup \
+    && adduser -u 1001 -G pythongroup -s /bin/bash -h /.kagent -D python \
     && mkdir -p $UV_PYTHON_DOWNLOADS_DIR $UV_TOOL_DIR $UV_CACHE_DIR /python \
     && chown -R 1001:1001 /.kagent /python
 
-# Upgrade the base image's npm, whose bundled deps lag behind npm releases.
+# Upgrade the packaged npm, whose bundled deps lag behind npm releases.
 # Install the Anthropic sandbox runtime from a pinned revision. Replace its vulnerable locked
-# transitive deps, build, then prune dev deps (matches the previous Chainguard-based image).
-# Fetch the pinned revision via init+fetch (debian's git predates `git clone --revision`).
-# GitHub allows fetching an arbitrary commit SHA directly.
+# transitive deps, build, then prune dev deps.
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g --ignore-scripts npm@11.21.1 \
-    && mkdir -p /opt/sandbox-runtime && cd /opt/sandbox-runtime \
-    && git init -q \
-    && git remote add origin https://github.com/anthropic-experimental/sandbox-runtime.git \
-    && git fetch --depth 1 origin ef4afdef4d711ba21a507d7f7369e305f7d3dbfa \
-    && git checkout -q FETCH_HEAD \
+    && git clone -q --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa \
+        https://github.com/anthropic-experimental/sandbox-runtime.git /opt/sandbox-runtime \
+    && cd /opt/sandbox-runtime \
     && npm pkg delete scripts.prepare \
     && npm install --ignore-scripts --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 shell-quote@1.11.0 \
     && npm install --ignore-scripts --save-exact brace-expansion@5.0.12 \

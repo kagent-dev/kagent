@@ -1,12 +1,12 @@
 ### STAGE 1: uv binary
+ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG UV_VERSION=0.13.7
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 ### STAGE 2: builder
-# Build the uv-managed standalone Python interpreter and the project venv on a full base
-# (debian-slim, digest-pinnable). Nothing from this stage ships except /python and the venv.
-# Digest = multi-arch index resolved via `docker buildx imagetools inspect debian:12-slim`.
-FROM debian:13-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS builder
+# Build the uv-managed standalone Python interpreter and the project venv. Nothing
+# from this stage ships except /python and the venv.
+FROM ${BASE_IMAGE_REGISTRY}/chainguard/wolfi-base:latest AS builder
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8
@@ -26,9 +26,7 @@ ENV UV_PROJECT_ENVIRONMENT=/.kagent/.venv
 ENV UV_PYTHON_INSTALL_DIR=/python
 ENV UV_PYTHON_PREFERENCE=only-managed
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ca-certificates
 
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
 
@@ -69,21 +67,21 @@ RUN --mount=type=cache,target=/.kagent/cache,rw                               \
     && echo "Installation complete."
 
 # Pre-create the config dir owned by the runtime user. On Agent Substrate the config is
-# materialized into /config at startup (the env-injected path); distroless runs as nonroot and
+# materialized into /config at startup (the env-injected path); the runtime runs as nonroot and
 # cannot create top-level dirs, so it must exist with the right owner ahead of time. On the
 # normal Deployment path /config is overlaid by the mounted Secret volume, so this is harmless.
 RUN mkdir -p /staging/config
 
-### STAGE 3: final (distroless)
-# distroless/cc provides glibc + libstdc++ (required by the standalone CPython build) but no
-# shell or package manager. Agents that need in-container code execution / bash tools use the
-# "full" image (python/Dockerfile.full) instead.
-# Pinned by digest so rebuilds can't silently pull a different base. Distroless publishes no
-# version-numbered tags (only :nonroot/:latest/:debug), so a digest is the only way to pin tighter
-# than "Debian 12". Tag kept for readability; bump the digest via dependency tooling.
-# Digest = multi-arch index resolved via `docker buildx imagetools inspect gcr.io/distroless/cc-debian12:nonroot`.
-FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
+### STAGE 3: final
+# Agents that need in-container code execution / bash tools use the "full" image
+# (python/Dockerfile.full) instead.
+FROM ${BASE_IMAGE_REGISTRY}/chainguard/wolfi-base:latest
 ARG VERSION
+
+# Shared libraries the venv's C extensions link against (libstdc++ for pyarrow and friends,
+# zlib for numpy). The standalone CPython build bundles its own sqlite, bz2, lzma and ffi.
+# tzdata backs zoneinfo lookups.
+RUN apk add --no-cache ca-certificates libstdc++ zlib tzdata
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -97,22 +95,11 @@ COPY --from=builder /.kagent/.venv /.kagent/.venv
 # Writable config dir for substrate config materialization (see builder stage).
 COPY --from=builder --chown=65532:65532 /staging/config /config
 
-# The standalone CPython build and numpy's C-extensions dynamically link a handful of system
-# libraries that distroless/cc does not ship (zlib, bz2, lzma, ffi, sqlite). Copy them from the
-# builder into an arch-agnostic dir on LD_LIBRARY_PATH. The *-linux-gnu glob matches the single
-# multiarch dir present for the target arch (amd64/arm64).
-COPY --from=builder /usr/lib/*-linux-gnu/libz.so.1 /usr/lib/kagent-libs/
-COPY --from=builder /usr/lib/*-linux-gnu/libbz2.so.1* /usr/lib/kagent-libs/
-COPY --from=builder /usr/lib/*-linux-gnu/liblzma.so.5* /usr/lib/kagent-libs/
-COPY --from=builder /usr/lib/*-linux-gnu/libffi.so.8* /usr/lib/kagent-libs/
-COPY --from=builder /usr/lib/*-linux-gnu/libsqlite3.so.0* /usr/lib/kagent-libs/
-ENV LD_LIBRARY_PATH=/usr/lib/kagent-libs
-
 WORKDIR /app
 USER 65532:65532
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
-LABEL org.opencontainers.image.description="Kagent ADK Python runtime (distroless, no sandbox runtime)."
+LABEL org.opencontainers.image.description="Kagent ADK Python runtime (no sandbox runtime)."
 LABEL org.opencontainers.image.version="$VERSION"
 
 ENTRYPOINT ["/.kagent/.venv/bin/kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]
