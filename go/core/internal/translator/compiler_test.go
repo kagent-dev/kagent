@@ -1128,6 +1128,23 @@ func TestResolveModelConfigMistral(t *testing.T) {
 	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
 }
 
+func TestResolveModelConfigXAI(t *testing.T) {
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "xai", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{Model: "grok-4.7", Provider: v1alpha3.ModelProviderXAI,
+			APIKeySecret: "xai-auth", APIKeySecretKey: "XAI_API_KEY"},
+	}
+	t.Run("Given an xAI ModelConfig and its Secret, when the model is resolved, assert that it is usable", func(t *testing.T) {
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "xai-auth", Namespace: "test"}, Data: map[string][]byte{"XAI_API_KEY": []byte("key")}}
+		resolved := mockCollections(t, model, secret).ResolvedModelConfigs.List()[0]
+		require.True(t, resolved.Usable(), "%+v", resolved.Failure())
+	})
+	t.Run("Given an xAI ModelConfig without its Secret, when the model is resolved, assert that it reports the missing Secret", func(t *testing.T) {
+		resolved := mockCollections(t, model).ResolvedModelConfigs.List()[0]
+		require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
+	})
+}
+
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }

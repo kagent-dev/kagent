@@ -648,6 +648,41 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 
 		return mistral, modelDeploymentData, nil
+	case v1alpha3.ModelProviderXAI:
+		if !tokenPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.XAIAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+		settings := &configv1.ADKXAI{}
+		if spec := model.Spec.XAI; spec != nil {
+			settings.BaseUrl = ptr.Deref(spec.BaseURL, "")
+			if spec.Temperature != nil {
+				settings.Temperature = utils.ParseStringToFloat64(*spec.Temperature)
+			}
+			if spec.TopP != nil {
+				settings.TopP = utils.ParseStringToFloat64(*spec.TopP)
+			}
+			settings.MaxTokens = runtimeInt(spec.MaxTokens)
+			settings.Timeout = runtimeDuration(spec.Timeout)
+		}
+		xai := &configv1.ADKModelConfig{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_Xai{Xai: settings},
+		}
+		populateTLSFields(xai, model.Spec.TLS)
+		xai.ApiKeyPassthrough = tokenPassthrough
+
+		return xai, modelDeploymentData, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}

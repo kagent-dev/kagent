@@ -164,10 +164,11 @@ func TestModelServiceCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSupportedModelProviders() error = %v", err)
 	}
-	if len(modelProviders.GetProviders()) != 11 ||
+	if len(modelProviders.GetProviders()) != 12 ||
 		modelProviders.GetProviders()[0].GetName() != "OpenAI" ||
 		modelProviders.GetProviders()[3].GetName() != "Foundry" ||
-		modelProviders.GetProviders()[10].GetName() != "Mistral" {
+		modelProviders.GetProviders()[10].GetName() != "Mistral" ||
+		modelProviders.GetProviders()[11].GetName() != "xAI" {
 		t.Fatalf("ListSupportedModelProviders() = %+v", modelProviders.GetProviders())
 	}
 
@@ -197,10 +198,12 @@ func TestModelServiceCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSupportedModels() error = %v", err)
 	}
-	if len(supportedModels.GetProviders()) != 11 ||
+	if len(supportedModels.GetProviders()) != 12 ||
 		supportedModels.GetProviders()[0].GetProvider() != "OpenAI" ||
 		supportedModels.GetProviders()[0].GetModels()[0].GetName() != "gpt-5.6-terra" ||
-		supportedModels.GetProviders()[3].GetProvider() != "Foundry" {
+		supportedModels.GetProviders()[3].GetProvider() != "Foundry" ||
+		supportedModels.GetProviders()[11].GetProvider() != "xAI" ||
+		supportedModels.GetProviders()[11].GetModels()[0].GetName() != "grok-4.7" {
 		t.Fatalf("ListSupportedModels() = %+v", supportedModels.GetProviders())
 	}
 }

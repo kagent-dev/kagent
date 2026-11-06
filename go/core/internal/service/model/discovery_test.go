@@ -60,7 +60,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 	service := model.NewService(nil, nil, "default")
 
 	modelProviders := service.ListSupportedModelProviders(context.Background())
-	require.Len(t, modelProviders, 11)
+	require.Len(t, modelProviders, 12)
 	assert.Equal(t, []string{
 		"OpenAI",
 		"Anthropic",
@@ -73,6 +73,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 		"Bedrock",
 		"SAPAICore",
 		"Mistral",
+		"xAI",
 	}, providerNames(modelProviders))
 	assert.Empty(t, modelProviders[0].RequiredParams)
 	assert.Equal(t, []string{
@@ -95,13 +96,16 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 	assert.Equal(t, []string{"deployment", "endpoint"}, modelProviders[3].RequiredParams)
 	assert.Equal(t, []string{"apiVersion", "apiFormat"}, modelProviders[3].OptionalParams)
 	assert.Equal(t, []string{"", "maxOutputTokens", "candidateCount", "responseMimeType"}, modelProviders[6].OptionalParams)
+	assert.Empty(t, modelProviders[11].RequiredParams)
+	assert.Equal(t, []string{"baseUrl", "temperature", "topP", "maxTokens", "timeout"}, modelProviders[11].OptionalParams)
 }
 
 func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	service := model.NewService(nil, nil, "default")
 	models := service.ListSupportedModels(context.Background())
 
-	require.Len(t, models, 11)
+	require.Len(t, models, 12)
+	assert.Equal(t, model.ModelInfo{Name: "grok-4.7", FunctionCalling: true}, models[v1alpha3.ModelProviderXAI][0], "grok-4.7 is the default xAI suggestion")
 	require.NotEmpty(t, models[v1alpha3.ModelProviderOpenAI])
 	assert.Equal(t, "gpt-5.6-terra", models[v1alpha3.ModelProviderOpenAI][0].Name)
 	assert.True(t, models[v1alpha3.ModelProviderOpenAI][0].FunctionCalling)

@@ -108,3 +108,19 @@ func TestCompilerPreservesSharedRuntimeTelemetry(t *testing.T) {
 	actual := compiled.RuntimeTelemetry(tracing.RuntimeADKGo, "assistant", "team", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4"})
 	require.Equal(t, want, actual)
 }
+
+func TestProviderName(t *testing.T) {
+	scenarios := []struct {
+		name     string
+		provider v1alpha3.ModelProvider
+		want     string
+	}{
+		{name: "Given an xAI ModelConfig, when its trace provider is named, assert that it is the GenAI x_ai value", provider: v1alpha3.ModelProviderXAI, want: "x_ai"},
+		{name: "Given an OpenAI ModelConfig, when its trace provider is named, assert that it stays openai", provider: v1alpha3.ModelProviderOpenAI, want: "openai"},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			require.Equal(t, sc.want, translator.ProviderName(sc.provider))
+		})
+	}
+}

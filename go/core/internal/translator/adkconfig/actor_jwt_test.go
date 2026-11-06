@@ -21,6 +21,7 @@ func TestActorJWTModelPlaceholders(t *testing.T) {
 		{v1alpha3.ModelProviderAnthropic, "ANTHROPIC_API_KEY"},
 		{v1alpha3.ModelProviderAzureOpenAI, "AZURE_OPENAI_API_KEY"},
 		{v1alpha3.ModelProviderMistral, "MISTRAL_API_KEY"},
+		{v1alpha3.ModelProviderXAI, "XAI_API_KEY"},
 		{v1alpha3.ModelProviderFoundry, "FOUNDRY_API_KEY"},
 	} {
 		t.Run(string(tc.provider), func(t *testing.T) {
