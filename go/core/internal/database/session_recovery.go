@@ -14,24 +14,19 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
-// SessionRuntimeCrashed identifies a recovery admitted after Substrate confirmed
-// that the recorded Actor crashed. Transport failures cannot admit this work.
+// SessionRuntimeCrashed is the failure reason set once Substrate confirms the
+// recorded Actor crashed. Transport failures never set it.
 const SessionRuntimeCrashed = "RuntimeCrashed"
 
-// CrashRecoveryAdmitted reports a Session whose crash recovery was admitted and
-// has not finished. A retry joins that operation instead of observing Substrate
-// again. Only BeginCrashedSessionRecovery starts a REVERT, so the operation alone
-// identifies it.
+// CrashRecoveryAdmitted reports an admitted, unfinished crash recovery. Only
+// BeginCrashedSessionRecovery starts a REVERT, so the operation alone identifies it.
 func CrashRecoveryAdmitted(session *apiv1.Session) bool {
 	return session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
 }
 
-// SessionGeneration is a live Session's lifecycle generation and the runtime it
-// recorded, read together before crash recovery observes Substrate. OperationID
-// is the Session's latest lifecycle operation, or uuid.Nil when none is recorded:
-// every operation replaces it, and completion keeps it. ActorUID is the recorded
-// runtime Actor, or "" when none is recorded. The template identifies where that
-// Actor lives and what it must run.
+// SessionGeneration is read before crash recovery observes Substrate. OperationID
+// is uuid.Nil when none is recorded; every operation replaces it and completion
+// keeps it. ActorUID is "" when none is recorded.
 type SessionGeneration struct {
 	SessionID        string
 	OperationID      uuid.UUID
@@ -40,10 +35,8 @@ type SessionGeneration struct {
 	TemplateName     string
 }
 
-// GetSessionGeneration reads the lifecycle generation, recorded Actor UID, and
-// Actor template of a live Session in one statement. Deleted or missing Sessions
-// return ErrNotFound. Callers authorize access. The read takes no lock: admission
-// re-checks the generation and Actor UID under the Session lock.
+// GetSessionGeneration returns ErrNotFound for deleted Sessions. Callers authorize
+// access. The read takes no lock; admission re-checks it under the Session lock.
 func (c *Client) GetSessionGeneration(ctx context.Context, id string) (*SessionGeneration, error) {
 	type generationRow struct {
 		OperationID           *uuid.UUID
@@ -69,12 +62,10 @@ func (c *Client) GetSessionGeneration(ctx context.Context, id string) (*SessionG
 	return generation, nil
 }
 
-// BeginCrashedSessionRecovery admits confirmed-crash recovery under the Session
-// lock. It preserves durable results; obsolete Actors and conflicting operations
-// fail. generation is the caller's GetSessionGeneration read, taken before it
-// observed the crash. The Session must still record its Actor UID, and a
-// lifecycle operation begun since then makes the observation stale, because a
-// concurrent revert keeps the Actor UID and returns to READY.
+// BeginCrashedSessionRecovery admits recovery of a confirmed crash and preserves
+// durable results. generation must be read before the crash was observed: a
+// concurrent revert keeps the Actor UID and returns to READY, so only a newer
+// lifecycle operation shows that the observation is stale.
 func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *SessionGeneration, snapshot SessionTaskSnapshot) (*SessionOperation, error) {
 	var operation *SessionOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -82,8 +73,6 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if err != nil {
 			return notFoundOr(err)
 		}
-		// Both guards are read under the lock in one statement, and are evaluated in
-		// their original order: Actor identity first, checkpoint creation last.
 		type guards struct {
 			Matches bool
 			Busy    bool
@@ -117,12 +106,10 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if current != generation.OperationID {
 			return ErrConflict
 		}
-		// An issued idle suspension does not exclude recovery here. It cannot finish
-		// against the crashed Actor, and its worker keeps the claim when suspension
-		// fails, so waiting for it would block recovery permanently. Settlement below
-		// retires the claim in this transaction; a late finish for it changes nothing.
-		// The generation check keeps the crash observation current: without another
-		// lifecycle operation, nothing returns the crashed Actor to service.
+		// An issued idle suspension does not block recovery. It cannot finish against
+		// the crashed Actor and its worker keeps the claim when suspension fails, so
+		// waiting would block forever. Settlement below retires the claim; a late
+		// finish changes nothing.
 		if guard.Busy {
 			return ErrConflict
 		}
@@ -138,10 +125,9 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if err != nil {
 			return err
 		}
-		// Execution must restore the snapshot settlement below judged waits against,
-		// so the operation pins it rather than letting Substrate choose at revert time.
-		// Only this transaction starts a REVERT, so the pin always belongs to the
-		// current one.
+		// Pin the snapshot that settlement judges waits against, so the revert
+		// restores exactly it rather than whatever Substrate holds later. Only this
+		// transaction starts a REVERT, so the pin always belongs to the current one.
 		if err := execSQL(ctx, tx, `
 			UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL, recovery_snapshot_uri = $3
 			WHERE id = $1
@@ -157,9 +143,8 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 	return operation, err
 }
 
-// SessionRecoveryPin is what an admitted REVERT must restore: the recorded Actor
-// and the durable snapshot admission settled waits against. SnapshotURI is empty
-// when the crashed Actor had no durable snapshot.
+// SessionRecoveryPin is the Actor and durable snapshot an admitted REVERT must
+// restore. SnapshotURI is empty when the crashed Actor had none.
 type SessionRecoveryPin struct {
 	ActorUID    string
 	SnapshotURI string
@@ -189,7 +174,7 @@ func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow
 	}
 	// The CTE clears the history's pending quiescence marker. The main query
 	// reads the pre-update snapshot, but pending only tests that a boundary was
-	// recorded, which clearing keeps true. A task without events is malformed.
+	// recorded, which clearing keeps true.
 	tasks, err := queryMany(ctx, tx, `
 		WITH cleared AS (
 		    UPDATE session_task_event SET quiescence_pending = FALSE

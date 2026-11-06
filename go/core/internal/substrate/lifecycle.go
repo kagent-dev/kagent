@@ -55,10 +55,9 @@ type ActorTransition struct {
 	creation  *ActorCreation
 }
 
-// ErrActorUnrecoverable reports that a crash recovery's Actor can no longer be
-// restored to the snapshot its admission pinned: the Actor is missing, was
-// replaced, or now reports a different durable snapshot. No retry changes that,
-// and no revert of the recorded Actor can still be in progress.
+// ErrActorUnrecoverable means the Actor is missing, was replaced, or reports a
+// different durable snapshot. No retry changes that, and no revert of the
+// recorded Actor can still be in progress.
 var ErrActorUnrecoverable = errors.New("actor cannot be restored to the admitted snapshot")
 
 // ActorUID returns the observed runtime identity, including after creation.
@@ -126,15 +125,12 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 	return &ActorTransition{binding: binding, operation: operation, actor: actor, creation: creation}, nil
 }
 
-// PrepareActorRevert performs the read-only checks for crash recovery before
-// the store's durable claim. Reading first keeps a failed Actor read from
-// leaving a claim behind, so Delete can still supersede the unissued recovery.
-// actorUID is the recorded runtime and snapshotURI the durable snapshot admission
-// pinned ("" for none). Admission already settled the interrupted turn against
-// that snapshot, so the revert must restore exactly it rather than whatever
-// Substrate holds when it runs. Identity is checked before state: a replacement
-// in any state is unrecoverable, never a transient refusal that would keep a
-// claimed recovery, and with it Delete, blocked. A SUSPENDED Actor means an
+// PrepareActorRevert runs before the store's durable claim so a failed Actor read
+// leaves no claim and Delete can still supersede the recovery. snapshotURI is the
+// snapshot admission pinned ("" for none); admission already settled the
+// interrupted turn against it, so the revert must restore exactly it. Identity is
+// checked before state so a replacement in any state is unrecoverable rather than
+// a transient refusal that keeps Delete blocked. A SUSPENDED Actor means an
 // earlier revert completed and its response was lost.
 func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding, actorUID, snapshotURI string) (*ActorTransition, error) {
 	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
@@ -236,10 +232,8 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 	return nil
 }
 
-// applyRevert must not replace the Actor or restore anything but the snapshot
-// PrepareActorRevert matched against admission's pin. A changed UID or snapshot
-// means something other than this recovery acted on the runtime, so the Session
-// must not adopt the result.
+// applyRevert rejects a changed UID or snapshot: something other than this
+// recovery acted on the runtime, so the Session must not adopt the result.
 func (t *ActorTransition) applyRevert(ctx context.Context, actors LifecycleClient) error {
 	binding, actor := t.binding, t.actor
 	before := proto.CloneOf(LatestDurableActorSnapshot(actor))

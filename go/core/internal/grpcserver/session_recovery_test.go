@@ -178,8 +178,7 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, ready.Session.State)
 			require.Nil(t, ready.Session.Failure)
-			// A client whose success response was lost retries and gets the
-			// recovered Session back, as Create and Delete retries do.
+			// Retry as a client whose success response was lost.
 			retried, err := client.RevertSession(owner, request)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, retried.Session.State)

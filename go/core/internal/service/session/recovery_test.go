@@ -63,7 +63,6 @@ func (a *recoveryTestActors) GetActor(ctx context.Context, atespace, name string
 	return actor, err
 }
 
-// revertGeneration is a current generation from a caller that observed actorUID.
 func revertGeneration(t *testing.T, store *lifecycleTestStore, sessionID, actorUID string) *database.SessionGeneration {
 	t.Helper()
 	generation, err := store.GetSessionGeneration(t.Context(), sessionID)
@@ -248,9 +247,8 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 	}
 }
 
-// Only an active lifecycle operation is contention a retry waits out. A Session
-// at rest outside READY, such as one suspended by deadline cleanup, has nothing
-// to recover, so Revert returns it rather than ABORTED forever.
+// A Session at rest outside READY has nothing to recover, so Revert returns it
+// rather than ABORTED forever. Only an active operation is contention.
 func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -264,8 +262,7 @@ func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
 		{name: "creation in progress", state: apiv1.RuntimeState_RUNTIME_STATE_CREATING, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, want: database.ErrConflict},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			// Both checks run on the Session the caller read, before any store
-			// or Substrate access, so neither dependency is needed.
+			// Neither check reaches the store or Substrate.
 			workflow := NewActorWorkflow(nil, nil, make(chan struct{}, 1), time.Second)
 			session := &apiv1.Session{Id: uuid.NewString(), State: test.state, Operation: test.operation}
 			returned, err := workflow.Revert(t.Context(), session)
@@ -501,10 +498,8 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 	require.Equal(t, a2a.TaskStateCompleted, retained.Status.State)
 }
 
-// Delete supersedes an admitted recovery whether or not an attempt issued the
-// revert: a revert restores the recorded Actor in place and creates nothing that
-// Delete could miss. Retries keep the recovery pending, and a gone or replaced
-// Actor tells the client it cannot be recovered.
+// A revert restores the recorded Actor in place and creates nothing Delete could
+// miss, so Delete supersedes an admitted recovery even after the revert was issued.
 func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -561,7 +556,6 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed attempt keeps the recovery for a retry")
 			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending, false)
 			if test.replaced {
-				// Delete is admitted, but never removes a same-name replacement.
 				require.NotErrorIs(t, err, database.ErrConflict)
 				deleting, err := store.GetSessionByID(t.Context(), session.Id)
 				require.NoError(t, err)

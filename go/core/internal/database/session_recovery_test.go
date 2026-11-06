@@ -195,7 +195,6 @@ func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 	require.NoError(t, err, "the retired claim no longer blocks a new turn")
 }
 
-// sessionGeneration reads what a caller reads before it observes a crash.
 func sessionGeneration(t *testing.T, client *Client, sessionID string) *SessionGeneration {
 	t.Helper()
 	generation, err := client.GetSessionGeneration(t.Context(), sessionID)
@@ -203,7 +202,6 @@ func sessionGeneration(t *testing.T, client *Client, sessionID string) *SessionG
 	return generation
 }
 
-// observedGeneration is a current generation from a caller that observed actorUID.
 func observedGeneration(t *testing.T, client *Client, sessionID, actorUID string) *SessionGeneration {
 	t.Helper()
 	generation := sessionGeneration(t, client, sessionID)
@@ -211,8 +209,6 @@ func observedGeneration(t *testing.T, client *Client, sessionID, actorUID string
 	return generation
 }
 
-// completeCrashedRecovery admits and finishes a revert as a successful concurrent
-// caller would, leaving the Session READY on the same Actor UID.
 func completeCrashedRecovery(t *testing.T, client *Client, sessionID, actorUID string) {
 	t.Helper()
 	operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, sessionID, actorUID), SessionTaskSnapshot{})
@@ -286,9 +282,6 @@ func TestCrashedRecoveryNotePinsItsTimelinePosition(t *testing.T) {
 	require.True(t, position.Equal(*failed.Status.Timestamp), "position %s, status timestamp %s", position, failed.Status.Timestamp)
 }
 
-// The generation reports the recorded Actor and the operation a crash
-// observation is valid for. Admitting a recovery replaces the operation and keeps
-// the UID.
 func TestSessionGenerationReadsRecordedActor(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")

@@ -72,8 +72,6 @@ func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateap
 	return proto.CloneOf(a.actor), nil
 }
 
-// RevertActor restores the latest durable snapshot unless the test overrides
-// the identity or snapshot it returns.
 func (a *transitionActors) RevertActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	a.calls = append(a.calls, "revert")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED

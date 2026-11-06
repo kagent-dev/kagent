@@ -291,8 +291,7 @@ func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error)
 	}
 	session, err = s.workflow.Revert(ctx, session)
 	if errors.Is(err, errRuntimeUnrecoverable) {
-		// The ErrorInfo reason tells a client to stop retrying and delete the
-		// Session, without parsing text or confusing it with other preconditions.
+		// The ErrorInfo reason tells a client to stop retrying and delete the Session.
 		refusal, detailErr := status.New(codes.FailedPrecondition, err.Error()).WithDetails(&errdetails.ErrorInfo{Domain: "kagent.dev", Reason: "KAGENT_SESSION_RUNTIME_UNRECOVERABLE"})
 		if detailErr != nil {
 			return nil, detailErr
