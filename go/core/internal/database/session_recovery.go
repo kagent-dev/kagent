@@ -145,11 +145,12 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		}
 		// Execution must restore the snapshot settlement below judged waits against,
 		// so the operation pins it rather than letting Substrate choose at revert time.
+		// Only this transaction starts a REVERT, so the pin always belongs to the
+		// current one.
 		if err := execSQL(ctx, tx, `
-			UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL,
-			    recovery_operation_id = $3, recovery_snapshot_uri = $4
+			UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL, recovery_snapshot_uri = $3
 			WHERE id = $1
-		`, row.ID, row.Data, row.OperationID, snapshot.URI); err != nil {
+		`, row.ID, row.Data, snapshot.URI); err != nil {
 			return err
 		}
 		if err := settleCrashedSessionTask(ctx, tx, row, snapshot); err != nil {
@@ -174,8 +175,7 @@ type SessionRecoveryPin struct {
 func (c *Client) GetSessionRecoveryPin(ctx context.Context, sessionID string, operationID uuid.UUID) (SessionRecoveryPin, error) {
 	pin, err := queryOne(ctx, c.db, `
 		SELECT s.actor_uid, s.recovery_snapshot_uri AS snapshot_uri FROM session s JOIN runtime_instance r USING (id)
-		WHERE s.id = $1 AND s.recovery_operation_id = $2 AND s.actor_uid IS NOT NULL
-		  AND r.operation_id = $2 AND r.operation = 'RUNTIME_OPERATION_REVERT'
+		WHERE s.id = $1 AND r.operation_id = $2 AND r.operation = 'RUNTIME_OPERATION_REVERT'
 	`, pgx.RowToStructByName[SessionRecoveryPin], sessionID, operationID)
 	if err != nil {
 		return SessionRecoveryPin{}, fmt.Errorf("read Session %s recovery pin: %w", sessionID, notFoundOr(err))

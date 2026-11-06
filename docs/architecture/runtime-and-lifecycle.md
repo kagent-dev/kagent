@@ -245,7 +245,8 @@ work absent from the retained snapshot. Waiting tasks captured by that snapshot
 remain available. Checkpoint creation excludes competing recovery.
 
 Admission also pins the durable snapshot URI it judged waits against on the
-Session, keyed by the REVERT operation ID. Substrate's revert restores the latest
+Session. Only admission starts a REVERT, so the pin always belongs to the
+current one. Substrate's revert restores the latest
 durable snapshot it holds when the call runs, so execution first requires the
 Actor to still report the pinned snapshot, then requires the reverted Actor to
 report it too. Otherwise a snapshot uploaded after admission could bring back a

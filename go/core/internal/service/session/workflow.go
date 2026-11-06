@@ -180,9 +180,6 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 
 	if uid := transition.ActorUID(); uid != "" && kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		if _, err := w.store.GetSessionForRuntime(ctx, session.Id, uid); err != nil {
-			if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT && errors.Is(err, database.ErrNotFound) {
-				err = fmt.Errorf("runtime Actor was replaced: %w", substrate.ErrActorUnrecoverable)
-			}
 			return w.failPreparation(ctx, operation, fmt.Errorf("verify runtime actor UID: %w", err))
 		}
 	}
