@@ -17,7 +17,7 @@ The contract is a Weaver registry in [`telemetry/registry`](../../telemetry/regi
 | Runtime | `kagent.runtime` | Resource |
 | Agent | `gen_ai.agent.name`, `gen_ai.agent.id` | invoke_agent and request spans. The resource carries the same identity as `gen_ai.main_agent.name` and `gen_ai.main_agent.id` |
 | Provider and model | `gen_ai.provider.name`, `gen_ai.request.model` | Resource and invoke_agent span, for harnesses compiled against one model |
-| Conversation, task, user | `gen_ai.conversation.id`, `a2a.task.id`, `enduser.id` | Request spans. Never on a resource or a metric |
+| Conversation, task, user | `gen_ai.conversation.id`, `a2a.task.id`, `user.id` | Request spans. Never on a resource or a metric |
 | Segment | `kagent.invocation.segment`, `kagent.invocation.disposition`, link `kagent.invocation.relationship` | Request spans |
 | Outcome | status, `error.type`, `a2a.task.state` | Request spans |
 | Content | `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, `kagent.capture.*_truncated` | invoke_agent, inference and execute_tool spans, under the capture opt-in |
@@ -175,7 +175,7 @@ Go and Python logs are single-line JSON. Records inside a span carry `trace_id`,
 
 ## Conventions and versioning
 
-The registry depends on the core semantic conventions at v1.44.0 and on the GenAI conventions, which live in their own repository and have no release yet, pinned by commit in `telemetry/registry/manifest.yaml`. `telemetry/registry/imports.yaml` imports the upstream spans and metrics the runtimes emit through their instrumentation, so live-check can compare them. The `gen_ai.*` names in the generated constants come from that pin. Core names such as `service.*`, `enduser.id` and `error.type` come from the newest core Go package, `semconv/v1.43.0`, which is also the version the OpenTelemetry SDK uses, and every tracer kagent creates declares its schema URL. Only the `kagent.*` and `a2a.*` names are kagent's own. All of them are `development` until the v1.x contract is declared stable.
+The registry depends on the core semantic conventions at v1.44.0 and on the GenAI conventions, which live in their own repository and have no release yet, pinned by commit in `telemetry/registry/manifest.yaml`. `telemetry/registry/imports.yaml` imports the upstream spans and metrics the runtimes emit through their instrumentation, so live-check can compare them. The `gen_ai.*` names in the generated constants come from that pin. Core names such as `service.*`, `user.id` and `error.type` come from the newest core Go package, `semconv/v1.43.0`, which is also the version the OpenTelemetry SDK uses, and every tracer kagent creates declares its schema URL. Only the `kagent.*` and `a2a.*` names are kagent's own. All of them are `development` until the v1.x contract is declared stable.
 
 ## The invocation span
 
@@ -193,7 +193,7 @@ The provider and model on this span let a consumer attribute a turn to its model
 
 The runtime resource carries `service.name` and `service.namespace` from the compiled agent identity, plus `kagent.runtime`, `gen_ai.provider.name`, `gen_ai.request.model` and the agent identity as the GenAI conventions' `gen_ai.main_agent` entity: `gen_ai.main_agent.name` and `gen_ai.main_agent.id`. The conventions keep `gen_ai.agent.*` for the agent a span invokes, which in a process with sub-agents is not always the main one. The harness adapters merge the agent identity, `kagent.runtime`, `service.namespace` and `kagent.genai.producer=runtime` into `OTEL_RESOURCE_ATTRIBUTES` for the native child process, so its spans report the same agent and namespace while keeping its own `service.name`. They leave out the provider and model, because Claude Code copies resource attributes onto every span and a consumer would count each one as a model call. Conversation, task, and user identity never appear on a resource, since one runtime process serves many of each.
 
-The Go ADK stamps `gen_ai.conversation.id`, `a2a.task.id` and a trusted `enduser.id` on the spans beneath the request span. `enduser.id` is the gateway-forwarded user name. Hashing it is an operator decision.
+The Go ADK stamps `gen_ai.conversation.id`, `a2a.task.id` and a trusted `user.id` on the spans beneath the request span. `user.id` is the user ID the gateway forwards in `x-user-id`. Hashing it is an operator decision. Earlier releases sent it as `enduser.id`, which semantic conventions v1.45.0 deprecated. Claude Code spans carry their own `user.id`, a hash of the Claude account, so read the trusted user from the invocation span.
 
 The Python runtimes open the same span in the scope `kagent.core.a2a`, from the request handler every `kagent.*` package builds, with the same names, attributes and completion rules. `a2a.request` belongs to the Python ADK and OpenAI Agents, which emit their own `invoke_agent`, and `invoke_agent <agent>` to LangGraph, CrewAI and BYO images. The a2a-sdk runs every request of a task on one long-lived producer, so execution takes its request's span from the call context rather than from the ambient context. The span flushes before a quiescent event leaves the process on both the gRPC and the JSON-RPC paths. Python keeps `kagent.runtime` on the resource only.
 
