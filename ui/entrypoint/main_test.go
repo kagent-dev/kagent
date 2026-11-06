@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,5 +96,29 @@ func TestMatchesInitScript(t *testing.T) {
 				t.Errorf("stderr differs\n got: %q\nwant: %q", gotStderr.String(), wantStderr)
 			}
 		})
+	}
+}
+
+func TestBuiltinSkills(t *testing.T) {
+	settings := func(environ ...string) map[string]string {
+		t.Helper()
+		config, _ := render(environ)
+		body := strings.TrimSuffix(strings.TrimPrefix(config, "window.environmentVariables = "), ";\n")
+		var got map[string]string
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatalf("env-config.js is not a JSON object: %v\n%s", err, config)
+		}
+		if strings.Contains(config, "</script") {
+			t.Errorf("env-config.js can close its <script> element:\n%s", config)
+		}
+		return got
+	}
+
+	catalog := `{"image":"ghcr.io/kagent-dev/kagent/tools@sha256:aaaa","skills":[{"name":"a","description":"Says \"hi\" \\ then </script>"}]}`
+	if got := settings("KAGENT_UI_BUILTIN_SKILLS=" + catalog)["BUILTIN_SKILLS"]; got != catalog {
+		t.Errorf("BUILTIN_SKILLS = %q, want %q", got, catalog)
+	}
+	if got, ok := settings()["BUILTIN_SKILLS"]; ok {
+		t.Errorf("BUILTIN_SKILLS = %q without KAGENT_UI_BUILTIN_SKILLS, want it absent", got)
 	}
 }
