@@ -116,14 +116,10 @@ export function AgentChatPage() {
   const [pushTask, setPushTask] = useState<{ conversationId: string; taskId: string }>();
 
   /*
-   * Keep up with messages sent from other tabs or clients, and with the Session itself.
-   *
-   * The Session is re-read on the same tick because a runtime can crash while nothing
-   * here is watching: a turn settles, the lifecycle poll below stops, and the Actor
-   * crashes during automatic suspension. A transcript-only refresh would never learn
-   * that, so the composer would stay enabled and the recovery choices hidden until the
-   * reader reloaded. Riding this refresh costs one read per tick while the tab is
-   * visible, rather than widening the one-second lifecycle poll to every idle page.
+   * Keep up with messages sent from other tabs or clients, and with the Session itself:
+   * the Actor can crash during automatic suspension, after the lifecycle poll below has
+   * stopped, and only a Session read shows that. Riding this refresh avoids widening the
+   * one-second lifecycle poll to every idle page.
    */
   useLiveTranscript(() => refreshConversation(chat.refreshTranscript, instance.refresh), {
     enabled: Boolean(conversation),
@@ -439,10 +435,9 @@ export function AgentChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, chat.isLoadingHistory]);
   /*
-   * Revert is disabled only while this page's own request is in flight. An admitted
-   * recovery is not enough: it keeps its operation through every failed attempt, and a
-   * revert sent meanwhile joins it rather than starting another. The ref closes the gap
-   * before React re-renders the disabled button, so a double click sends one request.
+   * Only this page's own request disables Revert: an admitted recovery keeps its
+   * operation through every failed attempt, and a revert sent meanwhile joins it. The
+   * ref stops a double click before React re-renders the disabled button.
    */
   const [isReverting, setReverting] = useState(false);
   const revertInFlight = useRef(false);
@@ -468,12 +463,9 @@ export function AgentChatPage() {
   }, [id, instance, chat]);
 
   /*
-   * A crashed conversation waiting on the reader is idle, so `recoveryNeeded` alone does
-   * not keep the one-second poll running: every read of a crashed Session also asks
-   * Substrate for its Actor, and a page left open would do that until someone acted.
-   * The poll runs while a revert is in flight or the controller has claimed a resume,
-   * which `isLifecycleBusy` already reads. The live refresh above still notices a
-   * recovery made from another tab or client.
+   * `recoveryNeeded` alone does not keep the one-second poll running: every read of a
+   * crashed Session also queries Substrate, and an open page would do that until someone
+   * acted. The live refresh above still notices a recovery from another tab or client.
    */
   const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply)
     || isReverting;

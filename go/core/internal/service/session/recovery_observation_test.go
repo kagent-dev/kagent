@@ -70,10 +70,7 @@ func TestSessionRecoveryObservation(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, stored.State, "reads do not admit recovery")
 
-			// What chat offers is what Revert does: needed admits a revert, a
-			// healthy runtime returns unchanged, and an unknown observation admits
-			// nothing. A missing or replaced Actor is refused for good, so a client
-			// stops retrying; only a failed read stays retryable.
+			// Chat offers a revert exactly when Revert would admit one.
 			reverted, err := workflow.Revert(t.Context(), session)
 			switch {
 			case test.missing || test.replaced:
@@ -108,15 +105,12 @@ func TestSessionObserveToleratesUnavailableRuntime(t *testing.T) {
 	require.Nil(t, got.RecoveryNeeded, "an unavailable Actor must not be reported healthy")
 }
 
-// panicRecoveryWorkflow fails a test that observes Substrate outside GetSession.
 type panicRecoveryWorkflow struct{ serviceTestWorkflow }
 
 func (panicRecoveryWorkflow) RecoveryNeeded(context.Context, *apiv1.Session) (*bool, error) {
 	panic("only GetSession observes recovery")
 }
 
-// Only GetSession observes Substrate. MCP resolves every invoke through Get, so
-// observing there would add a control-plane round trip to each one.
 func TestSessionRecoveryOnlyInGetSession(t *testing.T) {
 	id := uuid.NewString()
 	stored := &apiv1.Session{Id: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY}

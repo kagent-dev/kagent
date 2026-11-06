@@ -27,7 +27,6 @@ describe("forking from a snapshot line", () => {
     (state) => {
       show(state);
       expect(screen.queryByTestId("chat-checkpoint-fork-saved")).not.toBeInTheDocument();
-      // The rest of the row is unaffected.
       expect(screen.getByTestId("chat-checkpoint-rename-saved")).toBeInTheDocument();
     },
   );

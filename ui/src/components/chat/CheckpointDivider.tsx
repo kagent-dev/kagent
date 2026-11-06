@@ -64,13 +64,8 @@ export function CheckpointDivider({
    */
   const open = checkpoint ? onOpen : undefined;
   /*
-   * Forking needs a READY record, for the same reason and one more.
-   *
-   * A boundary whose record has not arrived cannot be checked, and a record that is
-   * failed or still being removed cannot start a fork: the controller refuses it, and
-   * the reader sees an error for a button the page offered. This line is also the
-   * only fork control a crashed conversation shows, so it has to make the same check
-   * the recovery banner used to make.
+   * Fork only from a READY record: the controller refuses any other state, and this
+   * line is the only fork control a crashed conversation shows.
    */
   const fork = checkpoint && canForkFrom(checkpoint) ? onFork : undefined;
 

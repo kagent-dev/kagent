@@ -147,11 +147,10 @@ func (s *Service) Get(ctx context.Context, id string) (*apiv1.Session, error) {
 	return s.getAuthorized(ctx, id, auth.VerbGet)
 }
 
-// Observe reads an authorized Session with its recovery observation. It is the
-// only Session read that calls Substrate, and GetSession is its only caller: a
-// slow control plane then delays opening one conversation, not every MCP call.
-// A failed observation leaves recovery_needed unset rather than failing the read, so an
-// unavailable control plane cannot hide the history it would let a user recover.
+// Observe is the only Session read that calls Substrate, so a slow control plane
+// delays opening one conversation rather than every MCP call. A failed observation
+// leaves recovery_needed unset instead of failing the read, so an outage cannot
+// hide the history a user would recover.
 func (s *Service) Observe(ctx context.Context, id string) (*apiv1.Session, error) {
 	session, err := s.getAuthorized(ctx, id, auth.VerbGet)
 	if err != nil {

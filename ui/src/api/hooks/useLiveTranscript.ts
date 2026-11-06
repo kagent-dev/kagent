@@ -50,11 +50,8 @@ export function useLiveTranscript(
 }
 
 /**
- * Re-reads a conversation's transcript and its Session record together.
- *
- * Settled rather than awaited as one: a failed Session read must not drop the
- * transcript refresh, and the reverse. Each keeps its previous reading on failure
- * and the next tick tries again, so neither rejection escapes as unhandled.
+ * Re-reads a conversation's transcript and Session record. Each settles on its own, so
+ * one failed read neither drops the other nor escapes as an unhandled rejection.
  */
 export async function refreshConversation(
   transcript: () => Promise<void>,
