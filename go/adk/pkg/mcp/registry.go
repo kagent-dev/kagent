@@ -259,13 +259,15 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 
 // headerRoundTripper wraps an http.RoundTripper to add custom headers to all
 // requests. It supports four sources of headers, applied in this order so that
-// higher-priority sources win on collision:
-//  1. propagateToken: when true, Authorization is read from the incoming A2A
+// later sources win on collision:
+//  1. headers: static key/value pairs configured on the MCP server spec. These
+//     are applied first, as defaults — a dynamic source with the same header
+//     name overrides them.
+//  2. propagateToken: when true, Authorization is read from the incoming A2A
 //     CallContext and forwarded unconditionally (independent of allowedHeaders).
-//  2. allowedHeaders: explicit per-header forwarding from the A2A CallContext.
-//  3. headerProvider: runtime headers derived from ADK context, such as STS tokens.
-//  4. headers: static key/value pairs configured on the MCP server spec (highest
-//     priority — always wins).
+//  3. allowedHeaders: explicit per-header forwarding from the A2A CallContext.
+//  4. headerProvider: runtime headers derived from ADK context, such as STS
+//     tokens (highest priority — always wins).
 type headerRoundTripper struct {
 	base           http.RoundTripper
 	headers        map[string]string
@@ -276,6 +278,12 @@ type headerRoundTripper struct {
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
+
+	// Apply static headers first, as defaults — any dynamic source below that
+	// sets the same header name overrides them.
+	for key, value := range rt.headers {
+		req.Header.Set(key, value)
+	}
 
 	// When KAGENT_PROPAGATE_TOKEN is set, forward Authorization from the incoming
 	// A2A request independently of allowedHeaders.
@@ -294,16 +302,12 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		req.Header.Set(k, v)
 	}
 
-	// Dynamic headers (e.g., STS access tokens) override propagated/allowed headers.
+	// Dynamic headers (e.g., STS access tokens) override propagated/allowed
+	// headers, and are applied last so they win over the static default too.
 	if rt.headerProvider != nil {
 		for key, value := range rt.headerProvider(req.Context()) {
 			req.Header.Set(key, value)
 		}
-	}
-
-	// Apply static headers last — they take precedence over all dynamic sources.
-	for key, value := range rt.headers {
-		req.Header.Set(key, value)
 	}
 
 	return rt.base.RoundTrip(req)
