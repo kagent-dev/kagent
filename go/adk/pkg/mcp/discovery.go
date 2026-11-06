@@ -2,14 +2,10 @@ package mcp
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"slices"
 	"sync"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/sync/semaphore"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 
@@ -43,9 +39,10 @@ func (d *discoveryScope) omit(ts *mcpAppToolset) {
 	d.omitted[ts] = true
 }
 
-// App names are retained independently of the current catalog so existing
-// model-result compaction continues to recognize historical app results.
-// Visibility is enforced on each raw tools/list response, never by this map.
+// Raw metadata survives SDK cache hits, including pages from incomplete lists.
+// Published app names change only after successful discovery and are retained
+// after removal for historical result compaction. Visibility is enforced on
+// each raw tools/list response, never by these maps.
 type mcpAppDiscovery struct {
 	mu             sync.Mutex
 	listedAppNames map[string]bool
@@ -55,7 +52,6 @@ type mcpAppDiscovery struct {
 type mcpAppToolset struct {
 	inner     tool.Toolset
 	discovery *mcpAppDiscovery
-	listingMu *semaphore.Weighted
 }
 
 var _ tool.Toolset = (*mcpAppToolset)(nil)
@@ -67,15 +63,6 @@ func (m *mcpAppToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error)
 		return nil, err
 	}
 	scope, _ := ctx.Value(discoveryScopeKey{}).(*discoveryScope)
-	if scope != nil && scope.isOmitted(m) {
-		return nil, nil
-	}
-	// Keep raw classification and publication together, including SDK cache
-	// hits. Waiters must be able to cancel without interrupting the listing.
-	if err := m.listingMu.Acquire(ctx, 1); err != nil {
-		return nil, err
-	}
-	defer m.listingMu.Release(1)
 	if scope != nil && scope.isOmitted(m) {
 		return nil, nil
 	}
@@ -138,29 +125,13 @@ func newMCPAppClient(configuredFilter map[string]bool, discovery *mcpAppDiscover
 			if method != "tools/list" {
 				return next(ctx, method, req)
 			}
-			params := req.GetParams().(*mcpsdk.ListToolsParams)
-			cursor, err := decodeToolCursor(params.Cursor)
-			if err != nil {
-				return nil, err
-			}
-			// Keep the SDK's cache key intact; only the wire request uses the
-			// server's original opaque cursor.
-			wireParams := *params
-			wireParams.Cursor = cursor.Cursor
-			wireReq := &mcpsdk.ClientRequest[*mcpsdk.ListToolsParams]{Session: req.GetSession().(*mcpsdk.ClientSession), Params: &wireParams}
-			result, err := next(ctx, method, wireReq)
+			result, err := next(ctx, method, req)
 			if err != nil {
 				return nil, err
 			}
 			page, ok := result.(*mcpsdk.ListToolsResult)
 			if !ok || page == nil {
 				return nil, fmt.Errorf("invalid MCP tools/list result")
-			}
-			if page.NextCursor != "" {
-				page.NextCursor, err = cursor.next(page.NextCursor)
-				if err != nil {
-					return nil, err
-				}
 			}
 			visible := make([]*mcpsdk.Tool, 0, len(page.Tools))
 			discovery.mu.Lock()
@@ -186,38 +157,4 @@ func newMCPAppClient(configuredFilter map[string]bool, discovery *mcpAppDiscover
 		}
 	})
 	return client
-}
-
-// ADK does not detect pagination cycles, and SDK cache hits bypass middleware.
-// Carry the visited path in ADK's opaque cursor so a cached prefix participates
-// in cycle detection too. Only the original server cursor goes on the wire.
-type toolCursor struct {
-	Cursor  string
-	Visited []string
-}
-
-func decodeToolCursor(encoded string) (toolCursor, error) {
-	if encoded == "" {
-		return toolCursor{}, nil
-	}
-	data, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return toolCursor{}, fmt.Errorf("failed to decode MCP pagination cursor: %w", err)
-	}
-	var cursor toolCursor
-	if err := json.Unmarshal(data, &cursor); err != nil {
-		return toolCursor{}, fmt.Errorf("failed to decode MCP pagination cursor: %w", err)
-	}
-	return cursor, nil
-}
-
-func (c toolCursor) next(cursor string) (string, error) {
-	if cursor == c.Cursor || slices.Contains(c.Visited, cursor) {
-		return "", fmt.Errorf("repeated MCP pagination cursor")
-	}
-	data, err := json.Marshal(toolCursor{Cursor: cursor, Visited: append(c.Visited, c.Cursor)})
-	if err != nil {
-		return "", fmt.Errorf("failed to encode MCP pagination cursor: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(data), nil
 }

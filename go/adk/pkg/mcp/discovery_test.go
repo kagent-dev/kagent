@@ -18,7 +18,6 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
-	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
@@ -193,31 +192,6 @@ func TestDiscoveryFailureWithoutScopePropagatesAfterSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"a_plain", "c_app"}, discoveryNames(listed))
 	require.EqualValues(t, 3, lists.Load())
-}
-
-func TestRepeatedPaginationCursorOmitsToolset(t *testing.T) {
-	// Given pagination repeats a cursor, when classification runs, assert that
-	// it stops and publishes neither a partial filter nor app metadata.
-	var lists atomic.Int32
-	var firstCursor string
-	server := newDiscoveryServer(t, 1, func(ctx context.Context, method string, req mcpsdk.Request, next mcpsdk.MethodHandler) (mcpsdk.Result, error) {
-		result, err := next(ctx, method, req)
-		if method == "tools/list" && err == nil {
-			lists.Add(1)
-			page := result.(*mcpsdk.ListToolsResult)
-			if firstCursor == "" {
-				firstCursor = page.NextCursor
-			}
-			page.NextCursor = firstCursor
-		}
-		return result, err
-	}, nil)
-	ts := discoveryToolset(t, server.URL, nil)
-	listed, err := ts.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
-	require.NoError(t, err)
-	require.Empty(t, listed)
-	require.Empty(t, MCPAppToolNamesFromToolsets(t.Context(), []tool.Toolset{ts}))
-	require.EqualValues(t, 2, lists.Load())
 }
 
 func TestEmptyLegacyCatalogRemainsClassified(t *testing.T) {
@@ -428,54 +402,6 @@ func TestPartialSDKCacheRetainsMetadataForLaterRecovery(t *testing.T) {
 	require.Empty(t, listed, "recovery cannot undo another execution's omission")
 }
 
-func TestPaginationCycleThroughCachedPagesRespectsDiscoveryScope(t *testing.T) {
-	// Given cached prefix pages, when an expired final page points back into
-	// that prefix, assert that scoped discovery omits it and standalone discovery errors.
-	var corrupt atomic.Bool
-	var firstCursor string
-	var firstPages atomic.Int32
-	server := newCacheableDiscoveryServer(1, 60000)
-	url := serveDiscoveryServer(t, server, func(ctx context.Context, method string, req mcpsdk.Request, next mcpsdk.MethodHandler) (mcpsdk.Result, error) {
-		result, err := next(ctx, method, req)
-		if method == "tools/list" && err == nil {
-			page := result.(*mcpsdk.ListToolsResult)
-			if req.GetParams().(*mcpsdk.ListToolsParams).Cursor == "" {
-				firstPages.Add(1)
-				firstCursor = page.NextCursor
-			}
-			if page.NextCursor == "" {
-				page.TTLMs = 0
-				if corrupt.Load() {
-					page.NextCursor = firstCursor
-				}
-			}
-		}
-		return result, err
-	}, nil, true).URL
-	ts := discoveryToolset(t, url, nil)
-	listed, err := ts.Tools(testReadonlyContext{Context: t.Context()})
-	require.NoError(t, err)
-	require.Equal(t, []string{"a_plain", "c_app"}, discoveryNames(listed))
-	corrupt.Store(true)
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	listed, err = ts.Tools(testReadonlyContext{Context: ctx})
-	require.ErrorContains(t, err, "repeated MCP pagination cursor")
-	require.Empty(t, listed)
-	require.EqualValues(t, 1, firstPages.Load(), "the malformed page must be reached through the cached prefix")
-	scoped := testReadonlyContext{Context: WithDiscoveryScope(ctx)}
-	listed, err = ts.Tools(scoped)
-	require.NoError(t, err)
-	require.Empty(t, listed)
-	corrupt.Store(false)
-	listed, err = ts.Tools(scoped)
-	require.NoError(t, err)
-	require.Empty(t, listed)
-	listed, err = ts.Tools(testReadonlyContext{Context: WithDiscoveryScope(ctx)})
-	require.NoError(t, err)
-	require.Equal(t, []string{"a_plain", "c_app"}, discoveryNames(listed))
-}
-
 func TestFailedDiscoveryDoesNotPublishStaleAppNamesAfterRecovery(t *testing.T) {
 	// Given an app page followed by a failure, when the server changes that
 	// tool to ordinary before recovery, assert that partial metadata is not published.
@@ -501,6 +427,38 @@ func TestFailedDiscoveryDoesNotPublishStaleAppNamesAfterRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"a_app", "c_app"}, discoveryNames(listed))
 	require.Equal(t, map[string]bool{"c_app": true}, MCPAppToolNamesFromToolsets(t.Context(), []tool.Toolset{ts}))
+}
+
+func TestFailedDiscoveryDoesNotRetainRemovedUnpublishedAppNames(t *testing.T) {
+	// Given a published ordinary tool, when an app reclassification listing
+	// fails and recovery removes it, assert that its app name is never published.
+	var unavailable atomic.Bool
+	server := newCacheableDiscoveryServer(1, 0)
+	server.RemoveTools("a_plain")
+	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "a_changing"}, discoveryToolHandler)
+	url := serveDiscoveryServer(t, server, func(ctx context.Context, method string, req mcpsdk.Request, next mcpsdk.MethodHandler) (mcpsdk.Result, error) {
+		if method == "tools/list" && req.GetParams().(*mcpsdk.ListToolsParams).Cursor != "" && unavailable.Load() {
+			return nil, errors.New("later page unavailable")
+		}
+		return next(ctx, method, req)
+	}, nil, true).URL
+	ts := discoveryToolset(t, url, nil)
+	listed, err := ts.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
+	require.NoError(t, err)
+	require.Equal(t, []string{"a_changing", "c_app"}, discoveryNames(listed))
+	require.Equal(t, map[string]bool{"c_app": true}, MCPAppToolNamesFromToolsets(t.Context(), []tool.Toolset{ts}))
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "a_changing", Meta: mcpsdk.Meta{"ui": map[string]any{"resourceUri": "ui://changing"}}}, discoveryToolHandler)
+	unavailable.Store(true)
+	listed, err = ts.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
+	require.NoError(t, err)
+	require.Empty(t, listed)
+	server.RemoveTools("a_changing")
+	unavailable.Store(false)
+	listed, err = ts.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
+	require.NoError(t, err)
+	require.Equal(t, []string{"c_app"}, discoveryNames(listed))
+	require.Equal(t, map[string]bool{"c_app": true}, MCPAppToolNamesFromToolsets(t.Context(), []tool.Toolset{ts}), "failed partial metadata must not compact old ordinary results")
 }
 
 func TestSuccessfulDiscoveryClearsReclassifiedAppNames(t *testing.T) {
@@ -547,50 +505,6 @@ func TestSuccessfulDiscoveryClearsReclassifiedAppNames(t *testing.T) {
 	}
 }
 
-func TestDiscoveryPublicationWaiterCanBeCanceled(t *testing.T) {
-	// Given an app listing awaits publication, when a concurrent invocation is
-	// canceled after the catalog changes, assert that it cannot alter that listing.
-	var ordinary atomic.Bool
-	var lists atomic.Int32
-	server := newDiscoveryServer(t, 0, func(ctx context.Context, method string, req mcpsdk.Request, next mcpsdk.MethodHandler) (mcpsdk.Result, error) {
-		result, err := next(ctx, method, req)
-		if method == "tools/list" && err == nil {
-			lists.Add(1)
-			if ordinary.Load() {
-				for _, candidate := range result.(*mcpsdk.ListToolsResult).Tools {
-					if candidate.Name == "c_app" {
-						candidate.Meta = nil
-					}
-				}
-			}
-		}
-		return result, err
-	}, nil)
-	ts := discoveryToolset(t, server.URL, nil)
-	entered, release := make(chan struct{}), make(chan struct{})
-	ts.inner = &publicationPausedToolset{Toolset: ts.inner, Closer: ts.inner.(io.Closer), entered: entered, release: release}
-	var releaseOnce sync.Once
-	releaseFirst := func() { releaseOnce.Do(func() { close(release) }) }
-	t.Cleanup(releaseFirst)
-	done := make(chan error, 1)
-	go func() { _, err := ts.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())}); done <- err }()
-	<-entered
-	ordinary.Store(true)
-	ctx, cancel := context.WithTimeout(WithDiscoveryScope(t.Context()), 100*time.Millisecond)
-	defer cancel()
-	listed, err := ts.Tools(testReadonlyContext{Context: ctx})
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Empty(t, listed)
-	require.EqualValues(t, 1, lists.Load(), "waiting must cover publication, not just the network request")
-	releaseFirst()
-	require.NoError(t, <-done)
-	require.Equal(t, map[string]bool{"c_app": true}, MCPAppToolNamesFromToolsets(t.Context(), []tool.Toolset{ts}))
-	listed, err = ts.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
-	require.NoError(t, err)
-	require.Equal(t, []string{"a_plain", "c_app"}, discoveryNames(listed))
-	require.Empty(t, MCPAppToolNamesFromToolsets(t.Context(), []tool.Toolset{ts}))
-}
-
 func TestConcurrentDiscoveryKeepsEachResponseFiltered(t *testing.T) {
 	// Given concurrent uncached listings with different visibility, when both
 	// finish, assert that one response's classification never filters the other.
@@ -623,19 +537,11 @@ func TestConcurrentDiscoveryKeepsEachResponseFiltered(t *testing.T) {
 		done <- listed
 	}()
 	<-entered
-	waiter := &observedReadonlyContext{testReadonlyContext: testReadonlyContext{Context: WithDiscoveryScope(t.Context())}, waiting: make(chan struct{})}
-	secondDone := make(chan []tool.Tool, 1)
-	go func() {
-		listed, err := ts.Tools(waiter)
-		if err != nil {
-			t.Error(err)
-		}
-		secondDone <- listed
-	}()
-	<-waiter.waiting
+	listed, err := ts.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
+	require.NoError(t, err)
+	require.Empty(t, listed)
 	releaseFirst()
 	require.Equal(t, []string{"same_name"}, discoveryNames(<-done))
-	require.Empty(t, <-secondDone)
 }
 
 func TestStdioDiscoveryStartsOnlyOneProcess(t *testing.T) {
@@ -683,23 +589,6 @@ func TestStdioDiscoveryHelper(t *testing.T) {
 }
 
 type discoveryMiddleware func(context.Context, string, mcpsdk.Request, mcpsdk.MethodHandler) (mcpsdk.Result, error)
-
-type publicationPausedToolset struct {
-	tool.Toolset
-	io.Closer
-	entered chan struct{}
-	release <-chan struct{}
-	calls   atomic.Int32
-}
-
-func (p *publicationPausedToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
-	listed, err := p.Toolset.Tools(ctx)
-	if p.calls.Add(1) == 1 {
-		close(p.entered)
-		<-p.release
-	}
-	return listed, err
-}
 
 type observedReadonlyContext struct {
 	testReadonlyContext

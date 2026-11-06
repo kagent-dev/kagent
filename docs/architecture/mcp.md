@@ -78,55 +78,27 @@ The implementation is in [`go/core/internal/mcp`](../../go/core/internal/mcp).
 
 ## Go ADK runtime discovery
 
-The Go ADK builds lazy MCP toolsets for the root agent and its subagents. Runtime
-startup neither connects to HTTP or SSE MCP servers nor starts stdio MCP
-processes. Readiness and Actor resume therefore do not wait for remote tool
-discovery.
+The Go ADK connects to MCP servers and discovers tools during invocation
+preparation. Startup and Actor resume do not wait for HTTP or SSE connections
+or start stdio MCP processes. This also applies to subagents.
 
-During invocation preparation, ADK opens its MCP connection and discovers tools.
-Client sending middleware classifies each raw `tools/list` page before ADK drops
-the MCP `_meta` fields. It removes app-only tools and tools outside the configured
-allowlist from the response itself. There is no separate classification
-connection, second listing, or process-lifetime visibility whitelist.
+Discovery filters app-only tools and applies configured allowlists before tools
+reach the model. The MCP SDK caches filtered responses and owns TTL expiry and
+catalog-notification invalidation. Cached tools remain filtered. Credentials,
+approvals, and tool-call authorization continue to apply.
 
-The MCP SDK caches the **filtered** responses using the server's TTLs. Cache hits
-bypass middleware but remain filtered. The SDK owns expiry, catalog-notification
-invalidation, and the cache of each connection; kagent neither disables this cache
-nor duplicates it. A list-changed handler enables subscriptions for servers using
-the newer MCP protocol. Legacy servers without list caching are discovered once
-per model step. Discovery and tool calls use the existing credential, approval,
-and tracing paths; cached discovery does not replace tool-call authorization.
+If discovery fails, that server's toolset stays hidden for the current A2A
+execution, including subsequent model steps and subagent calls. Healthy toolsets
+remain available. The next execution retries, including an approval continuation.
+There is no fallback to unclassified tools. Discovery failures are logged as
+warnings. Cancellation and tool-call errors retain their existing handling.
 
-ADK does not guard against repeated pagination cursors. Kagent carries the visited
-cursor path in the opaque cursor ADK sees, restoring the server's original cursor
-on outgoing requests. This makes cycle checks include cached prefix pages while
-preserving SDK caching and the cursors sent to the server.
-
-Discovery and classification publication are serialized per toolset; waiting
-invocations can cancel without interrupting the active listing. This prevents
-overlapping listings from mixing app classifications while preserving SDK caching.
-
-MCP App result compaction retains discovered app tool names separately from
-visibility filtering. Names absent from the catalog remain available for historical
-compaction during the process lifetime. A complete successful listing clears names
-that now identify ordinary tools, so their new results reach the model intact.
-Because compaction is name-based, their historical app results also stop being
-compacted. App names are not exposed before a complete successful discovery, and
-failed executions do not consume another execution's recovered metadata. The
-before-model callback continues to compact only the model-facing copy; stored
-results remain rich for UI rendering. A volume-only restore starts a new process,
-so discovery and classification happen again after readiness.
-
-If discovery fails, that server's entire toolset is omitted for the current A2A
-execution, including subsequent model steps and subagent calls, even if earlier
-discovery succeeded. Healthy toolsets remain available. A later execution retries,
-including an approval continuation with reused invocation identifiers. There is
-no fallback to unclassified tools. Cancellation and tool-call errors still
-propagate. Malformed catalogs and pagination failures follow the same omission
-policy and are logged as warnings. ADK retains its existing connection-recovery
-retry; kagent adds no background retry loop.
+MCP App results are compacted for the model while stored results remain intact
+for UI rendering. Removed app names remain recognized for historical compaction
+during the process lifetime. Tools reclassified as ordinary keep their full
+output, including historical results. A new process rediscovers app metadata
+during invocation preparation.
 
 Standalone runners can use `mcp.WithDiscoveryScope(ctx)` for each `runner.Run`
-to get the same omission and retry behavior. Without that scope, classification
-failure returns an error. Controller-side catalog discovery used by the UI is
-independent of runtime discovery.
+to get the same omission behavior. Without it, discovery errors propagate.
+Controller-side catalog discovery used by the UI is independent.

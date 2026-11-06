@@ -14,7 +14,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"golang.org/x/sync/semaphore"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -391,5 +390,5 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
-	return &mcpAppToolset{inner: toolset, discovery: discovery, listingMu: semaphore.NewWeighted(1)}, nil
+	return &mcpAppToolset{inner: toolset, discovery: discovery}, nil
 }
