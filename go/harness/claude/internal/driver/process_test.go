@@ -3,19 +3,24 @@ package driver
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"go.opentelemetry.io/otel/trace"
 
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 )
 
 type recordingSink struct {
 	sessions []runtime.SessionStarted
+	notices  []runtime.Notice
 	text     strings.Builder
 	models   []runtime.ModelCall
 	calls    []runtime.ToolCall
@@ -25,6 +30,10 @@ type recordingSink struct {
 
 func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
 	s.sessions = append(s.sessions, event)
+	return nil
+}
+func (s *recordingSink) Notice(event runtime.Notice) error {
+	s.notices = append(s.notices, event)
 	return nil
 }
 func (s *recordingSink) TextDelta(event runtime.TextDelta) error {
@@ -169,6 +178,190 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	}
 	if len(sink.sessions) != 1 || sink.sessions[0].ContinuationID != turn.ContinuationID {
 		t.Errorf("session events = %#v", sink.sessions)
+	}
+}
+
+// Claude Code works in the directory each turn's dispatch names, its
+// configured workspace without one; a session directory with mirrors is set
+// up before the turn, and a fetch its origin refuses is the turn's notice
+// while the turn still runs.
+func TestProcessDriverWorksInTheDispatchedDirectory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is required")
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "pwd")
+	executable := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\npwd > \"$CAPTURE\"\nprintf '%s\\n' \"$GIT_CONFIG_KEY_0=$GIT_CONFIG_VALUE_0\" > \"$CAPTURE.git\"\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configured := filepath.Join(dir, "data-workspace")
+	sessionDirectory := filepath.Join(dir, "session")
+	mirrors := filepath.Join(dir, "mirrors")
+	for _, directory := range []string{configured, sessionDirectory} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A mirror whose origin is gone: its fetch is refused.
+	origin := filepath.Join(dir, "origin")
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=main", origin},
+		{"-C", origin, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "--allow-empty", "--message", "initial"},
+		{"clone", "--quiet", "--mirror", "file://" + origin, filepath.Join(mirrors, "o", "r.git")},
+	} {
+		if output, err := exec.CommandContext(t.Context(), "git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	if err := os.RemoveAll(origin); err != nil {
+		t.Fatal(err)
+	}
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: configured, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	for _, test := range []struct {
+		name       string
+		params     map[string][]string
+		want       string
+		wantNotice string
+		// wantGit is the git configuration Claude's environment adds.
+		wantGit string
+	}{
+		{name: "no dispatch", want: configured},
+		{name: "durable directory", params: map[string][]string{kagenta2a.WorkingDirectoryHeader: {configured}}, want: configured},
+		{
+			name: "session directory",
+			params: map[string][]string{
+				kagenta2a.WorkingDirectoryHeader: {sessionDirectory}, kagenta2a.MirrorsDirectoryHeader: {mirrors}, kagenta2a.ChangedRepositoriesHeader: {"o/r"},
+			},
+			want: sessionDirectory, wantNotice: "o/r: the fetch from origin failed",
+			wantGit: "safe.directory=" + filepath.Join(mirrors, "*"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			if test.params != nil {
+				ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(test.params))
+			}
+			sink := &recordingSink{}
+			if _, err := d.Run(ctx, runtime.Turn{Prompt: "hello"}, sink); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			pwd, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.TrimSpace(string(pwd)); got != test.want {
+				t.Errorf("Claude's working directory = %q, want %q", got, test.want)
+			}
+			gitConfig, err := os.ReadFile(capture + ".git")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.TrimSuffix(strings.TrimSpace(string(gitConfig)), "="); got != test.wantGit {
+				t.Errorf("Claude's git configuration = %q, want %q", got, test.wantGit)
+			}
+			if test.wantNotice == "" {
+				if len(sink.notices) != 0 {
+					t.Errorf("notices = %#v, want none", sink.notices)
+				}
+				return
+			}
+			if len(sink.notices) != 1 || !strings.Contains(sink.notices[0].Text, test.wantNotice) || sink.notices[0].Kind != kagenta2a.WorkspaceSetupNotice {
+				t.Errorf("notices = %#v, want one workspace-setup notice with %q", sink.notices, test.wantNotice)
+			}
+			for _, path := range []string{"o/r/.git/objects/info/alternates", workspaceNotes} {
+				if _, err := os.Stat(filepath.Join(sessionDirectory, path)); err != nil {
+					t.Errorf("the session directory misses %s: %v", path, err)
+				}
+			}
+			// The next turn finds the directory set up, retries the refused
+			// fetch alone, and reports it again.
+			sink = &recordingSink{}
+			if _, err := d.Run(ctx, runtime.Turn{Prompt: "again"}, sink); err != nil {
+				t.Fatalf("second Run() error = %v", err)
+			}
+			if len(sink.notices) != 1 || !strings.Contains(sink.notices[0].Text, test.wantNotice) || strings.Contains(sink.notices[0].Text, workspace.FreshDirectoryNotice) {
+				t.Errorf("second turn notices = %#v, want one with %q", sink.notices, test.wantNotice)
+			}
+		})
+	}
+}
+
+// A returning session, one that continues an earlier conversation, whose
+// directory has no setup record, such as after the volume's owner cleaned it
+// up, is told in its first status message that the directory was set up
+// again; a session's first-ever turn and a later turn are not.
+func TestProcessDriverTellsAReturningSessionOfAFreshDirectory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is required")
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	origin := filepath.Join(dir, "origin")
+	mirrors := filepath.Join(dir, "mirrors")
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=main", origin},
+		{"-C", origin, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "--allow-empty", "--message", "initial"},
+		{"clone", "--quiet", "--mirror", "file://" + origin, filepath.Join(mirrors, "o", "r.git")},
+	} {
+		if output, err := exec.CommandContext(t.Context(), "git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: filepath.Join(dir, "data-workspace"), MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	const continuation = "11111111-1111-4111-8111-111111111111"
+	for _, test := range []struct {
+		name  string
+		turns []runtime.Turn
+		// want is the first status message of each turn, empty for none.
+		want []string
+	}{
+		{
+			name:  "first-ever turn",
+			turns: []runtime.Turn{{Prompt: "hello"}, {Prompt: "again", ContinuationID: continuation}},
+			want:  []string{"", ""},
+		},
+		{
+			name:  "returning session",
+			turns: []runtime.Turn{{Prompt: "back", ContinuationID: continuation}, {Prompt: "again", ContinuationID: continuation}},
+			want:  []string{workspace.FreshDirectoryNotice, ""},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// The volume creates a missing session directory empty.
+			sessionDirectory := t.TempDir()
+			ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{
+				kagenta2a.WorkingDirectoryHeader: {sessionDirectory}, kagenta2a.MirrorsDirectoryHeader: {mirrors},
+			}))
+			for i, turn := range test.turns {
+				sink := &recordingSink{}
+				if _, err := d.Run(ctx, turn, sink); err != nil {
+					t.Fatalf("turn %d: Run() error = %v", i, err)
+				}
+				var got []string
+				for _, notice := range sink.notices {
+					got = append(got, notice.Text)
+				}
+				if test.want[i] == "" && len(got) != 0 {
+					t.Errorf("turn %d: notices = %q, want none", i, got)
+				}
+				if test.want[i] != "" && !slices.Equal(got, []string{test.want[i]}) {
+					t.Errorf("turn %d: notices = %q, want %q", i, got, test.want[i])
+				}
+			}
+			if _, err := os.Stat(filepath.Join(sessionDirectory, workspace.StateFile)); err != nil {
+				t.Errorf("the setup is not recorded: %v", err)
+			}
+		})
 	}
 }
 

@@ -507,6 +507,7 @@ func (discardSink) SessionStarted(runtime.SessionStarted) error { return nil }
 func (discardSink) TextDelta(runtime.TextDelta) error           { return nil }
 func (discardSink) ToolCall(runtime.ToolCall) error             { return nil }
 func (discardSink) ToolResult(runtime.ToolResult) error         { return nil }
+func (discardSink) Notice(runtime.Notice) error                 { return nil }
 
 var _ runtime.EventSink = discardSink{}
 
