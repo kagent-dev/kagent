@@ -319,3 +319,14 @@ missing worker capacity fails the test rather than skipping continuation coverag
 There are no retries around list calls, so a Substrate token-format change fails
 on continuation. Run with `KAGENT_E2E_API_URL` and the normal kagent harness fixture
 configured, using `go test ./core/test/e2e -run '^TestSubstrateInventoryPagination$'`.
+
+`TestSessionWorkspaceSource` prepares a pinned HTTPS repository through golden
+egress for Go ADK, Codex, and Claude. It verifies first-turn files and native
+instruction discovery, independent Session copies, checkpoint forks, and
+restoration after the source credential becomes invalid. One Go ADK case
+exercises bad-credential recovery through the shared golden retry controller; the other harnesses avoid
+repeating the same startup timeout. `TestSandboxWorkspaceSource` covers the
+separate SandboxTemplate preparation path, runtime Git grant isolation, and
+persistent edits across suspend/resume. Both run in the normal backend matrix.
+Current Substrate workers can consume the four-minute wakeup probe after an
+early Git failure, so compare failure detection separately from retry backoff.

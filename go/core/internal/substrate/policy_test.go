@@ -168,3 +168,31 @@ func TestActorJWTHeaderUsesGatewayMinting(t *testing.T) {
 		})
 	}
 }
+
+func TestGoldenPolicyComposesBootstrapAndGit(t *testing.T) {
+	t.Run("Given private Git access, when compiling golden policy, assert that bootstrap and Git keep distinct credentials", func(t *testing.T) {
+		access := egress.Access{Destinations: []string{"https://git.example"}, Credentials: []egress.Credential{{Origin: "https://git.example", Header: "Authorization", URI: "ate-secret://k8s.io/default/team/git/header"}}}
+		policy, err := bootstrapEgressPolicy("team", "https://controller.example", &access)
+		require.NoError(t, err)
+		require.Len(t, policy.Rules, 2)
+		headers, err := policyHeaders(&ateapipb.EgressPolicy{Rules: policy.Rules})
+		require.NoError(t, err)
+		bootstrap := headers["https://controller.example:443\x00authorization"]
+		require.Equal(t, []string{"kagent-bootstrap"}, bootstrap.GetActorJwt().GetAudiences())
+		require.Empty(t, bootstrap.GetCredentialUri())
+		git := headers["https://git.example:443\x00authorization"]
+		require.Equal(t, access.Credentials[0].URI, git.GetCredentialUri())
+		require.Nil(t, git.GetActorJwt())
+	})
+	t.Run("Given Git on the bootstrap origin, when compiling its Authorization grant, assert that the conflict is rejected", func(t *testing.T) {
+		access := egress.Access{Destinations: []string{"https://CONTROLLER.example:443"}, Credentials: []egress.Credential{{Origin: "https://controller.example", Header: "Authorization", URI: "ate-secret://k8s.io/default/team/git/header"}}}
+		_, err := bootstrapEgressPolicy("team", "https://controller.example", &access)
+		require.ErrorContains(t, err, "conflicting")
+	})
+	t.Run("Given duplicate bootstrap access without credentials, when composing policy, assert that one rule retains bootstrap authority", func(t *testing.T) {
+		policy, err := bootstrapEgressPolicy("team", "https://controller.example", &egress.Access{Destinations: []string{"https://CONTROLLER.example:443"}})
+		require.NoError(t, err)
+		require.Len(t, policy.Rules, 1)
+		require.Equal(t, []string{"kagent-bootstrap"}, policy.Rules[0].GetHttps().GetEffects().GetReplaceHeaders()[0].GetActorJwt().GetAudiences())
+	})
+}

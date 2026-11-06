@@ -120,6 +120,7 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	if d.config.ApprovalBroker != nil {
 		args = append(args,
 			"--setting-sources", "",
+			"--add-dir", d.config.Workspace,
 			"--settings", d.config.SettingsPath,
 			"--permission-prompt-tool", d.config.PermissionPromptTool,
 		)

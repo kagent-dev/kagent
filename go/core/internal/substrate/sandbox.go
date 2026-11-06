@@ -1,6 +1,7 @@
 package substrate
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,10 +10,13 @@ import (
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/image"
 )
 
@@ -35,7 +39,7 @@ type sandboxInputs struct {
 
 // SandboxActorTemplate compiles standalone inputs without an Agent Card or Harness.
 // The image's entrypoint is replaced by the pinned, platform-managed guest.
-func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1.SandboxClass, policy SandboxPolicy) (*ateapipb.ActorTemplate, string, json.RawMessage, error) {
+func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1.SandboxClass, policy SandboxPolicy, workspace *configv1.GitWorkspaceConfig, goldenAccess egress.Access) (*ateapipb.ActorTemplate, string, json.RawMessage, error) {
 	if !image.IsDigestPinned(policy.GuestImage) || !image.IsDigestPinned(template.Spec.Workload.Image) {
 		return nil, "", nil, fmt.Errorf("sandbox workload and guest images must be pinned by sha256 digest")
 	}
@@ -93,6 +97,23 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1.Sandbo
 			// Pin the server default so immutable comparison survives creation.
 			GoldenSnapshotConfig: &ateapipb.GoldenSnapshotConfig{Mode: ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED},
 		},
+	}
+	if workspace != nil {
+		config, err := protojson.Marshal(workspace)
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("encode sandbox workspace: %w", err)
+		}
+		// ProtoJSON may add insignificant whitespace; argv is hashed verbatim.
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, config); err != nil {
+			return nil, "", nil, fmt.Errorf("compact sandbox workspace: %w", err)
+		}
+		result.Containers[0].Args = append(result.Containers[0].Args, "--workspace-source="+compact.String())
+		result.Containers[0].WakeupProbe.TimeoutSeconds = workspaceWakeupTimeoutSeconds
+		result.GoldenEgressPolicy, err = goldenEgressPolicy(template.Namespace, goldenAccess)
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("compile sandbox preparation policy: %w", err)
+		}
 	}
 	// Hash the compiled template and source identity. Live policy references
 	// remain in provenance but do not affect immutable runtime contents.

@@ -8,6 +8,8 @@ COPY go.mod go.sum ./
 COPY core/pkg/consts/ core/pkg/consts/
 COPY core/pkg/env/ core/pkg/env/
 COPY pkg/logging/ pkg/logging/
+COPY pkg/workspace/ pkg/workspace/
+COPY api/gen/ api/gen/
 COPY sandbox/guest/cmd/ sandbox/guest/cmd/
 
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
