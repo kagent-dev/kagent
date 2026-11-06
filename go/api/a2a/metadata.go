@@ -14,6 +14,9 @@ const (
 	UsageMetadataKey            = MetadataPrefix + "usage"
 	// ThoughtMetadataKey marks a text part that summarizes the model's reasoning, not its answer.
 	ThoughtMetadataKey = MetadataPrefix + "thought"
+	// AuthorMetadataKey names the agent that wrote an artifact or message. A
+	// workflow has one author per node, so the chat can attribute each reply.
+	AuthorMetadataKey = MetadataPrefix + "author"
 )
 
 // IsThought reports whether a part summarizes the model's reasoning rather than answering.

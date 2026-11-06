@@ -1,0 +1,17 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: human_approval
+    agent_class: Workflow
+    nodes:
+      - { id: draft, type: function, function: draft_text }
+      - { id: approve, type: hitl, message: "Publish this draft?" }
+      - { id: verdict, type: function, function: verdict }
+      - { id: publish, type: function, function: publisher }
+      - { id: reject, type: function, function: rejecter }
+    edges:
+      - { from: START, to: draft }
+      - { from: draft, to: approve }
+      - { from: approve, to: verdict }
+      - { from: verdict, to: publish, route: APPROVED }
+      - { from: verdict, to: reject, route: REJECTED }

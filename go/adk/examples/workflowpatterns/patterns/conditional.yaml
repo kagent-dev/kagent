@@ -1,0 +1,13 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: conditional
+    agent_class: Workflow
+    nodes:
+      - { id: is_long, type: function, function: is_long }
+      - { id: truncate, type: function, function: truncate }
+      - { id: keep, type: function, function: clean }
+    edges:
+      - { from: START, to: is_long }
+      - { from: is_long, to: truncate, route: "true" }
+      - { from: is_long, to: keep, route: "false" }

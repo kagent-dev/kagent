@@ -16,7 +16,7 @@ func TestCanonicalizeADKEvent(t *testing.T) {
 		"adk_is_long_running": true,
 		"adk_thought":         true,
 	}
-	artifact := &a2atype.Artifact{Parts: []*a2atype.Part{part}}
+	artifact := &a2atype.Artifact{Parts: []*a2atype.Part{part}, Metadata: map[string]any{"adk_author": "critic"}}
 	event := &a2atype.TaskArtifactUpdateEvent{
 		Artifact: artifact,
 		Metadata: map[string]any{
@@ -32,6 +32,9 @@ func TestCanonicalizeADKEvent(t *testing.T) {
 	}
 	if part.Metadata[apia2a.ThoughtMetadataKey] != true {
 		t.Fatalf("a thought must stay marked once ADK's keys go: %#v", part.Metadata)
+	}
+	if artifact.Metadata[apia2a.AuthorMetadataKey] != "critic" {
+		t.Fatalf("the author must survive for the chat to attribute the reply: %#v", artifact.Metadata)
 	}
 	if _, ok := part.Metadata["adk_is_long_running"]; ok {
 		t.Fatalf("long-running adapter metadata leaked: %#v", part.Metadata)

@@ -1,0 +1,13 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: isolated_children
+    agent_class: Workflow
+    nodes:
+      - { id: review, type: dynamic, function: review_both, children: [ask_first, ask_second], isolation: branch }
+      - { id: ask_first, type: agent, agent: first }
+      - { id: ask_second, type: agent, agent: second }
+    edges:
+      - { from: START, to: review }
+  - { name: first, agent_class: LlmAgent, model: history, mode: chat, instruction: Answer. }
+  - { name: second, agent_class: LlmAgent, model: history, mode: chat, instruction: Answer. }

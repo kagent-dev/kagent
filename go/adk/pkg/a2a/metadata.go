@@ -67,6 +67,7 @@ func canonicalizeADKPart(part *a2atype.Part) {
 
 func canonicalizeADKMetadata(metadata map[string]any) {
 	copyADKMetadata(metadata, adka2a.ToA2AMetaKey("usage_metadata"), apia2a.UsageMetadataKey)
+	copyADKMetadata(metadata, adka2a.ToA2AMetaKey("author"), apia2a.AuthorMetadataKey)
 	for key := range metadata {
 		if strings.HasPrefix(key, "adk_") {
 			delete(metadata, key)
