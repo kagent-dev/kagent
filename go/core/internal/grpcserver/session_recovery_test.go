@@ -129,6 +129,14 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 					require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
 				}
 			}
+			observeRecovery := func(needed bool) *apiv1.Session {
+				t.Helper()
+				response, err := client.GetSession(owner, &apiv1.GetSessionRequest{SessionId: session.Id})
+				require.NoError(t, err)
+				require.Equal(t, new(needed), response.Session.RecoveryNeeded)
+				return response.Session
+			}
+			observeRecovery(false)
 			request := &apiv1.RevertSessionRequest{SessionId: session.Id}
 			if test.noSnapshot {
 				control.actors[name].Status.Snapshots = nil
@@ -146,6 +154,10 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			require.NoError(t, err, "a healthy runtime has nothing to recover")
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, healthy.Session.State)
 			control.actors[name].Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
+			crashed := observeRecovery(true)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, crashed.State)
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, crashed.Operation)
+			require.Nil(t, crashed.Failure)
 			before := proto.CloneOf(control.actors[name])
 			control.actors[name].Metadata.Uid = "replacement-uid"
 			_, err = client.RevertSession(owner, request)
@@ -173,10 +185,13 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			failed, err := client.GetSession(owner, &apiv1.GetSessionRequest{SessionId: session.Id})
 			require.NoError(t, err)
 			require.Equal(t, database.SessionRuntimeCrashed, failed.Session.Failure.Reason)
+			require.Equal(t, new(true), failed.Session.RecoveryNeeded)
 			ready, err := client.RevertSession(owner, request)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, ready.Session.State)
 			require.Nil(t, ready.Session.Failure)
+			require.Nil(t, ready.Session.RecoveryNeeded, "only GetSession reports recovery")
+			observeRecovery(false)
 			// Retry as a client whose success response was lost.
 			retried, err := client.RevertSession(owner, request)
 			require.NoError(t, err)

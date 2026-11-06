@@ -265,11 +265,19 @@ retires the claim in its transaction, so a late finish records nothing.
 Execution reverts the same Actor to its last durable snapshot without replaying
 input. A runtime without a durable snapshot returns to its initial state.
 An interrupted revert continues from REVERTING; a lost response can be reconciled
-from SUSPENDED. Nothing retries a recovery in the background. An admitted
-recovery survives API restarts as a durable REVERT operation, and the client
-continues it by retrying RevertSession, as with Create and Delete. While it is
-pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`,
-and interactions are refused because a lifecycle operation is in progress.
+from SUSPENDED. An admitted recovery survives API restarts as a durable REVERT
+operation, and the client continues it by retrying RevertSession, as with Create
+and Delete. Nothing retries it in the background. While it is
+pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`.
+
+An A2A send also starts recovery. Substrate cannot resume a crashed Actor, so
+a send to one fails before the runtime accepts it. When the gateway proves the
+input was not accepted, it runs the same Revert on that Session before
+answering `KAGENT_SEND_NOT_ACCEPTED`, so the client's retry reaches the restored
+runtime. A Revert of a healthy runtime returns at once. A send while recovery is
+pending joins it the same way. The revert uses the send's own authorization, and
+continues if the caller disconnects. A missing or replaced Actor answers the
+send with a non-retryable error.
 
 Delete supersedes an admitted recovery even after an attempt issued the revert.
 Other issued lifecycle work blocks Delete because it may still create something
@@ -283,6 +291,14 @@ A successful revert returns the Session to READY with the same Actor suspended.
 The next authorized interaction resumes it through Substrate ingress. Runtime
 changes after the retained snapshot are lost; the discarded turn receives no
 checkpoint at that older snapshot. Another revert returns the Session.
+
+`GetSession` reports `recovery_needed`, a read-only observation of the recorded
+Actor. It is the only Session read that calls Substrate; MCP and the other
+Session responses read the stored record and leave it unset. An unavailable or
+replaced Actor leaves the observation unknown and does not prevent history
+reads. The observation and `RevertSession` share one crash check, so chat offers
+a revert exactly when the revert would be admitted. Chat offers that revert and
+the existing fork action for a saved READY checkpoint.
 
 ```mermaid
 sequenceDiagram

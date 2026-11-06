@@ -53,6 +53,7 @@ const PHASE_LABEL: Partial<Record<ChatTurnPhase, string>> = {
  */
 export function ChatTranscript({
   chat,
+  recoveryNeeded = false,
   readOnly = false,
   isLoading = false,
   sessionId,
@@ -66,6 +67,8 @@ export function ChatTranscript({
   checkpointByMessage,
 }: {
   chat: ChatController;
+  /** A crashed runtime cannot answer a pending question, so none is offered. */
+  recoveryNeeded?: boolean;
   /** Suppresses replies, approvals, cancellation, and retry controls. */
   readOnly?: boolean;
   /** Keeps the history skeleton visible while the conversation record is resolving. */
@@ -104,6 +107,7 @@ export function ChatTranscript({
   sessionId?: string;
 }) {
   const theme = useTheme();
+  const pendingQuestion = recoveryNeeded ? undefined : chat.pendingQuestion;
   /* A boundary falls after the last message of the turn it was taken at, so the
      messages are grouped by turn before they are drawn and the line goes between. */
   const groups = useMemo(
@@ -297,7 +301,7 @@ export function ChatTranscript({
     );
   }
 
-  const statusLabel = PHASE_LABEL[chat.turnPhase];
+  const statusLabel = recoveryNeeded ? undefined : PHASE_LABEL[chat.turnPhase];
 
   return (
     <div
@@ -418,14 +422,14 @@ export function ChatTranscript({
         </Tag>
       ) : null}
 
-      {chat.pendingQuestion && readOnly ? (
+      {pendingQuestion && readOnly ? (
         <Alert
           type="info"
           showIcon
           data-testid="chat-awaiting-owner"
           title="Waiting for the conversation owner to respond"
         />
-      ) : chat.pendingQuestion ? (
+      ) : pendingQuestion ? (
         /*
          * The conversation is holding a question, and that has to be said.
          *
@@ -437,7 +441,7 @@ export function ChatTranscript({
          * non-terminal on purpose. Colouring it red would be a visible lie.
          */
         <AskUserPrompt
-          request={chat.pendingQuestion}
+          request={pendingQuestion}
           isBusy={chat.phase === "streaming"}
           onAnswer={(answers) => void chat.answerQuestion(answers)}
           onToolApproval={(decisions) => void chat.answerToolApproval(decisions)}
@@ -446,7 +450,7 @@ export function ChatTranscript({
         />
       ) : null}
 
-      {chat.turnError && !chat.pendingQuestion ? (
+      {chat.turnError && !pendingQuestion ? (
         <Alert
           type="error"
           showIcon

@@ -41,17 +41,23 @@ should likewise retain the `request_id` passed to `create_sandbox`.
 
 ## Recovering a crashed Session
 
-Call `SessionService.RevertSession` with the Session ID to restore its recorded runtime to the last durable snapshot.
+Recovery runs only when a client asks for it. Chat offers a revert or a fork from
+an existing READY checkpoint after a confirmed runtime crash. Call
+`SessionService.RevertSession` with the Session ID to restore its recorded runtime
+to the last durable snapshot.
 The caller needs Session update access. The operation verifies Substrate's CRASHED state and the recorded Actor identity.
 Recovery fails interrupted turns and waiting tasks absent from the retained snapshot.
 It preserves durable terminal results and returns the Session to READY with its Actor suspended.
 It discards runtime changes since that snapshot and does not replay input.
 A runtime without a snapshot restarts from its initial state.
+`GetSession` reports `recovery_needed`; no other Session read sets it.
 
 Retry an interrupted revert against the same Session ID; nothing retries it in the background.
 Pending recovery retains its operation across API restarts, and a retry joins it.
 While recovery is pending, `GetSession` reports state `FAILED`, operation `REVERT`, and failure reason `RuntimeCrashed`.
-Interactions fail because a lifecycle operation is in progress. Call `RevertSession` again to finish the recovery.
+Call `RevertSession` again to finish the recovery.
+An A2A send also recovers a crashed runtime: it returns `KAGENT_SEND_NOT_ACCEPTED` after reverting, so retry the send as usual.
+A send while recovery is pending joins it. If the runtime cannot be recovered, the send fails with an error that is not retryable.
 A retry after a revert whose response was lost returns the recovered Session.
 Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.

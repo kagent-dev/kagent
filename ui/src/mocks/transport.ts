@@ -657,6 +657,7 @@ function agentInstanceMessage(
     // turns it back into "not reported".
     preparedRevision: row.preparedRevision ?? "",
     a2aAuthority: row.a2aAuthority ?? "",
+    recoveryNeeded: row.recoveryNeeded,
     state: PB_STATE_BY_NAME[row.state],
     operation: PB_OPERATION_BY_NAME[row.operation],
     failure: row.failure
@@ -836,6 +837,11 @@ on(SessionService.method.getSession, (input, call) => ({
       call,
     ),
   ),
+}));
+
+// Fixture runtimes never crash, so a revert returns the Session unchanged.
+on(SessionService.method.revertSession, (input, call) => ({
+  session: agentInstanceMessage(instanceFor(requireInstanceId(input.sessionId), call)),
 }));
 
 on(SessionService.method.createSession, (input, call) => {

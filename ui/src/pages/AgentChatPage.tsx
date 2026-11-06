@@ -13,6 +13,7 @@ import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsM
 import { SnapshotDetailsModal } from "@/components/chat/SnapshotDetailsModal";
 import { SnapshotRenameDialog } from "@/components/chat/SnapshotRenameDialog";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
+import { SessionRecoveryAlert } from "@/components/chat/SessionRecoveryAlert";
 import { TaskPushNotificationsModal } from "@/components/chat/TaskPushNotificationsModal";
 import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
@@ -114,8 +115,15 @@ export function AgentChatPage() {
   const chat = useChat(conversation);
   const [pushTask, setPushTask] = useState<{ conversationId: string; taskId: string }>();
 
-  // Keep up with messages sent from other tabs or clients.
-  useLiveTranscript(chat.refreshTranscript, {
+  /*
+   * Keep up with messages sent from other tabs or clients, and with the Session itself:
+   * the Actor can crash during automatic suspension, after the lifecycle poll below has
+   * stopped, and only a Session read shows that. Riding this refresh avoids widening the
+   * one-second lifecycle poll to every idle page.
+   */
+  useLiveTranscript(async () => {
+    await Promise.allSettled([chat.refreshTranscript(), instance.refresh()]);
+  }, {
     enabled: Boolean(conversation),
     isBusy: chat.phase === "streaming",
   });
@@ -305,7 +313,8 @@ export function AgentChatPage() {
 
   // Automatic runtime quiescence leaves the conversation ready for its next turn.
   const state = instance.data?.state;
-  const canSend = state === "ready";
+  const recoveryNeeded = instance.data?.recoveryNeeded === true;
+  const canSend = state === "ready" && !recoveryNeeded;
 
   /*
    * Watching the instance while it is doing something.
@@ -427,7 +436,37 @@ export function AgentChatPage() {
     // and depending on it would re-run this on each one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, chat.isLoadingHistory]);
-  const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply);
+  /*
+   * Only this page's own request disables Revert: an admitted recovery keeps its
+   * operation through every failed attempt, and a revert sent meanwhile joins it.
+   */
+  const [isReverting, setReverting] = useState(false);
+  const revertRuntime = useCallback(async () => {
+    if (!id) return;
+    setReverting(true);
+    let reverted = false;
+    try {
+      await apiClient.agentInstances.revert(id);
+      reverted = true;
+      await instance.refresh();
+      await chat.refreshTranscript();
+    } catch (cause: unknown) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      toast.error(reverted
+        ? `Recovery completed. Could not refresh the conversation: ${reason}`
+        : `Could not recover the conversation: ${reason}`);
+    } finally {
+      setReverting(false);
+    }
+  }, [id, instance, chat]);
+
+  /*
+   * `recoveryNeeded` alone does not keep the one-second poll running: every read of a
+   * crashed Session also queries Substrate, and an open page would do that until someone
+   * acted. The live refresh above still notices a recovery from another tab or client.
+   */
+  const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply)
+    || isReverting;
 
   /*
    * The conversation list is deliberately not re-read when this one's state changes.
@@ -620,7 +659,15 @@ export function AgentChatPage() {
             />
           ) : null}
 
-          {instance.data && !canSend ? (
+          <SessionRecoveryAlert
+            needed={recoveryNeeded}
+            checkpoints={checkpoints.data ?? []}
+            isRecovering={isReverting || instance.data?.operation === "revert"}
+            isReverting={isReverting}
+            onRevert={revertRuntime}
+          />
+
+          {instance.data && !canSend && !recoveryNeeded ? (
             <Alert
               type="warning"
               showIcon
@@ -639,6 +686,8 @@ export function AgentChatPage() {
             chat={chat}
             isLoading={instance.isLoading}
             sessionId={id}
+            recoveryNeeded={recoveryNeeded}
+            readOnly={recoveryNeeded}
             onOpenCheckpoint={openSnapshot}
             onRenameCheckpoint={renameSnapshot}
             onFork={forkCheckpoint}

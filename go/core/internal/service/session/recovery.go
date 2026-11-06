@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
@@ -17,6 +18,24 @@ import (
 // errRuntimeUnrecoverable tells the client to delete the Session. Transient
 // Substrate and database failures must not wrap it, so they stay retryable.
 var errRuntimeUnrecoverable = fmt.Errorf("runtime cannot be recovered: %w", database.ErrFailedPrecondition)
+
+// RecoveryNeeded returns nil when the observation fails, so a control-plane
+// outage can neither offer recovery nor prevent history reads.
+func (w *ActorWorkflow) RecoveryNeeded(ctx context.Context, session *apiv1.Session) (*bool, error) {
+	if database.CrashRecoveryAdmitted(session) {
+		return new(true), nil
+	}
+	if !lifecycleIdle(session) {
+		return new(false), nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	observed, err := w.observeCrash(ctx, session)
+	if err != nil {
+		return nil, fmt.Errorf("observe Session recovery: %w", err)
+	}
+	return new(observed.crashed()), nil
+}
 
 func lifecycleIdle(session *apiv1.Session) bool {
 	return session.State == apiv1.RuntimeState_RUNTIME_STATE_READY && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
@@ -32,7 +51,8 @@ func (o crashObservation) crashed() bool {
 }
 
 // observeCrash treats a missing, replaced, or retemplated Actor as unrecoverable,
-// never as a crash: reverting it would restore the wrong runtime.
+// never as a crash: reverting it would restore the wrong runtime. RecoveryNeeded
+// and Revert share it, so chat offers a revert exactly when Revert would admit one.
 //
 // The generation is read before the Actor. A concurrent revert keeps the Actor UID
 // and returns to READY, so only the generation shows that an observation predates

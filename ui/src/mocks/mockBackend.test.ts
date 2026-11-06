@@ -108,6 +108,7 @@ const INPUTS = {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
   },
+  "agentInstances.revert": { id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44" },
   "agentInstances.shares.list": {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",

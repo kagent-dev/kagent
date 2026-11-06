@@ -126,6 +126,9 @@ func TestSessionRevertCrashedRuntime(t *testing.T) {
 			return actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED, err
 		})
 		require.NoError(t, err)
+		observed, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
+		require.NoError(t, err)
+		require.True(t, observed.Session.GetRecoveryNeeded())
 		reverted, err := fixture.sessions.RevertSession(fixture.ctx, request)
 		require.NoError(t, err)
 		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, reverted.Session.State)

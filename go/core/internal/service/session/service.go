@@ -19,6 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (
@@ -40,6 +41,7 @@ type store interface {
 type sessionWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Revert(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	RecoveryNeeded(context.Context, *apiv1.Session) (*bool, error)
 	Delete(context.Context, *apiv1.Session, bool) (*apiv1.Session, error)
 }
 
@@ -139,8 +141,27 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 	return session, nil
 }
 
+// Get reads an authorized Session as stored. MCP resolves a Session's Agent
+// through it before every invoke and task call, so it must not wait on Substrate.
 func (s *Service) Get(ctx context.Context, id string) (*apiv1.Session, error) {
 	return s.getAuthorized(ctx, id, auth.VerbGet)
+}
+
+// Observe is the only Session read that calls Substrate, so a slow control plane
+// delays opening one conversation rather than every MCP call. A failed observation
+// leaves recovery_needed unset instead of failing the read, so an outage cannot
+// hide the history a user would recover.
+func (s *Service) Observe(ctx context.Context, id string) (*apiv1.Session, error) {
+	session, err := s.getAuthorized(ctx, id, auth.VerbGet)
+	if err != nil {
+		return nil, err
+	}
+	session = proto.CloneOf(session)
+	session.RecoveryNeeded, err = s.workflow.RecoveryNeeded(ctx, session)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "observe session recovery", "session_id", session.Id, "error", err)
+	}
+	return session, nil
 }
 
 // getAuthorized loads a Session authorized for the requested operation. Reads are

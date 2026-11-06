@@ -994,6 +994,37 @@ describe("agent instances", () => {
     expect(isNotFound(missing)).toBe(true);
   });
 
+  it("reverts through the existing Session RPC", async () => {
+    let received: string | undefined;
+    serve(({ service }) => {
+      service(SessionService, {
+        revertSession: (request) => {
+          received = request.sessionId;
+          return { session: instanceMessage({ state: RuntimeState.SUSPENDED }) };
+        },
+      });
+    });
+    const reverted = await apiClient.agentInstances.revert(INSTANCE_ID);
+    expect(received).toBe(INSTANCE_ID);
+    expect(reverted.state).toBe("suspended");
+    expect(reverted.recoveryNeeded).toBeUndefined();
+  });
+
+  it("keeps an unknown recovery observation distinct from not needing recovery", async () => {
+    serve(({ service }) => {
+      service(SessionService, {
+        getSession: () => ({ session: instanceMessage({}) }),
+      });
+    });
+    expect((await apiClient.agentInstances.get(INSTANCE_ID)).recoveryNeeded).toBeUndefined();
+    serve(({ service }) => {
+      service(SessionService, {
+        getSession: () => ({ session: instanceMessage({ recoveryNeeded: false }) }),
+      });
+    });
+    expect((await apiClient.agentInstances.get(INSTANCE_ID)).recoveryNeeded).toBe(false);
+  });
+
 });
 
 describe("session shares", () => {

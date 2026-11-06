@@ -93,9 +93,13 @@ type Session struct {
 	Name string `protobuf:"bytes,13,opt,name=name,proto3" json:"name,omitempty"`
 	// Output only. A2A conversation ID, equal to this session's ID.
 	// Forks receive a new conversation ID and new task IDs.
-	ContextId     string `protobuf:"bytes,14,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ContextId string `protobuf:"bytes,14,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	// Output only. Set only by GetSession: whether the recorded runtime crashed and
+	// needs a revert. Unset when GetSession could not observe the runtime; clients
+	// must not offer a revert then.
+	RecoveryNeeded *bool `protobuf:"varint,16,opt,name=recovery_needed,json=recoveryNeeded,proto3,oneof" json:"recovery_needed,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Session) Reset() {
@@ -210,6 +214,13 @@ func (x *Session) GetContextId() string {
 		return x.ContextId
 	}
 	return ""
+}
+
+func (x *Session) GetRecoveryNeeded() bool {
+	if x != nil && x.RecoveryNeeded != nil {
+		return *x.RecoveryNeeded
+	}
+	return false
 }
 
 type AgentProvenance struct {
@@ -1224,7 +1235,7 @@ const file_kagent_api_v1_sessions_proto_rawDesc = "" +
 	"\x1ckagent/api/v1/sessions.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\x1a\x1bkagent/api/v1/runtime.proto\";\n" +
 	"\aFailure\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x88\x04\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xca\x04\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acreator\x18\x02 \x01(\tR\acreator\x124\n" +
@@ -1241,7 +1252,9 @@ const file_kagent_api_v1_sessions_proto_rawDesc = "" +
 	"updated_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x12\n" +
 	"\x04name\x18\r \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x0e \x01(\tR\tcontextId\"W\n" +
+	"context_id\x18\x0e \x01(\tR\tcontextId\x12,\n" +
+	"\x0frecovery_needed\x18\x10 \x01(\bH\x00R\x0erecoveryNeeded\x88\x01\x01B\x12\n" +
+	"\x10_recovery_needed\"W\n" +
 	"\x0fAgentProvenance\x122\n" +
 	"\x03ref\x18\x01 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x03ref\x12\x10\n" +
 	"\x03uid\x18\x02 \x01(\tR\x03uid\"\xd4\x01\n" +
@@ -1420,6 +1433,7 @@ func file_kagent_api_v1_sessions_proto_init() {
 	}
 	file_kagent_api_v1_common_proto_init()
 	file_kagent_api_v1_runtime_proto_init()
+	file_kagent_api_v1_sessions_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -50,6 +50,10 @@ message Session {
   // Output only. A2A conversation ID, equal to this session's ID.
   // Forks receive a new conversation ID and new task IDs.
   string context_id = 14;
+  // Output only. Set only by GetSession: whether the recorded runtime crashed and
+  // needs a revert. Unset when GetSession could not observe the runtime; clients
+  // must not offer a revert then.
+  optional bool recovery_needed = 16;
 }
 
 message AgentProvenance {

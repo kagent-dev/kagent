@@ -572,3 +572,20 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 		})
 	}
 }
+
+func TestSendRecoveryAnswersTheSend(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "healthy or reverted", want: ErrSendNotAccepted},
+		{name: "contention", err: database.ErrConflict, want: ErrSendNotAccepted},
+		{name: "unrecoverable", err: fmt.Errorf("runtime Actor is missing: %w", errRuntimeUnrecoverable), want: ErrRuntimeUnrecoverable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			interactions := NewInteractionService(nil, nil, NewService(nil, nil, serviceTestWorkflow{err: test.err}), false)
+			require.ErrorIs(t, interactions.recoverRuntime(t.Context(), &apiv1.Session{Id: uuid.NewString()}), test.want)
+		})
+	}
+}
