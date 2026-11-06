@@ -268,8 +268,16 @@ An interrupted revert continues from REVERTING; a lost response can be reconcile
 from SUSPENDED. An admitted recovery survives API restarts as a durable REVERT
 operation, and the client continues it by retrying RevertSession, as with Create
 and Delete. Nothing retries it in the background. While it is
-pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`,
-and interactions are refused because a lifecycle operation is in progress.
+pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`.
+
+An A2A send also starts recovery. Substrate cannot resume a crashed Actor, so
+a send to one fails before the runtime accepts it. When the gateway proves the
+input was not accepted, it runs the same Revert on that Session before
+answering `KAGENT_SEND_NOT_ACCEPTED`, so the client's retry reaches the restored
+runtime. A Revert of a healthy runtime returns at once. A send while recovery is
+pending joins it the same way. The revert uses the send's own authorization, and
+continues if the caller disconnects. A missing or replaced Actor answers the
+send with a non-retryable error.
 
 Delete supersedes an admitted recovery even after an attempt issued the revert.
 Other issued lifecycle work blocks Delete because it may still create something

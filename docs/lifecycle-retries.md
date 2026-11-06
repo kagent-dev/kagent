@@ -55,7 +55,9 @@ A runtime without a snapshot restarts from its initial state.
 Retry an interrupted revert against the same Session ID; nothing retries it in the background.
 Pending recovery retains its operation across API restarts, and a retry joins it.
 While recovery is pending, `GetSession` reports state `FAILED`, operation `REVERT`, and failure reason `RuntimeCrashed`.
-Interactions fail because a lifecycle operation is in progress. Call `RevertSession` again to finish the recovery.
+Call `RevertSession` again to finish the recovery.
+An A2A send also recovers a crashed runtime: it returns `KAGENT_SEND_NOT_ACCEPTED` after reverting, so retry the send as usual.
+A send while recovery is pending joins it. If the runtime cannot be recovered, the send fails with an error that is not retryable.
 A retry after a revert whose response was lost returns the recovered Session.
 Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.

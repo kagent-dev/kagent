@@ -55,6 +55,7 @@ type gatewayTestStore struct {
 	initialID        string
 	listedIDs        []string
 	revoked          bool
+	reverts          int
 	session          *apiv1.Session
 	revision         *database.RuntimeRevision
 	err              error
@@ -808,6 +809,25 @@ func TestGatewayReportsOnlyRevokedAttemptsAsNotAccepted(t *testing.T) {
 		if runtime.sendCalls != 1 {
 			t.Fatalf("retried a transport failure: %d sends", runtime.sendCalls)
 		}
+		if want := map[bool]int{false: 0, true: 1}[revoked]; store.reverts != want {
+			t.Fatalf("reverts = %d, want %d: only a refused send checks for a crashed runtime", store.reverts, want)
+		}
+	}
+}
+
+func TestGatewaySendJoinsAnAdmittedCrashRecovery(t *testing.T) {
+	session := gatewayTestSession()
+	session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
+	store := &gatewayTestStore{session: session}
+	runtime := &gatewayTestRuntime{}
+	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+	_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	var protocolError *a2atype.Error
+	if !errors.As(err, &protocolError) || protocolError.ErrorInfo().Value["metadata"].(map[string]string)["reason"] != "KAGENT_SEND_NOT_ACCEPTED" {
+		t.Fatalf("error = %v, want a retryable send", err)
+	}
+	if store.reverts != 1 || runtime.sendCalls != 0 {
+		t.Fatalf("reverts = %d, sends = %d: the send must join the recovery, not reach the runtime", store.reverts, runtime.sendCalls)
 	}
 }
 
