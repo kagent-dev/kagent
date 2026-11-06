@@ -213,6 +213,9 @@ spec:
                     rule: (has(self.value)?1:0)+(has(self.valueFrom)?1:0) == 1
                 maxItems: 64
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               protocol:
                 default: STREAMABLE_HTTP
                 enum:
