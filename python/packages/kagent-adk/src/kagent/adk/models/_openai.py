@@ -212,8 +212,11 @@ def _extract_function_response_content(func_response: FunctionResponse) -> str:
         if len(content_list) > 0:
             texts = (_function_response_item_text(item) for item in content_list)
             return "\n".join(t for t in texts if t is not None)
+        return ""
     elif func_response.response and "result" in func_response.response:
         return str(func_response.response["result"])
+    if isinstance(func_response.response, dict):
+        return json.dumps(func_response.response, default=str)
     return ""
 
 
