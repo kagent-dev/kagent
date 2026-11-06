@@ -1,0 +1,80 @@
+{{- $catalog := include "kagent.builtinSkillsCatalog" . | default "{}" | mustFromJson }}
+{{- $skill := dict }}
+{{- range $catalog.skills | default (list) }}
+{{- if eq .name "k8s-troubleshooting" }}{{ $skill = . }}{{ end }}
+{{- end }}
+{{- if and (dig "builtins" "enabled" false .Values.AsMap) (dig "builtins" "k8sAgent" "enabled" false .Values.AsMap) (dig "builtins" "harness" "enabled" false .Values.AsMap) .Values.substrateWorkerPool.create (index .Values "kagent-tools" "enabled") $skill }}
+{{- $toolServer := printf "%s-tool-server" (include "kagent.fullname" .) }}
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: {{ .Values.builtins.k8sAgent.name | quote }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  harnessRef:
+    name: {{ .Values.builtins.harness.name | quote }}
+  template:
+    inline:
+      description: "Kubernetes assistant: finds and fixes problems with workloads in the cluster where kagent runs."
+      modelConfig:
+        name: {{ include "kagent.defaultModelConfigName" . }}
+      promptTemplate:
+        dataSources:
+          - name: kagent-builtin-prompts
+            alias: builtin
+      systemPrompt: |
+        You help users run and troubleshoot workloads in the Kubernetes cluster
+        where kagent runs. When a question matches one of your skills, load that
+        skill and follow it.
+
+        {{`{{include "builtin/skills-usage"}}`}}
+
+        {{`{{include "builtin/kubernetes-context"}}`}}
+
+        {{`{{include "builtin/tool-usage-best-practices"}}`}}
+
+        {{`{{include "builtin/safety-guardrails"}}`}}
+      tools:
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: {{ $toolServer }}
+            tools:
+              - k8s_describe_resource
+              - k8s_generate_resource
+              - k8s_get_available_api_resources
+              - k8s_get_cluster_configuration
+              - k8s_get_events
+              - k8s_get_pod_logs
+              - k8s_get_resource_yaml
+              - k8s_get_resources
+              - k8s_wait
+        # These tools change the cluster, so each call waits for the user's approval.
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: {{ $toolServer }}
+            requireApproval: true
+            tools:
+              - k8s_annotate_resource
+              - k8s_apply_manifest
+              - k8s_check_service_connectivity
+              - k8s_create_resource
+              - k8s_create_resource_from_url
+              - k8s_delete_resource
+              - k8s_execute_command
+              - k8s_label_resource
+              - k8s_patch_resource
+              - k8s_patch_status
+              - k8s_remove_annotation
+              - k8s_remove_label
+              - k8s_rollout
+              - k8s_scale
+      skills:
+        - name: {{ $skill.name | quote }}
+          source:
+            oci: {{ $catalog.image | quote }}
+            path: {{ $skill.path | quote }}
+{{- end }}

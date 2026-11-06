@@ -1,0 +1,78 @@
+suite: test the default Harness
+templates:
+  - default-harness.yaml
+release:
+  namespace: kagent
+set:
+  substrateWorkerPool.create: true
+  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v1
+tests:
+  - it: creates a Go ADK Harness on the chart's worker pool
+    asserts:
+      - isKind:
+          of: Harness
+      - equal:
+          path: metadata.name
+          value: kagent
+      - equal:
+          path: metadata.namespace
+          value: kagent
+      - exists:
+          path: spec.kagent
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: kagent-default
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: s3://ate-snapshots/kagent/
+
+  - it: uses the configured name, pool and snapshot location
+    set:
+      builtins.harness.name: team
+      builtins.harness.snapshotLocation: gs://bucket/team/
+      substrateWorkerPool.name: other-pool
+    asserts:
+      - equal:
+          path: metadata.name
+          value: team
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: other-pool
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: gs://bucket/team/
+
+  - it: renders nothing when turned off
+    set:
+      builtins.harness.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when all built-ins are turned off
+    set:
+      builtins.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when the built-ins values are missing
+    set:
+      builtins: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires a snapshot location
+    set:
+      builtins.harness.snapshotLocation: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "builtins.harness.snapshotLocation is required: set the snapshot storage location for the default Harness"
+
+  - it: renders nothing without the chart's worker pool
+    set:
+      substrateWorkerPool.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
