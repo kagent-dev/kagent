@@ -25,7 +25,7 @@ import {
   useChat,
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
-import { refreshConversation, useLiveTranscript } from "@/api/hooks/useLiveTranscript";
+import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
 import type { Checkpoint } from "@/api";
@@ -121,7 +121,9 @@ export function AgentChatPage() {
    * stopped, and only a Session read shows that. Riding this refresh avoids widening the
    * one-second lifecycle poll to every idle page.
    */
-  useLiveTranscript(() => refreshConversation(chat.refreshTranscript, instance.refresh), {
+  useLiveTranscript(async () => {
+    await Promise.allSettled([chat.refreshTranscript(), instance.refresh()]);
+  }, {
     enabled: Boolean(conversation),
     isBusy: chat.phase === "streaming",
   });
@@ -436,14 +438,11 @@ export function AgentChatPage() {
   }, [id, chat.isLoadingHistory]);
   /*
    * Only this page's own request disables Revert: an admitted recovery keeps its
-   * operation through every failed attempt, and a revert sent meanwhile joins it. The
-   * ref stops a double click before React re-renders the disabled button.
+   * operation through every failed attempt, and a revert sent meanwhile joins it.
    */
   const [isReverting, setReverting] = useState(false);
-  const revertInFlight = useRef(false);
   const revertRuntime = useCallback(async () => {
-    if (!id || revertInFlight.current) return;
-    revertInFlight.current = true;
+    if (!id) return;
     setReverting(true);
     let reverted = false;
     try {
@@ -457,7 +456,6 @@ export function AgentChatPage() {
         ? `Recovery completed. Could not refresh the conversation: ${reason}`
         : `Could not recover the conversation: ${reason}`);
     } finally {
-      revertInFlight.current = false;
       setReverting(false);
     }
   }, [id, instance, chat]);

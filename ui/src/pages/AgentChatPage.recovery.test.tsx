@@ -177,7 +177,7 @@ describe("a recovery admitted by a failed attempt", () => {
     expect(chat.refreshTranscript).toHaveBeenCalled();
   });
 
-  it("sends one request for a double click, and leaves Revert usable when other work refuses it", async () => {
+  it("leaves Revert usable when other work refuses it", async () => {
     const error = vi.spyOn(toast, "error");
     let refuse!: () => void;
     revert = () => new Promise<Reverted>((_, reject) => {
@@ -189,11 +189,7 @@ describe("a recovery admitted by a failed attempt", () => {
     await screen.findByText("Recovering this conversation");
     await waitFor(() => expect(revertButton()).toBeEnabled());
 
-    // Two clicks before React re-renders the button disabled.
-    act(() => {
-      revertButton().click();
-      revertButton().click();
-    });
+    act(() => revertButton().click());
     await waitFor(() => expect(revertButton()).toBeDisabled());
     expect(revertSession).toHaveBeenCalledOnce();
 
