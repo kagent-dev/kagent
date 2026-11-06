@@ -16,7 +16,8 @@ describe("task push configurations", () => {
     let state = TaskState.INPUT_REQUIRED;
     setApiTransport(createRouterTransport(({ service }) => {
       service(A2AService, {
-        getTask: async (request) => {
+        getTask: async (request, context) => {
+          expect(context.requestHeader.get("A2A-Version")).toBe("1.0");
           expect(request.tenant).toBe(conversation.agent);
           expect(request.id).toBe("task-1");
           return { id: request.id, status: { state } };
@@ -33,7 +34,8 @@ describe("task push configurations", () => {
     const writes: string[] = [];
     setApiTransport(createRouterTransport(({ service }) => {
       service(A2AService, {
-        listTaskPushNotificationConfigs: async (request) => {
+        listTaskPushNotificationConfigs: async (request, context) => {
+          expect(context.requestHeader.get("A2A-Version")).toBe("1.0");
           expect(request.tenant).toBe(conversation.agent);
           expect(request.taskId).toBe("task-1");
           expect(request.pageSize).toBe(100);
@@ -42,12 +44,14 @@ describe("task push configurations", () => {
             ? { configs: [{ id: "second", url: "https://two.example/callback", taskId: "task-1" }] }
             : { configs: [{ id: "first", url: "https://one.example/callback", taskId: "task-1" }], nextPageToken: "next" };
         },
-        createTaskPushNotificationConfig: async (request) => {
+        createTaskPushNotificationConfig: async (request, context) => {
+          expect(context.requestHeader.get("A2A-Version")).toBe("1.0");
           expect(request.tenant).toBe(conversation.agent);
           writes.push(`create:${request.taskId}:${request.id}:${request.url}`);
           return request;
         },
-        deleteTaskPushNotificationConfig: async (request) => {
+        deleteTaskPushNotificationConfig: async (request, context) => {
+          expect(context.requestHeader.get("A2A-Version")).toBe("1.0");
           expect(request.tenant).toBe(conversation.agent);
           writes.push(`delete:${request.taskId}:${request.id}`);
           return {};

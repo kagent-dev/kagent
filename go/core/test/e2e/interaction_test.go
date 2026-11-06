@@ -378,7 +378,7 @@ func TestSessionCheckpoint(t *testing.T) {
 			}
 		})
 		forkCtx, forkCancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(),
-			"x-user-id", "e2e",
+			"x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version),
 		), 4*time.Minute)
 		t.Cleanup(forkCancel)
 		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fork.GetContextId(), PageSize: 10})
@@ -424,7 +424,7 @@ func TestSessionCheckpoint(t *testing.T) {
 				t.Errorf("delete nested fork: %v", err)
 			}
 		})
-		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e")
+		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version))
 		nestedFixture := &interactionFixture{ctx: nestedCtx, client: fixture.client, tenant: fixture.tenant, sessionID: nestedID, contextID: nestedID}
 		_, _, nestedTask := nestedFixture.send(t, "What was the answer before the checkpoint?")
 		if nestedTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(nestedTask), "The answer is 4.") {
@@ -791,7 +791,7 @@ func newInteractionFixtureForTemplate(t *testing.T, harness testHarness, target,
 func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, templateName string) *interactionFixture {
 	t.Helper()
 	conn := newControllerConn(t, target)
-	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version)), 4*time.Minute)
 	t.Cleanup(cancel)
 	sessions := apiv1.NewSessionServiceClient(conn)
 	request := &apiv1.CreateSessionRequest{
@@ -813,8 +813,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cleanupCancel()
-		// DeleteSession returns only after its Substrate Actor has been
-		// suspended and deleted, so this cleanup covers both resources.
+		// DeleteSession waits for Substrate deletion before completing the Session.
 		if cleanupErr := deleteIdleSession(cleanupCtx, sessions, session.GetId()); cleanupErr != nil {
 			t.Errorf("delete Session: %v", cleanupErr)
 		}

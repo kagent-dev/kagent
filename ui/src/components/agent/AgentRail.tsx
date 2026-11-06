@@ -420,6 +420,7 @@ export function AgentRail({
   const [anchorId, setAnchorId] = useState<string>();
   const [isBulkDeleting, setBulkDeleting] = useState(false);
   const [isConfirmingBulk, setConfirmingBulk] = useState(false);
+  const [forceBulkDelete, setForceBulkDelete] = useState(false);
   /*
    * What a conversation's state is about to be, before the controller says so.
    *
@@ -503,7 +504,7 @@ export function AgentRail({
       const targets = chats.filter((chat) => selected.has(chat.id));
       await Promise.all(
         targets.map((target) =>
-          apiClient.agentInstances.remove(target.id),
+          apiClient.agentInstances.remove(target.id, { force: forceBulkDelete }),
         ),
       );
       await conversations.refresh();
@@ -518,6 +519,7 @@ export function AgentRail({
     } finally {
       setBulkDeleting(false);
       setConfirmingBulk(false);
+      setForceBulkDelete(false);
     }
   }
 
@@ -548,11 +550,11 @@ export function AgentRail({
   useEffect(() => () => gutterWatch.current?.disconnect(), []);
   const navigate = useNavigate();
 
-  async function deleteConversation(target: AgentInstance): Promise<void> {
+  async function deleteConversation(target: AgentInstance, force: boolean): Promise<void> {
     setDeletingId(target.id);
     setActionError(undefined);
     try {
-      await apiClient.agentInstances.remove(target.id);
+      await apiClient.agentInstances.remove(target.id, { force });
       await conversations.refresh();
       onDeleted?.(target);
     } catch (cause: unknown) {
@@ -1113,7 +1115,7 @@ export function AgentRail({
 
             <Modal
               open={isConfirmingBulk}
-              onCancel={() => setConfirmingBulk(false)}
+              onCancel={() => { setConfirmingBulk(false); setForceBulkDelete(false); }}
               onOk={() => void deleteSelected()}
               okText="Delete"
               okButtonProps={{ danger: true, loading: isBulkDeleting }}
@@ -1125,6 +1127,9 @@ export function AgentRail({
                 Everything said in them goes too, and none of it can be recovered. The
                 workers they hold are released.
               </Text>
+              <div><Checkbox checked={forceBulkDelete} onChange={(event) => setForceBulkDelete(event.target.checked)}>
+                Stop active turns and delete
+              </Checkbox></div>
             </Modal>
           </div>
         ) : null}
@@ -1395,7 +1400,7 @@ function ChatEntry({
   autoTitle?: string;
   href: string;
   isActive: boolean;
-  onDelete: (instance: AgentInstance) => void;
+  onDelete: (instance: AgentInstance, force: boolean) => void;
   /** Copies the conversation and opens the copy. */
   onDuplicate: (instance: AgentInstance) => void;
   isDeleting: boolean;
@@ -1415,6 +1420,7 @@ function ChatEntry({
    * question is *which one*.
    */
   const [isConfirming, setConfirming] = useState(false);
+  const [forceDelete, setForceDelete] = useState(false);
   const [isRenaming, setRenaming] = useState(false);
   const [isShowingDetails, setShowingDetails] = useState(false);
   const [isSharing, setSharing] = useState(false);
@@ -1453,10 +1459,11 @@ function ChatEntry({
     <li css={{ display: "flex", alignItems: "center", gap: theme.space(2), minWidth: 0 }}>
       <Modal
         open={isConfirming}
-        onCancel={() => setConfirming(false)}
+        onCancel={() => { setConfirming(false); setForceDelete(false); }}
         onOk={() => {
           setConfirming(false);
-          onDelete(instance);
+          onDelete(instance, forceDelete);
+          setForceDelete(false);
         }}
         okText="Delete"
         okButtonProps={{ danger: true, loading: isDeleting }}
@@ -1468,6 +1475,9 @@ function ChatEntry({
           This conversation and everything said in it cannot be recovered. The worker it
           holds is released.
         </Text>
+        <div><Checkbox checked={forceDelete} onChange={(event) => setForceDelete(event.target.checked)}>
+          Stop active turns and delete
+        </Checkbox></div>
       </Modal>
       {/*
         One slot, two things: the folder that marks a conversation, and the checkbox

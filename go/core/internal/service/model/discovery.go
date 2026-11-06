@@ -192,7 +192,20 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "Meta-Llama-3.1-8B-Instruct", FunctionCalling: true},
 			{Name: "Mistral-large", FunctionCalling: true},
 			{Name: "cohere-command-a", FunctionCalling: true},
+			// xAI Grok models sold through Foundry. grok-3 remains for existing
+			// deployments. The later names are the model IDs in
+			// https://learn.microsoft.com/azure/foundry/foundry-models/how-to/use-foundry-models-grok
+			// grok-5 is not a published Foundry model ID.
 			{Name: "grok-3", FunctionCalling: true},
+			{Name: "grok-4.7", FunctionCalling: true},
+			{Name: "grok-4.6", FunctionCalling: true},
+			{Name: "grok-4.3", FunctionCalling: true},
+			{Name: "grok-4-20-reasoning", FunctionCalling: true},
+			{Name: "grok-4-20-non-reasoning", FunctionCalling: true},
+			{Name: "grok-4.1-fast-reasoning", FunctionCalling: true},
+			{Name: "grok-4.1-fast-non-reasoning", FunctionCalling: true},
+			{Name: "grok-4", FunctionCalling: true},
+			{Name: "grok-code-fast-1", FunctionCalling: true},
 			// Claude models on Foundry (Anthropic Messages API).
 			{Name: "claude-opus-4-8", FunctionCalling: true},
 			{Name: "claude-opus-5", FunctionCalling: true},
@@ -250,6 +263,13 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "us.anthropic.claude-3-5-haiku-20241022-v1:0", FunctionCalling: true},
 			// Amazon Nova
 			{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false},
+			// xAI Grok on Bedrock. These are bedrock-runtime cross-Region
+			// inference profiles, not the Microsoft Foundry model names.
+			// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-xai-grok-4-7.html
+			{Name: "us.xai.grok-4.7", FunctionCalling: true},
+			{Name: "global.xai.grok-4.7", FunctionCalling: true},
+			{Name: "us.xai.grok-4.6", FunctionCalling: true},
+			{Name: "global.xai.grok-4.6", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderSAPAICore: {
 			// Anthropic (via SAP Generative AI Hub proxy naming)

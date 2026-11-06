@@ -440,7 +440,7 @@ func TestGatewayRoutesByGRPCTenant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs())
+	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(a2atype.SvcParamVersion, string(a2atype.Version)))
 	if _, err := a2apb.NewA2AServiceClient(connection).SendMessage(ctx, request); err != nil {
 		t.Fatal(err)
 	}

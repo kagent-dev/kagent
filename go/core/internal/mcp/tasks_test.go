@@ -386,6 +386,8 @@ func rawMCPCall(t *testing.T, endpoint, method string, params map[string]any, ta
 	req.Header.Set("Mcp-Method", method)
 	if method == "tools/call" {
 		req.Header.Set("Mcp-Name", params["name"].(string))
+	} else if method == "resources/read" {
+		req.Header.Set("Mcp-Name", params["uri"].(string))
 	} else if strings.HasPrefix(method, "tasks/") {
 		req.Header.Set("Mcp-Name", params["taskId"].(string))
 	}
@@ -566,7 +568,7 @@ func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1.Session) (*
 	return session, nil
 }
 
-func (*fakeSessionWorkflow) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (*fakeSessionWorkflow) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return session, nil
 }
 

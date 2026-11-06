@@ -16,6 +16,8 @@ export interface AgentCondition {
   status: string;
   reason?: string;
   message?: string;
+  /** The `metadata.generation` the controller evaluated when it set this condition. */
+  observedGeneration?: number;
 }
 
 export interface AgentStatus {
@@ -51,9 +53,12 @@ export type AgentRevisionState =
   | "failed"
   | "notReported";
 
+/** Egress grant admission is reported independently and never blocks the runtime. */
+const blocksRuntime = (condition: AgentCondition) => condition.type !== "EgressPoliciesApplied";
+
 export function agentRevisionState({ resource: { metadata, status } }: Agent): AgentRevisionState {
   // Ready=False only while the golden snapshot is pending; any other False condition is a failure.
-  const failed = status?.conditions?.some((condition) => condition.status === "False"
+  const failed = status?.conditions?.some((condition) => condition.status === "False" && blocksRuntime(condition)
     && !(condition.type === "Ready" && condition.reason === "ActorTemplatePending"));
   const behind = (metadata.generation !== undefined && (status?.observedGeneration ?? 0) < metadata.generation)
     || (Boolean(status?.desiredRevision) && status?.desiredRevision !== status?.latestSuccessfulRevision);
@@ -71,7 +76,7 @@ export function isAgentRunnable(agent: Agent): boolean {
 }
 
 export function agentNotReadyReason({ resource: { status } }: Agent): string | undefined {
-  const failing = status?.conditions?.find((condition) => condition.status === "False");
+  const failing = status?.conditions?.find((condition) => condition.status === "False" && blocksRuntime(condition));
   return failing?.message ?? failing?.reason;
 }
 

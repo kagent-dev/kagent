@@ -82,6 +82,40 @@ func TestFoundryAPIKeySendsApiKeyHeader(t *testing.T) {
 	}
 }
 
+func TestFoundryGrok47DeploymentIsCallableLocally(t *testing.T) {
+	t.Setenv("FOUNDRY_API_KEY", "test-key")
+	const deployment = "grok-4.7"
+	paths := make(chan string, 1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths <- r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"id":"chatcmpl-test","object":"chat.completion","created":0,"model":%q,"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`, deployment)
+	}))
+	t.Cleanup(server.Close)
+
+	model, err := NewFoundryModel(context.Background(), &FoundryConfig{
+		Endpoint:   server.URL,
+		Deployment: deployment,
+	})
+	if err != nil {
+		t.Fatalf("NewFoundryModel() error = %v", err)
+	}
+	resp, err := model.Client.Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
+		Model:    shared.ChatModel(deployment),
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hello")},
+	})
+	if err != nil {
+		t.Fatalf("chat completion error = %v", err)
+	}
+	if resp.Model != deployment {
+		t.Fatalf("response model = %q, want %s", resp.Model, deployment)
+	}
+	if got := <-paths; got != "/openai/deployments/"+deployment+"/chat/completions" {
+		t.Fatalf("path = %q, want grok-4.7 deployment path", got)
+	}
+}
+
 type fakeFoundryCredential struct {
 	t     *testing.T
 	token string

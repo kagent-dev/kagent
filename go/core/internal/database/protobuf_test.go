@@ -119,7 +119,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	session, err = markSessionReady(ctx, client, session.Id, "runtime:80")
 	require.NoError(t, err)
 	require.Equal(t, "renamed while creating", session.Name)
-	suspend, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	suspend, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
 	_, err = client.UpdateSessionName(ctx, session.Id, "alice", "renamed again")
 	require.NoError(t, err)
