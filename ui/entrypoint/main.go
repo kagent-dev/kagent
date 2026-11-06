@@ -79,6 +79,9 @@ func render(environ []string) (string, string) {
 	fmt.Fprintf(&b, "  \"API_BASE_URL\": \"%s\",\n", jsonEscape(get("KAGENT_UI_API_BASE_URL", "/api")))
 	fmt.Fprintf(&b, "  \"SSO_REDIRECT_PATH\": \"%s\",\n", jsonEscape(get("KAGENT_UI_SSO_REDIRECT_PATH", "/oauth2/start")))
 	fmt.Fprintf(&b, "  \"STREAM_TIMEOUT_MS\": \"%s\",\n", timeout)
+	if skills := env["KAGENT_UI_BUILTIN_SKILLS"]; skills != "" {
+		fmt.Fprintf(&b, "  \"BUILTIN_SKILLS\": \"%s\",\n", jsonEscape(skills))
+	}
 	for _, kv := range extensions {
 		name, value, _ := strings.Cut(kv, "=")
 		fmt.Fprintf(&b, "  \"%s\": \"%s\",\n", jsonEscape(name), jsonEscape(value))
