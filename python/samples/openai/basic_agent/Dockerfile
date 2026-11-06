@@ -1,5 +1,7 @@
 ### STAGE 1: base image
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim
+FROM ghcr.io/astral-sh/uv:0.13.5-python3.13-trixie-slim
+
+ENV GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /app
 
