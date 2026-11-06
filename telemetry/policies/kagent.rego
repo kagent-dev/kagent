@@ -4,7 +4,7 @@ import rego.v1
 
 # input.registry holds only the definitions of this registry, not its dependencies.
 
-request_identity := {"enduser.id", "gen_ai.conversation.id", "a2a.task.id"}
+request_identity := {"user.id", "gen_ai.conversation.id", "a2a.task.id"}
 
 unit_suffix := `(_total|\.total|_seconds|_milliseconds|_ms|\.ms|_bytes)$`
 

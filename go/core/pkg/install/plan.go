@@ -221,6 +221,7 @@ func substrateInstallValues(namespace, serviceAccount string) string {
 	controllerIdentity := strconv.Quote("spiffe://cluster.local/ns/" + namespace + "/sa/" + serviceAccount)
 	return fmt.Sprintf(`preview:
   - PerTemplateSnapshotLocation
+  - GoldenEgressPolicy
 ateApi:
   authorization:
     bootstrapOwners:

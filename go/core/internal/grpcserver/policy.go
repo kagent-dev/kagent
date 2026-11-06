@@ -16,6 +16,7 @@ type MethodPolicies map[string]auth.AccessMode
 
 func DefaultMethodPolicies() MethodPolicies {
 	policies := MethodPolicies{
+		runtimev1.BootstrapService_GetBootstrapConfig_FullMethodName:     auth.AccessRead,
 		apiv1.AgentIdentityService_ResolveAgentIdentity_FullMethodName:   auth.AccessRead,
 		apiv1.SystemService_GetVersion_FullMethodName:                    auth.AccessPublic,
 		apiv1.SystemService_GetCurrentUser_FullMethodName:                auth.AccessRead,

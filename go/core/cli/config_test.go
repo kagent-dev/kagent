@@ -70,18 +70,18 @@ func TestAteletChartOverrides(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(`install:
   substrate:
     repository: oci://base.example/helm/
-    version: 1.0.0-rc4
+    version: 1.0.0
   atelet:
     repository: oci://node.example/helm/
-    version: 1.0.0-rc5
+    version: 1.0.1
 `), 0o600))
 		output, err := executeConfig(t, "--config", path, "config", "view")
 		require.NoError(t, err)
 		cfg := &configv1.CLIConfig{}
 		require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
 		require.Equal(t, "oci://node.example/helm/", cfg.GetInstall().GetAtelet().GetRepository())
-		require.Equal(t, "1.0.0-rc5", cfg.GetInstall().GetAtelet().GetVersion())
-		require.Equal(t, "1.0.0-rc4", cfg.GetInstall().GetSubstrate().GetVersion())
+		require.Equal(t, "1.0.1", cfg.GetInstall().GetAtelet().GetVersion())
+		require.Equal(t, "1.0.0", cfg.GetInstall().GetSubstrate().GetVersion())
 	})
 }
 

@@ -45,7 +45,7 @@ func main() {
 }
 
 func run(logLevel, host, port, configDir string) error {
-	if err := config.MaterializeFromEnv(configDir); err != nil {
+	if err := config.MaterializeFromBootstrap(context.Background(), configDir); err != nil {
 		return fmt.Errorf("materialize agent config in %s: %w", configDir, err)
 	}
 

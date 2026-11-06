@@ -34,7 +34,7 @@ import (
 )
 
 func main() {
-	if err := config.MaterializeFromEnv("/config"); err != nil {
+	if err := config.MaterializeFromBootstrap(context.Background(), "/config"); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

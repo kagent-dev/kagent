@@ -157,7 +157,7 @@ for local or prerelease testing:
 ```shell
 make kagent-cli-install \
   SUBSTRATE_REPO=oci://example.com/substrate/helm \
-  SUBSTRATE_VERSION=1.0.0-rc4
+  SUBSTRATE_VERSION=1.0.0
 ```
 
 The Atelet and PodCertificate charts inherit those values. Override the
