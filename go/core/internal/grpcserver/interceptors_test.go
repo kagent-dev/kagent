@@ -1,14 +1,21 @@
 package grpcserver
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -17,8 +24,10 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (
@@ -225,6 +234,48 @@ func TestCallerWithoutRuntimeBindingCannotAccessRuntimeStorage(t *testing.T) {
 	}
 }
 
+func TestRuntimeAuthenticationReportsDatabaseConnectFailure(t *testing.T) {
+	ctx, logs := contextWithCapturedLogs(t)
+	provider := &testAuthenticator{err: fmt.Errorf("resolve actor session: %w", connectErrorFromRefusedDial(t))}
+
+	_, err := authenticate(ctx, runtimev1.TaskStoreService_GetTask_FullMethodName, provider, nil, DefaultMethodPolicies(), nil, nil)
+
+	if got := status.Code(err); got != codes.Unavailable {
+		t.Fatalf("code = %v, want Unavailable: %v", got, err)
+	}
+	if got := status.Convert(err).Message(); got != "database unavailable" {
+		t.Fatalf("message = %q", got)
+	}
+	if !strings.Contains(logs.String(), "connection refused") {
+		t.Fatalf("cause missing from logs: %s", logs.String())
+	}
+}
+
+func TestRuntimeAuthenticationReportsRejectedDatabaseLogin(t *testing.T) {
+	ctx, logs := contextWithCapturedLogs(t)
+	rejected := connectError(t, t.Context(), dbtest.RejectLogins(t, "28P01"))
+	provider := &testAuthenticator{err: fmt.Errorf("resolve actor session: %w", rejected)}
+
+	_, err := authenticate(ctx, runtimev1.TaskStoreService_GetTask_FullMethodName, provider, nil, DefaultMethodPolicies(), nil, nil)
+
+	if got := status.Code(err); got != codes.Internal {
+		t.Fatalf("code = %v, want Internal: %v", got, err)
+	}
+	if !strings.Contains(logs.String(), "SQLSTATE 28P01") {
+		t.Fatalf("cause missing from logs: %s", logs.String())
+	}
+}
+
+func TestRuntimeAuthenticationRejectsInvalidCredentials(t *testing.T) {
+	provider := &testAuthenticator{err: errors.New("token signature is invalid")}
+
+	_, err := authenticate(t.Context(), runtimev1.TaskStoreService_GetTask_FullMethodName, provider, nil, DefaultMethodPolicies(), nil, nil)
+
+	if got := status.Code(err); got != codes.Unauthenticated {
+		t.Fatalf("code = %v, want Unauthenticated: %v", got, err)
+	}
+}
+
 func TestMapError(t *testing.T) {
 	tests := []struct {
 		name string
@@ -272,4 +323,156 @@ func TestRecoverUnaryInterceptor(t *testing.T) {
 	if got := status.Convert(err).Message(); got != "internal server error" {
 		t.Fatalf("message = %q", got)
 	}
+}
+
+func TestErrorMappingReportsDatabaseConnectFailure(t *testing.T) {
+	refused := connectErrorFromRefusedDial(t)
+	timedOut := connectErrorFromUnansweredLogin(t)
+	scenarios := []struct {
+		name string
+		err  error
+	}{
+		{"Given PostgreSQL refuses connections, when a handler returns the connect error, assert that the RPC is Unavailable and the cause is logged", refused},
+		{"Given PostgreSQL refuses connections, when a service wraps the connect error as internal, assert that the RPC is Unavailable and the cause is logged", serviceerrors.NewInternal("Failed to reserve Session", refused)},
+		{"Given PostgreSQL never answers the login, when the connect deadline expires, assert that the RPC is Unavailable and the cause is logged", timedOut},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			ctx, logs := contextWithCapturedLogs(t)
+
+			_, err := errorMappingUnaryInterceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod}, func(context.Context, any) (any, error) {
+				return nil, scenario.err
+			})
+
+			if got := status.Code(err); got != codes.Unavailable {
+				t.Fatalf("code = %v, want Unavailable", got)
+			}
+			if got := status.Convert(err).Message(); got != "database unavailable" {
+				t.Fatalf("message = %q", got)
+			}
+			if !strings.Contains(logs.String(), refusedOrTimedOutCause(scenario.err)) {
+				t.Fatalf("cause missing from logs: %s", logs.String())
+			}
+		})
+	}
+
+	t.Run("Given a non-database failure, when a handler returns it, assert that the RPC is Internal with a generic message and the cause is logged", func(t *testing.T) {
+		ctx, logs := contextWithCapturedLogs(t)
+
+		_, err := errorMappingUnaryInterceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod}, func(context.Context, any) (any, error) {
+			return nil, serviceerrors.NewInternal("Failed to reserve Session", errors.New("row decode failed"))
+		})
+
+		if got := status.Code(err); got != codes.Internal {
+			t.Fatalf("code = %v, want Internal", got)
+		}
+		if got := status.Convert(err).Message(); got != "internal server error" {
+			t.Fatalf("message = %q", got)
+		}
+		if !strings.Contains(logs.String(), "row decode failed") {
+			t.Fatalf("cause missing from logs: %s", logs.String())
+		}
+	})
+
+	t.Run("Given PostgreSQL rejects the login password, when a handler returns the connect error, assert that the RPC is Internal and the cause is logged", func(t *testing.T) {
+		ctx, logs := contextWithCapturedLogs(t)
+		rejected := connectError(t, t.Context(), dbtest.RejectLogins(t, "28P01"))
+
+		_, err := errorMappingUnaryInterceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod}, func(context.Context, any) (any, error) {
+			return nil, serviceerrors.NewInternal("Failed to reserve Session", rejected)
+		})
+
+		if got := status.Code(err); got != codes.Internal {
+			t.Fatalf("code = %v, want Internal", got)
+		}
+		if got := status.Convert(err).Message(); got != "internal server error" {
+			t.Fatalf("message = %q", got)
+		}
+		if !strings.Contains(logs.String(), "SQLSTATE 28P01") {
+			t.Fatalf("cause missing from logs: %s", logs.String())
+		}
+	})
+
+	t.Run("Given a client error, when a handler returns it, assert that nothing is logged", func(t *testing.T) {
+		ctx, logs := contextWithCapturedLogs(t)
+
+		_, err := errorMappingUnaryInterceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod}, func(context.Context, any) (any, error) {
+			return nil, serviceerrors.NewNotFound("missing", nil)
+		})
+
+		if got := status.Code(err); got != codes.NotFound {
+			t.Fatalf("code = %v, want NotFound", got)
+		}
+		if logs.Len() != 0 {
+			t.Fatalf("unexpected log: %s", logs.String())
+		}
+	})
+}
+
+func contextWithCapturedLogs(t *testing.T) (context.Context, *bytes.Buffer) {
+	t.Helper()
+	var logs bytes.Buffer
+	return logging.IntoContext(t.Context(), slog.New(slog.NewTextHandler(&logs, nil))), &logs
+}
+
+func refusedOrTimedOutCause(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "context deadline exceeded"
+	}
+	return "connection refused"
+}
+
+func connectErrorFromRefusedDial(t *testing.T) error {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return connectError(t, t.Context(), address)
+}
+
+func connectErrorFromUnansweredLogin(t *testing.T) error {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		close(done)
+		_ = listener.Close()
+	})
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		<-done
+		_ = conn.Close()
+	}()
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	err = connectError(t, ctx, listener.Addr().String())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("connect error does not wrap DeadlineExceeded: %v", err)
+	}
+	return err
+}
+
+func connectError(t *testing.T, ctx context.Context, address string) error {
+	t.Helper()
+	conn, err := pgconn.Connect(ctx, "postgres://kagent@"+address+"/kagent?sslmode=disable")
+	if err == nil {
+		_ = conn.Close(ctx)
+		t.Fatal("connect succeeded")
+	}
+	var connectErr *pgconn.ConnectError
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("got %T, want *pgconn.ConnectError", err)
+	}
+	return err
 }

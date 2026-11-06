@@ -12,6 +12,7 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -20,6 +21,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
 	"github.com/kagent-dev/kagent/go/core/internal/service/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -76,7 +78,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 			return ctx, status.Error(codes.Unauthenticated, "Agent identity authentication is not configured")
 		}
 		authenticatedContext, err := identity.Authenticate(ctx, headers)
-		return authenticatedContext, mapError(err)
+		return authenticatedContext, mapAndLogError(ctx, err)
 	}
 	if access == auth.AccessPublic && len(headers.Values("Authorization")) == 0 {
 		return ctx, nil
@@ -85,6 +87,10 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		return ctx, status.Error(codes.Unauthenticated, "authentication is not configured")
 	}
 	session, err := authenticator.Authenticate(ctx, headers, url.Values{})
+	var connectErr *pgconn.ConnectError
+	if errors.As(err, &connectErr) {
+		return ctx, mapAndLogError(ctx, err)
+	}
 	if err != nil || session == nil {
 		return ctx, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
@@ -94,7 +100,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	authenticatedContext := auth.AuthSessionTo(ctx, session)
 	share, err := sessionsvc.ResolveShare(authenticatedContext, shareStore, headers.Get("X-Share-Token"))
 	if err != nil {
-		return ctx, mapError(err)
+		return ctx, mapAndLogError(ctx, err)
 	}
 	if share == nil {
 		return authenticatedContext, nil
@@ -171,11 +177,24 @@ func requestLogger(ctx context.Context, method, rpcType string) *slog.Logger {
 
 func errorMappingUnaryInterceptor(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	response, err := handler(ctx, req)
-	return response, mapError(err)
+	return response, mapAndLogError(ctx, err)
 }
 
 func errorMappingStreamInterceptor(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	return mapError(handler(srv, stream))
+	return mapAndLogError(stream.Context(), handler(srv, stream))
+}
+
+// mapAndLogError logs the cause of server-side failures, because mapError
+// redacts it from the client response.
+func mapAndLogError(ctx context.Context, err error) error {
+	mapped := mapError(err)
+	switch code := status.Code(mapped); code {
+	case codes.Internal:
+		logging.FromContext(ctx).ErrorContext(ctx, "rpc failed", "grpc_code", code.String(), "error", err)
+	case codes.Unavailable:
+		logging.FromContext(ctx).WarnContext(ctx, "rpc failed", "grpc_code", code.String(), "error", err)
+	}
+	return mapped
 }
 
 func mapError(err error) error {
@@ -184,6 +203,11 @@ func mapError(err error) error {
 	}
 	if errors.Is(err, context.Canceled) {
 		return status.Error(codes.Canceled, "request canceled")
+	}
+	// A connect timeout wraps DeadlineExceeded, but it reports an unreachable
+	// database rather than an expired caller deadline.
+	if database.IsUnavailable(err) {
+		return status.Error(codes.Unavailable, "database unavailable")
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return status.Error(codes.DeadlineExceeded, "request deadline exceeded")

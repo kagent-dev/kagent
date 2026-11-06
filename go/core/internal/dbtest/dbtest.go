@@ -1,10 +1,12 @@
-// Package dbtest provides test helpers for spinning up a Postgres container.
+// Package dbtest provides PostgreSQL test helpers: a real Postgres container and
+// a fake server that rejects logins.
 package dbtest
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -133,6 +136,35 @@ func PoolConfig(connStr string) *pgxpool.Config {
 		panic(err)
 	}
 	return config
+}
+
+// RejectLogins starts a server that answers every login with a FATAL error
+// carrying sqlstate, such as 28P01. It stops when t ends.
+func RejectLogins(t *testing.T, sqlstate string) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				backend := pgproto3.NewBackend(conn, conn)
+				if _, err := backend.ReceiveStartupMessage(); err != nil {
+					return
+				}
+				backend.Send(&pgproto3.ErrorResponse{Severity: "FATAL", Code: sqlstate, Message: "login rejected"})
+				_ = backend.Flush()
+			}()
+		}
+	}()
+	return listener.Addr().String()
 }
 
 // MigrateT runs the embedded migrations against connStr and calls t.Fatal on error.
