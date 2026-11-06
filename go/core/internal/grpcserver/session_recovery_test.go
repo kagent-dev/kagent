@@ -133,10 +133,10 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 				t.Helper()
 				response, err := client.GetSession(owner, &apiv1.GetSessionRequest{SessionId: session.Id})
 				require.NoError(t, err)
-				require.Equal(t, new(needed), response.Session.GetRecovery().Needed)
+				require.Equal(t, new(needed), response.Session.RecoveryNeeded)
 				return response.Session
 			}
-			require.Empty(t, observeRecovery(false).GetRecovery().FailedMessages)
+			observeRecovery(false)
 			request := &apiv1.RevertSessionRequest{SessionId: session.Id}
 			if test.noSnapshot {
 				control.actors[name].Status.Snapshots = nil
@@ -158,7 +158,6 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, crashed.State)
 			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, crashed.Operation)
 			require.Nil(t, crashed.Failure)
-			require.Empty(t, crashed.GetRecovery().FailedMessages)
 			before := proto.CloneOf(control.actors[name])
 			control.actors[name].Metadata.Uid = "replacement-uid"
 			_, err = client.RevertSession(owner, request)
@@ -186,20 +185,13 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			failed, err := client.GetSession(owner, &apiv1.GetSessionRequest{SessionId: session.Id})
 			require.NoError(t, err)
 			require.Equal(t, database.SessionRuntimeCrashed, failed.Session.Failure.Reason)
-			require.Equal(t, new(true), failed.Session.GetRecovery().Needed)
-			// No history event records "s3://snapshots/last-good", so only a
-			// runtime without a snapshot has a known boundary: its initial state.
-			var wantFailed []*apiv1.SessionMessageReference
-			if task != nil && test.noSnapshot {
-				wantFailed = []*apiv1.SessionMessageReference{{TaskId: string(task.ID), MessageId: task.History[0].ID}}
-			}
-			require.Equal(t, wantFailed, failed.Session.GetRecovery().FailedMessages)
+			require.Equal(t, new(true), failed.Session.RecoveryNeeded)
 			ready, err := client.RevertSession(owner, request)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, ready.Session.State)
 			require.Nil(t, ready.Session.Failure)
-			require.Nil(t, ready.Session.Recovery, "only GetSession returns recovery")
-			require.Equal(t, wantFailed, observeRecovery(false).GetRecovery().FailedMessages)
+			require.Nil(t, ready.Session.RecoveryNeeded, "only GetSession reports recovery")
+			observeRecovery(false)
 			// Retry as a client whose success response was lost.
 			retried, err := client.RevertSession(owner, request)
 			require.NoError(t, err)

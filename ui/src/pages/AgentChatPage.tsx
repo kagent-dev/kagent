@@ -315,8 +315,8 @@ export function AgentChatPage() {
 
   // Automatic runtime quiescence leaves the conversation ready for its next turn.
   const state = instance.data?.state;
-  const recovery = instance.data?.recovery;
-  const canSend = state === "ready" && recovery?.needed !== true;
+  const recoveryNeeded = instance.data?.recoveryNeeded === true;
+  const canSend = state === "ready" && !recoveryNeeded;
 
   /*
    * Watching the instance while it is doing something.
@@ -438,9 +438,17 @@ export function AgentChatPage() {
     // and depending on it would re-run this on each one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, chat.isLoadingHistory]);
+  /*
+   * Revert is disabled only while this page's own request is in flight. An admitted
+   * recovery is not enough: it keeps its operation through every failed attempt, and a
+   * revert sent meanwhile joins it rather than starting another. The ref closes the gap
+   * before React re-renders the disabled button, so a double click sends one request.
+   */
   const [isReverting, setReverting] = useState(false);
+  const revertInFlight = useRef(false);
   const revertRuntime = useCallback(async () => {
-    if (!id) return;
+    if (!id || revertInFlight.current) return;
+    revertInFlight.current = true;
     setReverting(true);
     let reverted = false;
     try {
@@ -454,17 +462,18 @@ export function AgentChatPage() {
         ? `Recovery completed. Could not refresh the conversation: ${reason}`
         : `Could not recover the conversation: ${reason}`);
     } finally {
+      revertInFlight.current = false;
       setReverting(false);
     }
   }, [id, instance, chat]);
 
   /*
-   * A crashed conversation waiting on the reader is idle, so `recovery.needed` alone does
+   * A crashed conversation waiting on the reader is idle, so `recoveryNeeded` alone does
    * not keep the one-second poll running: every read of a crashed Session also asks
    * Substrate for its Actor, and a page left open would do that until someone acted.
    * The poll runs while a revert is in flight or the controller has claimed a resume,
    * which `isLifecycleBusy` already reads. The live refresh above still notices a
-   * recovery made from another tab or by the controller.
+   * recovery made from another tab or client.
    */
   const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply)
     || isReverting;
@@ -661,13 +670,14 @@ export function AgentChatPage() {
           ) : null}
 
           <SessionRecoveryAlert
-            recovery={recovery}
+            needed={recoveryNeeded}
             checkpoints={checkpoints.data ?? []}
-            isRecovering={isReverting || instance.data?.operation === "resume"}
+            isRecovering={isReverting || instance.data?.operation === "revert"}
+            isReverting={isReverting}
             onRevert={revertRuntime}
           />
 
-          {instance.data && !canSend && recovery?.needed !== true ? (
+          {instance.data && !canSend && !recoveryNeeded ? (
             <Alert
               type="warning"
               showIcon
@@ -686,8 +696,8 @@ export function AgentChatPage() {
             chat={chat}
             isLoading={instance.isLoading}
             sessionId={id}
-            recovery={recovery}
-            readOnly={recovery?.needed === true}
+            recoveryNeeded={recoveryNeeded}
+            readOnly={recoveryNeeded}
             onOpenCheckpoint={openSnapshot}
             onRenameCheckpoint={renameSnapshot}
             onFork={forkCheckpoint}

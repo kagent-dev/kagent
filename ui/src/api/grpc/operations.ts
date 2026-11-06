@@ -605,15 +605,7 @@ function toAgentInstance(instance: PbSession): AgentInstance {
           message: orUndefined(instance.failure.message),
         }
       : undefined,
-    recovery: instance.recovery
-      ? {
-          needed: instance.recovery.needed,
-          failedMessages: instance.recovery.failedMessages.map((message) => ({
-            taskId: message.taskId,
-            messageId: message.messageId,
-          })),
-        }
-      : undefined,
+    recoveryNeeded: instance.recoveryNeeded,
     createdAt: isoFrom(instance.createdAt),
     updatedAt: isoFrom(instance.updatedAt),
   };

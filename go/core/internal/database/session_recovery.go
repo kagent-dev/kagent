@@ -104,9 +104,6 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if busy {
 			return ErrConflict
 		}
-		if err := recordDiscardedSessionMessages(ctx, tx, row, session, snapshot); err != nil {
-			return err
-		}
 		row.State = apiv1.RuntimeState_RUNTIME_STATE_FAILED.String()
 		row.runtimeInstanceRow, err = beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT)
 		if err != nil {
@@ -129,79 +126,6 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		return err
 	})
 	return operation, err
-}
-
-// The Session lock keeps annotations atomic with recovery admission and task settlement.
-//
-// The boundary is the newest history event tagged with the snapshot the Actor
-// reverts to. A runtime without a snapshot restarts from its initial state, so
-// every input is discarded. A snapshot that no event records leaves the
-// boundary unknown: a quiescence whose Substrate call succeeded but whose
-// commit did not, or a forked Actor reporting a different URI than its copied
-// boundary. Recovery then records no new annotations rather than marking the
-// whole transcript lost, because most of that history is usually in the
-// snapshot. Annotations from earlier reverts are kept either way.
-func recordDiscardedSessionMessages(ctx context.Context, tx pgx.Tx, row sessionRow, session *apiv1.Session, snapshot SessionTaskSnapshot) error {
-	type messageRow struct {
-		TaskID    string
-		MessageID string
-		Data      []byte
-	}
-	// An empty snapshot URI keeps boundary 0, so every message is discarded. A
-	// URI that no event records yields a NULL boundary, which selects nothing.
-	messages, err := queryMany(ctx, tx, `
-		WITH boundary AS (
-		    SELECT CASE WHEN $2::text = '' THEN 0 ELSE MAX(sequence) END AS sequence
-		    FROM session_task_event
-		    WHERE history_id = $1 AND snapshot_uri = $2
-		      AND snapshot_fidelity = $3 AND snapshot_atespace = $4)
-		SELECT e.task_id, e.message_id, e.data
-		FROM session_task_event e, boundary b
-		WHERE e.history_id = $1 AND e.message_id IS NOT NULL AND e.sequence > b.sequence
-		ORDER BY e.sequence
-	`, pgx.RowToStructByName[messageRow], row.HistoryID, snapshot.URI, snapshot.Fidelity, snapshot.Atespace)
-	if err != nil {
-		return fmt.Errorf("read discarded Session messages: %w", err)
-	}
-	if len(messages) == 0 {
-		return nil
-	}
-	failed := append([]*apiv1.SessionMessageReference(nil), session.GetRecovery().GetFailedMessages()...)
-	for _, row := range messages {
-		event, err := unmarshalSessionTaskEvent(row.Data)
-		if err != nil {
-			return err
-		}
-		message, ok := event.(*a2a.Message)
-		if !ok || message == nil || row.TaskID == "" || row.MessageID == "" || message.ID != row.MessageID || string(message.TaskID) != row.TaskID || message.ContextID != session.ContextId {
-			return fmt.Errorf("discarded Session message has inconsistent identity")
-		}
-		if message.Role == a2a.MessageRoleUser {
-			failed = append(failed, &apiv1.SessionMessageReference{TaskId: row.TaskID, MessageId: row.MessageID})
-		}
-	}
-	if len(failed) == 0 {
-		return nil
-	}
-	type identity struct{ taskID, messageID string }
-	seen := make(map[identity]struct{}, len(failed))
-	unique := make([]*apiv1.SessionMessageReference, 0, len(failed))
-	for _, message := range failed {
-		if message.GetTaskId() == "" || message.GetMessageId() == "" {
-			return fmt.Errorf("discarded Session message requires a task and message identity")
-		}
-		key := identity{message.TaskId, message.MessageId}
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		unique = append(unique, message)
-	}
-	if session.Recovery == nil {
-		session.Recovery = &apiv1.SessionRecovery{}
-	}
-	session.Recovery.FailedMessages = unique
-	return nil
 }
 
 // settleCrashedSessionTasks publishes saved results, keeps waits the snapshot

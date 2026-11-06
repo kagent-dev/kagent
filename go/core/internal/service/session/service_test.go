@@ -124,13 +124,13 @@ func (s *serviceTestStore) DeleteSessionShare(_ context.Context, id, _ string) e
 }
 
 type serviceTestWorkflow struct {
-	err         error
-	recovery    *apiv1.SessionRecovery
-	recoveryErr error
+	err            error
+	recoveryNeeded *bool
+	recoveryErr    error
 }
 
-func (w serviceTestWorkflow) Recovery(context.Context, *apiv1.Session) (*apiv1.SessionRecovery, error) {
-	return w.recovery, w.recoveryErr
+func (w serviceTestWorkflow) RecoveryNeeded(context.Context, *apiv1.Session) (*bool, error) {
+	return w.recoveryNeeded, w.recoveryErr
 }
 
 func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {

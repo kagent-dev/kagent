@@ -566,7 +566,7 @@ type fakeSessionWorkflow struct{}
 
 // Recovery panics because MCP resolves a Session before every invoke and task
 // call; observing the Actor there would add a Substrate round trip to each one.
-func (*fakeSessionWorkflow) Recovery(context.Context, *apiv1.Session) (*apiv1.SessionRecovery, error) {
+func (*fakeSessionWorkflow) RecoveryNeeded(context.Context, *apiv1.Session) (*bool, error) {
 	panic("MCP must not observe Session recovery")
 }
 
