@@ -93,7 +93,7 @@ func TestCheckpointActivationWaitsForLegacyReplicaSetScaleDown(t *testing.T) {
 		{name: "old replica still reported", observed: 2, remaining: 1},
 		{name: "scale-down completed", observed: 2, ready: true},
 	} {
-		t.Run("Given no live legacy Pods, when "+scenario.name+", assert that activation requires confirmed retirement", func(t *testing.T) {
+		t.Run("Given "+scenario.name+", when recovery checks activation, assert that only confirmed retirement permits execution", func(t *testing.T) {
 			scheme := runtime.NewScheme()
 			require.NoError(t, corev1.AddToScheme(scheme))
 			require.NoError(t, appsv1.AddToScheme(scheme))

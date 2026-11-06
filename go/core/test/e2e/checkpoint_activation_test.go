@@ -2,13 +2,16 @@ package e2e_test
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
@@ -45,11 +48,24 @@ func TestCheckpointActivationDuringControllerReplacement(t *testing.T) {
 	}}
 	require.NoError(t, kube.Create(ctx, legacy))
 	t.Cleanup(func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), time.Minute)
+		cleanup, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
 		if err := kube.Delete(cleanup, legacy); !apierrors.IsNotFound(err) {
 			require.NoError(t, err)
 		}
+		// Keep a failed scenario from leaving the following tests behind a
+		// terminating placeholder or an activation check not yet completed.
+		require.NoError(t, wait.PollUntilContextTimeout(cleanup, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
+			err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(legacy), &corev1.Pod{})
+			return apierrors.IsNotFound(err), ctrlclient.IgnoreNotFound(err)
+		}))
+		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, conn.Close()) }()
+		require.NoError(t, waitForControllerAPI(cleanup, conn))
+		require.NoError(t, waitForCheckpointAdmission(cleanup, apiv1.NewCheckpointServiceClient(conn), &apiv1.CreateCheckpointRequest{
+			SessionId: uuid.NewString(), RequestId: uuid.NewString(), ExpectedHeadTaskId: "activation-cleanup-probe",
+		}))
 	})
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
 		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(legacy), legacy); err != nil {
@@ -73,7 +89,13 @@ func TestCheckpointActivationDuringControllerReplacement(t *testing.T) {
 	// A deletion timestamp alone must not activate recovery during preStop.
 	_, err = checkpoints.CreateCheckpoint(ctx, create)
 	require.Equal(t, codes.Unavailable, status.Code(err))
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
+	require.NoError(t, waitForCheckpointAdmission(ctx, checkpoints, create))
+	_, err = checkpoints.DeleteCheckpoint(ctx, remove)
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func waitForCheckpointAdmission(ctx context.Context, checkpoints apiv1.CheckpointServiceClient, create *apiv1.CreateCheckpointRequest) error {
+	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
 		_, err := checkpoints.CreateCheckpoint(ctx, create)
 		if status.Code(err) == codes.Unavailable {
 			return false, nil
@@ -83,8 +105,9 @@ func TestCheckpointActivationDuringControllerReplacement(t *testing.T) {
 		if status.Code(err) == codes.NotFound {
 			return true, nil
 		}
+		if err == nil {
+			return false, fmt.Errorf("unknown probe Session was admitted")
+		}
 		return false, err
-	}))
-	_, err = checkpoints.DeleteCheckpoint(ctx, remove)
-	require.Equal(t, codes.NotFound, status.Code(err))
+	})
 }

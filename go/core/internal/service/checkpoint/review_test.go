@@ -69,7 +69,7 @@ func TestPermanentRecoveryErrorsKeepBackendConfigurationPrivate(t *testing.T) {
 		{name: "backend status", failure: status.Error(codes.FailedPrecondition, private), message: "Checkpoint recovery cannot continue safely"},
 		{name: "service error with private cause", failure: serviceerrors.NewFailedPrecondition("Snapshot identity changed", errors.New(private)), message: "Snapshot identity changed"},
 	} {
-		t.Run("Given a "+scenario.name+", when recovery persists a permanent error, assert that callers see only the safe message", func(t *testing.T) {
+		t.Run("Given a "+scenario.name+", when recovery classifies a permanent failure, assert that callers see only the safe message", func(t *testing.T) {
 			failure := permanentOperationError(scenario.failure)
 			require.Equal(t, codes.FailedPrecondition, failure.Code())
 			require.Equal(t, scenario.message, failure.Message())
@@ -233,14 +233,19 @@ func TestCheckpointActivationPreservesAdmittedWork(t *testing.T) {
 	defer stop()
 	// Given admitted legacy work, when replacements start before writers drain,
 	// assert that public mutations fail promptly and no worker starts a copy.
-	_, err = service.Create(owner, source.Id, request, head)
+	blocked, cancel := context.WithTimeout(owner, time.Second)
+	defer cancel()
+	_, err = service.Create(blocked, source.Id, request, head)
 	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(err))
-	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(service.Delete(owner, cp.Id)))
-	select {
-	case <-tags.entered:
-		t.Fatal("recovery executed before activation")
-	default:
-	}
+	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(service.Delete(blocked, cp.Id)))
+	require.Never(t, func() bool {
+		select {
+		case <-tags.entered:
+			return true
+		default:
+			return false
+		}
+	}, 100*time.Millisecond, time.Millisecond, "recovery executed before activation")
 	pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
 	require.NoError(t, err)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
