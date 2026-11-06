@@ -3,19 +3,15 @@ package session
 import (
 	"bytes"
 	"context"
-	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
-	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/a2aproject/a2a-go/v2/errordetails"
 	"github.com/stretchr/testify/require"
 	grpcdetails "google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -25,6 +21,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
@@ -59,7 +56,7 @@ func TestInvokeRetriesRejectedGRPCSend(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			rejected, err := status.New(codes.FailedPrecondition, "input was not accepted").WithDetails(&grpcdetails.ErrorInfo{
 				Reason: a2atype.ErrorReason(a2atype.ErrUnsupportedOperation), Domain: a2atype.ProtocolDomain,
-				Metadata: map[string]string{"reason": "KAGENT_SEND_NOT_ACCEPTED", "retryAfterMs": "100"},
+				Metadata: map[string]string{"reason": kagenta2a.SendNotAcceptedReason, "retryAfterMs": "100"},
 			})
 			require.NoError(t, err)
 			response, err := pbconv.ToProtoSendMessageResponse(&a2atype.Task{
@@ -115,49 +112,7 @@ func TestInvokeRetriesRejectedGRPCSend(t *testing.T) {
 
 func unacceptedSendError() error {
 	return a2atype.NewError(a2atype.ErrUnsupportedOperation, "input was not accepted").
-		WithErrorInfoMeta(map[string]string{"reason": "KAGENT_SEND_NOT_ACCEPTED", "retryAfterMs": "100"})
-}
-
-func TestRetryUnacceptedSend(t *testing.T) {
-	for _, tt := range []struct {
-		name      string
-		err       error
-		wantCalls int
-	}{
-		{name: "explicit rejection", err: unacceptedSendError(), wantCalls: 2},
-		{name: "ambiguous transport failure", err: a2atype.ErrInternalError, wantCalls: 1},
-		{name: "wrong error with rejection metadata", err: a2atype.NewError(a2atype.ErrInternalError, "rejected").
-			WithErrorInfoMeta(map[string]string{"reason": "KAGENT_SEND_NOT_ACCEPTED"}), wantCalls: 1},
-		{name: "unsupported operation", err: a2atype.ErrUnsupportedOperation, wantCalls: 1},
-		{name: "matching text without proof", err: errors.New("input was not accepted"), wantCalls: 1},
-		{name: "other domain", err: a2atype.NewError(a2atype.ErrUnsupportedOperation, "rejected").WithTypedDetails(
-			errordetails.NewErrorInfo("UNSUPPORTED_OPERATION", "other.example", map[string]string{"reason": "KAGENT_SEND_NOT_ACCEPTED"}),
-		), wantCalls: 1},
-		{name: "other reason", err: a2atype.NewError(a2atype.ErrUnsupportedOperation, "rejected").
-			WithErrorInfoMeta(map[string]string{"reason": "OTHER_REASON"}), wantCalls: 1},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				calls := 0
-				want := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("answer"))
-				result, err := retryUnacceptedSend(t.Context(), func() (a2atype.SendMessageResult, error) {
-					calls++
-					if calls == 1 {
-						return nil, tt.err
-					}
-					return want, nil
-				})
-				require.Equal(t, tt.wantCalls, calls)
-				if tt.wantCalls == 1 {
-					require.ErrorIs(t, err, tt.err)
-					require.Nil(t, result)
-				} else {
-					require.NoError(t, err)
-					require.Same(t, want, result)
-				}
-			})
-		})
-	}
+		WithErrorInfoMeta(map[string]string{"reason": kagenta2a.SendNotAcceptedReason, "retryAfterMs": "100"})
 }
 
 func TestRetryUnacceptedSendPreservesPartialStream(t *testing.T) {
@@ -166,7 +121,7 @@ func TestRetryUnacceptedSendPreservesPartialStream(t *testing.T) {
 	message := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("partial response"))
 	rejection := unacceptedSendError()
 	calls := 0
-	result, err := retryUnacceptedSend(t.Context(), func() (a2atype.SendMessageResult, error) {
+	result, err := kagenta2a.RetryUnacceptedSend(t.Context(), func() (a2atype.SendMessageResult, error) {
 		calls++
 		return consumeA2AStream(eventStream(streamItem{event: message}, streamItem{err: rejection}), writer.Write)
 	})
@@ -174,47 +129,4 @@ func TestRetryUnacceptedSendPreservesPartialStream(t *testing.T) {
 	require.Same(t, message, result)
 	require.Equal(t, 1, calls)
 	require.Equal(t, "partial response", output.String())
-}
-
-func TestRetryUnacceptedSendHonorsCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	calls := 0
-	_, err := retryUnacceptedSend(ctx, func() (a2atype.SendMessageResult, error) {
-		calls++
-		cancel()
-		return nil, unacceptedSendError()
-	})
-	require.ErrorIs(t, err, context.Canceled)
-	require.Equal(t, 1, calls)
-}
-
-func TestRetryUnacceptedSendIsBounded(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		start := time.Now()
-		rejection := unacceptedSendError()
-		_, err := retryUnacceptedSend(t.Context(), func() (a2atype.SendMessageResult, error) {
-			return nil, rejection
-		})
-		require.ErrorIs(t, err, rejection)
-		require.InDelta(t, 30, time.Since(start).Seconds(), 0.1)
-	})
-}
-
-func TestRetryUnacceptedSendDoesNotLimitAcceptedExecution(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		calls := 0
-		want := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("answer"))
-		result, err := retryUnacceptedSend(t.Context(), func() (a2atype.SendMessageResult, error) {
-			calls++
-			if calls == 1 {
-				return nil, unacceptedSendError()
-			}
-			time.Sleep(time.Minute)
-			return want, nil
-		})
-		require.NoError(t, err)
-		require.Same(t, want, result)
-		require.Equal(t, 2, calls)
-	})
 }
