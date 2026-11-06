@@ -430,7 +430,9 @@ func pgMigrationState(t *testing.T, env upgradeEnv) postgresMigrationState {
 // pgMigrationStateE is the error-returning core of pgMigrationState, for use
 // inside require.Eventually conditions (see pgQueryE).
 func pgMigrationStateE(t *testing.T, env upgradeEnv) (postgresMigrationState, error) {
-	raw, err := pgQueryE(t, env, fmt.Sprintf("SELECT CASE WHEN to_regclass('%[1]s.schema_migrations') IS NULL THEN 0 ELSE (SELECT COALESCE(MAX(version_id), 0) FROM %[1]s.schema_migrations WHERE is_applied) END", kagentSchema))
+	// Core migrations are required. Before the tracking table exists, return the
+	// query error so readiness polling retries until the controller creates it.
+	raw, err := pgQueryE(t, env, fmt.Sprintf("SELECT COALESCE(MAX(version_id), 0) FROM %s.schema_migrations WHERE is_applied", kagentSchema))
 	if err != nil {
 		return postgresMigrationState{}, err
 	}
