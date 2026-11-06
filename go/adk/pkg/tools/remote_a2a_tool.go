@@ -434,17 +434,29 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 		case a2atype.TaskStateInputRequired:
 			return s.handleInputRequired(ctx, r, contextID), nil
 		case a2atype.TaskStateFailed:
-			text, err := extractTextFromTask(r)
+			// The status message names the failure. The artifacts, when the
+			// runtime kept them (an answer cut at the model's output limit,
+			// say), hold what the agent produced before it failed, and the
+			// parent reads them beside the reason. A failure without a
+			// message reads its text from the artifacts, as before.
+			reason, err := extractTextFromMessage(r.Status.Message)
 			if err != nil {
 				return remoteA2AResponse{}, fmt.Errorf("extract remote agent failure: %w", err)
 			}
-			if text == "" {
-				text = fmt.Sprintf("Remote agent '%s' failed.", s.name)
+			partial, err := extractTextFromArtifacts(r)
+			if err != nil {
+				return remoteA2AResponse{}, fmt.Errorf("extract remote agent failure: %w", err)
 			}
-			return remoteA2AResponse{
-				Error:             text,
-				SubagentSessionID: contextID,
-			}, nil
+			ret := remoteA2AResponse{SubagentSessionID: contextID}
+			switch {
+			case reason != "":
+				ret.Error, ret.Result = reason, partial
+			case partial != "":
+				ret.Error = partial
+			default:
+				ret.Error = fmt.Sprintf("Remote agent '%s' failed.", s.name)
+			}
+			return ret, nil
 		default:
 			// completed — include sub-agent's final LLM usage from task.metadata
 			// so the parent can display it on the AgentCall card in the UI.
@@ -540,36 +552,37 @@ func extractTextFromTask(task *a2atype.Task) (string, error) {
 		return "", nil
 	}
 	// Prefer artifacts (canonical result).
-	if len(task.Artifacts) > 0 {
-		var texts []string
-		for _, artifact := range task.Artifacts {
-			for _, part := range artifact.Parts {
-				if part == nil {
-					continue
-				}
-				if text := part.Text(); text != "" {
-					texts = append(texts, text)
-					continue
-				}
-				if !kagenta2a.IsStructuredOutputPart(part) {
-					continue
-				}
-				text, err := kagenta2a.StructuredOutputJSON(part)
-				if err != nil {
-					return "", err
-				}
-				texts = append(texts, text)
-			}
-		}
-		if len(texts) > 0 {
-			return strings.Join(texts, "\n"), nil
-		}
+	text, err := extractTextFromArtifacts(task)
+	if err != nil || text != "" {
+		return text, err
 	}
 	// Fall back to status message.
-	if task.Status.Message != nil {
-		return extractTextFromMessage(task.Status.Message)
+	return extractTextFromMessage(task.Status.Message)
+}
+
+// extractTextFromArtifacts extracts text or a structured result from a Task's artifacts.
+func extractTextFromArtifacts(task *a2atype.Task) (string, error) {
+	var texts []string
+	for _, artifact := range task.Artifacts {
+		for _, part := range artifact.Parts {
+			if part == nil {
+				continue
+			}
+			if text := part.Text(); text != "" {
+				texts = append(texts, text)
+				continue
+			}
+			if !kagenta2a.IsStructuredOutputPart(part) {
+				continue
+			}
+			text, err := kagenta2a.StructuredOutputJSON(part)
+			if err != nil {
+				return "", err
+			}
+			texts = append(texts, text)
+		}
 	}
-	return "", nil
+	return strings.Join(texts, "\n"), nil
 }
 
 // extractTextFromMessage extracts text or a structured result from a direct A2A Message response.
