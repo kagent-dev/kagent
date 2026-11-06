@@ -125,13 +125,7 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if err != nil {
 			return err
 		}
-		// Pin the snapshot that settlement judges waits against, so the revert
-		// restores exactly it rather than whatever Substrate holds later. Only this
-		// transaction starts a REVERT, so the pin always belongs to the current one.
-		if err := execSQL(ctx, tx, `
-			UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL, recovery_snapshot_uri = $3
-			WHERE id = $1
-		`, row.ID, row.Data, snapshot.URI); err != nil {
+		if err := execSQL(ctx, tx, `UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL WHERE id = $1`, row.ID, row.Data); err != nil {
 			return err
 		}
 		if err := settleCrashedSessionTasks(ctx, tx, row, snapshot); err != nil {
@@ -141,26 +135,6 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		return err
 	})
 	return operation, err
-}
-
-// SessionRecoveryPin is the Actor and durable snapshot an admitted REVERT must
-// restore. SnapshotURI is empty when the crashed Actor had none.
-type SessionRecoveryPin struct {
-	ActorUID    string
-	SnapshotURI string
-}
-
-// GetSessionRecoveryPin returns the pin of the Session's current REVERT
-// operation. Any other operation returns ErrNotFound.
-func (c *Client) GetSessionRecoveryPin(ctx context.Context, sessionID string, operationID uuid.UUID) (SessionRecoveryPin, error) {
-	pin, err := queryOne(ctx, c.db, `
-		SELECT s.actor_uid, s.recovery_snapshot_uri AS snapshot_uri FROM session s JOIN runtime_instance r USING (id)
-		WHERE s.id = $1 AND r.operation_id = $2 AND r.operation = 'RUNTIME_OPERATION_REVERT'
-	`, pgx.RowToStructByName[SessionRecoveryPin], sessionID, operationID)
-	if err != nil {
-		return SessionRecoveryPin{}, fmt.Errorf("read Session %s recovery pin: %w", sessionID, notFoundOr(err))
-	}
-	return pin, nil
 }
 
 // settleCrashedSessionTasks publishes saved results, keeps waits the snapshot

@@ -17,7 +17,6 @@ import (
 type workflowStore interface {
 	GetSessionGeneration(context.Context, string) (*database.SessionGeneration, error)
 	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration, database.SessionTaskSnapshot) (*database.SessionOperation, error)
-	GetSessionRecoveryPin(context.Context, string, uuid.UUID) (database.SessionRecoveryPin, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
@@ -164,11 +163,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	var transition *substrate.ActorTransition
 	switch {
 	case database.CrashRecoveryAdmitted(session):
-		var pin database.SessionRecoveryPin
-		if pin, err = w.store.GetSessionRecoveryPin(ctx, sessionID, operation.ID); err != nil {
-			return w.failPreparation(ctx, operation, fmt.Errorf("load admitted recovery pin: %w", err))
-		}
-		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding, pin.ActorUID, pin.SnapshotURI)
+		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding)
 	case operation.ExecutorID != uuid.Nil:
 		transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
 	default:
@@ -180,6 +175,9 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 
 	if uid := transition.ActorUID(); uid != "" && kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		if _, err := w.store.GetSessionForRuntime(ctx, session.Id, uid); err != nil {
+			if database.CrashRecoveryAdmitted(session) && errors.Is(err, database.ErrNotFound) {
+				err = fmt.Errorf("runtime Actor was replaced: %w", substrate.ErrActorUnrecoverable)
+			}
 			return w.failPreparation(ctx, operation, fmt.Errorf("verify runtime actor UID: %w", err))
 		}
 	}

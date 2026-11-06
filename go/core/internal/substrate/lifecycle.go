@@ -55,10 +55,9 @@ type ActorTransition struct {
 	creation  *ActorCreation
 }
 
-// ErrActorUnrecoverable means the Actor is missing, was replaced, or reports a
-// different durable snapshot. No retry changes that, and no revert of the
-// recorded Actor can still be in progress.
-var ErrActorUnrecoverable = errors.New("actor cannot be restored to the admitted snapshot")
+// ErrActorUnrecoverable reports that a crash recovery's Actor is missing or was
+// replaced. No retry changes that, and no revert of it can still be in progress.
+var ErrActorUnrecoverable = errors.New("actor is missing or was replaced")
 
 // ActorUID returns the observed runtime identity, including after creation.
 func (t *ActorTransition) ActorUID() string {
@@ -125,14 +124,10 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 	return &ActorTransition{binding: binding, operation: operation, actor: actor, creation: creation}, nil
 }
 
-// PrepareActorRevert runs before the store's durable claim so a failed Actor read
-// leaves no claim and Delete can still supersede the recovery. snapshotURI is the
-// snapshot admission pinned ("" for none); admission already settled the
-// interrupted turn against it, so the revert must restore exactly it. Identity is
-// checked before state so a replacement in any state is unrecoverable rather than
-// a transient refusal that keeps Delete blocked. A SUSPENDED Actor means an
-// earlier revert completed and its response was lost.
-func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding, actorUID, snapshotURI string) (*ActorTransition, error) {
+// PrepareActorRevert reads the Actor before the store's durable claim, so a
+// failed read leaves no claim. A missing or retemplated Actor is unrecoverable.
+// The caller then checks the recorded UID; applyRevert checks the state.
+func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding) (*ActorTransition, error) {
 	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
 	if status.Code(err) == codes.NotFound {
 		return nil, fmt.Errorf("actor %s/%s is missing: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
@@ -140,16 +135,8 @@ func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding Act
 	if err != nil {
 		return nil, fmt.Errorf("get Actor %s/%s: %w", binding.Atespace, binding.Name, err)
 	}
-	if !binding.Matches(actor) || actor.GetMetadata().GetUid() != actorUID {
+	if !binding.Matches(actor) {
 		return nil, fmt.Errorf("actor %s/%s identity or template changed: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
-	}
-	switch actor.GetStatus().GetState() {
-	case ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_REVERTING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
-	default:
-		return nil, fmt.Errorf("crashed Actor %s/%s has unexpected state %s", binding.Atespace, binding.Name, actor.GetStatus().GetState())
-	}
-	if SnapshotURI(LatestDurableActorSnapshot(actor)) != snapshotURI {
-		return nil, fmt.Errorf("actor %s/%s durable snapshot changed after recovery was admitted: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
 	}
 	return &ActorTransition{binding: binding, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, actor: actor}, nil
 }
@@ -232,8 +219,10 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 	return nil
 }
 
-// applyRevert rejects a changed UID or snapshot: something other than this
-// recovery acted on the runtime, so the Session must not adopt the result.
+// applyRevert requires the same Actor back, SUSPENDED, holding the durable
+// snapshot it held before. Substrate restores the last completed durable
+// snapshot, and kagent suspends synchronously, so admission settled against that
+// snapshot; anything else means something other than this recovery acted.
 func (t *ActorTransition) applyRevert(ctx context.Context, actors LifecycleClient) error {
 	binding, actor := t.binding, t.actor
 	before := proto.CloneOf(LatestDurableActorSnapshot(actor))

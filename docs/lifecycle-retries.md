@@ -58,7 +58,7 @@ A revert that observed the crash before another lifecycle operation began also r
 So does a revert while another lifecycle operation is active.
 
 A revert of a runtime that is not crashed returns the Session unchanged.
-A revert that can never succeed returns `FAILED_PRECONDITION`: the recorded Actor is missing, a same-name Actor replaced it, or it no longer holds the snapshot recovery admitted.
+A revert that can never succeed returns `FAILED_PRECONDITION`: the recorded Actor is missing, or a same-name Actor replaced it.
 Stop retrying, delete the Session, then start another or fork one from a checkpoint. Delete succeeds even while the recovery is pending.
 Read the reason rather than the message text, which is not stable.
 

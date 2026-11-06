@@ -241,13 +241,11 @@ publishes a durable terminal result saved before the crash, or fails nonterminal
 work absent from the retained snapshot. Waiting tasks captured by that snapshot
 remain available. Checkpoint creation excludes competing recovery.
 
-Admission also pins the durable snapshot URI it judged waits against on the
-Session. Only admission starts a REVERT, so the pin always belongs to the
-current one. Substrate's revert restores the latest
-durable snapshot it holds when the call runs, so execution first requires the
-Actor to still report the pinned snapshot, then requires the reverted Actor to
-report it too. Otherwise a snapshot uploaded after admission could bring back a
-wait that admission had already failed.
+Admission settles waits against the Actor's latest completed durable snapshot,
+which is the one Substrate's revert restores. kagent suspends with synchronous
+durability, so a durable upload completes before suspension returns, and a
+crashed Actor cannot be suspended. Execution requires the reverted Actor to
+report the same snapshot it held before the revert.
 
 The caller reads the Session's generation before it observes Substrate: its
 lifecycle generation, recorded Actor UID, and Actor template, in one statement.
@@ -275,8 +273,8 @@ Delete supersedes an admitted recovery even after an attempt issued the revert.
 Other issued lifecycle work blocks Delete because it may still create something
 Delete would miss; a revert restores the recorded Actor in place and creates
 nothing. Substrate serializes the two calls, and a late revert fails against the
-deleted Actor. A recovery whose Actor is missing, replaced, or reports a
-different durable snapshot stays pending, and each retry returns
+deleted Actor. A recovery whose Actor is missing or replaced stays pending, and
+each retry returns
 `FAILED_PRECONDITION` so the client deletes the Session.
 
 A successful revert returns the Session to READY with the same Actor suspended.
