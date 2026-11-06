@@ -17,6 +17,7 @@
 import { MOCK_API_BASE_URL } from "@/api/config";
 import { setApiTransport } from "@/api/transport";
 import { mockTransport } from "./transport";
+import { mockBuiltinSkills } from "./fixtures";
 import {
   AUTH_SCENARIOS,
   AUTH_SCENARIO_PARAM,
@@ -29,6 +30,13 @@ import {
 
 export async function startMockBackend(): Promise<void> {
   setApiTransport(mockTransport);
+
+  if (!window.environmentVariables?.BUILTIN_SKILLS) {
+    window.environmentVariables = {
+      ...window.environmentVariables,
+      BUILTIN_SKILLS: JSON.stringify(mockBuiltinSkills),
+    };
+  }
 
   const { worker } = await import("./browser");
 
