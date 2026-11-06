@@ -163,7 +163,7 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=1.0.0-rc2 bash scripts/kind/setup-microvm.sh`.
+`SUBSTRATE_VERSION=1.0.0-rc4 bash scripts/kind/setup-microvm.sh`.
 It fetches the matching Substrate release and runs
 `ate-setup deploy sandboxconfig --sandbox-classes=microvm`. The installer assembles
 and verifies the assets, uploads them to RustFS, and applies the SandboxConfig.

@@ -189,13 +189,15 @@ jobs:
             namespacePolicies:
               - atespace: kagent
                 allowedNamespaces: [kagent, kagent-shared-models, kagent-shared-tools]
+          ateApi:
+            extraArgs: [--template-resync-interval=250ms]
+          EOF
+          cat > "$RUNNER_TEMP/atelet-values.yaml" <<EOF
           atelet:
             resources:
               limits:
                 memory: 2Gi
             extraArgs: [--localhost-registry-replacement=kind-registry:5000]
-          ateApi:
-            extraArgs: [--template-resync-interval=250ms]
           EOF
           cat > "$RUNNER_TEMP/kagent-cli.yaml" <<EOF
           install:
@@ -203,6 +205,8 @@ jobs:
               repository: "${RUNNER_TEMP}/release-charts/"
               version: "${VERSION}"
               valuesFiles: ["${RUNNER_TEMP}/kagent-values.yaml"]
+            atelet:
+              valuesFiles: ["${RUNNER_TEMP}/atelet-values.yaml"]
             substrate:
               valuesFiles:
                 - "${RUNNER_TEMP}/substrate-values.yaml"

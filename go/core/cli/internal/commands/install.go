@@ -104,6 +104,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		KagentCRDs:     chartConfig(settings.GetKagent(), kagentChartName+"-crds"),
 		Substrate:      chartConfig(settings.GetSubstrate(), "substrate"),
 		SubstrateCRDs:  chartConfig(settings.GetSubstrate(), "substrate-crds"),
+		Atelet:         chartConfig(settings.GetAtelet(), "substrate-atelet"),
 		PodCertificate: chartConfig(settings.GetPodCertificate(), "substrate-podcert"),
 		ModelProvider:  string(modelProvider), APIKey: apiKeyValue,
 		WorkerImage:       "ghcr.io/kagent-dev/substrate/ateworker-gvisor:v" + strings.TrimPrefix(settings.GetSubstrate().GetVersion(), "v"),
