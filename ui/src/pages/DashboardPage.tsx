@@ -1,5 +1,7 @@
+import { isPermissionDenied } from "@/api/ApiError";
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Alert, Button, Card, Empty, Space, Tag, Typography } from "antd";
+import { Card, Empty, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "react-router-dom";
@@ -52,7 +54,8 @@ export function DashboardPage() {
     [namespaces.data],
   );
   // Agent resources for the tile; conversations for the recent card.
-  const definitions = useAgentsAcrossNamespaces(namespaceNames);
+  const namespaceDenied = isPermissionDenied(namespaces.error);
+  const definitions = useAgentsAcrossNamespaces(namespaceDenied ? null : namespaceNames);
   const agents = useAgentInstances();
   const models = useModels();
   const servers = useMcpServers();
@@ -66,7 +69,11 @@ export function DashboardPage() {
     { label: "MCP servers", resource: servers },
     { label: "tools", resource: tools },
   ];
-  const failures = resources.filter((entry) => entry.resource.error);
+  const failedReads = resources.flatMap(({ label, resource }) =>
+    resource.error ? [{ label, error: resource.error, refresh: resource.refresh }] : [],
+  );
+  const denied = failedReads.filter(({ error }) => isPermissionDenied(error));
+  const failures = failedReads.filter(({ error }) => !isPermissionDenied(error));
   const isRefreshing = resources.some((entry) => entry.resource.isValidating);
 
   async function refreshAll(): Promise<void> {
@@ -77,7 +84,7 @@ export function DashboardPage() {
   // failed read must not be rendered as "there is nothing here".
   const agentRows = agents.error ? [] : (agents.data ?? []);
   const readyCount = agentRows.filter((row) => row.state === "ready").length;
-  const agentsError = namespaces.error ?? definitions.error;
+  const agentsError = (namespaceDenied ? undefined : namespaces.error) ?? definitions.error;
   const agentList = agentsError ? undefined : definitions.data?.agents;
   const readyAgents = agentList?.filter((agent) => agentRevisionState(agent) === "ready").length;
   // A partial namespace refusal still returns a list, so say the count is short.
@@ -107,20 +114,23 @@ export function DashboardPage() {
       }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
+        {denied.length > 0 ? (
+          <ReadError
+            resource={listNames(denied.map((entry) => entry.label))}
+            error={denied[0].error}
+            testId="dashboard-access-denied"
+          />
+        ) : null}
         {failures.length > 0 ? (
-          <Alert
-            type="error"
-            showIcon
+          <ReadError
+            resource={listNames(failures.map((entry) => entry.label))}
+            error={failures[0].error}
             title="Some of this page could not be loaded"
-            description={`Failed to read ${listNames(
-              failures.map((entry) => entry.label),
-            )}. Everything else here is current.`}
-            data-testid="dashboard-error"
-            action={
-              <Button size="small" onClick={() => void refreshAll()}>
-                Try again
-              </Button>
-            }
+            description={`Failed to read ${listNames(failures.map((entry) => entry.label))}. Everything else here is current.`}
+            testId="dashboard-error"
+            onRetry={async () => {
+              await Promise.all(failures.map((entry) => entry.refresh()));
+            }}
           />
         ) : null}
 
