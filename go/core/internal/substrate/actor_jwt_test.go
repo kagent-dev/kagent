@@ -4,6 +4,12 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,7 +21,7 @@ import (
 
 func TestActorJWTVerifier(t *testing.T) {
 	i := jwttest.New(t)
-	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, RuntimeJWTAudience)
+	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.RootCAs, RuntimeJWTAudience)
 	require.NoError(t, err)
 	for _, test := range []struct {
 		name   string
@@ -81,17 +87,86 @@ func TestActorJWTVerifier(t *testing.T) {
 
 func TestActorJWTVerifierRequiresTrustedDiscovery(t *testing.T) {
 	i := jwttest.New(t)
-	_, err := NewActorJWTVerifier(t.Context(), i.URL, "", RuntimeJWTAudience)
+	systemRoots, err := x509.SystemCertPool()
+	require.NoError(t, err)
+	_, err = NewActorJWTVerifier(t.Context(), i.URL, systemRoots, RuntimeJWTAudience)
 	require.Error(t, err, "untrusted TLS certificate")
+	_, err = NewActorJWTVerifier(t.Context(), i.URL, nil, RuntimeJWTAudience)
+	require.ErrorContains(t, err, "trust roots must not be nil")
 	for _, issuer := range []string{"", "http://issuer.test", "https://user:password@issuer.test", "https://issuer.test#fragment", "https://issuer.test?query"} {
-		_, err := NewActorJWTVerifier(t.Context(), issuer, i.CAFile, RuntimeJWTAudience)
+		_, err := NewActorJWTVerifier(t.Context(), issuer, i.RootCAs, RuntimeJWTAudience)
 		require.Error(t, err, issuer)
 	}
 }
 
+func TestActorJWKSRoots(t *testing.T) {
+	t.Run("Given Substrate's CA does not sign the issuer, when the verifier trusts roots with the issuer's CA as the JWKS bundle, assert that issuer tokens verify", func(t *testing.T) {
+		i := jwttest.New(t)
+		roots, err := ActorJWKSRoots(unrelatedCAFile(t), i.CAFile)
+		require.NoError(t, err)
+		v, err := NewActorJWTVerifier(t.Context(), i.URL, roots, RuntimeJWTAudience)
+		require.NoError(t, err)
+		identity, err := v.Verify(t.Context(), i.Token(t, i.Claims("team-a", "session-example", "actor-uid")))
+		require.NoError(t, err)
+		require.Equal(t, ActorIdentity{Atespace: "team-a", ActorName: "session-example", ActorUID: "actor-uid"}, identity)
+	})
+	t.Run("Given Substrate's CA does not sign the issuer, when the verifier trusts roots without a JWKS bundle, assert that discovery is rejected", func(t *testing.T) {
+		i := jwttest.New(t)
+		roots, err := ActorJWKSRoots(unrelatedCAFile(t), "")
+		require.NoError(t, err)
+		_, err = NewActorJWTVerifier(t.Context(), i.URL, roots, RuntimeJWTAudience)
+		require.ErrorContains(t, err, "fetch Actor JWT discovery")
+	})
+	t.Run("Given Substrate's CA signs the issuer, when the verifier trusts roots with an unrelated JWKS bundle, assert that Substrate's CA stays trusted", func(t *testing.T) {
+		i := jwttest.New(t)
+		roots, err := ActorJWKSRoots(i.CAFile, unrelatedCAFile(t))
+		require.NoError(t, err)
+		_, err = NewActorJWTVerifier(t.Context(), i.URL, roots, RuntimeJWTAudience)
+		require.NoError(t, err)
+	})
+	t.Run("Given no Substrate CA file, when the verifier trusts roots with the issuer's CA as the JWKS bundle, assert that issuer discovery succeeds", func(t *testing.T) {
+		i := jwttest.New(t)
+		roots, err := ActorJWKSRoots("", i.CAFile)
+		require.NoError(t, err)
+		_, err = NewActorJWTVerifier(t.Context(), i.URL, roots, RuntimeJWTAudience)
+		require.NoError(t, err)
+	})
+	t.Run("Given a JWKS bundle without certificates, when roots are built, assert that configuration is rejected", func(t *testing.T) {
+		empty := filepath.Join(t.TempDir(), "empty.pem")
+		require.NoError(t, os.WriteFile(empty, []byte("not a certificate"), 0o600))
+		_, err := ActorJWKSRoots(unrelatedCAFile(t), empty)
+		require.ErrorContains(t, err, "contains no certificates")
+	})
+	t.Run("Given a missing JWKS bundle, when roots are built, assert that configuration is rejected", func(t *testing.T) {
+		_, err := ActorJWKSRoots(unrelatedCAFile(t), filepath.Join(t.TempDir(), "missing.pem"))
+		require.ErrorContains(t, err, "read CA file")
+	})
+}
+
+// unrelatedCAFile writes a self-signed CA that signs no test server.
+func unrelatedCAFile(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "unrelated test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "unrelated-ca.pem")
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600))
+	return path
+}
+
 func TestActorJWTVerifierAudienceViews(t *testing.T) {
 	i := jwttest.New(t)
-	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, RuntimeJWTAudience)
+	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.RootCAs, RuntimeJWTAudience)
 	require.NoError(t, err)
 	metadata := v.ForAudience("kagent-agent-info")
 	require.Same(t, v.keys, metadata.keys, "audience views share signing-key refresh and revocation")
@@ -113,7 +188,7 @@ func TestActorJWTVerifierAudienceViews(t *testing.T) {
 
 func TestActorJWTVerifierClockSkew(t *testing.T) {
 	i := jwttest.New(t)
-	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, RuntimeJWTAudience)
+	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.RootCAs, RuntimeJWTAudience)
 	require.NoError(t, err)
 	for _, test := range []struct {
 		name    string

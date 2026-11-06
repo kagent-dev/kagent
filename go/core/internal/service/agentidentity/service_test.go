@@ -46,7 +46,7 @@ func (s *identityStore) GetRuntimeRevision(_ context.Context, revision string) (
 func TestResolveAgentIdentity(t *testing.T) {
 	issuer := jwttest.New(t)
 	// The service binds its own audience while sharing the runtime verifier's keys.
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.RootCAs, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	for _, test := range []struct {
 		name   string
