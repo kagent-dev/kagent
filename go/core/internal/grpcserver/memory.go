@@ -27,6 +27,7 @@ func (s *memoryServer) AddSession(ctx context.Context, request *runtimev1.Memory
 	if err != nil {
 		return nil, err
 	}
+	input.AgentName = request.GetManagementAgent()
 	id, err := s.service.Add(ctx, input)
 	if err != nil {
 		return nil, err
@@ -41,6 +42,7 @@ func (s *memoryServer) AddSessionBatch(ctx context.Context, request *runtimev1.M
 		if err != nil {
 			return nil, err
 		}
+		input.AgentName = request.GetManagementAgent()
 		inputs = append(inputs, input)
 	}
 	count, err := s.service.AddBatch(ctx, inputs)
@@ -52,9 +54,10 @@ func (s *memoryServer) AddSessionBatch(ctx context.Context, request *runtimev1.M
 
 func (s *memoryServer) Search(ctx context.Context, request *runtimev1.MemoryServiceSearchRequest) (*runtimev1.MemoryServiceSearchResponse, error) {
 	results, err := s.service.Search(ctx, memoryservice.SearchRequest{
-		Vector:   request.GetVector(),
-		Limit:    int(request.GetLimit()),
-		MinScore: request.GetMinScore(),
+		AgentName: request.GetManagementAgent(),
+		Vector:    request.GetVector(),
+		Limit:     int(request.GetLimit()),
+		MinScore:  request.GetMinScore(),
 	})
 	if err != nil {
 		return nil, err

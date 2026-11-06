@@ -2,25 +2,28 @@ syntax = "proto3";
 
 package kagent.runtime.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1";
 
 // Memory is scoped to an Agent and a user. Actor calls derive both from the
-// persisted session bound to the verified Actor JWT. List and Delete also
-// accept user authentication and use the authenticated user's identity.
+// persisted session bound to the verified Actor JWT. User calls select an
+// Agent and use the authenticated user's identity.
 service MemoryService {
-  // Requires an Actor JWT.
+  // Accepts an Actor JWT or user authentication.
   rpc AddSession(MemoryServiceAddSessionRequest) returns (MemoryServiceAddSessionResponse);
-  // Requires an Actor JWT.
+  // Accepts an Actor JWT or user authentication.
   rpc AddSessionBatch(MemoryServiceAddSessionBatchRequest) returns (MemoryServiceAddSessionBatchResponse);
-  // Requires an Actor JWT.
+  // Accepts an Actor JWT or user authentication.
   rpc Search(MemoryServiceSearchRequest) returns (MemoryServiceSearchResponse);
   // Accepts an Actor JWT or user authentication on the same RPC endpoint.
   rpc List(MemoryServiceListRequest) returns (MemoryServiceListResponse);
   // Accepts an Actor JWT or user authentication on the same RPC endpoint.
   rpc Delete(MemoryServiceDeleteRequest) returns (MemoryServiceDeleteResponse);
+  // Accepts an Actor JWT or user authentication on the same RPC endpoint.
+  rpc DeleteEntry(MemoryServiceDeleteEntryRequest) returns (MemoryServiceDeleteEntryResponse);
 }
 
 message SessionMemoryInput {
@@ -48,6 +51,10 @@ message MemorySummary {
 
 message MemoryServiceAddSessionRequest {
   SessionMemoryInput memory = 1;
+  // User calls must supply the Agent key, "namespace/name".
+  // Actor calls ignore this field and use the Agent
+  // from their persisted session.
+  string management_agent = 2;
 }
 
 message MemoryServiceAddSessionResponse {
@@ -56,6 +63,10 @@ message MemoryServiceAddSessionResponse {
 
 message MemoryServiceAddSessionBatchRequest {
   repeated SessionMemoryInput items = 1;
+  // User calls must supply the Agent key, "namespace/name".
+  // Actor calls ignore this field and use the Agent
+  // from their persisted session.
+  string management_agent = 2;
 }
 
 message MemoryServiceAddSessionBatchResponse {
@@ -66,6 +77,10 @@ message MemoryServiceSearchRequest {
   repeated float vector = 3;
   optional int32 limit = 4;
   optional double min_score = 5;
+  // User calls must supply the Agent key, "namespace/name".
+  // Actor calls ignore this field and use the Agent
+  // from their persisted session.
+  string management_agent = 6;
 }
 
 message MemoryServiceSearchResponse {
@@ -93,3 +108,16 @@ message MemoryServiceDeleteRequest {
 message MemoryServiceDeleteResponse {
   string status = 1;
 }
+
+message MemoryServiceDeleteEntryRequest {
+  // User calls must supply the Agent key, "namespace/name".
+  // Actor calls ignore this field and use the Agent
+  // from their persisted session.
+  string agent_name = 1;
+  string id = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 256
+  }];
+}
+
+message MemoryServiceDeleteEntryResponse {}
