@@ -449,6 +449,11 @@ helm-version: helm-cleanup
 	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/kagent-crds"
 	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/kagent"
 
+.PHONY: builtin-skills-catalog
+builtin-skills-catalog: ## Regenerate the built-in skills catalog from the kagent-tools image
+	bash scripts/builtin-skills-catalog.sh > "$(HELM_SOURCE_DIR)/kagent/files/builtin-skills.json.tmp"
+	mv "$(HELM_SOURCE_DIR)/kagent/files/builtin-skills.json.tmp" "$(HELM_SOURCE_DIR)/kagent/files/builtin-skills.json"
+
 .PHONY: helm-dev
 helm-dev: ## Prepare development charts with the images published by local builds
 	@test -d "$(RUNTIME_BUILD_METADATA_DIR)" || { echo "Missing runtime image metadata. Run make build before preparing development charts." >&2; exit 1; }
