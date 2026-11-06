@@ -23,8 +23,9 @@ global:
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
-  # substrateWorkerPool.workerImage, and built-in Harness images
-  # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
+  # substrateWorkerPool.workerImage, built-in Harness images
+  # (both packaged defaults and config.harnessImages overrides), and the built-in
+  # skills image (builtins.skills). The vendored subcharts
   # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
@@ -807,6 +808,53 @@ kagent-tools:
     loglevel: "debug"
     metrics:
       port: 8085 # Use a different port than the controller service port to avoid duplicate port definitions
+
+# ==============================================================================
+# BUILT-INS
+# ==============================================================================
+# A starting point for a new install: a Harness to run Agents on, a ready-made
+# Kubernetes Agent to chat with, and skills you can add to your own Agents.
+# The Harness and the Agent run on the chart's worker pool, so they need
+# substrateWorkerPool.create (kagent install sets it).
+
+builtins:
+  # -- Set to false to skip every built-in below, for example when you manage
+  # your own Harnesses and Agents.
+  enabled: true
+  harness:
+    # -- Create a Harness, the runtime your Agents run on. Agents name it in
+    # spec.harnessRef.
+    enabled: true
+    # -- Name of the Harness.
+    name: kagent
+    # -- Where the Harness stores Agent snapshots. The default bucket comes
+    # with the Substrate chart's built-in object store. If you turned that off,
+    # set your own bucket.
+    snapshotLocation: s3://ate-snapshots/kagent/
+  k8sAgent:
+    # -- Create k8s-agent, an Agent that helps you troubleshoot workloads in
+    # this cluster. It runs on builtins.harness, uses the kagent-tools
+    # Kubernetes tools and the k8s-troubleshooting skill, and asks for your
+    # approval before it changes anything. Needs kagent-tools.enabled.
+    enabled: true
+    # -- Name of the Agent.
+    name: k8s-agent
+  skills:
+    # -- Offer the built-in skills. A skill is a set of instructions an Agent
+    # loads when a task needs it. The UI lists these skills when you build an
+    # Agent, and k8s-agent uses one of them.
+    enabled: true
+    # -- Leave empty to use the skills that ship in the kagent-tools image.
+    # To offer skills from your own image instead, set its digest-pinned
+    # reference here, for example
+    # registry.example.com/team/skills@sha256:<digest>, and list the skills in
+    # builtins.skills.list.
+    image: ""
+    # -- The skills in builtins.skills.image, used only when that is set. Each
+    # entry has a name, a one-line description and the skill's directory in
+    # the image, for example:
+    # {name: k8s-troubleshooting, description: Diagnose unhealthy workloads., path: skills/k8s-troubleshooting}
+    list: []
 
 # ==============================================================================
 # PROXY CONFIGURATION

@@ -1,0 +1,20 @@
+{
+  "image": "ghcr.io/kagent-dev/kagent/tools@sha256:607cb0ac95c9905529ad1cfebeff3aa2fbf68aa81861ed3bbba9d71a7477d640",
+  "skills": [
+    {
+      "name": "helm-release-management",
+      "description": "Inspect, upgrade, roll forward and uninstall Helm releases with the kagent-tools helm_* MCP tools. Use for questions about installed charts, release status, values, failed upgrades, or adding chart repositories.",
+      "path": "opt/kagent-tools-skills/skills/helm-release-management"
+    },
+    {
+      "name": "istio-traffic-debugging",
+      "description": "Debug Istio service-mesh traffic (503s, mTLS failures, routing not applied, sidecar or ambient/waypoint issues) using the kagent-tools istio_* MCP tools. Use when requests between mesh services fail or routing rules do not take effect.",
+      "path": "opt/kagent-tools-skills/skills/istio-traffic-debugging"
+    },
+    {
+      "name": "k8s-troubleshooting",
+      "description": "Diagnose unhealthy Kubernetes workloads (CrashLoopBackOff, Pending, ImagePullBackOff, OOMKilled, failing readiness, unreachable Services) using the kagent-tools k8s_* MCP tools. Use when a pod, deployment or service is not working as expected.",
+      "path": "opt/kagent-tools-skills/skills/k8s-troubleshooting"
+    }
+  ]
+}
