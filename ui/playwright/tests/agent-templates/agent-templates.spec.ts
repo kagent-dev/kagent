@@ -195,6 +195,11 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("template-form-skill-git-url-1")).toHaveValue(GIT_URL);
     await expect(page.getByTestId("template-form-skill-git-commit-1")).toHaveValue(GIT_COMMIT);
     await expect(page.getByTestId("template-form-skill-path-1")).toHaveValue("skills/incident-review");
+    // Each read-only source box shows its whole value, not the start of it.
+    for (const testId of ["git-url", "git-commit", "path"]) {
+      const box = page.getByTestId(`template-form-skill-${testId}-1`);
+      expect(await box.evaluate((el) => el.scrollWidth <= el.clientWidth), testId).toBe(true);
+    }
 
     // Nor does it mark anything required. Read-only is not a form, so it asks for
     // nothing — an asterisk here would be demanding a reader supply something they are
