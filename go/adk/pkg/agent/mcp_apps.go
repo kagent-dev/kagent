@@ -63,6 +63,10 @@ func compactMCPAppModelResponse(response map[string]any) map[string]any {
 		return encodeCallToolResult(result, response)
 	}
 
+	if !resultHasUIResource(result.Meta) {
+		return response
+	}
+
 	// On success, collapse the render payload into a terminal directive so the
 	// model stops re-invoking the rendering tool. Preserve _meta (e.g.
 	// resourceUri) in case downstream tooling relies on it.
@@ -71,6 +75,27 @@ func compactMCPAppModelResponse(response map[string]any) map[string]any {
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: mcpAppRenderedNotice}},
 	}
 	return encodeCallToolResult(compact, response)
+}
+
+// resultHasUIResource reports whether this specific result, not just the tool's
+// definition, carries a UI resource.
+//
+// Mirrors the _meta.ui.resourceUri / _meta["ui/resourceUri"] parsing already
+// used to classify a tool's definition (go/adk/pkg/mcp/mcp_ui.go:parseMCPUIMetadata)
+// and in python/packages/kagent-adk/src/kagent/adk/_mcp_apps.py.
+func resultHasUIResource(meta mcpsdk.Meta) bool {
+	if len(meta) == 0 {
+		return false
+	}
+	if raw, ok := meta["ui"].(map[string]any); ok {
+		if uri, _ := raw["resourceUri"].(string); uri != "" {
+			return true
+		}
+	}
+	if uri, _ := meta["ui/resourceUri"].(string); uri != "" {
+		return true
+	}
+	return false
 }
 
 // decodeCallToolResult interprets a generic model-facing response map as a typed
