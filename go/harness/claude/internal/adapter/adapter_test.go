@@ -310,3 +310,47 @@ func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 		})
 	}
 }
+
+func TestLargeSystemPromptIsDeliveredThroughFile(t *testing.T) {
+	// Given instructions larger than Linux's per-argument limit, when the
+	// adapter prepares a turn, assert that the CLI receives a private file
+	// containing the complete prompt instead of the prompt text in argv.
+	prompt := strings.Repeat("Helpful context. ", 8000) + "bootstrap-large-prompt-end"
+	cfg := config.Config{Version: config.Version, ClaudeExecutable: "claude", AppendSystemPrompt: prompt, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGraceMillis: 100}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	runner, err := New(t.Context(), Input{ConfigJSON: raw, Workspace: filepath.Join(directory, "workspace"), DurableDir: filepath.Join(directory, "data"), EphemeralDir: filepath.Join(directory, "ephemeral")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := runner.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	args := runner.Args(runtime.Turn{Prompt: "What is 2+2?"})
+	index := slices.Index(args, "--append-system-prompt-file")
+	if index < 0 || index+1 >= len(args) {
+		t.Fatalf("missing prompt file argument: %v", args)
+	}
+	content, err := os.ReadFile(args[index+1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != prompt {
+		t.Fatal("system prompt file lost compiled instructions")
+	}
+	info, err := os.Stat(args[index+1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("prompt permissions = %o", info.Mode().Perm())
+	}
+	if slices.Contains(args, prompt) || slices.Contains(args, "--append-system-prompt") {
+		t.Fatal("system prompt is still passed inline")
+	}
+}

@@ -6,6 +6,7 @@ from random import randint
 
 import uvicorn
 from crewai.flow import Flow, listen, persist, start
+from kagent.core import materialize_from_bootstrap
 from kagent.crewai import KAgentApp
 from pydantic import BaseModel
 
@@ -80,6 +81,7 @@ def main():
     with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
         agent_card = json.load(f)
 
+    materialize_from_bootstrap("/config")
     app = KAgentApp(crew=PoemFlow(), agent_card=agent_card)
 
     server = app.build()

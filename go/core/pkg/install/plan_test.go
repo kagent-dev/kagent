@@ -329,7 +329,7 @@ func TestPlanValuesFilesMergeWithGeneratedDefaults(t *testing.T) {
 				}},
 			}, values["ateApi"])
 		case ateletRelease:
-			require.Equal(t, []any{"PerTemplateSnapshotLocation"}, values["preview"])
+			require.Equal(t, []any{"PerTemplateSnapshotLocation", "GoldenEgressPolicy"}, values["preview"])
 			require.Equal(t, map[string]any{
 				"backend": "s3", "endpoint": "http://rustfs.ate-system.svc:9000",
 				"region": "us-east-1", "pathStyle": true,

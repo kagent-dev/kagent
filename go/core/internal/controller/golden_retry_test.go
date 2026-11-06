@@ -262,7 +262,7 @@ type failingRecordStore struct {
 }
 
 func (s *failingRecordStore) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
-	if s.recordErr != nil {
+	if s.recordErr != nil && revision.ActorTemplateUID != "" {
 		return database.GoldenRetry{}, s.recordErr
 	}
 	return s.Client.RecordRuntimeRevision(ctx, revision, options)

@@ -19,7 +19,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
+	"github.com/kagent-dev/kagent/go/core/internal/service/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -33,9 +35,9 @@ var forwardedMetadataKeys = map[string]string{
 	"x-share-token": "X-Share-Token",
 }
 
-func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service) grpc.UnaryServerInterceptor {
+func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service, bootstrapService *bootstrap.Service) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, shareStore, policies, identity)
+		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, shareStore, policies, identity, bootstrapService)
 		if err != nil {
 			return nil, err
 		}
@@ -43,9 +45,9 @@ func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore 
 	}
 }
 
-func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service) grpc.StreamServerInterceptor {
+func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service, bootstrapService *bootstrap.Service) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, shareStore, policies, identity)
+		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, shareStore, policies, identity, bootstrapService)
 		if err != nil {
 			return err
 		}
@@ -53,12 +55,20 @@ func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore
 	}
 }
 
-func authenticate(ctx context.Context, fullMethod string, authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service) (context.Context, error) {
+func authenticate(ctx context.Context, fullMethod string, authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies, identity *agentidentity.Service, bootstrapService *bootstrap.Service) (context.Context, error) {
 	access, ok := policies[fullMethod]
 	if !ok {
 		return ctx, status.Error(codes.PermissionDenied, "RPC authorization policy is not configured")
 	}
 	headers := incomingHTTPHeaders(ctx)
+	if fullMethod == runtimev1.BootstrapService_GetBootstrapConfig_FullMethodName {
+		if bootstrapService == nil {
+			return ctx, status.Error(codes.Unauthenticated, "Bootstrap authentication is not configured")
+		}
+		authenticated, err := bootstrapService.Authenticate(ctx, headers)
+		return authenticated, mapError(err)
+	}
+
 	// Metadata credentials use a distinct audience and must never fall back to
 	// user authentication or gain authority through a Session share.
 	if fullMethod == apiv1.AgentIdentityService_ResolveAgentIdentity_FullMethodName {
