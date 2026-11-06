@@ -127,13 +127,20 @@ func (s *InteractionService) ListTasks(ctx context.Context, agent types.Namespac
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list session tasks", "error", err)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to list tasks")
 	}
-	response := &a2atype.ListTasksResponse{Tasks: tasks, TotalSize: total, PageSize: pageSize}
-	if len(tasks) > pageSize {
-		response.Tasks = tasks[:pageSize]
-		response.NextPageToken = encodeTaskPageToken(string(response.Tasks[pageSize-1].ID))
+	more := len(tasks) > pageSize
+	if more {
+		tasks = tasks[:pageSize]
 	}
-	for i, task := range response.Tasks {
-		response.Tasks[i] = shapeTask(task, req.HistoryLength, req.IncludeArtifacts)
+	for i, task := range tasks {
+		tasks[i] = shapeTask(task, req.HistoryLength, req.IncludeArtifacts)
+	}
+	response := &a2atype.ListTasksResponse{Tasks: tasks, TotalSize: total, PageSize: pageSize}
+	if fit := apia2a.TasksWithinSize(tasks, apia2a.MaxTaskPageBytes); fit < len(tasks) {
+		response.Tasks = tasks[:fit]
+		more = true
+	}
+	if more {
+		response.NextPageToken = encodeTaskPageToken(string(response.Tasks[len(response.Tasks)-1].ID))
 	}
 	return response, nil
 }
