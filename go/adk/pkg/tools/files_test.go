@@ -158,6 +158,48 @@ func TestReadFileContent(t *testing.T) {
 	}
 }
 
+func TestReadFileContent_EndOfFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		offset  int
+		want    string
+	}{
+		{
+			name:    "offset past the last line",
+			content: "a\nb\nc\n",
+			offset:  10,
+			want:    "Offset 10 is past the end of the file, which has 3 lines.",
+		},
+		{
+			name:    "default page ends exactly at the last line",
+			content: strings.Repeat("x\n", defaultReadLines),
+			want:    fmt.Sprintf("%6d|x", defaultReadLines),
+		},
+		{
+			name:    "default page ends before the last line",
+			content: strings.Repeat("x\n", defaultReadLines+1),
+			want:    fmt.Sprintf("[read limited to %d lines; continue with offset=%d]", defaultReadLines, defaultReadLines+1),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "file.txt")
+			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
+				t.Fatalf("Failed to write test file: %v", err)
+			}
+			result, err := readFileContent(t.Context(), path, tt.offset, 0)
+			if err != nil {
+				t.Fatalf("readFileContent() error = %v", err)
+			}
+			lines := strings.Split(result, "\n")
+			if got := lines[len(lines)-1]; got != tt.want {
+				t.Errorf("last line = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestReadFileContent_LongLineIsTruncatedNotFatal pins the buffer that
 // scanFileLines sets. bufio.Scanner's default cap is 64KB, and exceeding it
 // fails the *whole* scan -- so before the shared reader existed, one long line
