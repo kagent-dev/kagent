@@ -9,8 +9,9 @@ Give reviewers a concise explanation of the problem, the resulting behavior, and
 
 ## Scope and authorization
 
-- Distinguish preparing PR text from opening a GitHub PR, including a draft PR. Open one only when the user explicitly requests it or explicitly approves it. A request to fix an issue or prepare work against upstream does not authorize opening a PR.
-- Honor authorization already given in the conversation; do not ask again after an explicit request to open the PR. If approval is still needed, finish the reviewable title, body, and target branch before asking.
+- Before opening a GitHub PR, including a draft PR, show the user the final title, body, repository, base and head branches, and draft or ready status. Wait for explicit confirmation to open that version. A general request to open a PR starts preparation; it does not confirm content the user has not yet reviewed.
+- Honor confirmation already given for the same content and destination; do not ask again. If the content, destination, or draft status changes materially after confirmation, present the revised version and obtain confirmation before opening it.
+- A request to fix an issue or prepare work against upstream does not authorize opening a PR.
 - Never include enterprise issue or PR links, repository-qualified references, or identifying numbers in upstream PR titles, bodies, comments, diagrams, or closing keywords. Describe the problem independently.
 
 ## Ground the description in the change
@@ -60,10 +61,11 @@ GitHub documents [collapsed sections](https://docs.github.com/en/get-started/wri
 
 When only drafting or preparing, return the proposed title and body or a local Markdown file. Do not publish it.
 
-When opening is authorized:
+When asked to open a PR:
 
 1. Check whether a PR already exists for the intended head and base before creating one. Reuse it within the requested scope instead of creating a duplicate.
 2. Ensure the intended changes and relevant checks are ready. Preserve unrelated local work. If a commit is needed within the authorized task, sign it off with `git commit -s`. Push the intended branch as needed; do not force-push or broaden the change just to open the PR.
-3. Save the exact body as UTF-8 Markdown under `$TMPDIR`. Use a structured API body or `gh pr create --body-file` so backticks, newlines, and Mermaid fences survive unchanged. With `gh`, specify the repository, base, head, and title explicitly; respect requested draft or ready status.
-4. If creation returns an ambiguous failure, check whether the PR was created before retrying. Stop and report an unresolved failure rather than repeatedly attempting mutations.
-5. Read back the created PR and verify its title, body, target branches, and draft status. Return its URL.
+3. Save the exact body as UTF-8 Markdown under `$TMPDIR`. Present the completed PR for confirmation as described above. Keep it local until the user confirms; silence or elapsed time is not confirmation.
+4. Create only the confirmed version. Use a structured API body or `gh pr create --body-file` so backticks, newlines, and Mermaid fences survive unchanged. With `gh`, specify the repository, base, head, and title explicitly; respect the confirmed draft or ready status.
+5. If creation returns an ambiguous failure, check whether the PR was created before retrying. Stop and report an unresolved failure rather than repeatedly attempting mutations.
+6. Read back the created PR and verify its title, body, target branches, and draft status. Return its URL.

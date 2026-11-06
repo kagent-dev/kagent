@@ -11,8 +11,9 @@ Issues must not be prescriptive. Do not prescribe a fix, recommend an implementa
 
 ## Scope and authorization
 
-- Distinguish preparing issue text from opening a GitHub issue. Publish only when the user explicitly requests it or explicitly approves it. A request to investigate a problem, fix a bug, or explore a design does not authorize opening an issue.
-- Honor authorization already given in the conversation; do not ask again after an explicit request to open the issue. If approval is still needed, finish the reviewable title, body, and target repository before asking.
+- Before opening a GitHub issue, show the user the final title, body, target repository, and any labels, assignees, or other metadata to be applied. Wait for explicit confirmation to open that version. A general request to open an issue starts preparation; it does not confirm content the user has not yet reviewed.
+- Honor confirmation already given for the same content and destination; do not ask again. If the content, destination, or metadata changes materially after confirmation, present the revised version and obtain confirmation before opening it.
+- A request to investigate a problem, fix a bug, or explore a design does not authorize opening an issue.
 - Never include enterprise issue or PR links, repository-qualified references, or identifying numbers in upstream issue titles, bodies, comments, or diagrams. Describe the problem independently.
 
 ## Ground the issue in the problem
@@ -49,10 +50,11 @@ Include a diagram when existing component interactions, data flow, or lifecycle 
 
 When only drafting or preparing, return the proposed title and body or a local Markdown file. Continue refining that draft with the user; do not publish it.
 
-When opening is authorized:
+When asked to open an issue:
 
 1. Search for relevant open and closed issues and related PRs. If an existing issue already covers the request, return its URL and explain the overlap instead of creating a duplicate. Do not comment on, edit, or reopen it without authorization for that action. A similar issue may still leave a distinct gap; explain that difference when opening a new one.
 2. Ensure the title and body reflect the agreed scope and available evidence. Use the applicable template's required content and repository-required metadata. Add assignees, milestones, projects, or other optional metadata only when requested.
-3. Save the exact body as UTF-8 Markdown under `$TMPDIR`. Use a structured API body or `gh issue create --body-file` so backticks, newlines, and Mermaid fences survive unchanged. With `gh`, specify the repository and title explicitly.
-4. If creation returns an ambiguous failure, check whether the issue was created before retrying. Stop and report an unresolved failure rather than repeatedly attempting mutations.
-5. Read back the created issue and verify its repository, title, body, and requested metadata. Return its URL.
+3. Save the exact body as UTF-8 Markdown under `$TMPDIR`. Present the completed issue for confirmation as described above. Keep it local until the user confirms; silence or elapsed time is not confirmation.
+4. Create only the confirmed version. Use a structured API body or `gh issue create --body-file` so backticks, newlines, and Mermaid fences survive unchanged. With `gh`, specify the repository and title explicitly.
+5. If creation returns an ambiguous failure, check whether the issue was created before retrying. Stop and report an unresolved failure rather than repeatedly attempting mutations.
+6. Read back the created issue and verify its repository, title, body, and requested metadata. Return its URL.
