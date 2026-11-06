@@ -2,26 +2,12 @@ import { Alert, Button } from "antd";
 import { canForkFrom, type Checkpoint } from "@/api";
 
 /**
- * The choice a crashed conversation offers its owner.
+ * Offers Revert for a crashed conversation. Forking stays on the transcript's snapshot
+ * lines, so the copy mentions them only when one of them can fork.
  *
- * Revert is the only action here. Forking a saved snapshot is already offered on each
- * snapshot's line in the transcript, which stays visible while recovery is needed, so a
- * second fork control here would be two ways to do one thing. The copy points at those
- * lines only when one of them can fork; naming saved snapshots on a conversation with
- * none ready would offer something the page does not show.
- *
- * An admitted recovery can fail and stay pending until a client retries it, so the alert
- * keeps both choices rather than only showing progress. A revert joins the recovery
- * already admitted instead of starting a second one, and a fork reads only a saved
- * snapshot, so neither races an attempt from another tab or client.
- *
- * That is why `isRecovering` and `isReverting` are separate. An admitted recovery keeps
- * its operation until a revert succeeds, so it outlives every failed attempt. Disabling
- * Revert for as long as one was admitted left the button spinning after the first
- * attempt failed, which is the one moment the reader needs it. Only this
- * page's own request in flight disables it; a click while another attempt runs joins
- * that attempt, and one refused because other lifecycle work holds the runtime comes
- * back as an error the reader can retry.
+ * `isRecovering` and `isReverting` are separate because an admitted recovery keeps its
+ * operation through every failed attempt. Only this page's own request disables
+ * Revert; a click while another attempt runs joins that attempt.
  */
 export function SessionRecoveryAlert({
   needed,

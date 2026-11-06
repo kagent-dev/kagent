@@ -208,9 +208,6 @@ func TestSessionCreateNamespaceThroughGeneratedClient(t *testing.T) {
 	}
 }
 
-// storedRecoveryWorkflow stands in for the Actor workflow in transport tests
-// that never reach Substrate. GetSession reports recovery_needed as unknown;
-// lifecycle calls fail, because no test may reach them.
 type storedRecoveryWorkflow struct{}
 
 var errNoRuntimeWorkflow = errors.New("transport test has no runtime workflow")

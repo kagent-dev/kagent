@@ -54,7 +54,7 @@ describe("conversation recovery choices", () => {
     expect(screen.queryByText("The agent runtime crashed")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Revert to last snapshot" }));
     expect(onRevert).toHaveBeenCalledOnce();
-    // Forking stays on the transcript's snapshot lines, as in manual mode.
+    // Forking stays on the transcript's snapshot lines.
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.getByText(/fork a saved snapshot from the transcript/)).toBeInTheDocument();
@@ -62,11 +62,6 @@ describe("conversation recovery choices", () => {
     expect(screen.queryByText(/marked as failed/)).not.toBeInTheDocument();
   });
 
-  /*
-   * An admitted recovery keeps its operation through every failed attempt. Disabling
-   * Revert for as long as one was admitted left the button spinning once the first
-   * attempt failed, with nothing else to press.
-   */
   it("keeps Revert usable while a recovery admitted from another tab is pending", async () => {
     const { onRevert } = show(true, { isRecovering: true });
     expect(screen.getByText("Recovering this conversation")).toBeInTheDocument();
@@ -84,7 +79,7 @@ describe("conversation recovery choices", () => {
       </ThemeProvider>,
     );
     expect(screen.getByRole("button", { name: /Revert to last snapshot/ })).toBeDisabled();
-    // The request failed; the admitted recovery is still pending, and so is the choice.
+    // The request failed; the recovery stays admitted.
     rerender(
       <ThemeProvider theme={themeFor("dark")}>
         <SessionRecoveryAlert {...props} isReverting={false} />

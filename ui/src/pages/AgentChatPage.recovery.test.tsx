@@ -14,13 +14,7 @@ import type { ChatController } from "@/api";
 import { themeFor } from "@/theme/theme";
 import { AgentChatPage } from "./AgentChatPage";
 
-/*
- * The page, against a fake controller whose Session can change under it.
- *
- * Only the chat controller is replaced: it speaks A2A, which is not what these tests
- * are about. Every Session read goes through the real hooks and the real client, so a
- * test that passes here means the page itself discovers the crash and reacts to it.
- */
+// Only the A2A chat controller is faked; Session reads go through the real hooks and client.
 const chat = {
   messages: [],
   isLoadingHistory: false,
@@ -45,7 +39,6 @@ const ID = "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44";
 const LIVE_REFRESH_MS = 4_000;
 
 
-/** The Session's lifecycle, apart from its recovery reading. */
 let lifecycle: { state: RuntimeState; operation: RuntimeOperation };
 
 function session(recoveryNeeded?: boolean) {
@@ -75,7 +68,6 @@ function recovered() {
 }
 
 type Reverted = ReturnType<typeof recovered>;
-/** What RevertSession does; by default it recovers the Session. */
 let revert: () => Reverted | Promise<Reverted>;
 
 function renderPage() {
@@ -102,7 +94,6 @@ function renderPage() {
 
 const composer = () => screen.getByTestId("chat-input");
 
-/** Fires interval ticks, then lets the reads they started settle. */
 async function tick(ms: number) {
   await act(async () => {
     vi.advanceTimersByTime(ms);
@@ -169,11 +160,6 @@ describe("a crash found on an open conversation", () => {
   });
 });
 
-/*
- * An admitted recovery keeps its REVERT operation through every failed attempt. The page
- * used to disable Revert for as long as that operation stood, so once the first attempt
- * failed the button spun until a later attempt succeeded, with nothing to press.
- */
 describe("a recovery admitted by a failed attempt", () => {
   const revertButton = () => screen.getByRole("button", { name: /Revert to last snapshot/ });
 
