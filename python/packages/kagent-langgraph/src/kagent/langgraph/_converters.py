@@ -29,6 +29,27 @@ from langchain_core.messages import (
 )
 
 
+def _message_text(message: AIMessage) -> str:
+    """The text of a message, whether its content is a string or a list of content blocks.
+
+    Chat models may return content as a list of blocks — e.g. Gemini after a tool
+    call answers with the text plus a thought-signature block. Only the ``text``
+    blocks (and bare strings) are the answer; everything else is metadata.
+    """
+    content = message.content
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    texts = []
+    for block in content:
+        if isinstance(block, str):
+            texts.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str):
+            texts.append(block["text"])
+    return "".join(texts)
+
+
 async def _convert_langgraph_event_to_a2a(
     langgraph_event: dict[str, Any],
     task_id: str,
@@ -64,8 +85,9 @@ async def _convert_langgraph_event_to_a2a(
             if isinstance(message, AIMessage):
                 # Handle AI messages (assistant responses)
                 a2a_message = Message(message_id=str(uuid.uuid4()), role=Role.ROLE_AGENT, parts=[])
-                if message.content and isinstance(message.content, str) and message.content.strip():
-                    a2a_message.parts.append(Part(text=message.content))
+                text = _message_text(message)
+                if text.strip():
+                    a2a_message.parts.append(Part(text=text))
 
                 # Handle tool calls in AI messages
                 if hasattr(message, "tool_calls") and message.tool_calls:
