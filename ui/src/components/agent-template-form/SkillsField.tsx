@@ -95,7 +95,12 @@ export function SkillsField({
           const input = (field: Exclude<keyof SkillDraft, "sourceKind">, testId: string, example: string, width: number) =>
             readOnly && skill[field] === "" ? null : (
               <Input
-                css={{ width }}
+                // Reading has nothing to type into, so the box fits the whole value
+                // instead of cutting it at the editing width.
+                css={{
+                  width: readOnly ? `calc(${skill[field].length}ch + 24px)` : width,
+                  maxWidth: "100%",
+                }}
                 data-testid={`template-form-skill-${testId}-${index}`}
                 value={skill[field]}
                 placeholder={placeholder(example)}
