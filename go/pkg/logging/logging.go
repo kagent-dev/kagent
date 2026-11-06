@@ -56,11 +56,6 @@ func FromContext(ctx context.Context) *slog.Logger {
 	return slog.New(logr.ToSlogHandler(logger))
 }
 
-// FromLogr adapts a logger supplied by controller-runtime.
-func FromLogr(logger logr.Logger) *slog.Logger {
-	return slog.New(logr.ToSlogHandler(logger))
-}
-
 // AsLogr adapts logger for dependencies which still require logr.
 func AsLogr(logger *slog.Logger) logr.Logger {
 	return logr.FromSlogHandler(logger.Handler())
