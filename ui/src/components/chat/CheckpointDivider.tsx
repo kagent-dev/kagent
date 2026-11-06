@@ -3,7 +3,7 @@ import { Button, Popconfirm, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { useThemeMode } from "@/theme/useThemeMode";
-import { canForkFrom, type Checkpoint } from "@/api";
+import type { Checkpoint } from "@/api";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
 import { snapshotLabel } from "./snapshotLabel";
 
@@ -63,11 +63,6 @@ export function CheckpointDivider({
    * does nothing: the page looks the record up by id and finds nothing to open.
    */
   const open = checkpoint ? onOpen : undefined;
-  /*
-   * Fork only from a READY record: the controller refuses any other state, and this
-   * line is the only fork control a crashed conversation shows.
-   */
-  const fork = checkpoint && canForkFrom(checkpoint) ? onFork : undefined;
 
   // One shape for all three, so the row reads as a set of controls rather than as one
   // button with others bolted beside it.
@@ -228,7 +223,7 @@ export function CheckpointDivider({
           </Text>
         </div>
       </Tooltip>
-      {fork || onRename || onDelete ? (
+      {onFork || onRename || onDelete ? (
         <div
           css={{
             display: "flex",
@@ -241,7 +236,7 @@ export function CheckpointDivider({
             paddingInlineStart: theme.space(2),
           }}
         >
-          {fork ? (
+          {onFork ? (
             <Tooltip title="Fork the chat from this snapshot." placement="bottom">
               <Button
                 size="small"
@@ -249,7 +244,7 @@ export function CheckpointDivider({
                 data-testid={`chat-checkpoint-fork-${checkpointId}`}
                 aria-label="Fork the chat from this snapshot."
                 icon={<GitFork size={13} />}
-                onClick={fork}
+                onClick={onFork}
                 css={filled}
               >
                 Fork
