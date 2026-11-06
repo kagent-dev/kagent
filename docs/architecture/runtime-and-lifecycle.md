@@ -231,8 +231,7 @@ replacements cannot authorize a revert. A runtime that is not crashed, including
 a Session at rest outside READY, has nothing to recover, so RevertSession
 returns the Session unchanged. That is also what a retry sees after a revert
 whose response was lost. A missing or replaced Actor returns
-`FAILED_PRECONDITION` with `KAGENT_SESSION_RUNTIME_UNRECOVERABLE`, because no
-retry restores it. A transport failure returns `UNAVAILABLE`. Only an active
+`FAILED_PRECONDITION`, because no retry restores it. A transport failure returns `UNAVAILABLE`. Only an active
 lifecycle operation returns `ABORTED`.
 
 Admission records FAILED/REVERT with a RuntimeCrashed failure under the Session
@@ -278,7 +277,7 @@ Delete would miss; a revert restores the recorded Actor in place and creates
 nothing. Substrate serializes the two calls, and a late revert fails against the
 deleted Actor. A recovery whose Actor is missing, replaced, or reports a
 different durable snapshot stays pending, and each retry returns
-`KAGENT_SESSION_RUNTIME_UNRECOVERABLE` so the client deletes the Session.
+`FAILED_PRECONDITION` so the client deletes the Session.
 
 A successful revert returns the Session to READY with the same Actor suspended.
 The next authorized interaction resumes it through Substrate ingress. Runtime

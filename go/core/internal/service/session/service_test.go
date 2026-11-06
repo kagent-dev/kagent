@@ -13,9 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -208,19 +205,12 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
-func TestServiceRevertNamesRefusalReason(t *testing.T) {
+func TestServiceRevertRefusesUnrecoverableRuntime(t *testing.T) {
 	cause := fmt.Errorf("runtime Actor was replaced: %w", errRuntimeUnrecoverable)
 	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: cause})
 	_, err := service.Revert(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
-	refusal, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, codes.FailedPrecondition, refusal.Code())
-	require.Equal(t, cause.Error(), refusal.Message())
-	require.Len(t, refusal.Details(), 1)
-	info, ok := refusal.Details()[0].(*errdetails.ErrorInfo)
-	require.True(t, ok)
-	require.Equal(t, "kagent.dev", info.GetDomain())
-	require.Equal(t, "KAGENT_SESSION_RUNTIME_UNRECOVERABLE", info.GetReason())
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition), "error = %v", err)
+	require.Equal(t, cause.Error(), serviceerrors.MessageOf(err))
 }
 
 func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {

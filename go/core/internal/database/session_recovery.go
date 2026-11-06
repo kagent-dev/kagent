@@ -134,7 +134,7 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		`, row.ID, row.Data, snapshot.URI); err != nil {
 			return err
 		}
-		if err := settleCrashedSessionTask(ctx, tx, row, snapshot); err != nil {
+		if err := settleCrashedSessionTasks(ctx, tx, row, snapshot); err != nil {
 			return err
 		}
 		operation, err = toSessionOperation(row)
@@ -163,28 +163,24 @@ func (c *Client) GetSessionRecoveryPin(ctx context.Context, sessionID string, op
 	return pin, nil
 }
 
-// settleCrashedSessionTask retains captured waits and fails discarded nonterminal work.
-// Callers hold the Session lock; recovery cannot checkpoint discarded state.
-func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, snapshot SessionTaskSnapshot) error {
+// settleCrashedSessionTasks publishes saved results, keeps waits the snapshot
+// captured, and fails the rest of the open work the revert discards.
+func settleCrashedSessionTasks(ctx context.Context, tx pgx.Tx, session sessionRow, snapshot SessionTaskSnapshot) error {
+	if err := publishSavedSessionResults(ctx, tx, session); err != nil {
+		return err
+	}
 	type interruptedTask struct {
 		ID      string
 		Data    []byte
 		Version *int64
-		Pending bool
 	}
-	// The CTE clears the history's pending quiescence marker. The main query
-	// reads the pre-update snapshot, but pending only tests that a boundary was
-	// recorded, which clearing keeps true.
+	// A wait is captured when an event recording the snapshot follows the task's
+	// latest event.
 	tasks, err := queryMany(ctx, tx, `
-		WITH cleared AS (
-		    UPDATE session_task_event SET quiescence_pending = FALSE
-		    WHERE history_id = $1 AND quiescence_pending)
-		SELECT t.id, t.data, latest.sequence AS version,
-		    COALESCE(NOT latest.published AND latest.quiescence_pending IS NOT NULL, FALSE) AS pending
+		SELECT t.id, t.data, latest.sequence AS version
 		FROM session_task t
-		LEFT JOIN LATERAL (SELECT sequence, published, quiescence_pending FROM session_task_event e
-		    WHERE e.history_id = t.history_id AND e.task_id = t.id
-		    ORDER BY sequence DESC LIMIT 1) latest ON TRUE
+		LEFT JOIN LATERAL (SELECT MAX(sequence) AS sequence FROM session_task_event e
+		    WHERE e.history_id = t.history_id AND e.task_id = t.id) latest ON TRUE
 		WHERE t.history_id = $1
 		    AND (t.state IN ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING')
 		      OR (t.state IN ('TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')
@@ -198,41 +194,27 @@ func settleCrashedSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow
 		return fmt.Errorf("read interrupted Session tasks: %w", err)
 	}
 	for _, interrupted := range tasks {
-		taskID, data := interrupted.ID, interrupted.Data
 		if interrupted.Version == nil {
-			return fmt.Errorf("interrupted Session task %s has no events", taskID)
+			return fmt.Errorf("interrupted Session task %s has no events", interrupted.ID)
 		}
-		if interrupted.Pending {
-			if err := settleSessionTask(ctx, tx, session, taskID, *interrupted.Version); err != nil {
-				return err
-			}
-			// Settlement rewrote the projection, so the selected data is stale.
-			stored, err := readSessionTask(ctx, tx, session.HistoryID, taskID)
-			if err != nil {
-				return err
-			}
-			data = stored.Data
-		}
-		task, err := unmarshalSessionTask(data)
+		task, err := unmarshalSessionTask(interrupted.Data)
 		if err != nil {
 			return err
 		}
-		if !task.Status.State.Terminal() {
-			task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Timestamp: new(time.Now().UTC()),
-				Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("The runtime crashed before this turn completed. Send a new message to continue."))}
-			apia2a.SetTimelinePosition(task.Status.Message, *task.Status.Timestamp)
-			event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}
-			if err := storeSessionTaskEvent(ctx, tx, session, task, event, false); err != nil {
-				return err
-			}
-			version, err := taskVersion(ctx, tx, session.HistoryID, taskID)
-			if err != nil {
-				return err
-			}
-			if err := publishPushBoundary(ctx, tx, session.HistoryID, taskID, version, task); err != nil {
-				return err
-			}
+		task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Timestamp: new(time.Now().UTC()),
+			Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("The runtime crashed before this turn completed. Send a new message to continue."))}
+		apia2a.SetTimelinePosition(task.Status.Message, *task.Status.Timestamp)
+		event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}
+		if err := storeSessionTaskEvent(ctx, tx, session, task, event, false); err != nil {
+			return err
+		}
+		version, err := taskVersion(ctx, tx, session.HistoryID, interrupted.ID)
+		if err != nil {
+			return err
+		}
+		if err := publishPushBoundary(ctx, tx, session.HistoryID, interrupted.ID, version, task); err != nil {
+			return err
 		}
 	}
-	return nil
+	return retireSessionQuiescence(ctx, tx, session)
 }

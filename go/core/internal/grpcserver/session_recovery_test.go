@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -150,11 +149,11 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			before := proto.CloneOf(control.actors[name])
 			control.actors[name].Metadata.Uid = "replacement-uid"
 			_, err = client.RevertSession(owner, request)
-			requireRevertRefusal(t, err, "KAGENT_SESSION_RUNTIME_UNRECOVERABLE", "a same-name replacement is not this runtime")
+			require.Equal(t, codes.FailedPrecondition, status.Code(err), "a same-name replacement is not this runtime")
 			control.actors[name].Metadata.Uid = before.Metadata.Uid
 			delete(control.actors, name)
 			_, err = client.RevertSession(owner, request)
-			requireRevertRefusal(t, err, "KAGENT_SESSION_RUNTIME_UNRECOVERABLE", "a missing runtime cannot authorize recovery")
+			require.Equal(t, codes.FailedPrecondition, status.Code(err), "a missing runtime cannot authorize recovery")
 			control.actors[name] = proto.CloneOf(before)
 			calls := 0
 			failOnce := true
@@ -203,20 +202,4 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()))
 		})
 	}
-}
-
-// requireRevertRefusal pins both the status code and the ErrorInfo reason,
-// because the two FAILED_PRECONDITION refusals ask opposite things of a client.
-func requireRevertRefusal(t *testing.T, err error, reason, message string) {
-	t.Helper()
-	refusal, ok := status.FromError(err)
-	require.True(t, ok, message)
-	require.Equal(t, codes.FailedPrecondition, refusal.Code(), message)
-	var reasons []string
-	for _, detail := range refusal.Details() {
-		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.GetDomain() == "kagent.dev" {
-			reasons = append(reasons, info.GetReason())
-		}
-	}
-	require.Equal(t, []string{reason}, reasons, message)
 }

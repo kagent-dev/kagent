@@ -11,9 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -290,14 +287,6 @@ func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error)
 		return nil, err
 	}
 	session, err = s.workflow.Revert(ctx, session)
-	if errors.Is(err, errRuntimeUnrecoverable) {
-		// The ErrorInfo reason tells a client to stop retrying and delete the Session.
-		refusal, detailErr := status.New(codes.FailedPrecondition, err.Error()).WithDetails(&errdetails.ErrorInfo{Domain: "kagent.dev", Reason: "KAGENT_SESSION_RUNTIME_UNRECOVERABLE"})
-		if detailErr != nil {
-			return nil, detailErr
-		}
-		return nil, refusal.Err()
-	}
 	if errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}
