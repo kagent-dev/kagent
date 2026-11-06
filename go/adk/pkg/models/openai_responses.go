@@ -56,6 +56,9 @@ func generateContentResponses(
 
 	if req.Config != nil && len(req.Config.Tools) > 0 {
 		params.Tools = genaiToolsToResponsesTools(req.Config.Tools)
+		if m.Config.StrictOutputSchema != nil {
+			markResponsesFinalAnswerStrict(params.Tools, *m.Config.StrictOutputSchema)
+		}
 		params.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
 			OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto),
 		}

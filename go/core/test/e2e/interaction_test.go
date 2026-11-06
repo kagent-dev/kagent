@@ -95,7 +95,7 @@ func TestSessionStructuredOutput(t *testing.T) {
 		fixture := newInteractionFixtureForHarnessTemplate(t, target, harness.name, template.Name)
 		_, _, task := fixture.send(t, "Add 3 and 5 and return the structured result.")
 		assertStructuredOutputTask(t, task, 8, "three plus five equals eight")
-		assertStrictStructuredOutputRequests(t, model.Requests("", ""))
+		assertStructuredOutputIsOfferedAsFinalAnswerTool(t, model.Requests("", ""))
 
 		for _, request := range mcpServer.Requests() {
 			if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {
@@ -117,30 +117,41 @@ func assertStructuredOutputTask(t *testing.T, task *a2atype.Task, answer float64
 	assertStructuredOutputArtifact(t, task.Artifacts[len(task.Artifacts)-1], answer, explanation)
 }
 
-func assertStrictStructuredOutputRequests(t *testing.T, requests []recordedModelRequest) {
+// assertStructuredOutputIsOfferedAsFinalAnswerTool checks that the schema
+// reaches an OpenAI-format model as the strict parameters of a final answer
+// tool and never as a response format. A response format rides on tool turns
+// too, and a backend that enforces it can then never return a tool call.
+func assertStructuredOutputIsOfferedAsFinalAnswerTool(t *testing.T, requests []recordedModelRequest) {
 	t.Helper()
-	var sent int
+	var offered int
 	for _, request := range requests {
 		var body struct {
-			ResponseFormat *struct {
-				JSONSchema struct {
-					Strict *bool `json:"strict"`
-				} `json:"json_schema"`
-			} `json:"response_format"`
+			ResponseFormat json.RawMessage `json:"response_format"`
+			Tools          []struct {
+				Function struct {
+					Name   string `json:"name"`
+					Strict *bool  `json:"strict"`
+				} `json:"function"`
+			} `json:"tools"`
 		}
 		if err := json.Unmarshal(request.Body, &body); err != nil {
 			t.Fatalf("decode model request: %v", err)
 		}
-		if body.ResponseFormat == nil {
-			continue
+		if len(body.ResponseFormat) > 0 {
+			t.Fatalf("model request sets response_format, which blocks tool calls on backends that enforce it: %s", request.Body)
 		}
-		sent++
-		if strict := body.ResponseFormat.JSONSchema.Strict; strict == nil || !*strict {
-			t.Fatalf("model request does not set response_format.json_schema.strict to true: %s", request.Body)
+		for _, tool := range body.Tools {
+			if tool.Function.Name != "set_model_response" {
+				continue
+			}
+			offered++
+			if tool.Function.Strict == nil || !*tool.Function.Strict {
+				t.Fatalf("set_model_response does not set strict to true: %s", request.Body)
+			}
 		}
 	}
-	if sent == 0 {
-		t.Fatalf("none of the %d model requests carried the output schema", len(requests))
+	if offered == 0 {
+		t.Fatalf("none of the %d model requests offered the final answer tool", len(requests))
 	}
 }
 
