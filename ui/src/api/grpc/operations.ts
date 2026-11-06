@@ -565,6 +565,7 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
   [RuntimeOperation.SUSPEND]: "suspend",
   [RuntimeOperation.RESUME]: "resume",
   [RuntimeOperation.DELETE]: "delete",
+  [RuntimeOperation.REVERT]: "revert",
 };
 
 /**
