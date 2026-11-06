@@ -59,17 +59,6 @@ export type AgentInstanceOperation =
   | "revert"
   | "unknown";
 
-export interface SessionMessageReference {
-  taskId: string;
-  messageId: string;
-}
-
-export interface AgentInstanceRecovery {
-  /** Absent when the controller could not observe the runtime. */
-  needed?: boolean;
-  failedMessages: SessionMessageReference[];
-}
-
 /**
  * Why an instance failed, as the controller recorded it.
  *
@@ -118,7 +107,8 @@ export interface AgentInstance {
   operation: AgentInstanceOperation;
   /** Set only when the controller recorded a failure. */
   failure?: AgentInstanceFailure;
-  recovery?: AgentInstanceRecovery;
+  /** Set only by GetSession; absent when the controller could not observe the runtime. */
+  recoveryNeeded?: boolean;
   /** RFC3339, or empty when the record carried no timestamp. */
   createdAt: string;
   /** RFC3339, or empty when the record carried no timestamp. */

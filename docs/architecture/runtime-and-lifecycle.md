@@ -265,9 +265,9 @@ retires the claim in its transaction, so a late finish records nothing.
 Execution reverts the same Actor to its last durable snapshot without replaying
 input. A runtime without a durable snapshot returns to its initial state.
 An interrupted revert continues from REVERTING; a lost response can be reconciled
-from SUSPENDED. Nothing retries a recovery in the background. An admitted
-recovery survives API restarts as a durable REVERT operation, and the client
-continues it by retrying RevertSession, as with Create and Delete. While it is
+from SUSPENDED. An admitted recovery survives API restarts as a durable REVERT
+operation, and the client continues it by retrying RevertSession, as with Create
+and Delete. Nothing retries it in the background. While it is
 pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`,
 and interactions are refused because a lifecycle operation is in progress.
 
@@ -284,22 +284,13 @@ The next authorized interaction resumes it through Substrate ingress. Runtime
 changes after the retained snapshot are lost; the discarded turn receives no
 checkpoint at that older snapshot. Another revert returns the Session.
 
-`GetSession` reports a read-only recovery observation for the recorded Actor.
-It is the only Session read that calls Substrate; MCP and the other Session
-responses read the stored record and omit `recovery`. An unavailable or
+`GetSession` reports `recovery_needed`, a read-only observation of the recorded
+Actor. It is the only Session read that calls Substrate; MCP and the other
+Session responses read the stored record and leave it unset. An unavailable or
 replaced Actor leaves the observation unknown and does not prevent history
 reads. The observation and `RevertSession` share one crash check, so chat offers
 a revert exactly when the revert would be admitted. Chat offers that revert and
 the existing fork action for a saved READY checkpoint.
-
-Recovery records exact task and message identities for user inputs after the
-retained snapshot boundary, including accepted inputs not yet published. Chat
-marks those inputs "Not remembered after recovery" and retains the public
-transcript; completed A2A tasks and their history are not rewound, so a reply
-to a marked input can still appear. The annotations remain on the recovered
-Session. A revert to a snapshot that no history event records leaves the
-boundary unknown and adds no annotations. Forks copy checkpoint-bounded history
-into a fresh Session and do not inherit its delivery annotations.
 
 ```mermaid
 sequenceDiagram

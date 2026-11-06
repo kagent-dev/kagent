@@ -12,7 +12,6 @@ import { ToolApprovalRecord } from "./ToolApprovalRecord";
 import { AskUserRecord } from "./AskUserRecord";
 import { AttachmentChip } from "./AttachmentChip";
 import { isAwaitingContent, messageText } from "./messageText";
-import type { DiscardedMark } from "./discardedTurns";
 
 const { Text } = Typography;
 
@@ -30,7 +29,6 @@ export function ChatMessageItem({
   message,
   sessionId,
   isCheckpointed = false,
-  discarded,
   onManagePush,
 }: {
   message: ChatMessage;
@@ -38,8 +36,6 @@ export function ChatMessageItem({
   sessionId?: string;
   /** Whether this message is above the nearest saved boundary, for the browser suite. */
   isCheckpointed?: boolean;
-  /** Whether a runtime recovery discarded this message, and how; see `discardedMessages`. */
-  discarded?: DiscardedMark;
   /** Opens the callback settings for this message's task. */
   onManagePush?: () => void;
 }) {
@@ -58,7 +54,6 @@ export function ChatMessageItem({
       data-message-id={message.id}
       data-role={message.role}
       data-checkpointed={isCheckpointed || undefined}
-      data-discarded={discarded}
       css={{
         display: "grid",
         gap: theme.space(2),
@@ -77,13 +72,6 @@ export function ChatMessageItem({
         <Text css={{ color: "inherit", fontSize: "inherit" }}>
           {isUser ? "You" : "Agent"}
         </Text>
-        {/* Labelled in the header rather than only dimmed: the reader message above it
-            carries the explanation, and a dimmed reply on its own reads as styling. */}
-        {discarded === "reply" ? (
-          <Text css={{ color: "inherit", fontSize: "inherit" }}>
-            · Not remembered after recovery
-          </Text>
-        ) : null}
         {onManagePush ? (
           <Tooltip title="Task notifications">
             <Button
@@ -119,9 +107,6 @@ export function ChatMessageItem({
           display: "grid",
           gap: theme.space(2),
           width: isUser && !isQuestionRecord ? "auto" : "100%",
-          // Still readable, because it is still what was said; only no longer in the
-          // runtime's memory.
-          opacity: discarded ? 0.6 : undefined,
         }}
       >
         {message.parts.map((part, index) => {
@@ -143,16 +128,6 @@ export function ChatMessageItem({
             />
           );
         })}
-
-        {/* Not "failed to send": the message reached the agent, which may have answered
-            part of it before the crash. Not a live region either: this is persisted
-            history, and a status role would announce every note on each load. */}
-        {discarded === "message" ? (
-          <Text type="warning">
-            The runtime crashed during this turn. After recovery, the agent does not
-            remember this message or the replies after it.
-          </Text>
-        ) : null}
 
         {/* A reply that has been announced but has no text yet: without this the
             message would be an invisible gap between the tool result and the

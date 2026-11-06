@@ -57,27 +57,22 @@ func TestSessionRecoveryObservation(t *testing.T) {
 				delete(base.actors, key)
 			}
 			actors.readErr = test.readErr
-			session.Recovery = &apiv1.SessionRecovery{FailedMessages: []*apiv1.SessionMessageReference{{TaskId: "task", MessageId: "message"}}}
 			before := proto.CloneOf(session)
-			observed, err := workflow.Recovery(t.Context(), session)
+			needed, err := workflow.RecoveryNeeded(t.Context(), session)
 			if test.want == nil {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, test.want, observed.Needed)
-			require.Equal(t, session.Recovery.FailedMessages, observed.FailedMessages)
-			require.True(t, proto.Equal(before, session), "observing recovery must not mutate the Session or its history")
+			require.Equal(t, test.want, needed)
+			require.True(t, proto.Equal(before, session), "observing recovery must not mutate the Session")
 			stored, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, stored.State)
-			require.Nil(t, stored.Recovery, "reads do not admit recovery or persist observations")
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, stored.State, "reads do not admit recovery")
 
 			// What chat offers is what Revert does: needed admits a revert, a
-			// healthy runtime is never reverted, and an unknown observation admits
-			// nothing. A suspended healthy runtime returns the Session unchanged,
-			// as a retry after a lost revert response does; a running one is
-			// refused. A missing or replaced Actor is refused for good, so a client
+			// healthy runtime returns unchanged, and an unknown observation admits
+			// nothing. A missing or replaced Actor is refused for good, so a client
 			// stops retrying; only a failed read stays retryable.
 			reverted, err := workflow.Revert(t.Context(), session)
 			switch {
@@ -101,69 +96,44 @@ func TestSessionRecoveryObservation(t *testing.T) {
 	}
 }
 
-func TestSessionObservePreservesHistoryWhenRecoveryObservationFails(t *testing.T) {
+func TestSessionObserveToleratesUnavailableRuntime(t *testing.T) {
 	id := uuid.NewString()
 	session := &apiv1.Session{Id: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
-	observation := &apiv1.SessionRecovery{FailedMessages: []*apiv1.SessionMessageReference{{TaskId: "task", MessageId: "message"}}}
 	service := NewService(&serviceTestStore{getResult: session}, serviceTestAuthorizer{}, serviceTestWorkflow{
-		recovery: observation, recoveryErr: status.Error(codes.Unavailable, "control plane unavailable"),
+		recoveryErr: status.Error(codes.Unavailable, "control plane unavailable"),
 	})
 	got, err := service.Observe(serviceTestContext("alice"), id)
-	require.NoError(t, err)
+	require.NoError(t, err, "an unavailable runtime does not prevent history reads")
 	require.Equal(t, id, got.Id)
-	require.Equal(t, observation.FailedMessages, got.Recovery.FailedMessages)
-	require.Nil(t, got.Recovery.Needed, "an unavailable Actor must not be reported healthy")
-	require.Nil(t, session.Recovery, "the stored record remains unchanged")
+	require.Nil(t, got.RecoveryNeeded, "an unavailable Actor must not be reported healthy")
 }
 
 // panicRecoveryWorkflow fails a test that observes Substrate outside GetSession.
 type panicRecoveryWorkflow struct{ serviceTestWorkflow }
 
-func (panicRecoveryWorkflow) Recovery(context.Context, *apiv1.Session) (*apiv1.SessionRecovery, error) {
+func (panicRecoveryWorkflow) RecoveryNeeded(context.Context, *apiv1.Session) (*bool, error) {
 	panic("only GetSession observes recovery")
 }
 
-// Only GetSession observes Substrate or returns recovery. MCP resolves every
-// invoke through Get, and the annotations grow with each lossy revert, so any
-// other response carrying them would cost a control-plane round trip or ship
-// every conversation's annotations in a list.
+// Only GetSession observes Substrate. MCP resolves every invoke through Get, so
+// observing there would add a control-plane round trip to each one.
 func TestSessionRecoveryOnlyInGetSession(t *testing.T) {
 	id := uuid.NewString()
-	annotations := []*apiv1.SessionMessageReference{{TaskId: "task", MessageId: "message"}}
-	stored := func() *apiv1.Session {
-		return &apiv1.Session{
-			Id: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
-			Recovery: &apiv1.SessionRecovery{FailedMessages: annotations},
-		}
-	}
+	stored := &apiv1.Session{Id: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
 	ctx := serviceTestContext("alice")
-	store := &serviceTestStore{getResult: stored(), sessions: []*apiv1.Session{stored()}}
+	store := &serviceTestStore{getResult: stored, sessions: []*apiv1.Session{stored}}
 	service := NewService(store, serviceTestAuthorizer{}, panicRecoveryWorkflow{})
 
 	got, err := service.Get(ctx, id)
 	require.NoError(t, err)
-	require.Equal(t, annotations, got.GetRecovery().GetFailedMessages(), "Get serves the stored record unchanged")
-
+	require.Nil(t, got.RecoveryNeeded)
 	listed, err := service.List(ctx, ListRequest{})
 	require.NoError(t, err)
 	require.Len(t, listed.Sessions, 1)
-	require.Nil(t, listed.Sessions[0].Recovery)
-	require.NotNil(t, store.sessions[0].Recovery, "omitting recovery does not mutate the stored record")
+	require.Nil(t, listed.Sessions[0].RecoveryNeeded)
 
-	reverted, err := service.Revert(ctx, id)
+	observed, err := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{recoveryNeeded: new(true)}).Observe(ctx, id)
 	require.NoError(t, err)
-	require.Nil(t, reverted.Recovery)
-	deleted, err := service.Delete(ctx, id, false)
-	require.NoError(t, err)
-	require.Nil(t, deleted.Recovery)
-
-	// Observing reports the workflow's result without changing the stored record.
-	store.getResult = stored()
-	store.getResult.Recovery.Needed = new(true)
-	observation := &apiv1.SessionRecovery{FailedMessages: annotations, Needed: new(false)}
-	observed, err := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{recovery: observation}).Observe(ctx, id)
-	require.NoError(t, err)
-	require.Equal(t, new(false), observed.Recovery.Needed)
-	require.Equal(t, annotations, observed.Recovery.FailedMessages)
-	require.Equal(t, new(true), store.getResult.Recovery.Needed, "observing does not mutate the stored record")
+	require.Equal(t, new(true), observed.RecoveryNeeded)
+	require.Nil(t, stored.RecoveryNeeded, "observing does not mutate the stored record")
 }
