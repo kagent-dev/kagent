@@ -891,7 +891,7 @@ func TestRequestSpanAttributesCarryOnlyATrustedUser(t *testing.T) {
 		{
 			name:   "trusted user",
 			userID: "alice",
-			want:   map[string]string{"gen_ai.conversation.id": "ctx-1", "a2a.task.id": "task-1", "enduser.id": "alice"},
+			want:   map[string]string{"gen_ai.conversation.id": "ctx-1", "a2a.task.id": "task-1", "user.id": "alice"},
 		},
 		{
 			name: "no trusted user",
