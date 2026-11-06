@@ -14,7 +14,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
@@ -702,4 +704,55 @@ func TestRecordRuntimeRevisionGoldenRetry(t *testing.T) {
 // recordErr drops the golden retry state for tests that check only the error.
 func recordErr(_ GoldenRetry, err error) error {
 	return err
+}
+
+func TestBootstrapPublicationIsAtomic(t *testing.T) {
+	c := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	id := strings.Repeat("a", 64)
+	bundle, err := bootstrap.NewBundle(id, []byte(`{"instruction":"`+strings.Repeat("x", bootstrap.MaxPayloadBytes-64)+`"}`), []byte(`{"name":"agent"}`))
+	require.NoError(t, err)
+	revision := RuntimeRevision{Revision: id, Namespace: "team-a", AgentName: "agent", AgentUID: "agent-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: "agent"}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template", ActorTemplateUID: "template-uid", ActorTemplateSpecDigest: "spec"}
+
+	// Given an observed template without a stored revision, when it is recorded,
+	// assert that both its binding and the complete bundle become readable.
+	_, err = c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Bootstrap: bundle})
+	require.NoError(t, err)
+	binding, err := c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.NoError(t, err)
+	require.Equal(t, revision.ActorTemplateUID, binding.ActorTemplateUID)
+	require.True(t, proto.Equal(bundle, binding.Bundle))
+
+	// Given a published bundle, when an observation supplies conflicting bytes
+	// and a replacement UID, assert that the entire observation rolls back.
+	changed, err := bootstrap.NewBundle(id, []byte(`{}`), bundle.AgentCardJson)
+	require.NoError(t, err)
+	revision.ActorTemplateUID = "replacement"
+	_, err = c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Bootstrap: changed})
+	require.ErrorIs(t, err, ErrConflict)
+	stored, err := c.GetRuntimeRevision(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, binding.ActorTemplateUID, stored.ActorTemplateUID)
+	binding, err = c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.NoError(t, err)
+	require.True(t, proto.Equal(bundle, binding.Bundle))
+
+	// Given the same immutable bundle, when a replacement is recorded, assert
+	// that a read returns the new UID together with the original bundle.
+	_, err = c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Bootstrap: bundle})
+	require.NoError(t, err)
+	binding, err = c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.NoError(t, err)
+	require.Equal(t, revision.ActorTemplateUID, binding.ActorTemplateUID)
+	require.True(t, proto.Equal(bundle, binding.Bundle))
+
+	// Given a published bundle, when deletion begins, assert that bootstrap
+	// cannot read either the binding or payload.
+	deleting, err := c.BeginRuntimeRevisionDeletion(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, deleting)
+	_, err = c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.ErrorIs(t, err, ErrNotFound)
 }

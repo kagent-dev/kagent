@@ -20,7 +20,6 @@ import (
 
 type store interface {
 	GetBootstrapBinding(context.Context, string, string) (*database.BootstrapBinding, error)
-	GetBootstrapBundle(context.Context, database.BootstrapBinding) (*runtimev1.BootstrapBundle, error)
 }
 type backend interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
@@ -81,13 +80,6 @@ func (s *Service) Get(ctx context.Context) (*runtimev1.BootstrapBundle, error) {
 	if ref.GetAtespace() == "" || ref.GetName() == "" {
 		return nil, serviceerrors.NewPermissionDenied("Actor has no associated template", nil)
 	}
-	binding, err := s.store.GetBootstrapBinding(ctx, ref.GetAtespace(), ref.GetName())
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewPermissionDenied("Actor template has no bootstrap configuration", nil)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to resolve bootstrap binding", err)
-	}
 	template, err := s.backend.GetActorTemplate(ctx, ref.GetAtespace(), ref.GetName())
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to resolve bootstrap template", err)
@@ -96,6 +88,13 @@ func (s *Service) Get(ctx context.Context) (*runtimev1.BootstrapBundle, error) {
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to verify bootstrap template", err)
 	}
+	binding, err := s.store.GetBootstrapBinding(ctx, ref.GetAtespace(), ref.GetName())
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewUnavailable("Bootstrap template binding is pending", nil)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to resolve bootstrap binding", err)
+	}
 	if digest != binding.ActorTemplateSpecDigest {
 		return nil, serviceerrors.NewPermissionDenied("Bootstrap template does not match its revision", nil)
 	}
@@ -103,12 +102,5 @@ func (s *Service) Get(ctx context.Context) (*runtimev1.BootstrapBundle, error) {
 		// Initial creation and golden rebuilds can run before their UID is recorded.
 		return nil, serviceerrors.NewUnavailable("Bootstrap template binding is pending", nil)
 	}
-	bundle, err := s.store.GetBootstrapBundle(ctx, *binding)
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewUnavailable("Bootstrap binding changed; retry initialization", nil)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to read bootstrap configuration", err)
-	}
-	return bundle, nil
+	return binding.Bundle, nil
 }

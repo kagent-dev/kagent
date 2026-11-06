@@ -23,9 +23,7 @@ type fixture struct {
 	actor          *ateapipb.Actor
 	template       *ateapipb.ActorTemplate
 	binding        *database.BootstrapBinding
-	bundle         *runtimev1.BootstrapBundle
 	changedBinding bool
-	reads          int
 }
 
 func (f *fixture) GetActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
@@ -35,22 +33,17 @@ func (f *fixture) GetActor(_ context.Context, atespace, name string) (*ateapipb.
 	return f.actor, nil
 }
 func (f *fixture) GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error) {
+	if f.changedBinding {
+		f.binding = nil
+	}
 	return f.template, nil
 }
 func (f *fixture) GetBootstrapBinding(_ context.Context, atespace, name string) (*database.BootstrapBinding, error) {
-	if f.actor.ActorTemplate.Atespace != "team-a" || name != "template" || atespace != "team-a" {
+	if f.binding == nil || f.actor.ActorTemplate.Atespace != "team-a" || name != "template" || atespace != "team-a" {
 		return nil, database.ErrNotFound
 	}
 	return f.binding, nil
 }
-func (f *fixture) GetBootstrapBundle(context.Context, database.BootstrapBinding) (*runtimev1.BootstrapBundle, error) {
-	f.reads++
-	if f.changedBinding {
-		return nil, database.ErrNotFound
-	}
-	return f.bundle, nil
-}
-
 func TestBootstrapAuthorization(t *testing.T) {
 	issuer := jwttest.New(t)
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
@@ -66,13 +59,13 @@ func TestBootstrapAuthorization(t *testing.T) {
 			c["aud"] = []string{contract.Audience, substrate.RuntimeJWTAudience}
 		}, want: serviceerrors.CodeUnauthenticated},
 		{name: "replaced actor", change: func(f *fixture, _ jwt.MapClaims) { f.actor.Metadata.Uid = "replacement" }, want: serviceerrors.CodePermissionDenied},
-		{name: "another template", change: func(f *fixture, _ jwt.MapClaims) { f.actor.ActorTemplate.Name = "another" }, want: serviceerrors.CodePermissionDenied},
-		{name: "cross namespace", change: func(f *fixture, _ jwt.MapClaims) { f.actor.ActorTemplate.Atespace = "team-b" }, want: serviceerrors.CodePermissionDenied},
-		{name: "initial binding pending", change: func(f *fixture, _ jwt.MapClaims) { f.binding.ActorTemplateUID = "" }, want: serviceerrors.CodeUnavailable},
+		{name: "another unpublished template", change: func(f *fixture, _ jwt.MapClaims) { f.actor.ActorTemplate.Name = "another" }, want: serviceerrors.CodeUnavailable},
+		{name: "unpublished template in another namespace", change: func(f *fixture, _ jwt.MapClaims) { f.actor.ActorTemplate.Atespace = "team-b" }, want: serviceerrors.CodeUnavailable},
+		{name: "Given an unrecorded template, when bootstrap is requested, assert that the runtime can retry", change: func(f *fixture, _ jwt.MapClaims) { f.binding = nil }, want: serviceerrors.CodeUnavailable},
 		{name: "golden rebuild binding pending", change: func(f *fixture, _ jwt.MapClaims) { f.template.Metadata.Uid = "new-template" }, want: serviceerrors.CodeUnavailable},
 		{name: "golden egress policy conflict", change: func(f *fixture, _ jwt.MapClaims) { f.template.GoldenEgressPolicy = &ateapipb.EgressPolicyTemplate{} }, want: serviceerrors.CodePermissionDenied},
 		{name: "template spec conflict", change: func(f *fixture, _ jwt.MapClaims) { f.template.Containers[0].Image = "another-image" }, want: serviceerrors.CodePermissionDenied},
-		{name: "binding deleted during read", change: func(f *fixture, _ jwt.MapClaims) { f.changedBinding = true }, want: serviceerrors.CodeUnavailable},
+		{name: "Given a binding deleted during the template lookup, when bootstrap reads it, assert that no bundle is returned", change: func(f *fixture, _ jwt.MapClaims) { f.changedBinding = true }, want: serviceerrors.CodeUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			template := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "template", Uid: "template-uid"}, Containers: []*ateapipb.Container{{Name: "runtime", Image: "agent:v1"}}}
@@ -80,7 +73,7 @@ func TestBootstrapAuthorization(t *testing.T) {
 			require.NoError(t, err)
 			bundle, err := contract.NewBundle(strings.Repeat("a", 64), []byte(`{}`), []byte(`{"name":"agent"}`))
 			require.NoError(t, err)
-			f := &fixture{template: template, bundle: bundle, binding: &database.BootstrapBinding{Revision: bundle.Revision, ActorTemplateUID: "template-uid", ActorTemplateSpecDigest: digest}, actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "golden", Uid: "actor-uid"}, ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}}}
+			f := &fixture{template: template, binding: &database.BootstrapBinding{Bundle: bundle, ActorTemplateUID: "template-uid", ActorTemplateSpecDigest: digest}, actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "golden", Uid: "actor-uid"}, ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}}}
 			claims := issuer.Claims("team-a", "golden", "actor-uid")
 			claims["aud"] = []string{contract.Audience}
 			if test.change != nil {
@@ -98,9 +91,6 @@ func TestBootstrapAuthorization(t *testing.T) {
 				require.True(t, proto.Equal(bundle, got))
 			} else {
 				require.Nil(t, got)
-			}
-			if test.want == serviceerrors.CodeUnauthenticated || test.want == serviceerrors.CodePermissionDenied {
-				require.Zero(t, f.reads)
 			}
 		})
 	}

@@ -307,7 +307,6 @@ func TestRuntimeRevisionGCCollectsOnlyMatchingUnrecordedGoldenRebuild(t *testing
 			require.Equal(t, "uid-2", templates.template.GetMetadata().GetUid())
 			test.replace(templates.template)
 			require.NoError(t, store.RetireAgentIdentities(ctx, initial.Agent.Namespace, initial.Agent.Name))
-			expirePreparationLease(t, pool, revision)
 
 			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
 			err = collector.collect(ctx, revision)

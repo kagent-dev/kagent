@@ -59,9 +59,6 @@ func TestBootstrapGeneratedClient(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "agent", AgentUID: "agent-uid", DesiredRevision: id}))
 	revision := database.RuntimeRevision{Revision: id, Namespace: "team-a", AgentName: "agent", AgentUID: "agent-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: "agent"}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template", ActorTemplateUID: "template-uid", ActorTemplateSpecDigest: digest}
-	require.NoError(t, store.PublishBootstrapRevision(t.Context(), revision, bundle))
-	_, err = store.RecordRuntimeRevision(t.Context(), revision, database.RecordRevisionOptions{})
-	require.NoError(t, err)
 	backend := &bootstrapBackend{template: template, actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "golden", Uid: "actor-uid"}, ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}}}
 	kube := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
 	conn := newConfigurationConnection(t, kube, func(c *Config) {
@@ -72,6 +69,14 @@ func TestBootstrapGeneratedClient(t *testing.T) {
 	claims := issuer.Claims("team-a", "golden", "actor-uid")
 	claims["aud"] = []string{contract.Audience}
 	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+issuer.Token(t, claims))
+	// Given an authenticated golden actor whose template is not yet recorded,
+	// when it asks for configuration, assert that the response permits retry.
+	_, err = stub.GetBootstrapConfig(ctx, &runtimev1.BootstrapServiceGetBootstrapConfigRequest{})
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	// When the revision and bundle are recorded together, assert that retrying
+	// the same RPC returns the pinned payload without requiring a Session.
+	_, err = store.RecordRuntimeRevision(t.Context(), revision, database.RecordRevisionOptions{Bootstrap: bundle})
+	require.NoError(t, err)
 	got, err := stub.GetBootstrapConfig(ctx, &runtimev1.BootstrapServiceGetBootstrapConfigRequest{})
 	require.NoError(t, err)
 	require.True(t, proto.Equal(bundle, got.GetBundle()))

@@ -188,7 +188,6 @@ type runtimeRevisionStore interface {
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) (database.GoldenRetry, error)
-	PublishBootstrapRevision(context.Context, database.RuntimeRevision, *runtimev1.BootstrapBundle) error
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
@@ -403,10 +402,6 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	if state.PreparationFailure != nil && !state.PreparationFailure.Retryable {
 		return nil
 	}
-	// Publication protects creation from collection for two minutes. Bound the
-	// whole compute attempt to one minute, leaving cleanup/recovery headroom.
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
 	target := state.Target
 	desiredRef := target.ActorTemplate.GetMetadata()
 	digest, err := substrate.ActorTemplateSpecDigest(target.ActorTemplate)
@@ -425,10 +420,6 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	}
 	observed, err := r.templates.GetActorTemplate(ctx, desiredRef.GetAtespace(), desiredRef.GetName())
 	if status.Code(err) == codes.NotFound {
-		// Renew protection only for creation, including recreation after a golden failure.
-		if err := r.store.PublishBootstrapRevision(ctx, revision, target.Bootstrap); err != nil {
-			return r.observePreparationError(*state, fmt.Errorf("publish runtime revision: %w", err))
-		}
 		if err := r.templates.EnsureAtespace(ctx, desiredRef.GetAtespace()); err != nil {
 			return r.observePreparationError(*state, fmt.Errorf("ensure Atespace %s: %w", desiredRef.GetAtespace(), err))
 		}
@@ -461,7 +452,9 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 
 	revision.ActorTemplateUID = observed.GetMetadata().GetUid()
 	now := time.Now()
-	retry, err := r.store.RecordRuntimeRevision(ctx, revision, goldenRecordOptions(observed, now))
+	options := goldenRecordOptions(observed, now)
+	options.Bootstrap = target.Bootstrap
+	retry, err := r.store.RecordRuntimeRevision(ctx, revision, options)
 	if err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}

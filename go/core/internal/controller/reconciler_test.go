@@ -23,10 +23,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kagent-dev/kagent/go/api/bootstrap"
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
-	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
@@ -105,7 +103,6 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	require.Empty(t, store.retired, "active pairs must be replaced atomically by the store")
 	observed := reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName())
 	require.True(t, observed.Golden.ready())
-	require.Equal(t, 1, store.publishCalls, "observing pending or ready templates must not renew preparation protection")
 
 	if err := reconciler.reconcileAgentStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
@@ -235,7 +232,6 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				templates.deleteErr, templates.deletedBeforeError = deleteErr, test.deletedBeforeError
 			}
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()), "GC failures must not fail agent reconciliation")
-			expirePreparationLease(t, pool, id.String())
 			collector, registry := newTestRuntimeRevisionGC(t, gcStore, templates)
 			_, err = collector.discover(ctx)
 			require.NoError(t, err)
@@ -347,7 +343,6 @@ type fakeRuntimeRevisionStore struct {
 	markedSuccessful  bool
 	retired           string
 	revisionErr       error
-	publishCalls      int
 	recordCalls       int
 	pairErr           error
 	pairCalls         int
@@ -609,18 +604,6 @@ func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
 			})
 		}
 	}
-}
-
-func (s *fakeRuntimeRevisionStore) PublishBootstrapRevision(_ context.Context, revision database.RuntimeRevision, bundle *runtimev1.BootstrapBundle) error {
-	s.publishCalls++
-	if err := bootstrap.ValidateBundle(bundle); err != nil {
-		return err
-	}
-	if s.revisionErr != nil {
-		return s.revisionErr
-	}
-	s.revision = &revision
-	return nil
 }
 
 func reconciliationTestCard(name string) *a2apb.AgentCard {

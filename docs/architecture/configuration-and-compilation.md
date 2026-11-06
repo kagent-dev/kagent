@@ -152,9 +152,9 @@ flowchart TD
     B --> POOL
     POOL --> REV[immutable revision and digest]
     POOL -->|error| STATUS
-    REV --> BUNDLE[persist revision and bootstrap bundle]
-    BUNDLE --> ATE[ate-api ActorTemplate]
-    ATE --> GOLDEN[golden snapshot]
+    REV --> ATE[ate-api ActorTemplate]
+    ATE --> BUNDLE[persist revision, template UID and bootstrap bundle]
+    BUNDLE --> GOLDEN[golden snapshot]
     GOLDEN -->|ready| LATEST[latest successful revision]
     RESOLVE -->|error| STATUS[Agent status]
     ATE -->|error| STATUS
@@ -165,9 +165,10 @@ flowchart TD
 3. Select the harness compiler from the runtime-type registration map.
 4. Produce an immutable revision containing workload, configuration, Agent Card,
    capacity, snapshot, provenance, and inferred egress inputs.
-5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and persist
-   its immutable bootstrap bundle before creating compute.
-6. Apply the ate-api ActorTemplate and record its observed identity.
+5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and build
+   its immutable bootstrap bundle.
+6. Apply the ate-api ActorTemplate, then atomically record its observed identity
+   and bootstrap bundle.
 7. Let the golden runtime bootstrap its configuration and wait for its snapshot
    to become ready.
 8. Advance the Agent's latest-successful pointer.
@@ -213,8 +214,8 @@ before compute creation.
 The ActorTemplate carries a small `KAGENT_BOOTSTRAP_JSON` descriptor with the
 control-plane URL, revision, format version, and bundle digest. The URL and
 bootstrap version participate in revision identity; changing the URL creates new
-revisions and golden snapshots for affected agents. The controller publishes the
-bundle before creating the template, then records the template's identity.
+revisions and golden snapshots for affected agents. The controller creates the
+template, then atomically records its identity and publishes the bundle.
 The bootstrap service returns only the bundle bound to the authenticated actor's
 template. It uses a separate `kagent-bootstrap` JWT audience and requires no
 Session; this credential grants no user, TaskStore, or Memory authority.
@@ -226,7 +227,7 @@ deadline. New Sessions and forks inherit the saved bundle through snapshots;
 process restarts and volume restores load it without contacting bootstrap.
 A corrupt or mismatched bundle fails startup. Existing Sessions keep their pinned
 configuration after Agent edits. Bundles are collected with their revisions once
-sources, runtimes, checkpoints, and in-progress preparation no longer retain them.
+sources, runtimes, and checkpoints no longer retain them.
 
 Go ADK, Python ADK, Codex, Claude, and supported BYO images use this contract.
 Credentials and actor identity retain their separate delivery paths. Golden
