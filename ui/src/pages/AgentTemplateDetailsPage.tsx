@@ -146,8 +146,8 @@ export function AgentTemplateDetailsPage() {
             namespace: template.data.namespace,
             labels: labelsFromDraft(draft),
           },
-          // Merged onto the spec that was read, so skills, plugins and prompt data
-          // sources survive an edit that never mentioned them.
+          // Merged onto the spec that was read, so plugins and prompt data sources
+          // survive an edit that never mentioned them.
           spec: specFromDraft(draft, template.data.resource.spec),
         },
       });

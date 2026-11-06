@@ -26,6 +26,7 @@ import type { Agent, AgentSpec, AgentStatus } from "@/api/domain/agents";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import type { EgressPolicy, EgressPolicySpec } from "@/api/domain/egressPolicies";
 import type { SandboxTemplate } from "@/api/domain/sandboxTemplates";
+import type { BuiltinSkillsCatalog } from "@/api/runtimeConfig";
 
 export const mockModels: ModelConfig[] = [
   {
@@ -698,6 +699,28 @@ export const mockHarnesses: Harness[] = [
 ];
 
 
+/** Served as `BUILTIN_SKILLS`, which a deployment gets from the chart. */
+export const mockBuiltinSkills: BuiltinSkillsCatalog = {
+  image: "ghcr.io/kagent-dev/kagent/tools@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  skills: [
+    {
+      name: "helm-release-management",
+      path: "opt/kagent-tools-skills/skills/helm-release-management",
+      description: "Inspect, upgrade and uninstall Helm releases.",
+    },
+    {
+      name: "istio-traffic-debugging",
+      path: "opt/kagent-tools-skills/skills/istio-traffic-debugging",
+      description: "Debug Istio service mesh traffic: 503s, mTLS failures, routing not applied.",
+    },
+    {
+      name: "k8s-troubleshooting",
+      path: "opt/kagent-tools-skills/skills/k8s-troubleshooting",
+      description: "Diagnose unhealthy Kubernetes workloads: CrashLoopBackOff, Pending, ImagePullBackOff.",
+    },
+  ],
+};
+
 export const mockAgentTemplates: AgentTemplate[] = [
   {
     ref: "kagent/k8s-agent-7f3a91c",
@@ -723,16 +746,33 @@ export const mockAgentTemplates: AgentTemplate[] = [
             },
           },
         ],
-        // Not authored by the form, and here on purpose: an edit that dropped it
-        // would be invisible on screen, so this is what the round-trip test guards.
         skills: [
+          {
+            name: "k8s-troubleshooting",
+            source: { oci: mockBuiltinSkills.image, path: "opt/kagent-tools-skills/skills/k8s-troubleshooting" },
+          },
           {
             name: "incident-review",
             source: {
-              oci: "ghcr.io/kagent-dev/skills@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+              git: {
+                url: "https://github.com/example/runbooks.git",
+                commit: "3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e9b",
+              },
+              path: "skills/incident-review",
+            },
+          },
+          // Saved before an upgrade changed the kagent-tools image's digest.
+          {
+            name: "helm-release-management",
+            source: {
+              oci: "ghcr.io/kagent-dev/kagent/tools@sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+              path: "opt/kagent-tools-skills/skills/helm-release-management",
             },
           },
         ],
+        // Not authored by the form, and here on purpose: an edit that dropped it
+        // would be invisible on screen.
+        promptTemplate: { dataSources: [{ name: "kagent-builtin-prompts", alias: "builtin" }] },
       },
     },
   },
