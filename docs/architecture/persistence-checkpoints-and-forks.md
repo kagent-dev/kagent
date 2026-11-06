@@ -81,14 +81,41 @@ lock, and a delayed release cannot revoke a replacement's claim. Leader election
 reduces duplicate scans but is not the execution fence. A slow remote copy is
 still synchronized through Substrate's tag lease after a client attempt expires.
 
-The controller Helm Deployment uses `Recreate`: all previous replicas stop
-before a new controller starts. This introduces a controller API availability
-gap during upgrades; existing Substrate Actors are not restarted. Previous
-per-request tag writers do not acquire execution claims, so mixed-version
-checkpoint execution is unsafe. Custom deployment tooling must preserve this
-stop-before-start ordering, without force-deleting terminating writers. Before
-rolling back to a chart that uses `RollingUpdate`, stop all current controllers
-and wait for them to exit; the old chart does not enforce this handoff.
+Discovery enqueues checkpoint IDs independently of four execution workers, so a
+slow copy cannot hold up unrelated new work. Failed attempts retry with capped
+exponential backoff from one to thirty seconds and jitter, including at the cap.
+Scans and immediate dirty-key requeues respect each checkpoint's retry deadline.
+The retry schedule is local to a worker; reservations and execution claims remain
+durable across restarts.
+
+Permanent operation errors are recorded under the current execution claim,
+without deleting the checkpoint or releasing its references. Public waiters on
+any API replica return the recorded status, such as `FailedPrecondition`, rather
+than waiting for their deadline. Backend configuration is excluded from these
+public error messages. Confirmed progress clears the error. Both creation and
+deletion waiters use exponential polling backoff from 100 ms to one second with
+jitter; canceling a caller still leaves the admitted work available for recovery.
+
+Controller upgrades remain `RollingUpdate`. New Pods advertise the private
+`kagent.dev/checkpoint-execution-claims: v1` annotation. Each API replica uses the
+live Kubernetes API to wait for all unmarked Pods in its Deployment's stable
+selector to exit and their ReplicaSets to acknowledge scale-down to zero.
+Unready and terminating legacy Pods still block activation, as do old ReplicaSets
+that could recreate them.
+This barrier runs independently of leader election and Pod readiness, so new
+replicas can serve other traffic while Kubernetes drains the previous generation.
+Checkpoint creation and deletion return retryable `Unavailable` before admitting
+new work until activation; the recovery worker waits on the same barrier.
+Already admitted reservations and reference pins survive the transition.
+
+Compatible future rollouts activate immediately without a controller API outage.
+Custom deployments must preserve the protocol annotation and controller Pod
+identity. A standalone development controller conservatively checks controller
+Pods in its namespace; stop legacy Pods before running it. Kubernetes read errors
+keep recovery closed. Do not force-delete terminating legacy writers. Before
+rolling back to an older chart without the protocol, quiesce checkpoint requests
+and finish pending recovery, then stop all current controllers
+and wait for them to exit: the startup barrier does not fence a later downgrade.
 
 A pending tag is not evidence of abandonment. Substrate serializes `CreateTag`
 against both the source Actor and the tag, including a copy still finishing after

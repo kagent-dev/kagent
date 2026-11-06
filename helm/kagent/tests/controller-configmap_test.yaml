@@ -3,15 +3,25 @@ templates:
   - controller-configmap.yaml
   - controller-deployment.yaml
 tests:
-  - it: stops previous controller writers before starting the new generation
+  - it: preserves rolling availability and advertises the checkpoint execution protocol
     template: controller-deployment.yaml
     asserts:
       - equal:
           path: spec.strategy.type
-          value: Recreate
+          value: RollingUpdate
       - equal:
-          path: spec.strategy.rollingUpdate
-          value: null
+          path: spec.template.metadata.annotations["kagent.dev/checkpoint-execution-claims"]
+          value: v1
+
+  - it: keeps user annotations from overriding the checkpoint execution protocol
+    template: controller-deployment.yaml
+    set:
+      controller.podAnnotations:
+        kagent.dev/checkpoint-execution-claims: incompatible
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["kagent.dev/checkpoint-execution-claims"]
+          value: v1
 
   - it: configures Actor JWT discovery with the Substrate trust bundle
     template: controller-configmap.yaml

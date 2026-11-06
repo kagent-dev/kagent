@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -962,5 +963,9 @@ func (s *testStore) ClaimCheckpointOperation(ctx context.Context, id, owner stri
 }
 
 func (*testStore) ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error {
+	return nil
+}
+
+func (s *testStore) RecordCheckpointOperationError(context.Context, string, uuid.UUID, *statuspb.Status) error {
 	return nil
 }

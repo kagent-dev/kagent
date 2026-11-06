@@ -329,3 +329,13 @@ missing worker capacity fails the test rather than skipping continuation coverag
 There are no retries around list calls, so a Substrate token-format change fails
 on continuation. Run with `KAGENT_E2E_API_URL` and the normal kagent harness fixture
 configured, using `go test ./core/test/e2e -run '^TestSubstrateInventoryPagination$'`.
+
+`TestCheckpointActivationDuringControllerReplacement` keeps an unmarked, unready
+Pod alive while replacing the actual controller. The replacement must become
+Ready and serve its public health check while checkpoint mutations return
+retryable `Unavailable`. A terminating legacy-shaped Pod still holds the barrier;
+only its exit permits mutation admission. This controller activation scenario is
+independent of harness execution and runs in both runtime lanes. The placeholder
+models legacy Pod lifetime; it does not claim an old-binary release upgrade.
+Published-release upgrade legs may still skip when no compatible database-managed
+baseline exists, so their successful job status alone is not upgrade evidence.

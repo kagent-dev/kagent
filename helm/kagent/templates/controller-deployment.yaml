@@ -21,11 +21,8 @@ metadata:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controller.replicas }}
-  # Old checkpoint writers do not participate in recovery execution claims.
-  # Wait for their processes to exit before a new worker can start.
   strategy:
-    type: Recreate
-    rollingUpdate: null
+    type: RollingUpdate
   selector:
     matchLabels:
       {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
@@ -33,9 +30,10 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
-        {{- with .Values.controller.podAnnotations | default .Values.podAnnotations }}
+        {{- with omit (.Values.controller.podAnnotations | default .Values.podAnnotations | default dict) "kagent.dev/checkpoint-execution-claims" }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
+        kagent.dev/checkpoint-execution-claims: v1
       labels:
         {{- /* extra pod labels: component merged over global, selector labels
              applied last so they can never be overridden */}}

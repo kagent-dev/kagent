@@ -33,6 +33,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	typedauth "k8s.io/client-go/kubernetes/typed/authentication/v1"
@@ -73,6 +74,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -367,6 +369,12 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	shareMaxTTL := cfg.GetSessions().GetShareMaxTtl().AsDuration()
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
+	activation := &checkpointActivation{reader: manager.GetAPIReader(), namespace: resourceNamespace,
+		podName: kagentenv.ControllerPodName.Get(), podUID: types.UID(kagentenv.ControllerPodUID.Get()), ready: make(chan struct{})}
+	checkpoints.GateRecovery(activation.ready)
+	if err := manager.Add(activation); err != nil {
+		return fmt.Errorf("register checkpoint activation barrier: %w", err)
+	}
 	if err := manager.Add(checkpoint.NewRecoveryWorker(checkpoints)); err != nil {
 		return fmt.Errorf("register checkpoint recovery worker: %w", err)
 	}

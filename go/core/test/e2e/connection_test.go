@@ -136,7 +136,13 @@ func restartTestController(t *testing.T) {
 	pods := &corev1.PodList{}
 	require.NoError(t, kube.List(ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
 	require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
-	old := pods.Items[0]
+	restartControllerPod(t, kube, pods.Items[0])
+}
+
+func restartControllerPod(t *testing.T, kube ctrlclient.Client, old corev1.Pod) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
 	require.NoError(t, kube.Delete(ctx, &old))
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
 		current := &corev1.PodList{}

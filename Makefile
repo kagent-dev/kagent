@@ -579,7 +579,7 @@ run-upgrade-tests: announce-upgrade-from build install-previous-release ## Test 
 # controller replicas (needed to observe the old-code/new-schema rollout window).
 .PHONY: run-rolling-upgrade-tests
 run-rolling-upgrade-tests: UPGRADE_PREV_EXTRA_ARGS = --set controller.replicas=2
-run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Verify stop-before-start controller upgrade from 2 previous-release replicas and schema compatibility
+run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Verify rolling controller upgrade from 2 previous-release replicas and schema compatibility
 	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	cd go && \
 	KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS=true \

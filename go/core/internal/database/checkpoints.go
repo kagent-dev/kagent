@@ -386,7 +386,7 @@ func (c *Client) finalizeSessionCheckpoint(ctx context.Context, id string, execu
 			SET state = CASE WHEN $2::text <> '' THEN 'READY' ELSE 'FAILED' END,
 			    tag_uid = $2,
 			    snapshot_uri = CASE WHEN $2::text <> '' THEN $3::text ELSE snapshot_uri END,
-			    data = $4
+			    data = $4, operation_error = NULL
 			WHERE id = $1
 			  AND state = 'CREATING'
 		`, row.ID, tagUID, snapshotURI, data)

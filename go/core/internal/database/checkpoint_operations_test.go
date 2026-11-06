@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc/codes"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
@@ -102,6 +104,7 @@ func TestCheckpointExecutorFencesStaleTransitions(t *testing.T) {
 	_, err = client.FinalizeClaimedSessionCheckpoint(t.Context(), checkpoint.Id, first, "old-tag", "s3://tags/old", "")
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, client.BeginCheckpointCleanup(t.Context(), checkpoint.Id, first, "old-tag", "old failure"), ErrConflict)
+	require.ErrorIs(t, client.RecordCheckpointOperationError(t.Context(), checkpoint.Id, first, &statuspb.Status{Code: int32(codes.FailedPrecondition), Message: "stale failure"}), ErrConflict)
 	_, err = client.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "unclaimed", "s3://tags/unclaimed", "")
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = client.ClaimCheckpointOperation(otherCtx, checkpoint.Id, "alice", uuid.New())
@@ -207,4 +210,36 @@ func TestPendingCheckpointsPageBothPhasesAndRetainInputs(t *testing.T) {
 	require.Equal(t, "s3://tags/retained", seen[deleting.Id].Snapshot.URI)
 	require.Equal(t, "retained-uid", seen[deleting.Id].TagUID)
 	require.NotContains(t, seen, failed.Id)
+}
+
+func TestCheckpointOperationErrorRetainsPendingState(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	checkpoint, _ := reserveRecoveryCheckpoint(t, client)
+	ctx, cancel := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
+	defer cancel()
+	executor := uuid.New()
+	_, err := client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", executor)
+	require.NoError(t, err)
+	failure := &statuspb.Status{Code: int32(codes.FailedPrecondition), Message: "tag was replaced"}
+	require.NoError(t, client.RecordCheckpointOperationError(ctx, checkpoint.Id, executor, failure))
+	require.NoError(t, client.ReleaseCheckpointOperation(ctx, checkpoint.Id, executor))
+	// Given a failed attempt, when another client reads the operation, assert
+	// that the failure and the pending reservation both survive release.
+	pending, err := client.GetCheckpointOperation(ctx, checkpoint.Id, "alice")
+	require.NoError(t, err)
+	require.Equal(t, failure.Code, pending.OperationError.Code)
+	require.Equal(t, failure.Message, pending.OperationError.Message)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
+	_, err = client.GetCheckpointOperation(ctx, checkpoint.Id, "bob")
+	require.ErrorIs(t, err, ErrNotFound)
+	next := uuid.New()
+	_, err = client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", next)
+	require.NoError(t, err)
+	require.ErrorIs(t, client.RecordCheckpointOperationError(ctx, checkpoint.Id, executor, failure), ErrConflict)
+	_, err = client.FinalizeClaimedSessionCheckpoint(ctx, checkpoint.Id, next, "repaired-tag", "s3://snapshots/repaired", "")
+	require.NoError(t, err)
+	ready, err := client.GetCheckpointOperation(ctx, checkpoint.Id, "alice")
+	require.NoError(t, err)
+	require.Nil(t, ready.OperationError, "confirmed progress must clear the previous error")
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, ready.Checkpoint.State)
 }

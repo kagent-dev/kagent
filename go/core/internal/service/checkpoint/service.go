@@ -11,8 +11,10 @@ import (
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/utils/clock"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -22,8 +24,9 @@ import (
 )
 
 const (
-	defaultPageSize = 50
-	maxPageSize     = 100
+	defaultPageSize        = 50
+	maxPageSize            = 100
+	recoveryWaitingMessage = "Checkpoint recovery is waiting for previous controller writers to exit"
 )
 
 type store interface {
@@ -31,6 +34,7 @@ type store interface {
 	ListPendingCheckpoints(context.Context, string, int) ([]*database.CheckpointOperation, error)
 	ClaimCheckpointOperation(context.Context, string, string, uuid.UUID) (*database.CheckpointOperation, error)
 	ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error
+	RecordCheckpointOperationError(context.Context, string, uuid.UUID, *statuspb.Status) error
 	BeginCheckpointCleanup(context.Context, string, uuid.UUID, string, string) error
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeClaimedSessionCheckpoint(context.Context, string, uuid.UUID, string, string, string) (*apiv1.Checkpoint, error)
@@ -63,6 +67,8 @@ type Service struct {
 	tags       tagClient
 	workflow   workflow
 	wake       chan struct{}
+	clock      clock.WithTicker
+	activation <-chan struct{}
 }
 
 type ListRequest struct {
@@ -77,7 +83,24 @@ type ListResult struct {
 }
 
 func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflow workflow) *Service {
-	return &Service{store: store, authorizer: authorizer, tags: tags, workflow: workflow, wake: make(chan struct{}, 1)}
+	return &Service{store: store, authorizer: authorizer, tags: tags, workflow: workflow, wake: make(chan struct{}, 1), clock: clock.RealClock{}}
+}
+
+// GateRecovery installs the controller startup barrier before this service is
+// used. All API replicas reject new mutations until legacy writers have exited;
+// the worker waits on the same barrier. Other checkpoint reads remain available.
+func (s *Service) GateRecovery(ready <-chan struct{}) { s.activation = ready }
+
+func (s *Service) recoveryActive() bool {
+	if s.activation == nil {
+		return true
+	}
+	select {
+	case <-s.activation:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHeadTaskID string) (*apiv1.Checkpoint, error) {
@@ -106,6 +129,9 @@ func (s *Service) beginCreate(ctx context.Context, sessionID, requestID, expecte
 	}
 	if _, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Session", Name: sessionID}); err != nil {
 		return nil, "", err
+	}
+	if !s.recoveryActive() {
+		return nil, "", serviceerrors.NewUnavailable(recoveryWaitingMessage, nil)
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -285,6 +311,9 @@ func (s *Service) beginDelete(ctx context.Context, checkpointID string) (string,
 	userID, err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "Checkpoint", Name: checkpointID})
 	if err != nil {
 		return "", err
+	}
+	if !s.recoveryActive() {
+		return "", serviceerrors.NewUnavailable(recoveryWaitingMessage, nil)
 	}
 	_, _, err = s.store.BeginDeleteSessionCheckpoint(ctx, checkpointID, userID)
 	if errors.Is(err, database.ErrNotFound) {
@@ -481,8 +510,7 @@ func (s *Service) wakeRecovery() {
 }
 
 func (s *Service) waitCreate(ctx context.Context, id, owner string) (*apiv1.Checkpoint, error) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	backoff := retryBackoff{delay: 100 * time.Millisecond, cap: time.Second}
 	for {
 		op, err := s.store.GetCheckpointOperation(ctx, id, owner)
 		if err != nil {
@@ -502,19 +530,19 @@ func (s *Service) waitCreate(ctx context.Context, id, owner string) (*apiv1.Chec
 		case apiv1.CheckpointState_CHECKPOINT_STATE_FAILED:
 			return nil, serviceerrors.NewUnavailable("Failed to retain checkpoint snapshot", errors.New(op.Checkpoint.GetFailure().GetMessage()))
 		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
+		if op.OperationError != nil {
+			return nil, status.FromProto(op.OperationError).Err()
+		}
+		if err := s.waitRetry(ctx, backoff.next()); err != nil {
+			return nil, err
 		}
 	}
 }
 
 func (s *Service) waitDeleted(ctx context.Context, id, owner string) error {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	backoff := retryBackoff{delay: 100 * time.Millisecond, cap: time.Second}
 	for {
-		_, err := s.store.GetCheckpointOperation(ctx, id, owner)
+		op, err := s.store.GetCheckpointOperation(ctx, id, owner)
 		if errors.Is(err, database.ErrNotFound) {
 			return nil
 		}
@@ -524,10 +552,11 @@ func (s *Service) waitDeleted(ctx context.Context, id, owner string) error {
 			}
 			return serviceerrors.NewInternal("Failed to read checkpoint deletion", err)
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
+		if op.OperationError != nil {
+			return status.FromProto(op.OperationError).Err()
+		}
+		if err := s.waitRetry(ctx, backoff.next()); err != nil {
+			return err
 		}
 	}
 }
