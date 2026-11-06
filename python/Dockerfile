@@ -7,7 +7,7 @@ ENV UV_PYTHON_INSTALL_DIR=/python
 COPY --from=uv-bin /uv /usr/local/bin/uv
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends bash ca-certificates libstdc++6 \
+    && apt-get satisfy -y --no-install-recommends bash 'ca-certificates (>= 20250419~deb12u2)' libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS builder
