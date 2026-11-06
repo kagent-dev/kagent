@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,28 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
+
+var (
+	lifecycleCleanup func()
+	// Start PostgreSQL only when a lifecycle fixture is requested, so focused
+	// tests of pure logic still run without Docker. Migrate the template once.
+	lifecycleDatabase = sync.OnceValues(func() (string, error) {
+		conn, cleanup, err := dbtest.Start(context.Background())
+		if err != nil {
+			return "", err
+		}
+		lifecycleCleanup = cleanup
+		return conn, dbtest.Migrate(conn, false)
+	})
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if lifecycleCleanup != nil {
+		lifecycleCleanup()
+	}
+	os.Exit(code)
+}
 
 func TestActorWorkflowLifecycle(t *testing.T) {
 	store, session := lifecycleFixture(t)
@@ -126,12 +149,9 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 // calls are faked, so concurrency assertions exercise PostgreSQL admission.
 func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
-	t.Cleanup(cancel)
-	conn, cleanup, err := dbtest.Start(ctx)
+	template, err := lifecycleDatabase()
 	require.NoError(t, err)
-	t.Cleanup(cleanup)
-	require.NoError(t, dbtest.Migrate(conn, false))
+	conn := dbtest.CloneT(t, template)
 	pool, err := pgxpool.New(t.Context(), conn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)

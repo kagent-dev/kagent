@@ -449,17 +449,32 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller || true
 
   go-unit-tests:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    env:
+      # Use the disk build cache restored below on every runner.
+      GOCACHEPROG: ""
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
+        id: go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
-          cache: true
-          cache-dependency-path: go/go.sum
+          cache: false
+
+      - name: Cache Go unit test dependencies and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          # Keep race builds separate from generators and refresh after code changes.
+          key: go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'ui/entrypoint/go.mod') }}-${{ github.sha }}
+          restore-keys: |
+            go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'ui/entrypoint/go.mod') }}-
+            go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
 
       - name: Run Go unit tests
         working-directory: go
@@ -477,7 +492,7 @@ jobs:
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -622,7 +637,7 @@ jobs:
   python-test:
     env:
       OPENAI_API_KEY: fake
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
