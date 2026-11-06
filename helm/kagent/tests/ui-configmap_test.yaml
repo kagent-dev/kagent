@@ -1,0 +1,78 @@
+suite: test ui configmap
+templates:
+  - ui-configmap.yaml
+tests:
+  - it: offers the skills of the packaged kagent-tools image
+    asserts:
+      - matchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: ^\{"image":"ghcr\.io/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}","skills":\[
+      - matchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: '"name":"k8s-troubleshooting","path":"opt/kagent-tools-skills/skills/k8s-troubleshooting"'
+
+  - it: mirrors the packaged image through global.imageRegistry
+    set:
+      global.imageRegistry: mirror.example
+    asserts:
+      - matchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: ^\{"image":"mirror\.example/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}"
+
+  - it: offers the skills of the configured image, not the packaged ones
+    set:
+      builtins.skills.image: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      builtins.skills.list:
+        - name: k8s-troubleshooting
+          description: Diagnose unhealthy workloads.
+          path: skills/k8s-troubleshooting
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          value: '{"image":"registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","skills":[{"description":"Diagnose unhealthy workloads.","name":"k8s-troubleshooting","path":"skills/k8s-troubleshooting"}]}'
+
+  - it: offers no skills for a configured image that lists none
+    set:
+      builtins.skills.image: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          value: '{"image":"registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","skills":[]}'
+
+  - it: offers no built-in skills when turned off
+    set:
+      builtins.skills.enabled: false
+    asserts:
+      - notExists:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+
+  - it: offers no built-in skills when all built-ins are turned off
+    set:
+      builtins.enabled: false
+    asserts:
+      - notExists:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+
+  - it: offers no built-in skills when the built-ins values are missing
+    set:
+      builtins: null
+    asserts:
+      - notExists:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+
+  - it: rejects a skills image without a digest
+    set:
+      builtins.skills.image: registry.example/team/skills:v1
+    asserts:
+      - failedTemplate:
+          errorMessage: 'builtins.skills.image must be pinned by sha256 digest: "registry.example/team/skills:v1"'
+
+  - it: rejects a configured skill without a path
+    set:
+      builtins.skills.image: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      builtins.skills.list:
+        - name: k8s-troubleshooting
+          description: Diagnose unhealthy workloads.
+    asserts:
+      - failedTemplate:
+          errorMessage: 'builtins.skills.list: each skill needs a name and a path, got {"description":"Diagnose unhealthy workloads.","name":"k8s-troubleshooting"}'
