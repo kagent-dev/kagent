@@ -635,6 +635,7 @@ const PB_OPERATION_BY_NAME: Record<AgentInstanceOperation, RuntimeOperation> = {
   suspend: RuntimeOperation.SUSPEND,
   resume: RuntimeOperation.RESUME,
   delete: RuntimeOperation.DELETE,
+  revert: RuntimeOperation.REVERT,
   unknown: RuntimeOperation.NONE,
 };
 
