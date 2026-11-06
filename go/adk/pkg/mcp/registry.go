@@ -14,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -371,31 +372,18 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	return rt.base.RoundTrip(req)
 }
 
-// initializeToolSet fetches tools from an MCP server using Google ADK's
-// mcptoolset and wraps the result with any MCP App-capable tool names found
-// during classification.
+// initializeToolSet prepares a lazy MCP toolset. Neither classification nor
+// ADK discovery may connect before the runtime reports ready.
 func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter map[string]bool) (*mcpAppToolset, error) {
 	mcpTransport, err := createTransport(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
 	}
 
-	var toolPredicate tool.Predicate
-	var appToolNames map[string]bool
-	if params.TokenPassthrough {
-		// Startup has no caller token, so discover lazily on the first invocation.
-		toolPredicate = configuredToolPredicate(toolFilter)
-	} else {
-		toolPredicate, appToolNames, err = agentVisibleToolFilter(ctx, params, toolFilter)
-		if err != nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "failed to classify MCP tools; falling back to lazy tool discovery", "error", err, "url", params.URL)
-			appToolNames = nil
-			toolPredicate = configuredToolPredicate(toolFilter)
-		}
-	}
-
+	discovery := &mcpAppDiscovery{listedAppNames: make(map[string]bool), appToolNames: make(map[string]bool)}
 	cfg := mcptoolset.Config{
 		Transport: mcpTransport,
+		Client:    newMCPAppClient(toolFilter, discovery),
 	}
 
 	toolset, err := mcptoolset.New(cfg)
@@ -403,24 +391,5 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
-	visibleTools := tool.Toolset(toolset)
-	if toolPredicate != nil {
-		visibleTools = tool.FilterToolset(toolset, toolPredicate)
-	}
-	return &mcpAppToolset{inner: visibleTools, appToolNames: appToolNames}, nil
-}
-
-// configuredToolPredicate selects the configured tool names, or every tool
-// when none are configured.
-func configuredToolPredicate(toolFilter map[string]bool) tool.Predicate {
-	if len(toolFilter) == 0 {
-		return nil
-	}
-	allowedTools := make([]string, 0, len(toolFilter))
-	for name, enabled := range toolFilter {
-		if enabled {
-			allowedTools = append(allowedTools, name)
-		}
-	}
-	return tool.StringPredicate(allowedTools)
+	return &mcpAppToolset{inner: toolset, discovery: discovery, listingMu: semaphore.NewWeighted(1)}, nil
 }
