@@ -64,7 +64,7 @@ func main() {
 }
 
 func run() error {
-	if err := config.MaterializeFromEnv(configDir); err != nil {
+	if err := config.MaterializeFromBootstrap(context.Background(), configDir); err != nil {
 		return err
 	}
 	compiled, err := config.LoadAgentConfig(filepath.Join(configDir, "config.json"))
