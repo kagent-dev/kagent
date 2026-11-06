@@ -12,6 +12,7 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -86,7 +87,8 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		return ctx, status.Error(codes.Unauthenticated, "authentication is not configured")
 	}
 	session, err := authenticator.Authenticate(ctx, headers, url.Values{})
-	if database.IsUnavailable(err) {
+	var connectErr *pgconn.ConnectError
+	if errors.As(err, &connectErr) {
 		return ctx, mapAndLogError(ctx, err)
 	}
 	if err != nil || session == nil {

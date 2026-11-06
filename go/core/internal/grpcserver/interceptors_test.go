@@ -251,6 +251,21 @@ func TestRuntimeAuthenticationReportsDatabaseConnectFailure(t *testing.T) {
 	}
 }
 
+func TestRuntimeAuthenticationReportsRejectedDatabaseLogin(t *testing.T) {
+	ctx, logs := contextWithCapturedLogs(t)
+	rejected := connectError(t, t.Context(), dbtest.RejectLogins(t, "28P01"))
+	provider := &testAuthenticator{err: fmt.Errorf("resolve actor session: %w", rejected)}
+
+	_, err := authenticate(ctx, runtimev1.TaskStoreService_GetTask_FullMethodName, provider, nil, DefaultMethodPolicies(), nil, nil)
+
+	if got := status.Code(err); got != codes.Internal {
+		t.Fatalf("code = %v, want Internal: %v", got, err)
+	}
+	if !strings.Contains(logs.String(), "SQLSTATE 28P01") {
+		t.Fatalf("cause missing from logs: %s", logs.String())
+	}
+}
+
 func TestRuntimeAuthenticationRejectsInvalidCredentials(t *testing.T) {
 	provider := &testAuthenticator{err: errors.New("token signature is invalid")}
 
