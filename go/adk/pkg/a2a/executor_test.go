@@ -40,6 +40,7 @@ type recordingExecutor struct {
 	userID        string
 	cleanupCalled bool
 	events        []a2atype.Event
+	onExecute     func(context.Context)
 	// span, when set, is a span the turn emits, the way ADK does.
 	span string
 }
@@ -48,6 +49,9 @@ func (e *recordingExecutor) Execute(ctx context.Context, reqCtx *a2asrv.Executor
 	return func(yield func(a2atype.Event, error) bool) {
 		e.message = reqCtx.Message
 		e.userID = auth.UserIDFromContext(ctx)
+		if e.onExecute != nil {
+			e.onExecute(ctx)
+		}
 		if e.span != "" {
 			_, span := otel.Tracer("adk-test").Start(ctx, e.span)
 			span.End()
