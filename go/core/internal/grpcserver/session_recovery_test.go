@@ -143,8 +143,9 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			require.Equal(t, codes.PermissionDenied, status.Code(err))
 			_, err = client.RevertSession(visitor, request)
 			require.Equal(t, codes.NotFound, status.Code(err))
-			_, err = client.RevertSession(owner, request)
-			requireRevertRefusal(t, err, "KAGENT_SESSION_RUNTIME_NOT_CRASHED", "healthy runtimes cannot revert")
+			healthy, err := client.RevertSession(owner, request)
+			require.NoError(t, err, "a healthy runtime has nothing to recover")
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, healthy.Session.State)
 			control.actors[name].Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
 			before := proto.CloneOf(control.actors[name])
 			control.actors[name].Metadata.Uid = "replacement-uid"

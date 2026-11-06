@@ -200,10 +200,11 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 		template string
 		readErr  error
 		// want is the refusal a client sees; nil means the error must stay
-		// retryable, so it may match neither refusal.
-		want error
+		// retryable. healthy means Revert returns the Session unchanged.
+		want    error
+		healthy bool
 	}{
-		{name: "quiet running actor", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, want: errRuntimeNotCrashed},
+		{name: "quiet running actor", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, healthy: true},
 		{name: "transient read failure", readErr: status.Error(codes.Unavailable, "unreachable")},
 		{name: "missing actor", readErr: status.Error(codes.NotFound, "actor not found"), want: errRuntimeUnrecoverable},
 		{name: "same-name replacement", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, uid: "another-actor", want: errRuntimeUnrecoverable},
@@ -224,12 +225,16 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 				t.Fatal("unconfirmed crash issued a revert")
 				return nil, nil
 			}
-			_, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Revert(t.Context(), session)
-			require.Error(t, err)
-			if test.want != nil {
+			returned, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Revert(t.Context(), session)
+			switch {
+			case test.healthy:
+				require.NoError(t, err)
+				require.True(t, proto.Equal(session, returned), "a healthy runtime has nothing to recover")
+			case test.want != nil:
 				require.ErrorIs(t, err, test.want)
 				require.ErrorIs(t, err, database.ErrFailedPrecondition)
-			} else {
+			default:
+				require.Error(t, err)
 				require.NotErrorIs(t, err, database.ErrFailedPrecondition, "a transient failure must stay retryable")
 			}
 			current, err := store.GetSessionByID(t.Context(), session.Id)
@@ -244,8 +249,8 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 }
 
 // Only an active lifecycle operation is contention a retry waits out. A Session
-// at rest outside READY, such as one suspended by deadline cleanup, would
-// return ABORTED forever if it were reported as contention.
+// at rest outside READY, such as one suspended by deadline cleanup, has nothing
+// to recover, so Revert returns it rather than ABORTED forever.
 func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -253,7 +258,7 @@ func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
 		operation apiv1.RuntimeOperation
 		want      error
 	}{
-		{name: "suspended by deadline cleanup", state: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, want: errRuntimeNotCrashed},
+		{name: "suspended by deadline cleanup", state: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE},
 		{name: "suspension in progress", state: apiv1.RuntimeState_RUNTIME_STATE_READY, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, want: database.ErrConflict},
 		{name: "resume in progress", state: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, want: database.ErrConflict},
 		{name: "creation in progress", state: apiv1.RuntimeState_RUNTIME_STATE_CREATING, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, want: database.ErrConflict},
@@ -262,11 +267,15 @@ func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
 			// Both checks run on the Session the caller read, before any store
 			// or Substrate access, so neither dependency is needed.
 			workflow := NewActorWorkflow(nil, nil, make(chan struct{}, 1), time.Second)
-			_, err := workflow.Revert(t.Context(), &apiv1.Session{Id: uuid.NewString(), State: test.state, Operation: test.operation})
-			require.ErrorIs(t, err, test.want)
-			if test.want == database.ErrConflict {
-				require.NotErrorIs(t, err, database.ErrFailedPrecondition)
+			session := &apiv1.Session{Id: uuid.NewString(), State: test.state, Operation: test.operation}
+			returned, err := workflow.Revert(t.Context(), session)
+			if test.want == nil {
+				require.NoError(t, err)
+				require.Same(t, session, returned)
+				return
 			}
+			require.ErrorIs(t, err, test.want)
+			require.NotErrorIs(t, err, database.ErrFailedPrecondition)
 		})
 	}
 }
@@ -492,10 +501,11 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 	require.Equal(t, a2a.TaskStateCompleted, retained.Status.State)
 }
 
-// A recovery whose Actor cannot be read has issued nothing, so it must not take
-// a claim that would make Delete refuse the Session. A recovery whose Actor is
-// gone can never finish, so it ends even after an earlier attempt claimed it.
-func TestDeleteSupersedesRecoveryThatCannotFinish(t *testing.T) {
+// Delete supersedes an admitted recovery whether or not an attempt issued the
+// revert: a revert restores the recorded Actor in place and creates nothing that
+// Delete could miss. Retries keep the recovery pending, and a gone or replaced
+// Actor tells the client it cannot be recovered.
+func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		claimed  bool
@@ -505,6 +515,7 @@ func TestDeleteSupersedesRecoveryThatCannotFinish(t *testing.T) {
 	}{
 		{name: "actor read fails", readErr: status.Error(codes.Unavailable, "control plane unavailable")},
 		{name: "actor is gone", gone: true},
+		{name: "after an issued attempt", claimed: true},
 		{name: "actor is gone after an issued attempt", claimed: true, gone: true},
 		{name: "running replacement after an issued attempt", claimed: true, replaced: true},
 	} {
@@ -517,8 +528,6 @@ func TestDeleteSupersedesRecoveryThatCannotFinish(t *testing.T) {
 				}}
 				_, err := NewActorWorkflow(store, unavailable, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
 				require.Error(t, err)
-				_, err = NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), session, false)
-				require.ErrorIs(t, err, database.ErrConflict, "an issued revert blocks Delete while it might still succeed")
 			} else {
 				_, err := store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, session.Id, base.actors[key].GetMetadata().GetUid()), database.SessionTaskSnapshot{})
 				require.NoError(t, err)
@@ -530,30 +539,26 @@ func TestDeleteSupersedesRecoveryThatCannotFinish(t *testing.T) {
 				base.actors[key].Metadata.Uid = "replacement-uid"
 				base.actors[key].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 			}
-			unrecoverable := test.gone || test.replaced
-			actors := &recoveryTestActors{lifecycleTestActors: base, readErr: test.readErr}
-			actors.revert = func(context.Context, string, string) (*ateapipb.Actor, error) {
-				t.Fatal("an unread Actor was reverted")
-				return nil, nil
-			}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
-			for range 2 {
-				admitted, err := store.GetSessionByID(t.Context(), session.Id)
-				require.NoError(t, err)
-				_, err = workflow.Revert(t.Context(), admitted)
-				require.Error(t, err)
-				require.Equal(t, unrecoverable, errors.Is(err, errRuntimeUnrecoverable))
+			if unrecoverable := test.gone || test.replaced; unrecoverable || test.readErr != nil {
+				actors := &recoveryTestActors{lifecycleTestActors: base, readErr: test.readErr}
+				actors.revert = func(context.Context, string, string) (*ateapipb.Actor, error) {
+					t.Fatal("an unread or replaced Actor was reverted")
+					return nil, nil
+				}
+				workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+				for range 2 {
+					admitted, err := store.GetSessionByID(t.Context(), session.Id)
+					require.NoError(t, err)
+					_, err = workflow.Revert(t.Context(), admitted)
+					require.Error(t, err)
+					require.Equal(t, unrecoverable, errors.Is(err, errRuntimeUnrecoverable))
+				}
 			}
 
 			pending, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, pending.State)
-			if unrecoverable {
-				require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, pending.Operation, "a recovery that cannot finish is abandoned")
-				require.Equal(t, database.SessionRuntimeUnrecoverable, pending.Failure.GetReason())
-			} else {
-				require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed read keeps the recovery for a retry")
-			}
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed attempt keeps the recovery for a retry")
 			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending, false)
 			if test.replaced {
 				// Delete is admitted, but never removes a same-name replacement.

@@ -18,11 +18,6 @@ import (
 // that the recorded Actor crashed. Transport failures cannot admit this work.
 const SessionRuntimeCrashed = "RuntimeCrashed"
 
-// SessionRuntimeUnrecoverable identifies a Session whose admitted crash
-// recovery was abandoned because its recorded Actor is gone, was replaced, or no
-// longer holds the admitted snapshot. No retry restores it; Delete still can.
-const SessionRuntimeUnrecoverable = "RuntimeUnrecoverable"
-
 // CrashRecoveryAdmitted reports a Session whose crash recovery was admitted and
 // has not finished. A retry joins that operation instead of observing Substrate
 // again. Only BeginCrashedSessionRecovery starts a REVERT, so the operation alone
@@ -181,47 +176,6 @@ func (c *Client) GetSessionRecoveryPin(ctx context.Context, sessionID string, op
 		return SessionRecoveryPin{}, fmt.Errorf("read Session %s recovery pin: %w", sessionID, notFoundOr(err))
 	}
 	return pin, nil
-}
-
-// AbandonSessionRecovery ends an admitted REVERT whose Actor can no longer be
-// restored: it is missing, was replaced, or no longer holds the pinned snapshot.
-// Unlike a preparation failure it may end claimed work, because those
-// observations show that no revert of the recorded Actor can still succeed. A
-// live claim still wins, so an attempt that is issuing the revert finishes first.
-// The Session stays FAILED with no operation, so Delete can proceed.
-func (c *Client) AbandonSessionRecovery(ctx context.Context, sessionID string, operationID uuid.UUID, cause string) (*apiv1.Session, error) {
-	var result *apiv1.Session
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockSession(ctx, tx, sessionID)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		tag, err := tx.Exec(ctx, `
-			UPDATE runtime_instance SET operation = 'RUNTIME_OPERATION_NONE', executor_id = NULL, executor_expires_at = NULL
-			WHERE id = $1 AND kind = 'agent' AND operation_id = $2 AND operation = 'RUNTIME_OPERATION_REVERT'
-			  AND (executor_id IS NULL OR executor_expires_at <= clock_timestamp())
-		`, row.ID, operationID)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() != 1 {
-			return ErrConflict
-		}
-		row.Operation, row.ExecutorID = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String(), nil
-		result, err = toSession(row)
-		if err != nil {
-			return err
-		}
-		result.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
-		result.Failure = &apiv1.Failure{Reason: SessionRuntimeUnrecoverable, Message: "Runtime cannot be recovered: " + cause}
-		result.UpdatedAt = timestamppb.Now()
-		row.Data, err = marshalSession(result)
-		if err != nil {
-			return err
-		}
-		return execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, row.Data)
-	})
-	return result, err
 }
 
 // settleCrashedSessionTask retains captured waits and fails discarded nonterminal work.

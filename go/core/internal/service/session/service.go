@@ -290,11 +290,10 @@ func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error)
 		return nil, err
 	}
 	session, err = s.workflow.Revert(ctx, session)
-	if reason := revertRefusalReason(err); reason != "" {
-		// Both refusals are FAILED_PRECONDITION, but one means the runtime is
-		// already healthy and the other that no retry can restore it. The
-		// ErrorInfo reason lets a client tell them apart without parsing text.
-		refusal, detailErr := status.New(codes.FailedPrecondition, err.Error()).WithDetails(&errdetails.ErrorInfo{Domain: "kagent.dev", Reason: reason})
+	if errors.Is(err, errRuntimeUnrecoverable) {
+		// The ErrorInfo reason tells a client to stop retrying and delete the
+		// Session, without parsing text or confusing it with other preconditions.
+		refusal, detailErr := status.New(codes.FailedPrecondition, err.Error()).WithDetails(&errdetails.ErrorInfo{Domain: "kagent.dev", Reason: "KAGENT_SESSION_RUNTIME_UNRECOVERABLE"})
 		if detailErr != nil {
 			return nil, detailErr
 		}
@@ -310,19 +309,6 @@ func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error)
 		return nil, serviceerrors.NewUnavailable("Failed to revert Session", err)
 	}
 	return session, nil
-}
-
-// revertRefusalReason names the ErrorInfo reason for a revert that can never
-// succeed against the Session as it stands, or returns "" for any other error.
-func revertRefusalReason(err error) string {
-	switch {
-	case errors.Is(err, errRuntimeNotCrashed):
-		return "KAGENT_SESSION_RUNTIME_NOT_CRASHED"
-	case errors.Is(err, errRuntimeUnrecoverable):
-		return "KAGENT_SESSION_RUNTIME_UNRECOVERABLE"
-	default:
-		return ""
-	}
 }
 
 // CreateShare mints a read-only share of the caller's session. A positive ttl bounds how long its

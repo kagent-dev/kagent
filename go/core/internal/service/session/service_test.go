@@ -209,25 +209,18 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 }
 
 func TestServiceRevertNamesRefusalReason(t *testing.T) {
-	for _, test := range []struct {
-		cause  error
-		reason string
-	}{
-		{errRuntimeNotCrashed, "KAGENT_SESSION_RUNTIME_NOT_CRASHED"},
-		{fmt.Errorf("runtime Actor was replaced: %w", errRuntimeUnrecoverable), "KAGENT_SESSION_RUNTIME_UNRECOVERABLE"},
-	} {
-		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: test.cause})
-		_, err := service.Revert(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
-		refusal, ok := status.FromError(err)
-		require.True(t, ok)
-		require.Equal(t, codes.FailedPrecondition, refusal.Code())
-		require.Equal(t, test.cause.Error(), refusal.Message())
-		require.Len(t, refusal.Details(), 1)
-		info, ok := refusal.Details()[0].(*errdetails.ErrorInfo)
-		require.True(t, ok)
-		require.Equal(t, "kagent.dev", info.GetDomain())
-		require.Equal(t, test.reason, info.GetReason())
-	}
+	cause := fmt.Errorf("runtime Actor was replaced: %w", errRuntimeUnrecoverable)
+	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: cause})
+	_, err := service.Revert(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+	refusal, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.FailedPrecondition, refusal.Code())
+	require.Equal(t, cause.Error(), refusal.Message())
+	require.Len(t, refusal.Details(), 1)
+	info, ok := refusal.Details()[0].(*errdetails.ErrorInfo)
+	require.True(t, ok)
+	require.Equal(t, "kagent.dev", info.GetDomain())
+	require.Equal(t, "KAGENT_SESSION_RUNTIME_UNRECOVERABLE", info.GetReason())
 }
 
 func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {

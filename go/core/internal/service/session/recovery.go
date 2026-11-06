@@ -14,20 +14,11 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-// Revert refuses a Session with nothing to act on for one of two reasons. They
-// ask opposite things of a client, so the API reports them with distinct reasons.
-// errRuntimeNotCrashed means nothing needs recovering: the runtime is running or
-// the Session is at rest in another state. A READY Session whose Actor is
-// suspended is not refused; Revert returns it, which also covers a retry after a
-// revert whose response was lost.
-// errRuntimeUnrecoverable means the recorded Actor is gone, was replaced, or no
-// longer holds the admitted snapshot. No retry restores it, and the client has
-// to start another Session. Transient
-// Substrate and database failures wrap neither, so they stay retryable.
-var (
-	errRuntimeNotCrashed    = fmt.Errorf("runtime is not crashed: %w", database.ErrFailedPrecondition)
-	errRuntimeUnrecoverable = fmt.Errorf("runtime cannot be recovered: %w", database.ErrFailedPrecondition)
-)
+// errRuntimeUnrecoverable is Revert's only refusal: the recorded Actor is gone,
+// was replaced, or no longer holds the admitted snapshot. No retry restores it,
+// and the client deletes the Session. Transient Substrate and database failures
+// do not wrap it, so they stay retryable.
+var errRuntimeUnrecoverable = fmt.Errorf("runtime cannot be recovered: %w", database.ErrFailedPrecondition)
 
 // lifecycleIdle reports a Session with no lifecycle operation in flight. Only an
 // idle Session can admit a new revert; any other operation owns the Actor.
@@ -44,11 +35,6 @@ type crashObservation struct {
 
 func (o crashObservation) crashed() bool {
 	return o.actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED
-}
-
-// reverted reports a recorded Actor at rest, as a completed revert leaves it.
-func (o crashObservation) reverted() bool {
-	return o.actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_SUSPENDED
 }
 
 // observeCrash reads the Session's recorded Actor and reports whether Substrate
@@ -91,40 +77,29 @@ func (w *ActorWorkflow) observeCrash(ctx context.Context, session *apiv1.Session
 // Revert restores a confirmed crashed runtime without replaying its interrupted turn.
 // Retries join the same durable operation and preserve the Actor identity. Nothing
 // retries an admitted recovery in the background: the caller retries RevertSession
-// until it succeeds, as with CreateSession and DeleteSession.
+// until it succeeds, as with CreateSession and DeleteSession. A runtime that is
+// not crashed has nothing to recover, so Revert returns the Session unchanged.
+// That is also what a retry sees after a revert whose response was lost.
 func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	if database.CrashRecoveryAdmitted(session) {
 		return w.run(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, false)
 	}
-	if session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE &&
-		session.Failure.GetReason() == database.SessionRuntimeUnrecoverable {
-		return nil, fmt.Errorf("%s: %w", session.Failure.GetMessage(), errRuntimeUnrecoverable)
-	}
-	// run bounds a joined attempt. Admission bounds its own reads and execution.
-	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
-	defer cancel()
-	// Only an active lifecycle operation is contention: a retry converges once it
-	// finishes. A Session at rest in another state, such as one suspended by
-	// deadline cleanup, stays there until an interaction resumes it, so a retry
-	// would spin until the caller's deadline.
+	// Another lifecycle operation owns the Actor; a retry converges once it finishes.
 	if session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return nil, database.ErrConflict
 	}
 	if !lifecycleIdle(session) {
-		return nil, fmt.Errorf("runtime state is %s: %w", session.State, errRuntimeNotCrashed)
+		return session, nil
 	}
+	// run bounds a joined attempt. Admission bounds its own reads and execution.
+	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+	defer cancel()
 	observed, err := w.observeCrash(ctx, session)
 	if err != nil {
 		return nil, err
 	}
-	if observed.reverted() {
-		// A READY Session whose recorded Actor is at rest has nothing to recover.
-		// This is also what a retry sees after a revert whose response was lost,
-		// so it returns the Session the way Create and Delete retries do.
-		return session, nil
-	}
 	if !observed.crashed() {
-		return nil, errRuntimeNotCrashed
+		return session, nil
 	}
 	actor := observed.actor
 	snapshot := substrate.LatestDurableActorSnapshot(actor)

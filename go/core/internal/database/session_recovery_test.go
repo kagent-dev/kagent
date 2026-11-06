@@ -313,7 +313,7 @@ func TestSessionGenerationReadsRecordedActor(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
-func TestAbandonedRecoveryLetsDeleteProceed(t *testing.T) {
+func TestDeleteSupersedesClaimedRecovery(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _ := waitingTaskFixture(t, client)
@@ -325,26 +325,12 @@ func TestAbandonedRecoveryLetsDeleteProceed(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, claimed)
 
-	_, err = client.AbandonSessionRecovery(t.Context(), session.Id, operation.ID, "actor is missing")
-	require.ErrorIs(t, err, ErrConflict, "a live claim may still be issuing the revert")
-	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
-	require.ErrorIs(t, err, ErrConflict, "a claimed recovery blocks Delete")
-
-	require.NoError(t, client.ReleaseRuntimeOperation(t.Context(), session.Id, operation.ID, executor))
-	abandoned, err := client.AbandonSessionRecovery(t.Context(), session.Id, operation.ID, "actor is missing")
-	require.NoError(t, err)
-	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, abandoned.State)
-	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, abandoned.Operation)
-	require.Equal(t, SessionRuntimeUnrecoverable, abandoned.Failure.GetReason())
-	stored, err := client.GetSessionByID(t.Context(), session.Id)
-	require.NoError(t, err)
-	require.True(t, proto.Equal(abandoned, stored))
-	_, err = client.AbandonSessionRecovery(t.Context(), session.Id, operation.ID, "actor is missing")
-	require.ErrorIs(t, err, ErrConflict)
-
 	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
-	require.NoError(t, err)
+	require.NoError(t, err, "a revert creates nothing, so even an issued one cannot block Delete")
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, deletion.Instance.Operation)
+	require.Equal(t, uuid.Nil, deletion.ExecutorID)
+	_, err = client.FinishSessionOperation(t.Context(), session.Id, operation.ID, executor, "", uid, "")
+	require.ErrorIs(t, err, ErrConflict, "the superseded revert cannot finish")
 }
 
 func TestRevertCanOnlyJoinAnAdmittedRecovery(t *testing.T) {

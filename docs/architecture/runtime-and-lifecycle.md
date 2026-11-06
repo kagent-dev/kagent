@@ -227,15 +227,13 @@ adopted implicitly.
 crashed runtime. It accepts active and idle Sessions, but verifies Substrate's
 CRASHED state for the recorded Actor UID and pinned template before admitting
 recovery. Quiet turns, transport failures, missing Actors and same-name
-replacements cannot authorize a revert. A quiet turn returns `FAILED_PRECONDITION`
-with reason `KAGENT_SESSION_RUNTIME_NOT_CRASHED`. A missing or replaced Actor
-returns `FAILED_PRECONDITION` with `KAGENT_SESSION_RUNTIME_UNRECOVERABLE`,
-because no retry restores it. A transport failure returns `UNAVAILABLE`.
-Only an active lifecycle operation returns `ABORTED`. A Session at rest outside
-READY returns `KAGENT_SESSION_RUNTIME_NOT_CRASHED`, so a client does not retry
-it until its deadline. A READY Session whose recorded Actor is SUSPENDED has
-nothing to recover, so RevertSession returns it. That is also what a retry sees
-after a revert whose response was lost.
+replacements cannot authorize a revert. A runtime that is not crashed, including
+a Session at rest outside READY, has nothing to recover, so RevertSession
+returns the Session unchanged. That is also what a retry sees after a revert
+whose response was lost. A missing or replaced Actor returns
+`FAILED_PRECONDITION` with `KAGENT_SESSION_RUNTIME_UNRECOVERABLE`, because no
+retry restores it. A transport failure returns `UNAVAILABLE`. Only an active
+lifecycle operation returns `ABORTED`.
 
 Admission records FAILED/REVERT with a RuntimeCrashed failure under the Session
 lock. REVERT is its own `RuntimeOperation`: only a confirmed crash starts one, and
@@ -274,20 +272,18 @@ continues it by retrying RevertSession, as with Create and Delete. While it is
 pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`,
 and interactions are refused because a lifecycle operation is in progress.
 
-A failed Actor read before the claim leaves the operation unclaimed, so Delete
-can supersede it. If an attempt claimed the revert and the Actor is then missing,
-replaced, or reports a different durable snapshot, no revert of the recorded
-runtime can still be in progress. The next attempt abandons the operation: the
-Session stays FAILED with reason `RuntimeUnrecoverable` and no operation, so
-Delete can proceed. A live claim still wins, so an attempt that is issuing the
-revert finishes first.
+Delete supersedes an admitted recovery even after an attempt issued the revert.
+Other issued lifecycle work blocks Delete because it may still create something
+Delete would miss; a revert restores the recorded Actor in place and creates
+nothing. Substrate serializes the two calls, and a late revert fails against the
+deleted Actor. A recovery whose Actor is missing, replaced, or reports a
+different durable snapshot stays pending, and each retry returns
+`KAGENT_SESSION_RUNTIME_UNRECOVERABLE` so the client deletes the Session.
 
 A successful revert returns the Session to READY with the same Actor suspended.
 The next authorized interaction resumes it through Substrate ingress. Runtime
 changes after the retained snapshot are lost; the discarded turn receives no
-checkpoint at that older snapshot. Another revert while the Actor stays
-suspended returns the Session. Once an interaction resumes it, a revert returns
-`FAILED_PRECONDITION` with `KAGENT_SESSION_RUNTIME_NOT_CRASHED`.
+checkpoint at that older snapshot. Another revert returns the Session.
 
 ```mermaid
 sequenceDiagram

@@ -85,7 +85,11 @@ func runtimeOperationNeeded(row runtimeInstanceRow, requested apiv1.RuntimeOpera
 		if operation == requested {
 			return false, nil
 		}
-		if requested != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE || row.ExecutorID != nil {
+		// A revert restores the recorded Actor in place and creates nothing, so
+		// Delete may supersede one even after it was issued: Substrate serializes
+		// the two calls, and a late revert fails against the deleted Actor.
+		issued := row.ExecutorID != nil && operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
+		if requested != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE || issued {
 			return false, ErrConflict
 		}
 		operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE

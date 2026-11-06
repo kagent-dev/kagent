@@ -57,15 +57,11 @@ Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.
 So does a revert while another lifecycle operation is active.
 
-A revert that can never succeed against the Session as it stands returns `FAILED_PRECONDITION`.
-Its `google.rpc.ErrorInfo` detail, in domain `kagent.dev`, names one of two reasons:
-
-| Reason | Meaning | Client action |
-| --- | --- | --- |
-| `KAGENT_SESSION_RUNTIME_NOT_CRASHED` | The runtime is running, or the Session is at rest outside READY. | Continue the conversation. |
-| `KAGENT_SESSION_RUNTIME_UNRECOVERABLE` | The recorded Actor is missing, a same-name Actor replaced it, or it no longer holds the snapshot recovery admitted. The Session stays `FAILED` with failure reason `RuntimeUnrecoverable`. | Stop retrying. Delete the Session, then start another or fork one from a checkpoint. |
-
-A `FAILED_PRECONDITION` without either reason follows the general table below.
+A revert of a runtime that is not crashed returns the Session unchanged.
+A revert that can never succeed returns `FAILED_PRECONDITION` with a `google.rpc.ErrorInfo` detail in domain `kagent.dev` and reason `KAGENT_SESSION_RUNTIME_UNRECOVERABLE`.
+The recorded Actor is missing, a same-name Actor replaced it, or it no longer holds the snapshot recovery admitted.
+Stop retrying, delete the Session, then start another or fork one from a checkpoint. Delete succeeds even while the recovery is pending.
+A `FAILED_PRECONDITION` without that reason follows the general table below.
 Read the reason rather than the message text, which is not stable.
 
 ## Errors
