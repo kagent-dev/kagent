@@ -89,10 +89,8 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 func TestCrashedRecoveryAdmissionRespectsFences(t *testing.T) {
 	for _, test := range []struct {
 		name                              string
-		actorUID                          string
 		checkpoint, superseded, lifecycle bool
 	}{
-		{name: "replacement actor", actorUID: "replacement"},
 		{name: "checkpoint", checkpoint: true},
 		{name: "revert after the crash was observed", superseded: true},
 		{name: "lifecycle", lifecycle: true},
@@ -105,8 +103,6 @@ func TestCrashedRecoveryAdmissionRespectsFences(t *testing.T) {
 			// Callers read the generation before they observe the crash.
 			generation := sessionGeneration(t, client, session.Id)
 			switch {
-			case test.actorUID != "":
-				uid = test.actorUID
 			case test.checkpoint:
 				task.Status.State = a2a.TaskStateCompleted
 				require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{

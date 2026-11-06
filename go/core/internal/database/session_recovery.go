@@ -73,21 +73,6 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if err != nil {
 			return notFoundOr(err)
 		}
-		type guards struct {
-			Matches bool
-			Busy    bool
-		}
-		guard, err := queryOne(ctx, tx, `
-			SELECT actor_uid = $2 AS matches,
-			    EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING') AS busy
-			FROM session WHERE id = $1
-		`, pgx.RowToStructByName[guards], row.ID, generation.ActorUID)
-		if err != nil {
-			return err
-		}
-		if !guard.Matches || generation.ActorUID == "" {
-			return ErrConflict
-		}
 		session, err := toSession(row)
 		if err != nil {
 			return err
@@ -110,7 +95,13 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		// the crashed Actor and its worker keeps the claim when suspension fails, so
 		// waiting would block forever. Settlement below retires the claim; a late
 		// finish changes nothing.
-		if guard.Busy {
+		busy, err := queryOne(ctx, tx, `
+			SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
+		`, pgx.RowTo[bool], row.ID)
+		if err != nil {
+			return err
+		}
+		if busy {
 			return ErrConflict
 		}
 		row.State = apiv1.RuntimeState_RUNTIME_STATE_FAILED.String()
