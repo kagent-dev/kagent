@@ -24,7 +24,6 @@ type transitionActors struct {
 	resumeUID       string
 	suspendSnapshot *ateapipb.Snapshot
 	revertUID       string
-	revertSnapshot  *ateapipb.Snapshot
 }
 
 func (a *transitionActors) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -76,9 +75,6 @@ func (a *transitionActors) RevertActor(context.Context, string, string) (*ateapi
 	a.calls = append(a.calls, "revert")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
 	snapshot := proto.CloneOf(LatestDurableActorSnapshot(a.actor))
-	if a.revertSnapshot != nil {
-		snapshot = proto.CloneOf(a.revertSnapshot)
-	}
 	a.actor.Status.Snapshots = nil
 	if snapshot != nil {
 		snapshot.Locality = ""
@@ -263,7 +259,7 @@ func TestActorSuspendRequiresDurableVolumesSnapshot(t *testing.T) {
 	}
 }
 
-func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
+func TestActorRevertKeepsTheRecordedActor(t *testing.T) {
 	durable := func(generation int32, uri string) *ateapipb.Snapshot {
 		return &ateapipb.Snapshot{Generation: generation, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, Locality: "lost-node",
 			DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: uri}}}
@@ -273,7 +269,6 @@ func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 		missing        bool
 		state          ateapipb.ActorState
 		revertUID      string
-		revertSnapshot *ateapipb.Snapshot
 		wantPrepareErr bool
 		unrecoverable  bool
 		wantApplyErr   bool
@@ -285,10 +280,9 @@ func TestActorRevertRestoresTheObservedSnapshotInPlace(t *testing.T) {
 		{name: "running actor", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, wantApplyErr: true},
 		{name: "actor gone", missing: true, wantPrepareErr: true, unrecoverable: true},
 		{name: "replaced actor", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, revertUID: "another-actor", wantApplyErr: true, wantCalls: []string{"revert"}},
-		{name: "different snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, revertSnapshot: durable(1, "s3://snapshots/older"), wantApplyErr: true, wantCalls: []string{"revert"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			actors := &transitionActors{revertUID: test.revertUID, revertSnapshot: test.revertSnapshot}
+			actors := &transitionActors{revertUID: test.revertUID}
 			if !test.missing {
 				actors.actor = &ateapipb.Actor{
 					Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "instance", Uid: "actor-uid"},

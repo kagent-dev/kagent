@@ -242,10 +242,12 @@ work absent from the retained snapshot. Waiting tasks captured by that snapshot
 remain available. Checkpoint creation excludes competing recovery.
 
 Admission settles waits against the Actor's latest completed durable snapshot,
-which is the one Substrate's revert restores. kagent suspends with synchronous
-durability, so a durable upload completes before suspension returns, and a
-crashed Actor cannot be suspended. Execution requires the reverted Actor to
-report the same snapshot it held before the revert.
+which is the one Substrate's revert restores. Every suspend kagent issues uses
+synchronous durability, so its upload completes before suspension returns, and
+a crashed Actor cannot be suspended. No upload can complete between admission
+and the revert, so settling at admission settles against what is restored, and
+the interrupted turn fails as soon as the crash is confirmed. An asynchronous
+suspend would break this and require settling when the revert finishes.
 
 The caller reads the Session's generation before it observes Substrate: its
 lifecycle generation, recorded Actor UID, and Actor template, in one statement.

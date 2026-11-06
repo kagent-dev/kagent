@@ -219,29 +219,19 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 	return nil
 }
 
-// applyRevert requires the same Actor back, SUSPENDED, holding the durable
-// snapshot it held before. Substrate restores the last completed durable
-// snapshot, and kagent suspends synchronously, so admission settled against that
-// snapshot; anything else means something other than this recovery acted.
+// applyRevert requires the same Actor back, SUSPENDED. Substrate restores the
+// last completed durable snapshot, which is the one admission settled against:
+// every suspend kagent issues is synchronous, so no upload completes in between.
 func (t *ActorTransition) applyRevert(ctx context.Context, actors LifecycleClient) error {
-	binding, actor := t.binding, t.actor
-	before := proto.CloneOf(LatestDurableActorSnapshot(actor))
-	if before != nil {
-		// Revert restores onto any node, so the locality of the source copy is
-		// expected to change.
-		before.Locality = ""
-	}
+	actor := t.actor
 	if state := actor.GetStatus().GetState(); state == ateapipb.ActorState_ACTOR_STATE_CRASHED || state == ateapipb.ActorState_ACTOR_STATE_REVERTING {
-		reverted, err := actors.RevertActor(ctx, binding.Atespace, binding.Name)
+		reverted, err := actors.RevertActor(ctx, t.binding.Atespace, t.binding.Name)
 		if err != nil {
 			return err
 		}
 		actor = reverted
 	}
-	if t.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED) != nil || !proto.Equal(before, LatestActorSnapshot(actor)) {
-		return fmt.Errorf("revert returned unexpected identity or state")
-	}
-	return nil
+	return t.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
 }
 
 // Matches checks that the actor belongs to the expected runtime and template.
