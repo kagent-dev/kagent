@@ -42,9 +42,6 @@ func (c *Compiler) compileMCP(
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Claude MCP binding has no server")
 		}
-		if ptr.Deref(server.Spec.TokenPassthrough, false) {
-			return mcpCompilation{}, translator.NewValidationError("Claude does not support RemoteMCPServer %q tokenPassthrough", server.Name)
-		}
 		name := translator.MCPRuntimeName(namespace, server)
 		if previous, exists := identities[name]; exists {
 			return mcpCompilation{}, translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
@@ -78,7 +75,7 @@ func (c *Compiler) compileMCP(
 
 		result.servers[name] = claudeconfig.MCPServer{
 			Type: transport, URL: server.Spec.URL, Headers: headers,
-			RequireApproval: tool.Binding.RequireApproval,
+			RequireApproval: tool.Binding.RequireApproval, TokenPassthrough: ptr.Deref(server.Spec.TokenPassthrough, false),
 		}
 		result.environment = append(result.environment, headerEnvironment...)
 		result.egress = append(result.egress, hostname)

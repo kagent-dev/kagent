@@ -22,8 +22,8 @@ harness.
 
 ## Implemented support
 
-- OpenAI through a Secret-backed API key, the Responses API, and an optional
-  absolute HTTP(S) base URL.
+- OpenAI through a Secret-backed API key or the caller's token
+  (`tokenPassthrough`), the Responses API, and an optional absolute HTTP(S) base URL.
 - Amazon Bedrock through `AWS_BEARER_TOKEN_BEDROCK` in a Secret.
 - Streaming text, command and file activity, direct Streamable HTTP MCP (with
   allowed-tools selection), and native Shared agents.
@@ -37,12 +37,29 @@ Credentials use [Substrate gateway injection](../../../docs/architecture/credent
 AWS IAM keys are rejected because they cannot be injected as outbound HTTP
 headers. Harness environment entries accept only literal values.
 
+The caller's credential reaches MCP servers and the model through the shared
+[credential forwarder](../README.md#caller-credentials):
+
+- With `runtimeDefaults.tokenPropagation.enabled`, every MCP server is fronted, and
+  its calls carry the caller's `authorization` of the turn, as in the Go ADK. A
+  static `Authorization` header on the server wins.
+- A RemoteMCPServer with `tokenPassthrough` is fronted whether or not propagation is
+  on. Its calls carry the caller's credential only, and a turn without one is refused.
+- A ModelConfig with `tokenPassthrough` (OpenAI provider only) sets the provider
+  `base_url` to the forwarder's model route and `OPENAI_API_KEY` to the loopback
+  token. The route sends the caller's bearer token as `Authorization: Bearer`.
+
+A fronted server's `config.toml` entry holds its loopback URL and reads its
+`Authorization` from `KAGENT_CODEX_MCP_CREDENTIAL_FORWARDER`, so the durable file
+holds neither the loopback token nor the upstream's headers. Approved deferred MCP
+calls use the same loopback routes.
+
 The adapter deliberately fixes the native sandbox to `danger-full-access`; the
 Substrate Actor remains the security boundary. Its granular native approval
 policy enables MCP elicitation and rejects command, sandbox, rule, skill, and
 `request_permissions` prompts. MCP servers marked for approval prompt through
 App Server elicitation, while other MCP servers remain automatically approved.
-Account login, ModelConfig `tokenPassthrough`, custom TLS, legacy SSE MCP, Dedicated agents,
+Account login, custom TLS, legacy SSE MCP, Dedicated agents,
 checkpoint/fork guarantees, and configurable native policy are not advertised.
 
 Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and

@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/harness/internal/forwarder"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -46,6 +47,9 @@ type ProcessConfig struct {
 	// AwaitTelemetry holds each prompt until Claude Code telemetry has
 	// initialized.
 	AwaitTelemetry bool
+	// Forwarder fronts the MCP servers that receive the caller's credential.
+	// It is nil when none does.
+	Forwarder *forwarder.Forwarder
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -245,6 +249,15 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	return outcome, err
 }
 
+// BindCallerCredential holds the A2A request's authorization in the forwarder
+// until the returned function drops it.
+func (d *ProcessDriver) BindCallerCredential(authorization string) (release func()) {
+	if d.config.Forwarder == nil {
+		return func() {}
+	}
+	return d.config.Forwarder.Bind(authorization)
+}
+
 // sessionUsage reads the session totals Claude Code saved when its last process ended. A resumed
 // process starts its result.modelUsage from these, so they are this process's baseline.
 func sessionUsage(environment []string, sessionID string) (map[string]modelUsage, error) {
@@ -425,12 +438,17 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 	}
 }
 
-// Close releases the ephemeral permission and hook listener.
+// Close releases the ephemeral permission and hook listener, and the credential
+// forwarder when one fronts the MCP servers.
 func (d *ProcessDriver) Close() error {
+	var errs []error
 	if d.config.ApprovalBroker != nil {
-		return d.config.ApprovalBroker.Close()
+		errs = append(errs, d.config.ApprovalBroker.Close())
 	}
-	return nil
+	if d.config.Forwarder != nil {
+		errs = append(errs, d.config.Forwarder.Close())
+	}
+	return errors.Join(errs...)
 }
 
 // emitEvent translates a Claude event to a runtime event and emits it to the

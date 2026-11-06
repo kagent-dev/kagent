@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,16 @@ type Runner interface {
 // It performs local reads only; runtime-specific recovery belongs to the runner.
 type PendingRestorer interface {
 	RestorePending() (taskID, contextID string, pending runtime.PendingTurn, err error)
+}
+
+// CallerCredentialBinder is a Runner whose native process reaches MCP servers
+// or its model through a forwarder that adds the caller's credential. The
+// executor binds the authorization of each A2A request for the duration of
+// Run or Resume and drops it before the outcome is handled, so a parked or
+// suspended Actor holds no credential and a resumed turn runs as the request
+// that resumed it.
+type CallerCredentialBinder interface {
+	BindCallerCredential(authorization string) (release func())
 }
 
 // pendingTraceOrigin supplies optional correlation metadata from the same
@@ -319,11 +330,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		// activate returns a handle only when this request continues the task
 		// currently waiting for input. New turns enter through Runner.Run.
 		ran = true
-		if continued == nil {
-			outcome, runErr = e.runner.Run(runCtx, turn, sink)
-		} else {
-			outcome, runErr = continued.pending.Resume(runCtx, turn.InputResponse, sink)
-		}
+		outcome, runErr = e.runTurn(runCtx, turn, continued, sink)
 		var cancellationErr *runtime.CancellationError
 		if errors.As(runErr, &cancellationErr) {
 			active.cancelErr = cancellationErr
@@ -415,6 +422,36 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 	}
+}
+
+// runTurn starts a new turn, or resumes the parked one, with the caller's
+// credential bound to a runner that forwards it.
+func (e *Executor) runTurn(ctx context.Context, turn runtime.Turn, continued *continuedTurn, sink *executionSink) (runtime.Outcome, error) {
+	if binder, ok := e.runner.(CallerCredentialBinder); ok {
+		defer binder.BindCallerCredential(callerAuthorization(ctx))()
+	}
+	if continued == nil {
+		return e.runner.Run(ctx, turn, sink)
+	}
+	return continued.pending.Resume(ctx, turn.InputResponse, sink)
+}
+
+// callerAuthorization returns the authorization of the A2A call that owns
+// ctx, or the empty string when the call carried none.
+func callerAuthorization(ctx context.Context) string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok || callCtx == nil {
+		return ""
+	}
+	params := callCtx.ServiceParams()
+	if params == nil {
+		return ""
+	}
+	values, ok := params.Get("authorization")
+	if !ok || len(values) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(values[0])
 }
 
 // captureLimit is the byte budget for this segment's content. It is zero unless

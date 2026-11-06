@@ -4,15 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -309,4 +314,179 @@ func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 			}
 		})
 	}
+}
+
+type writtenMCPServers struct {
+	Servers map[string]struct {
+		Type    string            `json:"type"`
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers"`
+	} `json:"mcpServers"`
+}
+
+// newWithMCPServers starts the adapter for the given compiled MCP servers and
+// returns the mcp.json it wrote.
+func newWithMCPServers(t *testing.T, cfg config.Config, environment ...string) (*driver.ProcessDriver, writtenMCPServers, []byte) {
+	t.Helper()
+	durableDir := filepath.Join(t.TempDir(), "data")
+	ephemeralDir := filepath.Join(t.TempDir(), "generated")
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	runner, err := New(context.Background(), Input{
+		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+		EphemeralDir: ephemeralDir, Environment: append([]string{"PATH=/bin"}, environment...),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = runner.Close() })
+	contents, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
+	require.NoError(t, err)
+	var written writtenMCPServers
+	require.NoError(t, json.Unmarshal(contents, &written))
+	return runner, written, contents
+}
+
+func assertFronted(t *testing.T, written writtenMCPServers, contents []byte, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		server, ok := written.Servers[name]
+		require.True(t, ok, "mcp.json lacks %q: %s", name, contents)
+		require.Equal(t, "http", server.Type, name)
+		require.True(t, strings.HasPrefix(server.URL, "http://127.0.0.1:"), "%s URL = %q, want a loopback endpoint", name, server.URL)
+		require.Len(t, server.Headers, 1, "%s headers = %v, want only the loopback token", name, server.Headers)
+		require.True(t, strings.HasPrefix(server.Headers["Authorization"], "Bearer "), name)
+	}
+}
+
+func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
+	var gotAuthorization, gotToolset string
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		gotAuthorization, gotToolset = request.Header.Get("Authorization"), request.Header.Get("X-Toolset")
+	}))
+	t.Cleanup(upstream.Close)
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.PropagateToken = true
+	cfg.MCPServers = map[string]config.MCPServer{
+		"tools":     {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}, RequireApproval: true},
+		"knowledge": {Type: "http", URL: upstream.URL + "/read", Headers: map[string]string{"X-Toolset": "${KAGENT_CLAUDE_MCP_CREDENTIAL_ABC}"}},
+	}
+	runner, written, contents := newWithMCPServers(t, cfg, "KAGENT_CLAUDE_MCP_CREDENTIAL_ABC=from-secret")
+	assertFronted(t, written, contents, "tools", "knowledge", "kagent_hitl")
+	for _, leaked := range []string{"tools.example.com", upstream.URL, "X-Toolset", "KAGENT_CLAUDE_MCP_CREDENTIAL_ABC"} {
+		require.NotContains(t, string(contents), leaked, "mcp.json carries an upstream detail")
+	}
+	args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n")
+	require.Contains(t, args, "--permission-prompt-tool\nmcp__kagent_hitl__approve\n", "the approval bridge is lost behind the forwarder")
+
+	// The forwarder sends the Secret-backed header Claude would have expanded.
+	release := runner.BindCallerCredential("Bearer person-token")
+	defer release()
+	knowledge := written.Servers["knowledge"]
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, knowledge.URL, strings.NewReader("{}"))
+	require.NoError(t, err)
+	request.Header.Set("Authorization", knowledge.Headers["Authorization"])
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, "Bearer person-token", gotAuthorization)
+	require.Equal(t, "from-secret", gotToolset)
+}
+
+func TestNewRefusesSSEServersUnderTokenPropagation(t *testing.T) {
+	durableDir := filepath.Join(t.TempDir(), "data")
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.PropagateToken = true
+	cfg.MCPServers = map[string]config.MCPServer{"legacy": {Type: "sse", URL: "https://legacy.example.com/sse"}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	_, err = New(context.Background(), Input{
+		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+		EphemeralDir: filepath.Join(t.TempDir(), "generated"),
+	})
+	require.ErrorContains(t, err, `claude MCP server "legacy" uses SSE, which cannot carry the caller's credential`)
+}
+
+func TestNewFrontsOnlyPassthroughServersWithoutPropagation(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.MCPServers = map[string]config.MCPServer{
+		"user":  {Type: "http", URL: "https://user.example.com/mcp", TokenPassthrough: true},
+		"tools": {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}},
+	}
+	_, written, contents := newWithMCPServers(t, cfg)
+	assertFronted(t, written, contents, "user")
+	require.NotContains(t, string(contents), "user.example.com", "mcp.json carries the passthrough server's upstream URL")
+	tools := written.Servers["tools"]
+	require.Equal(t, "https://tools.example.com/mcp", tools.URL, "the server must stay as compiled")
+	require.Equal(t, "preset:read-only", tools.Headers["X-Toolset"])
+}
+
+func TestNewWritesTheCompiledServersWhenNothingIsFronted(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.MCPServers = map[string]config.MCPServer{
+		"tools": {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}},
+	}
+	runner, written, _ := newWithMCPServers(t, cfg)
+	require.Equal(t, "https://tools.example.com/mcp", written.Servers["tools"].URL)
+	runner.BindCallerCredential("Bearer person-token")()
+	require.NoError(t, runner.Close())
+}
+
+func TestNewRefusesAFrontedServerWithAnUnsetHeaderVariable(t *testing.T) {
+	durableDir := filepath.Join(t.TempDir(), "data")
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.MCPServers = map[string]config.MCPServer{"user": {
+		Type: "http", URL: "https://user.example.com/mcp", TokenPassthrough: true,
+		Headers: map[string]string{"X-Tenant": "${KAGENT_CLAUDE_MCP_CREDENTIAL_MISSING}"},
+	}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	_, err = New(context.Background(), Input{
+		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+		EphemeralDir: filepath.Join(t.TempDir(), "generated"),
+	})
+	require.ErrorContains(t, err, "KAGENT_CLAUDE_MCP_CREDENTIAL_MISSING")
+}
+
+func TestRouteThroughForwarderPointsClaudeAtTheModelRoute(t *testing.T) {
+	var gotPath, gotAPIKey string
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		gotPath, gotAPIKey = request.URL.Path, request.Header.Get("X-Api-Key")
+	}))
+	t.Cleanup(upstream.Close)
+	cfg := config.Production("claude-test", "help")
+	cfg.ModelTokenPassthrough = true
+	credentialForwarder, environment, err := routeThroughForwarder(&cfg, []string{"PATH=/bin", config.AnthropicBaseURLEnvName + "=" + upstream.URL + "/gateway"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = credentialForwarder.Close() })
+	baseURL, apiKey := lookupEnvironment(environment, config.AnthropicBaseURLEnvName), lookupEnvironment(environment, config.AnthropicAPIKeyEnvName)
+	require.Equal(t, credentialForwarder.ModelURL(), baseURL)
+	require.Equal(t, credentialForwarder.Token(), apiKey)
+	require.Empty(t, cfg.MCPServers, "no MCP server is fronted for the model route")
+
+	defer credentialForwarder.Bind("Bearer person-token")()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, baseURL+"/v1/messages", strings.NewReader("{}"))
+	require.NoError(t, err)
+	request.Header.Set("X-Api-Key", apiKey)
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, "/gateway/v1/messages", gotPath)
+	require.Equal(t, "person-token", gotAPIKey)
+}
+
+func TestRouteThroughForwarderStartsNothingWithoutCallerCredentials(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	cfg.MCPServers = map[string]config.MCPServer{"tools": {Type: "http", URL: "https://tools.example.com/mcp"}}
+	environment := []string{"PATH=/bin", config.AnthropicAPIKeyEnvName + "=kagent-credential-injected"}
+	credentialForwarder, got, err := routeThroughForwarder(&cfg, environment)
+	require.NoError(t, err)
+	require.Nil(t, credentialForwarder)
+	require.Equal(t, environment, got)
+	require.Equal(t, "https://tools.example.com/mcp", cfg.MCPServers["tools"].URL)
 }
