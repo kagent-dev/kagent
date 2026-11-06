@@ -21,33 +21,24 @@ function renderInventory() {
   );
 }
 
-it("shows consistent empty tables when inventory access is denied", async () => {
-  let actorReads = 0;
-  let workerReads = 0;
+it("shows permission denial on the affected inventory panels", async () => {
   setApiTransport(createRouterTransport(({ service }) => service(SystemService, {
     listNamespaces: () => ({}),
     getSubstrateSummary: () => ({}),
-    listSubstrateActors: () => {
-      actorReads++;
-      throw new ConnectError("Actor inventory access denied", Code.PermissionDenied);
-    },
-    listSubstrateWorkers: () => {
-      workerReads++;
-      throw new ConnectError("Worker inventory access denied", Code.PermissionDenied);
-    },
+    listSubstrateActors: () => { throw new ConnectError("Not authorized", Code.PermissionDenied); },
+    listSubstrateWorkers: () => { throw new ConnectError("Not authorized", Code.PermissionDenied); },
   })));
   renderInventory();
-  await waitFor(() => {
-    expect(actorReads).toBeGreaterThan(0);
-    expect(workerReads).toBeGreaterThan(0);
-    expect(screen.queryByTestId("substrate-actors-pages-next")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("substrate-workers-pages-next")).not.toBeInTheDocument();
-  });
-  for (const [table, noun] of [["pools", "worker pools"], ["templates", "actor templates"], ["actors", "actors"], ["workers", "workers"]]) {
-    expect(within(screen.getByTestId(`substrate-${table}-table`)).getByText(`No ${noun} visible in this scope.`)).toBeInTheDocument();
+
+  for (const noun of ["actors", "workers"]) {
+    const alert = await screen.findByTestId(`substrate-${noun}-error`);
+    expect(alert).toHaveTextContent(`You do not have access to ${noun}`);
+    expect(alert).not.toHaveTextContent("Not authorized");
+    expect(within(alert).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    expect(screen.queryByText(`No ${noun} visible in this scope.`)).not.toBeInTheDocument();
   }
-  expect(screen.queryByTestId("substrate-actors-error")).not.toBeInTheDocument();
-  expect(screen.queryByTestId("substrate-workers-error")).not.toBeInTheDocument();
+  expect(screen.getByText("No worker pools visible in this scope.")).toBeInTheDocument();
+  expect(screen.getByText("No actor templates visible in this scope.")).toBeInTheDocument();
 });
 
 it.each([Code.Unauthenticated, Code.Internal, Code.Unavailable, Code.DeadlineExceeded])(
@@ -60,7 +51,9 @@ it.each([Code.Unauthenticated, Code.Internal, Code.Unavailable, Code.DeadlineExc
       listSubstrateWorkers: () => { throw new ConnectError("Worker read failed", code); },
     })));
     renderInventory();
-    expect(await screen.findByTestId("substrate-actors-error")).toHaveTextContent("Actor read failed");
+    const actorsError = await screen.findByTestId("substrate-actors-error");
+    expect(actorsError).toHaveTextContent("Actor read failed");
+    expect(within(actorsError).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(await screen.findByTestId("substrate-workers-error")).toHaveTextContent("Worker read failed");
   },
 );
@@ -91,6 +84,6 @@ it("clears previously visible rows and continuation tokens when refresh denies a
     expect(screen.queryByTestId("substrate-actors-pages-next")).not.toBeInTheDocument();
     expect(screen.queryByTestId("substrate-workers-pages-next")).not.toBeInTheDocument();
   });
-  expect(screen.queryByTestId("substrate-actors-error")).not.toBeInTheDocument();
-  expect(screen.queryByTestId("substrate-workers-error")).not.toBeInTheDocument();
+  expect(screen.getByTestId("substrate-actors-error")).toHaveTextContent("You do not have access to actors");
+  expect(screen.getByTestId("substrate-workers-error")).toHaveTextContent("You do not have access to workers");
 });

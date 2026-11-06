@@ -253,6 +253,14 @@ export const mockTransport: Transport = {
       );
     }
 
+    // Namespace discovery and models can be denied independently of the resource lists.
+    if (scenario === "denied" && (
+      rpc === rpcName(SystemService.method.listNamespaces) ||
+      rpc === rpcName(ModelService.method.listModelConfigs)
+    )) {
+      throw new ConnectError("Not authorized", Code.PermissionDenied);
+    }
+
     const result = await fake(message as never, { scenario, headers, rpc });
     const output = create(method.output, result as MessageInitShape<O>);
 
@@ -1619,7 +1627,7 @@ function agentFor(namespace: string, name: string): Agent {
   if (!found) throw notFound("Agent");
   return found;
 }
-on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => agent.namespace === input.namespace).map(agentMessage) }));
+on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => !input.namespace || agent.namespace === input.namespace).map(agentMessage) }));
 on(AgentService.method.getAgent, input => ({ agent: agentMessage(agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "")) }));
 function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined, previous?: Agent): Agent {
   const namespace = requireNamespace(ref?.namespace ?? "");

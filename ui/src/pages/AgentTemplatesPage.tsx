@@ -1,3 +1,5 @@
+import { isPermissionDenied } from "@/api/ApiError";
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Alert, Button, Space, Table, Typography } from "antd";
@@ -41,6 +43,7 @@ export function AgentTemplatesTab() {
   const theme = useTheme();
   const navigate = useNavigate();
   const namespaces = useNamespaces();
+  const namespaceDenied = isPermissionDenied(namespaces.error);
 
   const view = useListView(FILTER_IDS);
   const selectedNamespaces = view.selected("ns");
@@ -50,22 +53,8 @@ export function AgentTemplatesTab() {
     [namespaces.data],
   );
 
-  /*
-   * Every namespace by default, the reader's choice when they have made one.
-   *
-   * This page used to pick a single namespace — `kagent` if it existed, otherwise the
-   * first — and offer a dropdown to change it. That made it the only landing page a
-   * reader could not simply look at: a template in a namespace they had not selected
-   * was not "filtered out", it had never been read, and nothing on screen said so.
-   *
-   * `ListAgentTemplates` takes one namespace and **refuses an empty one** rather than
-   * treating it as a wildcard, so "all namespaces" is a request per namespace, merged,
-   * with any refusal named rather than silently shortening the list.
-   */
-  const readNamespaces = useMemo(
-    () => (selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames),
-    [selectedNamespaces, namespaceNames],
-  );
+  // The collection RPC can still list visible resources if namespace discovery is denied.
+  const readNamespaces = namespaceDenied ? null : selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames;
   const invalidateTemplates = useInvalidateAgentTemplates();
   const templates = useAgentTemplatesAcrossNamespaces(readNamespaces);
 
@@ -83,6 +72,7 @@ export function AgentTemplatesTab() {
   const filtered = useMemo(
     () =>
       rows.filter((row) =>
+        (!namespaceDenied || selectedNamespaces.length === 0 || selectedNamespaces.includes(row.namespace)) &&
         matchesQuery(view.query, [
           row.name,
           row.namespace,
@@ -90,10 +80,11 @@ export function AgentTemplatesTab() {
           row.modelConfigRef,
         ]),
       ),
-    [rows, view.query],
+    [namespaceDenied, rows, selectedNamespaces, view.query],
   );
 
-  const loadFailure = namespaces.error ?? templates.error;
+  const namespaceFailure = namespaceDenied ? undefined : namespaces.error;
+  const loadFailure = namespaceFailure ?? templates.error;
 
   const columns = useMemo<ColumnsType<AgentTemplate>>(
     () => [
@@ -185,29 +176,12 @@ export function AgentTemplatesTab() {
 
   return (
     <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
-
-        {/* The namespace read is an input to the template read — templates are fetched
-            one namespace at a time — so its failure is a failure of this page rather
-            than a detail beside it. Without this the page would sit at "no templates"
-            when the namespaces could not be listed at all. */}
         {loadFailure ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not load agent templates"
-            description={loadFailure.message}
-            data-testid="templates-error"
-            action={
-              <Button
-                size="small"
-                onClick={() => {
-                  void namespaces.refresh();
-                  void templates.refresh();
-                }}
-              >
-                Try again
-              </Button>
-            }
+          <ReadError
+            resource="agent templates"
+            error={loadFailure}
+            testId="templates-error"
+            onRetry={namespaceFailure ? namespaces.refresh : templates.refresh}
           />
         ) : null}
 
@@ -223,7 +197,7 @@ export function AgentTemplatesTab() {
               id: "ns",
               label: "Namespace",
               allLabel: "All namespaces",
-              options: namespaceNames.map((name) => ({ value: name })),
+              options: (namespaceDenied ? [...new Set(rows.map((row) => row.namespace))] : namespaceNames).map((value) => ({ value })),
             },
           ]}
           trailing={

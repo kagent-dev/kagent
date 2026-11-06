@@ -1,3 +1,4 @@
+import { ReadError } from "@/components/common/ReadError";
 import {
   useCallback,
   useEffect,
@@ -1220,32 +1221,23 @@ export function SubstratePage() {
         </Space>
 
         {namespaces.error ? (
-          <Alert
-            type="error"
-            showIcon
+          <ReadError
+            resource="the namespace list"
+            error={namespaces.error}
+            testId="substrate-namespaces-error"
+            onRetry={namespaces.refresh}
             title="Could not load the list of namespaces"
             description={`${namespaces.error.message} You can still name a namespace in this page's address.`}
-            data-testid="substrate-namespaces-error"
-            action={
-              <Button size="small" onClick={() => void namespaces.refresh()}>
-                Try again
-              </Button>
-            }
           />
         ) : null}
 
         {summary.error ? (
-          <Alert
-            type="error"
-            showIcon
+          <ReadError
+            resource="Substrate inventory"
+            error={summary.error}
+            testId="substrate-inventory-error"
+            onRetry={summary.refresh}
             title="Substrate inventory could not be read"
-            description={summary.error.message}
-            data-testid="substrate-inventory-error"
-            action={
-              <Button size="small" onClick={() => void summary.refresh()}>
-                Try again
-              </Button>
-            }
           />
         ) : inventory?.ateApiError ? (
           /* A warning beside the data rather than an error instead of it. The read
@@ -1404,17 +1396,12 @@ export function SubstratePage() {
           data-testid="substrate-actors-card"
         >
           {actors.error ? (
-            <Alert
-              type="error"
-              showIcon
+            <ReadError
+              resource="actors"
+              error={actors.error}
+              testId="substrate-actors-error"
+              onRetry={actors.refresh}
               title="Actors could not be read"
-              description={actors.error.message}
-              data-testid="substrate-actors-error"
-              action={
-                <Button size="small" onClick={() => void actors.refresh()}>
-                  Try again
-                </Button>
-              }
             />
           ) : actors.data?.ateApiError ? (
             <PageWarning
@@ -1428,7 +1415,7 @@ export function SubstratePage() {
             title="Actor status"
             vocabulary={ACTOR_STATES}
             noun="Actors"
-            unread={Boolean(summary.error)}
+            unread={Boolean(summary.error || actors.error)}
             counts={inventory?.actorStatusCounts ?? []}
             emptyText="No actors visible in this scope."
           />
@@ -1484,12 +1471,12 @@ export function SubstratePage() {
               "& > [data-testid$='-pages']": { marginTop: 0 },
             }}
           >
-            <PageAge computedAt={actors.data?.computedAt} />
+            <PageAge computedAt={actors.error ? undefined : actors.data?.computedAt} />
 
             <PageControls
               testId="substrate-actors-pages"
               page={actorPage}
-              hasNext={Boolean(actors.data?.nextPageToken)}
+              hasNext={!actors.error && Boolean(actors.data?.nextPageToken)}
               onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
               onBack={actorPage.back}
               isLoading={actors.isLoading}
@@ -1508,17 +1495,12 @@ export function SubstratePage() {
           data-testid="substrate-workers-card"
         >
           {workers.error ? (
-            <Alert
-              type="error"
-              showIcon
+            <ReadError
+              resource="workers"
+              error={workers.error}
+              testId="substrate-workers-error"
+              onRetry={workers.refresh}
               title="Workers could not be read"
-              description={workers.error.message}
-              data-testid="substrate-workers-error"
-              action={
-                <Button size="small" onClick={() => void workers.refresh()}>
-                  Try again
-                </Button>
-              }
             />
           ) : workers.data?.ateApiError ? (
             <PageWarning
@@ -1562,12 +1544,12 @@ export function SubstratePage() {
               "& > [data-testid$='-pages']": { marginTop: 0 },
             }}
           >
-            <PageAge computedAt={workers.data?.computedAt} />
+            <PageAge computedAt={workers.error ? undefined : workers.data?.computedAt} />
 
             <PageControls
               testId="substrate-workers-pages"
               page={workerPage}
-              hasNext={Boolean(workers.data?.nextPageToken)}
+              hasNext={!workers.error && Boolean(workers.data?.nextPageToken)}
               onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
               onBack={workerPage.back}
               isLoading={workers.isLoading}
