@@ -8,12 +8,14 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	installer "github.com/kagent-dev/kagent/go/core/pkg/install"
 )
 
 func TestInstallFlagsAndChartConfig(t *testing.T) {
@@ -66,4 +68,15 @@ func TestInstallProfileCleansTemporaryValuesOnFailure(t *testing.T) {
 	entries, err := os.ReadDir(temporary)
 	require.NoError(t, err)
 	require.Empty(t, entries, "the temporary profile must not outlive the install attempt")
+}
+
+func TestConfirmWorkerPoolDeletionWithoutTerminal(t *testing.T) {
+	pools := &installer.SelfManagedWorkerPoolsError{Pools: []types.NamespacedName{{Namespace: "team", Name: "http"}}}
+	cmd := NewUninstallCmd()
+	cmd.SetIn(bytes.NewBufferString("y\n"))
+	cmd.SetOut(&bytes.Buffer{})
+	require.NoError(t, confirmWorkerPoolDeletion(cmd, pools, true))
+	err := confirmWorkerPoolDeletion(cmd, pools, false)
+	require.ErrorIs(t, err, pools)
+	require.ErrorContains(t, err, "rerun with --delete-worker-pools")
 }

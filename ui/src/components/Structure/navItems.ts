@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Server,
+  ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { paths } from "@/router/routes";
@@ -42,6 +43,13 @@ export const coreNavItems: NavItem[] = [
     path: paths.mcpServers,
     icon: Server,
     order: 400,
+  },
+  {
+    key: "policies",
+    label: "Policies",
+    path: paths.policies,
+    icon: ShieldCheck,
+    order: 450,
   },
   {
     key: "prompts",

@@ -21,7 +21,7 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v1.0.0-rc1 requires protocol-specific egress policies and permits
+Substrate v1.0.0 requires protocol-specific egress policies and permits
 DNS queries only for hostnames matched by those policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
@@ -99,6 +99,21 @@ entry points are in
 TaskStore writes and automatic idle lifecycle work use durable task boundaries
 alongside these explicit lifecycle claims. Checkpoint reservations also block
 conflicting task writes and idle lifecycle work.
+
+`DeleteSession` without `force` returns an error if the session has active turns,
+outstanding dispatch, or unfinished native cleanup, without entering `DELETING`.
+`INPUT_REQUIRED` and `AUTH_REQUIRED` tasks are waiting; their state alone does not
+block deletion. Set `force: true` (CLI: `kagent session delete ID --force`) to
+bypass these activity checks. Authorization and checks for conflicting checkpoint
+or lifecycle work still apply.
+
+Both modes call Substrate `DeleteActor` directly with a UID precondition, without
+suspension or a final snapshot. An Actor in `RESUMING` does not need to resume first.
+
+When Substrate reports deletion or actor absence, kagent publishes saved task
+outcomes and marks remaining active tasks canceled. These changes and the Session
+tombstone commit atomically. Once deletion is admitted, client retries continue
+without repeating `force`; new turns remain blocked.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without session-local execution claims. PostgreSQL tests with controlled
@@ -271,7 +286,7 @@ or is canceled. Background processes are not durable work and have no process
 handle API in the bash tool. Suspending an Actor preserves files, not running
 commands. Command payloads and output are not logged by the shell helpers.
 
-Substrate v1.0.0-rc1 uses snapshot fidelity. Agent and standalone sandbox
+Substrate v1.0.0 uses snapshot fidelity. Agent and standalone sandbox
 templates use VOLUMES. Resume starts fresh containers
 from the OCI image with the saved durable directories. Harnesses recover pending
 approvals and user input from their durable state; sandbox guests start with a
@@ -331,7 +346,7 @@ row, and issue a continuation only when it exists. Public cursors contain the la
 returned identity and request scope, never an upstream cursor that could name a
 filtered-out row.
 
-The Substrate adapter translates that identity into the pinned v1.0.0-rc1 keyset
+The Substrate adapter translates that identity into the pinned v1.0.0 keyset
 token format: actors use atespace/name globally or name within an atespace; workers
 use globally unique names. The encoder is version-dependent and its contract tests
 must be checked when upgrading Substrate. Continuations resume directly after the

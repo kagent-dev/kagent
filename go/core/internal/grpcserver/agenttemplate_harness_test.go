@@ -48,6 +48,7 @@ func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client, conf
 		AgentTemplateService:   kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.SandboxTemplate{}, &v1alpha3.SandboxTemplateList{}, v1alpha3.SandboxTemplateKind),
+		EgressPolicyService:    kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.EgressPolicy{}, &v1alpha3.EgressPolicyList{}, v1alpha3.EgressPolicyKind),
 	}
 	for _, apply := range configure {
 		apply(&config)

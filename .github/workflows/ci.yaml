@@ -189,13 +189,15 @@ jobs:
             namespacePolicies:
               - atespace: kagent
                 allowedNamespaces: [kagent, kagent-shared-models, kagent-shared-tools]
+          ateApi:
+            extraArgs: [--template-resync-interval=250ms]
+          EOF
+          cat > "$RUNNER_TEMP/atelet-values.yaml" <<EOF
           atelet:
             resources:
               limits:
                 memory: 2Gi
             extraArgs: [--localhost-registry-replacement=kind-registry:5000]
-          ateApi:
-            extraArgs: [--template-resync-interval=250ms]
           EOF
           cat > "$RUNNER_TEMP/kagent-cli.yaml" <<EOF
           install:
@@ -203,8 +205,12 @@ jobs:
               repository: "${RUNNER_TEMP}/release-charts/"
               version: "${VERSION}"
               valuesFiles: ["${RUNNER_TEMP}/kagent-values.yaml"]
+            atelet:
+              valuesFiles: ["${RUNNER_TEMP}/atelet-values.yaml"]
             substrate:
-              valuesFiles: ["${RUNNER_TEMP}/substrate-values.yaml"]
+              valuesFiles:
+                - "${RUNNER_TEMP}/substrate-values.yaml"
+                - "${GITHUB_WORKSPACE}/go/core/test/e2e/manifests/substrate-values.yaml"
           EOF
           ./go/core/bin/kagent-local --config "$RUNNER_TEMP/kagent-cli.yaml" install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
@@ -220,8 +226,8 @@ jobs:
         if: matrix.sandbox_class == 'microvm'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .cache/substrate/microvm-assets/amd64
-          key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
+          path: .cache/substrate/microvm-assets
+          key: microvm-assets-v2-amd64-${{ env.SUBSTRATE_VERSION }}
 
       - name: Install Cloud Hypervisor runtime
         if: matrix.sandbox_class == 'microvm'
@@ -625,7 +631,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Install python
         run: uv python install ${{ matrix.python-version }}
@@ -649,7 +655,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Install python
         run: uv python install 3.11

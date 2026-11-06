@@ -18,6 +18,7 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/common/prompt"
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
@@ -103,6 +104,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		KagentCRDs:     chartConfig(settings.GetKagent(), kagentChartName+"-crds"),
 		Substrate:      chartConfig(settings.GetSubstrate(), "substrate"),
 		SubstrateCRDs:  chartConfig(settings.GetSubstrate(), "substrate-crds"),
+		Atelet:         chartConfig(settings.GetAtelet(), "substrate-atelet"),
 		PodCertificate: chartConfig(settings.GetPodCertificate(), "substrate-podcert"),
 		ModelProvider:  string(modelProvider), APIKey: apiKeyValue,
 		WorkerImage:       "ghcr.io/kagent-dev/substrate/ateworker-gvisor:v" + strings.TrimPrefix(settings.GetSubstrate().GetVersion(), "v"),
@@ -150,17 +152,32 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 	return nil
 }
 
-func runUninstall(cmd *cobra.Command, namespace, postgresImage string) error {
+func runUninstall(cmd *cobra.Command, namespace, postgresImage string, deleteWorkerPools bool) error {
 	client, err := newInstallClient()
 	if err != nil {
 		return err
 	}
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 	s.Writer = cmd.OutOrStdout()
-	s.Start()
 	defer s.Stop()
-	result, err := client.Uninstall(cmd.Context(), namespace, postgresImage, func(message string) { s.Suffix = " " + message })
+	progress := func(message string) { s.Suffix = " " + message }
+	s.Start()
+	result, err := client.Uninstall(cmd.Context(), namespace, postgresImage, progress)
 	s.Stop()
+	// Uninstall stops before deleting anything when self-managed WorkerPools
+	// exist, so a rerun after deleting them starts from the beginning.
+	if pools := (*installer.SelfManagedWorkerPoolsError)(nil); errors.As(err, &pools) {
+		if err := confirmWorkerPoolDeletion(cmd, pools, deleteWorkerPools); err != nil {
+			return err
+		}
+		s.Start()
+		progress("Deleting self-managed worker pools")
+		err = client.DeleteWorkerPools(cmd.Context(), pools.Pools)
+		if err == nil {
+			result, err = client.Uninstall(cmd.Context(), namespace, postgresImage, progress)
+		}
+		s.Stop()
+	}
 	for _, release := range result.MissingReleases {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s release not found, skipping uninstallation\n", release)
 	}
@@ -169,6 +186,29 @@ func runUninstall(cmd *cobra.Command, namespace, postgresImage string) error {
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "\nkagent uninstalled successfully")
 	fmt.Fprintf(cmd.OutOrStdout(), "\nThe %s namespace stays, with anything else in it. To delete it and everything it holds:\n  kubectl delete namespace %s\n", namespace, namespace)
+	return nil
+}
+
+// confirmWorkerPoolDeletion returns nil when the self-managed WorkerPools may
+// be deleted: --delete-worker-pools is set, or the user agrees at a terminal.
+func confirmWorkerPoolDeletion(cmd *cobra.Command, pools *installer.SelfManagedWorkerPoolsError, deleteWorkerPools bool) error {
+	if deleteWorkerPools {
+		return nil
+	}
+	if !prompt.IsTerminal(cmd.InOrStdin()) || !prompt.IsTerminal(cmd.OutOrStdout()) {
+		return fmt.Errorf("%w, or rerun with --delete-worker-pools", pools)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "These self-managed WorkerPools run on the Substrate that uninstall removes:")
+	for _, pool := range pools.Pools {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", pool)
+	}
+	ok, err := prompt.Confirm(cmd.InOrStdin(), cmd.OutOrStdout(), "Delete them and continue?")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("uninstall cancelled; nothing was deleted")
+	}
 	return nil
 }
 
@@ -202,7 +242,8 @@ func NewInstallCmd() *cobra.Command {
 
 // NewUninstallCmd constructs the kagent uninstall command.
 func NewUninstallCmd() *cobra.Command {
-	return &cobra.Command{
+	var deleteWorkerPools bool
+	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Uninstall kagent",
 		Long: `Uninstall kagent: the kagent and Substrate Helm releases, their CRDs, the
@@ -211,15 +252,22 @@ podcertificate-controller-system namespaces. Removing the CRDs deletes every
 resource created from them, such as agents and model configs.
 
 A database that kagent install did not deploy, such as one used with
---skip-database-setup, stays. The kagent namespace stays.`,
+--skip-database-setup, stays. The kagent namespace stays.
+
+Self-managed Substrate WorkerPools, ones kagent install did not create, run on
+the Substrate that uninstall removes. Uninstall lists them and asks before
+deleting them. Without a terminal it stops before deleting anything unless
+--delete-worker-pools is set.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
 				return err
 			}
-			return runUninstall(cmd, options.Namespace, cliconfig.FromContext(cmd.Context()).GetInstall().GetBundledPostgresImage())
+			return runUninstall(cmd, options.Namespace, cliconfig.FromContext(cmd.Context()).GetInstall().GetBundledPostgresImage(), deleteWorkerPools)
 		},
 	}
+	cmd.Flags().BoolVar(&deleteWorkerPools, "delete-worker-pools", false, "Delete self-managed Substrate WorkerPools without asking")
+	return cmd
 }
 
 // providerAPIKey selects the first explicitly set credential, or the fallback

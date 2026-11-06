@@ -109,6 +109,9 @@ message UpdateSessionNameResponse {
 
 message DeleteSessionRequest {
   string session_id = 1 [(buf.validate.field).string.uuid = true];
+  // Terminate ongoing turns instead of rejecting deletion while they are active.
+  // Authorization and conflicting lifecycle operations are still checked.
+  bool force = 2;
 }
 
 message DeleteSessionResponse {

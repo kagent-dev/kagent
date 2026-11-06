@@ -25,7 +25,7 @@ agentsts-core = {workspace = true}
 
 [project.optional-dependencies]
 test = [
-  "pytest>=8.3.5",
+  "pytest>=9.2.0",
   "pytest-asyncio>=0.25.3",
   "pytest-mock>=3.17.0",
 ]

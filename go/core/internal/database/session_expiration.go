@@ -68,7 +68,7 @@ func (c *Client) BeginIdleSessionDeletion(ctx context.Context, id string, before
 				return err
 			}
 		}
-		operation, err := beginSessionDeletion(ctx, tx, row, sessionDeletionIdleTimeout)
+		operation, err := beginSessionDeletion(ctx, tx, row, sessionDeletionIdleTimeout, false)
 		if err != nil {
 			return err
 		}

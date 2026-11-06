@@ -145,6 +145,10 @@ cache, preserving the original question for native approval/input validation.
 
 Both adapters persist an initial active event before native work, stop execution
 on persistence failure, and wait for native cleanup before settling a boundary.
+Go runtime writes use the store's bounded retry context independently of SDK
+execution cancellation. An executor error can cancel an intermediate save as
+well as the subsequent failure update; both must finish against known versions
+before cleanup can publish the failed task and permit suspension.
 Go uses the SDK cleanup callback; Python withholds the final event until its native
 runner returns. Snapshot work runs independently after publication.
 Substrate self-suspend is planned. Moving suspension into the runtime after native

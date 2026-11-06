@@ -119,6 +119,31 @@ func ensureSubstratePrerequisites(ctx context.Context, client kubernetes.Interfa
 	return ensureAPIAuthentication(ctx, client)
 }
 
+func (c *Client) prepareRustFSCredentials(ctx context.Context, values rustFSValues) error {
+	if !values.Enabled {
+		return nil
+	}
+	// Atelet starts before the main release. Preserve existing credentials and
+	// reject mismatches before upgrading either chart with incompatible settings.
+	data := map[string][]byte{
+		"AWS_ACCESS_KEY_ID":     []byte(values.AccessKey),
+		"AWS_SECRET_ACCESS_KEY": []byte(values.SecretKey),
+	}
+	if err := createSecret(ctx, c.kubernetes, substrateNamespace, rustFSCredentialsSecret, corev1.SecretTypeOpaque, data); err != nil {
+		return err
+	}
+	secret, err := c.kubernetes.CoreV1().Secrets(substrateNamespace).Get(ctx, rustFSCredentialsSecret, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to read RustFS credentials: %w", err)
+	}
+	for key, value := range data {
+		if string(secret.Data[key]) != string(value) {
+			return fmt.Errorf("secret %s/%s does not match the Substrate RustFS credentials; update the Secret or the chart values before installing", substrateNamespace, rustFSCredentialsSecret)
+		}
+	}
+	return nil
+}
+
 func ensureNamespace(ctx context.Context, client kubernetes.Interface, name, helmReleaseName, helmReleaseNamespace string) error {
 	namespace, err := client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {

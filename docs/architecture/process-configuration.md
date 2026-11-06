@@ -31,6 +31,8 @@ install:
   defaultModelProvider: OpenAI
   kagent:
     valuesFiles: [kagent-values.yaml]
+  atelet:
+    valuesFiles: [atelet-values.yaml]
 database:
   owner:
     urlFile: secrets/postgres-owner-url

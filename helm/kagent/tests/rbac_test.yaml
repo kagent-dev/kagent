@@ -322,7 +322,7 @@ tests:
         template: rbac/reconciliation-role.yaml
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
         template: rbac/management-role.yaml
 
   - it: should grant namespaced agent access in the new group
@@ -345,7 +345,7 @@ tests:
         template: rbac/reconciliation-role.yaml
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
         template: rbac/management-role.yaml
 
   - it: should have correct labels on all resources

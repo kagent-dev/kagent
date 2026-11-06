@@ -24,6 +24,8 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { Agent, AgentSpec, AgentStatus } from "@/api/domain/agents";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
+import type { EgressPolicy, EgressPolicySpec } from "@/api/domain/egressPolicies";
+import type { SandboxTemplate } from "@/api/domain/sandboxTemplates";
 
 export const mockModels: ModelConfig[] = [
   {
@@ -862,7 +864,8 @@ export const mockAgents: Agent[] = [
       systemPrompt: "You write short, accurate release notes.",
     } },
     harnessRef: { name: "k8s-agent" },
-  }),
+    egressPolicyRefs: [{ name: "github-api" }],
+  }, withEgressApplied(readyStatus("rev-release-notes"))),
   agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }),
   agent("kagent", "scratchpad", {
     template: { inline: {
@@ -873,4 +876,103 @@ export const mockAgents: Agent[] = [
     harnessRef: { name: "k8s-agent" },
   }),
   agent("analytics", "reporting-agent-9d4e2f1", { template: { ref: { name: "reporting-agent-9d4e2f1" } }, harnessRef: { name: "reporting" } }),
+];
+
+/** The independent condition the controller adds once every referenced policy is admitted. */
+function withEgressApplied(status: AgentStatus): AgentStatus {
+  return {
+    ...status,
+    conditions: [
+      ...(status.conditions ?? []),
+      {
+        type: "EgressPoliciesApplied",
+        status: "True",
+        reason: "Applied",
+        message: "All egress grants are admitted",
+        observedGeneration: status.observedGeneration,
+      },
+    ],
+  };
+}
+
+function egressPolicy(namespace: string, name: string, spec: EgressPolicySpec): EgressPolicy {
+  return {
+    ref: `${namespace}/${name}`,
+    namespace,
+    name,
+    resource: {
+      apiVersion: "api.kagent.dev/v1alpha3",
+      kind: "EgressPolicy",
+      metadata: { name, namespace, resourceVersion: "1", generation: 1, creationTimestamp: "2026-10-01T09:00:00Z" },
+      spec,
+    },
+  };
+}
+
+/** Shaped after `egresspolicy_types.go` and the cases its CEL tests accept. */
+export const mockEgressPolicies: EgressPolicy[] = [
+  egressPolicy("kagent", "github-api", {
+    destinations: [
+      {
+        origin: "https://api.github.com",
+        authentication: { header: "Authorization", prefix: "Bearer ", secretKeyRef: { name: "github-token", key: "token" } },
+      },
+      { origin: "https://*.githubusercontent.com" },
+    ],
+  }),
+  egressPolicy("kagent", "internal-tools", {
+    destinations: [
+      {
+        origin: "https://tools.internal.example.com",
+        authentication: {
+          header: "Authorization",
+          prefix: "Bearer ",
+          actorJwt: { audiences: ["https://tools.internal.example.com"], expirationSeconds: 900 },
+        },
+      },
+    ],
+  }),
+  egressPolicy("platform", "package-mirrors", {
+    destinations: [{ origin: "https://registry.npmjs.org" }, { origin: "https://pypi.org" }, { origin: "https://*.pythonhosted.org" }],
+  }),
+  egressPolicy("analytics", "warehouse", {
+    destinations: [
+      {
+        origin: "https://warehouse.example.com:8443",
+        authentication: { header: "X-API-Key", secretKeyRef: { name: "warehouse-credentials", key: "api-key" } },
+      },
+    ],
+  }),
+];
+
+function sandboxTemplate(
+  namespace: string,
+  name: string,
+  refs: string[],
+  condition: { status: string; reason: string; message: string },
+): SandboxTemplate {
+  return {
+    ref: `${namespace}/${name}`,
+    namespace,
+    name,
+    resource: {
+      metadata: { name, namespace, generation: 1 },
+      spec: { egressPolicyRefs: refs.map((ref) => ({ name: ref })) },
+      status: { conditions: [{ type: "EgressPoliciesApplied", ...condition, observedGeneration: 1 }] },
+    },
+  };
+}
+
+/** Only the fields the UI reads; a real SandboxTemplate also carries workload and substrate. */
+export const mockSandboxTemplates: SandboxTemplate[] = [
+  sandboxTemplate("kagent", "python-sandbox", ["github-api", "retired-mirror"], {
+    status: "False",
+    reason: "EgressPolicyNotFound",
+    message: 'kagent/retired-mirror: egresspolicies.api.kagent.dev "retired-mirror" not found',
+  }),
+  sandboxTemplate("analytics", "report-sandbox", ["warehouse"], {
+    status: "True",
+    reason: "Applied",
+    message: "All egress grants are admitted",
+  }),
 ];

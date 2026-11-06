@@ -55,6 +55,9 @@ curl -H 'X-User-Id: alice' \
 
 Use the returned JSON-RPC interface URL with an A2A v1 client, supplying the
 credentials required by the deployment on discovery and subsequent requests.
+A2A calls must include `A2A-Version: 1.0` as an HTTP header or gRPC metadata.
+The upstream Go A2A client supplies it automatically; callers using generated
+protobuf clients or raw transports must set it explicitly.
 
 For example, the initial JSON-RPC send body is:
 
