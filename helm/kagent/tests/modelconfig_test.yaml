@@ -71,7 +71,7 @@ tests:
           value: AZUREOPENAI_API_KEY
       - equal:
           path: spec.azureOpenAI.apiVersion
-          value: "2023-05-15"
+          value: "2024-10-21"
       - notExists:
           path: spec.azureOpenAI.apiFormat
 

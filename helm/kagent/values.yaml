@@ -740,7 +740,7 @@ providers:
     apiKeySecretKey: AZUREOPENAI_API_KEY
     # apiKey: ""
     config:
-      apiVersion: "2023-05-15"
+      apiVersion: "2024-10-21"
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
