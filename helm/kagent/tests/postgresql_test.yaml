@@ -443,3 +443,49 @@ tests:
           value:
             - name: secret1
             - name: secret2
+
+  - it: should not set container args by default
+    template: postgresql.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Deployment
+      - notExists:
+          path: spec.template.spec.containers[0].args
+
+  - it: should not set container args when extraArgs is an empty list
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      database:
+        postgres:
+          bundled:
+            extraArgs: []
+    asserts:
+      - isKind:
+          of: Deployment
+      - notExists:
+          path: spec.template.spec.containers[0].args
+
+  - it: should render extraArgs as container args
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      database:
+        postgres:
+          bundled:
+            extraArgs:
+              - -c
+              - shared_preload_libraries=pg_stat_statements
+              - -c
+              - compute_query_id=on
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - -c
+            - shared_preload_libraries=pg_stat_statements
+            - -c
+            - compute_query_id=on

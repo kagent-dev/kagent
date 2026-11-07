@@ -61,6 +61,10 @@ spec:
         - name: postgresql
           image: {{ include "kagent.postgresql.image" . }}
           imagePullPolicy: {{ $pg.image.pullPolicy }}
+          {{- with $pg.extraArgs }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with $pg.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
