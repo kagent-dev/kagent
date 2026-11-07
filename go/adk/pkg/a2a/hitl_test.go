@@ -138,7 +138,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	t.Run("tool approval", func(t *testing.T) {
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-1", "delete_file", "call-1", map[string]any{"path": "/tmp/x"}, nil))
-		payload := GetToolApprovalRequest(BuildHITLStatusMessage(internal, true))
+		payload := GetToolApprovalRequest(mustBuildHITLStatusMessage(t, internal, true))
 		if payload == nil || payload.Tools[0].ID != "confirm-1" {
 			t.Fatalf("payload = %#v", payload)
 		}
@@ -150,7 +150,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-2", "ask_user", "call-2", map[string]any{"questions": questions}, nil))
-		payload := GetAskUserRequest(BuildHITLStatusMessage(internal, true))
+		payload := GetAskUserRequest(mustBuildHITLStatusMessage(t, internal, true))
 		if payload == nil || len(payload.Questions) != 1 || payload.Questions[0].Question != "Which databases?" ||
 			!slices.Equal(payload.Questions[0].Choices, []string{"PostgreSQL", "MySQL"}) || !payload.Questions[0].Multiple {
 			t.Fatalf("payload = %#v", payload)
@@ -160,7 +160,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	t.Run("ask user without questions asks for approval", func(t *testing.T) {
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			hintlessConfirmationPart("confirm-2", "ask_user", "call-2"))
-		public := BuildHITLStatusMessage(internal, true)
+		public := mustBuildHITLStatusMessage(t, internal, true)
 		if GetAskUserRequest(public) != nil {
 			t.Fatal("an ask_user call without questions must not become an ask_user request")
 		}
@@ -177,7 +177,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		questions := []any{map[string]any{"question": ""}, map[string]any{"question": "Which cluster?"}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-2", "ask_user", "call-2", map[string]any{"questions": questions}, nil))
-		public := BuildHITLStatusMessage(internal, true)
+		public := mustBuildHITLStatusMessage(t, internal, true)
 		payload := GetAskUserRequest(public)
 		if payload == nil || len(payload.Questions) != 1 || payload.Questions[0].Question != "Which cluster?" {
 			t.Fatalf("payload = %#v", payload)
@@ -198,7 +198,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 				}},
 			},
 		}
-		payload := GetToolApprovalRequest(BuildHITLStatusMessage(
+		payload := GetToolApprovalRequest(mustBuildHITLStatusMessage(t,
 			a2atype.NewMessage(a2atype.MessageRoleAgent,
 				confirmationPart("parent-confirm", "k8s_agent", "parent-call", nil, remote.ToMap())),
 			true,
@@ -209,7 +209,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	})
 
 	t.Run("not activated", func(t *testing.T) {
-		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		public := mustBuildHITLStatusMessage(t, a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-1", "delete_file", "call-1", nil, nil)), false)
 		if GetToolApprovalRequest(public) != nil {
 			t.Fatalf("unexpected payload on inactive client")
@@ -220,7 +220,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	})
 
 	t.Run("not activated without a tool hint names the tool", func(t *testing.T) {
-		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		public := mustBuildHITLStatusMessage(t, a2atype.NewMessage(a2atype.MessageRoleAgent,
 			hintlessConfirmationPart("confirm-1", "delete_file", "call-1")), false)
 		if want := "Approval is required for tool(s): delete_file"; messageText(public) != want {
 			t.Errorf("text = %q, want %q", messageText(public), want)
@@ -232,7 +232,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 			confirmationPart("confirm-1", "delete_file", "call-1", nil, nil),
 			hintlessConfirmationPart("confirm-2", "restart_pod", "call-2"))
 		want := "Please confirm (delete_file, restart_pod)"
-		if text := messageText(BuildHITLStatusMessage(internal, false)); text != want {
+		if text := messageText(mustBuildHITLStatusMessage(t, internal, false)); text != want {
 			t.Errorf("text = %q, want %q", text, want)
 		}
 	})
@@ -242,13 +242,13 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 			hintedConfirmationPart("confirm-1", "delete_file", "call-1", "First hint"),
 			hintedConfirmationPart("confirm-2", "restart_pod", "call-2", "Second hint"))
 		want := "First hint; Second hint (delete_file, restart_pod)"
-		if text := messageText(BuildHITLStatusMessage(internal, false)); text != want {
+		if text := messageText(mustBuildHITLStatusMessage(t, internal, false)); text != want {
 			t.Errorf("text = %q, want %q", text, want)
 		}
 	})
 
 	t.Run("activated payload hint repeats the text", func(t *testing.T) {
-		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		public := mustBuildHITLStatusMessage(t, a2atype.NewMessage(a2atype.MessageRoleAgent,
 			hintlessConfirmationPart("confirm-1", "delete_file", "call-1")), true)
 		payload := GetToolApprovalRequest(public)
 		if payload == nil {
@@ -263,7 +263,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		questions := []any{map[string]any{"question": "Which database?"}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			askUserConfirmationPart("confirm-2", "call-2", questions, "Which database?"))
-		public := BuildHITLStatusMessage(internal, false)
+		public := mustBuildHITLStatusMessage(t, internal, false)
 		if GetAskUserRequest(public) != nil {
 			t.Fatal("unexpected payload on inactive client")
 		}
@@ -273,7 +273,7 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	})
 
 	t.Run("non-confirmation long-running call", func(t *testing.T) {
-		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		public := mustBuildHITLStatusMessage(t, a2atype.NewMessage(a2atype.MessageRoleAgent,
 			dataPart(map[string]any{"name": "auth_required"}, map[string]any{
 				"adk_type": "function_call", "adk_is_long_running": true,
 			})), true)
@@ -468,4 +468,13 @@ func TestBuildRemoteHitlStateAndHintAskUserNested(t *testing.T) {
 	if got := RemoteHitlHint(state); got != want {
 		t.Fatalf("hint = %q, want %q", got, want)
 	}
+}
+
+func mustBuildHITLStatusMessage(t *testing.T, message *a2atype.Message, activated bool) *a2atype.Message {
+	t.Helper()
+	public, err := BuildHITLStatusMessage(message, activated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return public
 }
