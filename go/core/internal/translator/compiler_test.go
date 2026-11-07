@@ -1205,7 +1205,9 @@ func TestCompileAgentCarriesToolImages(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEqual(t, plainDigest, digest, "tool images are part of revision identity")
 
-			actor, err := substrate.ActorTemplateForRevision(&result.Revision, digest)
+			bundle, err := result.BootstrapBundle(digest)
+			require.NoError(t, err)
+			actor, err := substrate.ActorTemplateForRevision(&result.Revision, digest, bundle)
 			require.NoError(t, err)
 			container := actor.GetContainers()[0]
 			require.Equal(t, "/opt/kagent/tools/kubectl", container.GetVolumeMounts()[3].GetMountPath())
