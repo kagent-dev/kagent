@@ -1144,8 +1144,11 @@ func (*ADKGeminiAnthropic) Descriptor() ([]byte, []int) {
 }
 
 type ADKOllama struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Options       map[string]string      `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Options map[string]string      `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Server URL for this model. Empty applies the runtime's cloud/local
+	// routing, which falls back to OLLAMA_API_BASE.
+	Host          string `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1185,6 +1188,13 @@ func (x *ADKOllama) GetOptions() map[string]string {
 		return x.Options
 	}
 	return nil
+}
+
+func (x *ADKOllama) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
 }
 
 type ADKGemini struct {
@@ -3038,9 +3048,10 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x11max_output_tokens\x18\x01 \x01(\x03B\r\xbaH\n" +
 	"\"\b\x18\xff\xff\xff\xff\a(\x01H\x00R\x0fmaxOutputTokens\x88\x01\x01B\x14\n" +
 	"\x12_max_output_tokens\"\x14\n" +
-	"\x12ADKGeminiAnthropic\"\x8b\x01\n" +
+	"\x12ADKGeminiAnthropic\"\x9f\x01\n" +
 	"\tADKOllama\x12B\n" +
-	"\aoptions\x18\x01 \x03(\v2(.kagent.config.v1.ADKOllama.OptionsEntryR\aoptions\x1a:\n" +
+	"\aoptions\x18\x01 \x03(\v2(.kagent.config.v1.ADKOllama.OptionsEntryR\aoptions\x12\x12\n" +
+	"\x04host\x18\x02 \x01(\tR\x04host\x1a:\n" +
 	"\fOptionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"|\n" +

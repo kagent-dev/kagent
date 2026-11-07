@@ -211,7 +211,7 @@ class ADKGeminiAnthropic(_message.Message):
     def __init__(self) -> None: ...
 
 class ADKOllama(_message.Message):
-    __slots__ = ("options",)
+    __slots__ = ("options", "host")
     class OptionsEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -220,8 +220,10 @@ class ADKOllama(_message.Message):
         value: str
         def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    HOST_FIELD_NUMBER: _ClassVar[int]
     options: _containers.ScalarMap[str, str]
-    def __init__(self, options: _Optional[_Mapping[str, str]] = ...) -> None: ...
+    host: str
+    def __init__(self, options: _Optional[_Mapping[str, str]] = ..., host: _Optional[str] = ...) -> None: ...
 
 class ADKGemini(_message.Message):
     __slots__ = ("max_output_tokens", "base_url")

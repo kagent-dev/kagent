@@ -185,6 +185,9 @@ message ADKGeminiVertexAI {
 message ADKGeminiAnthropic {}
 message ADKOllama {
   map<string, string> options = 1;
+  // Server URL for this model. Empty applies the runtime's cloud/local
+  // routing, which falls back to OLLAMA_API_BASE.
+  string host = 2;
 }
 message ADKGemini {
   optional int64 max_output_tokens = 1 [(buf.validate.field).int64 = {
