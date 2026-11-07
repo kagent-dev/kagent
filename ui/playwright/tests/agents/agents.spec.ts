@@ -81,13 +81,17 @@ test("agents: the list is Agent resources with explicit template and harness sou
     await expect(rowNamed(page, "note-taker")).toHaveCount(0);
   });
 
-  await test.step("5. status is ready, preparing or not reported", async () => {
+  await test.step("5. status is ready, preparing, update failed or not reported", async () => {
     await expect(
       page.getByTestId(`agent-revision-kagent/${agents.k8s.name}`),
     ).toHaveAttribute("data-revision-state", "ready");
     const preparing = page.getByTestId(`agent-revision-kagent/${agents.preparing.name}`);
     await expect(preparing).toHaveAttribute("data-revision-state", "preparing");
     await expect(preparing).toHaveText("Preparing");
+    // The list keeps the tag; the controller's message is on the agent's own page.
+    const updateFailed = page.getByTestId(`agent-revision-kagent/${agents.updateFailed.name}`);
+    await expect(updateFailed).toHaveAttribute("data-revision-state", "updateFailed");
+    await expect(page.getByTestId("agent-update-failed")).toHaveCount(0);
   });
 
   await test.step("6. conversation counts are per Agent, not per template", async () => {
