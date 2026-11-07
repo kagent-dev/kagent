@@ -110,6 +110,34 @@ func TestDiscoveredSandboxResumesWithoutRecreation(t *testing.T) {
 	assert.Equal(t, 1, starts, "duplicate delivery must not start another CLI")
 }
 
+func TestAdoptedSandboxWithPendingResumeRecoversOnLaunch(t *testing.T) {
+	instance := readySandbox()
+	instance.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
+	instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME
+	resumes, starts := 0, 0
+	launcher := newTestLauncher(t, &sandboxFixture{
+		list: func(context.Context, *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error) {
+			return &apiv1.ListSandboxesResponse{Sandboxes: []*apiv1.Sandbox{instance}}, nil
+		},
+		lookup: func(context.Context, string) (*apiv1.Sandbox, error) { return instance, nil },
+		resume: func(context.Context, string) (*apiv1.Sandbox, error) {
+			resumes++
+			instance.State = apiv1.RuntimeState_RUNTIME_STATE_READY
+			instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
+			return instance, nil
+		},
+		start: func(_ context.Context, _ string, req *guestpb.StartProcessRequest) (*guestpb.Process, error) {
+			assert.Equal(t, "ant", req.Command[0])
+			starts++
+			return &guestpb.Process{ProcessId: "worker", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
+		},
+	}, &workAPI{})
+	require.NoError(t, launcher.adopt(t.Context()))
+	require.NoError(t, launcher.launch(t.Context(), testWork("new")))
+	assert.Equal(t, 1, resumes)
+	assert.Equal(t, 1, starts)
+}
+
 func TestProcessDiscoveryFailsClosed(t *testing.T) {
 	for _, phase := range []string{"start", "missing process ID", "stream", "stream not found", "missing exit", "failed ps", "unknown exit"} {
 		t.Run(phase, func(t *testing.T) {

@@ -91,6 +91,7 @@ type Launcher struct {
 
 type sandboxWorker struct {
 	sandboxID string
+	requestID string
 	workID    string
 	busy      chan struct{}
 }
@@ -153,7 +154,7 @@ func (l *Launcher) unlockSandbox(sessionID string, entry *sandboxWorker) {
 	defer l.processMu.Unlock()
 	close(entry.busy)
 	entry.busy = nil
-	if entry.sandboxID == "" {
+	if entry.sandboxID == "" && entry.requestID == "" {
 		delete(l.processes, sessionID)
 	}
 }
@@ -445,6 +446,9 @@ func sandboxExpired(instance *apiv1.Sandbox) bool {
 
 func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHostedWork, entry *sandboxWorker) (*apiv1.Sandbox, error) {
 	request := createRequest(l.config, work.Data.ID)
+	if entry.requestID != "" {
+		request.RequestId = entry.requestID
+	}
 	var sandbox *apiv1.Sandbox
 	discovered := false
 	retryBackoff := backoff.NewExponentialBackOff()
@@ -467,6 +471,7 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 		}
 		if sandboxExpired(sandbox) {
 			request = createRequest(l.config, work.Data.ID)
+			entry.requestID = request.RequestId
 			sandbox = nil
 		}
 		if sandbox != nil && sandboxUnavailable(sandbox) {
@@ -476,6 +481,7 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 		callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		if sandbox == nil {
+			entry.requestID = request.RequestId
 			created, createErr := l.sandboxes.Create(callCtx, request)
 			if createErr != nil {
 				if !retryable(createErr) {
@@ -488,6 +494,7 @@ func (l *Launcher) provision(ctx context.Context, work *anthropic.BetaSelfHosted
 			}
 			sandbox = created
 			entry.sandboxID = created.GetId()
+			entry.requestID = ""
 		}
 		if sandboxExpired(sandbox) {
 			return nil, errors.New("anthropic self-hosted sandboxes sandbox expired during provisioning")

@@ -608,6 +608,32 @@ func TestProvisionReplacesExpiredReceiptsAcrossRestarts(t *testing.T) {
 	assert.Len(t, receipts, 3, "a deleted generation must not pin the session to its old receipt")
 }
 
+func TestProvisionRetainsRequestIDAcrossLaunchAttempts(t *testing.T) {
+	var requestIDs []string
+	launcher := newTestLauncher(t, &sandboxFixture{
+		create: func(_ context.Context, req *apiv1.CreateSandboxRequest) (*apiv1.Sandbox, error) {
+			requestIDs = append(requestIDs, req.GetRequestId())
+			if len(requestIDs) == 1 {
+				return nil, serviceerrors.NewUnavailable("create response lost", nil)
+			}
+			return readySandbox(), nil
+		},
+	}, &workAPI{})
+	firstCtx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	_, err := provisionTestSandbox(t, firstCtx, launcher)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Len(t, requestIDs, 1)
+	require.NotEmpty(t, launcher.processes["session_test"].requestID)
+
+	created, err := provisionTestSandbox(t, t.Context(), launcher)
+	require.NoError(t, err)
+	assert.Equal(t, testSandboxID, created.GetId())
+	require.Len(t, requestIDs, 2)
+	assert.Equal(t, requestIDs[0], requestIDs[1], "subsequent launch attempts must reuse the pending creation request ID")
+	assert.Empty(t, launcher.processes["session_test"].requestID)
+}
+
 func TestLaunchReplacementDropsExpiredProcessTracking(t *testing.T) {
 	expired := readySandbox()
 	expired.ExpiresAt = timestamppb.New(time.Now().Add(-time.Minute))

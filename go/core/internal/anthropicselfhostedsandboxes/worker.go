@@ -37,6 +37,8 @@ func (l *Launcher) inspectWorker(ctx context.Context, entry *sandboxWorker) (wor
 	if sandboxExpired(instance) || instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_DELETED ||
 		instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_DELETING ||
 		instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE ||
+		instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE ||
+		instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME ||
 		(instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED && instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE) {
 		return workerInactive, nil
 	}
