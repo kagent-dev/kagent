@@ -118,9 +118,10 @@ when an agent needs to fetch or push after preparation.
 The Go ADK, Codex, Claude, and managed Sandbox guest initialize the source before
 serving traffic. Native instruction discovery remains the harness's behavior;
 source preparation does not turn AGENTS.md or CLAUDE.md into a prompt. Codex's
-existing rejection of project `.codex/config.toml` still applies. Claude loads
-workspace instructions through its explicit additional-directory support while
-keeping project settings and hooks disabled. Python ADK and
+existing rejection of project `.codex/config.toml` still applies. All managed
+Claude agents load workspace instructions through explicit additional-directory
+support, including agents without a Git source and instruction files written
+during a Session. Project settings and hooks remain disabled. Python ADK and
 BYO runtimes explicitly reject configured sources.
 
 Sandbox tools images must contain Git. The managed guest is mounted as an

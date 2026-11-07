@@ -19,11 +19,13 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/proto"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // StartupTimeout bounds checkout and fits inside the platform wakeup probe.
@@ -32,6 +34,8 @@ const StartupTimeout = 3 * time.Minute
 const stateDirectory = ".kagent-workspace"
 
 var commitPattern = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+
+var diagnosticURLPattern = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s]+`)
 
 type receipt struct {
 	Version int    `json:"version"`
@@ -232,13 +236,23 @@ func checkout(ctx context.Context, directory string, config *configv1.GitWorkspa
 	if config.Authorization {
 		transport = append(transport, "-c", "http.extraHeader=Authorization: kagent-credential-injected")
 	}
-	// Clone negotiates the remote object format (SHA-1 or SHA-256). A plain
-	// init followed by fetch cannot fetch from a SHA-256 repository.
-	if _, err := git(ctx, directory, append(transport, "clone", "--quiet", "--no-checkout", "--no-tags", "--depth=1", "--", config.Url, ".")...); err != nil {
-		return "", fmt.Errorf("clone workspace: %w", err)
+	// Advertised object IDs identify the format without downloading the default
+	// branch. Initialize that format before fetching a SHA-1 or SHA-256 source.
+	refs, err := git(ctx, directory, append(transport, "ls-remote", "--", config.Url)...)
+	if err != nil {
+		return "", fmt.Errorf("read workspace refs: %w", err)
 	}
-	// Fetch the selected ref explicitly; clone --branch does not accept commits.
-	if _, err := git(ctx, directory, append(transport, "fetch", "--quiet", "--depth=1", "origin", config.Ref)...); err != nil {
+	format, err := advertisedObjectFormat(refs, config.Ref)
+	if err != nil {
+		return "", err
+	}
+	if _, err := git(ctx, directory, "init", "--quiet", "--object-format="+format); err != nil {
+		return "", fmt.Errorf("initialize workspace repository: %w", err)
+	}
+	if _, err := git(ctx, directory, "remote", "add", "origin", config.Url); err != nil {
+		return "", fmt.Errorf("configure workspace remote: %w", err)
+	}
+	if _, err := git(ctx, directory, append(transport, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", config.Ref)...); err != nil {
 		return "", fmt.Errorf("fetch workspace ref: %w", err)
 	}
 	if _, err := git(ctx, directory, "checkout", "--quiet", "--detach", "FETCH_HEAD"); err != nil {
@@ -256,6 +270,22 @@ func checkout(ctx context.Context, directory string, config *configv1.GitWorkspa
 		return "", fmt.Errorf("git returned a different commit than requested")
 	}
 	return commit, nil
+}
+
+func advertisedObjectFormat(refs []byte, ref string) (string, error) {
+	objectID, _, ok := strings.Cut(string(refs), "\t")
+	// Some servers allow fetching a full SHA without advertising any refs.
+	// That SHA identifies the object format even when ls-remote is empty.
+	if len(refs) == 0 {
+		objectID, ok = strings.ToLower(ref), true
+	}
+	if !ok || !commitPattern.MatchString(objectID) {
+		return "", fmt.Errorf("workspace repository did not advertise a supported Git object format")
+	}
+	if len(objectID) == 64 {
+		return "sha256", nil
+	}
+	return "sha1", nil
 }
 
 func git(ctx context.Context, directory string, args ...string) ([]byte, error) {
@@ -282,7 +312,37 @@ func git(ctx context.Context, directory string, args ...string) ([]byte, error) 
 	cmd.WaitDelay = time.Second
 	output, err := cmd.Output()
 	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			if diagnostic := gitDiagnostic(exitError.Stderr); diagnostic != "" {
+				logging.FromContext(ctx).ErrorContext(ctx, "workspace Git command failed", "error", err, "stderr", diagnostic)
+			}
+		}
 		return nil, fmt.Errorf("workspace Git command failed: %w", err)
 	}
 	return output, nil
+}
+
+// gitDiagnostic keeps a bounded tail of local Git diagnostics. Remote messages
+// may echo gateway-injected credentials; URLs and authorization headers can also
+// contain secrets. These details belong only in runtime logs, never public status.
+func gitDiagnostic(stderr []byte) string {
+	text := strings.Map(func(r rune) rune {
+		if (unicode.IsControl(r) && r != '\n' && r != '\t') || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, string(stderr))
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if strings.HasPrefix(lower, "remote:") || strings.Contains(lower, "authorization:") {
+			lines[i] = "[redacted]"
+		}
+	}
+	text = diagnosticURLPattern.ReplaceAllString(strings.Join(lines, "\n"), "[redacted URL]")
+	// Sanitize before truncating so a cut URL or header cannot evade redaction.
+	const limit = 4096
+	text = strings.ToValidUTF8(text[max(0, len(text)-limit):], "")
+	return strings.TrimSpace(text)
 }

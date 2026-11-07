@@ -4,7 +4,9 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"net/http"
 	"net/http/cgi"
@@ -20,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type repositoryFixture struct {
@@ -134,6 +137,95 @@ func TestInitializeObjectFormats(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestInitializeFetchesOnlySelectedRef(t *testing.T) {
+	for _, format := range []string{"sha1", "sha256"} {
+		t.Run(format, func(t *testing.T) {
+			fixture := repository(t, true, format)
+			work := filepath.Join(fixture.root, "work")
+			runGit(t, work, "branch", "selected")
+			runGit(t, work, "branch", "deadbeef")
+			runGit(t, work, "tag", "-a", "v1", "-m", "selected tag")
+			require.NoError(t, os.WriteFile(filepath.Join(work, "default-only"), []byte("not in the requested revision"), 0o644))
+			runGit(t, work, "add", ".")
+			runGit(t, work, "commit", "-s", "-m", "advance default branch")
+			latest := runGit(t, work, "rev-parse", "HEAD")
+			runGit(t, work, "push", filepath.Join(fixture.root, "repo.git"), "main", "selected", "deadbeef", "refs/tags/v1")
+			for _, ref := range []string{"selected", "refs/heads/selected", "refs/tags/v1", "deadbeef", fixture.commit, strings.ToUpper(fixture.commit)} {
+				t.Run("Given a newer default branch, when preparing "+strings.ReplaceAll(ref, "/", "_")+", assert that only the requested revision is retained", func(t *testing.T) {
+					fixture.config.Ref = ref
+					root := t.TempDir()
+					require.NoError(t, Initialize(t.Context(), root, fixture.config))
+					require.Equal(t, fixture.commit, runGit(t, Path(root), "rev-parse", "HEAD"))
+					require.Equal(t, format, runGit(t, Path(root), "rev-parse", "--show-object-format"))
+					unrelated := exec.CommandContext(t.Context(), "git", "cat-file", "-e", latest)
+					unrelated.Dir = Path(root)
+					require.Error(t, unrelated.Run(), "the default branch commit must not enter the snapshot")
+					require.NoFileExists(t, filepath.Join(Path(root), "default-only"))
+				})
+			}
+		})
+	}
+}
+
+func TestInitializeLogsGitFailure(t *testing.T) {
+	fixture := repository(t, true, "sha1")
+	fixture.config.Ref = "missing-ref"
+	var logs bytes.Buffer
+	logger, err := logging.New(&logs, "info")
+	require.NoError(t, err)
+	root := t.TempDir()
+	err = Initialize(logging.IntoContext(t.Context(), logger), root, fixture.config)
+	require.ErrorContains(t, err, "exit status 128")
+	require.NotContains(t, err.Error(), "missing-ref", "runtime diagnostics must not enter public status")
+	var record struct {
+		Stderr string `json:"stderr"`
+	}
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &record))
+	require.Contains(t, record.Stderr, "couldn't find remote ref missing-ref")
+	require.NoFileExists(t, filepath.Join(root, stateDirectory, "complete.json"))
+}
+
+func TestInitializeUnadvertisedCommit(t *testing.T) {
+	for _, format := range []string{"sha1", "sha256"} {
+		t.Run("Given a "+format+" repository with no advertised refs, when preparing an allowed full SHA, assert that the commit is checked out", func(t *testing.T) {
+			fixture := repository(t, true, format)
+			bare := filepath.Join(fixture.root, "repo.git")
+			runGit(t, bare, "config", "uploadpack.allowAnySHA1InWant", "true")
+			runGit(t, bare, "update-ref", "-d", "refs/heads/main")
+			fixture.config.Ref = fixture.commit
+			root := t.TempDir()
+			require.NoError(t, Initialize(t.Context(), root, fixture.config))
+			require.Equal(t, fixture.commit, runGit(t, Path(root), "rev-parse", "HEAD"))
+		})
+	}
+}
+
+func TestGitLogsBoundedSanitizedDiagnostics(t *testing.T) {
+	bin := t.TempDir()
+	diagnostic := strings.Repeat("progress ", 1024) + "\nremote: gateway-secret\nAuthorization: Bearer header-secret\nfatal: unable to access https://user:password@example.com/repo?token=query-secret\nfatal: certificate verification failed\x1b\x00\r\n"
+	// The fake executable emits controlled diagnostics; assertions inspect the
+	// production logger and returned error, not the fake's captured arguments.
+	script := "#!/bin/sh\ncat diagnostic >&2\nexit 128\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "diagnostic"), []byte(diagnostic), 0o600))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var logs bytes.Buffer
+	logger, err := logging.New(&logs, "info")
+	require.NoError(t, err)
+	_, err = git(logging.IntoContext(t.Context(), logger), bin, "fetch")
+	require.ErrorContains(t, err, "exit status 128")
+	require.NotContains(t, err.Error(), "certificate")
+	var record struct {
+		Stderr string `json:"stderr"`
+	}
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &record))
+	require.LessOrEqual(t, len(record.Stderr), 4096)
+	require.Contains(t, record.Stderr, "certificate verification failed")
+	for _, forbidden := range []string{"gateway-secret", "header-secret", "password", "query-secret", "\x1b", "\x00", "\r"} {
+		require.NotContains(t, record.Stderr, forbidden)
 	}
 }
 

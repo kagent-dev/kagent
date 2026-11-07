@@ -6,7 +6,6 @@ package translator
 import (
 	"fmt"
 	"net/url"
-	"strings"
 
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -30,9 +29,6 @@ func CompileWorkspace(ctx krt.HandlerContext, secrets krt.Collection[*corev1.Sec
 	}
 	u, _ := url.Parse(config.Url) // validated above
 	origin := egress.Origin(u)
-	if strings.Contains(u.Hostname(), "*") {
-		return nil, egress.Access{}, NewValidationError("workspace requires an exact HTTPS hostname")
-	}
 	var credentials []egress.Credential
 	if ref := source.CredentialRef; ref != nil {
 		if ref.Name == "" || ref.Key == "" || (ref.Optional != nil && *ref.Optional) {
@@ -42,7 +38,7 @@ func CompileWorkspace(ctx krt.HandlerContext, secrets krt.Collection[*corev1.Sec
 		if secret == nil || len((*secret).Data[ref.Key]) == 0 {
 			return nil, egress.Access{}, fmt.Errorf("workspace credential Secret %s/%s key %q is missing or empty", namespace, ref.Name, ref.Key)
 		}
-		credentials = []egress.Credential{{Origin: origin, Header: "authorization", URI: fmt.Sprintf("ate-secret://k8s.io/default/%s/%s/%s", namespace, ref.Name, ref.Key)}}
+		credentials = []egress.Credential{{Origin: origin, Header: "authorization", URI: secretURI(namespace, ref.Name, ref.Key)}}
 	}
 	access, err := egress.CanonicalAccess([]string{origin}, credentials, nil)
 	if err != nil {
