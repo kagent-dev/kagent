@@ -139,8 +139,11 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 	if err != nil {
 		return err
 	}
+	// Detection is a convenience: users who cannot read kube-system still
+	// install, with the chart's cluster.local default or their configured value.
 	if input.ClusterDomain, err = client.DetectClusterDomain(cmd.Context()); err != nil {
-		return err
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v; using the configured cluster domain or cluster.local\n", err)
+		input.ClusterDomain = ""
 	}
 	plan, err := client.Plan(cmd.Context(), input)
 	if err != nil {
