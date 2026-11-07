@@ -22,9 +22,8 @@
 : ${DEBUG:="false"}
 : ${VERIFY_CHECKSUM:="true"}
 : ${KAGENT_INSTALL_DIR:="/usr/local/bin"}
-: ${INCLUDE_PRERELEASE:="false"}
 
-KAGENT_RELEASES_API="https://api.github.com/repos/kagent-dev/kagent/releases"
+KAGENT_RELEASES="https://github.com/kagent-dev/kagent/releases"
 
 HAS_CURL="$(type "curl" &> /dev/null && echo true || echo false)"
 HAS_WGET="$(type "wget" &> /dev/null && echo true || echo false)"
@@ -105,67 +104,27 @@ verifySupported() {
   fi
 }
 
-# httpGet prints the body of a URL, or nothing when the request fails.
-httpGet() {
+# latestTag prints the tag of the release GitHub marks latest, read from the
+# redirect of /releases/latest. Unlike the GitHub API, it is not rate limited.
+latestTag() {
   if [ "${HAS_CURL}" == "true" ]; then
-    curl -L --silent --fail "$1" 2>/dev/null || true
-  elif [ "${HAS_WGET}" == "true" ]; then
-    wget -q -O - "$1" 2>/dev/null || true
-  fi
+    curl -sSI "${KAGENT_RELEASES}/latest" 2>/dev/null
+  else
+    wget -S --spider --max-redirect=0 "${KAGENT_RELEASES}/latest" 2>&1
+  fi | tr -d '\r' | sed -n 's#^ *[Ll]ocation: .*/releases/tag/##p' | head -n 1
 }
 
-# releaseTagsWithAsset reads GitHub release JSON on stdin and prints, one per
-# line, the tag of each release that publishes the binary for this OS/arch.
-# Download URLs carry both the tag and the asset name, so no JSON parser is needed.
-releaseTagsWithAsset() {
-  grep -o '"browser_download_url": *"[^"]*"' \
-    | sed -n "s#.*/releases/download/\\([^/\"]*\\)/kagent-${OS}-${ARCH}${EXT}\"\$#\\1#p"
-}
-
-# highestVersion reads vMAJOR.MINOR.PATCH[-PRERELEASE] tags on stdin and prints
-# the highest by semantic version: a final release sorts above its prereleases,
-# and numbers inside prerelease identifiers compare numerically (rc10 > rc9).
-highestVersion() {
-  awk '
-    /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/ {
-      split(substr($0, 2), parts, "-")
-      split(parts[1], core, ".")
-      pre = substr($0, length(parts[1]) + 3)
-      key = ""
-      while (match(pre, /[0-9]+/)) {
-        key = key substr(pre, 1, RSTART - 1) sprintf("%09d", substr(pre, RSTART, RLENGTH))
-        pre = substr(pre, RSTART + RLENGTH)
-      }
-      key = key pre
-      printf "%09d.%09d.%09d.%d.%s\t%s\n", core[1], core[2], core[3], (key == "" ? 1 : 0), key, $0
-    }' | LC_ALL=C sort | tail -n 1 | cut -f 2
-}
-
-# checkDesiredVersion resolves TAG. Without --version it uses the release GitHub
-# marks latest when it publishes a binary for this OS/arch; otherwise, or with
-# --prerelease, it uses the highest-versioned release that does.
+# checkDesiredVersion resolves TAG: the --version argument, or else the release
+# GitHub marks latest.
 checkDesiredVersion() {
   if [ "x$DESIRED_VERSION" != "x" ]; then
     TAG=$DESIRED_VERSION
     return
   fi
-  TAG=""
-  if [ "${INCLUDE_PRERELEASE}" != "true" ]; then
-    TAG=$( httpGet "${KAGENT_RELEASES_API}/latest" | releaseTagsWithAsset | head -n 1 )
-  fi
+  TAG=$( latestTag )
   if [ "x$TAG" == "x" ]; then
-    local tags
-    tags=$( httpGet "${KAGENT_RELEASES_API}?per_page=100" | releaseTagsWithAsset )
-    if [ "${INCLUDE_PRERELEASE}" != "true" ]; then
-      tags=$( echo "$tags" | grep -v -- - || true )
-    fi
-    TAG=$( echo "$tags" | highestVersion )
-  fi
-  if [ "x$TAG" == "x" ]; then
-    printf "Could not find a kagent release with a binary for %s-%s at %s.\n" "${OS}" "${ARCH}" "${KAGENT_RELEASES_API}"
-    if [ "${INCLUDE_PRERELEASE}" != "true" ]; then
-      echo "Use --prerelease to include prereleases, or --version to choose a release."
-    fi
+    echo "Could not resolve the latest kagent release from ${KAGENT_RELEASES}/latest."
+    echo "Use --version to choose a release."
     exit 1
   fi
 }
@@ -193,15 +152,15 @@ checkKagentInstalledVersion() {
 # for that binary.
 downloadFile() {
   KAGENT_DIST="kagent-$OS-$ARCH$EXT"
-  DOWNLOAD_URL="https://github.com/kagent-dev/kagent/releases/download/$TAG/$KAGENT_DIST"
+  DOWNLOAD_URL="$KAGENT_RELEASES/download/$TAG/$KAGENT_DIST"
   CHECKSUM_URL="$DOWNLOAD_URL.sha256"
   KAGENT_TMP_ROOT="$(mktemp -dt kagent-installer-XXXXXX)"
   KAGENT_TMP_FILE="$KAGENT_TMP_ROOT/$KAGENT_DIST"
   KAGENT_SUM_FILE="$KAGENT_TMP_ROOT/$KAGENT_DIST.sha256"
   echo "Downloading $DOWNLOAD_URL"
   if [ "${HAS_CURL}" == "true" ]; then
-    curl -SsL "$CHECKSUM_URL" -o "$KAGENT_SUM_FILE"
-    curl -SsL "$DOWNLOAD_URL" -o "$KAGENT_TMP_FILE"
+    curl -SsLf "$CHECKSUM_URL" -o "$KAGENT_SUM_FILE"
+    curl -SsLf "$DOWNLOAD_URL" -o "$KAGENT_TMP_FILE"
   elif [ "${HAS_WGET}" == "true" ]; then
     wget -q -O "$KAGENT_SUM_FILE" "$CHECKSUM_URL"
     wget -q -O "$KAGENT_TMP_FILE" "$DOWNLOAD_URL"
@@ -268,9 +227,8 @@ testVersion() {
 help () {
   echo "Accepted cli arguments are:"
   echo -e "\t[--help|-h ] ->> prints this help"
-  echo -e "\t[--version|-v <desired_version>] . When not defined it fetches the latest release tag from the kagent GitHub repository"
+  echo -e "\t[--version|-v <desired_version>] . When not defined it installs the release GitHub marks latest"
   echo -e "\te.g. --version v1.0.0"
-  echo -e "\t[--prerelease] ->> include prereleases when resolving the latest release"
   echo -e "\t[--no-sudo] ->> install without sudo (installs to \$HOME/bin instead of /usr/local/bin)"
 }
 
@@ -323,9 +281,6 @@ while [[ $# -gt 0 ]]; do
            echo -e "Please provide the desired version. e.g. --version v0.1.0"
            exit 0
        fi
-       ;;
-    '--prerelease')
-       INCLUDE_PRERELEASE="true"
        ;;
     '--no-sudo')
        USE_SUDO="false"

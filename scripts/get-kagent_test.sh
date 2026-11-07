@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Tests scripts/get-kagent against a fake GitHub: curl serves release JSON and
-# binaries from a fixture directory, and uname reports the platform under test.
+# Tests scripts/get-kagent against a fake GitHub: curl answers the
+# /releases/latest redirect and serves binaries from a fixture directory, and
+# uname reports the platform under test.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-api="https://api.github.com/repos/kagent-dev/kagent/releases"
-downloads="https://github.com/kagent-dev/kagent/releases/download"
+releases="https://github.com/kagent-dev/kagent/releases"
+downloads="$releases/download"
 fake_bin="$work/bin"
 mkdir -p "$fake_bin"
 
@@ -17,7 +18,8 @@ cat >"$fake_bin/uname" <<'EOF'
 if [ "${1:-}" = "-m" ]; then echo "$FAKE_ARCH"; else echo "$FAKE_OS"; fi
 EOF
 
-# curl prints or saves fixture files and logs each requested URL.
+# curl redirects /releases/latest to the tag in $FIXTURE/latest, prints or
+# saves fixture files, and logs each requested URL.
 cat >"$fake_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 output="" url=""
@@ -31,41 +33,20 @@ while [ $# -gt 0 ]; do
 done
 echo "$url" >>"$FIXTURE/requests"
 case "$url" in
-  "$API/latest") file="$FIXTURE/latest.json" ;;
-  "$API?per_page=100") file="$FIXTURE/releases.json" ;;
-  "$DOWNLOADS/"*) file="$FIXTURE/download/${url#"$DOWNLOADS/"}" ;;
+  "$RELEASES/latest")
+    if [ -f "$FIXTURE/latest" ]; then
+      printf 'HTTP/2 302\r\nlocation: %s/tag/%s\r\n\r\n' "$RELEASES" "$(cat "$FIXTURE/latest")"
+    else
+      printf 'HTTP/2 404\r\n\r\n'
+    fi
+    exit 0 ;;
+  "$RELEASES/download/"*) file="$FIXTURE/download/${url#"$RELEASES/download/"}" ;;
   *) exit 22 ;;
 esac
 [ -f "$file" ] || exit 22
 if [ -n "$output" ]; then cp "$file" "$output"; else cat "$file"; fi
 EOF
 chmod +x "$fake_bin/uname" "$fake_bin/curl"
-
-# release TAG ASSET... prints one GitHub release object.
-release() {
-  local tag="$1" first=true
-  shift
-  printf '  {\n    "tag_name": "%s",\n    "assets": [\n' "$tag"
-  for asset in "$@"; do
-    $first || printf ',\n'
-    first=false
-    printf '      {\n        "name": "%s",\n        "browser_download_url": "%s/%s/%s"\n      }' "$asset" "$downloads" "$tag" "$asset"
-    printf ',\n      {\n        "name": "%s.sha256",\n        "browser_download_url": "%s/%s/%s.sha256"\n      }' "$asset" "$downloads" "$tag" "$asset"
-  done
-  printf '\n    ]\n  }'
-}
-
-# releases RELEASE... prints a GitHub release list.
-releases() {
-  local first=true
-  echo "["
-  for item in "$@"; do
-    $first || echo ","
-    first=false
-    echo "$item"
-  done
-  echo "]"
-}
 
 # publish TAG ASSET creates a downloadable binary and checksum. The binary
 # answers only `version --client`; anything else records a server call.
@@ -102,7 +83,7 @@ run_installer() {
   local os="$1" arch="$2"
   shift 2
   set +e
-  PATH="$fake_bin:$install_dir:$PATH" FIXTURE="$fixture" API="$api" DOWNLOADS="$downloads" \
+  PATH="$fake_bin:$install_dir:$PATH" FIXTURE="$fixture" RELEASES="$releases" \
     FAKE_OS="$os" FAKE_ARCH="$arch" USE_SUDO=false KAGENT_INSTALL_DIR="$install_dir" \
     bash "$root/scripts/get-kagent" "$@" >"$fixture/output" 2>&1
   status=$?
@@ -125,49 +106,39 @@ assert_installed() {
   [[ "$got" == *"\"kagent_version\":\"$want\""* ]] || fail "installed $got, want $want"
 }
 
-scenario="Given GitHub latest publishes this platform, when resolving without --version, assert that latest is installed"
+scenario="Given GitHub marks a release candidate latest, when installing without --version, assert that the release candidate is installed"
 new_fixture latest
-release v0.10.7 kagent-linux-amd64 >"$fixture/latest.json"
-releases "$(release v1.0.0-rc3 kagent-linux-amd64)" "$(release v0.10.7 kagent-linux-amd64)" >"$fixture/releases.json"
+echo v1.0.0-rc3 >"$fixture/latest"
+publish v1.0.0-rc3 kagent-linux-amd64
 publish v0.10.7 kagent-linux-amd64
 run_installer Linux x86_64
+assert_installed kagent v1.0.0-rc3
+
+scenario="Given a requested version, when installing with --version, assert that it is installed without resolving latest"
+new_fixture pinned
+echo v1.0.0-rc3 >"$fixture/latest"
+publish v0.10.7 kagent-linux-arm64
+run_installer Linux aarch64 --version 0.10.7
 assert_installed kagent v0.10.7
+! grep -qx "$releases/latest" "$fixture/requests" || fail "resolved latest despite --version"
 
-scenario="Given latest lacks this platform, when resolving without --version, assert that the highest final release with the binary is installed"
-new_fixture fallback
-release v1.1.0 kagent-darwin-arm64 >"$fixture/latest.json"
-releases "$(release v1.1.0 kagent-darwin-arm64)" "$(release v1.0.1-rc1 kagent-linux-arm64)" \
-  "$(release v1.0.0 kagent-linux-arm64)" "$(release v0.10.7 kagent-linux-arm64)" >"$fixture/releases.json"
-publish v1.0.0 kagent-linux-arm64
-run_installer Linux aarch64
-assert_installed kagent v1.0.0
-
-scenario="Given only prereleases, when resolving without --version, assert that the installer fails and suggests --prerelease"
-new_fixture prerelease-only
-releases "$(release v1.0.0-rc3 kagent-linux-amd64)" >"$fixture/releases.json"
+scenario="Given latest cannot be resolved, when installing without --version, assert that the installer fails and suggests --version"
+new_fixture no-latest
 run_installer Linux x86_64
 [ "$status" -ne 0 ] || fail "installer succeeded"
-grep -q -- "--prerelease" "$fixture/output" || fail "output does not suggest --prerelease"
+grep -q -- "--version" "$fixture/output" || fail "output does not suggest --version"
 
-scenario="Given numbered prereleases, when resolving with --prerelease, assert that prerelease numbers compare numerically"
-new_fixture prerelease-order
-release v0.10.7 kagent-linux-amd64 >"$fixture/latest.json"
-releases "$(release v1.0.0-rc9 kagent-linux-amd64)" "$(release v1.0.0-rc10 kagent-linux-amd64)" \
-  "$(release v1.0.0-alpha17 kagent-linux-amd64)" "$(release v0.10.7 kagent-linux-amd64)" >"$fixture/releases.json"
-publish v1.0.0-rc10 kagent-linux-amd64
-run_installer Linux x86_64 --prerelease
-assert_installed kagent v1.0.0-rc10
-
-scenario="Given a final release and its prereleases, when resolving with --prerelease, assert that the final release wins"
-new_fixture final-wins
-releases "$(release v1.0.0-rc10 kagent-linux-amd64)" "$(release v1.0.0 kagent-linux-amd64)" >"$fixture/releases.json"
-publish v1.0.0 kagent-linux-amd64
-run_installer Linux x86_64 --prerelease
-assert_installed kagent v1.0.0
+scenario="Given latest lacks this platform's binary, when installing, assert that the installer fails without installing"
+new_fixture missing-asset
+echo v1.0.0 >"$fixture/latest"
+publish v1.0.0 kagent-darwin-arm64
+run_installer Linux x86_64
+[ "$status" -ne 0 ] || fail "installer succeeded"
+[ ! -e "$install_dir/kagent" ] || fail "installed a binary"
 
 scenario="Given a Windows shell, when installing, assert that the .exe binary is downloaded and installed"
 new_fixture windows
-release v1.0.0 kagent-windows-amd64.exe >"$fixture/latest.json"
+echo v1.0.0 >"$fixture/latest"
 publish v1.0.0 kagent-windows-amd64.exe
 run_installer MINGW64_NT-10.0 x86_64
 assert_installed kagent.exe v1.0.0
@@ -179,13 +150,13 @@ run_installer Linux i686
 [ "$status" -ne 0 ] || fail "installer succeeded"
 grep -q "No prebuilt binary for linux-386" "$fixture/output" || fail "missing unsupported-platform message"
 
-scenario="Given the resolved version is installed, when installing again, assert that nothing is downloaded and no server is contacted"
+scenario="Given latest is installed, when installing again, assert that nothing is downloaded and no server is contacted"
 new_fixture already-installed
-release v1.0.0 kagent-linux-amd64 >"$fixture/latest.json"
+echo v1.0.0 >"$fixture/latest"
 write_binary "$install_dir/kagent" v1.0.0
-run_installer Linux x86_64 --version v1.0.0
+run_installer Linux x86_64
 [ "$status" -eq 0 ] || fail "installer exited $status"
-grep -q "kagent v1.0.0 is already" "$fixture/output" || fail "did not detect the installed version"
+grep -q "kagent v1.0.0 is already latest" "$fixture/output" || fail "did not detect the installed version"
 ! grep -q "/releases/download/" "$fixture/requests" || fail "downloaded despite a matching install"
 [ ! -e "$fixture/server-contacted" ] || fail "version check contacted the server"
 
