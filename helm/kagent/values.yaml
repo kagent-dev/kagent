@@ -430,6 +430,30 @@ substrateWorkerPool:
   # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
   template: {}
 
+# -- Ready-to-use Harnesses in the release namespace, so Agents there can set
+# spec.harnessRef without first writing a Harness. Each runs on
+# substrateWorkerPool.name and uses the release's built-in runtime image
+# (config.harnessImages), so the chart does not pin an image here. `kagent install`
+# enables them together with the WorkerPool. Agents in other namespaces need
+# their own Harness, because Agent.spec.harnessRef is namespace-local.
+defaultHarnesses:
+  # -- Render the default Harnesses. Requires a WorkerPool named
+  # substrateWorkerPool.name in the release namespace (substrateWorkerPool.create
+  # or one managed outside the chart).
+  enabled: false
+  # -- Substrate snapshot location shared by the default Harnesses. The default
+  # matches the ate-snapshots bucket of Substrate's bundled RustFS.
+  snapshotLocation: gs://ate-snapshots/kagent/
+  # -- Render `kagent-default`, a Harness for the kagent runtime.
+  kagent:
+    enabled: true
+  # -- Render `codex-default`, a Harness for the Codex runtime.
+  codex:
+    enabled: true
+  # -- Render `claude-default`, a Harness for the Claude runtime.
+  claude:
+    enabled: true
+
 # ==============================================================================
 # UI CONFIGURATION
 # ==============================================================================
@@ -667,9 +691,13 @@ providers:
   annotations: {}
   openAI:
     provider: OpenAI
-    model: "gpt-4.1-mini"
+    model: "gpt-5-mini"
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
+    # Provider options rendered into spec.openAI of the generated ModelConfig.
+    # The Codex runtime requires the Responses API; the kagent runtime supports both.
+    config:
+      apiFormat: responses
     # apiKey: ""
     # Optional TLS settings for the generated ModelConfig.
     # This same block can be used under any provider.
@@ -707,7 +735,7 @@ providers:
     #   cacheTTL: "5m" # or "1h" for calls spaced more than 5 minutes apart
   azureOpenAI:
     provider: AzureOpenAI
-    model: "gpt-4.1-mini"
+    model: "gpt-5-mini"
     apiKeySecretRef: kagent-azure-openai
     apiKeySecretKey: AZUREOPENAI_API_KEY
     # apiKey: ""

@@ -65,6 +65,25 @@ new revision; create a new Session to use it. A2A task events remain streamable
 when model streaming is disabled. This setting does not configure
 the Codex or Claude harnesses.
 
+### Default Harnesses
+
+`kagent install` creates the release WorkerPool and three Harnesses in the
+release namespace: `kagent-default`, `codex-default`, and `claude-default`. Each
+selects its runtime, references the release WorkerPool, uses the snapshot
+location of Substrate's bundled object store, and omits `workload` so the release
+image is selected. Agents in that namespace can reference them without
+platform-specific values. They are ordinary Harnesses owned by the Helm release;
+the controller does not create or special-case them.
+
+The chart renders them only when `defaultHarnesses.enabled` is true. Its values
+choose the snapshot location and disable individual runtimes. Because
+`harnessRef` is namespace-local, Agents in other namespaces still need a Harness
+in their own namespace.
+
+The chart's default OpenAI ModelConfig sets `openAI.apiFormat: responses`. Codex
+requires the Responses API, and the kagent runtime supports it, so one default
+model serves both default Harnesses.
+
 ### Harness images and workload overrides
 
 For built-in kagent, Claude, and Codex Harnesses, the whole `workload` block is
@@ -428,10 +447,11 @@ spec:
         name: default-model-config
       systemPrompt: You are a helpful assistant.
   harnessRef:
-    name: kagent
+    name: kagent-default
 ```
 
-The referenced ModelConfig and Harness must already exist.
+The referenced ModelConfig and Harness must already exist. `kagent install`
+creates both `default-model-config` and `kagent-default`.
 
 To reuse an existing AgentTemplate, replace the inline template with its reference:
 
@@ -441,7 +461,7 @@ spec:
     ref:
       name: shared-context
   harnessRef:
-    name: kagent
+    name: kagent-default
 ```
 
 Template behavior may be inline or referenced. The Harness is always referenced;

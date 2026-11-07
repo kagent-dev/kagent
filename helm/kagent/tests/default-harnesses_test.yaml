@@ -1,0 +1,102 @@
+suite: test default harnesses
+templates:
+  - default-harnesses.yaml
+release:
+  namespace: kagent
+tests:
+  - it: should not render default harnesses unless enabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render one harness per built-in runtime when enabled
+    set:
+      defaultHarnesses.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: Harness
+      - isAPIVersion:
+          of: api.kagent.dev/v1alpha3
+      - equal:
+          path: metadata.name
+          value: kagent-default
+        documentIndex: 0
+      - exists:
+          path: spec.kagent
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: codex-default
+        documentIndex: 1
+      - exists:
+          path: spec.codex
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: claude-default
+        documentIndex: 2
+      - exists:
+          path: spec.claude
+        documentIndex: 2
+
+  - it: should run on the chart worker pool with the default snapshot location and built-in image
+    set:
+      defaultHarnesses.enabled: true
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: kagent
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: kagent-default
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: gs://ate-snapshots/kagent/
+      - notExists:
+          path: spec.workload
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm
+
+  - it: should follow a renamed worker pool and custom snapshot location
+    set:
+      defaultHarnesses.enabled: true
+      defaultHarnesses.snapshotLocation: s3://team-snapshots/agents/
+      substrateWorkerPool.name: team-pool
+    asserts:
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: team-pool
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: s3://team-snapshots/agents/
+
+  - it: should skip a disabled runtime
+    set:
+      defaultHarnesses.enabled: true
+      defaultHarnesses.claude.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 2
+      - notEqual:
+          path: metadata.name
+          value: claude-default
+
+  - it: should scope the harnesses to the namespace override
+    set:
+      defaultHarnesses.enabled: true
+      namespaceOverride: tenant-a
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: tenant-a
+
+  - it: should require a snapshot location
+    set:
+      defaultHarnesses.enabled: true
+      defaultHarnesses.snapshotLocation: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: defaultHarnesses.snapshotLocation is required when defaultHarnesses.enabled=true

@@ -14,7 +14,7 @@ tests:
           value: "OpenAI"
       - equal:
           path: spec.model
-          value: "gpt-4.1-mini"
+          value: "gpt-5-mini"
 
   - it: should use openai configuration by default
     asserts:
@@ -23,13 +23,16 @@ tests:
           value: "OpenAI"
       - equal:
           path: spec.model
-          value: "gpt-4.1-mini"
+          value: "gpt-5-mini"
       - equal:
           path: spec.apiKeySecret
           value: kagent-openai
       - equal:
           path: spec.apiKeySecretKey
           value: OPENAI_API_KEY
+      - equal:
+          path: spec.openAI.apiFormat
+          value: responses
 
   - it: should use anthropic when set as default provider
     set:
@@ -59,13 +62,18 @@ tests:
           value: "AzureOpenAI"
       - equal:
           path: spec.model
-          value: "gpt-4.1-mini"
+          value: "gpt-5-mini"
       - equal:
           path: spec.apiKeySecret
           value: kagent-azure-openai
       - equal:
           path: spec.apiKeySecretKey
           value: AZUREOPENAI_API_KEY
+      - equal:
+          path: spec.azureOpenAI.apiVersion
+          value: "2023-05-15"
+      - notExists:
+          path: spec.azureOpenAI.apiFormat
 
   - it: should configure ollama provider
     set:

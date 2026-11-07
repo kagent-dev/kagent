@@ -1,0 +1,24 @@
+{{- if .Values.defaultHarnesses.enabled }}
+{{- if not .Values.defaultHarnesses.snapshotLocation }}
+{{- fail "defaultHarnesses.snapshotLocation is required when defaultHarnesses.enabled=true" }}
+{{- end }}
+{{- range $adapter := list "kagent" "codex" "claude" }}
+{{- if (index $.Values.defaultHarnesses $adapter).enabled }}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: {{ printf "%s-default" $adapter }}
+  namespace: {{ include "kagent.namespace" $ }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+spec:
+  {{ $adapter }}: {}
+  substrate:
+    workerPoolRef:
+      name: {{ $.Values.substrateWorkerPool.name | toString | quote }}
+    snapshotPolicy:
+      location: {{ $.Values.defaultHarnesses.snapshotLocation | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

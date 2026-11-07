@@ -325,6 +325,40 @@ release namespace.
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 
+#### Default Harnesses
+
+`kagent install` creates the WorkerPool and three Harnesses in the release
+namespace, so an Agent there can reference one without writing its own:
+
+| Harness | Runtime |
+| --- | --- |
+| `kagent-default` | kagent |
+| `codex-default` | Codex |
+| `claude-default` | Claude |
+
+Direct Helm installations opt in with `defaultHarnesses.enabled=true`:
+
+```yaml
+substrateWorkerPool:
+  create: true
+  workerImage: <worker-image>
+defaultHarnesses:
+  enabled: true
+  # Substrate snapshot storage. The default uses the bucket of Substrate's bundled RustFS.
+  snapshotLocation: gs://ate-snapshots/kagent/
+  # Skip an individual runtime:
+  claude:
+    enabled: false
+```
+
+Each default Harness references `substrateWorkerPool.name` and omits
+`workload`, so it runs the release's built-in image for its runtime
+(`config.harnessImages`). Agent `spec.harnessRef` is namespace-local; Agents in
+other namespaces need their own Harness.
+
+The default OpenAI ModelConfig sets `apiFormat: responses`, which the Codex
+runtime requires and the kagent runtime supports.
+
 ### Using Make
 
 ```bash
