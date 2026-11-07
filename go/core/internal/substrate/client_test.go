@@ -129,14 +129,7 @@ func (f *createAtespaceFake) GetAtespace(_ context.Context, in *ateapipb.GetAtes
 
 type createActorFake struct {
 	ateapipb.ControlClient
-	actor       *ateapipb.Actor
-	template    *ateapipb.ActorTemplate
-	templateErr error
-	createErr   error
-}
-
-func (f *createActorFake) GetActorTemplate(context.Context, *ateapipb.GetActorTemplateRequest, ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
-	return f.template, f.templateErr
+	actor *ateapipb.Actor
 }
 
 type createActorTemplateFake struct {
@@ -175,50 +168,25 @@ type deleteActorTemplateFake struct {
 
 func (f *createActorFake) CreateActor(_ context.Context, in *ateapipb.CreateActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
 	f.actor = in.GetActor()
-	return f.actor, f.createErr
+	return f.actor, nil
 }
 
-func TestCreateActorRequiresPreparedSnapshot(t *testing.T) {
-	source := &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "prepared"}
-	template := &ateapipb.ActorTemplate{Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: source}}}
-	t.Run("Given a prepared template, when an actor is created, assert that it pins the golden and template", func(t *testing.T) {
-		fake := &createActorFake{template: template}
-		client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-		actor, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
-		require.NoError(t, err)
-		require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, actor.GetActorTemplate())
-		require.Equal(t, source, actor.GetSourceTag())
-	})
-	for _, scenario := range []struct {
-		name     string
-		template *ateapipb.ActorTemplate
-		err      error
-	}{
-		{"missing template", nil, status.Error(codes.NotFound, "template gone")},
-		{"unfinished preparation", &ateapipb.ActorTemplate{}, nil},
-	} {
-		t.Run("Given "+scenario.name+", when an actor is created, assert that cold boot is rejected", func(t *testing.T) {
-			fake := &createActorFake{template: scenario.template, templateErr: scenario.err}
-			client := &Client{ControlClient: fake}
-			_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
-			require.Error(t, err)
-			require.Nil(t, fake.actor, "no creation without a retained source")
-		})
-	}
-	t.Run("Given a deleted golden Tag, when creation fails, assert that no cold boot fallback occurs", func(t *testing.T) {
-		fake := &createActorFake{template: template, createErr: status.Error(codes.NotFound, "tag gone")}
-		client := &Client{ControlClient: fake}
-		_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
-		require.Equal(t, codes.NotFound, status.Code(err))
-		require.Equal(t, source, fake.actor.GetSourceTag())
-	})
-	t.Run("Given a checkpoint and no current golden, when forking, assert that the checkpoint is selected", func(t *testing.T) {
-		fake := &createActorFake{templateErr: status.Error(codes.NotFound, "no golden")}
-		client := &Client{ControlClient: fake}
-		actor, err := client.CreateActorFromTag(t.Context(), "team-a", "fork", "team-a", "template", "team-a", "checkpoint")
-		require.NoError(t, err)
-		require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "checkpoint"}, actor.GetSourceTag())
-	})
+func TestCreateActorUsesTemplateDefault(t *testing.T) {
+	fake := &createActorFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
+	require.NoError(t, err)
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
+	require.Nil(t, fake.actor.GetSourceTag(), "Substrate selects the template's golden snapshot")
+}
+
+func TestCreateActorFromTagUsesCheckpoint(t *testing.T) {
+	fake := &createActorFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	_, err := client.CreateActorFromTag(t.Context(), "team-a", "fork", "team-a", "template", "team-a", "checkpoint")
+	require.NoError(t, err)
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "checkpoint"}, fake.actor.GetSourceTag())
 }
 
 func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {

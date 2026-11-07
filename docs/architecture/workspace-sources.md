@@ -93,10 +93,10 @@ it from Git. Removing the private initialization metadata is state corruption,
 not a refresh mechanism.
 
 Substrate owns golden actors, outbound access before readiness, snapshotting,
-and cleanup. Kagent publishes only prepared revisions and explicitly selects the
-golden tag when creating an Actor. Missing templates or golden tags fail creation
-instead of falling back to a cold boot. Session creation remains suspended/lazy:
-it pins the prepared snapshot; disk restoration occurs when the Actor wakes.
+and cleanup. Kagent publishes only prepared revisions. Normal Actor creation uses
+Substrate's default, which freezes the template's current golden snapshot at
+creation. Checkpoint forks select their checkpoint tag explicitly. Session creation
+remains suspended/lazy: disk restoration occurs when the Actor wakes.
 No new Session phase, database schema, or activation RPC is needed.
 
 ## Credentials and runtime support
