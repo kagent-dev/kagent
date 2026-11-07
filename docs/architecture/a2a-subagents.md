@@ -33,6 +33,40 @@ tools:
 
 Tree resolution detects missing references and cycles before compilation.
 
+### Skills and MCP tools in native Shared agents
+
+Claude Shared children can select standalone `spec.skills` and MCP bindings.
+Their MCP servers are compiled as inline `mcpServers` in the child's `--agents`
+entry. Child servers use the same credential
+forwarding, egress, provenance, and approval handling as root servers, without
+adding them to the root's MCP configuration. Skills are installed alongside root
+skills and preloaded through the child's `skills` entry.
+When discovery is current, the compiler emits `disallowedTools` for discovered
+MCP tools outside an explicit selection. It leaves `tools` unset so adding MCP
+bindings or skills preserves the child's inherited built-in tools, including
+`Edit` and `Write`. If discovery is stale or unavailable, compilation succeeds
+with the same warning as the root and exposes the whole server until discovery
+is current again. Tool selections are not an authorization boundary.
+
+Codex installs the root's and all direct Shared children's standalone skills in
+the same Codex home. Each child's role file disables every installed skill it
+did not select, including root and sibling skills, using `skills.config` entries
+with `enabled = false`. A Codex child with an empty `spec.skills` therefore has
+all installed root and sibling skills disabled. This is intentional: a child
+must explicitly select a root skill with the same name and source to use it.
+Claude differs: an empty `skills` list disables preloading, while installed
+skills remain invocable through the Skill tool.
+Codex Shared children still cannot select MCP tools:
+roles cannot add servers or reduce the root's inherited MCP servers.
+
+On both CLIs, the root can discover and invoke skills selected by a child.
+Claude's `skills` field controls preloading; it does not prevent invoking other
+installed skills through the Skill tool. Shared children already share the
+root's runtime, sandbox, and egress policy, so these selections are not an
+authority boundary. Identical skill names may share an identical source;
+conflicting sources are rejected rather than overwriting one another. Child
+plugins and nested Shared children remain unsupported on both native harnesses.
+
 ## Dedicated agent tools
 
 Dedicated bindings would select an independently configured Agent with its own

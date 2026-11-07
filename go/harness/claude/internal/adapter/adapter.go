@@ -96,6 +96,12 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, err
 	}
 	protectedServers := approvalServerNames(cfg.MCPServers)
+	for _, agent := range cfg.Agents {
+		protectedServers = append(protectedServers, approvalServerNames(agent.MCPServers)...)
+		if _, exists := agent.MCPServers[approvalMCPServerName]; exists {
+			return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
+		}
+	}
 	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
 		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}

@@ -65,7 +65,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
 		}
 	}
-	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
+	if err := materializeAgents(codexHome, skillsRoot, cfg.Agents); err != nil {
 		return nil, err
 	}
 	nativeDefaults := cfg.RuntimeTelemetry
@@ -189,8 +189,18 @@ type nativeMCPServer struct {
 }
 
 type nativeAgentConfig struct {
-	Model                 string `toml:"model"`
-	DeveloperInstructions string `toml:"developer_instructions"`
+	Model                 string        `toml:"model"`
+	DeveloperInstructions string        `toml:"developer_instructions"`
+	Skills                *nativeSkills `toml:"skills,omitempty"`
+}
+
+type nativeSkills struct {
+	Config []nativeSkillConfig `toml:"config"`
+}
+
+type nativeSkillConfig struct {
+	Path    string `toml:"path"`
+	Enabled bool   `toml:"enabled"`
 }
 
 // renderConfig translates the versioned Kagent contract into the pinned
@@ -279,9 +289,24 @@ func nativeProviderName(name string) string {
 }
 
 // materializeAgents writes the per-agent config files referenced by config.toml.
-func materializeAgents(codexHome string, agents map[string]config.Agent) error {
+func materializeAgents(codexHome, skillsRoot string, agents map[string]config.Agent) error {
+	installed, err := os.ReadDir(skillsRoot)
+	if err != nil {
+		return fmt.Errorf("list Codex skills: %w", err)
+	}
 	for name, agent := range agents {
-		contents, err := toml.Marshal(nativeAgentConfig{Model: agent.Model, DeveloperInstructions: agent.Instruction})
+		role := nativeAgentConfig{Model: agent.Model, DeveloperInstructions: agent.Instruction}
+		for _, skill := range installed {
+			if !slices.Contains(agent.Skills, skill.Name()) {
+				if role.Skills == nil {
+					role.Skills = &nativeSkills{}
+				}
+				role.Skills.Config = append(role.Skills.Config, nativeSkillConfig{
+					Path: filepath.Join(skillsRoot, skill.Name(), "SKILL.md"), Enabled: false,
+				})
+			}
+		}
+		contents, err := toml.Marshal(role)
 		if err != nil {
 			return fmt.Errorf("encode Codex agent %q configuration: %w", name, err)
 		}

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	Version            = 3
+	Version            = 4
 	PinnedCodexVersion = "0.161.0"
 )
 
@@ -68,9 +68,10 @@ type Provider struct {
 }
 
 type Agent struct {
-	Description string `json:"description"`
-	Instruction string `json:"instruction"`
-	Model       string `json:"model"`
+	Description string   `json:"description"`
+	Instruction string   `json:"instruction"`
+	Model       string   `json:"model"`
+	Skills      []string `json:"skills,omitempty"`
 }
 
 type MCPServer struct {
