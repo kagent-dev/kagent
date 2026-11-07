@@ -75,9 +75,9 @@ playwright/
 ```
 
 The resources with a lifecycle spec are **models**, **MCP servers**, **prompt
-libraries**, **agent templates**, **harnesses** and **schedules**. Two are narrower
+libraries**, **agent templates**, **harnesses** and **schedules**. One is narrower
 than CRUD because the product is: an MCP server's address is its identity, so
-`ToolService` serves no update, and the harnesses tab offers no edit.
+`ToolService` serves no update.
 
 **Agents are not among them, because an agent is not created.** An agent is an
 `AgentTemplate` paired with a `Harness` — it exists the moment a harness admits a

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentTemplate } from "./agentTemplates";
-import { agentDescription, agentRevisionState, newConversationBlockedReason, type Agent, type AgentStatus } from "./agents";
+import { agentDescription, agentRevisionState, agentUpdateFailedReason, newConversationBlockedReason, type Agent, type AgentStatus } from "./agents";
 
 function agent(status?: AgentStatus): Agent {
   return { name: "a", namespace: "team", ref: "team/a", resource: { metadata: { name: "a", namespace: "team" }, spec: { template: { ref: { name: "shared" } }, harnessRef: { name: "runner" } }, status } };
@@ -11,6 +11,24 @@ describe("Agent readiness", () => {
     const row = agent({ latestSuccessfulRevision: "good", desiredRevision: "new", conditions: [{ type: "Compatible", status: "False", message: "Compilation failed" }] });
     expect(agentRevisionState(row)).toBe("updateFailed");
     expect(newConversationBlockedReason(row)).toBeUndefined();
+  });
+  it("explains a failed edit with the controller's message while the last good revision runs", () => {
+    const message = "golden build failed (GoldenActorCrashed): could not pull image ghcr.io/acme/harnes:1.0, retry 1 at 2026-11-07T10:00:15Z";
+    const row = agent({ latestSuccessfulRevision: "good", desiredRevision: "new", conditions: [
+      { type: "Compatible", status: "True", reason: "Compatible" },
+      { type: "Ready", status: "False", reason: "ActorTemplateRetrying", message },
+    ] });
+    expect(agentUpdateFailedReason(row)).toBe(message);
+  });
+  it("falls back to the failing reason, then a generic sentence, when a failed edit has no message", () => {
+    expect(agentUpdateFailedReason(agent({ latestSuccessfulRevision: "good", desiredRevision: "new", conditions: [{ type: "Ready", status: "False", reason: "ActorTemplateRetrying" }] }))).toBe("ActorTemplateRetrying");
+    expect(agentUpdateFailedReason(agent({ latestSuccessfulRevision: "good", desiredRevision: "new", conditions: [{ type: "Ready", status: "False" }] }))).toBe("The latest change failed.");
+  });
+  it("has no update failure to explain when the agent is ready, updating or never succeeded", () => {
+    expect(agentUpdateFailedReason(agent({ latestSuccessfulRevision: "good", desiredRevision: "good" }))).toBeUndefined();
+    expect(agentUpdateFailedReason(agent({ latestSuccessfulRevision: "good", desiredRevision: "new", conditions: [{ type: "Ready", status: "False", reason: "ActorTemplatePending" }] }))).toBeUndefined();
+    // A never-ready agent is explained by `newConversationBlockedReason` instead.
+    expect(agentUpdateFailedReason(agent({ desiredRevision: "new", conditions: [{ type: "Ready", status: "False", reason: "ActorTemplateRetrying", message: "golden build failed (GoldenActorCrashed)" }] }))).toBeUndefined();
   });
   it("reports a preparation failure before any successful revision", () => {
     const row = agent({ desiredRevision: "new", conditions: [{ type: "Compatible", status: "False", message: "Unsupported output schema" }] });

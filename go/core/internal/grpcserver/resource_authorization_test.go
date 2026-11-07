@@ -22,6 +22,7 @@ import (
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	promptservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
@@ -70,6 +71,7 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 		config.PromptTemplateService = promptservice.NewService(kube, authorizer)
 		config.ModelService = modelservice.NewService(kube, authorizer, "team", modelservice.WithProviderModelRefresher(refresher))
 		config.SystemService = systemservice.NewService(kube, []string{"team"}, authorizer, emptySystemATEClient{})
+		config.WorkerPoolService = kubecrud.NewService(kube, authorizer, &atev1.WorkerPool{}, &atev1.WorkerPoolList{}, "WorkerPool")
 	})
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
 	prompts := apiv1.NewPromptTemplateServiceClient(connection)
@@ -101,6 +103,14 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 	require.Equal(t, "allowed", summary.GetWorkerPools()[0].GetRef().GetName())
 	require.Zero(t, summary.GetActorCount())
 	require.Empty(t, summary.GetActorTemplates())
+
+	pools, err := apiv1.NewSystemServiceClient(connection).ListWorkerPools(ctx, &apiv1.ListWorkerPoolsRequest{Namespace: "team"})
+	require.NoError(t, err)
+	require.Len(t, pools.GetWorkerPools(), 1)
+	require.Equal(t, "allowed", pools.GetWorkerPools()[0].GetRef().GetName())
+	require.Equal(t, "WorkerPool", pools.GetWorkerPools()[0].GetResource().GetKind())
+	_, err = apiv1.NewSystemServiceClient(connection).ListWorkerPools(ctx, &apiv1.ListWorkerPoolsRequest{Namespace: "Team/Bad"})
+	assertGRPCCode(t, err, codes.InvalidArgument)
 }
 
 func TestProviderModelRefreshDeniedThroughShareRPC(t *testing.T) {
