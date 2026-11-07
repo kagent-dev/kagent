@@ -13,6 +13,7 @@ from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
 from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, bootstrap, configure_logging, instrument_app, materialize_from_bootstrap
+from kagent.core._config_materialize import extend_path_from_tool_images
 from kagent.core._runtime_config import RuntimeConfig, TokenPropagationConfig
 from kagent.core.telemetry import conv
 
@@ -273,6 +274,7 @@ def test(
 def run_cli():
     configure_logging()
     logger.info("Starting KAgent")
+    extend_path_from_tool_images()
     app()
 
 

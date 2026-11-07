@@ -40,6 +40,7 @@ export function harnessSpecFromDraft(draft: HarnessDraft, existing?: HarnessSpec
     // Exactly one adapter, which the CRD requires.
     [draft.adapter]: existing?.[draft.adapter] ?? {},
     workload: {
+      ...(existing?.workload?.toolImages ? { toolImages: existing.workload.toolImages } : {}),
       image: draft.image.trim(),
       ...(draft.command.length > 0 ? { command: draft.command } : {}),
       ...(draft.args.length > 0 ? { args: draft.args } : {}),

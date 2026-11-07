@@ -181,6 +181,9 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	// Normalize once after the complete harness configuration has been compiled.
 	slices.Sort(result.SkillImages)
 	result.SkillImages = slices.Compact(result.SkillImages)
+	for _, image := range harness.Spec.Workload.ToolImages {
+		result.ToolImages = append(result.ToolImages, ToolImage{Name: image.Name, Reference: image.OCI})
+	}
 	return result, nil
 }
 

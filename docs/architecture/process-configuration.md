@@ -253,7 +253,9 @@ an explicit generated `RuntimeConfig`. Python ADK loads the full document with
 Managed runtimes receive configuration and the Agent Card through the
 [prepared revision's bootstrap bundle](configuration-and-compilation.md#configuration-delivery).
 The controller supplies `KAGENT_BOOTSTRAP_JSON`; configuration payloads are not
-passed through environment variables.
+passed through environment variables. `KAGENT_TOOL_PATHS` is present only when
+the Harness lists tool images. Substrate's limits remain 32 environment entries
+and 32,768 characters per value.
 
 ## OpenTelemetry
 
