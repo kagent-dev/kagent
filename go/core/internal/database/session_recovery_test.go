@@ -41,7 +41,8 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			version, err := client.CreateRuntimeTask(t.Context(), session.Id, taskMutationHash("create"), task, "")
 			require.NoError(t, err)
 			if test.published {
-				require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+				_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+				require.NoError(t, err)
 			}
 			snapshot := SessionTaskSnapshot{}
 			if test.captured {
@@ -79,7 +80,7 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			} else {
 				require.ErrorIs(t, err, ErrConflict)
 			}
-			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), ErrConflict)
+			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next", nil), ErrConflict)
 			_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
 			require.ErrorIs(t, err, ErrConflict)
 		})
@@ -153,7 +154,8 @@ func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 		version, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash(string(state)), task, task, "")
 		require.NoError(t, err)
 	}
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	work, err := client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	uid := "actor-" + session.Id
@@ -227,7 +229,8 @@ func TestCrashedRecoveryAdmissionRollsBackOnMalformedTask(t *testing.T) {
 		version, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash(string(state)), task, task, "")
 		require.NoError(t, err)
 	}
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	row, err := readSession(t.Context(), client.db, session.Id)
 	require.NoError(t, err)
 	before, err := readSessionTask(t.Context(), client.db, row.HistoryID, string(task.ID))
