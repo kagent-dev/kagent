@@ -121,6 +121,7 @@ export const mockProviders: Provider[] = [
       "n",
       "timeout",
       "reasoningEffort",
+      "apiFormat",
     ],
   },
   {
@@ -606,6 +607,24 @@ export const mockAgentInstances: AgentInstance[] = [
  * exactly the class of failure this file's fixtures have caused before.
  */
 export const mockHarnesses: Harness[] = [
+  // The three the chart installs: no workload, so each runs the release's image.
+  ...(["kagent", "codex", "claude"] as const).map((runtime) => ({
+    ref: `kagent/${runtime}-default`,
+    namespace: "kagent",
+    name: `${runtime}-default`,
+    runtime,
+    workloadImage: "",
+    resource: {
+      metadata: { name: `${runtime}-default`, namespace: "kagent" },
+      spec: {
+        [runtime]: {},
+        substrate: {
+          workerPoolRef: { name: "kagent-default" },
+          snapshotPolicy: { location: "gs://ate-snapshots/kagent/" },
+        },
+      },
+    },
+  })),
   {
     ref: "kagent/k8s-agent",
     namespace: "kagent",

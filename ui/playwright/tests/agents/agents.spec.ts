@@ -10,16 +10,37 @@ import {
   routes,
   withScenario,
 } from "../../helpers/app";
-import { clickRefresh, optionNamed, pressOnce } from "../../helpers/resource";
+import { anyDialog, clickRefresh, dialog, optionNamed, pressOnce } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
 import { background, settledPaint } from "../../helpers/style";
 
-test("agents: an empty Harness selector links to Harness creation", async ({ page }) => {
+test("agents: an empty Harness selector offers Harness creation in place", async ({ page }) => {
   await loadPage(page, routes.agentNew, { scenario: "empty", title: "New agent" });
   await page.getByTestId("agent-form-harness-ref").click();
 
-  const createHarness = page.getByRole("link", { name: "Create a harness" });
-  await expect(createHarness).toHaveAttribute("href", routes.harnessNew);
+  await page.getByRole("button", { name: "Create a harness" }).click();
+  await expect(dialog(page)).toBeVisible();
+  await expect(dialog(page).getByTestId("harness-intro")).toBeVisible();
+  await expect(dialog(page).getByTestId("harness-create")).toBeDisabled();
+});
+
+test("agents: a harness made from the agent form is selected for the agent", async ({ page }) => {
+  await loadPage(page, routes.agentNew, { title: "New agent" });
+  // The namespace's default harness is preselected, so a fresh agent needs no choice.
+  await expect(page.getByTestId("agent-form-harness-ref")).toContainText("kagent-default");
+
+  await page.getByTestId("agent-form-harness-create").click();
+  const form = dialog(page);
+  await expect(form).toBeVisible();
+  await expect(form.getByTestId("harness-namespace")).toContainText("kagent");
+  await form.getByTestId("harness-name").fill("made-inline");
+  await expect(form.getByTestId("harness-worker-pool").locator("input")).toHaveValue("kagent-default");
+  await form.getByTestId("harness-create").click();
+
+  await expect(anyDialog(page)).toBeHidden();
+  await expect(page.getByTestId("agent-form-harness-ref")).toContainText("made-inline");
+  // A dialog rather than a trip to the harnesses page, so the agent form is still here.
+  await expect(page).toHaveURL(/\/agents\/new(\?|$)/);
 });
 
 /** Agents -- each row is one explicit Agent with behavior and a referenced Harness. */
