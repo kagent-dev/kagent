@@ -16,6 +16,9 @@ import (
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func newControllerConn(t *testing.T, target string) *grpc.ClientConn {
@@ -120,4 +123,43 @@ var _ grpc_health_v1.HealthServer = (*readinessHealthServer)(nil)
 func (s *readinessHealthServer) Check(context.Context, *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
 	s.calls.Add(1)
 	return &grpc_health_v1.HealthCheckResponse{Status: s.health}, status.Error(s.code, "controller unavailable")
+}
+
+// restartTestController replaces the single test controller and waits for
+// its public API. Call only from sequential tests with an endpoint that survives
+// pod replacement.
+func restartTestController(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	kube := interactionKubeClient(t)
+	pods := &corev1.PodList{}
+	require.NoError(t, kube.List(ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
+	require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
+	restartControllerPod(t, kube, pods.Items[0])
+}
+
+func restartControllerPod(t *testing.T, kube ctrlclient.Client, old corev1.Pod) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	require.NoError(t, kube.Delete(ctx, &old))
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
+		current := &corev1.PodList{}
+		if err := kube.List(ctx, current, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
+			return false, err
+		}
+		for _, pod := range current.Items {
+			if pod.UID == old.UID {
+				continue
+			}
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "wait for replacement controller")
+	newControllerConn(t, interactionTarget(t))
 }

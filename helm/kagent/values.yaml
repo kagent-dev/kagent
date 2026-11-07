@@ -224,6 +224,8 @@ config:
 # ==============================================================================
 
 controller:
+  # Controller upgrades remain rolling. Checkpoint mutations and recovery wait
+  # until legacy writer Pods exit; other API traffic remains available.
   # Standard OTEL overrides and external SDK credentials for this process only.
   env: []
   envFrom: []

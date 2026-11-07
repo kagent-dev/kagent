@@ -136,6 +136,28 @@ checks also run in parallel. Trace cases share the receiver but select spans by
 their own trace IDs; the receiver is cleared once before starting those cases.
 
 Controller restart cases stay sequential with respect to the rest of the suite.
+`TestCheckpointReplayAfterControllerRestart` loses a successful public checkpoint
+response, replaces the controller once for the harness matrix, retries the same
+request, and forks the retained snapshot to verify conversation continuity.
+The response loss is caller-side after success; interrupted tag copying,
+publication and compensation are exercised with PostgreSQL-backed workflow fault
+tests. This test does not inject live Substrate packet loss.
+
+`bash core/test/e2e/checkpoint-recovery.sh` (from `go/`) runs the checkpoint
+lifecycle service against real PostgreSQL and the installed Substrate. Set
+`KAGENT_E2E_RUNTIME_IMAGE` to the digest-pinned Go ADK image. The script reads the
+test controller's projected identity into temporary private files and forwards
+the Substrate service; it leaves controller configuration unchanged. Both CI
+runtime jobs run it before the public API E2E suite, and a configured environment
+must fail rather than skip on missing prerequisites. It owns its ActorTemplate,
+Actors and Tags. Cases cover abandoned reservations, lost successful tag replies,
+copy completion before database publication,
+a source deleted before tag creation, failed compensation after a real source
+change, and lost successful deletion replies. Transport faults are injected at
+the service's client boundary around real calls; backend responses and database
+phases are not fabricated. The deterministic PostgreSQL tests separately cover
+pending-copy leases and overlapping/expired executors. These are not claims of
+live object-store outage or mid-copy packet-loss coverage.
 The scheduled-run restart test starts all selected harness executions before one
 shared controller restart, then releases their model responses and checks recovery
 in parallel. Each harness retains its own Session, task, and prompt-count assertions.
@@ -319,3 +341,13 @@ missing worker capacity fails the test rather than skipping continuation coverag
 There are no retries around list calls, so a Substrate token-format change fails
 on continuation. Run with `KAGENT_E2E_API_URL` and the normal kagent harness fixture
 configured, using `go test ./core/test/e2e -run '^TestSubstrateInventoryPagination$'`.
+
+`TestCheckpointActivationDuringControllerReplacement` keeps an unmarked, unready
+Pod alive while replacing the actual controller. The replacement must become
+Ready and serve its public health check while checkpoint mutations return
+retryable `Unavailable`. A terminating legacy-shaped Pod still holds the barrier;
+only its exit permits mutation admission. This controller activation scenario is
+independent of harness execution and runs in both runtime lanes. The placeholder
+models legacy Pod lifetime; it does not claim an old-binary release upgrade.
+Published-release upgrade legs may still skip when no compatible database-managed
+baseline exists, so their successful job status alone is not upgrade evidence.

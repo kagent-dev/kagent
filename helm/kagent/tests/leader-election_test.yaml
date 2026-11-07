@@ -10,6 +10,20 @@ tests:
       - contains:
           path: rules
           content:
+            apiGroups: [apps]
+            resources: [replicasets]
+            verbs: [list]
+        template: rbac/leader-election-role.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [pods]
+            verbs: [get, list]
+        template: rbac/leader-election-role.yaml
+      - contains:
+          path: rules
+          content:
             apiGroups: [coordination.k8s.io]
             resources: [leases]
             verbs: [get, list, watch, create, update, patch]

@@ -237,6 +237,12 @@ func TestUpgrade(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
 		defer cancel()
 
+		// The previous chart uses RollingUpdate and its checkpoint writers do
+		// not acquire execution claims. Finish the current generation before
+		// restoring that chart; schema compatibility does not fence writers.
+		kubectl(t, env, time.Minute, "scale", "deployment/kagent-controller", "-n", env.namespace, "--replicas=0")
+		kubectl(t, env, 3*time.Minute, "wait", "pod", "-n", env.namespace,
+			"-l", controllerSelector, "--for=delete", "--timeout=3m")
 		out, err := installPreviousReleaseCommand(ctx, env).CombinedOutput()
 		require.NoError(t, err, "rolling back to the previous release failed:\n%s", string(out))
 		kubectl(t, env, 3*time.Minute,

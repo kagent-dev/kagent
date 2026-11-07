@@ -265,6 +265,9 @@ jobs:
             sleep 5
           done
           test "$READY" = True
+          # Exercise recovery with real Substrate and PostgreSQL, including lost
+          # tag responses and compensation interrupted before deletion.
+          bash core/test/e2e/checkpoint-recovery.sh
           export KAGENT_E2E_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
           echo "KAGENT_E2E_API_URL: $KAGENT_E2E_API_URL"
           make core/bin/kagent-local

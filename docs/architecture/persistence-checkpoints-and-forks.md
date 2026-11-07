@@ -64,6 +64,72 @@ Creating a checkpoint does not suspend the Actor again:
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
 4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
 
+The RPC reserves durable work and waits for its outcome. Only the leader-elected
+checkpoint worker creates and deletes snapshot tags; API replicas do not issue
+competing copies. Canceling a request stops its wait, not the admitted operation.
+Retrying with the same request ID observes the same checkpoint. Startup and
+periodic scans resume `CREATING` and `DELETING` work without requiring the caller
+to return. The worker polls once per second so admission on another API replica does not
+wait for a caller-local signal; local API requests also wake it immediately.
+
+Each attempt obtains a database execution claim before reading its current phase.
+The claim and every backend call share a deadline of at most two minutes, starting
+before claim acquisition. An overlapping worker cannot claim live work; after an
+expired attempt, the replacement reads the persisted phase again. Cleanup,
+publication, and deletion require the current executor identity under the row
+lock, and a delayed release cannot revoke a replacement's claim. Leader election
+reduces duplicate scans but is not the execution fence. A slow remote copy is
+still synchronized through Substrate's tag lease after a client attempt expires.
+
+Discovery enqueues checkpoint IDs independently of four execution workers, so a
+slow copy cannot hold up unrelated new work. Failed attempts retry with capped
+exponential backoff from one to thirty seconds and jitter, including at the cap.
+Scans and immediate dirty-key requeues respect each checkpoint's retry deadline.
+The retry schedule is local to a worker; reservations and execution claims remain
+durable across restarts.
+
+Permanent operation errors are recorded under the current execution claim,
+without deleting the checkpoint or releasing its references. Public waiters on
+any API replica return the recorded status, such as `FailedPrecondition`, rather
+than waiting for their deadline. Backend configuration is excluded from these
+public error messages. Confirmed progress clears the error. Both creation and
+deletion waiters use exponential polling backoff from 100 ms to one second with
+jitter; canceling a caller still leaves the admitted work available for recovery.
+
+Controller upgrades remain `RollingUpdate`. New Pods advertise the private
+`kagent.dev/checkpoint-execution-claims: v1` annotation. Each API replica uses the
+live Kubernetes API to wait for all unmarked Pods in its Deployment's stable
+selector to exit and their ReplicaSets to acknowledge scale-down to zero.
+Unready and terminating legacy Pods still block activation, as do old ReplicaSets
+that could recreate them.
+This barrier runs independently of leader election and Pod readiness, so new
+replicas can serve other traffic while Kubernetes drains the previous generation.
+Checkpoint creation and deletion return retryable `Unavailable` before admitting
+new work until activation; the recovery worker waits on the same barrier.
+Already admitted reservations and reference pins survive the transition.
+
+Compatible future rollouts activate immediately without a controller API outage.
+Custom deployments must preserve the protocol annotation and controller Pod
+identity. A standalone development controller conservatively checks controller
+Pods in its namespace; stop legacy Pods before running it. Kubernetes read errors
+keep recovery closed. Do not force-delete terminating legacy writers. Before
+rolling back to an older chart without the protocol, quiesce checkpoint requests
+and finish pending recovery, then stop all current controllers
+and wait for them to exit: the startup barrier does not fence a later downgrade.
+
+A pending tag is not evidence of abandonment. Substrate serializes `CreateTag`
+against both the source Actor and the tag, including a copy still finishing after
+an earlier controller disappeared. Recovery calls `CreateTag` under those leases
+before interpreting `AlreadyExists`: a completed copy can be published, while a
+partial copy can be compensated once the prior copy has ended. Transport errors
+retain the reservation; checkpoint age never authorizes cleanup.
+
+Compensation first records the failure and exact tag UID while the checkpoint
+remains `CREATING`. Source admission and all reference pins remain held. A restart
+resumes deletion of that UID rather than creating or publishing another copy.
+Only confirmed cleanup marks the checkpoint `FAILED`; a replaced or unverified
+tag is never deleted. Database transactions do not span Substrate calls.
+
 Kagent requests synchronous Substrate suspension before recording a checkpoint.
 If an earlier attempt already suspended the Actor but left a pending durable
 upload, the adapter waits within the request deadline for that same snapshot
@@ -97,7 +163,7 @@ Failed checkpoints can also be deleted by their owner. Creation marks a checkpoi
 failed only after snapshot-tag cleanup succeeds or confirms that no tag exists.
 Deletion verifies that absence before removing the row; it never deletes an
 unexpected tag without a retained UID. Backend errors leave the checkpoint in
-`DELETING` for a later delete request to retry. Its history and runtime revision
+`DELETING` for the checkpoint worker to retry. Its history and runtime revision
 references remain retained until deletion completes. Checkpoints still in
 `CREATING` cannot be deleted through this path.
 
@@ -165,11 +231,12 @@ snapshot forks. The Agent endpoint and globally unique task ID identify a task.
 Reads, writes, cancellation, subscriptions, authorization, and dispatch remain
 scoped to the resolved session. Forks have independent public identities.
 
-## Unreleased schema
+## Schema migrations
 
-Until release, core schema changes are folded into `000001_initial.sql`.
-Recreate development databases when that baseline changes; there is no upgrade
-path from earlier development schemas. The Down migration removes the core schema.
+Merged migration files are immutable. Core changes use new transactional Goose
+migrations, including the partial index used to discover pending checkpoint work.
+Development databases created from older, rewritten alpha baselines still need
+to be recreated; new migrations do not bridge those historical schemas.
 
 Deploy the controller and clients together: clients must use `Session.context_id`
 or omit the context and let the routed gateway resolve it.

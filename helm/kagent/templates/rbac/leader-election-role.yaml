@@ -6,6 +6,13 @@ metadata:
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 rules:
+# Controller startup coordinates checkpoint recovery with legacy replicas.
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [get, list]
+- apiGroups: [apps]
+  resources: [replicasets]
+  verbs: [list]
 - apiGroups:
   - coordination.k8s.io
   resources:
