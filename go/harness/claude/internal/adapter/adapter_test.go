@@ -1,11 +1,9 @@
 package adapter
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/internal/testutil"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -22,7 +21,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
-	runner, err := New(context.Background(), Input{
+	runner, err := New(t.Context(), Input{
 		ConfigJSON: []byte(`{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.285","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
@@ -89,7 +88,7 @@ func TestNativeProcessRetriesAreOptIn(t *testing.T) {
 func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	skillRoot := filepath.Join(durableDir, "generated", "claude")
-	repository, commit := skillRepository(t, map[string]string{"SKILL.md": "# Review"})
+	repository, commit := testutil.CommitFiles(t, map[string]string{"SKILL.md": "# Review"})
 	cfg := config.Production("claude-test", "help")
 	cfg.StrictVersion = false
 	cfg.SkillResources = &agentplugin.Resources{Skills: []agentplugin.Skill{{
@@ -101,7 +100,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	ephemeralDir := filepath.Join(t.TempDir(), "generated")
-	runner, err := New(context.Background(), Input{
+	runner, err := New(t.Context(), Input{
 		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
 		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
 	})
@@ -149,7 +148,7 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, err := New(context.Background(), Input{
+	runner, err := New(t.Context(), Input{
 		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
 		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
 	})
@@ -220,7 +219,7 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 
 func TestNewRejectsInvalidInput(t *testing.T) {
 	input := Input{ConfigJSON: []byte(`{}`), Workspace: "relative", DurableDir: "relative", EphemeralDir: "relative"}
-	if _, err := New(context.Background(), input); err == nil {
+	if _, err := New(t.Context(), input); err == nil {
 		t.Fatal("New() accepted invalid input")
 	}
 }
@@ -347,32 +346,4 @@ func TestLargeSystemPromptIsDeliveredThroughFile(t *testing.T) {
 	if slices.Contains(args, prompt) || slices.Contains(args, "--append-system-prompt") {
 		t.Fatal("system prompt is still passed inline")
 	}
-}
-
-// skillRepository commits files to a local git repository, fetchable by
-// commit.
-func skillRepository(t *testing.T, files map[string]string) (repository, commit string) {
-	t.Helper()
-	repository = t.TempDir()
-	git := func(args ...string) string {
-		command := exec.Command("git", append([]string{"-C", repository, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"}, args...)...)
-		output, err := command.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, output)
-		}
-		return strings.TrimSpace(string(output))
-	}
-	git("init", "-q")
-	for name, content := range files {
-		path := filepath.Join(repository, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	git("add", ".")
-	git("commit", "-q", "-m", "fixture")
-	return repository, git("rev-parse", "HEAD")
 }
