@@ -1,0 +1,28 @@
+suite: test ui.enabled toggle
+templates:
+  - ui-configmap.yaml
+  - ui-deployment.yaml
+  - ui-nginx-configmap.yaml
+  - ui-service.yaml
+  - ui-serviceaccount.yaml
+  - ui-pdb.yaml
+  - ui-httproute.yaml
+tests:
+  - it: renders the UI Deployment by default
+    template: ui-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - hasDocuments:
+          count: 1
+
+  - it: renders no UI resources when ui.enabled is false
+    set:
+      ui.enabled: false
+      ui.pdb.enabled: true
+      ui.replicas: 2
+      ui.httpRoute.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+

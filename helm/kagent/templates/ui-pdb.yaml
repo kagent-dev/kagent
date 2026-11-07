@@ -1,6 +1,6 @@
 {{- $pdb := .Values.ui.pdb | default dict }}
 {{- include "kagent.pdb.validate" (dict "pdb" $pdb "path" "ui.pdb") }}
-{{- if $pdb.enabled }}
+{{- if and .Values.ui.enabled $pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
