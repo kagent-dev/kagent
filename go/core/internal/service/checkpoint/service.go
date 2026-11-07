@@ -330,7 +330,7 @@ func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOpera
 	snapshot, tagUID := op.Snapshot, op.TagUID
 	tag, err := s.tags.GetTag(ctx, snapshot.Atespace, tagName(checkpointID))
 	if err != nil && status.Code(err) != codes.NotFound {
-		return serviceerrors.NewUnavailable("Failed to get checkpoint snapshot tag", err)
+		return fmt.Errorf("get checkpoint snapshot tag: %w", err)
 	}
 	if err == nil {
 		// Failed creation records no tag UID after compensation. An unexpected tag
@@ -341,7 +341,7 @@ func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOpera
 			return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
 		}
 		if err := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpointID), tagUID); err != nil && status.Code(err) != codes.NotFound {
-			return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
+			return fmt.Errorf("delete checkpoint snapshot tag: %w", err)
 		}
 	}
 	if err := s.store.DeleteClaimedSessionCheckpoint(ctx, checkpointID, userID, executor); err != nil {

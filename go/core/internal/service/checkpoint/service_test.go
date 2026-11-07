@@ -360,7 +360,7 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 	}
 	tags.getErr = nil
 	tags.deleteErr = status.Error(codes.Unavailable, "tag delete unavailable")
-	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(deleteAndRecover(service, ctx, checkpoint.GetId())))
+	require.Equal(t, codes.Unavailable, status.Code(deleteAndRecover(service, ctx, checkpoint.GetId())))
 	require.False(t, store.deleted, "a failed tag delete must retain the database reference")
 	require.NotNil(t, tags.created)
 	tags.deleteErr = nil
@@ -382,7 +382,7 @@ func TestDeleteFailedCheckpointWithMissingTag(t *testing.T) {
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 
 	tags.getErr = status.Error(codes.Unavailable, "tag lookup unavailable")
-	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(deleteAndRecover(service, ctx, checkpoint.GetId())))
+	require.Equal(t, codes.Unavailable, status.Code(deleteAndRecover(service, ctx, checkpoint.GetId())))
 	require.False(t, store.deleted)
 	require.Zero(t, tags.deleteCalls)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, checkpoint.State)

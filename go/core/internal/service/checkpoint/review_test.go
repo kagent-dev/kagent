@@ -59,6 +59,109 @@ func TestPublicDeleteRetainsPermanentFailure(t *testing.T) {
 	require.ErrorIs(t, err, database.ErrNotFound)
 }
 
+func TestPublicDeleteReportsPermanentBackendErrors(t *testing.T) {
+	for _, method := range []string{"GetTag", "DeleteTag"} {
+		for _, code := range []codes.Code{codes.FailedPrecondition, codes.InvalidArgument, codes.PermissionDenied, codes.Unauthenticated} {
+			t.Run("Given "+method+" returns "+code.String()+", when public Delete runs, assert that its safe error survives worker replacement and recovery", func(t *testing.T) {
+				store := reviewStore(t)
+				source, head := recoverySource(t, store)
+				tags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}}
+				service := NewService(store, testAuthorizer{}, tags, nil)
+				owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+				cp, err := createAndRecover(service, owner, source.Id, uuid.NewString(), head)
+				require.NoError(t, err)
+				const private = "private-backend-configuration"
+				tags.mu.Lock()
+				if method == "GetTag" {
+					tags.base.getErr = status.Error(code, private)
+				} else {
+					tags.base.deleteErr = status.Error(code, private)
+				}
+				tags.mu.Unlock()
+				stop := startRecovery(t, service)
+				follower := NewService(store, testAuthorizer{}, tags, nil)
+				ctx, cancel := context.WithTimeout(owner, 3*time.Second)
+				defer cancel()
+				err = follower.Delete(ctx, cp.Id)
+				require.Equal(t, code, status.Code(err))
+				require.NotContains(t, err.Error(), private)
+				stop()
+				pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+				require.NoError(t, err)
+				require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, pending.Checkpoint.State)
+				require.Equal(t, "tag-uid", pending.TagUID)
+				require.Equal(t, int32(code), pending.OperationError.GetCode())
+				tags.mu.Lock()
+				require.NotNil(t, tags.base.created, "a failed deletion must retain the tag")
+				tags.mu.Unlock()
+				follower = NewService(store, testAuthorizer{}, tags, nil)
+				require.Equal(t, code, status.Code(follower.Delete(ctx, cp.Id)))
+				// Repair and replace the worker: the reported error must not prevent
+				// completion or release the reference before deletion succeeds.
+				tags.mu.Lock()
+				tags.base.getErr, tags.base.deleteErr = nil, nil
+				tags.mu.Unlock()
+				stop = startRecovery(t, follower)
+				require.Eventually(t, func() bool {
+					_, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+					return errors.Is(err, database.ErrNotFound)
+				}, 3*time.Second, 10*time.Millisecond)
+				stop()
+				tags.mu.Lock()
+				require.Nil(t, tags.base.created)
+				tags.mu.Unlock()
+			})
+		}
+	}
+}
+
+func TestPublicCreateRejectsUnverifiedExistingTag(t *testing.T) {
+	store := reviewStore(t)
+	source, head := recoverySource(t, store)
+	tags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}}
+	service := NewService(store, testAuthorizer{}, tags, nil)
+	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	request := uuid.NewString()
+	cp, _, err := service.beginCreate(owner, source.Id, request, head)
+	require.NoError(t, err)
+	_, err = tags.CreateTag(t.Context(), "team-a", tagName(cp.Id), "another-actor")
+	require.NoError(t, err)
+	stop := startRecovery(t, service)
+	// Given a pending reservation with a tag belonging to another Actor, when
+	// a fresh API receives public Create, assert that it reports the identity
+	// error without deleting the tag or releasing source admission.
+	follower := NewService(store, testAuthorizer{}, tags, nil)
+	ctx, cancel := context.WithTimeout(owner, 3*time.Second)
+	defer cancel()
+	_, err = follower.Create(ctx, source.Id, request, head)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	stop()
+	pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+	require.NoError(t, err)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
+	require.Nil(t, pending.Checkpoint.Failure, "an unverified tag must not authorize compensation")
+	require.Empty(t, pending.TagUID)
+	require.Equal(t, int32(codes.FailedPrecondition), pending.OperationError.GetCode())
+	_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	require.ErrorIs(t, err, database.ErrConflict)
+	tags.mu.Lock()
+	require.Zero(t, tags.base.deleteCalls)
+	require.Equal(t, "another-actor", tags.base.created.SourceActor.Name)
+	// Once the backend identity is repaired, a new worker may adopt the same
+	// checkpoint and clear the durable error without a new reservation.
+	tags.base.created.SourceActor.Name = substrate.ActorName(source.Id)
+	tags.mu.Unlock()
+	stop = startRecovery(t, follower)
+	waitCheckpointPhase(t, store, cp.Id, apiv1.CheckpointState_CHECKPOINT_STATE_READY)
+	stop()
+	published, err := follower.Create(ctx, source.Id, request, head)
+	require.NoError(t, err)
+	require.Equal(t, cp.Id, published.Id)
+	pending, err = store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+	require.NoError(t, err)
+	require.Nil(t, pending.OperationError)
+}
+
 func TestPermanentRecoveryErrorsKeepBackendConfigurationPrivate(t *testing.T) {
 	const private = "private-credential-value"
 	for _, scenario := range []struct {

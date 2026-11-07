@@ -3,7 +3,6 @@ package checkpoint
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -200,7 +200,7 @@ func (s *Service) recoverOperation(ctx context.Context, observed *database.Check
 			return err
 		}
 		if tag != nil && !validTagSource(tag, op.Checkpoint, op.Snapshot) {
-			return fmt.Errorf("refuse cleanup of an unverified checkpoint tag: %w", err)
+			return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", err)
 		}
 		uid := tag.GetMetadata().GetUid()
 		if recordErr := s.store.BeginCheckpointCleanup(ctx, op.Checkpoint.Id, executor, uid, err.Error()); recordErr != nil {
