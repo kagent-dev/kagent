@@ -117,6 +117,10 @@ config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
     routerUrl: https://atenet-router.ate-system.svc:443
+  # Getting-started installs answer grpcurl without local proto files.
+  # Reflection still requires whatever authentication the operator configures.
+  server:
+    grpcReflection: true
 # Ready-to-reference Harnesses on the WorkerPool created below.
 defaultHarnesses:
   enabled: true

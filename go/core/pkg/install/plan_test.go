@@ -381,6 +381,51 @@ func TestModelCredentialValuesPreserveHelmPrecedence(t *testing.T) {
 	}
 }
 
+func TestPlanEnablesGRPCReflection(t *testing.T) {
+	scenarios := []struct {
+		name     string
+		operator string
+		want     string
+	}{
+		{
+			name: "Given chart defaults that disable gRPC reflection, when planning an install, assert that reflection is enabled",
+			want: "true",
+		},
+		{
+			name:     "Given an operator values file that disables gRPC reflection, when planning an install, assert that the operator choice wins",
+			operator: "config: {server: {grpcReflection: false}}\n",
+			want:     "false",
+		},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			cfg := localInstallConfig(t)
+			chart := filepath.Join(cfg.Kagent.Repository, cfg.Kagent.Name)
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "values.yaml"), []byte("config: {server: {grpcReflection: false}}\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates", "reflection.yaml"), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: reflection}\ndata:\n  reflection: {{ .Values.config.server.grpcReflection | quote }}\n"), 0o600))
+			if scenario.operator != "" {
+				operator := filepath.Join(t.TempDir(), "operator.yaml")
+				require.NoError(t, os.WriteFile(operator, []byte(scenario.operator), 0o600))
+				cfg.Kagent.ValuesFiles = []string{operator}
+			}
+			runner := CommandRunner{}
+			plan, err := NewClient(runner, nil).Plan(t.Context(), cfg)
+			require.NoError(t, err)
+
+			steps := plan.Steps()
+			release := steps[len(steps)-1].(ChartInstall)
+			command := release.Command()
+			command.Args = append([]string{"template", release.Release, chartReference(release.Chart), "--show-only", "templates/reflection.yaml"}, helmValueArgs(release.Chart)...)
+			out, err := runner.Run(t.Context(), command)
+			require.NoError(t, err)
+
+			var rendered struct{ Data map[string]string }
+			require.NoError(t, yaml.Unmarshal([]byte(out), &rendered))
+			require.Equal(t, scenario.want, rendered.Data["reflection"])
+		})
+	}
+}
+
 func TestPlanEnablesDefaultHarnesses(t *testing.T) {
 	scenarios := []struct {
 		name        string
