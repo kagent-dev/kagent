@@ -438,7 +438,7 @@ func TestPlanEnablesDefaultHarnesses(t *testing.T) {
 		},
 		{
 			name:        "Given an operator values file that disables default Harnesses, when planning an install, assert that the operator choice wins",
-			operator:    "defaultHarnesses: {enabled: false}\n",
+			operator:    "harnesses: {enabled: false}\n",
 			wantHarness: "false",
 		},
 	}
@@ -446,8 +446,8 @@ func TestPlanEnablesDefaultHarnesses(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			cfg := localInstallConfig(t)
 			chart := filepath.Join(cfg.Kagent.Repository, cfg.Kagent.Name)
-			require.NoError(t, os.WriteFile(filepath.Join(chart, "values.yaml"), []byte("defaultHarnesses: {enabled: false}\nsubstrateWorkerPool: {create: false}\n"), 0o600))
-			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates", "harnesses.yaml"), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: harnesses}\ndata:\n  harnesses: {{ .Values.defaultHarnesses.enabled | quote }}\n  pool: {{ .Values.substrateWorkerPool.create | quote }}\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "values.yaml"), []byte("harnesses: {enabled: false}\nsubstrateWorkerPool: {create: false}\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates", "harnesses.yaml"), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: harnesses}\ndata:\n  harnesses: {{ .Values.harnesses.enabled | quote }}\n  pool: {{ .Values.substrateWorkerPool.create | quote }}\n"), 0o600))
 			if scenario.operator != "" {
 				operator := filepath.Join(t.TempDir(), "operator.yaml")
 				require.NoError(t, os.WriteFile(operator, []byte(scenario.operator), 0o600))

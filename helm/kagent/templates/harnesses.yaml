@@ -1,9 +1,9 @@
-{{- if .Values.defaultHarnesses.enabled }}
-{{- if not .Values.defaultHarnesses.snapshotLocation }}
-{{- fail "defaultHarnesses.snapshotLocation is required when defaultHarnesses.enabled=true" }}
+{{- if .Values.harnesses.enabled }}
+{{- if not .Values.harnesses.snapshotLocation }}
+{{- fail "harnesses.snapshotLocation is required when harnesses.enabled=true" }}
 {{- end }}
 {{- range $adapter := list "kagent" "codex" "claude" }}
-{{- if (index $.Values.defaultHarnesses $adapter).enabled }}
+{{- if (index $.Values.harnesses $adapter).enabled }}
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Harness
@@ -18,7 +18,7 @@ spec:
     workerPoolRef:
       name: {{ $.Values.substrateWorkerPool.name | toString | quote }}
     snapshotPolicy:
-      location: {{ $.Values.defaultHarnesses.snapshotLocation | quote }}
+      location: {{ $.Values.harnesses.snapshotLocation | quote }}
 {{- end }}
 {{- end }}
 {{- end }}

@@ -118,7 +118,7 @@ config:
   server:
     grpcReflection: true
 # Ready-to-reference Harnesses on the WorkerPool created below.
-defaultHarnesses:
+harnesses:
   enabled: true
 ` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
 	if !cfg.SkipDatabaseSetup {

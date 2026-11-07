@@ -1,6 +1,6 @@
 suite: test default harnesses
 templates:
-  - default-harnesses.yaml
+  - harnesses.yaml
 release:
   namespace: kagent
 tests:
@@ -11,7 +11,7 @@ tests:
 
   - it: should render one harness per built-in runtime when enabled
     set:
-      defaultHarnesses.enabled: true
+      harnesses.enabled: true
     asserts:
       - hasDocuments:
           count: 3
@@ -43,7 +43,7 @@ tests:
 
   - it: should run on the chart worker pool with the default snapshot location and built-in image
     set:
-      defaultHarnesses.enabled: true
+      harnesses.enabled: true
     asserts:
       - equal:
           path: metadata.namespace
@@ -62,8 +62,8 @@ tests:
 
   - it: should follow a renamed worker pool and custom snapshot location
     set:
-      defaultHarnesses.enabled: true
-      defaultHarnesses.snapshotLocation: s3://team-snapshots/agents/
+      harnesses.enabled: true
+      harnesses.snapshotLocation: s3://team-snapshots/agents/
       substrateWorkerPool.name: team-pool
     asserts:
       - equal:
@@ -75,8 +75,8 @@ tests:
 
   - it: should skip a disabled runtime
     set:
-      defaultHarnesses.enabled: true
-      defaultHarnesses.claude.enabled: false
+      harnesses.enabled: true
+      harnesses.claude.enabled: false
     asserts:
       - hasDocuments:
           count: 2
@@ -86,7 +86,7 @@ tests:
 
   - it: should scope the harnesses to the namespace override
     set:
-      defaultHarnesses.enabled: true
+      harnesses.enabled: true
       namespaceOverride: tenant-a
     asserts:
       - equal:
@@ -95,8 +95,8 @@ tests:
 
   - it: should require a snapshot location
     set:
-      defaultHarnesses.enabled: true
-      defaultHarnesses.snapshotLocation: ""
+      harnesses.enabled: true
+      harnesses.snapshotLocation: ""
     asserts:
       - failedTemplate:
-          errorMessage: defaultHarnesses.snapshotLocation is required when defaultHarnesses.enabled=true
+          errorMessage: harnesses.snapshotLocation is required when harnesses.enabled=true

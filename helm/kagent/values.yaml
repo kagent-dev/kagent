@@ -438,7 +438,7 @@ substrateWorkerPool:
 # (config.harnessImages), so the chart does not pin an image here. `kagent install`
 # enables them together with the WorkerPool. Agents in other namespaces need
 # their own Harness, because Agent.spec.harnessRef is namespace-local.
-defaultHarnesses:
+harnesses:
   # -- Render the default Harnesses. Requires a WorkerPool named
   # substrateWorkerPool.name in the release namespace (substrateWorkerPool.create
   # or one managed outside the chart).

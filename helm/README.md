@@ -336,13 +336,13 @@ namespace, so an Agent there can reference one without writing its own:
 | `codex-default` | Codex |
 | `claude-default` | Claude |
 
-Direct Helm installations opt in with `defaultHarnesses.enabled=true`:
+Direct Helm installations opt in with `harnesses.enabled=true`:
 
 ```yaml
 substrateWorkerPool:
   create: true
   workerImage: <worker-image>
-defaultHarnesses:
+harnesses:
   enabled: true
   # Substrate snapshot storage. The default uses the bucket of Substrate's bundled RustFS.
   snapshotLocation: s3://ate-snapshots/kagent/

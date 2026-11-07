@@ -75,7 +75,7 @@ image is selected. Agents in that namespace can reference them without
 platform-specific values. They are ordinary Harnesses owned by the Helm release;
 the controller does not create or special-case them.
 
-The chart renders them only when `defaultHarnesses.enabled` is true. Its values
+The chart renders them only when `harnesses.enabled` is true. Its values
 choose the snapshot location and disable individual runtimes. Because
 `harnessRef` is namespace-local, Agents in other namespaces still need a Harness
 in their own namespace.
