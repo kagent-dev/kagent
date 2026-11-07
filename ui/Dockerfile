@@ -2,7 +2,7 @@
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG TOOLS_NODE_VERSION=24
 ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS deps
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@sha256:8509ee4351a2e501b7f98201f2e2642396e82020c61a589cacdcfe74b9de46c1 AS deps
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 # This is used to print the build platform in the logs
@@ -10,7 +10,7 @@ ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" node-gyp \
+    && apk add --no-cache curl bash openssl unzip "ca-certificates>=20260909-r3" nginx supervisor "nodejs-${TOOLS_NODE_VERSION}>=24.22.1" node-gyp \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1
@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.npm,rw \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: Runtime
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@sha256:8509ee4351a2e501b7f98201f2e2642396e82020c61a589cacdcfe74b9de46c1 AS final
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV NODE_ENV=production
@@ -49,7 +49,7 @@ ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" \
+    && apk add --no-cache curl bash openssl unzip "ca-certificates>=20260909-r3" nginx supervisor "nodejs-${TOOLS_NODE_VERSION}>=24.22.1" \
     && update-ca-certificates
 
 RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp  \

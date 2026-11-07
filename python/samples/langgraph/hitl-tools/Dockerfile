@@ -3,7 +3,10 @@ ARG DOCKER_REGISTRY=ghcr.io
 ARG VERSION=latest
 # substrate's gVisor (ateom) checkpoint/restore segfaults processes linked against trixie's newer glibc
 # use bookworm to align with the kagent-adk runtime image
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+FROM python:3.13.17-slim-bookworm@sha256:e32be0e55814a08977501ca863271d9bd02443710db8f2afaf8372e2c4508530
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /usr/local/bin/
+
+ENV GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /app
 

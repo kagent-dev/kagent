@@ -12,13 +12,14 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 ### STAGE 2: base os + sandbox runtime
 # The apk package name encodes the Node major, so the sandbox-runtime's node >= 20
 # requirement is pinned by the package rather than by the base image tag.
-FROM ${BASE_IMAGE_REGISTRY}/chainguard/wolfi-base:latest AS python-os
+FROM ${BASE_IMAGE_REGISTRY}/chainguard/wolfi-base:latest@sha256:8509ee4351a2e501b7f98201f2e2642396e82020c61a589cacdcfe74b9de46c1 AS python-os
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONOPTIMIZE=2
 ENV PYTHONUNBUFFERED=1
+ENV GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
 
 # Optimize malloc for containerized Python workloads
 ENV MALLOC_TRIM_THRESHOLD_=262144
@@ -37,7 +38,7 @@ ENV UV_PYTHON_INSTALL_DIR=/python
 ENV UV_PYTHON_PREFERENCE=only-managed
 
 RUN apk add --no-cache \
-        curl openssl bash git ca-certificates tzdata \
+        curl openssl bash git "ca-certificates>=20260909-r3" tzdata \
         bubblewrap socat ripgrep \
         nodejs-26 npm
 
