@@ -7,7 +7,25 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
+
+func TestCanonicalToolResponse(t *testing.T) {
+	entry := &toolEntry{name: "query"}
+	entry.setResponse(&apiv1.ToolResponse{Outcome: &apiv1.ToolResponse_Output{Output: structpb.NewBoolValue(false)}})
+	assert.Equal(t, toolOK, entry.status())
+	assert.Equal(t, "false\n", toolOutput(entry.response))
+	entry.setResponse(&apiv1.ToolResponse{Outcome: &apiv1.ToolResponse_Error{Error: structpb.NewStringValue("not found")}})
+	assert.Equal(t, toolError, entry.status())
+	assert.Equal(t, "not found", toolOutput(entry.response))
+	entry.setResponse(&apiv1.ToolResponse{Outcome: &apiv1.ToolResponse_Error{Error: structpb.NewNullValue()}})
+	assert.Equal(t, toolError, entry.status())
+	entry.setResponse(&apiv1.ToolResponse{Outcome: &apiv1.ToolResponse_Pending{Pending: structpb.NewStringValue("namespace?")}})
+	assert.Equal(t, toolRunning, entry.status())
+	assert.Equal(t, "namespace?", toolOutput(entry.response))
+}
 
 func TestToolSummary(t *testing.T) {
 	tests := []struct {

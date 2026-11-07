@@ -192,8 +192,8 @@ func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 		}
 		assertActorSuspended(t, fixture)
 		reply := adka2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL")), &kagenta2a.AskUserResponse{
-			Type: adka2a.HITLTypeAskUserResponse, ID: request.ID,
-			Answers: []kagenta2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
+			Type: adka2a.HITLTypeAskUserResponse, Id: request.Id,
+			Answers: []*kagenta2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 		})
 		reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
 		response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Tenant: fixture.tenant, Message: reply})
@@ -232,13 +232,13 @@ func sendToolDecision(t *testing.T, fixture *interactionFixture, prompt, wantToo
 	}
 	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-	decision := kagenta2a.ToolApproval{ID: request.Tools[0].ID, Approved: approved}
+	decision := &kagenta2a.ToolApproval{Id: request.Tools[0].Id, Approved: approved}
 	if !approved {
 		decision.RejectionReason = "production is serving traffic"
 	}
-	if err := kagenta2a.AttachHITL(reply, kagenta2a.ToolApprovalResponse{
+	if err := kagenta2a.AttachHITL(reply, &kagenta2a.ToolApprovalResponse{
 		Type:      kagenta2a.HITLTypeToolApprovalResponse,
-		Approvals: []kagenta2a.ToolApproval{decision},
+		Approvals: []*kagenta2a.ToolApproval{decision},
 	}); err != nil {
 		t.Fatalf("attach tool approval response: %v", err)
 	}
