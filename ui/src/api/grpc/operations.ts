@@ -1,7 +1,7 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
 import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent, AgentResource } from "../domain/agents";
-import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SnapshotStorageStatus } from "@/generated/api/ateapi/v1/ateapi_pb";
+import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SnapshotStorageState } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
@@ -52,6 +52,14 @@ import type { Harness as PbHarness } from "@/generated/kagent/api/v1/harnesses_p
 import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_pb";
 import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1/agent_templates_pb";
 import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
+import {
+  EgressPolicyService,
+  type EgressPolicy as PbEgressPolicy,
+} from "@/generated/kagent/api/v1/egress_policies_pb";
+import {
+  SandboxTemplateService,
+  type SandboxTemplate as PbSandboxTemplate,
+} from "@/generated/kagent/api/v1/sandbox_templates_pb";
 import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1/sessions_pb";
 import type { Session as PbSession } from "@/generated/kagent/api/v1/sessions_pb";
 import {
@@ -100,6 +108,8 @@ import type {
   AgentInstanceState,
 } from "../domain/agentInstances";
 import type { Checkpoint, CheckpointState } from "../domain/checkpoints";
+import type { EgressPolicy, EgressPolicyResource } from "../domain/egressPolicies";
+import type { SandboxTemplate, SandboxTemplateResource } from "../domain/sandboxTemplates";
 import type {
   ApiOperations,
   OperationCallOptions,
@@ -555,6 +565,7 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
   [RuntimeOperation.SUSPEND]: "suspend",
   [RuntimeOperation.RESUME]: "resume",
   [RuntimeOperation.DELETE]: "delete",
+  [RuntimeOperation.REVERT]: "revert",
 };
 
 /**
@@ -580,7 +591,7 @@ function toAgentInstance(instance: PbSession): AgentInstance {
     // spellings of the same fact.
     name: instance.name,
     creator: instance.creator,
-    agent: orUndefined(refToString(instance.agent)),
+    agent: orUndefined(refToString(instance.agent?.ref)),
     preparedRevision: orUndefined(instance.preparedRevision),
     a2aAuthority: orUndefined(instance.a2aAuthority),
     state: INSTANCE_STATE_BY_ENUM[instance.state] ?? "unknown",
@@ -886,7 +897,7 @@ const agentInstances: Pick<
   "agentInstances.delete": async (input, options) => {
     await rpc("SessionService/DeleteSession", options.signal, () =>
       serviceClient(SessionService).deleteSession(
-        { sessionId: input.id },
+        { sessionId: input.id, force: input.force ?? false },
         call("agentInstances.delete", options),
       ),
     );
@@ -958,7 +969,6 @@ function toHarness(harness: PbHarness): Harness {
     name: harness.ref?.name ?? "",
     runtime: harness.runtime,
     workloadImage: harness.workloadImage,
-    ready: harness.ready,
     resource: unwrap(
       harness.resource,
       "HarnessService/ListHarnesses",
@@ -1173,6 +1183,113 @@ const agentBuildingBlocks: Pick<
 
 // endregion
 
+// region Egress policies and sandbox templates
+
+/** Go marshals nil slices as null, so lists are normalised here once. */
+function toEgressPolicy(policy: PbEgressPolicy, rpcName: string): EgressPolicy {
+  const resource = unwrap<EgressPolicyResource>(policy.resource, rpcName, `egress policy ${policy.ref?.name ?? ""}`);
+  const destinations = list(resource.spec?.destinations ?? undefined).map((destination) => {
+    const actorJwt = destination.authentication?.actorJwt;
+    return actorJwt
+      ? { ...destination, authentication: { ...destination.authentication!, actorJwt: { ...actorJwt, audiences: list(actorJwt.audiences ?? undefined) } } }
+      : destination;
+  });
+  return {
+    ref: refToString(policy.ref),
+    namespace: policy.ref?.namespace ?? "",
+    name: policy.ref?.name ?? "",
+    resource: { ...resource, spec: { ...resource.spec, destinations } },
+  };
+}
+
+function toSandboxTemplate(template: PbSandboxTemplate): SandboxTemplate {
+  return {
+    ref: refToString(template.ref),
+    namespace: template.ref?.namespace ?? "",
+    name: template.ref?.name ?? "",
+    resource: unwrap<SandboxTemplateResource>(
+      template.resource,
+      "SandboxTemplateService/ListSandboxTemplates",
+      `sandbox template ${template.ref?.name ?? ""}`,
+    ),
+  };
+}
+
+const egressPolicies: Pick<
+  ApiOperations,
+  | "egressPolicies.list"
+  | "egressPolicies.get"
+  | "egressPolicies.create"
+  | "egressPolicies.update"
+  | "egressPolicies.delete"
+  | "sandboxTemplates.list"
+> = {
+  "egressPolicies.list": async (input, options) => {
+    const name = "EgressPolicyService/ListEgressPolicies";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(EgressPolicyService).listEgressPolicies(
+        { namespace: input.namespace ?? "" },
+        call("egressPolicies.list", options),
+      ),
+    );
+    return list(response.egressPolicies).map((policy) => toEgressPolicy(policy, name));
+  },
+
+  "egressPolicies.get": async (input, options) => {
+    const name = "EgressPolicyService/GetEgressPolicy";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(EgressPolicyService).getEgressPolicy(
+        { ref: { namespace: input.namespace, name: input.name } },
+        call("egressPolicies.get", options),
+      ),
+    );
+    return toEgressPolicy(required(response.egressPolicy, name, `egress policy ${input.name}`), name);
+  },
+
+  "egressPolicies.create": async (input, options) => {
+    const name = "EgressPolicyService/CreateEgressPolicy";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(EgressPolicyService).createEgressPolicy(
+        { ref: { namespace: input.namespace, name: input.name }, resource: wrap("EgressPolicy", input.resource) },
+        call("egressPolicies.create", options),
+      ),
+    );
+    return toEgressPolicy(required(response.egressPolicy, name, "created egress policy"), name);
+  },
+
+  "egressPolicies.update": async (input, options) => {
+    const name = "EgressPolicyService/UpdateEgressPolicy";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(EgressPolicyService).updateEgressPolicy(
+        { ref: { namespace: input.namespace, name: input.name }, resource: wrap("EgressPolicy", input.resource) },
+        call("egressPolicies.update", options),
+      ),
+    );
+    return toEgressPolicy(required(response.egressPolicy, name, `egress policy ${input.name}`), name);
+  },
+
+  "egressPolicies.delete": async (input, options) => {
+    await rpc("EgressPolicyService/DeleteEgressPolicy", options.signal, () =>
+      serviceClient(EgressPolicyService).deleteEgressPolicy(
+        { ref: { namespace: input.namespace, name: input.name } },
+        call("egressPolicies.delete", options),
+      ),
+    );
+  },
+
+  "sandboxTemplates.list": async (input, options) => {
+    const response = await rpc("SandboxTemplateService/ListSandboxTemplates", options.signal, () =>
+      serviceClient(SandboxTemplateService).listSandboxTemplates(
+        { namespace: input.namespace ?? "" },
+        call("sandboxTemplates.list", options),
+      ),
+    );
+    return list(response.sandboxTemplates).map(toSandboxTemplate);
+  },
+};
+
+// endregion
+
 // region Cluster
 
 /** Convert upstream inventory rows for the UI. */
@@ -1234,8 +1351,8 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
   const snapshots = [...(actor.status?.snapshots ?? [])].sort((a, b) => b.generation - a.generation);
   const latest = snapshots[0];
   const paused = state === ActorState.SUSPENDED && latest?.locality && !latest.durableSnapshot;
-  const durable = snapshots.find((snapshot) => snapshot.durableSnapshot?.status === SnapshotStorageStatus.COMPLETED);
-  const pending = snapshots.find((snapshot) => snapshot.durableSnapshot?.status === SnapshotStorageStatus.PENDING
+  const durable = snapshots.find((snapshot) => snapshot.durableSnapshot?.state === SnapshotStorageState.COMPLETED);
+  const pending = snapshots.find((snapshot) => snapshot.durableSnapshot?.state === SnapshotStorageState.PENDING
     || (state === ActorState.SUSPENDING && !snapshot.locality && !snapshot.durableSnapshot));
   return {
     actorId: metadata.name,
@@ -1370,6 +1487,7 @@ function required<T>(value: T | undefined, rpcName: string, what: string): T {
 export const defaultOperations: ApiOperations = {
  ...agents,
   ...agentBuildingBlocks,
+  ...egressPolicies,
   ...models,
   ...toolServers,
   ...prompts,

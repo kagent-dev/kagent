@@ -69,6 +69,8 @@ import type {
   AgentTemplate,
   AgentTemplateResource,
 } from "./domain/agentTemplates";
+import type { EgressPolicy, EgressPolicyResource } from "./domain/egressPolicies";
+import type { SandboxTemplate } from "./domain/sandboxTemplates";
 
 /** An operation that takes nothing. Written `{}` at the call site. */
 export type NoInput = Record<string, never>;
@@ -271,7 +273,7 @@ export interface OperationMap {
    * Irreversible, and it takes the conversation with it: the instance *is* the
    * conversation, so its tasks go too. Every caller confirms first.
    */
-  "agentInstances.delete": { input: AgentInstanceRef; output: void };
+  "agentInstances.delete": { input: AgentInstanceRef & { force?: boolean }; output: void };
 
   "agentInstances.shares.list": {
     input: AgentInstanceRef;
@@ -322,6 +324,22 @@ export interface OperationMap {
     output: AgentTemplate;
   };
   "agentTemplates.delete": { input: ResourceRefInput; output: void };
+
+  /** Empty namespace lists every namespace the caller may read. */
+  "egressPolicies.list": { input: { namespace?: string }; output: EgressPolicy[] };
+  "egressPolicies.get": { input: ResourceRefInput; output: EgressPolicy };
+  "egressPolicies.create": {
+    input: ResourceRefInput & { resource: EgressPolicyResource };
+    output: EgressPolicy;
+  };
+  /** Replaces `spec` and `labels`. A stale `metadata.resourceVersion` answers `Aborted`. */
+  "egressPolicies.update": {
+    input: ResourceRefInput & { resource: EgressPolicyResource };
+    output: EgressPolicy;
+  };
+  "egressPolicies.delete": { input: ResourceRefInput; output: void };
+  /** Empty namespace lists every namespace the caller may read. */
+  "sandboxTemplates.list": { input: { namespace?: string }; output: SandboxTemplate[] };
 
   "namespaces.list": { input: NoInput; output: NamespaceResponse[] };
   /**

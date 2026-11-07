@@ -145,6 +145,10 @@ cache, preserving the original question for native approval/input validation.
 
 Both adapters persist an initial active event before native work, stop execution
 on persistence failure, and wait for native cleanup before settling a boundary.
+Go runtime writes use the store's bounded retry context independently of SDK
+execution cancellation. An executor error can cancel an intermediate save as
+well as the subsequent failure update; both must finish against known versions
+before cleanup can publish the failed task and permit suspension.
 Go uses the SDK cleanup callback; Python withholds the final event until its native
 runner returns. Snapshot work runs independently after publication.
 Substrate self-suspend is planned. Moving suspension into the runtime after native
@@ -156,6 +160,22 @@ SDK upgrades must run the real gRPC/PostgreSQL fixtures covering failed saves,
 cancellation, continuation, disconnects, and slow subscribers.
 
 ## Reconnect and client behavior
+
+The core MCP `list_agents` tool returns authorized `{namespace, name}` references
+that can be passed directly to `invoke_agent`. It accepts optional `namespace`,
+`page_size` (0 for all, or 1–100), and `page_token` arguments. Authorization scope
+filtering precedes pagination, using the same Agent service and cursors as gRPC.
+Both text and structured results include `agents` and `next_page_token` when
+another page exists. Discovery does not require an existing Session and does not
+guarantee readiness or invocation permission.
+
+The core MCP `invoke_agent` tool accepts either `session_id` to continue an
+existing conversation or `agent: {namespace, name}` to start one. An Agent target
+sends the message through A2A without a context or task ID, so the gateway owns
+Session creation, authorization, and initial-message deduplication. Reuse the
+same `message_id`, Agent, and message when retrying creation. Supplying an unknown
+`session_id` returns an error. Synchronous results and completed MCP task results
+include the assigned Session and A2A task IDs in structured content.
 
 Get/List serve committed state without waking the runtime. Subscribe returns
 current stored state for quiescent tasks; otherwise the runtime supplies its
@@ -177,8 +197,12 @@ conversation. Continuation sends do not gain this guarantee: once context/task I
 are known, use GetTask or SubscribeToTask after an ambiguous response. Storage RPC
 retries remain internal to the runtime adapter and have a separate guarantee.
 
-The scheduler records its single dispatch attempt before sending. After an
-uncertain send it only looks for the task in stored history; it never sends again.
+The scheduler records its single dispatch attempt before sending, using a message
+ID prefixed with `scheduled-run/`. After an uncertain send it only looks for the
+task holding that message ID in stored history; it never sends again. The prefix
+is reserved for the in-process control plane: the session service rejects it from
+every other caller, so a Session's creator cannot plant a task the scheduler would
+adopt.
 A crash between claiming and sending can therefore leave an execution unresolved
 until its deadline, when normal timeout cleanup runs.
 
@@ -241,7 +265,7 @@ matches its atespace and recorded Actor UID. Memory derives its agent namespace
 and user from that persisted session binding, ignoring caller-supplied identity
 fields. Users can also list and delete their own memories on the same endpoint.
 Both actor and user memory operations check the `Memory` resource, whose name is
-the agent key (including legacy keys). User management calls use the requested
+the exact `namespace/name` Agent key. User management calls use the requested
 agent key and the authenticated user ID,
 ignoring the request's user ID, and do not require a live actor or session.
 User and share credentials cannot grant access to actor-only methods. The

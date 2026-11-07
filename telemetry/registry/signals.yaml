@@ -73,7 +73,7 @@ attribute_groups:
       - ref: a2a.task.id
         requirement_level:
           conditionally_required: The gateway assigned an A2A task.
-      - ref: enduser.id
+      - ref: user.id
         requirement_level:
           conditionally_required: A trusted identity reached the runtime.
         note: >

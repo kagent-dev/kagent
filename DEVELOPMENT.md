@@ -8,9 +8,7 @@ for file locations, precedence, and examples.
 
 Standard `OTEL_*` settings override the receiving process's telemetry defaults.
 Provider credentials, SDK trust, `KUBECONFIG`, UI settings, and test inputs remain
-environment interfaces. Register supported public variables in `go/core/pkg/env`,
-then run `make env-docs` and `make env-docs-check`. Generated runtime payloads,
-credentials, and private bootstrap paths are excluded from this reference.
+environment interfaces. Register supported public variables in `go/core/pkg/env`.
 
 To understand how to develop for kagent, it's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
 
@@ -132,12 +130,14 @@ make kagent-cli-install
 runs `kagent install`. The Make target selects the Kind context, and the CLI then:
 
 1. Installs the Kagent and Substrate CRDs.
-2. Creates the certificate-authority material required by Substrate.
+2. Creates the certificate-authority material and development object-store
+   credentials required by Substrate.
 3. Installs the Substrate PodCertificate controller.
 4. Creates a development PostgreSQL deployment and initializes the Kagent and
    Substrate schemas and roles.
-5. Installs Substrate and Kagent with certificate-authenticated connections to
-   that PostgreSQL deployment.
+5. Installs `substrate-atelet` and waits for its DaemonSet to become ready.
+6. Installs Substrate with `atelet.enabled=false`, then Kagent, with
+   certificate-authenticated connections to that PostgreSQL deployment.
 
 The command opens the Kagent dashboard after the installation completes.
 
@@ -157,11 +157,12 @@ for local or prerelease testing:
 ```shell
 make kagent-cli-install \
   SUBSTRATE_REPO=oci://example.com/substrate/helm \
-  SUBSTRATE_VERSION=0.7.0-alpha1
+  SUBSTRATE_VERSION=1.0.0
 ```
 
-The PodCertificate chart inherits those values. Override it independently when
-the chart is published at another location or version:
+The Atelet and PodCertificate charts inherit those values. Override the
+PodCertificate chart independently when it is published at another location or
+version:
 
 ```shell
 make kagent-cli-install \
@@ -169,8 +170,15 @@ make kagent-cli-install \
   SUBSTRATE_PODCERT_VERSION=0.5.1
 ```
 
-For direct CLI use, configure `install.substrate` and `install.podCertificate`
-in the [CLI config file](docs/architecture/process-configuration.md#cli).
+For direct CLI use, configure `install.substrate`, `install.atelet`, and
+`install.podCertificate` in the [CLI config file](docs/architecture/process-configuration.md#cli).
+
+Existing `install.substrate` values are inherited by Atelet, including
+`atelet.extraArgs` and `atelet.resources`. Use `install.atelet.valuesFiles` for
+node-specific overrides; these take precedence over the shared values. The Make
+target supplies the Kind registry override there. Configure custom object
+storage for both releases as described in the
+[Helm guide](helm/README.md#postgresql).
 
 To access the UI, port-forward to the UI port on the `kagent-ui` service:
 

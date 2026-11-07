@@ -17,8 +17,19 @@ func LatestActorSnapshot(actor *ateapipb.Actor) *ateapipb.Snapshot {
 // SnapshotURI returns an address only after the durable copy is complete.
 func SnapshotURI(snapshot *ateapipb.Snapshot) string {
 	storage := snapshot.GetDurableSnapshot()
-	if storage.GetStatus() != ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED {
+	if storage.GetState() != ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED {
 		return ""
 	}
 	return storage.GetObject().GetSnapshotUri()
+}
+
+// Checkpoints require the newest generation; revert retains the newest durable copy.
+func LatestDurableActorSnapshot(actor *ateapipb.Actor) *ateapipb.Snapshot {
+	var latest *ateapipb.Snapshot
+	for _, snapshot := range actor.GetStatus().GetSnapshots() {
+		if SnapshotURI(snapshot) != "" && snapshot.GetGeneration() > latest.GetGeneration() {
+			latest = snapshot
+		}
+	}
+	return latest
 }

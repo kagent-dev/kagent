@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -56,6 +57,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
+	"github.com/kagent-dev/kagent/go/core/internal/service/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -93,6 +95,8 @@ type Options struct {
 	// Authorizer decides what an identified caller may do and which collection
 	// entries it may see. Nil selects NoopAuthorizer, which permits every action.
 	Authorizer auth.CollectionAuthorizer
+	// AnthropicSelfHostedSandboxes enables the bundled Anthropic launcher. Nil leaves it disabled.
+	AnthropicSelfHostedSandboxes *AnthropicSelfHostedSandboxesConfig
 	// SetupWithManager registers additional controllers and scheme types on
 	// core's manager. It runs after the manager exists and before it starts, so
 	// a scheme added here is in place before any cache is built. Returning an
@@ -122,6 +126,12 @@ type Options struct {
 	// its own surface here; letting it reclassify core's would turn a config
 	// field into a way to make an authenticated method public.
 	MethodPolicies map[string]auth.AccessMode
+	// MCPExtensions receives core's /mcp server after core registers its own
+	// tools and before the handler is built, so a consumer can add tools and
+	// resources that share core's endpoint and authenticator. Core's tools are
+	// not protected: the SDK replaces a tool or resource registered under an
+	// existing name or URI. Returning an error aborts startup.
+	MCPExtensions func(*mcpsdk.Server) error
 	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
 	// all must be bound. Authenticator must not forward the caller token.
 	EgressPolicyCompilers []egresspolicy.Compiler
@@ -269,6 +279,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		// /metrics nonResourceURL.
 		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
+	var gracefulShutdownTimeout *time.Duration
+	if opts.AnthropicSelfHostedSandboxes != nil {
+		// Finish bounded provisioning and metadata writes before releasing leadership.
+		gracefulShutdownTimeout = new(150 * time.Second)
+	}
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme:                  managerScheme,
 		Cache:                   managerCacheOptions,
@@ -277,6 +292,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		LeaderElection:          cfg.GetKubernetes().GetLeaderElection(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
 		LeaderElectionNamespace: cfg.GetKubernetes().GetNamespace(),
+		GracefulShutdownTimeout: gracefulShutdownTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
@@ -361,7 +377,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
-		cfg.GetSubstrate().GetRouterUrl(),
+		cfg.GetSubstrate(),
 		authenticator,
 	)
 	if err != nil {
@@ -393,7 +409,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
-	guests, err := sandboxservice.NewGuestDialer(cfg.GetSubstrate().GetRouterUrl(), authenticator)
+	guests, err := sandboxservice.NewGuestDialer(cfg.GetSubstrate(), authenticator)
 	if err != nil {
 		return err
 	}
@@ -418,7 +434,20 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := manager.Add(sandboxes); err != nil {
 		return err
 	}
-	mcpHandler, err := mcp.New(sessions, checkpoints, gateway, sandboxes, sandboxTemplates)
+	if opts.AnthropicSelfHostedSandboxes != nil {
+		launcher, err := newAnthropicSelfHostedSandboxesRunnable(*opts.AnthropicSelfHostedSandboxes, sandboxes, logger)
+		if err != nil {
+			return fmt.Errorf("configure anthropic self-hosted sandboxes launcher: %w", err)
+		}
+		if err := manager.Add(launcher); err != nil {
+			return fmt.Errorf("register anthropic self-hosted sandboxes launcher: %w", err)
+		}
+	}
+	mcpHandler, err := mcp.New(mcp.Config{
+		Agents: agents, Sessions: sessions, Checkpoints: checkpoints, Gateway: gateway,
+		Sandboxes: sandboxes, SandboxTemplates: sandboxTemplates,
+		Extensions: opts.MCPExtensions,
+	})
 	if err != nil {
 		return err
 	}
@@ -455,9 +484,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		// Author Agents and their reusable configuration through the API.
 		AgentService:           agents,
 		AgentIdentityService:   agentidentity.NewService(actorVerifier, store, manager.GetAPIReader()),
+		BootstrapService:       bootstrap.NewService(actorVerifier, store, actors),
 		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: sandboxTemplates,
+		EgressPolicyService:    kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.EgressPolicy{}, &kagentv1alpha3.EgressPolicyList{}, kagentv1alpha3.EgressPolicyKind),
 		SandboxService:         sandboxes,
 		CheckpointService:      checkpoints,
 		A2AHandler:             gateway,

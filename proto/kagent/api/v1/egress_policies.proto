@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package kagent.api.v1;
+
+import "buf/validate/validate.proto";
+import "kagent/api/v1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
+
+// EgressPolicyService manages namespaced api.kagent.dev/v1alpha3 EgressPolicy
+// grants. The CRD schema validates destinations and authentication.
+service EgressPolicyService {
+  rpc ListEgressPolicies(ListEgressPoliciesRequest) returns (ListEgressPoliciesResponse);
+  rpc GetEgressPolicy(GetEgressPolicyRequest) returns (GetEgressPolicyResponse);
+  rpc CreateEgressPolicy(CreateEgressPolicyRequest) returns (CreateEgressPolicyResponse);
+  rpc UpdateEgressPolicy(UpdateEgressPolicyRequest) returns (UpdateEgressPolicyResponse);
+  rpc DeleteEgressPolicy(DeleteEgressPolicyRequest) returns (DeleteEgressPolicyResponse);
+}
+
+message EgressPolicy {
+  ResourceReference ref = 1;
+  // The complete CR, with its schema owned by the Kubernetes API.
+  StructuredObject resource = 2;
+}
+
+message ListEgressPoliciesRequest {
+  // Empty lists all namespaces allowed by the caller's authorization scope.
+  string namespace = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
+  }];
+}
+
+message ListEgressPoliciesResponse {
+  repeated EgressPolicy egress_policies = 1;
+}
+
+message GetEgressPolicyRequest {
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+}
+
+message GetEgressPolicyResponse {
+  EgressPolicy egress_policy = 1;
+}
+
+message CreateEgressPolicyRequest {
+  option (buf.validate.message).cel = {
+    id: "egress_policy.metadata_matches_ref"
+    message: "resource metadata must match the policy reference"
+    expression: "!has(this.resource.value.metadata) || ((!has(this.resource.value.metadata.name) || this.resource.value.metadata.name == '' || this.resource.value.metadata.name == this.ref.name) && (!has(this.resource.value.metadata.namespace) || this.resource.value.metadata.namespace == '' || this.resource.value.metadata.namespace == this.ref.namespace))"
+  };
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  StructuredObject resource = 2 [(buf.validate.field) = {
+    required: true
+    cel: [
+      {
+        id: "egress_policy.resource_type"
+        message: "resource must contain a api.kagent.dev/v1alpha3 EgressPolicy"
+        expression: "this.api_version == 'api.kagent.dev/v1alpha3' && this.kind == 'EgressPolicy' && has(this.value)"
+      },
+      {
+        id: "egress_policy.type_metadata_matches"
+        message: "resource type metadata must match its envelope"
+        expression: "(!has(this.value.apiVersion) || this.value.apiVersion == this.api_version) && (!has(this.value.kind) || this.value.kind == this.kind)"
+      }
+    ]
+  }];
+}
+
+message CreateEgressPolicyResponse {
+  EgressPolicy egress_policy = 1;
+}
+
+// UpdateEgressPolicyRequest replaces the policy's spec and labels. When
+// metadata.resourceVersion is set, a stale version is rejected as ABORTED.
+message UpdateEgressPolicyRequest {
+  option (buf.validate.message).cel = {
+    id: "egress_policy.metadata_matches_ref"
+    message: "resource metadata must match the policy reference"
+    expression: "!has(this.resource.value.metadata) || ((!has(this.resource.value.metadata.name) || this.resource.value.metadata.name == '' || this.resource.value.metadata.name == this.ref.name) && (!has(this.resource.value.metadata.namespace) || this.resource.value.metadata.namespace == '' || this.resource.value.metadata.namespace == this.ref.namespace))"
+  };
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  StructuredObject resource = 2 [(buf.validate.field) = {
+    required: true
+    cel: [
+      {
+        id: "egress_policy.resource_type"
+        message: "resource must contain a api.kagent.dev/v1alpha3 EgressPolicy"
+        expression: "this.api_version == 'api.kagent.dev/v1alpha3' && this.kind == 'EgressPolicy' && has(this.value)"
+      },
+      {
+        id: "egress_policy.type_metadata_matches"
+        message: "resource type metadata must match its envelope"
+        expression: "(!has(this.value.apiVersion) || this.value.apiVersion == this.api_version) && (!has(this.value.kind) || this.value.kind == this.kind)"
+      }
+    ]
+  }];
+}
+
+message UpdateEgressPolicyResponse {
+  EgressPolicy egress_policy = 1;
+}
+
+message DeleteEgressPolicyRequest {
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+}
+
+message DeleteEgressPolicyResponse {}

@@ -24,9 +24,11 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	toolserver "github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -196,7 +198,13 @@ func TestSandboxTransports(t *testing.T) {
 		require.ErrorIs(t, err, io.EOF)
 	})
 
-	handler, err := toolserver.New(&session.Service{}, &checkpoint.Service{}, &a2asrv.InterceptedHandler{}, service, nil)
+	handler, err := toolserver.New(toolserver.Config{
+		Agents:      &kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]{},
+		Sessions:    &session.Service{},
+		Checkpoints: &checkpoint.Service{},
+		Gateway:     &a2asrv.InterceptedHandler{},
+		Sandboxes:   service,
+	})
 	require.NoError(t, err)
 	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r.WithContext(auth.AuthSessionTo(r.Context(), testSession("alice"))))
@@ -315,5 +323,5 @@ func TestSandboxTransports(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.DeleteSandbox(ctx, &apiv1.DeleteSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
-	require.Equal(t, []string{"create", "policy", "resume", "suspend", "suspend", "policy", "resume", "suspend", "delete"}, actors.observedCalls())
+	require.Equal(t, []string{"create", "policy", "resume", "suspend", "suspend", "policy", "resume", "delete"}, actors.observedCalls())
 }

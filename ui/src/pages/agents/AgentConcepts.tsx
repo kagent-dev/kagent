@@ -218,7 +218,7 @@ function Line({
  */
 
 /** Two lines converging into one: the pair becoming an agent. */
-function MergeArrow({ theme }: { theme: Theme }) {
+export function MergeArrow({ theme }: { theme: Theme }) {
   const id = "concepts-merge";
   return (
     <div
@@ -262,7 +262,7 @@ function MergeArrow({ theme }: { theme: Theme }) {
 }
 
 /** One line into the next box: the agent becoming a conversation. */
-function FlowArrow({ theme }: { theme: Theme }) {
+export function FlowArrow({ theme }: { theme: Theme }) {
   const id = "concepts-flow";
   return (
     <div aria-hidden css={{ display: "flex", alignItems: "center", flexShrink: 0 }}>

@@ -1,4 +1,4 @@
-// Copyright 2026 Google LLC
+// Copyright 2026 The Agent Substrate Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -87,16 +87,6 @@ service Control {
   //
   // * Called by the egress gateway when actor JWT injection is configured for outbound requests.
   rpc MintActorJwt(MintActorJwtRequest) returns (MintActorJwtResponse) {
-    option (method).resource = "Actor";
-  }
-
-  // Create a Substrate-issued SPIFFE certificate asserting the actor identity.
-  //
-  // SPIFFE URI: spiffe://${trustdomain}/actor/${atespace}/${actor}
-  //
-  // * Called by the egress gateway when actor client certificate injection is
-  //   configured for outbound requests.
-  rpc MintActorCertificate(MintActorCertificateRequest) returns (MintActorCertificateResponse) {
     option (method).resource = "Actor";
   }
 
@@ -291,24 +281,24 @@ enum SnapshotOwner {
   // Keep this in sync with Snapshot.owner's maximum.
 }
 
-// SnapshotStorageStatus indicates the lifecycle stage of a durable snapshot.
-enum SnapshotStorageStatus {
-  SNAPSHOT_STORAGE_STATUS_UNSPECIFIED = 0;
+// SnapshotStorageState indicates the lifecycle stage of a durable snapshot.
+enum SnapshotStorageState {
+  SNAPSHOT_STORAGE_STATE_UNSPECIFIED = 0;
   // Snapshot creation in durable storage is in progress.
-  SNAPSHOT_STORAGE_STATUS_PENDING = 1;
+  SNAPSHOT_STORAGE_STATE_PENDING = 1;
   // Snapshot is complete and ready for use in durable storage.
-  SNAPSHOT_STORAGE_STATUS_COMPLETED = 2;
-  // Keep this in sync with SnapshotStorage.status's maximum.
+  SNAPSHOT_STORAGE_STATE_COMPLETED = 2;
+  // Keep this in sync with SnapshotStorage.state's maximum.
 }
 
 // SnapshotStorage records the durable storage representation of a Snapshot.
 message SnapshotStorage {
-  // status is the lifecycle status of the durable snapshot.
+  // state is the lifecycle state of the durable snapshot.
   //
   // +k8s:required
   // +k8s:minimum=1
-  // +k8s:maximum=2 # keep this in sync with the SnapshotStorageStatus enum
-  SnapshotStorageStatus status = 1;
+  // +k8s:maximum=2 # keep this in sync with the SnapshotStorageState enum
+  SnapshotStorageState state = 1;
 
   // object snapshot is stored in object storage.
   //
@@ -507,8 +497,7 @@ message ExternalVolumeStatus {
   // +k8s:required
   // +k8s:format=k8s-short-name
   // +k8s:update=NoModify
-  // +k8s:update=NoUnset # set-once; immutable would reject the create
-  // ratchet's nil->set when the final object is validated as an update
+  // +k8s:update=NoUnset # set-once; immutable would reject the create ratchet's nil->set when the final object is validated as an update
   string name = 1;
 
   // The globally unique volume_id returned from the storage system.
@@ -558,7 +547,11 @@ message Actor {
   // +k8s:subfield(atespace)=+k8s:required
   ResourceMetadata metadata = 1;
 
-  // TODO: replace with full actor_template spec if we decide to make each Actor self-contained.
+  // actor_template references the ActorTemplate this Actor is based on.
+  //
+  // (-- TODO: replace with full actor_template spec if we decide to make each
+  // Actor self-contained. --)
+  //
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   // +k8s:mutable
@@ -825,7 +818,7 @@ message HttpRuleEffects {
 
 // CredentialHeader replaces the value of an HTTP request header with a
 // credential. The Actor sends the header with a placeholder value, such as
-// "Authorization: <something>"; the gateway discards that value and forwards
+// `Authorization: <something>`; the gateway discards that value and forwards
 // the header with the credential instead. The placeholder itself is not
 // inspected, so any value works. A request without the header is not
 // modified.
@@ -844,7 +837,7 @@ message CredentialHeader {
   string prefix = 2;
 
   // Source-agnostic reference interpreted by a registered credential provider:
-  // ate-secret://<provider-class>/<provider-name>/<provider-specific-tail>
+  // `ate-secret://<provider-class>/<provider-name>/<provider-specific-tail>`
   //
   // Exactly one of credential_uri and actor_jwt must be set.
   //
@@ -1261,7 +1254,7 @@ message GoldenSnapshotStatus {
   google.protobuf.Timestamp snapshot_time = 2;
 
   // error_message is set when the golden snapshot build fails and will not be
-  // retried, formatted as "<Reason>: <detail>". A nonempty value is terminal.
+  // retried, formatted as `<Reason>: <detail>`. A nonempty value is terminal.
   //
   // +k8s:optional
   // +k8s:maxLength=4096
@@ -1279,9 +1272,13 @@ message SnapshotConfig {
   // storage_location is the base object-storage URI snapshots of actors on
   // this version are stored under. If unset, ate-api-server's
   // --snapshot-location is used. Requires the PerTemplateSnapshotLocation preview
-  // gate; ignored without it.
+  // gate. Each path segment may contain only ASCII letters, digits, '_' and
+  // '-'. Each owner's snapshots are stored under
+  // <storage_location>/atespaces/..., so no segment may be "atespaces" in any
+  // letter case.
   //
   // +ate:preview=PerTemplateSnapshotLocation
+  // +k8s:ifDisabled(PerTemplateSnapshotLocation)=+k8s:forbidden
   // +k8s:optional
   // +k8s:maxLength=1024
   // +k8s:customValidation # Validate URI
@@ -1412,13 +1409,14 @@ message SecurityContext {
 // granted. Capabilities are named without the "CAP_" prefix; "ALL" in drop
 // removes the whole default set.
 message Capabilities {
-  // add lists capabilities to grant on top of the default set. "ALL" is
-  // rejected: name the individual capabilities the container needs.
+  // add lists capabilities to grant on top of the default set. Only
+  // AUDIT_WRITE, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, KILL, NET_BIND_SERVICE,
+  // SETFCAP, SETGID, SETPCAP, SETUID and SYS_CHROOT are accepted.
   //
   // +k8s:optional
   // +k8s:maxItems=64
   // +k8s:listType=set
-  // +k8s:customValidation # capability grammar; "ALL" not accepted
+  // +k8s:customValidation # one of resources.AllowedAddCapabilities
   repeated string add = 1;
 
   // drop lists capabilities to remove from the default set. "ALL" drops the
@@ -1427,7 +1425,7 @@ message Capabilities {
   // +k8s:optional
   // +k8s:maxItems=64
   // +k8s:listType=set
-  // +k8s:customValidation # capability grammar
+  // +k8s:customValidation # a Linux capability name or "ALL"
   repeated string drop = 2;
 }
 
@@ -1673,11 +1671,12 @@ message VolumeMount {
 
   // mount_path within the container. Must be a clean absolute Unix path:
   // must start with '/', not be '/', and contain no ':', '..', '.', '//',
-  // trailing '/', or control characters.
+  // trailing '/', or control characters. Must not be /dev, and must not be
+  // /dev/pts, /proc, /sys, or a path under them.
   //
   // +k8s:required
   // +k8s:maxLength=4096
-  // +k8s:customValidation # clean-absolute-path shape; no regex/pattern tag exists
+  // +k8s:customValidation # clean absolute path, not /dev, outside /dev/pts, /proc and /sys
   string mount_path = 2;
 }
 
@@ -2010,39 +2009,6 @@ message MintActorJwtResponse {
 
   // expire_time is when actor_jwt expires. Equal to its exp claim.
   google.protobuf.Timestamp expire_time = 2;
-}
-
-// Request message for MintActorCertificate.
-message MintActorCertificateRequest {
-  // The actor for which the certificate should be issued.
-  //
-  // Must be a valid actor that currently exists according to the actor store.
-  //
-  // +k8s:required
-  ObjectRef actor = 1;
-
-  // The UID of the actor --- used to guard against deletion and recreation of
-  // an actor with the same name.
-  //
-  // +k8s:required
-  // +k8s:format=k8s-uuid
-  string actor_uid = 2;
-
-  // Request contains DER encoded bytes of a x509 certificate signing request.
-  // The signer will ignore the contents of the CSR except to extract the
-  // subject public key.
-  //
-  // +k8s:required
-  // +k8s:maxBytes=16384
-  bytes certificate_signing_request = 3;
-}
-
-// Response message for MintActorCertificate.
-message MintActorCertificateResponse {
-  // Response contains a list of DER encoded certificates. The first entry is the
-  // leaf certificate, and any remaining entries are intermediates in
-  // leaf-to-root order.
-  repeated bytes actor_certificates = 1;
 }
 
 message ListTagsRequest {
@@ -2409,7 +2375,8 @@ message WorkerStatus {
   WorkerResources capacity = 2;
 
   // The allocated resources of the Worker.  This is the sum of all the
-  // resources consumed by the Actors currently assigned to this Worker.
+  // resources consumed by the Actors currently assigned to this Worker,
+  // including their runtime's actor_overhead.
   //
   // +k8s:optional
   WorkerResources allocated = 3;
@@ -2499,14 +2466,44 @@ message WorkerSandboxRuntime {
   // Compatibility version stamped onto an actor's snapshot when a checkpoint
   // is taken on this runtime. Snapshots matching it can warm-boot on this
   // runtime.
-  // TODO: Add the additional compatibility versions this runtime can also
-  // restore snapshots from.
+  //
+  // (-- TODO: Add the additional compatibility versions this runtime can also
+  // restore snapshots from. --)
   //
   // +k8s:required
   VersionedSandboxCompat version = 1;
 
-  // TODO: Add an informational SandboxConfig version name (e.g. "gvisor-2")
-  // once workers report one.
+  // The resource overhead incurred by a Worker for each Actor running under
+  // this runtime, on top of the Actor's stated limits. Placement considers
+  // this when deciding if a Worker has enough capacity for an Actor, and it is
+  // accounted for in allocated. If not specified, Actors under this runtime
+  // are assumed to have negligible overhead.
+  //
+  // +k8s:optional
+  RuntimeOverhead actor_overhead = 2;
+
+  // (-- TODO: Add an informational SandboxConfig version name (e.g. "gvisor-2")
+  // once workers report one. --)
+}
+
+// RuntimeOverhead is the memory an Actor uses on its Worker outside its own
+// limits: a fixed amount, plus an amount in proportion to its memory limit.
+message RuntimeOverhead {
+  // memory_bytes is a fixed amount of memory for each Actor.
+  //
+  // +k8s:optional
+  // +k8s:minimum=0
+  // +k8s:maximum=1099511627776 # 1TiB
+  int64 memory_bytes = 1;
+
+  // memory_bytes_per_gib is memory per GiB of the Actor's memory limit, e.g.
+  // host page tables for a microVM's guest RAM. It scales in proportion and
+  // rounds down to a byte, so an Actor with a 512MiB limit adds half of it.
+  //
+  // +k8s:optional
+  // +k8s:minimum=0
+  // +k8s:maximum=1073741824 # 1GiB
+  int64 memory_bytes_per_gib = 2;
 }
 
 // ActorSandboxRuntime is the runtime an actor runs under, as recorded on its
@@ -2526,8 +2523,8 @@ message ActorSandboxRuntime {
   // +k8s:required
   VersionedSandboxCompat version = 2;
 
-  // TODO: Add an informational SandboxConfig version name (e.g. "gvisor-2")
-  // once workers report one.
+  // (-- TODO: Add an informational SandboxConfig version name (e.g. "gvisor-2")
+  // once workers report one. --)
 }
 
 // VersionedSandboxCompat holds the compatibility schema version and the
@@ -2630,7 +2627,8 @@ message ActorAssignment {
   // +k8s:format=k8s-uuid
   string actor_uid = 3;
 
-  // The resources allocated to the Actor when it was assigned.
+  // The resources allocated to the Actor when it was assigned: its limits,
+  // plus the actor_overhead of the runtime it runs under on the Worker.
   //
   // +k8s:optional
   Resources resources = 4;
@@ -2922,9 +2920,12 @@ message MintWorkerActorJwtResponse {
   google.protobuf.Timestamp expire_time = 2;
 }
 
-// TODO: add a durability mode, carried through atelet's
+// RequestActorSuspendRequest asks to suspend an Actor the calling Worker hosts.
+// The suspend uses SuspendActor's default mode.
+//
+// (-- TODO: add a durability mode, carried through atelet's
 // RequestActorSuspendRequest, so the Worker can choose how the snapshot is
-// made durable. Until then the suspend uses SuspendActor's default mode.
+// made durable. --)
 message RequestActorSuspendRequest {
   // The Worker making the request. atespace is always empty; Workers are
   // global-scoped. atelet fills this in from its caller's certificate, so it

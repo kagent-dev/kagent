@@ -56,6 +56,7 @@ export type AgentInstanceOperation =
   | "suspend"
   | "resume"
   | "delete"
+  | "revert"
   | "unknown";
 
 /**

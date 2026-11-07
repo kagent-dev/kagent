@@ -111,7 +111,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "original")
 	addUnknown(request)
-	addUnknown(request.Agent)
+	addUnknown(request.GetAgent())
 	session, _, err := client.CreateSession(ctx, request, "create")
 	require.NoError(t, err)
 	_, err = client.UpdateSessionName(ctx, session.Id, "alice", "renamed while creating")
@@ -119,7 +119,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	session, err = markSessionReady(ctx, client, session.Id, "runtime:80")
 	require.NoError(t, err)
 	require.Equal(t, "renamed while creating", session.Name)
-	suspend, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	suspend, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
 	_, err = client.UpdateSessionName(ctx, session.Id, "alice", "renamed again")
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.True(t, proto.Equal(session, reconstructed))
 	require.True(t, proto.Equal(session, stored), "persist the full Session protobuf")
 	require.Equal(t, request.ProtoReflect().GetUnknown(), stored.ProtoReflect().GetUnknown())
-	require.Equal(t, request.Agent.ProtoReflect().GetUnknown(), stored.Agent.ProtoReflect().GetUnknown())
+	require.Equal(t, request.GetAgent().ProtoReflect().GetUnknown(), stored.GetAgent().ProtoReflect().GetUnknown())
 	session, err = finishSessionOperation(ctx, client, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, "")
 	require.NoError(t, err)
 
@@ -287,11 +287,11 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	require.NoError(t, err)
 	addUnknown(card)
 	revision := RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "template", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{})))
 	// Reconciliation can update runtime identity, but the pinned card is immutable.
 	revision.AgentCard = &a2apb.AgentCard{Name: "replacement"}
 	revision.ActorTemplateUID = "new-uid"
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{})))
 	stored, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(card, stored.AgentCard))

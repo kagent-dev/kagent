@@ -129,7 +129,11 @@ func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (
 	return session, w.err
 }
 
-func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (w serviceTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return session, w.err
+}
+
+func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return session, w.err
 }
 
@@ -201,23 +205,43 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
-func TestServiceDeletePreservesContentionErrors(t *testing.T) {
-	for _, failure := range []struct {
-		cause error
-		code  serviceerrors.Code
+func TestServiceRevertRefusesUnrecoverableRuntime(t *testing.T) {
+	cause := fmt.Errorf("runtime Actor was replaced: %w", errRuntimeUnrecoverable)
+	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: cause})
+	_, err := service.Revert(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition), "error = %v", err)
+	require.Equal(t, cause.Error(), serviceerrors.MessageOf(err))
+}
+
+func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		call func(*Service, context.Context, string) (*apiv1.Session, error)
 	}{
-		{database.ErrConflict, serviceerrors.CodeAborted},
-		{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
+		{name: "revert", call: (*Service).Revert},
+		{name: "delete", call: func(service *Service, ctx context.Context, id string) (*apiv1.Session, error) {
+			return service.Delete(ctx, id, false)
+		}},
 	} {
-		conflict := fmt.Errorf("Session has an operation in progress: %w", failure.cause)
-		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
-		_, err := service.Delete(serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
-		if !serviceerrors.IsCode(err, failure.code) {
-			t.Fatalf("error = %v, want code %s", err, failure.code)
-		}
-		if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
-			t.Fatalf("error = %v, want preserved contention reason", err)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			for _, failure := range []struct {
+				cause error
+				code  serviceerrors.Code
+			}{
+				{database.ErrConflict, serviceerrors.CodeAborted},
+				{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
+			} {
+				conflict := fmt.Errorf("Session has an operation in progress: %w", failure.cause)
+				service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
+				_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+				if !serviceerrors.IsCode(err, failure.code) {
+					t.Fatalf("error = %v, want code %s", err, failure.code)
+				}
+				if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
+					t.Fatalf("error = %v, want preserved contention reason", err)
+				}
+			}
+		})
 	}
 }
 
@@ -553,7 +577,8 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},
+		{name: "revert", call: func() error { _, err := service.Revert(ctx, id); return err }},
+		{name: "delete", call: func() error { _, err := service.Delete(ctx, id, false); return err }},
 		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
 		{name: "share listing", call: func() error { _, err := service.ListShares(ctx, id, 0, ""); return err }},
 		{name: "share revocation", call: func() error { return service.RevokeShare(ctx, id) }},
@@ -613,7 +638,7 @@ func TestServiceSharedListCannotBroadenAccess(t *testing.T) {
 		{name: "past shared conversation", request: ListRequest{PageToken: encodePageToken(id)}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			stored := &apiv1.Session{Id: id, Agent: agent}
+			stored := &apiv1.Session{Id: id, Agent: &apiv1.AgentProvenance{Ref: agent}}
 			store := &serviceTestStore{getResult: stored}
 			service := NewService(store, serviceTestAuthorizer{}, nil)
 			result, err := service.List(ctx, test.request)
@@ -752,7 +777,7 @@ func TestSessionCreateUsesTargetNamespace(t *testing.T) {
 			svc := NewService(store, sessionCreateNamespacePolicy{namespace: "team-a"}, serviceTestWorkflow{})
 			created, err := svc.Create(serviceTestContext("alice"), &apiv1.ResourceReference{Namespace: namespace, Name: "assistant"}, "request", "")
 			if namespace == "team-a" {
-				if err != nil || created.GetAgent().GetNamespace() != namespace || created.GetCreator() != "alice" {
+				if err != nil || created.GetAgent().GetRef().GetNamespace() != namespace || created.GetCreator() != "alice" {
 					t.Fatalf("create = %+v, error = %v", created, err)
 				}
 			} else if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) || store.createInput != nil {

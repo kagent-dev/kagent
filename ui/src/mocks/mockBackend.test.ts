@@ -180,6 +180,28 @@ const INPUTS = {
   // one another operation is reading would be a race.
   "agentTemplates.delete": { namespace: "kagent", name: "support-triage-2b91d0e" },
 
+  "egressPolicies.list": {},
+  "egressPolicies.get": { namespace: "kagent", name: "github-api" },
+  "egressPolicies.create": {
+    namespace: "kagent",
+    name: "swept-policy",
+    resource: {
+      metadata: { name: "swept-policy", namespace: "kagent" },
+      spec: { destinations: [{ origin: "https://swept.example.com" }] },
+    },
+  },
+  // Sent without a resourceVersion, so it races nothing above.
+  "egressPolicies.update": {
+    namespace: "kagent",
+    name: "internal-tools",
+    resource: {
+      metadata: { name: "internal-tools", namespace: "kagent" },
+      spec: { destinations: [{ origin: "https://tools.example.com" }] },
+    },
+  },
+  "egressPolicies.delete": { namespace: "platform", name: "package-mirrors" },
+  "sandboxTemplates.list": {},
+
   "agentInstances.rename": {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",

@@ -65,9 +65,9 @@ type expirationActors struct {
 	deletions          int
 }
 
-func (e *expirationActors) DeleteActor(ctx context.Context, space, name string) error {
+func (e *expirationActors) DeleteActor(ctx context.Context, space, name, uid string) error {
 	e.deletions++
-	if err := e.retryTestActors.DeleteActor(ctx, space, name); err != nil {
+	if err := e.retryTestActors.DeleteActor(ctx, space, name, uid); err != nil {
 		return err
 	}
 	if e.loseDeleteResponse {
@@ -108,7 +108,7 @@ func TestSessionExpirationRetainsCheckpointHistory(t *testing.T) {
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	_, checkpointID := lifecycleForkFixture(t, store, actors, source)
 	interactions := NewInteractionService(store, nil, NewService(store, serviceTestAuthorizer{}, nil), false)
-	agent := types.NamespacedName{Namespace: source.Agent.Namespace, Name: source.Agent.Name}
+	agent := types.NamespacedName{Namespace: source.GetAgent().Ref.Namespace, Name: source.GetAgent().Ref.Name}
 	// Real ownership filtering must hide an existing conversation in exactly
 	// the same way as a missing or expired conversation, without reading history.
 	_, err := interactions.ListTasks(serviceTestContext("visitor"), agent, &a2a.ListTasksRequest{ContextID: source.ContextId})
@@ -154,7 +154,7 @@ func TestSessionDeleteCompletesIdleDeletion(t *testing.T) {
 
 	// An explicit Delete joins the idle deletion and removes its receipt in
 	// the ordinary completion transaction; no separate expiration finish runs.
-	_, err = workflow.Delete(t.Context(), session)
+	_, err = workflow.Delete(t.Context(), session, false)
 	require.NoError(t, err)
 	_, err = store.GetSessionByID(t.Context(), session.Id)
 	require.ErrorIs(t, err, database.ErrNotFound)

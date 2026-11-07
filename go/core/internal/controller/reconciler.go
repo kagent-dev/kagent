@@ -24,6 +24,7 @@ import (
 
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -39,15 +40,15 @@ import (
 // Agent. Compilation failures are data so invalid Agents still produce
 // status instead of disappearing from the graph.
 type AgentReconciliation struct {
-	Agent                 *kagentv1alpha3.Agent
-	EgressGrant           egress.Access // Requested union, including conflicting grants.
-	EgressIssues          []translator.EgressGrantIssue
-	EgressConflict        string
-	Target                *compiledTarget
-	Warnings              []string
-	CompilationFailure    *ReconciliationFailure
-	ObservedActorTemplate *ateapipb.ActorTemplate
-	PreparationFailure    *ReconciliationFailure
+	Agent              *kagentv1alpha3.Agent
+	EgressGrant        egress.Access // Requested union, including conflicting grants.
+	EgressIssues       []translator.EgressGrantIssue
+	EgressConflict     string
+	Target             *compiledTarget
+	Warnings           []string
+	CompilationFailure *ReconciliationFailure
+	Golden             goldenProgress
+	PreparationFailure *ReconciliationFailure
 }
 
 // compiledTarget is published only after compilation, hashing, and ActorTemplate
@@ -56,6 +57,7 @@ type compiledTarget struct {
 	Revision      translator.Revision
 	RevisionID    translator.RevisionID
 	ActorTemplate *ateapipb.ActorTemplate
+	Bootstrap     *runtimev1.BootstrapBundle
 }
 
 func (c *compiledTarget) equals(other *compiledTarget) bool {
@@ -63,7 +65,7 @@ func (c *compiledTarget) equals(other *compiledTarget) bool {
 		return c == other
 	}
 	return c.RevisionID == other.RevisionID && c.Revision.Equals(other.Revision) &&
-		proto.Equal(c.ActorTemplate, other.ActorTemplate)
+		proto.Equal(c.ActorTemplate, other.ActorTemplate) && proto.Equal(c.Bootstrap, other.Bootstrap)
 }
 
 func (r AgentReconciliation) ResourceName() string { return r.Agent.Namespace + "/" + r.Agent.Name }
@@ -72,12 +74,10 @@ var _ krt.Equaler[AgentReconciliation] = AgentReconciliation{}
 
 // Equals keeps KRT from reflecting over protobuf caches that mutate during reads.
 func (r AgentReconciliation) Equals(other AgentReconciliation) bool {
-	if !r.Target.equals(other.Target) ||
-		!proto.Equal(r.ObservedActorTemplate, other.ObservedActorTemplate) {
+	if !r.Target.equals(other.Target) {
 		return false
 	}
 	r.Target, other.Target = nil, nil
-	r.ObservedActorTemplate, other.ObservedActorTemplate = nil, nil
 	return reflect.DeepEqual(r, other)
 }
 
@@ -132,20 +132,7 @@ func newAgentReconciliations(
 		if observed == nil || observed.RevisionID != state.Target.RevisionID {
 			return state
 		}
-		if observed.Failure != nil {
-			state.PreparationFailure = observed.Failure
-			return state
-		}
-		state.ObservedActorTemplate = (*observed).Template
-		if !substrate.ActorTemplateSpecEqual(state.ObservedActorTemplate, state.Target.ActorTemplate) {
-			state.PreparationFailure = &ReconciliationFailure{
-				Condition: kagentv1alpha3.AgentConditionReady,
-				Reason:    "ActorTemplateConflict",
-				Message:   "existing immutable ActorTemplate differs from the compiled revision",
-			}
-		} else if message := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-			state.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateFailed", Message: message}
-		}
+		state.Golden, state.PreparationFailure = observed.Golden, observed.Failure
 		return state
 	}, opts.WithName("AgentReconciliations")...)
 }
@@ -166,11 +153,15 @@ func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collectio
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
 	}
-	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID)
+	bundle, err := revision.BootstrapBundle(revisionID)
+	if err != nil {
+		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
+	}
+	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID, bundle)
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 	}
-	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}, warnings, nil
+	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate, Bootstrap: bundle}, warnings, nil
 }
 
 func compilationFailure(err error) *ReconciliationFailure {
@@ -196,7 +187,7 @@ type runtimeRevisionStore interface {
 	actorEgressStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
-	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
+	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) (database.GoldenRetry, error)
 	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
@@ -206,6 +197,7 @@ type actorTemplateClient interface {
 	EnsureAtespace(context.Context, string) error
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
 	CreateActorTemplate(context.Context, *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error)
+	DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error
 }
 
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
@@ -215,6 +207,7 @@ type Reconciler struct {
 	templates   actorTemplateClient
 	store       runtimeRevisionStore
 	status      kagentclient.ApiV1alpha3Interface
+	golden      goldenRetries
 
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
@@ -245,6 +238,7 @@ func newReconciler(
 		templates:   templates,
 		store:       store,
 		status:      status,
+		golden:      defaultGoldenRetries,
 	}
 	r.agents = newReconciliationQueue("agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
@@ -342,10 +336,9 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 		select {
 		case <-stop:
 			return
-		case <-ticker.C:
+		case now := <-ticker.C:
 			for _, state := range r.collections.Reconciliations.List() {
-				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
-				if state.Target != nil && state.PreparationFailure == nil && state.ObservedActorTemplate != nil && golden.GetGoldenTag() == nil {
+				if state.Golden.due(now) {
 					r.agents.Add(state.ResourceName())
 				}
 			}
@@ -411,6 +404,20 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	}
 	target := state.Target
 	desiredRef := target.ActorTemplate.GetMetadata()
+	digest, err := substrate.ActorTemplateSpecDigest(target.ActorTemplate)
+	if err != nil {
+		return r.observePreparationError(*state, err)
+	}
+	revision := database.RuntimeRevision{
+		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
+		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
+		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
+		EgressDestinations:      target.Revision.EgressDestinations,
+		Credentials:             target.Revision.Credentials,
+		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
+		ActorTemplateAtespace:   desiredRef.GetAtespace(), ActorTemplateName: desiredRef.GetName(),
+		ActorTemplateSpecDigest: digest,
+	}
 	observed, err := r.templates.GetActorTemplate(ctx, desiredRef.GetAtespace(), desiredRef.GetName())
 	if status.Code(err) == codes.NotFound {
 		if err := r.templates.EnsureAtespace(ctx, desiredRef.GetAtespace()); err != nil {
@@ -420,7 +427,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		if status.Code(err) == codes.InvalidArgument {
 			// Validation rejects the immutable request, so retries cannot repair
 			// it. Backend messages may quote configuration; keep status safe.
-			r.observePreparation(*state, nil, &ReconciliationFailure{
+			r.observePreparation(*state, goldenProgress{}, &ReconciliationFailure{
 				Condition: kagentv1alpha3.AgentConditionReady,
 				Reason:    "ActorTemplateRejected",
 				Message:   "Substrate rejected the compiled ActorTemplate (InvalidArgument); verify the Agent configuration against Substrate's validation requirements",
@@ -435,27 +442,31 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return r.observePreparationError(*state, fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err))
 	}
 	if !substrate.ActorTemplateSpecEqual(observed, target.ActorTemplate) {
-		r.observePreparation(*state, observed, nil)
+		r.observePreparation(*state, goldenProgress{}, &ReconciliationFailure{
+			Condition: kagentv1alpha3.AgentConditionReady,
+			Reason:    "ActorTemplateConflict",
+			Message:   "existing immutable ActorTemplate differs from the compiled revision",
+		})
 		return nil
 	}
 
-	revision := database.RuntimeRevision{
-		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
-		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
-		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
-		EgressDestinations:      target.Revision.EgressDestinations,
-		Credentials:             target.Revision.Credentials,
-		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
-		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
-	}
-	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
-	if err := r.store.RecordRuntimeRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
+	revision.ActorTemplateUID = observed.GetMetadata().GetUid()
+	now := time.Now()
+	options := goldenRecordOptions(observed, now)
+	options.Bootstrap = target.Bootstrap
+	retry, err := r.store.RecordRuntimeRevision(ctx, revision, options)
+	if err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
+	}
+	golden, err := r.golden.advance(ctx, r.templates, revision.Revision, observed, retry, now)
+	if failure := golden.failure(); failure != nil {
+		r.observePreparation(*state, golden, failure)
+		return err
 	}
 
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after session creation can select the persisted revision.
-	r.observePreparation(*state, observed, nil)
+	r.observePreparation(*state, golden, nil)
 	return nil
 }
 
@@ -467,7 +478,7 @@ func (r *Reconciler) observePreparationError(state AgentReconciliation, err erro
 	if state.PreparationFailure != nil && !state.PreparationFailure.Retryable {
 		return err
 	}
-	r.observePreparation(state, nil, runtimePreparationFailure(err))
+	r.observePreparation(state, goldenProgress{}, runtimePreparationFailure(err))
 	return err
 }
 
@@ -485,11 +496,11 @@ func runtimePreparationFailure(err error) *ReconciliationFailure {
 
 // Observations belong to the Agent's current preparation, independently of how
 // long sessions or checkpoints keep its old runtime alive in the database.
-func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, failure *ReconciliationFailure) {
+func (r *Reconciler) observePreparation(state AgentReconciliation, golden goldenProgress, failure *ReconciliationFailure) {
 	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
 		RevisionID: state.Target.RevisionID,
-		Template:   template,
+		Golden:     golden,
 		Failure:    failure,
 	})
 }

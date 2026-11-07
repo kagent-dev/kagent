@@ -36,7 +36,7 @@ type sandboxRevisionStore interface {
 	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
 	GetSandboxEgressGrant(context.Context, string, string) (egress.Access, error)
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
-	RecordSandboxRevision(context.Context, database.SandboxRevision, database.RecordRevisionOptions) error
+	RecordSandboxRevision(context.Context, database.SandboxRevision, database.RecordRevisionOptions) (database.GoldenRetry, error)
 }
 
 // SandboxReconciler owns the queued side effects of SandboxTemplate preparation.
@@ -46,6 +46,7 @@ type SandboxReconciler struct {
 	store       sandboxRevisionStore
 	actors      actorTemplateClient
 	client      kagentclient.ApiV1alpha3Interface
+	golden      goldenRetries
 }
 
 var _ manager.LeaderElectionRunnable = (*SandboxReconciler)(nil)
@@ -55,7 +56,7 @@ func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRe
 	if err != nil {
 		return nil, fmt.Errorf("create SandboxTemplate client: %w", err)
 	}
-	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client}, nil
+	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client, golden: defaultGoldenRetries}, nil
 }
 
 func (s *SandboxReconciler) NeedLeaderElection() bool { return true }
@@ -86,7 +87,7 @@ func (s *SandboxReconciler) Start(ctx context.Context) error {
 }
 
 // Kubernetes changes arrive through KRT. Poll only incomplete external work;
-// this also recovers transient failures after the queue's retry budget expires.
+// the queue retries failed preparations on its own backoff.
 func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statuses controllers.Queue) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -94,18 +95,27 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case now := <-ticker.C:
 			for _, state := range s.collections.states.List() {
 				if state.Template.DeletionTimestamp.IsZero() && !apiequality.Semantic.DeepEqual(sandboxStatusWithTransitionTimes(state), state.Template.Status) {
 					statuses.Add(state.ResourceName())
 				}
-				if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) ||
-					(state.Failure != nil && state.Failure.Retryable) || (state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil) {
+				if needsPreparationPoll(state, now) {
 					preparations.Add(state.ResourceName())
 				}
 			}
 		}
 	}
+}
+
+// needsPreparationPoll reports whether the poll loop should requeue a sandbox
+// template: it is deleting, lacks its finalizer, its golden build is due, or it
+// has not been prepared yet. A failed preparation stays on the queue's backoff.
+func needsPreparationPoll(state sandboxReconciliation, now time.Time) bool {
+	if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
+		return true
+	}
+	return state.Golden.due(now) || (state.Golden.phase == goldenUnobserved && state.Failure == nil && state.canPrepare())
 }
 
 func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
@@ -184,23 +194,31 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 	if !substrate.ActorTemplateSpecEqual(observed, state.DesiredActorTemplate) {
 		return s.observeError(*state, fmt.Errorf("sandbox ActorTemplate immutable inputs disagree"), false)
 	}
-	if message := observed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-		return s.observeError(*state, fmt.Errorf("sandbox golden snapshot failed: %s", message), true)
+	digest, err := substrate.ActorTemplateSpecDigest(observed)
+	if err != nil {
+		return s.observeError(*state, err, true)
 	}
-	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
 	revision := database.SandboxRevision{
 		RuntimeArtifact: database.RuntimeArtifact{Revision: state.RevisionID, Kind: "sandbox", Namespace: state.Template.Namespace,
-			ActorTemplateAtespace: ref.GetAtespace(), ActorTemplateName: ref.GetName(), ActorTemplateUID: observed.GetMetadata().GetUid()},
+			ActorTemplateAtespace: ref.GetAtespace(), ActorTemplateName: ref.GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
+			ActorTemplateSpecDigest: digest},
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
 		SourceSnapshot: state.SourceSnapshot,
 	}
-	if err := s.store.RecordSandboxRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
+	now := time.Now()
+	retry, err := s.store.RecordSandboxRevision(ctx, revision, goldenRecordOptions(observed, now))
+	if err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
+	}
+	golden, err := s.golden.advance(ctx, s.actors, state.RevisionID, observed, retry, now)
+	if failure := golden.failure(); failure != nil {
+		s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: state.RevisionID, Golden: golden, Failure: failure})
+		return err
 	}
 
 	// Kubernetes readiness can only follow a revision that callers can select
 	// from the store. Failed persistence must never publish a ready observation.
-	s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: state.RevisionID, Template: observed})
+	s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: state.RevisionID, Golden: golden})
 	return nil
 }
 
@@ -233,10 +251,10 @@ func (s *SandboxReconciler) reconcileStatus(ctx context.Context, key string) err
 // detectable after the status queue exhausts its transient-error retries.
 func sandboxStatusWithTransitionTimes(state sandboxReconciliation) kagentv1alpha3.SandboxTemplateStatus {
 	desired := *state.Template.Status.DeepCopy()
-	condition := metav1.Condition{Type: "Ready", Status: metav1.ConditionFalse, Reason: "Preparing", Message: "Waiting for the prepared sandbox snapshot", ObservedGeneration: state.Template.Generation}
+	condition := metav1.Condition{Type: "Ready", Status: metav1.ConditionFalse, Reason: "Preparing", Message: state.Golden.pendingMessage("Waiting for the prepared sandbox snapshot"), ObservedGeneration: state.Template.Generation}
 	if state.Failure != nil {
 		condition.Reason, condition.Message = state.Failure.Reason, state.Failure.Message
-	} else if state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil {
+	} else if state.Golden.ready() {
 		condition.Status, condition.Reason, condition.Message = metav1.ConditionTrue, "Prepared", "Sandbox runtime is prepared"
 	}
 	desired.ObservedGeneration = state.Template.Generation

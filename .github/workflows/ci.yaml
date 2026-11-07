@@ -48,7 +48,6 @@ jobs:
         sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.7.0-alpha1
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
@@ -73,6 +72,11 @@ jobs:
           key: e2e-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go/go.mod', 'go/go.sum') }}
           restore-keys: |
             e2e-go-${{ runner.os }}-${{ runner.arch }}-
+      - name: Resolve Substrate release
+        working-directory: go
+        run: |
+          version=$(go list -m -f '{{.Replace.Version}}' go.ate.dev/substrate)
+          echo "SUBSTRATE_VERSION=${version#v}" >> "$GITHUB_ENV"
       - name: Allow unprivileged user namespaces
         # Ubuntu 24.04 enables AppArmor-based restrictions on
         # unprivileged user namespaces by default, which causes bubblewrap
@@ -185,13 +189,15 @@ jobs:
             namespacePolicies:
               - atespace: kagent
                 allowedNamespaces: [kagent, kagent-shared-models, kagent-shared-tools]
+          ateApi:
+            extraArgs: [--template-resync-interval=250ms]
+          EOF
+          cat > "$RUNNER_TEMP/atelet-values.yaml" <<EOF
           atelet:
             resources:
               limits:
                 memory: 2Gi
             extraArgs: [--localhost-registry-replacement=kind-registry:5000]
-          ateApi:
-            extraArgs: [--template-resync-interval=250ms]
           EOF
           cat > "$RUNNER_TEMP/kagent-cli.yaml" <<EOF
           install:
@@ -199,8 +205,12 @@ jobs:
               repository: "${RUNNER_TEMP}/release-charts/"
               version: "${VERSION}"
               valuesFiles: ["${RUNNER_TEMP}/kagent-values.yaml"]
+            atelet:
+              valuesFiles: ["${RUNNER_TEMP}/atelet-values.yaml"]
             substrate:
-              valuesFiles: ["${RUNNER_TEMP}/substrate-values.yaml"]
+              valuesFiles:
+                - "${RUNNER_TEMP}/substrate-values.yaml"
+                - "${GITHUB_WORKSPACE}/go/core/test/e2e/manifests/substrate-values.yaml"
           EOF
           ./go/core/bin/kagent-local --config "$RUNNER_TEMP/kagent-cli.yaml" install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
@@ -216,8 +226,8 @@ jobs:
         if: matrix.sandbox_class == 'microvm'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .cache/substrate/microvm-assets/amd64
-          key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
+          path: .cache/substrate/microvm-assets
+          key: microvm-assets-v2-amd64-${{ env.SUBSTRATE_VERSION }}
 
       - name: Install Cloud Hypervisor runtime
         if: matrix.sandbox_class == 'microvm'
@@ -241,6 +251,13 @@ jobs:
           CODEX_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/codex-harness:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$CODEX_DIGEST"
           export KAGENT_E2E_CODEX_IMAGE="localhost:5001/kagent-dev/kagent/codex-harness@${CODEX_DIGEST}"
+          # Capture smoke startup failures before concurrent actors displace them.
+          mkdir -p "$RUNNER_TEMP/e2e-logs"
+          kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --timestamps --tail=-1 --follow --max-log-requests=20 > "$RUNNER_TEMP/e2e-logs/workers.log" 2>&1 &
+          worker_logs_pid=$!
+          kubectl logs -n ate-system -l app --all-containers --prefix --timestamps --tail=-1 --follow --max-log-requests=20 > "$RUNNER_TEMP/e2e-logs/substrate.log" 2>&1 &
+          substrate_logs_pid=$!
+          trap 'kill "$worker_logs_pid" "$substrate_logs_pid" 2>/dev/null || true; wait "$worker_logs_pid" "$substrate_logs_pid" 2>/dev/null || true' EXIT
           envsubst < core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -
           for _ in $(seq 1 60); do
             READY=$(kubectl get agent smoke -n kagent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
@@ -259,13 +276,6 @@ jobs:
           # TestMain replays what the receiver got to Weaver live-check.
           ../telemetry/live-check.sh start
           export KAGENT_E2E_LIVE_CHECK_ENDPOINT=127.0.0.1:4319
-          # Concurrent actors can push an earlier failure out of the final log tail.
-          mkdir -p "$RUNNER_TEMP/e2e-logs"
-          kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --timestamps --tail=-1 --follow --max-log-requests=20 > "$RUNNER_TEMP/e2e-logs/workers.log" 2>&1 &
-          worker_logs_pid=$!
-          kubectl logs -n ate-system -l app --all-containers --prefix --timestamps --tail=-1 --follow --max-log-requests=20 > "$RUNNER_TEMP/e2e-logs/substrate.log" 2>&1 &
-          substrate_logs_pid=$!
-          trap 'kill "$worker_logs_pid" "$substrate_logs_pid" 2>/dev/null || true; wait "$worker_logs_pid" "$substrate_logs_pid" 2>/dev/null || true' EXIT
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -shuffle=on -parallel "$E2E_PARALLEL" -count=1 -timeout=30m 2>&1 | tee "$RUNNER_TEMP/e2e-logs/tests.log"
 
       - name: Check E2E telemetry with Weaver live-check
@@ -326,6 +336,8 @@ jobs:
       - name: Lint and generate protobuf contracts
         run: make proto-check
       - name: Check protobuf compatibility
+        env:
+          PROTO_BREAKING_BRANCH: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || 'origin/main' }}
         run: make proto-breaking
 
   semconv-check:
@@ -437,17 +449,32 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller || true
 
   go-unit-tests:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    env:
+      # Use the disk build cache restored below on every runner.
+      GOCACHEPROG: ""
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
+        id: go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
-          cache: true
-          cache-dependency-path: go/go.sum
+          cache: false
+
+      - name: Cache Go unit test dependencies and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          # Keep race builds separate from generators and refresh after code changes.
+          key: go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'ui/entrypoint/go.mod') }}-${{ github.sha }}
+          restore-keys: |
+            go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'ui/entrypoint/go.mod') }}-
+            go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
 
       - name: Run Go unit tests
         working-directory: go
@@ -465,7 +492,7 @@ jobs:
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -610,7 +637,7 @@ jobs:
   python-test:
     env:
       OPENAI_API_KEY: fake
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -619,7 +646,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Install python
         run: uv python install ${{ matrix.python-version }}
@@ -643,7 +670,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Install python
         run: uv python install 3.11
@@ -680,9 +707,6 @@ jobs:
           go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
-
-      - name: Check environment documentation
-        run: make env-docs-check
 
       - name: Generate controller manifests
         run: make controller-manifests

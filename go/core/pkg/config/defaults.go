@@ -28,6 +28,10 @@ func DefaultCLI(cfg *configv1.CLIConfig) {
 		cfg.Install.PodCertificate = &configv1.ChartConfig{}
 	}
 	defaults(cfg.Install.PodCertificate, &configv1.ChartConfig{Repository: new(cfg.Install.Substrate.GetRepository()), Version: new(cfg.Install.Substrate.GetVersion())})
+	if cfg.Install.Atelet == nil {
+		cfg.Install.Atelet = &configv1.ChartConfig{}
+	}
+	defaults(cfg.Install.Atelet, &configv1.ChartConfig{Repository: new(cfg.Install.Substrate.GetRepository()), Version: new(cfg.Install.Substrate.GetVersion())})
 }
 
 // DefaultController fills only absent settings. Secret file paths are required
@@ -37,7 +41,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Kubernetes:       &configv1.KubernetesConfig{Namespace: new("kagent"), LeaderElection: new(true)},
 		Server:           &configv1.ControllerServerConfig{BindAddress: new(":8083"), Auth: &configv1.AuthenticationConfig{Mode: new("insecure")}},
 		Database:         defaultDatabase(),
-		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("http://atenet-router.ate-system.svc:80"), ActorJwtIssuer: new("https://idp.ate-system.svc")},
+		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("https://atenet-router.ate-system.svc:443"), ActorJwtIssuer: new("https://idp.ate-system.svc")},
 		Sessions:         &configv1.SessionsConfig{IdleTtl: durationpb.New(7 * 24 * time.Hour), ExpirationInterval: durationpb.New(time.Minute), QuiescenceRecoveryInterval: durationpb.New(time.Minute)},
 		Gateway:          &configv1.GatewayConfig{PublicUrl: new("http://localhost:8083")},
 		Push:             &configv1.PushConfig{RecoveryInterval: durationpb.New(time.Minute), MaxConcurrency: new(int32(10)), SendTimeout: durationpb.New(5 * time.Second)},
@@ -86,7 +90,7 @@ func ResolveControllerPaths(cfg *configv1.ControllerConfig, path string) {
 func ResolveCLIPaths(cfg *configv1.CLIConfig, path string) {
 	resolveLoginPath(cfg.Database.Owner, path)
 	cfg.Connection.CaFile = FilePath(path, cfg.Connection.CaFile)
-	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate} {
+	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate, cfg.Install.Atelet} {
 		for i, value := range chart.ValuesFiles {
 			chart.ValuesFiles[i] = FilePath(path, value)
 		}

@@ -40,7 +40,10 @@ database:
     urlFile: secret-not-present
 install:
   substrate:
+    repository: oci://mirror.example/substrate/
     version: v1.2.3
+  atelet:
+    valuesFiles: [atelet.yaml]
 `), 0600))
 	output, err := executeConfig(t, "--config", path, "config", "view", "--namespace", "flag-ns", "--timeout", "0", "--verbose=false")
 	require.NoError(t, err)
@@ -53,9 +56,33 @@ install:
 	require.Equal(t, filepath.Join(dir, "ca.pem"), cfg.GetConnection().GetCaFile())
 	require.Equal(t, "json", cfg.GetOutput().GetFormat())
 	require.Equal(t, "v1.2.3", cfg.GetInstall().GetPodCertificate().GetVersion())
+	require.Equal(t, "v1.2.3", cfg.GetInstall().GetAtelet().GetVersion())
+	require.Equal(t, "oci://mirror.example/substrate/", cfg.GetInstall().GetAtelet().GetRepository())
+	require.Equal(t, []string{filepath.Join(dir, "atelet.yaml")}, cfg.GetInstall().GetAtelet().GetValuesFiles())
 	require.Equal(t, filepath.Join(dir, "secret-not-present"), cfg.GetDatabase().GetOwner().GetUrlFile())
 	_, err = executeConfig(t, "--config", path, "config", "validate")
 	require.NoError(t, err)
+}
+
+func TestAteletChartOverrides(t *testing.T) {
+	t.Run("Given a separate Atelet chart source, when configuration is loaded, assert that explicit overrides are preserved", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(`install:
+  substrate:
+    repository: oci://base.example/helm/
+    version: 1.0.0
+  atelet:
+    repository: oci://node.example/helm/
+    version: 1.0.1
+`), 0o600))
+		output, err := executeConfig(t, "--config", path, "config", "view")
+		require.NoError(t, err)
+		cfg := &configv1.CLIConfig{}
+		require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
+		require.Equal(t, "oci://node.example/helm/", cfg.GetInstall().GetAtelet().GetRepository())
+		require.Equal(t, "1.0.1", cfg.GetInstall().GetAtelet().GetVersion())
+		require.Equal(t, "1.0.0", cfg.GetInstall().GetSubstrate().GetVersion())
+	})
 }
 
 func TestConfigIndependentCommands(t *testing.T) {

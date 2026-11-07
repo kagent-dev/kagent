@@ -23,6 +23,7 @@ type transitionActors struct {
 	checkErr        error
 	resumeUID       string
 	suspendSnapshot *ateapipb.Snapshot
+	revertUID       string
 }
 
 func (a *transitionActors) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -63,14 +64,29 @@ func (a *transitionActors) ResumeActor(context.Context, string, string) (*ateapi
 func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/data"}}}}
+	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/data"}}}}
 	if a.suspendSnapshot != nil {
 		a.actor.Status.Snapshots = []*ateapipb.Snapshot{proto.CloneOf(a.suspendSnapshot)}
 	}
 	return proto.CloneOf(a.actor), nil
 }
 
-func (a *transitionActors) DeleteActor(context.Context, string, string) error {
+func (a *transitionActors) RevertActor(context.Context, string, string) (*ateapipb.Actor, error) {
+	a.calls = append(a.calls, "revert")
+	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	snapshot := proto.CloneOf(LatestDurableActorSnapshot(a.actor))
+	a.actor.Status.Snapshots = nil
+	if snapshot != nil {
+		snapshot.Locality = ""
+		a.actor.Status.Snapshots = []*ateapipb.Snapshot{snapshot}
+	}
+	if a.revertUID != "" {
+		a.actor.Metadata.Uid = a.revertUID
+	}
+	return proto.CloneOf(a.actor), nil
+}
+
+func (a *transitionActors) DeleteActor(context.Context, string, string, string) error {
 	a.calls = append(a.calls, "delete")
 	a.actor = nil
 	return nil
@@ -188,23 +204,35 @@ func TestActorTransitionChecksEgressPolicyBeforeStartup(t *testing.T) {
 	require.Equal(t, []string{"policy"}, actors.calls)
 }
 
-func TestActorDeleteStopsRunningCompute(t *testing.T) {
-	actors := &transitionActors{}
-	_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
-	require.NoError(t, err)
-	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
-	actors.calls = nil
-	binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
-	transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
-	require.NoError(t, err)
-	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
-	require.Equal(t, []string{"suspend", "delete"}, actors.calls)
+func TestActorDeletionDoesNotSuspend(t *testing.T) {
+	for _, state := range []ateapipb.ActorState{
+		ateapipb.ActorState_ACTOR_STATE_RESUMING,
+		ateapipb.ActorState_ACTOR_STATE_RUNNING,
+		ateapipb.ActorState_ACTOR_STATE_SUSPENDING,
+		ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+		ateapipb.ActorState_ACTOR_STATE_CRASHED,
+		ateapipb.ActorState_ACTOR_STATE_DELETING,
+	} {
+		t.Run("Given an actor in "+state.String()+", when deletion runs, assert that it deletes without suspension", func(t *testing.T) {
+			actors := &transitionActors{}
+			_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+			require.NoError(t, err)
+			actors.actor.Status.State = state
+			actors.calls = nil
+			binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+			transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
+			require.NoError(t, err)
+			require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
+			require.Equal(t, []string{"delete"}, actors.calls)
+			require.Nil(t, actors.actor)
 
-	actors.calls = nil
-	transition, err = PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
-	require.NoError(t, err)
-	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
-	require.Empty(t, actors.calls, "a missing Actor already satisfies deletion")
+			actors.calls = nil
+			transition, err = PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
+			require.NoError(t, err)
+			require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
+			require.Empty(t, actors.calls, "a missing Actor already satisfies deletion")
+		})
+	}
 }
 
 func TestActorSuspendRequiresDurableVolumesSnapshot(t *testing.T) {
@@ -214,11 +242,11 @@ func TestActorSuspendRequiresDurableVolumesSnapshot(t *testing.T) {
 	}{
 		{name: "missing URI", snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES}},
 		{name: "MEMORY rejected", snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
-			DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/memory"}}}},
+			DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/memory"}}}},
 		{name: "ROOTFS rejected", snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_ROOTFS,
-			DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/rootfs"}}}},
+			DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/rootfs"}}}},
 		{name: "pending upload", snapshot: &ateapipb.Snapshot{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
-			DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/pending"}}}},
+			DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/pending"}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &transitionActors{suspendSnapshot: test.snapshot}
@@ -227,6 +255,61 @@ func TestActorSuspendRequiresDurableVolumesSnapshot(t *testing.T) {
 			transition, err := PrepareActorTransition(t.Context(), actors, ActorBinding{Revision: "revision", Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, nil)
 			require.NoError(t, err)
 			require.ErrorContains(t, ApplyActorTransition(t.Context(), actors, transition), "durable VOLUMES snapshot")
+		})
+	}
+}
+
+func TestActorRevertKeepsTheRecordedActor(t *testing.T) {
+	durable := func(generation int32, uri string) *ateapipb.Snapshot {
+		return &ateapipb.Snapshot{Generation: generation, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, Locality: "lost-node",
+			DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: uri}}}
+	}
+	for _, test := range []struct {
+		name           string
+		missing        bool
+		state          ateapipb.ActorState
+		revertUID      string
+		wantPrepareErr bool
+		unrecoverable  bool
+		wantApplyErr   bool
+		wantCalls      []string
+	}{
+		{name: "crashed", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, wantCalls: []string{"revert"}},
+		{name: "revert in progress", state: ateapipb.ActorState_ACTOR_STATE_REVERTING, wantCalls: []string{"revert"}},
+		{name: "earlier revert response lost", state: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
+		{name: "running actor", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, wantApplyErr: true},
+		{name: "actor gone", missing: true, wantPrepareErr: true, unrecoverable: true},
+		{name: "replaced actor", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, revertUID: "another-actor", wantApplyErr: true, wantCalls: []string{"revert"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			actors := &transitionActors{revertUID: test.revertUID}
+			if !test.missing {
+				actors.actor = &ateapipb.Actor{
+					Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "instance", Uid: "actor-uid"},
+					ActorTemplate: &ateapipb.ObjectRef{Atespace: "team", Name: "revision"},
+					Status:        &ateapipb.ActorStatus{State: test.state, Snapshots: []*ateapipb.Snapshot{durable(2, "s3://snapshots/latest")}},
+				}
+				if test.state == ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+					actors.actor.Status.Snapshots[0].Locality = ""
+				}
+			}
+			binding := ActorBinding{Revision: "revision", Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}
+			transition, err := PrepareActorRevert(t.Context(), actors, binding)
+			if test.wantPrepareErr {
+				require.Error(t, err)
+				require.Equal(t, test.unrecoverable, errors.Is(err, ErrActorUnrecoverable))
+				require.Empty(t, actors.calls, "a failed read issues nothing")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "actor-uid", transition.ActorUID())
+			err = ApplyActorTransition(t.Context(), actors, transition)
+			if test.wantApplyErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, test.wantCalls, actors.calls)
 		})
 	}
 }

@@ -72,8 +72,9 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	slices.Sort(compiled.Egress)
 	compiled.Egress = slices.Compact(compiled.Egress)
 	return &translator.CompileResult{Revision: translator.Revision{
-		Namespace: template.Namespace,
-		Command:   slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
+		ControlPlaneURL: c.settings.GetControlPlaneUrl(),
+		Namespace:       template.Namespace,
+		Command:         slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,

@@ -25,8 +25,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestAteAPITLSConfig(t *testing.T) {
-	cfg, err := ateAPITLSConfig(Config{})
+func TestClientTLSConfig(t *testing.T) {
+	cfg, err := clientTLSConfig("", "")
 	require.NoError(t, err)
 	require.False(t, cfg.InsecureSkipVerify)
 	require.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
@@ -37,7 +37,7 @@ func TestAteAPITLSConfig(t *testing.T) {
 	bundle := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})...)
 	path := filepath.Join(t.TempDir(), "bundle.pem")
 	require.NoError(t, os.WriteFile(path, bundle, 0o600))
-	cfg, err = ateAPITLSConfig(Config{CAFile: path, ClientCertFile: path})
+	cfg, err = clientTLSConfig(path, path)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RootCAs)
 	loaded, err := cfg.GetClientCertificate(&tls.CertificateRequestInfo{})
@@ -162,6 +162,7 @@ type listActorTemplatesFake struct {
 type deleteActorTemplateFake struct {
 	ateapipb.ControlClient
 	template *ateapipb.ObjectRef
+	options  *ateapipb.DeleteOptions
 	actor    *ateapipb.DeleteActorRequest
 }
 
@@ -203,6 +204,7 @@ func TestListActorTemplatesFollowsPagination(t *testing.T) {
 
 func (f *deleteActorTemplateFake) DeleteActorTemplate(_ context.Context, in *ateapipb.DeleteActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
 	f.template = in.GetActorTemplate()
+	f.options = in.GetOptions()
 	return nil, status.Error(codes.NotFound, "already deleted")
 }
 
@@ -214,9 +216,26 @@ func (f *deleteActorTemplateFake) DeleteActor(_ context.Context, in *ateapipb.De
 func TestDeleteActorTemplateRetriesNotFound(t *testing.T) {
 	fake := &deleteActorTemplateFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template"))
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", ""))
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
 	require.Nil(t, fake.actor, "Substrate owns golden Actor cleanup")
+	require.Empty(t, fake.options.GetUid(), "an unguarded delete pins no UID")
+}
+
+func TestDeleteActorTemplateSendsUIDPrecondition(t *testing.T) {
+	fake := &deleteActorTemplateFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", "failed-uid"))
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
+	require.Equal(t, "failed-uid", fake.options.GetUid(), "a replacement template under the same name must survive")
+}
+
+func TestDeleteActorSendsUIDPrecondition(t *testing.T) {
+	fake := &deleteActorTemplateFake{}
+	client := &Client{ControlClient: fake}
+	require.NoError(t, client.DeleteActor(t.Context(), "team-a", "session", "original-uid"))
+	require.Equal(t, "original-uid", fake.actor.GetOptions().GetUid())
+	require.Equal(t, "session", fake.actor.GetActor().GetName())
 }
 
 func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
@@ -236,7 +255,7 @@ func newTestTLSCert(t *testing.T) tls.Certificate {
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
@@ -389,8 +408,8 @@ func (f *suspendActorFake) GetActor(ctx context.Context, _ *ateapipb.GetActorReq
 }
 
 func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
-	completed := &ateapipb.Snapshot{Generation: 1, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/old"}}}
-	pending := &ateapipb.Snapshot{Generation: 2, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING}}
+	completed := &ateapipb.Snapshot{Generation: 1, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/old"}}}
+	pending := &ateapipb.Snapshot{Generation: 2, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING}}
 	actor := &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Uid: "original"}, Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, Snapshots: []*ateapipb.Snapshot{pending, completed}}}
 	for _, test := range []struct {
 		name      string
@@ -398,7 +417,7 @@ func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
 		wantError string
 	}{
 		{name: "upload completed", change: func(a *ateapipb.Actor) {
-			a.Status.Snapshots[0].DurableSnapshot = &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"}}
+			a.Status.Snapshots[0].DurableSnapshot = &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"}}
 		}},
 		{name: "actor replaced", change: func(a *ateapipb.Actor) { a.Metadata.Uid = "replacement" }, wantError: "changed"},
 		{name: "actor crashed", change: func(a *ateapipb.Actor) { a.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED }, wantError: "changed"},
@@ -411,6 +430,8 @@ func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
 			fake := &suspendActorFake{actor: actor, get: func(context.Context) (*ateapipb.Actor, error) { reads++; return next, nil }}
 			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
 			got, err := client.SuspendActor(t.Context(), "team", "actor")
+			// Crash recovery depends on this: with no upload left in progress, a
+			// revert restores the snapshot admission settled against (applyRevert).
 			require.Equal(t, ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS, fake.request.GetOptions().GetMode())
 			require.Equal(t, 1, reads)
 			if test.wantError != "" {

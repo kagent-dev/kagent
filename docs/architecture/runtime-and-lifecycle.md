@@ -21,7 +21,7 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v0.7.0-alpha1 requires protocol-specific egress policies and permits
+Substrate v1.0.0 requires protocol-specific egress policies and permits
 DNS queries only for hostnames matched by those policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
@@ -99,6 +99,21 @@ entry points are in
 TaskStore writes and automatic idle lifecycle work use durable task boundaries
 alongside these explicit lifecycle claims. Checkpoint reservations also block
 conflicting task writes and idle lifecycle work.
+
+`DeleteSession` without `force` returns an error if the session has active turns,
+outstanding dispatch, or unfinished native cleanup, without entering `DELETING`.
+`INPUT_REQUIRED` and `AUTH_REQUIRED` tasks are waiting; their state alone does not
+block deletion. Set `force: true` (CLI: `kagent session delete ID --force`) to
+bypass these activity checks. Authorization and checks for conflicting checkpoint
+or lifecycle work still apply.
+
+Both modes call Substrate `DeleteActor` directly with a UID precondition, without
+suspension or a final snapshot. An Actor in `RESUMING` does not need to resume first.
+
+When Substrate reports deletion or actor absence, kagent publishes saved task
+outcomes and marks remaining active tasks canceled. These changes and the Session
+tombstone commit atomically. Once deletion is admitted, client retries continue
+without repeating `force`; new turns remain blocked.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without session-local execution claims. PostgreSQL tests with controlled
@@ -208,6 +223,67 @@ claims still block new work, but completed results remain readable. The recorded
 actor UID is checked before lifecycle calls; a same-name replacement cannot be
 adopted implicitly.
 
+`SessionService.RevertSession` lets an authorized caller restore a confirmed
+crashed runtime. It accepts active and idle Sessions, but verifies Substrate's
+CRASHED state for the recorded Actor UID and pinned template before admitting
+recovery. Quiet turns, transport failures, missing Actors and same-name
+replacements cannot authorize a revert. A runtime that is not crashed, including
+a Session at rest outside READY, has nothing to recover, so RevertSession
+returns the Session unchanged. That is also what a retry sees after a revert
+whose response was lost. A missing or replaced Actor returns
+`FAILED_PRECONDITION`, because no retry restores it. A transport failure returns `UNAVAILABLE`. Only an active
+lifecycle operation returns `ABORTED`.
+
+Admission records FAILED/REVERT with a RuntimeCrashed failure under the Session
+lock. REVERT is its own `RuntimeOperation`: only a confirmed crash starts one, and
+`BeginSessionOperation` can join a REVERT but never start one. The same transaction
+publishes a durable terminal result saved before the crash, or fails nonterminal
+work absent from the retained snapshot. Waiting tasks captured by that snapshot
+remain available. Checkpoint creation excludes competing recovery.
+
+Admission settles waits against the Actor's latest completed durable snapshot,
+which is the one Substrate's revert restores. Every suspend kagent issues uses
+synchronous durability, so its upload completes before suspension returns, and
+a crashed Actor cannot be suspended. No upload can complete between admission
+and the revert, so settling at admission settles against what is restored, and
+the interrupted turn fails as soon as the crash is confirmed. An asynchronous
+suspend would break this and require settling when the revert finishes.
+
+The caller reads the Session's generation before it observes Substrate: its
+lifecycle generation, recorded Actor UID, and Actor template, in one statement.
+The observed Actor must match that template and UID. Admission takes the read
+back, rejects the crash when another lifecycle operation began after it, and
+re-checks the Actor UID under the Session lock. A concurrent revert keeps the
+Actor UID and returns the Session to READY, so only the generation exposes a
+stale observation. The recorded UID changes only through a lifecycle operation,
+which also replaces the generation.
+
+An issued idle suspension does not exclude recovery. It cannot finish against the
+crashed Actor, and its worker keeps the claim when suspension fails. Admission
+retires the claim in its transaction, so a late finish records nothing.
+
+Execution reverts the same Actor to its last durable snapshot without replaying
+input. A runtime without a durable snapshot returns to its initial state.
+An interrupted revert continues from REVERTING; a lost response can be reconciled
+from SUSPENDED. Nothing retries a recovery in the background. An admitted
+recovery survives API restarts as a durable REVERT operation, and the client
+continues it by retrying RevertSession, as with Create and Delete. While it is
+pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`,
+and interactions are refused because a lifecycle operation is in progress.
+
+Delete supersedes an admitted recovery even after an attempt issued the revert.
+Other issued lifecycle work blocks Delete because it may still create something
+Delete would miss; a revert restores the recorded Actor in place and creates
+nothing. Substrate serializes the two calls, and a late revert fails against the
+deleted Actor. A recovery whose Actor is missing or replaced stays pending, and
+each retry returns
+`FAILED_PRECONDITION` so the client deletes the Session.
+
+A successful revert returns the Session to READY with the same Actor suspended.
+The next authorized interaction resumes it through Substrate ingress. Runtime
+changes after the retained snapshot are lost; the discarded turn receives no
+checkpoint at that older snapshot. Another revert returns the Session.
+
 ```mermaid
 sequenceDiagram
     participant Client
@@ -241,6 +317,10 @@ sequenceDiagram
 - Actor A2A gRPC is private on port `80`.
 - Runtime readiness is private HTTP `/readyz` on port `8081`.
 - ate-api defaults to `dns:///api.ate-system.svc:443`.
+- Actor ingress defaults to `https://atenet-router.ate-system.svc:443` and uses
+  the same CA bundle and rotating controller client certificate as ate-api.
+  Substrate's router must allow the controller's SPIFFE identity; the installer
+  configures this for both A2A and sandbox guest access.
 
 Clients never receive Actor addresses. The gateway derives and dials them through
 the private atenetwork router.
@@ -267,7 +347,7 @@ or is canceled. Background processes are not durable work and have no process
 handle API in the bash tool. Suspending an Actor preserves files, not running
 commands. Command payloads and output are not logged by the shell helpers.
 
-Substrate v0.7.0-alpha1 uses snapshot fidelity. Agent and standalone sandbox
+Substrate v1.0.0 uses snapshot fidelity. Agent and standalone sandbox
 templates use VOLUMES. Resume starts fresh containers
 from the OCI image with the saved durable directories. Harnesses recover pending
 approvals and user input from their durable state; sandbox guests start with a
@@ -327,7 +407,7 @@ row, and issue a continuation only when it exists. Public cursors contain the la
 returned identity and request scope, never an upstream cursor that could name a
 filtered-out row.
 
-The Substrate adapter translates that identity into the pinned v0.7.0-alpha1 keyset
+The Substrate adapter translates that identity into the pinned v1.0.0 keyset
 token format: actors use atespace/name globally or name within an atespace; workers
 use globally unique names. The encoder is version-dependent and its contract tests
 must be checked when upgrading Substrate. Continuations resume directly after the

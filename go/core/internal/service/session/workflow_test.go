@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,28 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
+
+var (
+	lifecycleCleanup func()
+	// Start PostgreSQL only when a lifecycle fixture is requested, so focused
+	// tests of pure logic still run without Docker. Migrate the template once.
+	lifecycleDatabase = sync.OnceValues(func() (string, error) {
+		conn, cleanup, err := dbtest.Start(context.Background())
+		if err != nil {
+			return "", err
+		}
+		lifecycleCleanup = cleanup
+		return conn, dbtest.Migrate(conn, false)
+	})
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if lifecycleCleanup != nil {
+		lifecycleCleanup()
+	}
+	os.Exit(code)
+}
 
 func TestActorWorkflowLifecycle(t *testing.T) {
 	store, session := lifecycleFixture(t)
@@ -65,7 +88,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, suspended.Operation)
 
-	deleted, err := workflow.Delete(context.Background(), suspended)
+	deleted, err := workflow.Delete(context.Background(), suspended, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +116,7 @@ func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
 			case "suspend":
 				_, err = workflow.Suspend(t.Context(), session)
 			case "delete":
-				_, err = workflow.Delete(t.Context(), session)
+				_, err = workflow.Delete(t.Context(), session, false)
 			}
 			require.ErrorContains(t, err, "verify runtime actor UID")
 			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.Status.State)
@@ -126,12 +149,9 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 // calls are faked, so concurrency assertions exercise PostgreSQL admission.
 func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
-	t.Cleanup(cancel)
-	conn, cleanup, err := dbtest.Start(ctx)
+	template, err := lifecycleDatabase()
 	require.NoError(t, err)
-	t.Cleanup(cleanup)
-	require.NoError(t, dbtest.Migrate(conn, false))
+	conn := dbtest.CloneT(t, template)
 	pool, err := pgxpool.New(t.Context(), conn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
@@ -144,8 +164,9 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	}
 	upsertErr := client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision})
 	require.NoError(t, upsertErr)
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, database.RecordRevisionOptions{Ready: true}))
-	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
+	_, err = client.RecordRuntimeRevision(t.Context(), *revision, database.RecordRevisionOptions{Ready: true})
+	require.NoError(t, err)
+	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, uuid.NewString())
 	require.NoError(t, err)
 	return &lifecycleTestStore{Client: client, revision: revision}, session
 }
@@ -202,7 +223,7 @@ func (a *lifecycleTestActors) CreateActorFromTag(_ context.Context, atespace, na
 		SourceTag:     &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
 		Status: &ateapipb.ActorStatus{
 			State:     ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
+			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
 		},
 	}
 	a.actors[actorKey(atespace, name)] = actor
@@ -222,13 +243,20 @@ func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name str
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}}
+	actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}}
 	return proto.CloneOf(actor), nil
 }
 
-func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {
+func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name, uid string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	actor := a.actors[actorKey(atespace, name)]
+	if actor == nil {
+		return status.Error(codes.NotFound, "missing")
+	}
+	if uid != "" && actor.GetMetadata().GetUid() != uid {
+		return status.Error(codes.FailedPrecondition, "actor UID changed")
+	}
 	delete(a.actors, actorKey(atespace, name))
 	return nil
 }
@@ -276,7 +304,7 @@ func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
 		t.Run(fidelity.String(), func(t *testing.T) {
 			actors.snapshots = []*ateapipb.Snapshot{{Generation: 2, Fidelity: fidelity,
 				DurableSnapshot: &ateapipb.SnapshotStorage{
-					Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED,
+					State:  ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED,
 					Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"},
 				}}}
 			boundary, err := workflow.Quiesce(t.Context(), created)
@@ -291,7 +319,7 @@ func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
 
 			older := proto.CloneOf(actors.snapshots[0])
 			older.Generation = 1
-			actors.snapshots[0].DurableSnapshot.Status = ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING
+			actors.snapshots[0].DurableSnapshot.State = ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING
 			actors.snapshots = append(actors.snapshots, older)
 			_, err = workflow.Quiesce(t.Context(), created)
 			require.ErrorContains(t, err, "returned no snapshot", "a previous durable snapshot cannot cover the current boundary")
@@ -392,7 +420,7 @@ func TestActorCreationFailsBeforeIssueWhenEgressPolicyCannotCompile(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, "PreparationFailed", current.GetFailure().GetReason())
 
-	deleted, err := workflow.Delete(t.Context(), current)
+	deleted, err := workflow.Delete(t.Context(), current, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 }
@@ -447,27 +475,27 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
 	service := NewService(store, serviceTestAuthorizer{}, NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second))
 	ctx := serviceTestContext("alice")
-	session, err := service.Create(ctx, fixture.Agent, "retry-request", "conversation")
+	session, err := service.Create(ctx, fixture.Agent.Ref, "retry-request", "conversation")
 	require.NoError(t, err)
 	renamed, err := service.Rename(ctx, session.Id, "renamed conversation")
 	require.NoError(t, err)
 	mutations := actors.mutations.Load()
-	retried, err := service.Create(ctx, fixture.Agent, "retry-request", "ignored retry name")
+	retried, err := service.Create(ctx, fixture.Agent.Ref, "retry-request", "ignored retry name")
 	require.NoError(t, err)
 	require.Equal(t, renamed.Id, retried.Id)
 	require.Equal(t, renamed.Name, retried.Name)
 	require.Equal(t, renamed.State, retried.State)
 	require.Equal(t, mutations, actors.mutations.Load(), "creation retry cannot reissue runtime work")
-	deleted, err := service.Delete(ctx, session.Id)
+	deleted, err := service.Delete(ctx, session.Id, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
 	mutations = actors.mutations.Load()
-	_, err = service.Create(ctx, fixture.Agent, "retry-request", "")
+	_, err = service.Create(ctx, fixture.Agent.Ref, "retry-request", "")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
 	_, err = service.Get(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
-	_, err = service.Delete(ctx, session.Id)
+	_, err = service.Delete(ctx, session.Id, false)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
 }

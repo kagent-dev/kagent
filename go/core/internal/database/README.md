@@ -55,14 +55,15 @@ The repository [style guide](../../../../STYLE.md) also applies.
 - Do not use `uuid.MustParse` on runtime inputs. Pass validated values as SQL
   parameters; use checked parsing when Go needs a UUID for comparison. Store
   calls must return errors instead of panicking on malformed IDs.
-- [Migration 1](../../pkg/migrations/core/000001_initial.sql) is currently the
-  unreleased baseline: fold approved schema changes into it and recreate local
-  databases. After release, use new migrations. Keep both Up and Down valid.
+- Merged migrations are immutable, including
+  [migration 1](../../pkg/migrations/core/000001_initial.sql); the required
+  `migration-immutability` check rejects any change to them. Add each schema
+  change as a new migration. Keep both Up and Down valid.
 
 ## Atomicity and performance
 
-- Prefer one statement for one logical change, such as deleting both spellings
-  of an agent's memories. Use a transaction for coordinated writes.
+- Prefer one statement for one logical change, such as deleting a user's memories
+  for one Agent. Use a transaction for coordinated writes.
 - Preserve ownership predicates, idempotency checks, lock ordering, and lifecycle
   conditions when simplifying SQL. Never hold a transaction across a network call.
 - Use `RETURNING` for values the caller needs from the database. If the validated

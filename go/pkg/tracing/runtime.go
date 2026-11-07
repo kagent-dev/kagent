@@ -54,7 +54,7 @@ const (
 	AttributeTaskID = string(conv.A2ATaskIDKey)
 	// AttributeUserID is the gateway-established user, absent when no trusted
 	// identity reached the runtime.
-	AttributeUserID = string(semconv.EnduserIDKey)
+	AttributeUserID = string(semconv.UserIDKey)
 	// AttributeMethod is the A2A method that started the invocation.
 	AttributeMethod = string(conv.A2AMethodKey)
 	// AttributeTaskState is the A2A state execution actually reported.

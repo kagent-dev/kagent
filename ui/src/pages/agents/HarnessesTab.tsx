@@ -91,19 +91,6 @@ export function HarnessesTab() {
       render: (runtime: string) => <Tag>{runtime || "Not reported"}</Tag>,
     },
     {
-      title: "Ready",
-      dataIndex: "ready",
-      key: "ready",
-      render: (ready: boolean) => (
-        /* Not "broken" when false. The condition is also false for a harness the
-           controller has not observed yet, which is a different thing from one that
-           failed — and the wrong word would send somebody debugging a new harness. */
-        <Tag color={ready ? "green" : "default"} data-testid="harness-ready">
-          {ready ? "Ready" : "Not ready yet"}
-        </Tag>
-      ),
-    },
-    {
       title: "Workload image",
       dataIndex: "workloadImage",
       key: "workloadImage",

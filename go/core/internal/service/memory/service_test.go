@@ -148,7 +148,7 @@ func (store *memoryStore) GetSessionForRuntime(_ context.Context, id, _ string) 
 	if store.bindingErr != nil {
 		return nil, store.bindingErr
 	}
-	return &apiv1.Session{Id: id, Creator: "user", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
+	return &apiv1.Session{Id: id, Creator: "user", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
 }
 
 type testActorVerifier struct{}
@@ -230,7 +230,7 @@ func TestUserMemoryManagementDoesNotRequireRuntime(t *testing.T) {
 	service := NewService(store, auth.NoopAuthorizer{})
 	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{ID: "owner"}})
 
-	for _, agentName := range []string{"team-a/agent", "legacy-display-name"} {
+	for _, agentName := range []string{"team-a/agent", "team-b/other"} {
 		_, err := service.List(ctx, agentName)
 		require.NoError(t, err)
 		require.Equal(t, agentName, store.readAgent)

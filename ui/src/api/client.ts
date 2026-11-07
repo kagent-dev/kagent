@@ -44,6 +44,8 @@ import type {
   AgentTemplate,
   AgentTemplateResource,
 } from "./domain/agentTemplates";
+import type { EgressPolicy, EgressPolicyResource } from "./domain/egressPolicies";
+import type { SandboxTemplate } from "./domain/sandboxTemplates";
 import type {
   SubstrateActorPageInput,
   SubstrateWorkerPageInput,
@@ -182,6 +184,18 @@ export interface AgentBuildingBlocksApi {
   removeAgentTemplate(namespace: string, name: string): Promise<void>;
 }
 
+/** EgressPolicy CRUD, plus the SandboxTemplates read to find a policy's users. */
+export interface EgressPoliciesApi {
+  /** Every namespace the caller may read when `namespace` is omitted. */
+  list(namespace?: string, options?: ReadOptions): Promise<EgressPolicy[]>;
+  get(namespace: string, name: string, options?: ReadOptions): Promise<EgressPolicy>;
+  create(input: { namespace: string; name: string; resource: EgressPolicyResource }): Promise<EgressPolicy>;
+  /** Send the loaded `metadata.resourceVersion`; a stale one is rejected as `Aborted`. */
+  update(input: { namespace: string; name: string; resource: EgressPolicyResource }): Promise<EgressPolicy>;
+  remove(namespace: string, name: string): Promise<void>;
+  sandboxTemplates(namespace?: string, options?: ReadOptions): Promise<SandboxTemplate[]>;
+}
+
 export interface AgentInstancesApi {
   list(
     options?: ReadOptions & {
@@ -251,7 +265,7 @@ export interface AgentInstancesApi {
    * The instance *is* the conversation, so this is not a tidy-up — it removes what
    * was said. Every caller confirms first.
    */
-  remove(id: string): Promise<void>;
+  remove(id: string, options?: { force?: boolean }): Promise<void>;
 
   shares: {
     list(id: string, options?: ReadOptions): Promise<AgentInstanceShare[]>;
@@ -270,6 +284,7 @@ export interface KagentApiClient {
   substrate: SubstrateApi;
   agentInstances: AgentInstancesApi;
   agentBuildingBlocks: AgentBuildingBlocksApi;
+  egressPolicies: EgressPoliciesApi;
 }
 
 export function createApiClient(): KagentApiClient {
@@ -340,6 +355,17 @@ export function createApiClient(): KagentApiClient {
         invoke("agentTemplates.delete", { namespace, name }),
     },
 
+    egressPolicies: {
+      list: (namespace, options) =>
+        invoke("egressPolicies.list", { namespace }, options).then(sortedByRef),
+      get: (namespace, name, options) => invoke("egressPolicies.get", { namespace, name }, options),
+      create: (input) => invoke("egressPolicies.create", input),
+      update: (input) => invoke("egressPolicies.update", input),
+      remove: (namespace, name) => invoke("egressPolicies.delete", { namespace, name }),
+      sandboxTemplates: (namespace, options) =>
+        invoke("sandboxTemplates.list", { namespace }, options).then(sortedByRef),
+    },
+
     agentInstances: {
 
       list: (options) =>
@@ -356,7 +382,7 @@ export function createApiClient(): KagentApiClient {
       get: (id, options) =>
         invoke("agentInstances.get", { id }, options),
       create: (input) => invoke("agentInstances.create", input),
-      remove: (id) => invoke("agentInstances.delete", { id }),
+      remove: (id, options) => invoke("agentInstances.delete", { id, ...options }),
       fork: (id, name) =>
         invoke("agentInstances.fork", { id, requestId: randomId(), name }),
       checkpoints: {

@@ -1,0 +1,6 @@
+# Keep the interrupted-resume regression test independent of chart defaults.
+# Its 20-second restore must exceed the router's timeout.
+atenetRouter:
+  requestParking:
+    budget: "5s"
+  requestTimeout: "10s"

@@ -440,7 +440,7 @@ func (c *Client) ReserveScheduledRunExecutionSession(ctx context.Context, id uui
 		}
 		session, err := insertSession(ctx, tx, &apiv1.Session{
 			Id: sessionID.String(), Creator: creator,
-			Agent: proto.CloneOf(schedule.Agent),
+			Agent: &apiv1.AgentProvenance{Ref: proto.CloneOf(schedule.Agent)},
 		}, "scheduled-run/"+id.String())
 		if errors.Is(err, ErrNotFound) {
 			return fmt.Errorf("ScheduledRun %s target has no ready prepared revision: %w", result.ScheduledRunID, ErrFailedPrecondition)

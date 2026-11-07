@@ -9,11 +9,13 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -25,9 +27,11 @@ type interactionTestStore struct {
 	taskLookups int
 	taskReads   int
 	dispatchErr error
+	reservedIDs []string
 }
 
-func (s *interactionTestStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
+func (s *interactionTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialMessageID string) error {
+	s.reservedIDs = append(s.reservedIDs, initialMessageID)
 	return s.dispatchErr
 }
 
@@ -46,7 +50,7 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
 			stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
 				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
-				Agent:     &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
+				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
 			original := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
 			originalPosition := time.Now().Add(-time.Hour).UTC()
 			apia2a.SetTimelinePosition(original, originalPosition)
@@ -75,6 +79,32 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			if !ok || position.Before(before) || position.After(time.Now().UTC()) || prepared.DispatchID == uuid.Nil {
 				t.Fatalf("dispatched input position = %v, want server time after %v", position, before)
 			}
+		})
+	}
+}
+
+func TestPrepareSendReservesTaskOpeningMessages(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		taskID a2atype.TaskID
+		want   string
+	}{
+		{name: "opening a task in an existing conversation", want: "opening"},
+		{name: "continuing a task", taskID: "task"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
+			tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}}}
+			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false)
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+			message.ID, message.ContextID, message.TaskID = "opening", id, test.taskID
+			_, err := service.PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
+			require.NoError(t, err)
+			require.Equal(t, []string{test.want}, tasks.reservedIDs)
 		})
 	}
 }
@@ -207,7 +237,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 		} {
 			t.Run(operation.name+"/"+test.name, func(t *testing.T) {
 				stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED,
-					Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
+					Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
 				sessionStore := &serviceTestStore{getResult: stored, getErr: test.getErr}
 				authorizer := &recordingAuthorizer{denied: map[string]bool{id: test.denied}}
 				if test.getErr != nil {
@@ -262,7 +292,7 @@ func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
 		t.Run(fmt.Sprintf("session-denied=%v", denySession), func(t *testing.T) {
 			id := uuid.NewString()
 			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
-			stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
+			stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}, State: apiv1.RuntimeState_RUNTIME_STATE_READY}
 			policy := &recordingAuthorizer{deniedTypes: map[string]bool{"Agent": true, "Session": denySession}}
 			sessions := NewService(&serviceTestStore{getResult: stored}, policy, serviceTestWorkflow{})
 			ctx := serviceTestContext("alice")
@@ -281,4 +311,46 @@ func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestScheduledMessageIDPrefixIsReserved(t *testing.T) {
+	id := uuid.NewString()
+	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+	stored := &apiv1.Session{
+		Id: id, ContextId: id, Creator: "alice", State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}},
+	}
+	for _, test := range []struct {
+		name   string
+		ctx    context.Context
+		id     string
+		wantOK bool
+	}{
+		{name: "reserved", ctx: serviceTestContext("alice"), id: scheduling.MessageIDPrefix + uuid.NewString()},
+		{name: "ordinary", ctx: serviceTestContext("alice"), id: "ordinary", wantOK: true},
+		{name: "control plane", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), id: scheduling.MessageIDPrefix + uuid.NewString(), wantOK: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sessions := NewService(&serviceTestStore{getResult: stored}, &recordingAuthorizer{}, serviceTestWorkflow{})
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
+			message.ID, message.ContextID = test.id, id
+			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(test.ctx, agent, message)
+			if test.wantOK {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+			}
+		})
+	}
+}
+
+func TestScheduledMessageIDPrefixCannotStartAConversation(t *testing.T) {
+	store := &serviceTestStore{}
+	sessions := NewService(store, &recordingAuthorizer{}, serviceTestWorkflow{})
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+	message.ID = scheduling.MessageIDPrefix + uuid.NewString()
+	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+	_, err := NewInteractionService(nil, nil, sessions, false).PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
+	require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+	require.Nil(t, store.createInput)
 }

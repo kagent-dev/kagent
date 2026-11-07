@@ -32,7 +32,7 @@ func TestCheckpointSummary(t *testing.T) {
 }
 
 func TestCheckpointToolsAreRegistered(t *testing.T) {
-	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, nil, nil)
+	h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: testCheckpointService(), Gateway: &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestCheckpointToolsAreRegistered(t *testing.T) {
 	defer server.Close()
 	response := rawMCPCall(t, server.URL, "tools/list", map[string]any{}, false)
 	tools := response["result"].(map[string]any)["tools"].([]any)
-	want := map[string]bool{createCheckpointToolName: false, listCheckpointsToolName: false, forkSessionToolName: false}
+	want := map[string]bool{createCheckpointToolName: false, listCheckpointsToolName: false, getCheckpointToolName: false, deleteCheckpointToolName: false, forkSessionToolName: false}
 	for _, value := range tools {
 		tool := value.(map[string]any)
 		if _, ok := want[tool["name"].(string)]; ok {
@@ -95,12 +95,14 @@ func TestCheckpointToolsEnforcePermissionsOverMCP(t *testing.T) {
 	}{
 		{createCheckpointToolName, map[string]any{"session_id": testSessionID, "expected_head_task_id": testTaskID, "request_id": "create-request"}, auth.VerbCreate, ""},
 		{listCheckpointsToolName, map[string]any{"session_id": testSessionID}, auth.VerbList, ""},
+		{getCheckpointToolName, map[string]any{"checkpoint_id": checkpointID}, auth.VerbGet, checkpointID},
+		{deleteCheckpointToolName, map[string]any{"checkpoint_id": checkpointID}, auth.VerbDelete, checkpointID},
 		{forkSessionToolName, map[string]any{"checkpoint_id": checkpointID, "request_id": "fork-request"}, auth.VerbGet, checkpointID},
 	} {
 		t.Run(test.tool, func(t *testing.T) {
 			policy := &checkpointToolDenialPolicy{verb: test.verb, resource: auth.Resource{Type: "Checkpoint", Name: test.name}}
 			// Nil dependencies prove a denied tool cannot reach storage or runtime work.
-			h, err := New(testSessionService(), checkpoint.NewService(nil, policy, nil, nil), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, nil, nil)
+			h, err := New(Config{Agents: testAgentService(t), Sessions: testSessionService(), Checkpoints: checkpoint.NewService(nil, policy, nil, nil), Gateway: &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}})
 			require.NoError(t, err)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				h.ServeHTTP(w, r.WithContext(authContext()))

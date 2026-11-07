@@ -114,7 +114,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		session := first
 		if i != 0 {
 			var err error
-			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.Agent}, uuid.NewString())
+			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.GetAgent()}, uuid.NewString())
 			require.NoError(t, err)
 		}
 		session, err := creator.Create(t.Context(), session)
@@ -232,7 +232,7 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 					require.True(t, revoked)
 				}
 			} else {
-				operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+				operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 				require.NoError(t, err)
 				unblock = func() {
 					_, err := store.FinishSessionOperation(t.Context(), session.Id, operation.ID, uuid.Nil, "", "", "preparation failed before runtime I/O")

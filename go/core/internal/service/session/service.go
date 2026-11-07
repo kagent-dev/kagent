@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 
@@ -38,13 +39,13 @@ type store interface {
 
 type sessionWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
-	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Revert(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Delete(context.Context, *apiv1.Session, bool) (*apiv1.Session, error)
 }
 
 type ListRequest struct {
 	AllCreators bool
-	// Agent narrows the page to one agent's conversations.
-	// Either may be given alone.
+	// Agent narrows the page to one Agent's conversations.
 	Agent     *apiv1.ResourceReference
 	PageSize  int
 	PageToken string
@@ -111,8 +112,7 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
 	}
 	session, _, err := s.store.CreateSession(ctx, &apiv1.Session{
-		Id: id.String(), Creator: creator, Name: name,
-		Agent: agent,
+		Id: id.String(), Creator: creator, Name: name, Agent: &apiv1.AgentProvenance{Ref: agent},
 	}, requestID)
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different Session", err)
@@ -216,7 +216,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		}
 		result := ListResult{Sessions: []*apiv1.Session{}}
 		if session.Id > afterID && (request.Agent == nil ||
-			(session.GetAgent().GetNamespace() == request.Agent.Namespace && session.GetAgent().GetName() == request.Agent.Name)) {
+			proto.Equal(session.GetAgent().GetRef(), request.Agent)) {
 			result.Sessions = append(result.Sessions, session)
 		}
 		return result, nil
@@ -263,12 +263,12 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	}
 }
 
-func (s *Service) Delete(ctx context.Context, id string) (*apiv1.Session, error) {
+func (s *Service) Delete(ctx context.Context, id string, force bool) (*apiv1.Session, error) {
 	session, err := s.getAuthorized(ctx, id, auth.VerbDelete)
 	if err != nil {
 		return nil, err
 	}
-	session, err = s.workflow.Delete(ctx, session)
+	session, err = s.workflow.Delete(ctx, session, force)
 	if errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}
@@ -277,6 +277,24 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1.Session, error)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to delete Session", err)
+	}
+	return session, nil
+}
+
+func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error) {
+	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
+	if err != nil {
+		return nil, err
+	}
+	session, err = s.workflow.Revert(ctx, session)
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
+	}
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to revert Session", err)
 	}
 	return session, nil
 }

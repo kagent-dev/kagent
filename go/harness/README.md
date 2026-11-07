@@ -19,7 +19,7 @@ Harness + AgentTemplate
 core/internal/translator/{claude,codex}   controller-side compilation
         |
         v
-KAGENT_CONFIG_JSON + environment   immutable Actor inputs
+Bootstrap bundle + environment    immutable Actor inputs
         |
         v
 harness/{claude,codex}/cmd         process entrypoint
