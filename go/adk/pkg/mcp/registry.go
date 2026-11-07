@@ -382,7 +382,7 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 	discovery := &mcpAppDiscovery{listedAppNames: make(map[string]bool), appToolNames: make(map[string]bool)}
 	cfg := mcptoolset.Config{
 		Transport: mcpTransport,
-		Client:    newMCPAppClient(toolFilter, discovery),
+		Client:    newMCPAppClient(params.URL, toolFilter, discovery),
 	}
 
 	toolset, err := mcptoolset.New(cfg)
@@ -390,5 +390,5 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
-	return &mcpAppToolset{inner: toolset, discovery: discovery}, nil
+	return &mcpAppToolset{inner: &urlElicitationToolset{inner: toolset, serverURL: params.URL}, discovery: discovery}, nil
 }
