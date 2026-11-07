@@ -114,7 +114,6 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills))
 		}
 	}
-	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
 
 	var remoteAgentTools []tool.Tool
 	for _, remoteAgent := range agentConfig.RemoteAgents {
@@ -180,12 +179,11 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
 	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
 
-	if len(mcpAppToolNames) > 0 {
-		// For MCP App-capable tools, keep rich tool payloads in chat history for UI rendering,
-		// but compact what is sent back to the model to avoid redundant polling/tool churn.
-		log.InfoContext(ctx, "wiring MCP App model result callback", "tool_count", len(mcpAppToolNames))
-		beforeModelCallbacks = append(beforeModelCallbacks, MakeMCPAppModelResultCallback(mcpAppToolNames))
-	}
+	// Tools are classified before each model request is prepared. Resolve app
+	// names here rather than capturing an empty snapshot during construction.
+	beforeModelCallbacks = append(beforeModelCallbacks, makeMCPAppModelResultCallback(func(ctx agent.Context) map[string]bool {
+		return mcp.MCPAppToolNamesFromToolsets(ctx, toolsets)
+	}))
 	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
 
 	llmAgentConfig := llmagent.Config{
