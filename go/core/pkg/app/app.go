@@ -58,6 +58,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
+	"github.com/kagent-dev/kagent/go/core/internal/service/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -477,9 +478,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		// Author Agents and their reusable configuration through the API.
 		AgentService:           agents,
 		AgentIdentityService:   agentidentity.NewService(actorVerifier, store, manager.GetAPIReader()),
+		BootstrapService:       bootstrap.NewService(actorVerifier, store, actors),
 		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: sandboxTemplates,
+		EgressPolicyService:    kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.EgressPolicy{}, &kagentv1alpha3.EgressPolicyList{}, kagentv1alpha3.EgressPolicyKind),
 		SandboxService:         sandboxes,
 		CheckpointService:      checkpoints,
 		A2AHandler:             gateway,

@@ -31,6 +31,8 @@ install:
   defaultModelProvider: OpenAI
   kagent:
     valuesFiles: [kagent-values.yaml]
+  atelet:
+    valuesFiles: [atelet-values.yaml]
 database:
   owner:
     urlFile: secrets/postgres-owner-url
@@ -247,11 +249,11 @@ for scope and limitations.
 
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
-`parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private
-`KAGENT_CONFIG_JSON` and `KAGENT_AGENT_CARD_JSON` payloads supplied by Substrate.
-Actor/session identity, credential projection, and private bootstrap paths keep
-their existing contracts. Substrate's limits remain 32 environment entries and
-32,768 characters per value.
+`parse_config()` and constructs the SDK agent with `create_agent()`.
+Managed runtimes receive configuration and the Agent Card through the
+[prepared revision's bootstrap bundle](configuration-and-compilation.md#configuration-delivery).
+The controller supplies `KAGENT_BOOTSTRAP_JSON`; configuration payloads are not
+passed through environment variables.
 
 ## OpenTelemetry
 

@@ -5,9 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -66,6 +70,42 @@ func StartT(ctx context.Context, t *testing.T) string {
 	t.Cleanup(cleanup)
 
 	return connStr
+}
+
+// CloneT creates an isolated database from a template prepared using Start and
+// Migrate. Close all connections to the template before cloning it. Connections
+// to the clone must close before its registered cleanup runs.
+func CloneT(t *testing.T, templateConnStr string) string {
+	t.Helper()
+	connURL, err := url.Parse(templateConnStr)
+	if err != nil {
+		t.Fatalf("parse template connection string: %v", err)
+	}
+	templateName := strings.TrimPrefix(connURL.Path, "/")
+	connURL.Path = "/postgres"
+	admin, err := pgx.Connect(t.Context(), connURL.String())
+	if err != nil {
+		t.Fatalf("connect to PostgreSQL for database cloning: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := admin.Close(context.Background()); err != nil {
+			t.Errorf("close database cloning connection: %v", err)
+		}
+	})
+
+	name := "test_" + uuid.NewString()
+	quotedName := pgx.Identifier{name}.Sanitize()
+	_, err = admin.Exec(t.Context(), "CREATE DATABASE "+quotedName+" TEMPLATE "+pgx.Identifier{templateName}.Sanitize())
+	if err != nil {
+		t.Fatalf("clone test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), "DROP DATABASE "+quotedName); err != nil {
+			t.Errorf("drop cloned test database: %v", err)
+		}
+	})
+	connURL.Path = "/" + name
+	return connURL.String()
 }
 
 // Migrate installs pgvector for the test database when enabled, then runs the

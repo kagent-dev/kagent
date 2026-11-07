@@ -120,7 +120,7 @@ func recoverySourceForActor(t *testing.T, store *database.Client, actor *ateapip
 	session, _, err := store.CreateSession(ctx, &apiv1.Session{Id: sessionID, Creator: "alice",
 		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: space, Name: "assistant"}}}, uuid.NewString())
 	require.NoError(t, err)
-	op, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	op, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 	require.NoError(t, err)
 	executor := uuid.New()
 	claimed, err := store.ClaimSessionOperation(ctx, session.Id, op.ID, executor)
@@ -267,7 +267,7 @@ func TestCheckpointRecoveryWithPostgres(t *testing.T) {
 		pending, err := store.ListPendingCheckpoints(t.Context(), "", 10)
 		require.NoError(t, err)
 		require.Len(t, pending, 1)
-		_, err = store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+		_, err = store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 		require.ErrorIs(t, err, database.ErrConflict)
 		close(gate)
 		for range 8 {
@@ -370,7 +370,7 @@ func TestCheckpointRecoveryWithPostgres(t *testing.T) {
 		require.Nil(t, tags.created, "a stale discovery result must not recreate a compensated tag")
 		require.Equal(t, 1, tags.createCalls)
 		waitCheckpointPhase(t, store, cp.Id, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED)
-		_, err = store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+		_, err = store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 		require.NoError(t, err)
 		_, err = service.beginDelete(ownerContext(t.Context()), cp.Id)
 		require.NoError(t, err)

@@ -152,12 +152,12 @@ export function AgentPage() {
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [isBulkDeleting, setBulkDeleting] = useState(false);
 
-  async function deleteSelected(): Promise<void> {
+  async function deleteSelected(force = false): Promise<void> {
     setBulkDeleting(true);
     try {
       const targets = rows.filter((row) => selectedIds.includes(row.id));
       await Promise.all(
-        targets.map((row) => apiClient.agentInstances.remove(row.id)),
+        targets.map((row) => apiClient.agentInstances.remove(row.id, { force })),
       );
       await conversations.refresh();
       setSelectedIds([]);
@@ -283,7 +283,8 @@ export function AgentPage() {
                 kind="conversation"
                 name={conversationTitle(row)}
                 disabled={!mine}
-                onDelete={() => apiClient.agentInstances.remove(row.id)}
+                forceLabel="Stop active turns and delete"
+                onDelete={(force) => apiClient.agentInstances.remove(row.id, { force })}
                 onDeleted={conversations.refresh}
               />
             </Space>
@@ -507,6 +508,7 @@ export function AgentPage() {
               label="Delete selected"
               outlined
               disabled={isBulkDeleting}
+              forceLabel="Stop active turns and delete"
               onDelete={deleteSelected}
               onDeleted={() => undefined}
               description="Everything said in them goes too, and none of it can be recovered. The workers they hold are released."

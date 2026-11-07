@@ -257,9 +257,9 @@ The A2A request an invocation serves.
 | --- | --- | --- |
 | `a2a.method` | required |  |
 | `a2a.task.id` | conditionally required: The gateway assigned an A2A task. | The GenAI conventions have no task identity, so it stays in the A2A namespace. Never on a resource or a metric. |
-| `enduser.id` | conditionally required: A trusted identity reached the runtime. | Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision. |
 | `gen_ai.conversation.id` | conditionally required: The gateway assigned an A2A context. | The A2A context ID. |
 | `kagent.invocation.segment` | required | A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans. |
+| `user.id` | conditionally required: A trusted identity reached the runtime. | Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision. |
 
 ### `kagent.resource`
 
@@ -298,7 +298,6 @@ Kind `internal`. One execution segment of a runtime that emits its own invoke_ag
 | `a2a.method` | required |  |
 | `a2a.task.id` | conditionally required: The gateway assigned an A2A task. | The GenAI conventions have no task identity, so it stays in the A2A namespace. Never on a resource or a metric. |
 | `a2a.task.state` | conditionally required: Execution reported a task state. | The values are the A2A v1 wire names. An absent state does not mean success. |
-| `enduser.id` | conditionally required: A trusted identity reached the runtime. | Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision. |
 | `error.type` | conditionally required: The invocation failed. | A bounded kagent vocabulary: `runtime_panic`, `invalid_request`, `continuation_unavailable`, `actor_unavailable`, `runtime_error`, `invalid_runtime_outcome`, `invalid_input_request`, `runtime_failure` and `transport_error`. Never a provider response, a credential or captured content. |
 | `gen_ai.agent.id` | required | The agent identity qualified by its namespace, `<namespace>/<agent>`. |
 | `gen_ai.agent.name` | required | The compiled agent identity, `<agent>`. |
@@ -307,6 +306,7 @@ Kind `internal`. One execution segment of a runtime that emits its own invoke_ag
 | `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The ADK runtimes report the model on each inference span instead. |
 | `kagent.invocation.disposition` | conditionally required: The task state does not say how the segment stopped. |  |
 | `kagent.invocation.segment` | required | A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans. |
+| `user.id` | conditionally required: A trusted identity reached the runtime. | Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision. |
 
 ### `kagent.execute_tool.internal`
 
@@ -360,7 +360,6 @@ Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment o
 | `a2a.method` | required |  |
 | `a2a.task.id` | conditionally required: The gateway assigned an A2A task. | The GenAI conventions have no task identity, so it stays in the A2A namespace. Never on a resource or a metric. |
 | `a2a.task.state` | conditionally required: Execution reported a task state. | The values are the A2A v1 wire names. An absent state does not mean success. |
-| `enduser.id` | conditionally required: A trusted identity reached the runtime. | Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision. |
 | `error.type` | conditionally required: The invocation failed. | A bounded kagent vocabulary: `runtime_panic`, `invalid_request`, `continuation_unavailable`, `actor_unavailable`, `runtime_error`, `invalid_runtime_outcome`, `invalid_input_request`, `runtime_failure` and `transport_error`. Never a provider response, a credential or captured content. |
 | `gen_ai.agent.id` | required | The agent identity qualified by its namespace, `<namespace>/<agent>`. |
 | `gen_ai.agent.name` | required | The compiled agent identity, `<agent>`. |
@@ -377,6 +376,7 @@ Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment o
 | `kagent.capture.output_truncated` | conditionally required: gen_ai.output.messages is present. |  |
 | `kagent.invocation.disposition` | conditionally required: The task state does not say how the segment stopped. |  |
 | `kagent.invocation.segment` | required | A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans. |
+| `user.id` | conditionally required: A trusted identity reached the runtime. | Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision. |
 
 ## Resource
 

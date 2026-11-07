@@ -38,15 +38,17 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	template := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
-	revision := &translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
+	revision := &translator.Revision{ConfigJSON: []byte(`{}`), AgentCard: reconciliationTestCard("assistant")}
 	revision.AgentCard.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
 	revisionID, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
+	bundle, err := revision.BootstrapBundle(revisionID)
+	require.NoError(t, err)
 	state := AgentReconciliation{
 		Agent:  template,
-		Target: &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: desiredActor},
+		Target: &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: desiredActor, Bootstrap: bundle},
 	}
 	reconciliations := krt.NewStaticCollection(nil, []AgentReconciliation{state}, opts.WithName("Reconciliations")...)
 	status := kagentv1alpha3.AgentStatus{ObservedGeneration: 1, Conditions: []metav1.Condition{{Type: kagentv1alpha3.AgentConditionReady, Status: metav1.ConditionFalse}}}
@@ -116,8 +118,10 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	state.Target = &nextTarget
 	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
 	state.Target.ActorTemplate.Metadata.Name = "assistant-next-revision"
-	state.Target.Revision = translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
+	state.Target.Revision = translator.Revision{ConfigJSON: []byte(`{}`), AgentCard: reconciliationTestCard("updated assistant")}
 	state.Target.RevisionID, err = state.Target.Revision.Digest()
+	require.NoError(t, err)
+	state.Target.Bootstrap, err = state.Target.Revision.BootstrapBundle(state.Target.RevisionID)
 	require.NoError(t, err)
 	templates.template = nil
 	reconciliations.UpdateObject(state)
@@ -167,22 +171,24 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				templates: templates, store: store,
 			}
 			revision := &translator.Revision{
-				AgentCard: &a2apb.AgentCard{Name: "assistant"}, Provenance: []byte("{}"), EgressDestinations: []string{},
+				ConfigJSON: []byte(`{}`), AgentCard: reconciliationTestCard("assistant"), Provenance: []byte("{}"), EgressDestinations: []string{},
 			}
 			id, err := revision.Digest()
 			require.NoError(t, err)
 			desired := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{
 				Atespace: "team-a", Name: "assistant-revision", Uid: "actor-uid",
 			}}
-			templates.template = proto.CloneOf(desired)
+			bundle, err := revision.BootstrapBundle(id)
+			require.NoError(t, err)
+			state := AgentReconciliation{
+				Agent:  &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
+				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired, Bootstrap: bundle},
+			}
+			states.UpdateObject(state)
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
-			state := AgentReconciliation{
-				Agent:  &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
-				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired},
-			}
-			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 
 			request := &apiv1.Session{
@@ -203,7 +209,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			require.False(t, created)
 			require.Equal(t, session.GetId(), retried.GetId())
 			require.Equal(t, id.String(), retried.GetPreparedRevision())
-			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 			require.NoError(t, err)
 			executor := uuid.New()
 			claimed, err := store.ClaimSessionOperation(ctx, session.Id, operation.ID, executor)
@@ -597,5 +603,13 @@ func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
 				require.Equal(t, "r1", existing.PreparedRevision)
 			})
 		}
+	}
+}
+
+func reconciliationTestCard(name string) *a2apb.AgentCard {
+	return &a2apb.AgentCard{
+		Name: name, Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+		DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
+		SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
 	}
 }

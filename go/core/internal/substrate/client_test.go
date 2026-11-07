@@ -230,6 +230,14 @@ func TestDeleteActorTemplateSendsUIDPrecondition(t *testing.T) {
 	require.Equal(t, "failed-uid", fake.options.GetUid(), "a replacement template under the same name must survive")
 }
 
+func TestDeleteActorSendsUIDPrecondition(t *testing.T) {
+	fake := &deleteActorTemplateFake{}
+	client := &Client{ControlClient: fake}
+	require.NoError(t, client.DeleteActor(t.Context(), "team-a", "session", "original-uid"))
+	require.Equal(t, "original-uid", fake.actor.GetOptions().GetUid())
+	require.Equal(t, "session", fake.actor.GetActor().GetName())
+}
+
 func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
 	f.lastName = in.GetAtespace().GetMetadata().GetName()
 	if f.err != nil {
@@ -422,6 +430,8 @@ func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
 			fake := &suspendActorFake{actor: actor, get: func(context.Context) (*ateapipb.Actor, error) { reads++; return next, nil }}
 			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
 			got, err := client.SuspendActor(t.Context(), "team", "actor")
+			// Crash recovery depends on this: with no upload left in progress, a
+			// revert restores the snapshot admission settled against (applyRevert).
 			require.Equal(t, ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS, fake.request.GetOptions().GetMode())
 			require.Equal(t, 1, reads)
 			if test.wantError != "" {

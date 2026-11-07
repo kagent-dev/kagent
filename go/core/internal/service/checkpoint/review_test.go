@@ -142,8 +142,13 @@ func TestPublicCreateRejectsUnverifiedExistingTag(t *testing.T) {
 	require.Nil(t, pending.Checkpoint.Failure, "an unverified tag must not authorize compensation")
 	require.Empty(t, pending.TagUID)
 	require.Equal(t, int32(codes.FailedPrecondition), pending.OperationError.GetCode())
-	_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
-	require.ErrorIs(t, err, database.ErrConflict)
+	for _, force := range []bool{false, true} {
+		_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, force)
+		require.ErrorIs(t, err, database.ErrConflict, "pending creation must also block forced deletion")
+	}
+	follower = NewService(store, testAuthorizer{}, tags, nil)
+	_, err = follower.Create(ctx, source.Id, request, head)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err), "a fresh API must observe the durable failure")
 	tags.mu.Lock()
 	require.Zero(t, tags.base.deleteCalls)
 	require.Equal(t, "another-actor", tags.base.created.SourceActor.Name)
@@ -262,7 +267,7 @@ func TestRecoveryScansRespectRetryDelay(t *testing.T) {
 		service.wakeRecovery()
 	}
 	require.Never(t, func() bool { return tags.calls.Load() > 1 }, 100*time.Millisecond, time.Millisecond)
-	_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.ErrorIs(t, err, database.ErrConflict)
 	clock.Step(300 * time.Millisecond)
 	service.wakeRecovery()
@@ -352,7 +357,7 @@ func TestCheckpointActivationPreservesAdmittedWork(t *testing.T) {
 	pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
 	require.NoError(t, err)
 	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
-	_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.ErrorIs(t, err, database.ErrConflict)
 	close(ready)
 	published, err := service.Create(owner, source.Id, request, head)

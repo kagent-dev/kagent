@@ -232,7 +232,7 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 					require.True(t, revoked)
 				}
 			} else {
-				operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+				operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 				require.NoError(t, err)
 				unblock = func() {
 					_, err := store.FinishSessionOperation(t.Context(), session.Id, operation.ID, uuid.Nil, "", "", "preparation failed before runtime I/O")
