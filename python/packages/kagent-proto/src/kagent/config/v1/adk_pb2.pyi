@@ -3,7 +3,6 @@ import datetime
 from buf.validate import validate_pb2 as _validate_pb2
 from google.protobuf import duration_pb2 as _duration_pb2
 from kagent.config.v1 import config_pb2 as _config_pb2
-from kagent.config.v1 import workspace_pb2 as _workspace_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -19,8 +18,8 @@ class ADKConfig(_message.Message):
     WORKSPACE_FIELD_NUMBER: _ClassVar[int]
     runtime: ADKRuntimeConfig
     agent: ADKAgentConfig
-    workspace: _workspace_pb2.GitWorkspaceConfig
-    def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., agent: _Optional[_Union[ADKAgentConfig, _Mapping]] = ..., workspace: _Optional[_Union[_workspace_pb2.GitWorkspaceConfig, _Mapping]] = ...) -> None: ...
+    workspace: GitWorkspaceConfig
+    def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., agent: _Optional[_Union[ADKAgentConfig, _Mapping]] = ..., workspace: _Optional[_Union[GitWorkspaceConfig, _Mapping]] = ...) -> None: ...
 
 class ADKAgentConfig(_message.Message):
     __slots__ = ("name", "model", "description", "instruction", "http_tools", "sse_tools", "stdio_tools", "remote_agents", "stream", "memory", "agent_plugins", "context_config", "session_db_url", "skills_directory", "sub_agents", "output")
@@ -553,3 +552,13 @@ class ADKRuntimeConfig(_message.Message):
     telemetry: _config_pb2.TelemetryConfig
     builtin_tools: _config_pb2.BuiltinToolsConfig
     def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ..., builtin_tools: _Optional[_Union[_config_pb2.BuiltinToolsConfig, _Mapping]] = ...) -> None: ...
+
+class GitWorkspaceConfig(_message.Message):
+    __slots__ = ("url", "ref", "authorization")
+    URL_FIELD_NUMBER: _ClassVar[int]
+    REF_FIELD_NUMBER: _ClassVar[int]
+    AUTHORIZATION_FIELD_NUMBER: _ClassVar[int]
+    url: str
+    ref: str
+    authorization: bool
+    def __init__(self, url: _Optional[str] = ..., ref: _Optional[str] = ..., authorization: _Optional[bool] = ...) -> None: ...

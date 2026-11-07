@@ -2906,11 +2906,74 @@ func (x *ADKRuntimeConfig) GetBuiltinTools() *BuiltinToolsConfig {
 	return nil
 }
 
+// GitWorkspaceConfig initializes a private repository before golden readiness.
+// It contains no credentials. Authorization is an inert header replaced by the
+// golden actor's egress gateway. Restored instances reuse the saved checkout.
+type GitWorkspaceConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	Ref           string                 `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	Authorization bool                   `protobuf:"varint,3,opt,name=authorization,proto3" json:"authorization,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GitWorkspaceConfig) Reset() {
+	*x = GitWorkspaceConfig{}
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GitWorkspaceConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GitWorkspaceConfig) ProtoMessage() {}
+
+func (x *GitWorkspaceConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GitWorkspaceConfig.ProtoReflect.Descriptor instead.
+func (*GitWorkspaceConfig) Descriptor() ([]byte, []int) {
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *GitWorkspaceConfig) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *GitWorkspaceConfig) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *GitWorkspaceConfig) GetAuthorization() bool {
+	if x != nil {
+		return x.Authorization
+	}
+	return false
+}
+
 var File_kagent_config_v1_adk_proto protoreflect.FileDescriptor
 
 const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\n" +
-	"\x1akagent/config/v1/adk.proto\x12\x10kagent.config.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1dkagent/config/v1/config.proto\x1a kagent/config/v1/workspace.proto\"\xc5\x01\n" +
+	"\x1akagent/config/v1/adk.proto\x12\x10kagent.config.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1dkagent/config/v1/config.proto\"\xc5\x01\n" +
 	"\tADKConfig\x12<\n" +
 	"\aruntime\x18\x01 \x01(\v2\".kagent.config.v1.ADKRuntimeConfigR\aruntime\x126\n" +
 	"\x05agent\x18\x02 \x01(\v2 .kagent.config.v1.ADKAgentConfigR\x05agent\x12B\n" +
@@ -3241,7 +3304,11 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\"runtime.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetry\x12I\n" +
 	"\rbuiltin_tools\x18\v \x01(\v2$.kagent.config.v1.BuiltinToolsConfigR\fbuiltinToolsB\a\n" +
 	"\x05_portB\x15\n" +
-	"\x13_max_content_lengthBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
+	"\x13_max_content_length\"\x9f\x01\n" +
+	"\x12GitWorkspaceConfig\x12&\n" +
+	"\x03url\x18\x01 \x01(\tB\x14\xbaH\x11r\x0f\x10\x01\x18\x80\x10:\bhttps://R\x03url\x12;\n" +
+	"\x03ref\x18\x02 \x01(\tB)\xbaH&r$\x10\x01\x18\x80\x022\x1d^[A-Za-z0-9][A-Za-z0-9._/-]*$R\x03ref\x12$\n" +
+	"\rauthorization\x18\x03 \x01(\bR\rauthorizationBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
 
 var (
 	file_kagent_config_v1_adk_proto_rawDescOnce sync.Once
@@ -3255,7 +3322,7 @@ func file_kagent_config_v1_adk_proto_rawDescGZIP() []byte {
 	return file_kagent_config_v1_adk_proto_rawDescData
 }
 
-var file_kagent_config_v1_adk_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_kagent_config_v1_adk_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_kagent_config_v1_adk_proto_goTypes = []any{
 	(*ADKConfig)(nil),                  // 0: kagent.config.v1.ADKConfig
 	(*ADKAgentConfig)(nil),             // 1: kagent.config.v1.ADKAgentConfig
@@ -3292,13 +3359,13 @@ var file_kagent_config_v1_adk_proto_goTypes = []any{
 	(*ADKPluginGitSource)(nil),         // 32: kagent.config.v1.ADKPluginGitSource
 	(*ADKPluginS3Source)(nil),          // 33: kagent.config.v1.ADKPluginS3Source
 	(*ADKRuntimeConfig)(nil),           // 34: kagent.config.v1.ADKRuntimeConfig
-	nil,                                // 35: kagent.config.v1.ADKModelConfig.HeadersEntry
-	nil,                                // 36: kagent.config.v1.ADKOllama.OptionsEntry
-	nil,                                // 37: kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
-	nil,                                // 38: kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
-	nil,                                // 39: kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
-	nil,                                // 40: kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
-	(*GitWorkspaceConfig)(nil),         // 41: kagent.config.v1.GitWorkspaceConfig
+	(*GitWorkspaceConfig)(nil),         // 35: kagent.config.v1.GitWorkspaceConfig
+	nil,                                // 36: kagent.config.v1.ADKModelConfig.HeadersEntry
+	nil,                                // 37: kagent.config.v1.ADKOllama.OptionsEntry
+	nil,                                // 38: kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
+	nil,                                // 39: kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
+	nil,                                // 40: kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
+	nil,                                // 41: kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
 	(*durationpb.Duration)(nil),        // 42: google.protobuf.Duration
 	(*TokenPropagationConfig)(nil),     // 43: kagent.config.v1.TokenPropagationConfig
 	(*TelemetryConfig)(nil),            // 44: kagent.config.v1.TelemetryConfig
@@ -3307,7 +3374,7 @@ var file_kagent_config_v1_adk_proto_goTypes = []any{
 var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	34, // 0: kagent.config.v1.ADKConfig.runtime:type_name -> kagent.config.v1.ADKRuntimeConfig
 	1,  // 1: kagent.config.v1.ADKConfig.agent:type_name -> kagent.config.v1.ADKAgentConfig
-	41, // 2: kagent.config.v1.ADKConfig.workspace:type_name -> kagent.config.v1.GitWorkspaceConfig
+	35, // 2: kagent.config.v1.ADKConfig.workspace:type_name -> kagent.config.v1.GitWorkspaceConfig
 	2,  // 3: kagent.config.v1.ADKAgentConfig.model:type_name -> kagent.config.v1.ADKModelConfig
 	19, // 4: kagent.config.v1.ADKAgentConfig.http_tools:type_name -> kagent.config.v1.ADKHTTPMCPServerConfig
 	20, // 5: kagent.config.v1.ADKAgentConfig.sse_tools:type_name -> kagent.config.v1.ADKSSEMCPServerConfig
@@ -3318,7 +3385,7 @@ var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	25, // 10: kagent.config.v1.ADKAgentConfig.context_config:type_name -> kagent.config.v1.ADKContextConfig
 	1,  // 11: kagent.config.v1.ADKAgentConfig.sub_agents:type_name -> kagent.config.v1.ADKAgentConfig
 	27, // 12: kagent.config.v1.ADKAgentConfig.output:type_name -> kagent.config.v1.ADKOutputConfig
-	35, // 13: kagent.config.v1.ADKModelConfig.headers:type_name -> kagent.config.v1.ADKModelConfig.HeadersEntry
+	36, // 13: kagent.config.v1.ADKModelConfig.headers:type_name -> kagent.config.v1.ADKModelConfig.HeadersEntry
 	3,  // 14: kagent.config.v1.ADKModelConfig.openai:type_name -> kagent.config.v1.ADKOpenAI
 	6,  // 15: kagent.config.v1.ADKModelConfig.azure_openai:type_name -> kagent.config.v1.ADKAzureOpenAI
 	7,  // 16: kagent.config.v1.ADKModelConfig.anthropic:type_name -> kagent.config.v1.ADKAnthropic
@@ -3335,20 +3402,20 @@ var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	5,  // 27: kagent.config.v1.ADKTokenExchangeConfig.gdch_service_account:type_name -> kagent.config.v1.ADKGDCHTokenExchangeConfig
 	42, // 28: kagent.config.v1.ADKAnthropic.timeout:type_name -> google.protobuf.Duration
 	42, // 29: kagent.config.v1.ADKMistral.timeout:type_name -> google.protobuf.Duration
-	36, // 30: kagent.config.v1.ADKOllama.options:type_name -> kagent.config.v1.ADKOllama.OptionsEntry
+	37, // 30: kagent.config.v1.ADKOllama.options:type_name -> kagent.config.v1.ADKOllama.OptionsEntry
 	14, // 31: kagent.config.v1.ADKBedrock.guardrail:type_name -> kagent.config.v1.ADKBedrockGuardrail
 	42, // 32: kagent.config.v1.ADKBedrock.read_timeout:type_name -> google.protobuf.Duration
 	42, // 33: kagent.config.v1.ADKBedrock.connect_timeout:type_name -> google.protobuf.Duration
-	37, // 34: kagent.config.v1.ADKHTTPConnectionParams.headers:type_name -> kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
+	38, // 34: kagent.config.v1.ADKHTTPConnectionParams.headers:type_name -> kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
 	42, // 35: kagent.config.v1.ADKHTTPConnectionParams.timeout:type_name -> google.protobuf.Duration
 	42, // 36: kagent.config.v1.ADKHTTPConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
-	38, // 37: kagent.config.v1.ADKSSEConnectionParams.headers:type_name -> kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
+	39, // 37: kagent.config.v1.ADKSSEConnectionParams.headers:type_name -> kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
 	42, // 38: kagent.config.v1.ADKSSEConnectionParams.timeout:type_name -> google.protobuf.Duration
 	42, // 39: kagent.config.v1.ADKSSEConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
 	17, // 40: kagent.config.v1.ADKHTTPMCPServerConfig.params:type_name -> kagent.config.v1.ADKHTTPConnectionParams
 	18, // 41: kagent.config.v1.ADKSSEMCPServerConfig.params:type_name -> kagent.config.v1.ADKSSEConnectionParams
-	39, // 42: kagent.config.v1.ADKStdioMCPServerConfig.env:type_name -> kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
-	40, // 43: kagent.config.v1.ADKRemoteAgentConfig.headers:type_name -> kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
+	40, // 42: kagent.config.v1.ADKStdioMCPServerConfig.env:type_name -> kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
+	41, // 43: kagent.config.v1.ADKRemoteAgentConfig.headers:type_name -> kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
 	42, // 44: kagent.config.v1.ADKRemoteAgentConfig.timeout:type_name -> google.protobuf.Duration
 	23, // 45: kagent.config.v1.ADKMemoryConfig.embedding:type_name -> kagent.config.v1.ADKEmbeddingConfig
 	26, // 46: kagent.config.v1.ADKContextConfig.compaction:type_name -> kagent.config.v1.ADKCompressionConfig
@@ -3375,7 +3442,6 @@ func file_kagent_config_v1_adk_proto_init() {
 		return
 	}
 	file_kagent_config_v1_config_proto_init()
-	file_kagent_config_v1_workspace_proto_init()
 	file_kagent_config_v1_adk_proto_msgTypes[1].OneofWrappers = []any{}
 	file_kagent_config_v1_adk_proto_msgTypes[2].OneofWrappers = []any{
 		(*ADKModelConfig_Openai)(nil),
@@ -3415,7 +3481,7 @@ func file_kagent_config_v1_adk_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_config_v1_adk_proto_rawDesc), len(file_kagent_config_v1_adk_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   41,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
