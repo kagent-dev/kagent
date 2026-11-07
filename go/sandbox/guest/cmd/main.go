@@ -16,8 +16,11 @@ import (
 	"time"
 
 	"github.com/agent-substrate/env/guest"
+	"google.golang.org/protobuf/encoding/protojson"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 func main() {
@@ -26,6 +29,7 @@ func main() {
 	flag.StringVar(&cfg.Workspace, "workspace", "/data/workspace", "default process working directory and file API root")
 	flag.StringVar(&cfg.LogDir, "log-dir", "/data/guest-logs", "directory for process output logs")
 	logLevel := flag.String("log-level", "info", "logging level (debug, info, warn, error)")
+	source := flag.String("workspace-source", "", "compiled Git workspace source (JSON)")
 	flag.Parse()
 
 	logger, err := logging.New(os.Stderr, *logLevel)
@@ -35,6 +39,21 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(logging.IntoContext(context.Background(), logger), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *source != "" {
+		var compiled configv1.GitWorkspaceConfig
+		if err := protojson.Unmarshal([]byte(*source), &compiled); err != nil {
+			logger.ErrorContext(ctx, "invalid workspace source", "error", err)
+			os.Exit(1)
+		}
+		if cfg.Workspace != workspace.Path("/data") {
+			logger.ErrorContext(ctx, "repository workspace must be /data/workspace")
+			os.Exit(1)
+		}
+		if err := workspace.Initialize(ctx, "/data", &compiled); err != nil {
+			logger.ErrorContext(ctx, "failed to initialize workspace", "error", err)
+			os.Exit(1)
+		}
+	}
 	if err := run(ctx, cfg); err != nil {
 		logger.ErrorContext(ctx, "sandbox guest stopped", "error", err)
 		os.Exit(1)

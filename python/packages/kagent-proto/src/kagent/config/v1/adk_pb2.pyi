@@ -12,12 +12,14 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class ADKConfig(_message.Message):
-    __slots__ = ("runtime", "agent")
+    __slots__ = ("runtime", "agent", "workspace")
     RUNTIME_FIELD_NUMBER: _ClassVar[int]
     AGENT_FIELD_NUMBER: _ClassVar[int]
+    WORKSPACE_FIELD_NUMBER: _ClassVar[int]
     runtime: ADKRuntimeConfig
     agent: ADKAgentConfig
-    def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., agent: _Optional[_Union[ADKAgentConfig, _Mapping]] = ...) -> None: ...
+    workspace: GitWorkspaceConfig
+    def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., agent: _Optional[_Union[ADKAgentConfig, _Mapping]] = ..., workspace: _Optional[_Union[GitWorkspaceConfig, _Mapping]] = ...) -> None: ...
 
 class ADKAgentConfig(_message.Message):
     __slots__ = ("name", "model", "description", "instruction", "http_tools", "sse_tools", "stdio_tools", "remote_agents", "stream", "memory", "agent_plugins", "context_config", "session_db_url", "skills_directory", "sub_agents", "output")
@@ -550,3 +552,13 @@ class ADKRuntimeConfig(_message.Message):
     telemetry: _config_pb2.TelemetryConfig
     builtin_tools: _config_pb2.BuiltinToolsConfig
     def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ..., builtin_tools: _Optional[_Union[_config_pb2.BuiltinToolsConfig, _Mapping]] = ...) -> None: ...
+
+class GitWorkspaceConfig(_message.Message):
+    __slots__ = ("url", "ref", "authorization")
+    URL_FIELD_NUMBER: _ClassVar[int]
+    REF_FIELD_NUMBER: _ClassVar[int]
+    AUTHORIZATION_FIELD_NUMBER: _ClassVar[int]
+    url: str
+    ref: str
+    authorization: bool
+    def __init__(self, url: _Optional[str] = ..., ref: _Optional[str] = ..., authorization: _Optional[bool] = ...) -> None: ...
