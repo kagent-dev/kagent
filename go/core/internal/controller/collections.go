@@ -28,6 +28,7 @@ type Collections struct {
 	ConfigMaps               krt.Collection[*corev1.ConfigMap]
 	Secrets                  krt.Collection[*corev1.Secret]
 	WorkerPools              krt.Collection[*atev1.WorkerPool]
+	WorkerPoolNamespaces     []string
 	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
 	Reconciliations          krt.Collection[AgentReconciliation]
 	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
@@ -50,8 +51,9 @@ func (p AgentRuntimeObservation) ResourceName() string {
 }
 
 // NewCollections creates the complete read-only input graph. An empty
-// watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) Collections {
+// watchNamespaces list watches all namespaces. workerPoolNamespaces may hold
+// WorkerPools referenced from other namespaces.
+func NewCollections(client kube.Client, watchNamespaces, workerPoolNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) Collections {
 	egressPolicies := typedCollection[*kagentv1alpha3.EgressPolicy](client, watchNamespaces, "EgressPolicies", opts)
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
@@ -67,7 +69,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	compilerCollections := translator.Collections{
 		EgressPolicies: egressPolicies,
 		Harnesses:      harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
-		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
+		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools, WorkerPoolNamespaces: slices.Clone(workerPoolNamespaces),
 	}
 	compilerCollections.Namespaces = newReferenceNamespaces(client, agents, compilerCollections, opts)
 	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings, images)
@@ -85,6 +87,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		ConfigMaps:               configMaps,
 		Secrets:                  secrets,
 		WorkerPools:              workerPools,
+		WorkerPoolNamespaces:     slices.Clone(workerPoolNamespaces),
 		AgentRuntimeObservations: agentRuntimeObservations,
 		Reconciliations:          reconciliations,
 		ModelConfigStatuses:      modelConfigStatuses,

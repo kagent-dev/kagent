@@ -128,4 +128,11 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.NotEqual(t, checksum, toolsChecksum)
 	_, _, err = render("config:\n  loging: {level: debug}\n")
 	require.ErrorContains(t, err, "unknown field")
+	pools, _, err := render("config:\n  substrate: {workerPoolNamespaces: [kagent-workers]}\n")
+	require.NoError(t, err)
+	require.Equal(t, []string{"kagent-workers"}, pools.GetSubstrate().GetWorkerPoolNamespaces())
+	_, _, err = render("rbac:\n  namespaces: [NAMESPACE, team-a, kagent-workers]\nconfig:\n  substrate: {workerPoolNamespaces: [kagent-workers]}\n")
+	require.NoError(t, err)
+	_, _, err = render("rbac:\n  namespaces: [NAMESPACE, team-a]\nconfig:\n  substrate: {workerPoolNamespaces: [kagent-workers]}\n")
+	require.ErrorContains(t, err, "substrate.worker_pool_namespaces must be within kubernetes.watch_namespaces")
 }

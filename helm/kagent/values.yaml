@@ -209,6 +209,9 @@ config:
     routerUrl: https://atenet-router.ate-system.svc:443
     # Must match Substrate's ateApi.actorJWTIssuer; discovery uses substrate.caFile.
     actorJwtIssuer: https://idp.ate-system.svc
+    # -- Namespaces whose WorkerPools a Harness or SandboxTemplate in another
+    # namespace may reference through workerPoolRef.namespace.
+    workerPoolNamespaces: []
   logging:
     level: info
   metrics:

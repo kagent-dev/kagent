@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
@@ -79,5 +78,5 @@ func largeADKInput(rootBytes, children int) *translator.HarnessInput {
 	for i := range children {
 		root.Shared = append(root.Shared, translator.AgentInputBinding{Name: fmt.Sprintf("specialist_%d", i), Description: "Shared specialist", Agent: &translator.AgentInput{Template: &translator.TemplateConfiguration{Name: fmt.Sprintf("child_%d", i), Namespace: "test", Spec: v1alpha3.AgentTemplateSpec{Description: "Shared specialist"}}, ResolvedModelConfig: model, Instruction: strings.Repeat("c", 56<<10) + fmt.Sprintf("child-end-%d", i)}})
 	}
-	return &translator.HarnessInput{AgentName: "large", Root: root, Harness: &translator.HarnessConfiguration{Name: "adk", Namespace: "test", Source: metav1.ObjectMeta{Name: "adk", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}, Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}}}}
+	return &translator.HarnessInput{AgentName: "large", Root: root, Harness: &translator.HarnessConfiguration{Name: "adk", Namespace: "test", Source: metav1.ObjectMeta{Name: "adk", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}, Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}}}}
 }

@@ -67,6 +67,8 @@ type Revision struct {
 	WorkerPoolName   string
 	SandboxClass     atev1.SandboxClass
 	SnapshotLocation string
+	// WorkerPoolNamespace is the pool's namespace; empty means Namespace.
+	WorkerPoolNamespace string
 
 	// Provenance records non-secret source configuration for diagnostics. Revision
 	// identity comes from compiled runtime inputs, not this source snapshot.
@@ -77,6 +79,14 @@ type Revision struct {
 	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
+}
+
+// PoolNamespace returns the namespace of the WorkerPool that places this revision.
+func (r Revision) PoolNamespace() string {
+	if r.WorkerPoolNamespace != "" {
+		return r.WorkerPoolNamespace
+	}
+	return r.Namespace
 }
 
 // Equals compares the Agent Card's contents without inspecting protobuf caches.
@@ -132,7 +142,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		SkillImages:    r.SkillImages,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
 		TokenPassthroughTargets: r.TokenPassthroughTargets, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
-		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
+		SandboxClass: sandboxClass, WorkerPoolNamespace: r.PoolNamespace(),
 	})
 	if err != nil {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision inputs: %w", err)

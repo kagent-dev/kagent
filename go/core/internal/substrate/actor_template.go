@@ -53,7 +53,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if revisionID.IsZero() {
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
-	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
+	workerKey := types.NamespacedName{Namespace: spec.PoolNamespace(), Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentName, revisionID)
 	if err := bootstrap.ValidateBundle(bundle); err != nil {
 		return nil, err
