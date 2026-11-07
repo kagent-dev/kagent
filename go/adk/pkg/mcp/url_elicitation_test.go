@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"io"
 	"iter"
 	"maps"
 	"net/http"
@@ -18,7 +19,6 @@ import (
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/mcptoolset"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -158,13 +158,10 @@ func legacyServer(t *testing.T, signedIn *atomic.Bool, calls *atomic.Int32) stri
 
 func whoamiTool(t *testing.T, serverURL string, ctx adkagent.ReadonlyContext) *urlElicitationTool {
 	t.Helper()
-	toolset, err := mcptoolset.New(mcptoolset.Config{
-		Transport: &mcpsdk.StreamableClientTransport{Endpoint: serverURL},
-		Client:    newElicitingClient(serverURL, nil),
-	})
+	toolset, err := initializeToolSet(t.Context(), mcpServerParams{URL: serverURL, ServerType: "http"}, nil)
 	require.NoError(t, err)
-	wrapped := &urlElicitationToolset{inner: toolset, serverURL: serverURL}
-	tools, err := wrapped.Tools(ctx)
+	t.Cleanup(func() { require.NoError(t, toolset.inner.(io.Closer).Close()) })
+	tools, err := toolset.Tools(ctx)
 	require.NoError(t, err)
 	require.Len(t, tools, 1)
 	whoami, ok := tools[0].(*urlElicitationTool)
