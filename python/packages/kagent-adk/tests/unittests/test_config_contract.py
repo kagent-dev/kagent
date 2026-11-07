@@ -135,6 +135,7 @@ def test_mcp_explicit_options_and_defaults(field, params_type):
     [
         ("openai", "timeout"),
         ("mistral", "timeout"),
+        ("xai", "timeout"),
         ("anthropic", "timeout"),
         ("bedrock", "read_timeout"),
         ("bedrock", "connect_timeout"),

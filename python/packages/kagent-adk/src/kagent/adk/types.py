@@ -14,6 +14,9 @@ from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from google.protobuf.json_format import Parse, ParseDict
 from kagent.config.v1.adk_pb2 import (
+    ADKXAI as XAI,
+)
+from kagent.config.v1.adk_pb2 import (
     ADKAgentConfig as AgentConfig,
 )
 from kagent.config.v1.adk_pb2 import (
@@ -98,6 +101,7 @@ from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import FoundryOpenAI
 from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.models._ssl import create_ssl_context
+from kagent.adk.models._xai import KAgentXAILlm
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
 logger = logging.getLogger(__name__)
@@ -659,6 +663,20 @@ def _create_llm_from_model_config(model_config: ModelConfig):
             base_url=base_url,
             default_headers=extra_headers,
             max_tokens=optional_field(settings, "max_tokens"),
+            temperature=optional_field(settings, "temperature"),
+            top_p=optional_field(settings, "top_p"),
+            timeout=_timeout_seconds(settings, "timeout"),
+            **_transport_kwargs(model_config),
+        )
+    if provider == "xai":
+        return KAgentXAILlm(
+            type="xai",
+            model=model_config.model,
+            base_url=base_url,
+            default_headers=extra_headers,
+            # xAI deprecates max_tokens on chat completions; send the limit as
+            # max_completion_tokens instead.
+            max_completion_tokens=optional_field(settings, "max_tokens"),
             temperature=optional_field(settings, "temperature"),
             top_p=optional_field(settings, "top_p"),
             timeout=_timeout_seconds(settings, "timeout"),

@@ -58,6 +58,7 @@ message ADKModelConfig {
     ADKSAPAICore sap_ai_core = 18;
     ADKFoundry foundry = 19;
     ADKMistral mistral = 20;
+    ADKXAI xai = 21;
   }
 }
 
@@ -161,6 +162,22 @@ message ADKAnthropic {
   }];
 }
 message ADKMistral {
+  string base_url = 1;
+  optional int64 max_tokens = 2 [(buf.validate.field).int64 = {gte: 1}];
+  optional double temperature = 3 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  optional double top_p = 4 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
+  google.protobuf.Duration timeout = 5 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+}
+message ADKXAI {
   string base_url = 1;
   optional int64 max_tokens = 2 [(buf.validate.field).int64 = {gte: 1}];
   optional double temperature = 3 [(buf.validate.field).double = {

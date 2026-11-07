@@ -41,6 +41,8 @@ func DefaultModelProviderEndpoint(providerType ModelProvider) string {
 		return "http://localhost:11434"
 	case ModelProviderMistral:
 		return "https://api.mistral.ai/v1"
+	case ModelProviderXAI:
+		return "https://api.x.ai/v1"
 	default:
 		// Azure, Bedrock, Vertex AI require user-specific endpoints
 		return ""

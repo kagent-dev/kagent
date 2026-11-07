@@ -367,6 +367,17 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 		}
 		return models.NewMistralModel(ctx, cfg)
 
+	case *configv1.ADKModelConfig_Xai:
+		cfg := &models.XAIConfig{
+			TransportConfig: transportConfigFromBase(m, modelDuration(p.Xai.Timeout)),
+			Model:           m.Model,
+			BaseUrl:         p.Xai.BaseUrl,
+			MaxTokens:       p.Xai.MaxTokens,
+			Temperature:     p.Xai.Temperature,
+			TopP:            p.Xai.TopP,
+		}
+		return models.NewXAIModel(ctx, cfg)
+
 	case *configv1.ADKModelConfig_Ollama:
 		// Leave the host empty when the controller did not set one: NewOllamaModel
 		// then applies the cloud/local routing. Defaulting it to localhost here

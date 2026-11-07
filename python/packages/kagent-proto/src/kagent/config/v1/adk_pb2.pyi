@@ -56,7 +56,7 @@ class ADKAgentConfig(_message.Message):
     def __init__(self, name: _Optional[str] = ..., model: _Optional[_Union[ADKModelConfig, _Mapping]] = ..., description: _Optional[str] = ..., instruction: _Optional[str] = ..., http_tools: _Optional[_Iterable[_Union[ADKHTTPMCPServerConfig, _Mapping]]] = ..., sse_tools: _Optional[_Iterable[_Union[ADKSSEMCPServerConfig, _Mapping]]] = ..., stdio_tools: _Optional[_Iterable[_Union[ADKStdioMCPServerConfig, _Mapping]]] = ..., remote_agents: _Optional[_Iterable[_Union[ADKRemoteAgentConfig, _Mapping]]] = ..., stream: _Optional[bool] = ..., memory: _Optional[_Union[ADKMemoryConfig, _Mapping]] = ..., agent_plugins: _Optional[_Union[ADKAgentPlugins, _Mapping]] = ..., context_config: _Optional[_Union[ADKContextConfig, _Mapping]] = ..., session_db_url: _Optional[str] = ..., skills_directory: _Optional[str] = ..., sub_agents: _Optional[_Iterable[_Union[ADKAgentConfig, _Mapping]]] = ..., output: _Optional[_Union[ADKOutputConfig, _Mapping]] = ...) -> None: ...
 
 class ADKModelConfig(_message.Message):
-    __slots__ = ("model", "headers", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough", "openai", "azure_openai", "anthropic", "gemini_vertex_ai", "gemini_anthropic", "ollama", "gemini", "bedrock", "sap_ai_core", "foundry", "mistral")
+    __slots__ = ("model", "headers", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough", "openai", "azure_openai", "anthropic", "gemini_vertex_ai", "gemini_anthropic", "ollama", "gemini", "bedrock", "sap_ai_core", "foundry", "mistral", "xai")
     class HeadersEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -81,6 +81,7 @@ class ADKModelConfig(_message.Message):
     SAP_AI_CORE_FIELD_NUMBER: _ClassVar[int]
     FOUNDRY_FIELD_NUMBER: _ClassVar[int]
     MISTRAL_FIELD_NUMBER: _ClassVar[int]
+    XAI_FIELD_NUMBER: _ClassVar[int]
     model: str
     headers: _containers.ScalarMap[str, str]
     tls_insecure_skip_verify: bool
@@ -98,7 +99,8 @@ class ADKModelConfig(_message.Message):
     sap_ai_core: ADKSAPAICore
     foundry: ADKFoundry
     mistral: ADKMistral
-    def __init__(self, model: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ..., api_key_passthrough: _Optional[bool] = ..., openai: _Optional[_Union[ADKOpenAI, _Mapping]] = ..., azure_openai: _Optional[_Union[ADKAzureOpenAI, _Mapping]] = ..., anthropic: _Optional[_Union[ADKAnthropic, _Mapping]] = ..., gemini_vertex_ai: _Optional[_Union[ADKGeminiVertexAI, _Mapping]] = ..., gemini_anthropic: _Optional[_Union[ADKGeminiAnthropic, _Mapping]] = ..., ollama: _Optional[_Union[ADKOllama, _Mapping]] = ..., gemini: _Optional[_Union[ADKGemini, _Mapping]] = ..., bedrock: _Optional[_Union[ADKBedrock, _Mapping]] = ..., sap_ai_core: _Optional[_Union[ADKSAPAICore, _Mapping]] = ..., foundry: _Optional[_Union[ADKFoundry, _Mapping]] = ..., mistral: _Optional[_Union[ADKMistral, _Mapping]] = ...) -> None: ...
+    xai: ADKXAI
+    def __init__(self, model: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ..., api_key_passthrough: _Optional[bool] = ..., openai: _Optional[_Union[ADKOpenAI, _Mapping]] = ..., azure_openai: _Optional[_Union[ADKAzureOpenAI, _Mapping]] = ..., anthropic: _Optional[_Union[ADKAnthropic, _Mapping]] = ..., gemini_vertex_ai: _Optional[_Union[ADKGeminiVertexAI, _Mapping]] = ..., gemini_anthropic: _Optional[_Union[ADKGeminiAnthropic, _Mapping]] = ..., ollama: _Optional[_Union[ADKOllama, _Mapping]] = ..., gemini: _Optional[_Union[ADKGemini, _Mapping]] = ..., bedrock: _Optional[_Union[ADKBedrock, _Mapping]] = ..., sap_ai_core: _Optional[_Union[ADKSAPAICore, _Mapping]] = ..., foundry: _Optional[_Union[ADKFoundry, _Mapping]] = ..., mistral: _Optional[_Union[ADKMistral, _Mapping]] = ..., xai: _Optional[_Union[ADKXAI, _Mapping]] = ...) -> None: ...
 
 class ADKOpenAI(_message.Message):
     __slots__ = ("base_url", "frequency_penalty", "max_tokens", "max_completion_tokens", "n", "presence_penalty", "reasoning_effort", "seed", "temperature", "timeout", "top_p", "api_format", "token_exchange", "strict_output_schema")
@@ -187,6 +189,20 @@ class ADKAnthropic(_message.Message):
     def __init__(self, base_url: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., top_p: _Optional[float] = ..., top_k: _Optional[int] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., prompt_caching: _Optional[bool] = ..., cache_ttl: _Optional[str] = ...) -> None: ...
 
 class ADKMistral(_message.Message):
+    __slots__ = ("base_url", "max_tokens", "temperature", "top_p", "timeout")
+    BASE_URL_FIELD_NUMBER: _ClassVar[int]
+    MAX_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_FIELD_NUMBER: _ClassVar[int]
+    TOP_P_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_FIELD_NUMBER: _ClassVar[int]
+    base_url: str
+    max_tokens: int
+    temperature: float
+    top_p: float
+    timeout: _duration_pb2.Duration
+    def __init__(self, base_url: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., top_p: _Optional[float] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+
+class ADKXAI(_message.Message):
     __slots__ = ("base_url", "max_tokens", "temperature", "top_p", "timeout")
     BASE_URL_FIELD_NUMBER: _ClassVar[int]
     MAX_TOKENS_FIELD_NUMBER: _ClassVar[int]
