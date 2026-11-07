@@ -78,7 +78,10 @@ Keep SDK sampling parent-based AlwaysOn and perform sampling in the collector.
 Independent sampler settings on individual Harnesses can produce incomplete
 distributed traces. SDK sampler overrides remain supported for operators who
 intentionally need them. Exporter setup errors are logged without stopping the
-agent process; malformed file configuration still fails validation.
+agent process. SDK, initialization, flush, and shutdown failures share one diagnostic
+budget per process initialization: the first reports the error type, keeping
+Collector payloads and credentials private. Provider shutdown uses the process
+shutdown deadline; malformed file configuration still fails validation.
 
 Controller overrides never change managed runtimes. Use `controller.env` or
 `controller.envFrom` for the controller and `Harness.spec.env` for a runtime.

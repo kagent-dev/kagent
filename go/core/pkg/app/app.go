@@ -208,24 +208,28 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	telemetryOptions := telemetry.Options{Config: config.Telemetry(cfg.GetTelemetry()), Defaults: []attribute.KeyValue{
 		semconv.ServiceName("kagent-controller"), semconv.ServiceNamespace("kagent"), semconv.ServiceVersion(version.Version),
 	}}
+	var metricReaderErr error
 	if cfg.GetMetrics().GetBindAddress() != "0" {
 		reader, err := otelprometheus.New(otelprometheus.WithRegisterer(crmetrics.Registry))
-		if err != nil {
-			return fmt.Errorf("create Prometheus metric reader: %w", err)
+		metricReaderErr = err
+		if err == nil {
+			telemetryOptions.MetricReaders = []sdkmetric.Reader{reader}
 		}
-		telemetryOptions.MetricReaders = []sdkmetric.Reader{reader}
 	}
 	// otelgrpc snapshots the global providers and propagator when its handler is
 	// constructed, so telemetry has to be registered before any server is built.
 	providers, err := telemetry.Init(ctx, telemetryOptions)
+	if metricReaderErr != nil {
+		otel.Handle(metricReaderErr)
+	}
 	if err != nil {
-		logger.ErrorContext(ctx, "failed to initialize telemetry", "error", err)
+		otel.Handle(err)
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := providers.Shutdown(shutdownCtx); err != nil {
-			logger.ErrorContext(shutdownCtx, "failed to shut down telemetry", "error", err)
+			otel.Handle(err)
 		}
 	}()
 
