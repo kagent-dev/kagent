@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/url"
 	"slices"
@@ -222,6 +223,13 @@ type urlElicitationToolset struct {
 }
 
 func (s *urlElicitationToolset) Name() string { return s.inner.Name() }
+
+func (s *urlElicitationToolset) Close() error {
+	if closer, ok := s.inner.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}
 
 func (s *urlElicitationToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
 	tools, err := s.inner.Tools(ctx)
