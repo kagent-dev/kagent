@@ -348,7 +348,7 @@ substrateWorkerPool:
 defaultHarnesses:
   enabled: true
   # Substrate snapshot storage. The default uses the bucket of Substrate's bundled RustFS.
-  snapshotLocation: gs://ate-snapshots/kagent/
+  snapshotLocation: s3://ate-snapshots/kagent/
   # Skip an individual runtime:
   claude:
     enabled: false

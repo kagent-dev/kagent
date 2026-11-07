@@ -28,7 +28,7 @@ describe("harness draft", () => {
       kagent: {},
       substrate: {
         workerPoolRef: { name: "kagent-default" },
-        snapshotPolicy: { location: "gs://ate-snapshots/kagent/" },
+        snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
       },
     });
   });

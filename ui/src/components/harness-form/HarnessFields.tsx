@@ -158,7 +158,7 @@ export function HarnessFields({
           data-testid="harness-snapshot"
           value={draft.snapshotLocation}
           onChange={(event) => set("snapshotLocation", event.target.value)}
-          placeholder="gs://ate-snapshots/kagent/"
+          placeholder="s3://ate-snapshots/kagent/"
         />
       </Form.Item>
     </>

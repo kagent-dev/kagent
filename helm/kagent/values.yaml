@@ -445,7 +445,7 @@ defaultHarnesses:
   enabled: false
   # -- Substrate snapshot location shared by the default Harnesses. The default
   # matches the ate-snapshots bucket of Substrate's bundled RustFS.
-  snapshotLocation: gs://ate-snapshots/kagent/
+  snapshotLocation: s3://ate-snapshots/kagent/
   # -- Render `kagent-default`, a Harness for the kagent runtime.
   kagent:
     enabled: true

@@ -103,4 +103,4 @@ export const HARNESS_IMAGE_PATTERN = /^[^\s@]+@sha256:[a-f0-9]{64}$/;
 
 /** The worker pool and snapshot location the chart's default harnesses use. */
 export const DEFAULT_HARNESS_WORKER_POOL = "kagent-default";
-export const DEFAULT_HARNESS_SNAPSHOT_LOCATION = "gs://ate-snapshots/kagent/";
+export const DEFAULT_HARNESS_SNAPSHOT_LOCATION = "s3://ate-snapshots/kagent/";

@@ -149,7 +149,7 @@ const INPUTS = {
         kagent: {},
         substrate: {
           workerPoolRef: { name: "kagent-default" },
-          snapshotPolicy: { location: "gs://ate-snapshots/kagent/" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
         },
       },
     },
@@ -164,7 +164,7 @@ const INPUTS = {
         kagent: {},
         substrate: {
           workerPoolRef: { name: "kagent-default" },
-          snapshotPolicy: { location: "gs://ate-snapshots/kagent/" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
         },
       },
     },
@@ -422,7 +422,7 @@ describe("the fixture backend", () => {
 describe("harness writes follow the CRD", () => {
   const substrate = {
     workerPoolRef: { name: "kagent-default" },
-    snapshotPolicy: { location: "gs://ate-snapshots/kagent/" },
+    snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
   };
   const write = (name: string, spec: Record<string, unknown>, resourceVersion?: string) => ({
     namespace: "kagent",

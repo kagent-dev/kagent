@@ -93,7 +93,7 @@ func TestInstalledDefaultHarnesses(t *testing.T) {
 			require.True(t, scenario.hasKind(harness.Spec), "unexpected runtime in %+v", harness.Spec)
 			require.Nil(t, harness.Spec.Workload.Image, "default Harnesses use the release's built-in image")
 			require.Equal(t, "kagent-default", harness.Spec.Substrate.WorkerPoolRef.Name)
-			require.Equal(t, "gs://ate-snapshots/kagent/", harness.Spec.Substrate.SnapshotPolicy.Location)
+			require.Equal(t, "s3://ate-snapshots/kagent/", harness.Spec.Substrate.SnapshotPolicy.Location)
 
 			agent := &v1alpha3.Agent{
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "default-harness-", Namespace: harness.Namespace},

@@ -53,7 +53,7 @@ tests:
           value: kagent-default
       - equal:
           path: spec.substrate.snapshotPolicy.location
-          value: gs://ate-snapshots/kagent/
+          value: s3://ate-snapshots/kagent/
       - notExists:
           path: spec.workload
       - equal:

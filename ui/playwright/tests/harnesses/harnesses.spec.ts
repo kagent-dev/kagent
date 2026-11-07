@@ -83,7 +83,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await page.getByTestId("harness-name").fill(CREATED);
 
     await expect(page.getByTestId("harness-worker-pool").locator("input")).toHaveValue("kagent-default");
-    await expect(page.getByTestId("harness-snapshot")).toHaveValue("gs://ate-snapshots/kagent/");
+    await expect(page.getByTestId("harness-snapshot")).toHaveValue("s3://ate-snapshots/kagent/");
   });
 
   await test.step("5. an image that is not pinned cannot be submitted", async () => {
@@ -103,7 +103,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
   });
 
   await test.step("7. with the release image and the defaults, it is created", async () => {
-    await page.getByTestId("harness-snapshot").fill("gs://ate-snapshots/kagent/");
+    await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent/");
     await expect(page.getByTestId("harness-create")).toBeEnabled();
     await page.getByTestId("harness-create").click();
 

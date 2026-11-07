@@ -620,7 +620,7 @@ export const mockHarnesses: Harness[] = [
         [runtime]: {},
         substrate: {
           workerPoolRef: { name: "kagent-default" },
-          snapshotPolicy: { location: "gs://ate-snapshots/kagent/" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
         },
       },
     },
