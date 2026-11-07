@@ -317,6 +317,10 @@ A golden-snapshot failure is retried instead: the controller deletes the failed
 ActorTemplate and recreates it on the persisted schedule described in
 [Sandboxes](sandboxes.md#configuration-and-preparation), reporting `Ready=False`
 with reason `ActorTemplateRetrying` and only the failure reason in its message.
+The one allowlisted detail is an image pull failure for an image that the
+ActorTemplate itself names: the message then adds `could not pull image <ref>`.
+The reference comes from the template spec, never from the backend text, so
+configuration quoted in an error cannot reach status.
 
 ActorTemplate construction checks the size of each emitted environment value
 against Substrate's 32,768-character limit. Configuration and Agent Card
