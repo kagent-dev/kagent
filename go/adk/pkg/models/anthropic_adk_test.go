@@ -319,3 +319,44 @@ func TestAnthropicModelGenerateContentSendsStructuredOutputWithTools(t *testing.
 		t.Fatalf("tools = %#v, want one tool", body["tools"])
 	}
 }
+
+func TestAnthropicStreamingToolCallsKeepBlockOrder(t *testing.T) {
+	const n = 8
+	events := []string{
+		`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":4,"output_tokens":1}}}`,
+	}
+	var wantIDs []string
+	for i := 0; i < n; i++ {
+		id := "call-" + string(rune('a'+i))
+		wantIDs = append(wantIDs, id)
+		events = append(events,
+			`{"type":"content_block_start","index":`+string(rune('0'+i))+`,"content_block":{"type":"tool_use","id":"`+id+`","name":"tool_`+string(rune('a'+i))+`","input":{}}}`,
+			`{"type":"content_block_delta","index":`+string(rune('0'+i))+`,"delta":{"type":"input_json_delta","partial_json":"{}"}}`,
+			`{"type":"content_block_stop","index":`+string(rune('0'+i))+`}`,
+		)
+	}
+	events = append(events,
+		`{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":5}}`,
+		`{"type":"message_stop"}`,
+	)
+	m, _ := anthropicTestServer(t, func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, event := range events {
+			var envelope struct {
+				Type string `json:"type"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(event), &envelope))
+			_, _ = io.WriteString(w, "event: "+envelope.Type+"\ndata: "+event+"\n\n")
+		}
+	})
+
+	final := finalResponse(t, m, true)
+
+	var gotIDs []string
+	for _, p := range final.Content.Parts {
+		if p.FunctionCall != nil {
+			gotIDs = append(gotIDs, p.FunctionCall.ID)
+		}
+	}
+	assert.Equal(t, wantIDs, gotIDs)
+}
