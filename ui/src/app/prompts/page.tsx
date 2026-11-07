@@ -1,15 +1,17 @@
+import { getUiRuntimeConfig } from "@/app/actions/config";
 import { listPromptTemplates } from "@/app/actions/promptTemplates";
 import { PromptsPageClient } from "@/components/prompts/PromptsPageClient";
-
-const DEFAULT_PROMPTS_NAMESPACE = "kagent";
 
 export default async function PromptsPage({
   searchParams,
 }: {
   searchParams: Promise<{ namespace?: string }>;
 }) {
-  const params = await searchParams;
-  const namespace = params.namespace?.trim() || DEFAULT_PROMPTS_NAMESPACE;
+  const [{ defaultNamespace }, params] = await Promise.all([
+    getUiRuntimeConfig(),
+    searchParams,
+  ]);
+  const namespace = params.namespace?.trim() || defaultNamespace;
   const response = await listPromptTemplates(namespace);
   return (
     <PromptsPageClient
