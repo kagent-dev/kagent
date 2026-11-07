@@ -158,6 +158,9 @@ Runtime-facing URLs must use full DNS names because Substrate only permits DNS
 queries matching the egress policy. The chart generates controller and API tool
 URLs using `global.clusterDomain` (default `cluster.local`). Set this to your
 cluster's DNS domain and use full names in custom model, MCP, and telemetry URLs.
+`kagent install` reads the domain from the `kubernetes` zone in the
+`kube-system/coredns` Corefile; a `global.clusterDomain` in a configured
+`install.kagent.valuesFiles` file overrides the detected value.
 
 Substrate alpha3 returns `NXDOMAIN` for denied DNS lookups, allowing musl-based
 Codex and Claude clients to continue past Kubernetes search-domain expansions.
@@ -377,10 +380,16 @@ Use `kagent install --dry-run --output-dir ./kagent-install` to export the Helm 
 
 ```bash
 export OPENAI_API_KEY=your-openai-api-key
-# openAI is the default; other choices include anthropic, azureOpenAI, gemini, and ollama
+# OpenAI is the default; --provider Anthropic (with ANTHROPIC_API_KEY) overrides
+# install.defaultModelProvider for one install.
 # config.yaml: install: {defaultModelProvider: OpenAI}
 kagent --config config.yaml install
 ```
+
+To install the CLI first, run `curl -sL https://kagent.dev/install | bash`. It
+installs the newest final release that publishes a binary for your platform;
+pass `--prerelease` to include release candidates or `--version vX.Y.Z` to pin
+one.
 
 ## Application configuration
 
