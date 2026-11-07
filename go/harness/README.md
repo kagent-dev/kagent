@@ -77,6 +77,16 @@ keeps it while the task is `input-required`, then calls either `Resume` with the
 validated response or `Cancel`. A resumed process can return another pending
 handle for sequential questions.
 
+An MCP server's URL mode elicitation, such as a sign-in link, is a
+`runtime.URLElicitationRequest`. The executor parks it as `input-required` with
+a `url_elicitation_request` payload of the HITL extension, not as
+`auth-required`: an A2A server keeps an `auth-required` task's execution running
+while the authentication happens out of band, and the turn has to end until the
+person answers. The client answers
+with a `url_elicitation_response` whose `action` is `accept` once the person
+completed the interaction at the URL, or `decline` or `cancel`. The URL goes to
+the person, never to the model.
+
 The executor also serializes access to the Actor's one native conversation. Its
 state is either active, parked on a `PendingTurn`, canceling that handle, or
 idle. Drivers therefore implement native protocol and process cleanup without
