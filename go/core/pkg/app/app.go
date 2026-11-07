@@ -95,6 +95,8 @@ type Options struct {
 	// Authorizer decides what an identified caller may do and which collection
 	// entries it may see. Nil selects NoopAuthorizer, which permits every action.
 	Authorizer auth.CollectionAuthorizer
+	// AnthropicSelfHostedSandboxes enables the bundled Anthropic launcher. Nil leaves it disabled.
+	AnthropicSelfHostedSandboxes *AnthropicSelfHostedSandboxesConfig
 	// SetupWithManager registers additional controllers and scheme types on
 	// core's manager. It runs after the manager exists and before it starts, so
 	// a scheme added here is in place before any cache is built. Returning an
@@ -277,6 +279,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		// /metrics nonResourceURL.
 		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
+	var gracefulShutdownTimeout *time.Duration
+	if opts.AnthropicSelfHostedSandboxes != nil {
+		// Finish bounded provisioning and metadata writes before releasing leadership.
+		gracefulShutdownTimeout = new(150 * time.Second)
+	}
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme:                  managerScheme,
 		Cache:                   managerCacheOptions,
@@ -285,6 +292,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		LeaderElection:          cfg.GetKubernetes().GetLeaderElection(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
 		LeaderElectionNamespace: cfg.GetKubernetes().GetNamespace(),
+		GracefulShutdownTimeout: gracefulShutdownTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
@@ -425,6 +433,15 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 	if err := manager.Add(sandboxes); err != nil {
 		return err
+	}
+	if opts.AnthropicSelfHostedSandboxes != nil {
+		launcher, err := newAnthropicSelfHostedSandboxesRunnable(*opts.AnthropicSelfHostedSandboxes, sandboxes, logger)
+		if err != nil {
+			return fmt.Errorf("configure anthropic self-hosted sandboxes launcher: %w", err)
+		}
+		if err := manager.Add(launcher); err != nil {
+			return fmt.Errorf("register anthropic self-hosted sandboxes launcher: %w", err)
+		}
 	}
 	mcpHandler, err := mcp.New(mcp.Config{
 		Agents: agents, Sessions: sessions, Checkpoints: checkpoints, Gateway: gateway,
