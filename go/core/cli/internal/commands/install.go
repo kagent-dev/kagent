@@ -139,12 +139,6 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 	if err != nil {
 		return err
 	}
-	// Detection is a convenience: users who cannot read kube-system still
-	// install, with the chart's cluster.local default or their configured value.
-	if input.ClusterDomain, err = client.DetectClusterDomain(cmd.Context()); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v; using the configured cluster domain or cluster.local\n", err)
-		input.ClusterDomain = ""
-	}
 	plan, err := client.Plan(cmd.Context(), input)
 	if err != nil {
 		return err
@@ -264,8 +258,6 @@ func NewInstallCmd() *cobra.Command {
 		Use:   "install",
 		Short: "Install kagent",
 		Long: `Install kagent. --provider selects the default model provider, overriding install.defaultModelProvider in the CLI config; its API key is read from the provider's environment variable.
-
-The cluster DNS domain is read from the kube-system/coredns ConfigMap and passed to the kagent chart as global.clusterDomain, unless a configured values file sets it. Without CoreDNS the chart default, cluster.local, applies.
 
 With --dry-run, write Helm commands and merged values to a directory without changing the cluster. Complete the documented prerequisites before running the exported commands.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {

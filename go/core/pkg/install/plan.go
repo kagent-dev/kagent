@@ -28,10 +28,6 @@ type Config struct {
 	WorkerImage       string
 	SkipDatabaseSetup bool
 	Database          Postgres
-	// ClusterDomain is the cluster DNS domain written to the kagent chart's
-	// global.clusterDomain. Caller values and --set inputs override it. When
-	// empty, the chart default applies. DetectClusterDomain reads it from CoreDNS.
-	ClusterDomain string
 }
 
 // Step is one of the concrete operations supported by the installer.
@@ -125,11 +121,6 @@ config:
 defaultHarnesses:
   enabled: true
 ` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
-	if cfg.ClusterDomain != "" {
-		// Generated inline values precede caller files and --set inputs, so a
-		// domain the caller sets wins over the detected one.
-		kagent.inlineValues += fmt.Sprintf("global:\n  clusterDomain: %s\n", strconv.Quote(cfg.ClusterDomain))
-	}
 	if !cfg.SkipDatabaseSetup {
 		kagent.Values = append(kagent.Values, "database.postgres.clientCertificate.enabled=true")
 	}

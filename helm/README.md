@@ -158,9 +158,6 @@ Runtime-facing URLs must use full DNS names because Substrate only permits DNS
 queries matching the egress policy. The chart generates controller and API tool
 URLs using `global.clusterDomain` (default `cluster.local`). Set this to your
 cluster's DNS domain and use full names in custom model, MCP, and telemetry URLs.
-`kagent install` reads the domain from the `kubernetes` zone in the
-`kube-system/coredns` Corefile; a `global.clusterDomain` in a configured
-`install.kagent.valuesFiles` file overrides the detected value.
 
 Substrate alpha3 returns `NXDOMAIN` for denied DNS lookups, allowing musl-based
 Codex and Claude clients to continue past Kubernetes search-domain expansions.

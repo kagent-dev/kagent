@@ -70,12 +70,7 @@ continue to use the provider SDK environment interface.
 
 `kagent install --provider` overrides `install.defaultModelProvider` for one
 install; the protovalidate `in` rule on that field defines the accepted names.
-Install sets the Kagent chart's `global.clusterDomain` from the `kubernetes`
-zone of the `kube-system/coredns` Corefile. The detected value is part of the
-generated defaults, so a configured values file that sets the domain wins. When
-CoreDNS is absent or unparseable, the chart default `cluster.local` applies.
-`--dry-run` does not contact the cluster and skips detection. After a
-successful install the CLI prints next steps.
+After a successful install the CLI prints next steps.
 
 `kagent version --client` prints only the CLI build without connecting to the
 controller. The `get-kagent` install script uses it to skip reinstalling a
