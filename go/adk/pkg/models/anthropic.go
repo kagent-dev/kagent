@@ -8,6 +8,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/vertex"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -94,21 +96,27 @@ func newAnthropicModelFromConfig(ctx context.Context, config *AnthropicConfig, a
 	}, nil
 }
 
-// NewAnthropicVertexAIModel creates an Anthropic model that authenticates
-// via Google Cloud Vertex AI using Application Default Credentials (ADC).
-// This is used for the GeminiAnthropic / AnthropicVertexAI provider type.
+// NewAnthropicVertexAIModel creates an Anthropic model for Claude on Google
+// Cloud Vertex AI, the GeminiAnthropic / AnthropicVertexAI provider type. It
+// authenticates with Application Default Credentials (ADC), unless
+// KAGENT_SKIP_VERTEX_AUTH says the egress gateway sets the access token on
+// every call: then the client never looks for ADC and sends the placeholder
+// bearer the gateway replaces.
 func NewAnthropicVertexAIModel(ctx context.Context, config *AnthropicConfig, region, projectID string) (*AnthropicModel, error) {
 	logger := logging.FromContext(ctx)
-	opts := []option.RequestOption{
-		vertex.WithGoogleAuth(ctx, region, projectID),
-	}
-
 	// Create HTTP client with timeout, custom headers, TLS, and passthrough
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, option.WithHTTPClient(httpClient))
+	// The Vertex option wraps the HTTP client passed before it with its
+	// authorization; a client passed after it would replace the authorized one.
+	opts := []option.RequestOption{option.WithHTTPClient(httpClient)}
+	if env.SkipVertexAuth.Get() {
+		opts = append(opts, vertex.WithCredentials(ctx, region, projectID, gatewayCredentials()))
+	} else {
+		opts = append(opts, vertex.WithGoogleAuth(ctx, region, projectID))
+	}
 
 	client := anthropic.NewClient(opts...)
 	logger.InfoContext(ctx, "initialized Anthropic Vertex AI model", "model", config.Model, "region", region, "project", projectID)
@@ -118,4 +126,18 @@ func NewAnthropicVertexAIModel(ctx context.Context, config *AnthropicConfig, reg
 		Client: client,
 		Logger: logger,
 	}, nil
+}
+
+// VertexGatewayToken is the placeholder access token a Vertex AI call carries
+// when the egress gateway authenticates it (KAGENT_SKIP_VERTEX_AUTH). The
+// gateway replaces the Authorization header a request carries with the access
+// token its credential provider serves and adds none, so a call without the
+// placeholder leaves unauthenticated.
+const VertexGatewayToken = "kagent-credential-injected"
+
+// gatewayCredentials stand in for Google credentials when the egress gateway
+// authenticates the Vertex AI call: the SDK's Vertex adaptation needs a token
+// source to build its client, and sends the placeholder as its bearer.
+func gatewayCredentials() *google.Credentials {
+	return &google.Credentials{TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: VertexGatewayToken})}
 }
