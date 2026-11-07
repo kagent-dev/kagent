@@ -54,7 +54,7 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	}}}, Paths{
 		Packages: filepath.Join(root, "packages"),
 		Skills:   filepath.Join(root, "skills"),
-	})
+	}, PreferAgentPlugins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestMaterializeCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
 		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
 		Skills: []string{"review"},
 	}}}
-	if _, err := Materialize(context.Background(), resources, paths); err != nil {
+	if _, err := Materialize(context.Background(), resources, paths, PreferAgentPlugins); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
@@ -151,7 +151,7 @@ func TestLoadManifestUsesAgentPluginsV1Schema(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	manifest, claudeFormat, err := loadManifest(root)
+	manifest, claudeFormat, err := loadManifest(root, PreferAgentPlugins)
 	if err != nil || claudeFormat || manifest.Name != "acme.tools" {
 		t.Fatalf("loadManifest() = %#v, %v, %v", manifest, claudeFormat, err)
 	}
@@ -184,7 +184,7 @@ func TestLoadManifestFormats(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			manifest, claudeFormat, err := loadManifest(root)
+			manifest, claudeFormat, err := loadManifest(root, PreferAgentPlugins)
 			if (err != nil) != tt.wantErr || manifest.Name != tt.wantName || claudeFormat != tt.wantClaudeFormat {
 				t.Fatalf("loadManifest() = %#v, %v, %v", manifest, claudeFormat, err)
 			}
@@ -203,7 +203,7 @@ func TestMaterializeClaudeFormatPlugin(t *testing.T) {
 
 	root := t.TempDir()
 	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
-	materialization, err := Materialize(context.Background(), resources, paths)
+	materialization, err := Materialize(context.Background(), resources, paths, PreferAgentPlugins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,6 +220,84 @@ func TestMaterializeClaudeFormatPlugin(t *testing.T) {
 	if mcp, err := LoadMCP(context.Background(), materialization, filepath.Join(root, "data")); err != nil || len(mcp.Stdio)+len(mcp.SSE)+len(mcp.StreamableHTTP) != 0 {
 		t.Fatalf("LoadMCP() = %#v, %v", mcp, err)
 	}
+}
+
+func TestLoadManifestPreferClaude(t *testing.T) {
+	const agentPlugins = `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.tools"}`
+	const otherRoot = `{"name":"acme-tools","version":"1.0.0"}`
+	const claude = `{"name":"acme-claude"}`
+	scenarios := []struct {
+		name             string
+		files            map[string]string
+		wantName         string
+		wantClaudeFormat bool
+	}{
+		{
+			name:  "Given an Agent Plugins manifest and a Claude manifest, when the Claude harness reads the plugin, assert that the Claude manifest is used",
+			files: map[string]string{"plugin.json": agentPlugins, ".claude-plugin/plugin.json": claude}, wantName: "acme-claude", wantClaudeFormat: true,
+		},
+		{
+			name:  "Given a root plugin.json of another format and a Claude manifest, when the Claude harness reads the plugin, assert that the Claude manifest is used",
+			files: map[string]string{"plugin.json": otherRoot, ".claude-plugin/plugin.json": claude}, wantName: "acme-claude", wantClaudeFormat: true,
+		},
+		{
+			name:  "Given only an Agent Plugins manifest, when the Claude harness reads the plugin, assert that the root manifest is used",
+			files: map[string]string{"plugin.json": agentPlugins}, wantName: "acme.tools",
+		},
+		{
+			name:  "Given only a Claude manifest, when the Claude harness reads the plugin, assert that the Claude manifest is used",
+			files: map[string]string{".claude-plugin/plugin.json": claude}, wantName: "acme-claude", wantClaudeFormat: true,
+		},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			root := writePluginFiles(t, scenario.files)
+			manifest, claudeFormat, err := loadManifest(root, PreferClaude)
+			if err != nil || manifest.Name != scenario.wantName || claudeFormat != scenario.wantClaudeFormat {
+				t.Fatalf("loadManifest() = %#v, %v, %v", manifest, claudeFormat, err)
+			}
+		})
+	}
+
+	t.Run("Given a root plugin.json of another format and a Claude manifest, when an Agent Plugins runtime reads the plugin, assert that the root manifest is rejected", func(t *testing.T) {
+		root := writePluginFiles(t, map[string]string{"plugin.json": otherRoot, ".claude-plugin/plugin.json": claude})
+		if _, _, err := loadManifest(root, PreferAgentPlugins); err == nil || !strings.Contains(err.Error(), "unsupported plugin schema") {
+			t.Fatalf("loadManifest() error = %v, want unsupported plugin schema", err)
+		}
+	})
+}
+
+func TestMaterializeDualManifestPlugin(t *testing.T) {
+	files := map[string]string{
+		"plugin.json":                `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.tools"}`,
+		".claude-plugin/plugin.json": `{"name":"acme-tools"}`,
+		"agents/reviewer.md":         "# Reviewer",
+		"skills/review/SKILL.md":     "# Review",
+	}
+
+	t.Run("Given a plugin with both manifests, when the Claude harness materializes it, assert that the plugin is kept whole and its skill is not copied", func(t *testing.T) {
+		materialization, paths := materializeMountedPlugin(t, files, PreferClaude)
+		roots := materialization.ClaudeFormatPluginRoots()
+		if len(roots) != 1 {
+			t.Fatalf("ClaudeFormatPluginRoots() = %v, want 1", roots)
+		}
+		if content, err := os.ReadFile(filepath.Join(roots[0], "agents", "reviewer.md")); err != nil || string(content) != "# Reviewer" {
+			t.Fatalf("plugin subagent = %q, %v", content, err)
+		}
+		if _, err := os.Stat(filepath.Join(paths.Skills, "review")); !os.IsNotExist(err) {
+			t.Fatalf("skill copied from a plugin kept whole: %v", err)
+		}
+	})
+
+	t.Run("Given a plugin with both manifests, when an Agent Plugins runtime materializes it, assert that only its selected skill is copied", func(t *testing.T) {
+		materialization, paths := materializeMountedPlugin(t, files, PreferAgentPlugins)
+		if roots := materialization.ClaudeFormatPluginRoots(); len(roots) != 0 {
+			t.Fatalf("ClaudeFormatPluginRoots() = %v, want none", roots)
+		}
+		if content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md")); err != nil || string(content) != "# Review" {
+			t.Fatalf("materialized skill = %q, %v", content, err)
+		}
+	})
 }
 
 func TestParseMCPServerSupportsLocalAndRemoteTransports(t *testing.T) {
@@ -344,4 +422,35 @@ func TestPathWithinCanonicalizesRootAliases(t *testing.T) {
 	if !pathWithin(alias, child) {
 		t.Fatalf("pathWithin(%q, %q) rejected a path under the aliased root", alias, child)
 	}
+}
+
+// writePluginFiles writes files into a new plugin directory and returns its path.
+func writePluginFiles(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// materializeMountedPlugin materializes files as one mounted plugin that selects the review skill.
+func materializeMountedPlugin(t *testing.T, files map[string]string, preference ManifestPreference) (Materialization, Paths) {
+	t.Helper()
+	root := t.TempDir()
+	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
+	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Directory: writePluginFiles(t, files)}, Skills: []string{"review"},
+	}}}
+	materialization, err := Materialize(context.Background(), resources, paths, preference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return materialization, paths
 }

@@ -159,11 +159,15 @@ spec:
                         type: boolean
                       plugins:
                         items:
-                          description: PluginBundle selects Agent Skills from one
-                            immutable Agent Plugins package.
+                          description: |-
+                            PluginBundle selects Agent Skills from one immutable Agent Plugins package.
+                            The Claude harness loads a package that has a .claude-plugin/plugin.json
+                            manifest whole instead.
                           properties:
                             skills:
-                              description: An empty selection enables nothing.
+                              description: |-
+                                An empty selection enables nothing. The selection does not narrow a
+                                package that the Claude harness loads whole.
                               items:
                                 minLength: 1
                                 type: string

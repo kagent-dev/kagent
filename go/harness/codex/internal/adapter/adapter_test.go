@@ -15,6 +15,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -102,6 +103,42 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if agentConfig.Model != "gpt-5.2-codex" || agentConfig.DeveloperInstructions != `Inspect "all" changes` {
 		t.Fatalf("generated Codex agent configuration = %#v", agentConfig)
 	}
+}
+
+func TestNewReadsRootManifestOfDualManifestPlugin(t *testing.T) {
+	t.Run("Given a plugin with an Agent Plugins and a Claude manifest, when the adapter starts, assert that Codex receives its selected skill", func(t *testing.T) {
+		pluginDir := t.TempDir()
+		for name, content := range map[string]string{
+			"plugin.json":                `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.tools"}`,
+			".claude-plugin/plugin.json": `{"name":"acme-tools"}`,
+			"skills/review/SKILL.md":     "# Review",
+		} {
+			path := filepath.Join(pluginDir, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cfg := config.Production("gpt-5.2-codex", "help")
+		cfg.Provider = config.Provider{Name: "openai", BaseURL: "https://gateway.example.com/v1"}
+		cfg.SkillResources = &agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+			Source: agentplugin.Source{Directory: pluginDir}, Skills: []string{"review"},
+		}}}
+		raw, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		durable := filepath.Join(t.TempDir(), "data")
+
+		if _, err := New(t.Context(), Input{ConfigJSON: raw, Workspace: filepath.Join(durable, "workspace"), DurableDir: durable, Environment: []string{"PATH=/bin"}}); err != nil {
+			t.Fatalf("New() refused a plugin with both manifests: %v", err)
+		}
+		if content, err := os.ReadFile(filepath.Join(config.SkillsRoot(durable), "review", "SKILL.md")); err != nil || string(content) != "# Review" {
+			t.Fatalf("materialized skill = %q, %v", content, err)
+		}
+	})
 }
 
 func TestNewProviderRetriesAreOptIn(t *testing.T) {
