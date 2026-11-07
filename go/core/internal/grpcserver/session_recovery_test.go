@@ -127,7 +127,8 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 				version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
 				require.NoError(t, err)
 				if test.task == a2a.TaskStateInputRequired || test.task == a2a.TaskStateAuthRequired {
-					require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+					_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+					require.NoError(t, err)
 				}
 			}
 			request := &apiv1.RevertSessionRequest{SessionId: session.Id}
@@ -192,7 +193,7 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 				}
 				require.Equal(t, want, stored.Status.State)
 			}
-			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()))
+			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString(), nil))
 		})
 	}
 
@@ -224,7 +225,8 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			hash := sha256.Sum256([]byte(task.ID))
 			version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
 			require.NoError(t, err)
-			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+			_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+			require.NoError(t, err)
 			request := &apiv1.RevertSessionRequest{SessionId: session.Id}
 			control.revert = nil
 			if test.admitted {
@@ -252,7 +254,7 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			control.actors[name] = proto.CloneOf(original)
 			_, err = client.RevertSession(owner, request)
 			require.Equal(t, codes.FailedPrecondition, status.Code(err))
-			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()), database.ErrConflict)
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString(), nil), database.ErrConflict)
 		})
 	}
 }
