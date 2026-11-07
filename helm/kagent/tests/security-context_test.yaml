@@ -5,7 +5,6 @@ templates:
   - controller-deployment.yaml
   - ui-deployment.yaml
   - ui-configmap.yaml
-  - ui-nginx-configmap.yaml
 tests:
   # =============================================================================
   # Controller Security Context Tests
