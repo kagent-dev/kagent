@@ -135,22 +135,24 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
     All Ollama options (temperature, top_p, top_k, num_ctx, etc.) are forwarded
     directly to the Ollama server via the native SDK's options dict.
 
-    The Ollama server host is read from the ``OLLAMA_API_BASE`` environment
-    variable (set by the kagent controller from ModelConfig.ollama.host).
-    Falls back to ``http://localhost:11434`` if the variable is not set.
+    The Ollama server is the model's own ``host`` (compiled by the kagent
+    controller from ModelConfig.ollama.host), so models in one runtime can use
+    different servers. Without one it falls back to the ``OLLAMA_API_BASE``
+    environment variable, then to ``http://localhost:11434``.
 
     Ollama does not require an API key; api_key_passthrough is accepted in the
     config for interface compatibility but has no effect.
     """
 
     type: Literal["ollama"] = "ollama"
+    host: Optional[str] = None
     ollama_options: Optional[dict[str, object]] = None
     default_headers: Optional[dict[str, str]] = None
     api_key_passthrough: Optional[bool] = None
 
     @cached_property
     def _client(self) -> AsyncClient:
-        host = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+        host = self.host or os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
         kwargs: dict[str, object] = {
             "host": host,
             "headers": self.default_headers or {},
@@ -264,6 +266,7 @@ def create_ollama_llm(
     tls_ca_cert_path: Optional[str] = None,
     tls_disable_system_cas: Optional[bool] = None,
     api_key_passthrough: Optional[bool] = None,
+    host: Optional[str] = None,
 ) -> KAgentOllamaLlm:
     """Build a KAgentOllamaLlm from Ollama options.
 
@@ -273,6 +276,7 @@ def create_ollama_llm(
     """
     return KAgentOllamaLlm(
         model=model,
+        host=host or None,
         ollama_options=options or None,
         default_headers=extra_headers or {},
         tls_disable_verify=tls_disable_verify,
