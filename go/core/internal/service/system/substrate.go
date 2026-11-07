@@ -150,15 +150,30 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	}
 
 	result := SubstrateSummary{
+		WorkerPools:       []atev1.WorkerPool{},
 		ActorTemplates:    []*ateapipb.ActorTemplate{},
 		ActorStatusCounts: []SubstrateActorStatusCount{},
 		ComputedAt:        time.Now().UTC(),
 	}
 
-	result.WorkerPools, err = s.authorizedWorkerPools(ctx, poolMatcher, workerScope)
-	if err != nil {
-		return SubstrateSummary{}, err
+	poolNamespaces := workerScope.listNamespaces()
+	if poolMatcher.Empty() {
+		poolNamespaces = nil
 	}
+	for _, namespace := range poolNamespaces {
+		workerPools, err := s.listWorkerPools(ctx, namespace)
+		if err != nil {
+			return SubstrateSummary{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", err)
+		}
+		for index := range workerPools {
+			if poolMatcher.Matches(&workerPools[index]) {
+				result.WorkerPools = append(result.WorkerPools, workerPools[index])
+			}
+		}
+	}
+	slices.SortStableFunc(result.WorkerPools, func(left, right atev1.WorkerPool) int {
+		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
+	})
 
 	// Three independent reads: none gates the others, so one failure leaves the rest
 	// counted rather than zeroing the whole summary.
@@ -213,45 +228,6 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 		})
 	}
 	return result, nil
-}
-
-// ListWorkerPools returns the WorkerPools the caller may read, in namespace/name
-// order. It reads Kubernetes only, unlike GetSubstrateSummary, so a form choosing
-// a pool can call it without walking ate-api inventory.
-func (s *Service) ListWorkerPools(ctx context.Context, requestedNamespace string) ([]atev1.WorkerPool, error) {
-	matcher, err := kubeauth.CollectionMatcher(ctx, s.authorizer, workerPoolResource)
-	if err != nil {
-		return nil, err
-	}
-	scope, err := s.resolveSubstrateScope(requestedNamespace)
-	if err != nil {
-		return nil, err
-	}
-	return s.authorizedWorkerPools(ctx, matcher, scope)
-}
-
-// authorizedWorkerPools lists the pools in scope that the matcher admits. A denied
-// matcher returns no pools without reading Kubernetes.
-func (s *Service) authorizedWorkerPools(ctx context.Context, matcher kubeauth.Matcher, scope substrateScope) ([]atev1.WorkerPool, error) {
-	pools := []atev1.WorkerPool{}
-	if matcher.Empty() {
-		return pools, nil
-	}
-	for _, namespace := range scope.listNamespaces() {
-		workerPools, err := s.listWorkerPools(ctx, namespace)
-		if err != nil {
-			return nil, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", err)
-		}
-		for index := range workerPools {
-			if matcher.Matches(&workerPools[index]) {
-				pools = append(pools, workerPools[index])
-			}
-		}
-	}
-	slices.SortStableFunc(pools, func(left, right atev1.WorkerPool) int {
-		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
-	})
-	return pools, nil
 }
 
 // ListSubstrateActors pages authorized actors in atespace/name order.

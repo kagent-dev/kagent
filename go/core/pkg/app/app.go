@@ -460,6 +460,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		ToolService:           tools,
 		PromptTemplateService: prompts,
 		SystemService:         system,
+		WorkerPoolService:     kubecrud.NewService(manager.GetClient(), authorizer, &atev1.WorkerPool{}, &atev1.WorkerPoolList{}, "WorkerPool"),
 		MemoryService:         memory,
 		TaskStoreService:      runtimeTasks,
 		SessionService:        sessions,

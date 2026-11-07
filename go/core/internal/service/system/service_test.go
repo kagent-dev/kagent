@@ -654,68 +654,6 @@ func TestSummaryDeniedPoolsDoNotRequireKubernetes(t *testing.T) {
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated))
 }
 
-func TestListWorkerPools(t *testing.T) {
-	constrained := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
-		{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team"}},
-	}}}}
-
-	t.Run("Given pools in two namespaces and a policy scoped to one, when a reader lists without a namespace, assert that only that namespace's pools return in name order", func(t *testing.T) {
-		service, authorizer := newWorkerPoolService(t, constrained, nil)
-		pools, err := service.ListWorkerPools(poolReader(t), "")
-		require.NoError(t, err)
-		assert.Equal(t, []string{"team/batch", "team/kagent-default"}, workerPoolNames(pools))
-		assert.Equal(t, []string{"list WorkerPool"}, authorizer.calls)
-	})
-
-	t.Run("Given readable pools in two namespaces, when a reader lists one namespace, assert that only that namespace's pools return", func(t *testing.T) {
-		service, _ := newWorkerPoolService(t, apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, nil)
-		pools, err := service.ListWorkerPools(poolReader(t), "other")
-		require.NoError(t, err)
-		assert.Equal(t, []string{"other/kagent-default"}, workerPoolNames(pools))
-	})
-
-	t.Run("Given a policy that admits no pools, when a reader lists, assert that the answer is empty rather than denied", func(t *testing.T) {
-		service, _ := newWorkerPoolService(t, apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, nil)
-		pools, err := service.ListWorkerPools(poolReader(t), "")
-		require.NoError(t, err)
-		assert.Empty(t, pools)
-	})
-
-	t.Run("Given a controller watching one namespace, when a reader lists another, assert that the request is denied", func(t *testing.T) {
-		service, _ := newWorkerPoolService(t, apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, []string{"team"})
-		_, err := service.ListWorkerPools(poolReader(t), "other")
-		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
-	})
-}
-
-// newWorkerPoolService denies the summary capability and has no ATE client, so a
-// passing ListWorkerPools proves it needs neither.
-func newWorkerPoolService(t *testing.T, pools apiauthorization.AuthorizationScope, observed []string) (*system.Service, *summaryAuthorizer) {
-	t.Helper()
-	scheme := runtime.NewScheme()
-	require.NoError(t, atev1.AddToScheme(scheme))
-	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "kagent-default"}},
-		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "batch"}},
-		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "kagent-default"}},
-	).Build()
-	authorizer := &summaryAuthorizer{pools: pools, denyType: "SystemSummary"}
-	return system.NewService(kube, observed, authorizer, nil), authorizer
-}
-
-func poolReader(t *testing.T) context.Context {
-	t.Helper()
-	return pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{ID: "reader"}})
-}
-
-func workerPoolNames(pools []atev1.WorkerPool) []string {
-	names := make([]string, 0, len(pools))
-	for _, pool := range pools {
-		names = append(names, pool.Namespace+"/"+pool.Name)
-	}
-	return names
-}
-
 func TestSubstrateTenantIsolation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, atev1.AddToScheme(scheme))

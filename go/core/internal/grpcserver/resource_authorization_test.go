@@ -22,6 +22,7 @@ import (
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	promptservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
@@ -70,6 +71,7 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 		config.PromptTemplateService = promptservice.NewService(kube, authorizer)
 		config.ModelService = modelservice.NewService(kube, authorizer, "team", modelservice.WithProviderModelRefresher(refresher))
 		config.SystemService = systemservice.NewService(kube, []string{"team"}, authorizer, emptySystemATEClient{})
+		config.WorkerPoolService = kubecrud.NewService(kube, authorizer, &atev1.WorkerPool{}, &atev1.WorkerPoolList{}, "WorkerPool")
 	})
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
 	prompts := apiv1.NewPromptTemplateServiceClient(connection)
