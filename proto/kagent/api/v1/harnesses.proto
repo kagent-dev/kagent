@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1;
 
+import "buf/validate/validate.proto";
 import "kagent/api/v1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
@@ -12,6 +13,9 @@ option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1
 service HarnessService {
   rpc ListHarnesses(ListHarnessesRequest) returns (ListHarnessesResponse);
   rpc CreateHarness(CreateHarnessRequest) returns (CreateHarnessResponse);
+  // UpdateHarness replaces the spec and labels of an existing Harness. Agents
+  // that reference it pick up the change on their next reconcile.
+  rpc UpdateHarness(UpdateHarnessRequest) returns (UpdateHarnessResponse);
   rpc DeleteHarness(DeleteHarnessRequest) returns (DeleteHarnessResponse);
 }
 
@@ -27,7 +31,8 @@ message Harness {
   // would otherwise each reimplement the exactly-one-of check the CRD enforces.
   string runtime = 3;
 
-  // WorkloadImage is spec.workload.image, the digest-pinned runtime image.
+  // WorkloadImage is spec.workload.image, the digest-pinned runtime image. Empty
+  // when the spec leaves it to the controller's release default.
   string workload_image = 4;
 }
 
@@ -45,6 +50,15 @@ message CreateHarnessRequest {
 }
 
 message CreateHarnessResponse {
+  Harness harness = 1;
+}
+
+message UpdateHarnessRequest {
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  StructuredObject resource = 2 [(buf.validate.field).required = true];
+}
+
+message UpdateHarnessResponse {
   Harness harness = 1;
 }
 

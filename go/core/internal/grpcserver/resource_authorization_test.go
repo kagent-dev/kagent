@@ -101,6 +101,14 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 	require.Equal(t, "allowed", summary.GetWorkerPools()[0].GetRef().GetName())
 	require.Zero(t, summary.GetActorCount())
 	require.Empty(t, summary.GetActorTemplates())
+
+	pools, err := apiv1.NewSystemServiceClient(connection).ListWorkerPools(ctx, &apiv1.ListWorkerPoolsRequest{Namespace: "team"})
+	require.NoError(t, err)
+	require.Len(t, pools.GetWorkerPools(), 1)
+	require.Equal(t, "allowed", pools.GetWorkerPools()[0].GetRef().GetName())
+	require.Equal(t, "WorkerPool", pools.GetWorkerPools()[0].GetResource().GetKind())
+	_, err = apiv1.NewSystemServiceClient(connection).ListWorkerPools(ctx, &apiv1.ListWorkerPoolsRequest{Namespace: "Team/Bad"})
+	assertGRPCCode(t, err, codes.InvalidArgument)
 }
 
 func TestProviderModelRefreshDeniedThroughShareRPC(t *testing.T) {

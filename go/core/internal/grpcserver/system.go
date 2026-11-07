@@ -119,6 +119,22 @@ func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1.
 	return response, nil
 }
 
+func (s *systemServer) ListWorkerPools(ctx context.Context, request *apiv1.ListWorkerPoolsRequest) (*apiv1.ListWorkerPoolsResponse, error) {
+	pools, err := s.service.ListWorkerPools(ctx, request.GetNamespace())
+	if err != nil {
+		return nil, err
+	}
+	response := &apiv1.ListWorkerPoolsResponse{WorkerPools: make([]*apiv1.SubstrateWorkerPool, 0, len(pools))}
+	for index := range pools {
+		encoded, err := s.workerPool(&pools[index])
+		if err != nil {
+			return nil, err
+		}
+		response.WorkerPools = append(response.WorkerPools, encoded)
+	}
+	return response, nil
+}
+
 func (s *systemServer) workerPool(workerPool *atev1.WorkerPool) (*apiv1.SubstrateWorkerPool, error) {
 	resource, err := structuredobject.FromGo(workerPool, atev1.GroupVersion.String(), "WorkerPool", s.maxMessageBytes)
 	if err != nil {
