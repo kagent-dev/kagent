@@ -62,7 +62,9 @@ else
 endif
 
 KIND_CLUSTER_NAME ?= kagent
-KIND_IMAGE_VERSION ?= 1.35.0
+KIND_IMAGE_VERSION ?= 1.37.0
+# Digest from the kind release notes for the kind version CI installs; kind requires it to guarantee a matching node image.
+KIND_IMAGE_DIGEST ?= sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
 # Written by use-kind-cluster. CLI installs use it so they always target the Kind
 # cluster, whatever the current kubectl context is.
 KIND_KUBECONFIG ?= /tmp/kind-config
@@ -406,7 +408,7 @@ lint: ## Run linters for Go and Python
 .PHONY: create-kind-cluster
 
 create-kind-cluster: ## Create a local kind cluster with MetalLB
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) KIND_IMAGE_VERSION=$(KIND_IMAGE_VERSION) bash ./scripts/kind/setup-kind.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) KIND_IMAGE_VERSION=$(KIND_IMAGE_VERSION) KIND_IMAGE_DIGEST=$(KIND_IMAGE_DIGEST) bash ./scripts/kind/setup-kind.sh
 	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
