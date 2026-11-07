@@ -249,36 +249,46 @@ func (r *otlpTraceReceiver) clear() {
 }
 
 // diagnostic summarizes only the spans useful for explaining a failed
-// assertion: A2A request spans and spans correlated by the injected trace ID.
-// Codex can emit hundreds of native spans, so cap the detail included in logs.
+// assertion: the spans correlated by the injected trace ID, then the A2A
+// request spans of other traces. Codex can emit hundreds of native spans, so
+// cap the detail included in logs; the expected trace comes first, so the
+// parallel cases' request spans never crowd it out.
 func (r *otlpTraceReceiver) diagnostic(expectedTraceID []byte) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	const detailLimit = 12
 	totalSpans := 0
-	details := make([]string, 0, detailLimit)
+	var expected, others []string
 	for _, resourceSpans := range r.records {
 		serviceName := stringAttribute(resourceSpans.GetResource().GetAttributes(), "service.name")
 		for _, scopeSpans := range resourceSpans.GetScopeSpans() {
 			for _, span := range scopeSpans.GetSpans() {
 				totalSpans++
-				requestSpan := stringAttribute(span.GetAttributes(), tracing.AttributeMethod) != ""
-				if len(details) == detailLimit || !bytes.Equal(span.GetTraceId(), expectedTraceID) && !requestSpan {
+				inTrace := bytes.Equal(span.GetTraceId(), expectedTraceID)
+				if !inTrace && stringAttribute(span.GetAttributes(), tracing.AttributeMethod) == "" {
 					continue
 				}
-				details = append(details, fmt.Sprintf(
-					"service=%q scope=%q name=%q trace_id=%x %s=%q %s=%q",
+				detail := fmt.Sprintf(
+					"service=%q scope=%q name=%q trace_id=%x %s=%q %s=%q %s=%q",
 					serviceName,
 					scopeSpans.GetScope().GetName(),
 					span.GetName(),
 					span.GetTraceId(),
+					tracing.AttributeOperationName, stringAttribute(span.GetAttributes(), tracing.AttributeOperationName),
 					tracing.AttributeMethod, stringAttribute(span.GetAttributes(), tracing.AttributeMethod),
 					tracing.AttributeTaskState, stringAttribute(span.GetAttributes(), tracing.AttributeTaskState),
-				))
+				)
+				if inTrace {
+					expected = append(expected, detail)
+				} else {
+					others = append(others, detail)
+				}
 			}
 		}
 	}
+	details := append(expected, others...)
+	details = details[:min(len(details), detailLimit)]
 	return fmt.Sprintf("exports=%d resource_spans=%d total_spans=%d relevant_spans=%v", r.exports, len(r.records), totalSpans, details)
 }
 
@@ -356,7 +366,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 		modelURL      func(*testing.T) string
 		createModel   func(*testing.T, string) *v1alpha3.ModelConfig
 		prompt        string
-		assertNative  func(*testing.T, *otlpTraceReceiver, []byte)
+		assertNative  func(*testing.T, *otlpTraceReceiver, []byte, capturedSpan)
 	}{
 		{
 			name: "claude", harness: claudeTracingE2EHarness, templateLabel: "claude-tracing",
@@ -368,14 +378,17 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 				return createClaudeMockModel(t, interactionKubeClient(t), baseURL)
 			},
 			prompt: "What is 2+2?",
-			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte) {
+			// Claude Code's interaction span is its own record of the turn and
+			// marks itself invoke_agent; it runs under kagent's invocation,
+			// which it reaches through TRACEPARENT.
+			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte, invocation capturedSpan) {
 				t.Helper()
-				for _, captured := range receiver.selectSpans(traceID, "", "", "", nil) {
-					if strings.HasPrefix(captured.span.GetName(), "claude_code.") {
+				for _, captured := range receiver.selectSpans(traceID, "", "", "claude_code.interaction", nil) {
+					if bytes.Equal(captured.span.GetParentSpanId(), invocation.span.GetSpanId()) {
 						return
 					}
 				}
-				t.Fatal("no claude_code.* span was exported before suspension")
+				t.Fatalf("no claude_code.interaction span under the invocation was exported before suspension: %s", receiver.diagnostic(traceID))
 			},
 		},
 		{
@@ -388,7 +401,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 				return createCodexMockModel(t, interactionKubeClient(t), baseURL)
 			},
 			prompt: "What is 2+2?",
-			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte) {
+			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte, _ capturedSpan) {
 				t.Helper()
 				for _, captured := range receiver.selectSpans(traceID, "", "", "", nil) {
 					if captured.serviceName == "codex-app-server" || strings.Contains(strings.ToLower(captured.scopeName), "codex") {
@@ -413,15 +426,23 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			}
 			// Wait for the Actor to suspend then assert that the completed invocation span was exported.
 			assertActorSuspended(t, fixture)
-			// Invocations are selected by operation alone, the way a consumer
-			// counts them, so a second invoke_agent span in the trace or one
-			// missing an attribute fails the test rather than going unseen. The
+			// Invocations are counted the way the reference collector leaves
+			// them: it removes the GenAI operation from the spans of a native
+			// harness process, such as Claude Code's interaction span, which
+			// carry kagent.genai.producer=runtime on their resource. Any other
+			// invoke_agent span in the trace, or one missing its segment or
+			// another attribute, fails the test rather than going unseen. The
 			// compiler owns this identity, so the assertion holds without any
 			// user-supplied resource marker on the Harness.
 			agentName := template
-			spans := receiver.selectSpans(traceID, "", "", "", map[string]string{tracing.AttributeOperationName: tracing.OperationInvokeAgent})
+			var spans []capturedSpan
+			for _, captured := range receiver.selectSpans(traceID, "", "", "", map[string]string{tracing.AttributeOperationName: tracing.OperationInvokeAgent}) {
+				if stringAttribute(captured.resource.GetAttributes(), tracing.AttributeGenAIProducer) != conv.KagentGenaiProducerRuntime {
+					spans = append(spans, captured)
+				}
+			}
 			if len(spans) != 1 {
-				t.Fatalf("invoke_agent spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
+				t.Fatalf("invoke_agent spans outside the native process = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
 			}
 			invocation := spans[0]
 			if got, want := invocation.span.GetName(), "invoke_agent "+agentName; got != want {
@@ -510,7 +531,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 					t.Errorf("chat %s = %d (present %v), want %d", key, got, ok, want)
 				}
 			}
-			test.assertNative(t, receiver, traceID)
+			test.assertNative(t, receiver, traceID, invocation)
 		})
 	}
 }
