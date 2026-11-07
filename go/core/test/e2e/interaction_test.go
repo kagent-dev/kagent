@@ -576,6 +576,17 @@ func TestSharedAgentInteraction(t *testing.T) {
 				t.Fatalf("Shared child created Session %q", session.GetId())
 			}
 		}
+		inNamespace, err := fixture.sessions.ListSessions(fixture.ctx, &apiv1.ListSessionsRequest{Namespace: "kagent"})
+		if err != nil {
+			t.Fatalf("list Sessions in namespace: %v", err)
+		}
+		if !slices.ContainsFunc(inNamespace.GetSessions(), func(s *apiv1.Session) bool { return s.GetId() == fixture.sessionID }) {
+			t.Fatalf("Session %q missing from its namespace's listing", fixture.sessionID)
+		}
+		elsewhere, err := fixture.sessions.ListSessions(fixture.ctx, &apiv1.ListSessionsRequest{Namespace: "kagent-e2e-empty"})
+		if err != nil || len(elsewhere.GetSessions()) != 0 {
+			t.Fatalf("list Sessions in another namespace = %v, %v; want none", elsewhere.GetSessions(), err)
+		}
 
 		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fixture.contextID})
 		if err != nil {

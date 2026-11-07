@@ -463,7 +463,11 @@ type ListSessionsRequest struct {
 	AllCreators bool         `protobuf:"varint,2,opt,name=all_creators,json=allCreators,proto3" json:"all_creators,omitempty"`
 	Page        *PageRequest `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	// Filters by the Agent that produced each session's pinned revision.
-	Agent         *ResourceReference `protobuf:"bytes,6,opt,name=agent,proto3" json:"agent,omitempty"`
+	Agent *ResourceReference `protobuf:"bytes,6,opt,name=agent,proto3" json:"agent,omitempty"`
+	// Filters by the namespace of the Agent that produced each session's pinned
+	// revision, including Agents that no longer exist. Empty lists every
+	// namespace.
+	Namespace     string `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -517,6 +521,13 @@ func (x *ListSessionsRequest) GetAgent() *ResourceReference {
 		return x.Agent
 	}
 	return nil
+}
+
+func (x *ListSessionsRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
 }
 
 type ListSessionsResponse struct {
@@ -1257,11 +1268,12 @@ const file_kagent_api_v1_sessions_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\"F\n" +
 	"\x12GetSessionResponse\x120\n" +
-	"\asession\x18\x01 \x01(\v2\x16.kagent.api.v1.SessionR\asession\"\xa0\x01\n" +
+	"\asession\x18\x01 \x01(\v2\x16.kagent.api.v1.SessionR\asession\"\xeb\x01\n" +
 	"\x13ListSessionsRequest\x12!\n" +
 	"\fall_creators\x18\x02 \x01(\bR\vallCreators\x12.\n" +
 	"\x04page\x18\x03 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\x126\n" +
-	"\x05agent\x18\x06 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x05agent\"{\n" +
+	"\x05agent\x18\x06 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x05agent\x12I\n" +
+	"\tnamespace\x18\a \x01(\tB+\xbaH(\xd8\x01\x01r#\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\tnamespace\"{\n" +
 	"\x14ListSessionsResponse\x122\n" +
 	"\bsessions\x18\x01 \x03(\v2\x16.kagent.api.v1.SessionR\bsessions\x12/\n" +
 	"\x04page\x18\x02 \x01(\v2\x1b.kagent.api.v1.PageResponseR\x04page\"\x96\x01\n" +

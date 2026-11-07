@@ -88,6 +88,16 @@ message ListSessionsRequest {
   PageRequest page = 3;
   // Filters by the Agent that produced each session's pinned revision.
   ResourceReference agent = 6;
+  // Filters by the namespace of the Agent that produced each session's pinned
+  // revision, including Agents that no longer exist. Empty lists every
+  // namespace.
+  string namespace = 7 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
+  }];
 }
 
 message ListSessionsResponse {

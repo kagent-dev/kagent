@@ -199,7 +199,7 @@ func (c *Client) GetSession(ctx context.Context, id, userID string) (*apiv1.Sess
 }
 
 // ListSessions returns up to Limit sessions in ascending ID order after AfterID,
-// filtered by optional Agent reference. It restricts results to
+// filtered by optional Agent reference and Agent namespace. It restricts results to
 // UserID unless AllUsers is set; callers must authorize that broader access.
 func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1.Session, error) {
 	agent := query.Agent
@@ -210,11 +210,12 @@ func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1
 		WHERE i.state <> 'RUNTIME_STATE_DELETED' AND ($1::boolean OR i.user_id = $2)
 		  AND (NULLIF($3::text, '') IS NULL OR i.id > NULLIF($3::text, '')::uuid)
 		  AND ($4::text = '' OR (r.agent_name = $4 AND r.namespace = $5))
+		  AND ($7::text = '' OR r.namespace = $7)
 		ORDER BY i.id
 		LIMIT $6
 	`,
 		pgx.RowToStructByName[sessionRow], query.AllUsers, query.UserID, query.AfterID,
-		agent.GetName(), agent.GetNamespace(), int32(query.Limit),
+		agent.GetName(), agent.GetNamespace(), int32(query.Limit), query.Namespace,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list Sessions: %w", err)
