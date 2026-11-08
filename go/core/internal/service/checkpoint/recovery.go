@@ -79,23 +79,20 @@ func (s *Service) recoverOperation(ctx context.Context, observed *database.Check
 // Claim rereads the current phase: a sweep's observation can already be stale.
 // A failed acquisition returns the current outcome rather than polling or
 // replaying an earlier attempt's error.
-func (s *Service) claimAndExecute(ctx context.Context, observed *database.CheckpointOperation) (result *apiv1.Checkpoint, err error) {
+func (s *Service) claimAndExecute(ctx context.Context, observed *database.CheckpointOperation) (*apiv1.Checkpoint, error) {
 	executor := uuid.New()
 	id, owner := observed.Checkpoint.Id, observed.Creator
-	acquired := false
-	defer func() {
-		if !acquired {
-			err = errors.Join(err, s.release(ctx, id, executor))
-		}
-	}()
 	op, err := s.store.ClaimCheckpointOperation(ctx, id, owner, executor)
 	if errors.Is(err, database.ErrConflict) {
+		// A definite conflict acquired nothing. Do not let an unrelated release
+		// failure replace the outcome this caller can only observe.
 		return s.currentOutcome(ctx, id, owner)
 	}
 	if err != nil {
-		return nil, err
+		// A lost COMMIT reply can hide successful acquisition. Retire this
+		// executor before returning the uncertain error, as on reservation.
+		return nil, errors.Join(err, s.release(ctx, id, executor))
 	}
-	acquired = true
 	return s.execute(ctx, op, executor)
 }
 
@@ -125,9 +122,9 @@ func (s *Service) release(ctx context.Context, id string, executor uuid.UUID) er
 }
 
 func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) (result *apiv1.Checkpoint, err error) {
-	completed := false
+	releaseNeeded := true
 	defer func() {
-		if !completed {
+		if releaseNeeded {
 			err = errors.Join(err, s.release(ctx, op.Checkpoint.Id, executor))
 		}
 	}()
@@ -136,7 +133,7 @@ func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation,
 	}
 	if op.Checkpoint.State == apiv1.CheckpointState_CHECKPOINT_STATE_DELETING {
 		err = s.finishDelete(ctx, op, executor)
-		completed = err == nil
+		releaseNeeded = err != nil
 		return nil, err
 	}
 	tag, err := s.ensureTag(ctx, op.Checkpoint, op.Snapshot)
@@ -158,11 +155,14 @@ func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation,
 	checkpoint, err := s.store.FinalizeClaimedSessionCheckpoint(finishCtx, op.Checkpoint, executor,
 		tag.GetMetadata().GetUid(), substrate.SnapshotURI(tag.GetStatus().GetSnapshot()), failure)
 	if errors.Is(err, database.ErrConflict) {
+		// The conditional write proves authority was lost. This is now an
+		// observer; a stale release must not override the result it reads.
+		releaseNeeded = false
 		return s.currentOutcome(finishCtx, op.Checkpoint.Id, op.Creator)
 	}
 	if err != nil {
 		return nil, err
 	}
-	completed = true
+	releaseNeeded = false
 	return createOutcome(checkpoint)
 }

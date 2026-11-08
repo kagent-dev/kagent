@@ -47,7 +47,8 @@ func TestCreateObservesReplacementCompletion(t *testing.T) {
 					require.NoError(t, persistence.DeleteClaimedSessionCheckpoint(ctx, checkpoint.Id, "alice", deletion))
 				}
 			}
-			service := NewService(gate, testAuthorizer{}, tags, nil)
+			releaseFailure := &checkpointReleaseFailure{store: gate}
+			service := NewService(releaseFailure, testAuthorizer{}, tags, nil)
 			request := uuid.NewString()
 			checkpoint, err := service.Create(owner, source.Id, request, head)
 			require.Equal(t, 1, gate.conflicts, "the real store must reject the original executor")
@@ -79,8 +80,35 @@ func TestCreateObservesReplacementCompletion(t *testing.T) {
 			if outcome != "deleted" {
 				require.NoError(t, NewService(persistence, testAuthorizer{}, tags, nil).Delete(owner, checkpointID))
 			}
+			require.Zero(t, releaseFailure.calls, "an observer must not issue a stale release")
 		})
 	}
+}
+
+func TestClaimConflictObservesCompletionWithoutRelease(t *testing.T) {
+	persistence := reviewStore(t)
+	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	source, head := recoverySource(t, persistence)
+	tags := &testTags{snapshotURI: "s3://snapshots/source"}
+	service := NewService(persistence, testAuthorizer{}, tags, nil)
+	request := uuid.NewString()
+	pending, _, err := service.beginCreate(owner, source.Id, request, head)
+	require.NoError(t, err)
+	gate := &checkpointCompletionGate{Client: persistence, beforeClaim: func(ctx context.Context) {
+		// A replacement finishes between the retry's reservation read and its
+		// conditional claim. The original retry never acquires execution rights.
+		_, err := service.Create(ctx, source.Id, request, head)
+		require.NoError(t, err)
+	}}
+	releaseFailure := &checkpointReleaseFailure{store: gate}
+	checkpoint, err := NewService(releaseFailure, testAuthorizer{}, tags, nil).Create(owner, source.Id, request, head)
+	require.NoError(t, err, "a failed stale release must not replace observed success")
+	require.Equal(t, pending.Id, checkpoint.Id)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, checkpoint.State)
+	require.Equal(t, 1, gate.conflicts, "the real store must reject the original claim")
+	require.Equal(t, 1, tags.createCalls, "only the replacement may copy")
+	require.Zero(t, releaseFailure.calls)
+	require.NoError(t, service.Delete(owner, checkpoint.Id))
 }
 
 func TestDeleteObservesReplacementCompletion(t *testing.T) {
@@ -104,11 +132,13 @@ func TestDeleteObservesReplacementCompletion(t *testing.T) {
 					require.NoError(t, persistence.DeleteClaimedSessionCheckpoint(ctx, id, owner, replacement))
 				}
 			}
-			err = NewService(gate, testAuthorizer{}, tags, nil).Delete(owner, checkpoint.Id)
+			releaseFailure := &checkpointReleaseFailure{store: gate}
+			err = NewService(releaseFailure, testAuthorizer{}, tags, nil).Delete(owner, checkpoint.Id)
 			require.Equal(t, 1, gate.conflicts)
 			require.Equal(t, 1, tags.deleteCalls, "observing completion must not repeat backend cleanup")
 			if outcome == "deleted" {
 				require.NoError(t, err, "a replacement already completed deletion")
+				require.Zero(t, releaseFailure.calls, "confirmed deletion needs no further release")
 				_, err = persistence.GetCheckpointOperation(owner, checkpoint.Id, "alice")
 				require.ErrorIs(t, err, database.ErrNotFound)
 			} else {
@@ -124,9 +154,21 @@ func TestDeleteObservesReplacementCompletion(t *testing.T) {
 // completion. Store methods perform every transition and reject the stale write.
 type checkpointCompletionGate struct {
 	*database.Client
+	beforeClaim        func(context.Context)
 	beforeCreateFinish func(context.Context, *apiv1.Checkpoint, uuid.UUID, string, string)
 	beforeDeleteFinish func(context.Context, string, string, uuid.UUID)
 	conflicts          int
+}
+
+func (s *checkpointCompletionGate) ClaimCheckpointOperation(ctx context.Context, id, owner string, executor uuid.UUID) (*database.CheckpointOperation, error) {
+	if s.beforeClaim != nil {
+		s.beforeClaim(ctx)
+	}
+	op, err := s.Client.ClaimCheckpointOperation(ctx, id, owner, executor)
+	if errors.Is(err, database.ErrConflict) {
+		s.conflicts++
+	}
+	return op, err
 }
 
 func (s *checkpointCompletionGate) FinalizeClaimedSessionCheckpoint(ctx context.Context, checkpoint *apiv1.Checkpoint, executor uuid.UUID, uid, uri, failure string) (*apiv1.Checkpoint, error) {
@@ -145,4 +187,16 @@ func (s *checkpointCompletionGate) DeleteClaimedSessionCheckpoint(ctx context.Co
 		s.conflicts++
 	}
 	return err
+}
+
+// Any unnecessary release fails, making it observable if cleanup masks a result
+// already established by the real store. Ownership transfers use the Client.
+type checkpointReleaseFailure struct {
+	store
+	calls int
+}
+
+func (s *checkpointReleaseFailure) ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error {
+	s.calls++
+	return errors.New("private database release failure")
 }

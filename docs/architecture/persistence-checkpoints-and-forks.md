@@ -78,6 +78,10 @@ If completion loses execution authority, the caller only observes the current
 outcome: READY is returned, pending work returns `Aborted`, and a completed
 deletion succeeds. Create returns `NotFound` if the checkpoint was deleted.
 The observation never repeats a backend mutation or overwrites the new executor.
+Create observers skip obsolete claim releases, so a release failure cannot mask
+READY or the translation of absence to `NotFound`. A definitive acquisition
+conflict also needs no release. Other acquisition errors may hide a committed
+claim; those attempts still release their specific executor before returning.
 Backend errors describe the current attempt, without persisting an error that a
 later repaired request could accidentally replay. Public errors exclude backend
 configuration. A canceled or uncertain attempt retains `CREATING` and expires its
