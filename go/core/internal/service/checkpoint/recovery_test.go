@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -258,4 +261,56 @@ func (s *Service) beginDelete(ctx context.Context, id string) (string, error) {
 	executor := uuid.New()
 	_, err = s.store.BeginDeleteSessionCheckpoint(ctx, id, owner, executor)
 	return owner, errors.Join(err, s.release(ctx, id, executor))
+}
+
+func TestRecoveryWaitsAfterSlowSweep(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("Given a slow sweep with failure=%t, when it finishes, assert that another sweep waits a full interval", failed), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				gate := make(chan struct{})
+				persistence := &blockedCheckpointSweep{testStore: &testStore{}, gate: gate, failed: failed}
+				worker := NewRecoveryWorker(NewService(persistence, testAuthorizer{}, nil, nil))
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				done := make(chan error, 1)
+				go func() { done <- worker.Start(ctx) }()
+				synctest.Wait()
+				require.Equal(t, 1, int(persistence.calls.Load()))
+				time.Sleep(3 * worker.interval)
+				close(gate)
+				synctest.Wait()
+				require.Equal(t, 1, int(persistence.calls.Load()), "a stale tick must not immediately start another sweep")
+				time.Sleep(worker.interval - time.Millisecond)
+				synctest.Wait()
+				require.Equal(t, 1, int(persistence.calls.Load()))
+				time.Sleep(time.Millisecond)
+				synctest.Wait()
+				require.Equal(t, 2, int(persistence.calls.Load()))
+				cancel()
+				synctest.Wait()
+				require.NoError(t, <-done)
+			})
+		})
+	}
+}
+
+type blockedCheckpointSweep struct {
+	*testStore
+	gate   <-chan struct{}
+	calls  atomic.Int32
+	failed bool
+}
+
+func (s *blockedCheckpointSweep) ListPendingCheckpoints(ctx context.Context, _ string, _ int) ([]*database.CheckpointOperation, error) {
+	if s.calls.Add(1) == 1 {
+		select {
+		case <-s.gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		if s.failed {
+			return nil, errors.New("sweep unavailable")
+		}
+	}
+	return nil, nil
 }

@@ -81,9 +81,13 @@ func TestUpgrade(t *testing.T) {
 	var pgBaselineState postgresMigrationState
 	var baselineVectorVersion int
 	var cleanPreviousSchema string
+	var legacyCheckpointWriters bool
 
 	if !t.Run("seed baseline data before upgrade", func(t *testing.T) {
 		pgBaselineState = pgMigrationState(t, env)
+		legacyCheckpointWriters = pgQuery(t, env, `SELECT
+            EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'session_checkpoint')
+            AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'session_checkpoint' AND column_name = 'executor_id')`) == "t"
 		baselineVectorVersion = pgTrackVersion(t, env, "vector_schema_migrations")
 		cleanPreviousSchema = pgSchemaDump(t, env, kagentSchema)
 		t.Logf("baseline Postgres schema_migrations version: %d vector=%d (target=%d)",
@@ -138,6 +142,17 @@ func TestUpgrade(t *testing.T) {
 		restarts := podContainerRestartCount(t, env, pod, controllerContainer)
 		require.Zero(t, restarts,
 			"previous-release controller pod %s crash-looped against the migrated schema", pod)
+	}) {
+		return
+	}
+
+	if legacyCheckpointWriters && !t.Run("drain legacy checkpoint writers before starting the new controller", func(t *testing.T) {
+		// Old code can still mutate checkpoints on the expanded schema. Keep
+		// the earlier compatibility checks, then establish the first-upgrade
+		// boundary before any claim-aware controller is started.
+		require.NotEmpty(t, podNamesForSelector(t, env, controllerSelector))
+		require.NoError(t, drainLegacyCheckpointWriters(t, env))
+		require.Empty(t, podNamesForSelector(t, env, controllerSelector))
 	}) {
 		return
 	}
@@ -234,6 +249,11 @@ func TestUpgrade(t *testing.T) {
 	}
 
 	if !t.Run("roll back application to previous release", func(t *testing.T) {
+		if legacyCheckpointWriters {
+			require.NoError(t, drainLegacyCheckpointWriters(t, env))
+			require.Zero(t, pgQueryInt(t, env, "SELECT count(*) FROM session_checkpoint WHERE state IN ('CREATING', 'DELETING') OR (state = 'FAILED' AND tag_uid <> '')"),
+				"finish pending operations and delete retained failed checkpoints before restoring a legacy writer")
+		}
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
 		defer cancel()
 
@@ -524,8 +544,11 @@ func kubectl(t *testing.T, env upgradeEnv, timeout time.Duration, args ...string
 
 func kubectlOutput(t *testing.T, env upgradeEnv, timeout time.Duration, args ...string) (string, error) {
 	t.Helper()
+	return kubectlOutputContext(t.Context(), env, timeout, args...)
+}
 
-	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+func kubectlOutputContext(ctx context.Context, env upgradeEnv, timeout time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	fullArgs := append([]string{"--context", env.kubeContext}, args...)

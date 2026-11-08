@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -344,6 +346,124 @@ func TestCheckpointRecoveryWithSubstrate(t *testing.T) {
 		require.Empty(t, checkpointObjectKeys(t, ctx, objects, bucket, tagPrefix), "all partially copied objects must be collected")
 	})
 
+	t.Run("Given a live remote copy after caller cancellation, when another replica retries Create, assert that busy work stays pending and a later retry adopts its UID", func(t *testing.T) {
+		objects, bucket := checkpointObjectStore(t, config.ObjectStoreEndpoint, config.ObjectStoreAccessKey, config.ObjectStoreSecretKey)
+		privateTemplate := proto.Clone(template).(*ateapipb.ActorTemplate)
+		privateTemplate.Metadata = &ateapipb.ResourceMetadata{Atespace: config.Atespace, Name: "checkpoint-concurrent-" + uuid.NewString()}
+		privateTemplate.Status = nil
+		privateTemplate.SnapshotConfig.StorageLocation = "gs://" + bucket
+		privateTemplate, err := client.CreateActorTemplate(ctx, privateTemplate)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			cleanup, stop := context.WithTimeout(context.Background(), time.Minute)
+			defer stop()
+			require.NoError(t, client.DeleteActorTemplate(cleanup, config.Atespace, privateTemplate.Metadata.Name, privateTemplate.Metadata.Uid))
+		})
+		store, source, head := newSourceForTemplate(t, privateTemplate)
+		actor, err := client.GetActor(ctx, config.Atespace, substrate.ActorName(source.Id))
+		require.NoError(t, err)
+		snapshot, err := url.Parse(substrate.SnapshotURI(substrate.LatestActorSnapshot(actor)))
+		require.NoError(t, err)
+		require.Equal(t, bucket, snapshot.Host)
+		// Many real objects keep copying observable after the first destination
+		// object appears. A completed setup copy must never silently pass this test.
+		var uploads errgroup.Group
+		uploads.SetLimit(8)
+		for i := range 4096 {
+			uploads.Go(func() error {
+				_, err := objects.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket),
+					Key:  aws.String(fmt.Sprintf("%s/concurrent-copy/%04d", strings.Trim(snapshot.Path, "/"), i)),
+					Body: strings.NewReader(strings.Repeat("copy-proof", 1024))})
+				return err
+			})
+		}
+		require.NoError(t, uploads.Wait())
+		request := uuid.NewString()
+		service := NewService(store, testAuthorizer{}, client, nil)
+		cp, _, err := service.beginCreate(owner, source.Id, request, head)
+		require.NoError(t, err)
+		cleanupTag(t, cp.Id)
+		remoteCtx, stopRemote := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer stopRemote()
+		remote := &disconnectedSubstrateCopy{Client: client, remote: remoteCtx, done: make(chan struct{})}
+		callerCtx, cancelCaller := context.WithCancel(owner)
+		defer cancelCaller()
+		callerDone := make(chan error, 1)
+		go func() {
+			_, err := NewService(store, testAuthorizer{}, remote, nil).Create(callerCtx, source.Id, request, head)
+			callerDone <- err
+		}()
+		var copying *ateapipb.Tag
+		require.Eventually(t, func() bool {
+			var err error
+			copying, err = client.GetTag(ctx, config.Atespace, tagName(cp.Id))
+			if err != nil || substrate.SnapshotURI(copying.GetStatus().GetSnapshot()) != "" {
+				return false
+			}
+			prefix := "atespaces/" + config.Atespace + "/tags/" + copying.Metadata.Uid + "/"
+			page, err := objects.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), Prefix: aws.String(prefix), MaxKeys: aws.Int32(1)})
+			return err == nil && len(page.Contents) > 0
+		}, 30*time.Second, 10*time.Millisecond, "a real pending copy with destination objects was not observed")
+		cancelCaller()
+		require.ErrorIs(t, <-callerDone, context.Canceled)
+		observed := &observedSubstrateCopy{Client: client, entered: make(chan struct{})}
+		type createResult struct {
+			checkpoint *apiv1.Checkpoint
+			err        error
+		}
+		result := make(chan createResult, 1)
+		go func() {
+			ready, err := NewService(newStore(), testAuthorizer{}, observed, nil).Create(owner, source.Id, request, head)
+			result <- createResult{checkpoint: ready, err: err}
+		}()
+		select {
+		case <-observed.entered:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		select {
+		case <-remote.done:
+			t.Fatal("the remote copy finished before takeover; concurrency was not exercised")
+		default:
+		}
+		pending, err := store.GetCheckpointOperation(ctx, cp.Id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
+		select {
+		case outcome := <-result:
+			require.Equal(t, codes.Aborted, status.Code(outcome.err), "a busy backend lease is retryable, not proof of a failed copy")
+			require.Nil(t, outcome.checkpoint)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		require.Zero(t, observed.tagReads.Load(), "a busy copy must not be inspected as an abandoned pending tag")
+		pending, err = store.GetCheckpointOperation(ctx, cp.Id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
+		require.Nil(t, pending.Checkpoint.Failure)
+		_, err = store.BeginSessionOperation(ctx, source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+		require.ErrorIs(t, err, database.ErrConflict, "live copying must retain source admission")
+		select {
+		case <-remote.done:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		require.NoError(t, remote.err)
+		ready, err := NewService(newStore(), testAuthorizer{}, client, nil).Create(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, cp.Id, ready.Id)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, ready.State)
+		published, err := store.GetCheckpointOperation(ctx, cp.Id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, copying.Metadata.Uid, published.TagUID)
+		require.Equal(t, remote.tag.Metadata.Uid, published.TagUID)
+		tag, err := client.GetTag(ctx, config.Atespace, tagName(cp.Id))
+		require.NoError(t, err)
+		require.NotEmpty(t, substrate.SnapshotURI(tag.GetStatus().GetSnapshot()))
+		t.Log("replacement received Aborted while the real copy was running; a later retry adopted the same completed tag UID")
+		deleteCheckpoint(t, NewService(newStore(), testAuthorizer{}, client, nil), cp.Id)
+	})
+
 	t.Run("Given a lost delete response, when recovery restarts, assert that an absent real tag completes deletion", func(t *testing.T) {
 		store, source, head := newSource(t)
 		service := NewService(store, testAuthorizer{}, client, nil)
@@ -400,3 +520,45 @@ func (f *faultedSubstrateTags) DeleteTag(ctx context.Context, space, name, uid s
 }
 
 var _ tagClient = (*faultedSubstrateTags)(nil)
+
+// The client loses cancellation delivery to the server: the caller exits while
+// the actual Substrate RPC keeps copying. No backend state or reply is invented.
+type disconnectedSubstrateCopy struct {
+	*substrate.Client
+	remote context.Context
+	done   chan struct{}
+	tag    *ateapipb.Tag
+	err    error
+}
+
+func (c *disconnectedSubstrateCopy) CreateTag(ctx context.Context, space, name, actor string) (*ateapipb.Tag, error) {
+	go func() {
+		c.tag, c.err = c.Client.CreateTag(c.remote, space, name, actor)
+		close(c.done)
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.done:
+		return c.tag, c.err
+	}
+}
+
+type observedSubstrateCopy struct {
+	*substrate.Client
+	entered  chan struct{}
+	tagReads atomic.Int32
+}
+
+func (c *observedSubstrateCopy) CreateTag(ctx context.Context, space, name, actor string) (*ateapipb.Tag, error) {
+	close(c.entered)
+	return c.Client.CreateTag(ctx, space, name, actor)
+}
+
+func (c *observedSubstrateCopy) GetTag(ctx context.Context, space, name string) (*ateapipb.Tag, error) {
+	c.tagReads.Add(1)
+	return c.Client.GetTag(ctx, space, name)
+}
+
+var _ tagClient = (*disconnectedSubstrateCopy)(nil)
+var _ tagClient = (*observedSubstrateCopy)(nil)

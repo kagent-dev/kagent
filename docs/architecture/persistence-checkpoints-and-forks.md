@@ -79,17 +79,22 @@ later repaired request could accidentally replay. Public errors exclude backend
 configuration. A canceled or uncertain attempt retains `CREATING` and expires its
 claim immediately while retaining the executor identity.
 
-A small leader-elected sweep runs at startup and every thirty seconds. It reads
-only expired `CREATING` and `DELETING` work and uses the same execution path as
-requests. Claims fence publication and deletion across replicas, restarts, and
-paused executors; a delayed release cannot revoke a replacement claim. The sweep
-interval bounds background retries. Live requests execute independently of the
-sweep, without a queue, retry map, or wakeup protocol.
+A small leader-elected sweep runs at startup and waits thirty seconds after each
+completed sweep before starting another. It reads only expired `CREATING` and
+`DELETING` work and uses the same execution path as requests. Claims fence publication and deletion across replicas, restarts, and
+paused executors; a delayed release cannot revoke a replacement claim. Slow
+operations can delay later background work; each attempt remains bounded by two
+minutes. The post-sweep interval paces background retries. Live requests execute
+independently of the sweep, without a queue, retry map, or wakeup protocol.
 
 A pending tag is not evidence of abandonment. Substrate holds its Actor and Tag
 leases through `CreateTag`, including copying and finalization. Recovery calls
 `CreateTag` before interpreting `AlreadyExists`: that reply establishes that the
 previous serialized attempt stopped, but does not establish copy completion.
+A busy backend lease returns `Aborted`; that leaves creation pending without
+inspecting or cleaning the still-live tag. A later retry can adopt the completed
+copy under the same request ID.
+
 Kagent must still verify the tag's identity, template lineage, completed storage,
 and the source Actor's snapshot and UID. Transport errors retain admission until
 a subsequent serialized attempt establishes an outcome.
@@ -110,7 +115,14 @@ age exceeds the two-minute operation timeout. This grace is an additional delay,
 not proof that an old writer exited: old code has no bounded overall operation
 and can wait in a reservation transaction. Do not mix old checkpoint writers with
 new recovery. Future rollouts between claim-aware controllers can remain rolling.
-Before downgrading, finish pending checkpoint work and drain all current writers.
+Before downgrading to a controller without execution claims, finish pending
+checkpoint operations, delete failed
+checkpoints that retain tag UIDs, and drain all current writers. Legacy deletion
+requires a completed URI and cannot collect a retained partial failed tag.
+The upgrade suite keeps its old-code/new-schema checks, drains every legacy Pod
+before starting the new controller, and repeats that boundary before application
+rollback. A separate process-lifetime test holds a terminating legacy Pod to
+verify that scaling to zero or losing readiness alone does not open the boundary.
 
 Kagent requests synchronous Substrate suspension before recording a checkpoint.
 If an earlier attempt already suspended the Actor but left a pending durable

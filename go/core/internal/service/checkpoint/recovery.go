@@ -32,15 +32,18 @@ func NewRecoveryWorker(service *Service) *RecoveryWorker {
 func (*RecoveryWorker) NeedLeaderElection() bool { return true }
 
 func (w *RecoveryWorker) Start(ctx context.Context) error {
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
 	for ctx.Err() == nil {
 		if err := w.sweep(ctx); err != nil && ctx.Err() == nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "recover checkpoints", "error", err)
 		}
+		// Start the delay after the sweep: a ticker can retain a stale tick
+		// during slow recovery and immediately retry the last failed attempt.
+		timer := time.NewTimer(w.interval)
 		select {
 		case <-ctx.Done():
-		case <-ticker.C:
+			timer.Stop()
+			return nil
+		case <-timer.C:
 		}
 	}
 	return nil
