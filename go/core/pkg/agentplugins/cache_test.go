@@ -1,10 +1,9 @@
 package agentplugins
 
 import (
-	"archive/zip"
-	"bytes"
-	"net/http"
-	"net/http/httptest"
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,37 +13,34 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
-	"github.com/kagent-dev/kagent/go/internal/testutil"
 )
 
-func TestMaterializeReusesReorderedSourcesOffline(t *testing.T) {
-	repository, commit := testutil.CommitFiles(t, map[string]string{
+func TestMaterializeReusesReorderedSources(t *testing.T) {
+	store := newPackageStore(map[string]revision{"pinned": {files: map[string]string{
 		"first/SKILL.md":                      "# First",
 		"second/SKILL.md":                     "# Second",
 		"plugin-a/.claude-plugin/plugin.json": `{"name":"plugin-a"}`,
 		"plugin-b/.claude-plugin/plugin.json": `{"name":"plugin-b"}`,
-	})
-	source := func(path string) agentplugin.Source {
-		return agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}, Path: path}
-	}
+	}}})
 	resources := agentplugin.Resources{
 		Skills: []agentplugin.Skill{
-			{Name: "first", Source: source("first")},
-			{Name: "second", Source: source("second")},
-			{Name: "alias", Source: source("first")},
+			{Name: "first", Source: gitSource("pinned", "first")},
+			{Name: "second", Source: gitSource("pinned", "second")},
+			{Name: "alias", Source: gitSource("pinned", "first")},
 		},
-		Plugins: []agentplugin.Bundle{{Source: source("plugin-a")}, {Source: source("plugin-b")}},
+		Plugins: []agentplugin.Bundle{{Source: gitSource("pinned", "plugin-a")}, {Source: gitSource("pinned", "plugin-b")}},
 	}
 	paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
-	initial, err := Materialize(t.Context(), resources, paths)
+	initial, err := store.materialize(t, resources, paths)
 	require.NoError(t, err)
-	require.NoError(t, os.Rename(repository, filepath.Join(t.TempDir(), "offline")))
+	require.Len(t, store.fetched, 4, "identical sources share a fetch")
 	slices.Reverse(resources.Skills)
 	slices.Reverse(resources.Plugins)
 
-	reordered, err := Materialize(t.Context(), resources, paths)
+	reordered, err := store.materialize(t, resources, paths)
 
 	require.NoError(t, err)
+	require.Len(t, store.fetched, 4, "cached sources must not be fetched again")
 	require.ElementsMatch(t, initial.ClaudeFormatPluginRoots(), reordered.ClaudeFormatPluginRoots())
 	for name, want := range map[string]string{"first": "# First", "second": "# Second", "alias": "# First"} {
 		content, err := os.ReadFile(filepath.Join(paths.Skills, name, "SKILL.md"))
@@ -58,39 +54,39 @@ func TestMaterializeReusesReorderedSourcesOffline(t *testing.T) {
 
 func TestMaterializeDoesNotPublishFailedFetch(t *testing.T) {
 	for _, scenario := range []struct {
-		name string
-		path string
+		name     string
+		revision string
+		path     string
 	}{
-		{name: "Given an unavailable commit, when fetching a new pin, assert that the previous cache survives", path: "missing-commit"},
-		{name: "Given a package without a skill, when fetching it, assert that it is not published", path: "incomplete"},
-		{name: "Given a missing selected directory, when fetching it, assert that it is not published", path: "missing-path"},
-		{name: "Given a traversal path, when fetching it, assert that it is not published", path: "../outside"},
+		{name: "Given an unavailable revision, when fetching a new pin, assert that the previous cache survives", revision: "missing"},
+		{name: "Given a fetch that fails after writing files, when fetching it, assert that it is not published", revision: "partial"},
+		{name: "Given a package without a skill, when fetching it, assert that it is not published", revision: "current", path: "incomplete"},
+		{name: "Given a missing selected directory, when fetching it, assert that it is not published", revision: "current", path: "missing-path"},
+		{name: "Given a traversal path, when fetching it, assert that it is not published", revision: "current", path: "../outside"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			repository, commit := testutil.CommitFiles(t, map[string]string{"SKILL.md": "# Current", "incomplete/README.md": "No skill"})
-			source := agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}
-			resources := agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: source}}}
+			store := newPackageStore(map[string]revision{
+				"current": {files: map[string]string{"SKILL.md": "# Current", "incomplete/README.md": "No skill"}},
+				"partial": {files: map[string]string{"SKILL.md": "# Partial"}, err: errors.New("connection reset")},
+			})
+			resources := agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: gitSource("current", "")}}}
 			paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
-			_, err := Materialize(t.Context(), resources, paths)
+			_, err := store.materialize(t, resources, paths)
 			require.NoError(t, err)
 			initial, err := os.ReadDir(paths.Packages)
 			require.NoError(t, err)
-			invalid := source
-			invalid.Path = scenario.path
-			if scenario.path == "missing-commit" {
-				invalid.Git = &agentplugin.GitSource{URL: repository, Commit: strings.Repeat("f", 40)}
-			}
 
-			_, err = Materialize(t.Context(), agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: invalid}}}, paths)
+			_, err = store.materialize(t, agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: gitSource(scenario.revision, scenario.path)}}}, paths)
 
 			require.Error(t, err)
 			remaining, err := os.ReadDir(paths.Packages)
 			require.NoError(t, err)
 			require.Len(t, remaining, 1, "failed downloads must not leave published or staged entries")
 			require.Equal(t, initial[0].Name(), remaining[0].Name())
-			require.NoError(t, os.Rename(repository, filepath.Join(t.TempDir(), "offline")))
-			_, err = Materialize(t.Context(), resources, paths)
+			fetched := len(store.fetched)
+			_, err = store.materialize(t, resources, paths)
 			require.NoError(t, err)
+			require.Len(t, store.fetched, fetched, "the previous cache entry must be reused")
 			content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
 			require.NoError(t, err)
 			require.Equal(t, "# Current", string(content))
@@ -99,21 +95,20 @@ func TestMaterializeDoesNotPublishFailedFetch(t *testing.T) {
 }
 
 func TestMaterializeRepairsIncompleteCache(t *testing.T) {
-	repository, commit := testutil.CommitFiles(t, map[string]string{"selected/SKILL.md": "# Current"})
-	resources := agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: agentplugin.Source{
-		Git: &agentplugin.GitSource{URL: repository, Commit: commit}, Path: "selected",
-	}}}}
+	store := newPackageStore(map[string]revision{"pinned": {files: map[string]string{"selected/SKILL.md": "# Current"}}})
+	resources := agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: gitSource("pinned", "selected")}}}
 	paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
-	_, err := Materialize(t.Context(), resources, paths)
+	_, err := store.materialize(t, resources, paths)
 	require.NoError(t, err)
 	entries, err := os.ReadDir(paths.Packages)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	require.NoError(t, os.Remove(filepath.Join(paths.Packages, entries[0].Name(), "selected", "SKILL.md")))
 
-	_, err = Materialize(t.Context(), resources, paths)
+	_, err = store.materialize(t, resources, paths)
 
 	require.NoError(t, err)
+	require.Equal(t, []string{"pinned", "pinned"}, store.fetched)
 	content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
 	require.NoError(t, err)
 	require.Equal(t, "# Current", string(content))
@@ -161,58 +156,80 @@ func TestMaterializePreservesMountedSourcesWithinCache(t *testing.T) {
 	}
 }
 
-func TestMaterializeS3Versions(t *testing.T) {
-	t.Setenv("AWS_ACCESS_KEY_ID", "test")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
-	t.Setenv("AWS_SESSION_TOKEN", "")
-	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	archives := make(map[string][]byte)
-	for version, content := range map[string]string{"first": "# First", "second": "# Second"} {
-		var buffer bytes.Buffer
-		writer := zip.NewWriter(&buffer)
-		file, err := writer.Create("SKILL.md")
-		require.NoError(t, err)
-		_, err = file.Write([]byte(content))
-		require.NoError(t, err)
-		require.NoError(t, writer.Close())
-		archives[version] = buffer.Bytes()
-	}
-	requests := make(chan string, 4)
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		version := request.URL.Query().Get("versionId")
-		archive, ok := archives[version]
-		if request.URL.Path != "/skills/review.zip" || !ok {
-			http.NotFound(response, request)
-			return
-		}
-		requests <- version
-		_, _ = response.Write(archive)
-	}))
-	t.Cleanup(server.Close)
-	resources := agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: agentplugin.Source{S3: &agentplugin.S3Source{
-		Endpoint: server.URL, Bucket: "skills", Key: "review.zip", VersionID: "first", Region: "us-east-1",
-	}}}}}
+func TestMaterializeKeysS3CacheByVersion(t *testing.T) {
+	store := newPackageStore(map[string]revision{
+		"first":  {files: map[string]string{"SKILL.md": "# First"}},
+		"second": {files: map[string]string{"SKILL.md": "# Second"}},
+	})
+	source := agentplugin.S3Source{Endpoint: "https://s3.example.com", Bucket: "skills", Key: "review.zip", VersionID: "first", Region: "us-east-1"}
+	resources := agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: agentplugin.Source{S3: &source}}}}
 	paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
 	for range 2 {
-		_, err := Materialize(t.Context(), resources, paths)
+		_, err := store.materialize(t, resources, paths)
 		require.NoError(t, err)
 	}
-	require.Len(t, requests, 1, "the same S3 version must reuse its cached archive")
-	require.Equal(t, "first", <-requests)
-	resources.Skills[0].Source.S3.VersionID = "second"
+	require.Equal(t, []string{"first"}, store.fetched, "the same S3 version must reuse its cached archive")
+	source.VersionID = "second"
 
-	_, err := Materialize(t.Context(), resources, paths)
+	_, err := store.materialize(t, resources, paths)
 
 	require.NoError(t, err)
-	require.Len(t, requests, 1)
-	require.Equal(t, "second", <-requests)
-	server.Close()
-	_, err = Materialize(t.Context(), resources, paths)
-	require.NoError(t, err)
+	require.Equal(t, []string{"first", "second"}, store.fetched)
 	content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
 	require.NoError(t, err)
 	require.Equal(t, "# Second", string(content))
 	entries, err := os.ReadDir(paths.Packages)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
+}
+
+// revision is what a fake fetch of one Git commit or S3 version writes before
+// returning err.
+type revision struct {
+	files map[string]string
+	err   error
+}
+
+// packageStore stands in for Git and S3 and records each fetched revision.
+type packageStore struct {
+	revisions map[string]revision
+	fetched   []string
+}
+
+func newPackageStore(revisions map[string]revision) *packageStore {
+	return &packageStore{revisions: revisions}
+}
+
+func gitSource(commit, path string) agentplugin.Source {
+	return agentplugin.Source{Git: &agentplugin.GitSource{URL: "https://git.example.com/plugins.git", Commit: commit}, Path: path}
+}
+
+func (s *packageStore) materialize(t *testing.T, resources agentplugin.Resources, paths Paths) (Materialization, error) {
+	t.Helper()
+	return materialize(t.Context(), resources, paths, s.fetch)
+}
+
+func (s *packageStore) fetch(_ context.Context, source agentplugin.Source, staging string) error {
+	var name string
+	switch {
+	case source.Git != nil:
+		name = source.Git.Commit
+	case source.S3 != nil:
+		name = source.S3.VersionID
+	}
+	s.fetched = append(s.fetched, name)
+	fetched, ok := s.revisions[name]
+	if !ok {
+		return fmt.Errorf("revision %q not found", name)
+	}
+	for path, content := range fetched.files {
+		path = filepath.Join(staging, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return fetched.err
 }

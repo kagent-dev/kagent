@@ -3,7 +3,6 @@ package agentplugins
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,19 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
-	"github.com/kagent-dev/kagent/go/internal/testutil"
 )
 
-func TestMaterializeGitPlugin(t *testing.T) {
-	repository, commit := testutil.CommitFiles(t, map[string]string{
+func TestMaterializeFetchedPlugin(t *testing.T) {
+	store := newPackageStore(map[string]revision{"pinned": {files: map[string]string{
 		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
 		"mcp.json":               `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"local":{"type":"stdio","command":"server"}}}`,
 		"skills/review/SKILL.md": "# Review",
-	})
+	}}})
 
 	root := t.TempDir()
-	materialization, err := Materialize(t.Context(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{
-		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
+	materialization, err := store.materialize(t, agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: gitSource("pinned", ""), Skills: []string{"review"},
 	}}}, Paths{
 		Packages: filepath.Join(root, "packages"),
 		Skills:   filepath.Join(root, "skills"),
@@ -55,19 +53,19 @@ func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "does-not-exist", Commit: strings.Repeat("a", 40)}, Path: "selected"}
-	root, err := fetchSource(t.Context(), source, destination, "SKILL.md")
+	store := newPackageStore(nil)
+	root, err := fetchSource(t.Context(), gitSource("pinned", "selected"), destination, store.fetch, "SKILL.md")
 	if err != nil {
-		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
+		t.Fatalf("fetchSource() = %v", err)
 	}
+	require.Empty(t, store.fetched, "an existing materialization must not be fetched again")
 	if want := canonicalPath(filepath.Join(destination, "selected")); root != want {
 		t.Fatalf("fetchSource() root = %q, want %q", root, want)
 	}
 }
 
 func TestMaterializeReplacesLegacyCache(t *testing.T) {
-	repository, commit := testutil.CommitFiles(t, map[string]string{"SKILL.md": "# Current"})
-	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}
+	store := newPackageStore(map[string]revision{"pinned": {files: map[string]string{"SKILL.md": "# Current"}}})
 	for _, scenario := range []struct {
 		name   string
 		record string
@@ -84,7 +82,7 @@ func TestMaterializeReplacesLegacyCache(t *testing.T) {
 				require.NoError(t, os.WriteFile(legacy+".source", []byte(scenario.record), 0o644))
 			}
 
-			_, err := Materialize(t.Context(), agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: source}}}, paths)
+			_, err := store.materialize(t, agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "review", Source: gitSource("pinned", "")}}}, paths)
 
 			require.NoError(t, err)
 			content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
@@ -97,35 +95,25 @@ func TestMaterializeReplacesLegacyCache(t *testing.T) {
 }
 
 func TestMaterializeRefetchesAPackageOfAnotherSource(t *testing.T) {
-	repository, first := testutil.CommitFiles(t, map[string]string{
-		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
-		"skills/review/SKILL.md": "# First",
+	const manifest = `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`
+	store := newPackageStore(map[string]revision{
+		"first":  {files: map[string]string{"plugin.json": manifest, "skills/review/SKILL.md": "# First"}},
+		"second": {files: map[string]string{"plugin.json": manifest, "skills/review/SKILL.md": "# Second"}},
 	})
-	if err := os.WriteFile(filepath.Join(repository, "skills", "review", "SKILL.md"), []byte("# Second"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if output, err := exec.CommandContext(t.Context(), "git", "-C", repository, "commit", "-qam", "second").CombinedOutput(); err != nil {
-		t.Fatalf("git commit: %v: %s", err, output)
-	}
-	head, err := exec.CommandContext(t.Context(), "git", "-C", repository, "rev-parse", "HEAD").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
 	pinned := func(commit string) agentplugin.Resources {
-		return agentplugin.Resources{Plugins: []agentplugin.Bundle{{
-			Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
-		}}}
+		return agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: gitSource(commit, ""), Skills: []string{"review"}}}}
 	}
 	root := t.TempDir()
 	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
-	if _, err := Materialize(t.Context(), pinned(first), paths); err != nil {
+	if _, err := store.materialize(t, pinned("first"), paths); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := Materialize(t.Context(), pinned(strings.TrimSpace(string(head))), paths); err != nil {
+	if _, err := store.materialize(t, pinned("second"), paths); err != nil {
 		t.Fatal(err)
 	}
 
+	require.Equal(t, []string{"first", "second"}, store.fetched)
 	if content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md")); err != nil || string(content) != "# Second" {
 		t.Fatalf("skill after the pin moved = %q, %v; want the new commit's", content, err)
 	}
@@ -136,31 +124,33 @@ func TestMaterializeRefetchesAPackageOfAnotherSource(t *testing.T) {
 
 func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 	destination := t.TempDir()
+	store := newPackageStore(map[string]revision{"pinned": {files: map[string]string{"SKILL.md": "# Fetched"}}})
 
-	_, err := fetchSource(t.Context(), agentplugin.Source{Git: &agentplugin.GitSource{
-		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
-	}}, destination, "SKILL.md")
-	if err == nil {
-		t.Fatal("fetchSource() reused incomplete materialization")
-	}
+	root, err := fetchSource(t.Context(), gitSource("pinned", ""), destination, store.fetch, "SKILL.md")
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"pinned"}, store.fetched, "an incomplete materialization must be fetched again")
+	content, err := os.ReadFile(filepath.Join(root, "SKILL.md"))
+	require.NoError(t, err)
+	require.Equal(t, "# Fetched", string(content))
 }
 
 func TestMaterializeCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
 	root := t.TempDir()
-	repository, commit := testutil.CommitFiles(t, map[string]string{
+	store := newPackageStore(map[string]revision{"pinned": {files: map[string]string{
 		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
 		"mcp.json":               `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"local":{"type":"stdio","command":"server"}}}`,
 		"skills/review/SKILL.md": "# Review",
-	})
+	}}})
 	paths := Paths{
 		Packages: filepath.Join(root, "plugins"),
 		Skills:   filepath.Join(root, "skills"),
 	}
 	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
-		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}},
+		Source: gitSource("pinned", ""),
 		Skills: []string{"review"},
 	}}}
-	if _, err := Materialize(t.Context(), resources, paths); err != nil {
+	if _, err := store.materialize(t, resources, paths); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
@@ -225,17 +215,15 @@ func TestLoadManifestFormats(t *testing.T) {
 }
 
 func TestMaterializeClaudeFormatPlugin(t *testing.T) {
-	repository, commit := testutil.CommitFiles(t, map[string]string{
+	store := newPackageStore(map[string]revision{"pinned": {files: map[string]string{
 		".claude-plugin/plugin.json": `{"name":"acme-native","version":"1.0.0"}`,
 		"skills/review/SKILL.md":     "# Review",
-	})
-	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
-		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
-	}}}
+	}}})
+	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: gitSource("pinned", ""), Skills: []string{"review"}}}}
 
 	root := t.TempDir()
 	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
-	materialization, err := Materialize(t.Context(), resources, paths)
+	materialization, err := store.materialize(t, resources, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
