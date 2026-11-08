@@ -401,3 +401,38 @@ func (s *lostCheckpointFinalization) FinalizeClaimedSessionCheckpoint(ctx contex
 	}
 	return nil, status.Error(codes.Unavailable, "finalization reply lost")
 }
+
+func TestPublicCheckpointErrorsHideReleaseFailures(t *testing.T) {
+	persistence := reviewStore(t)
+	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	for _, operation := range []string{"Create", "Delete"} {
+		t.Run("Given a private claim release failure, when "+operation+" also fails at the backend, assert that its current status excludes database details", func(t *testing.T) {
+			source, head := recoverySource(t, persistence)
+			tags := &testTags{snapshotURI: "s3://snapshots/source"}
+			service := NewService(&lostCheckpointRelease{Client: persistence}, testAuthorizer{}, tags, nil)
+			var err error
+			if operation == "Create" {
+				tags.createErr = status.Error(codes.PermissionDenied, "private backend endpoint")
+				_, err = service.Create(owner, source.Id, uuid.NewString(), head)
+			} else {
+				cp, createErr := service.Create(owner, source.Id, uuid.NewString(), head)
+				require.NoError(t, createErr)
+				tags.deleteErr = status.Error(codes.PermissionDenied, "private backend endpoint")
+				err = service.Delete(owner, cp.Id)
+			}
+			require.Equal(t, codes.PermissionDenied, status.Code(err))
+			require.NotContains(t, err.Error(), "private")
+		})
+	}
+}
+
+type lostCheckpointRelease struct {
+	*database.Client
+}
+
+func (s *lostCheckpointRelease) ReleaseCheckpointOperation(ctx context.Context, id string, executor uuid.UUID) error {
+	if err := s.Client.ReleaseCheckpointOperation(ctx, id, executor); err != nil {
+		return err
+	}
+	return errors.New("private database endpoint in lost release reply")
+}

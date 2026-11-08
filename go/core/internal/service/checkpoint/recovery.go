@@ -106,7 +106,13 @@ func (s *Service) claimAndExecute(ctx context.Context, observed *database.Checkp
 func (s *Service) release(ctx context.Context, id string, executor uuid.UUID) error {
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	return s.store.ReleaseCheckpointOperation(releaseCtx, id, executor)
+	if err := s.store.ReleaseCheckpointOperation(releaseCtx, id, executor); err != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "release checkpoint execution claim", "checkpoint_id", id, "error", err)
+		// This error is joined to the current attempt's public status. Keep
+		// database details in logs without replacing the original status code.
+		return errors.New("checkpoint execution claim could not be released")
+	}
+	return nil
 }
 
 func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) (result *apiv1.Checkpoint, err error) {
