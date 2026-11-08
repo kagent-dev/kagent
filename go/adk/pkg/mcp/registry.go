@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 )
@@ -235,6 +236,8 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 			headerProvider: params.HeaderProvider,
 		}
 	}
+
+	httpTransport = otelhttp.NewTransport(httpTransport)
 
 	httpClient := &http.Client{
 		Timeout:   httpTimeout,
