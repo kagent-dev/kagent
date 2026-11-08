@@ -345,7 +345,7 @@ controller-manifests: ## Regenerate CRD manifests in the Helm chart
 build-controller: ## Build and push the controller image
 build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
-		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
+		--build-arg BUILD_PACKAGE=./core/cmd/controller \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 
@@ -579,7 +579,7 @@ run-upgrade-tests: announce-upgrade-from build install-previous-release ## Test 
 # controller replicas (needed to observe the old-code/new-schema rollout window).
 .PHONY: run-rolling-upgrade-tests
 run-rolling-upgrade-tests: UPGRADE_PREV_EXTRA_ARGS = --set controller.replicas=2
-run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Verify rolling controller upgrade from 2 previous-release replicas and schema compatibility
+run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release with 2 controller replicas, build the current images, and run the rolling upgrade e2e test
 	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	cd go && \
 	KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS=true \

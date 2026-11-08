@@ -2,33 +2,23 @@ package database
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	statuspb "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // CheckpointOperation contains the durable inputs for creation or deletion.
-// Failure on a CREATING checkpoint means tag cleanup must finish before the
-// reservation can become FAILED and release source-session admission.
 type CheckpointOperation struct {
 	Checkpoint *apiv1.Checkpoint
 	Creator    string
 	Snapshot   *SessionTaskSnapshot
 	TagUID     string
-	// A permanent attempt error does not change the phase or authorize cleanup.
-	OperationError *statuspb.Status
-}
-
-type checkpointOperationRow struct {
-	sessionCheckpointRow
-	OperationError []byte
 }
 
 // ClaimCheckpointOperation grants one bounded attempt exclusive execution of an
@@ -44,6 +34,11 @@ func (c *Client) ClaimCheckpointOperation(ctx context.Context, id, owner string,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	legacyEligible := false
+	if identifier, parseErr := uuid.Parse(id); parseErr == nil && identifier.Version() == 7 {
+		seconds, nanos := identifier.Time().UnixTime()
+		legacyEligible = time.Since(time.Unix(seconds, nanos)) > RuntimeOperationTimeout
+	}
 	var operation *CheckpointOperation
 	// Do not let a canceled autocommit UPDATE acquire a claim after its caller
 	// has already tried to release it. A lost COMMIT reply still holds the row
@@ -53,11 +48,11 @@ func (c *Client) ClaimCheckpointOperation(ctx context.Context, id, owner string,
 		UPDATE session_checkpoint SET executor_id = $3,
 		    executor_expires_at = clock_timestamp() + $4 * interval '1 millisecond'
 		WHERE id = $1 AND user_id = $2 AND state IN ('CREATING', 'DELETING')
-		    AND (executor_id IS NULL OR executor_expires_at <= clock_timestamp())
+		    AND ((executor_id IS NULL AND $5::boolean) OR executor_expires_at <= clock_timestamp())
 		RETURNING id, source_session_id, user_id, request_id, head_task_id, history_sequence,
 		    snapshot_atespace, snapshot_uri, snapshot_fidelity, tag_uid, state, data,
-		    source_history_id, prepared_revision, operation_error
-		`, pgx.RowToStructByName[checkpointOperationRow], id, owner, executor, time.Until(deadline).Milliseconds()+1)
+		    source_history_id, prepared_revision
+		`, pgx.RowToStructByName[sessionCheckpointRow], id, owner, executor, time.Until(deadline).Milliseconds()+1, legacyEligible)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrConflict
 		}
@@ -89,33 +84,11 @@ func (c *Client) ReleaseCheckpointOperation(ctx context.Context, id string, exec
 			return err
 		}
 		_, err = tx.Exec(ctx, `
-			UPDATE session_checkpoint SET executor_id = NULL, executor_expires_at = NULL
+			UPDATE session_checkpoint SET executor_expires_at = clock_timestamp()
 			WHERE id = $1 AND executor_id = $2
 		`, id, executor)
 		return err
 	})
-}
-
-// checkCheckpointExecutor requires the caller to hold the checkpoint row lock.
-// Direct finalization is permitted only when no executor owns the row;
-// claimed transitions reject expired and superseded attempts.
-func checkCheckpointExecutor(ctx context.Context, tx pgx.Tx, id string, executor uuid.UUID) error {
-	var expected *uuid.UUID
-	if executor != uuid.Nil {
-		expected = &executor
-	}
-	matches, err := queryOne(ctx, tx, `
-		SELECT executor_id IS NOT DISTINCT FROM $2::uuid
-		    AND ($2::uuid IS NULL OR executor_expires_at > clock_timestamp())
-		FROM session_checkpoint WHERE id = $1
-	`, pgx.RowTo[bool], id, expected)
-	if err != nil {
-		return err
-	}
-	if !matches {
-		return ErrConflict
-	}
-	return nil
 }
 
 // GetCheckpointOperation returns an owner's checkpoint in any lifecycle phase.
@@ -125,9 +98,9 @@ func (c *Client) GetCheckpointOperation(ctx context.Context, id, owner string) (
 	row, err := queryOne(ctx, c.db, `
         SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence,
             snapshot_atespace, snapshot_uri, snapshot_fidelity, tag_uid, state, data,
-            source_history_id, prepared_revision, operation_error
+            source_history_id, prepared_revision
         FROM session_checkpoint WHERE id = $1 AND user_id = $2
-    `, pgx.RowToStructByName[checkpointOperationRow], id, owner)
+    `, pgx.RowToStructByName[sessionCheckpointRow], id, owner)
 	if err != nil {
 		return nil, fmt.Errorf("get checkpoint operation: %w", notFoundOr(err))
 	}
@@ -145,12 +118,13 @@ func (c *Client) ListPendingCheckpoints(ctx context.Context, afterID string, lim
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence,
 		    snapshot_atespace, snapshot_uri, snapshot_fidelity, tag_uid, state, data,
-		    source_history_id, prepared_revision, operation_error
+		    source_history_id, prepared_revision
 		FROM session_checkpoint
 		WHERE state IN ('CREATING', 'DELETING')
+          AND (executor_expires_at <= statement_timestamp() OR (executor_id IS NULL AND id < $3::uuid))
 		  AND ($1::uuid IS NULL OR id > $1::uuid)
 		ORDER BY id LIMIT $2
-	`, pgx.RowToStructByName[checkpointOperationRow], after, limit)
+	`, pgx.RowToStructByName[sessionCheckpointRow], after, limit, legacyCheckpointCutoff(time.Now()))
 	if err != nil {
 		return nil, fmt.Errorf("list pending checkpoints: %w", err)
 	}
@@ -165,89 +139,19 @@ func (c *Client) ListPendingCheckpoints(ctx context.Context, afterID string, lim
 	return result, nil
 }
 
-func checkpointOperation(row checkpointOperationRow) (*CheckpointOperation, error) {
-	checkpoint, err := toSessionCheckpoint(row.sessionCheckpointRow)
+func checkpointOperation(row sessionCheckpointRow) (*CheckpointOperation, error) {
+	checkpoint, err := toSessionCheckpoint(row)
 	if err != nil {
 		return nil, err
 	}
-	var operationError *statuspb.Status
-	if len(row.OperationError) != 0 {
-		operationError = &statuspb.Status{}
-		if err := proto.Unmarshal(row.OperationError, operationError); err != nil {
-			return nil, fmt.Errorf("decode checkpoint operation error: %w", err)
-		}
-		if operationError.Code <= 0 || operationError.Code > 16 {
-			return nil, fmt.Errorf("invalid checkpoint operation error code %d", operationError.Code)
-		}
-	}
 	return &CheckpointOperation{Checkpoint: checkpoint, Creator: row.UserID,
-		Snapshot: checkpointSnapshot(row.sessionCheckpointRow), TagUID: row.TagUID, OperationError: operationError}, nil
+		Snapshot: checkpointSnapshot(row), TagUID: row.TagUID}, nil
 }
 
-// BeginCheckpointCleanup durably records creation compensation and its tag UID.
-// The checkpoint remains CREATING, retaining history/revision references and
-// blocking source mutations until external cleanup finishes. Identical retries
-// succeed; a conflicting outcome or a terminal checkpoint returns ErrConflict.
-// A non-nil executor must own the attempt; nil requires unclaimed work.
-func (c *Client) BeginCheckpointCleanup(ctx context.Context, id string, executor uuid.UUID, tagUID, failure string) error {
-	if failure == "" {
-		return fmt.Errorf("checkpoint cleanup requires a failure")
-	}
-	return c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockCheckpoint(ctx, tx, id, true, "", nil)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		if err := checkCheckpointExecutor(ctx, tx, id, executor); err != nil {
-			return err
-		}
-		checkpoint, err := toSessionCheckpoint(row)
-		if err != nil {
-			return err
-		}
-		if row.State != "CREATING" {
-			return ErrConflict
-		}
-		if checkpoint.Failure != nil {
-			if row.TagUID == tagUID && checkpoint.Failure.Message == failure {
-				return nil
-			}
-			return ErrConflict
-		}
-		checkpoint.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: failure}
-		data, err := proto.Marshal(checkpoint)
-		if err != nil {
-			return fmt.Errorf("encode checkpoint cleanup: %w", err)
-		}
-		_, err = tx.Exec(ctx, `UPDATE session_checkpoint SET tag_uid = $2, data = $3, operation_error = NULL
-		    WHERE id = $1 AND state = 'CREATING'`, row.ID, tagUID, data)
-		return err
-	})
-}
-
-// RecordCheckpointOperationError preserves an attempt's permanent failure for
-// waiters on any API replica without releasing its reservation or references.
-// The current unexpired executor must own pending work; stale writes conflict.
-func (c *Client) RecordCheckpointOperationError(ctx context.Context, id string, executor uuid.UUID, failure *statuspb.Status) error {
-	if failure == nil || failure.Code <= 0 || failure.Code > 16 {
-		return ErrFailedPrecondition
-	}
-	data, err := proto.Marshal(failure)
-	if err != nil {
-		return err
-	}
-	return c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockCheckpoint(ctx, tx, id, true, "", nil)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		if err := checkCheckpointExecutor(ctx, tx, id, executor); err != nil {
-			return err
-		}
-		if row.State != "CREATING" && row.State != "DELETING" {
-			return ErrConflict
-		}
-		_, err = tx.Exec(ctx, `UPDATE session_checkpoint SET operation_error = $2 WHERE id = $1`, id, data)
-		return err
-	})
+// Legacy rows have no claim. The UUID grace avoids taking freshly reserved work
+// during rollout, but is not a fence: the first upgrade must drain old writers.
+func legacyCheckpointCutoff(now time.Time) uuid.UUID {
+	var id uuid.UUID
+	binary.BigEndian.PutUint64(id[:8], uint64(now.Add(-RuntimeOperationTimeout).UnixMilli())<<16)
+	return id
 }

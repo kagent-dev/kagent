@@ -124,7 +124,7 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 				require.ErrorIs(t, err, database.ErrConflict, "Delete must not erase uncertain work")
 			}
 			if checkpointID != "" {
-				_, _, err = store.BeginDeleteSessionCheckpoint(t.Context(), checkpointID, session.Creator)
+				_, _, err = beginDeleteCheckpoint(t.Context(), store, checkpointID, session.Creator)
 				require.ErrorIs(t, err, database.ErrNotFound, "uncertain fork must retain its checkpoint pin")
 				checkpoint, err := store.GetSessionCheckpoint(t.Context(), checkpointID, session.Creator)
 				require.NoError(t, err)

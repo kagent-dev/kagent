@@ -613,3 +613,21 @@ func reconciliationTestCard(name string) *a2apb.AgentCard {
 		SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
 	}
 }
+
+func TestModelConfigConditionTransitionTimesMoveOnlyOnStatusChange(t *testing.T) {
+	then := metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	current := kagentv1alpha3.ModelConfigStatus{Conditions: []metav1.Condition{
+		{Type: "Accepted", Status: metav1.ConditionFalse, Reason: "SecretNotFound", Message: "secret team-a/a not found", ObservedGeneration: 1, LastTransitionTime: then},
+		{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Resolved", ObservedGeneration: 1, LastTransitionTime: then},
+	}}
+	desired := kagentv1alpha3.ModelConfigStatus{Conditions: []metav1.Condition{
+		{Type: "Accepted", Status: metav1.ConditionFalse, Reason: "SecretKeyNotFound", Message: "key missing in secret team-a/b", ObservedGeneration: 2},
+		{Type: "Ready", Status: metav1.ConditionFalse, Reason: "Unresolved", ObservedGeneration: 2},
+	}}
+
+	got := modelConfigStatusWithTransitionTimes(desired, current)
+
+	require.Equal(t, then, got.Conditions[0].LastTransitionTime, "a new reason, message or generation alone is no transition")
+	require.True(t, got.Conditions[1].LastTransitionTime.After(then.Time), "a status change stamps a new transition time")
+	require.True(t, desired.Conditions[0].LastTransitionTime.IsZero(), "the desired conditions are not mutated")
+}

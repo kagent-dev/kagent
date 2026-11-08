@@ -3,13 +3,9 @@ package checkpoint
 import (
 	"context"
 	"errors"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -19,68 +15,37 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-type checkpointKey struct{ id, owner string }
-
-type checkpointRetry struct {
-	backoff retryBackoff
-	readyAt time.Time
-}
-
-// RecoveryWorker is the sole owner of checkpoint tag mutations. API replicas
-// admit durable work and wait for its outcome; losing a caller does not cancel
-// the copy. On restart or leader change the worker resumes persisted phases.
+// RecoveryWorker resumes expired durable work with the same execution path as
+// requests. The sweep interval bounds retries; live requests are never queued.
 type RecoveryWorker struct {
 	service  *Service
 	interval time.Duration
-	queue    workqueue.TypedDelayingInterface[checkpointKey]
-	mu       sync.Mutex
-	retries  map[checkpointKey]*checkpointRetry
 }
 
 var _ manager.Runnable = (*RecoveryWorker)(nil)
 var _ manager.LeaderElectionRunnable = (*RecoveryWorker)(nil)
 
 func NewRecoveryWorker(service *Service) *RecoveryWorker {
-	return &RecoveryWorker{service: service, interval: time.Second, retries: make(map[checkpointKey]*checkpointRetry)}
+	return &RecoveryWorker{service: service, interval: 30 * time.Second}
 }
 
 func (*RecoveryWorker) NeedLeaderElection() bool { return true }
 
 func (w *RecoveryWorker) Start(ctx context.Context) error {
-	if w.service.activation != nil {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-w.service.activation:
-		}
-	}
-	w.queue = workqueue.NewTypedDelayingQueueWithConfig(workqueue.TypedDelayingQueueConfig[checkpointKey]{Clock: w.service.clock})
-	var workers sync.WaitGroup
-	for range 4 {
-		workers.Go(func() {
-			for w.process(ctx) {
-			}
-		})
-	}
-	ticker := w.service.clock.NewTicker(w.interval)
+	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
 		if err := w.sweep(ctx); err != nil && ctx.Err() == nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "discover checkpoints", "error", err)
+			logging.FromContext(ctx).ErrorContext(ctx, "recover checkpoints", "error", err)
 		}
 		select {
 		case <-ctx.Done():
-		case <-ticker.C():
-		case <-w.service.wake:
+		case <-ticker.C:
 		}
 	}
-	w.queue.ShutDown()
-	workers.Wait()
 	return nil
 }
 
-// Discovery never waits for a copy. The keyed queue deduplicates IDs and keeps
-// spare workers available to requests arriving behind a slow operation.
 func (w *RecoveryWorker) sweep(ctx context.Context) error {
 	var after string
 	for ctx.Err() == nil {
@@ -89,7 +54,9 @@ func (w *RecoveryWorker) sweep(ctx context.Context) error {
 			return err
 		}
 		for _, op := range operations {
-			w.enqueue(checkpointKey{id: op.Checkpoint.Id, owner: op.Creator})
+			if err := w.service.recoverOperation(ctx, op); err != nil && ctx.Err() == nil {
+				logging.FromContext(ctx).ErrorContext(ctx, "recover checkpoint", "checkpoint_id", op.Checkpoint.Id, "error", err)
+			}
 		}
 		if len(operations) < 100 {
 			return nil
@@ -99,139 +66,84 @@ func (w *RecoveryWorker) sweep(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (w *RecoveryWorker) enqueue(key checkpointKey) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if retry := w.retries[key]; retry != nil {
-		if delay := retry.readyAt.Sub(w.service.clock.Now()); delay > 0 {
-			w.queue.AddAfter(key, delay)
-			return
-		}
-	}
-	w.queue.Add(key)
-}
-
-func (w *RecoveryWorker) process(ctx context.Context) bool {
-	key, shutdown := w.queue.Get()
-	if shutdown {
-		return false
-	}
-	defer w.queue.Done(key)
-	// A scan can mark a running key dirty just before it fails. Recheck here so
-	// Done's immediate requeue cannot bypass the newly established retry delay.
-	w.mu.Lock()
-	if retry := w.retries[key]; retry != nil {
-		if delay := retry.readyAt.Sub(w.service.clock.Now()); delay > 0 {
-			w.queue.AddAfter(key, delay)
-			w.mu.Unlock()
-			return true
-		}
-	}
-	w.mu.Unlock()
-	err := w.service.recoverOperation(ctx, &database.CheckpointOperation{Checkpoint: &apiv1.Checkpoint{Id: key.id}, Creator: key.owner})
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if err == nil {
-		delete(w.retries, key)
-		return true
-	}
-	if ctx.Err() != nil {
-		return false
-	}
-	retry := w.retries[key]
-	if retry == nil {
-		retry = &checkpointRetry{backoff: retryBackoff{delay: time.Second, cap: 30 * time.Second}}
-		w.retries[key] = retry
-	}
-	delay := retry.backoff.next()
-	retry.readyAt = w.service.clock.Now().Add(delay)
-	w.queue.AddAfter(key, delay)
-	logging.FromContext(ctx).ErrorContext(ctx, "recover checkpoint operation", "checkpoint_id", key.id, "retry_after", delay, "error", err)
-	return true
-}
-
-func (s *Service) recoverOperation(ctx context.Context, observed *database.CheckpointOperation) (err error) {
-	// Establish the attempt deadline before claiming. A paused executor cannot
-	// issue another RPC after its claim expires; unfinished copies synchronize
-	// through Substrate's tag lease when the replacement retries CreateTag.
+func (s *Service) recoverOperation(ctx context.Context, observed *database.CheckpointOperation) error {
 	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancel()
+	_, err := s.claimAndExecute(ctx, observed)
+	return err
+}
+
+// Claim rereads the current phase: a sweep's observation can already be stale.
+// A failed acquisition returns the current outcome rather than polling or
+// replaying an earlier attempt's error.
+func (s *Service) claimAndExecute(ctx context.Context, observed *database.CheckpointOperation) (result *apiv1.Checkpoint, err error) {
 	executor := uuid.New()
-	id := observed.Checkpoint.Id
-	// The claim reply can be lost after the UPDATE committed. Release by the
-	// known executor even when acquisition returns an error; this cannot revoke
-	// another attempt and avoids waiting for expiry on graceful cancellation.
+	id, owner := observed.Checkpoint.Id, observed.Creator
+	acquired := false
 	defer func() {
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		err = errors.Join(err, s.store.ReleaseCheckpointOperation(releaseCtx, id, executor))
+		if !acquired {
+			err = errors.Join(err, s.release(ctx, id, executor))
+		}
 	}()
-	op, err := s.store.ClaimCheckpointOperation(ctx, id, observed.Creator, executor)
+	op, err := s.store.ClaimCheckpointOperation(ctx, id, owner, executor)
 	if errors.Is(err, database.ErrConflict) {
-		return nil // Another executor owns it, or the listed phase already ended.
+		current, readErr := s.store.GetCheckpointOperation(ctx, id, owner)
+		if errors.Is(readErr, database.ErrNotFound) {
+			return nil, nil
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		return createOutcome(current.Checkpoint)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
+	acquired = true
+	return s.execute(ctx, op, executor)
+}
+
+func (s *Service) release(ctx context.Context, id string, executor uuid.UUID) error {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return s.store.ReleaseCheckpointOperation(releaseCtx, id, executor)
+}
+
+func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) (result *apiv1.Checkpoint, err error) {
+	completed := false
 	defer func() {
-		if failure := permanentOperationError(err); failure != nil {
-			recordCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer stop()
-			err = errors.Join(err, s.store.RecordCheckpointOperationError(recordCtx, id, executor, failure.Proto()))
+		if !completed {
+			err = errors.Join(err, s.release(ctx, op.Checkpoint.Id, executor))
 		}
 	}()
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
-	switch op.Checkpoint.State {
-	case apiv1.CheckpointState_CHECKPOINT_STATE_DELETING:
-		return s.finishDelete(ctx, op, executor)
-	case apiv1.CheckpointState_CHECKPOINT_STATE_CREATING:
-		if op.Checkpoint.Failure != nil {
-			return s.finishCleanup(ctx, op, executor)
-		}
-		tag, err := s.ensureTag(ctx, op.Checkpoint, op.Snapshot)
-		if err == nil {
-			_, err = s.store.FinalizeClaimedSessionCheckpoint(ctx, op.Checkpoint.Id, executor,
-				tag.GetMetadata().GetUid(), substrate.SnapshotURI(tag.GetStatus().GetSnapshot()), "")
-			return err
-		}
-		if !errors.Is(err, errTagCopyFailed) {
-			return err
-		}
-		if tag != nil && !validTagSource(tag, op.Checkpoint, op.Snapshot) {
-			return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", err)
-		}
-		uid := tag.GetMetadata().GetUid()
-		if recordErr := s.store.BeginCheckpointCleanup(ctx, op.Checkpoint.Id, executor, uid, err.Error()); recordErr != nil {
-			return recordErr
-		}
-		// Persist the exact phase before external cleanup. A restart must not
-		// mistake the same tag for a copy that can still become READY.
-		op, err = s.store.GetCheckpointOperation(ctx, op.Checkpoint.Id, op.Creator)
-		if err != nil {
-			return err
-		}
-		return s.finishCleanup(ctx, op, executor)
-	default:
-		return nil
+	if op.Checkpoint.State == apiv1.CheckpointState_CHECKPOINT_STATE_DELETING {
+		err = s.finishDelete(ctx, op, executor)
+		completed = err == nil
+		return nil, err
 	}
-}
-
-func (s *Service) finishCleanup(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) error {
-	name := tagName(op.Checkpoint.Id)
-	tag, err := s.tags.GetTag(ctx, op.Snapshot.Atespace, name)
-	if err != nil && status.Code(err) != codes.NotFound {
-		return err
+	tag, err := s.ensureTag(ctx, op.Checkpoint, op.Snapshot)
+	if err != nil && !errors.Is(err, errTagCopyFailed) {
+		return nil, publicOperationError(err)
 	}
-	if err == nil {
-		if op.TagUID == "" || tag.GetMetadata().GetUid() != op.TagUID || !validTagSource(tag, op.Checkpoint, op.Snapshot) {
-			return status.Error(codes.FailedPrecondition, "checkpoint cleanup tag identity changed")
-		}
-		if err := s.tags.DeleteTag(ctx, op.Snapshot.Atespace, name, op.TagUID); err != nil && status.Code(err) != codes.NotFound {
-			return err
-		}
+	if err != nil && tag != nil && !validTagSource(tag, op.Checkpoint, op.Snapshot) {
+		return nil, serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", err)
 	}
-	_, err = s.store.FinalizeClaimedSessionCheckpoint(ctx, op.Checkpoint.Id, executor, "", "", op.Checkpoint.Failure.Message)
-	return err
+	failure := ""
+	if err != nil {
+		failure = "Checkpoint snapshot copy could not be verified"
+	}
+	// CreateTag's serialized reply established that copying stopped. FAILED can
+	// release admission now and retain the UID for a later explicit Delete.
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	checkpoint, err := s.store.FinalizeClaimedSessionCheckpoint(finishCtx, op.Checkpoint, executor,
+		tag.GetMetadata().GetUid(), substrate.SnapshotURI(tag.GetStatus().GetSnapshot()), failure)
+	if err != nil {
+		return nil, err
+	}
+	completed = true
+	return createOutcome(checkpoint)
 }

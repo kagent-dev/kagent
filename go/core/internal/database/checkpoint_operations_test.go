@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/binary"
 	"strings"
 	"sync"
 	"testing"
@@ -11,8 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
-	statuspb "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
@@ -78,53 +78,6 @@ func TestCheckpointReleaseWaitsForClaimCommit(t *testing.T) {
 	require.NoError(t, err, "release must retire the claim after its delayed commit")
 }
 
-func TestCheckpointExecutorFencesStaleTransitions(t *testing.T) {
-	client := NewClient(setupTestDB(t), "public")
-	checkpoint, _ := reserveRecoveryCheckpoint(t, client)
-	first := uuid.New()
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
-	_, err := client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", first)
-	require.NoError(t, err)
-	otherCtx, cancelOther := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
-	defer cancelOther()
-	_, err = client.ClaimCheckpointOperation(otherCtx, checkpoint.Id, "alice", uuid.New())
-	require.ErrorIs(t, err, ErrConflict, "a live attempt must exclude another worker")
-	_, err = client.ClaimCheckpointOperation(otherCtx, checkpoint.Id, "mallory", uuid.New())
-	require.ErrorIs(t, err, ErrConflict)
-	<-ctx.Done()
-
-	second := uuid.New()
-	require.Eventually(t, func() bool {
-		_, err = client.ClaimCheckpointOperation(otherCtx, checkpoint.Id, "alice", second)
-		return err == nil
-	}, time.Second, 10*time.Millisecond)
-	// A late release and late writes must not revoke or complete the replacement.
-	require.NoError(t, client.ReleaseCheckpointOperation(t.Context(), checkpoint.Id, first))
-	_, err = client.FinalizeClaimedSessionCheckpoint(t.Context(), checkpoint.Id, first, "old-tag", "s3://tags/old", "")
-	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorIs(t, client.BeginCheckpointCleanup(t.Context(), checkpoint.Id, first, "old-tag", "old failure"), ErrConflict)
-	require.ErrorIs(t, client.RecordCheckpointOperationError(t.Context(), checkpoint.Id, first, &statuspb.Status{Code: int32(codes.FailedPrecondition), Message: "stale failure"}), ErrConflict)
-	_, err = client.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "unclaimed", "s3://tags/unclaimed", "")
-	require.ErrorIs(t, err, ErrConflict)
-	_, err = client.ClaimCheckpointOperation(otherCtx, checkpoint.Id, "alice", uuid.New())
-	require.ErrorIs(t, err, ErrConflict, "the replacement must still own the attempt")
-	_, err = client.FinalizeClaimedSessionCheckpoint(otherCtx, checkpoint.Id, second, "new-tag", "s3://tags/new", "")
-	require.NoError(t, err)
-	require.NoError(t, client.ReleaseCheckpointOperation(t.Context(), checkpoint.Id, second))
-
-	_, _, err = client.BeginDeleteSessionCheckpoint(t.Context(), checkpoint.Id, "alice")
-	require.NoError(t, err)
-	deleting := uuid.New()
-	_, err = client.ClaimCheckpointOperation(otherCtx, checkpoint.Id, "alice", deleting)
-	require.NoError(t, err)
-	require.ErrorIs(t, client.DeleteClaimedSessionCheckpoint(t.Context(), checkpoint.Id, "alice", second), ErrConflict)
-	retained, err := client.GetCheckpointOperation(t.Context(), checkpoint.Id, "alice")
-	require.NoError(t, err)
-	require.Equal(t, "new-tag", retained.TagUID)
-	require.NoError(t, client.DeleteClaimedSessionCheckpoint(otherCtx, checkpoint.Id, "alice", deleting))
-}
-
 func reserveRecoveryCheckpoint(t *testing.T, client *Client) (*apiv1.Checkpoint, *apiv1.Session) {
 	t.Helper()
 	ctx := t.Context()
@@ -138,108 +91,100 @@ func reserveRecoveryCheckpoint(t *testing.T, client *Client) (*apiv1.Checkpoint,
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task,
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx,
+	checkpoint, _, err := reserveCheckpoint(ctx, client,
 		&apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	return checkpoint, session
 }
 
-func TestCheckpointCleanupSurvivesRestartAndFencesPublication(t *testing.T) {
-	pool := setupTestDB(t)
-	client := NewClient(pool, "public")
-	checkpoint, session := reserveRecoveryCheckpoint(t, client)
-	ctx := t.Context()
-	require.NoError(t, client.BeginCheckpointCleanup(ctx, checkpoint.Id, uuid.Nil, "tag-uid", "copy interrupted"))
-	client = NewClient(pool, "public")
-	op, err := client.GetCheckpointOperation(ctx, checkpoint.Id, "alice")
-	require.NoError(t, err)
-	require.Equal(t, "tag-uid", op.TagUID)
-	require.Equal(t, "copy interrupted", op.Checkpoint.Failure.Message)
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, op.Checkpoint.State)
-	_, err = client.GetCheckpointOperation(ctx, checkpoint.Id, "mallory")
-	require.ErrorIs(t, err, ErrNotFound)
-	_, err = client.GetSessionCheckpoint(ctx, checkpoint.Id, "alice")
-	require.ErrorIs(t, err, ErrNotFound)
-	require.ErrorIs(t, deleteSession(ctx, client, session.Id), ErrConflict)
-	_, _, err = client.ForkSession(ctx, checkpoint.Id, "alice", uuid.NewString(), uuid.NewString())
-	require.ErrorIs(t, err, ErrNotFound)
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/copy", "")
-	require.ErrorIs(t, err, ErrConflict, "cleanup must not race a stale successful copy into READY")
-	require.ErrorIs(t, client.BeginCheckpointCleanup(ctx, checkpoint.Id, uuid.Nil, "replacement", "copy interrupted"), ErrConflict)
-	require.NoError(t, client.BeginCheckpointCleanup(ctx, checkpoint.Id, uuid.Nil, "tag-uid", "copy interrupted"))
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "", "", "different failure")
-	require.ErrorIs(t, err, ErrConflict)
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "", "", "copy interrupted")
-	require.NoError(t, err)
-	// Only completion of compensation releases source admission.
-	next := newSessionTask(uuid.NewString(), uuid.NewString())
-	next.ContextID = session.ContextId
-	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("after-cleanup"), next, "")
-	require.NoError(t, err)
-}
-
-func TestPendingCheckpointsPageBothPhasesAndRetainInputs(t *testing.T) {
-	client := NewClient(setupTestDB(t), "public")
-	creating, _ := reserveRecoveryCheckpoint(t, client)
-	deleting, _ := reserveRecoveryCheckpoint(t, client)
-	failed, _ := reserveRecoveryCheckpoint(t, client)
-	ctx := t.Context()
-	_, err := client.FinalizeSessionCheckpoint(ctx, deleting.Id, "retained-uid", "s3://tags/retained", "")
-	require.NoError(t, err)
-	_, _, err = client.BeginDeleteSessionCheckpoint(ctx, deleting.Id, "alice")
-	require.NoError(t, err)
-	_, err = client.FinalizeSessionCheckpoint(ctx, failed.Id, "", "", "failed")
-	require.NoError(t, err)
-	var after string
-	seen := map[string]*CheckpointOperation{}
-	for {
-		page, err := client.ListPendingCheckpoints(ctx, after, 1)
-		require.NoError(t, err)
-		if len(page) == 0 {
-			break
-		}
-		require.Len(t, page, 1)
-		op := page[0]
-		seen[op.Checkpoint.Id] = op
-		after = op.Checkpoint.Id
-	}
-	require.Len(t, seen, 2)
-	require.Equal(t, "s3://snapshots/source", seen[creating.Id].Snapshot.URI)
-	require.Equal(t, "alice", seen[creating.Id].Creator)
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, seen[deleting.Id].Checkpoint.State)
-	require.Equal(t, "s3://tags/retained", seen[deleting.Id].Snapshot.URI)
-	require.Equal(t, "retained-uid", seen[deleting.Id].TagUID)
-	require.NotContains(t, seen, failed.Id)
-}
-
-func TestCheckpointOperationErrorRetainsPendingState(t *testing.T) {
+func TestCheckpointClaimsFenceCompletionAndDeletion(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	checkpoint, _ := reserveRecoveryCheckpoint(t, client)
+	first := uuid.New()
+	ctx, cancel := context.WithTimeout(t.Context(), 80*time.Millisecond)
+	defer cancel()
+	_, err := client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", first)
+	require.NoError(t, err)
+	nextCtx, stop := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
+	defer stop()
+	_, err = client.ClaimCheckpointOperation(nextCtx, checkpoint.Id, "alice", uuid.New())
+	require.ErrorIs(t, err, ErrConflict)
+	_, err = client.ClaimCheckpointOperation(nextCtx, checkpoint.Id, "mallory", uuid.New())
+	require.ErrorIs(t, err, ErrConflict)
+	page, err := client.ListPendingCheckpoints(t.Context(), "", 100)
+	require.NoError(t, err)
+	require.Empty(t, page, "live claims are not sweep work")
+	<-ctx.Done()
+	second := uuid.New()
+	op, err := client.ClaimCheckpointOperation(nextCtx, checkpoint.Id, "alice", second)
+	require.NoError(t, err)
+	require.NoError(t, client.ReleaseCheckpointOperation(t.Context(), checkpoint.Id, first))
+	_, err = client.FinalizeClaimedSessionCheckpoint(nextCtx, op.Checkpoint, first, "old", "s3://tags/old", "")
+	require.ErrorIs(t, err, ErrConflict)
+	ready, err := client.FinalizeClaimedSessionCheckpoint(nextCtx, op.Checkpoint, second, "retained", "s3://tags/retained", "")
+	require.NoError(t, err)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, ready.State)
+	// Completion must clear both columns in the same write, before any release.
+	claim, err := queryOne(t.Context(), client.db, `SELECT executor_id IS NULL AND executor_expires_at IS NULL FROM session_checkpoint WHERE id = $1`, pgx.RowTo[bool], checkpoint.Id)
+	require.NoError(t, err)
+	require.True(t, claim)
+	deletion := uuid.New()
+	deleting, err := client.BeginDeleteSessionCheckpoint(nextCtx, checkpoint.Id, "alice", deletion)
+	require.NoError(t, err)
+	require.Equal(t, "retained", deleting.TagUID)
+	require.ErrorIs(t, client.DeleteClaimedSessionCheckpoint(nextCtx, checkpoint.Id, "alice", second), ErrConflict)
+	require.NoError(t, client.DeleteClaimedSessionCheckpoint(nextCtx, checkpoint.Id, "alice", deletion))
+}
+
+func TestLegacyUnversionedCheckpointCannotBeClaimed(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	checkpoint, _ := reserveRecoveryCheckpoint(t, client)
+	// Prepare a legacy fixture with no claim: the migration preserves such
+	// rows, but new Reserve must always insert a non-NULL bounded executor.
+	_, err := client.db.Exec(t.Context(), `UPDATE session_checkpoint SET executor_id = NULL, executor_expires_at = NULL WHERE id = $1`, checkpoint.Id)
+	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
 	defer cancel()
-	executor := uuid.New()
-	_, err := client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", executor)
-	require.NoError(t, err)
-	failure := &statuspb.Status{Code: int32(codes.FailedPrecondition), Message: "tag was replaced"}
-	require.NoError(t, client.RecordCheckpointOperationError(ctx, checkpoint.Id, executor, failure))
-	require.NoError(t, client.ReleaseCheckpointOperation(ctx, checkpoint.Id, executor))
-	// Given a failed attempt, when another client reads the operation, assert
-	// that the failure and the pending reservation both survive release.
-	pending, err := client.GetCheckpointOperation(ctx, checkpoint.Id, "alice")
-	require.NoError(t, err)
-	require.Equal(t, failure.Code, pending.OperationError.Code)
-	require.Equal(t, failure.Message, pending.OperationError.Message)
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
-	_, err = client.GetCheckpointOperation(ctx, checkpoint.Id, "bob")
+	_, err = client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", uuid.New())
+	require.ErrorIs(t, err, ErrConflict, "unknown legacy v4 rows cannot be age-fenced")
+	_, err = client.GetCheckpointOperation(ctx, checkpoint.Id, "mallory")
 	require.ErrorIs(t, err, ErrNotFound)
-	next := uuid.New()
-	_, err = client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", next)
-	require.NoError(t, err)
-	require.ErrorIs(t, client.RecordCheckpointOperationError(ctx, checkpoint.Id, executor, failure), ErrConflict)
-	_, err = client.FinalizeClaimedSessionCheckpoint(ctx, checkpoint.Id, next, "repaired-tag", "s3://snapshots/repaired", "")
-	require.NoError(t, err)
-	ready, err := client.GetCheckpointOperation(ctx, checkpoint.Id, "alice")
-	require.NoError(t, err)
-	require.Nil(t, ready.OperationError, "confirmed progress must clear the previous error")
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, ready.Checkpoint.State)
+}
+
+func TestLegacyCheckpointGraceAndExpiredClaims(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	for _, age := range []time.Duration{0, 3 * time.Minute} {
+		checkpoint, _ := reserveRecoveryCheckpoint(t, client)
+		id, err := uuid.NewV7()
+		require.NoError(t, err)
+		binary.BigEndian.PutUint64(id[:8], uint64(time.Now().Add(-age).UnixMilli())<<16)
+		id[6] = 0x70
+		value := proto.CloneOf(checkpoint)
+		value.Id = id.String()
+		data, err := proto.Marshal(value)
+		require.NoError(t, err)
+		// A legacy reservation is intentionally constructed as migration input.
+		_, err = client.db.Exec(t.Context(), `UPDATE session_checkpoint SET id = $2, data = $3, executor_id = NULL, executor_expires_at = NULL WHERE id = $1`, checkpoint.Id, id, data)
+		require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
+		executor := uuid.New()
+		page, err := client.ListPendingCheckpoints(ctx, "", 100)
+		require.NoError(t, err)
+		op, err := client.ClaimCheckpointOperation(ctx, id.String(), "alice", executor)
+		if age == 0 {
+			require.ErrorIs(t, err, ErrConflict)
+			require.Empty(t, page)
+		} else {
+			require.NoError(t, err)
+			require.Len(t, page, 1)
+			failed, err := client.FinalizeClaimedSessionCheckpoint(ctx, op.Checkpoint, executor, "partial-tag", "", "copy failed")
+			require.NoError(t, err)
+			require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, failed.State)
+			retained, err := client.GetCheckpointOperation(ctx, id.String(), "alice")
+			require.NoError(t, err)
+			require.Equal(t, "partial-tag", retained.TagUID)
+			require.Equal(t, "s3://snapshots/source", retained.Snapshot.URI)
+		}
+		cancel()
+	}
 }

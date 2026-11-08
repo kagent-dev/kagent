@@ -333,7 +333,7 @@ func TestExplicitRevertRespectsCheckpointCreation(t *testing.T) {
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), work, &database.SessionTaskSnapshot{
 		Atespace: "team-a", URI: "s3://snapshots/completed", Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES.String(),
 	}))
-	_, _, err = store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{
+	_, _, err = reserveCheckpoint(t.Context(), store, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, session.Creator, uuid.NewString())
 	require.NoError(t, err)
@@ -421,7 +421,7 @@ func TestExplicitRevertCannotCheckpointDiscardedTerminalState(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.ClaimSessionQuiescence(t.Context())
 	require.ErrorIs(t, err, database.ErrNotFound, "the reverted snapshot cannot represent discarded terminal state")
-	_, _, err = store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{
+	_, _, err = reserveCheckpoint(t.Context(), store, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, session.Creator, uuid.NewString())
 	require.ErrorIs(t, err, database.ErrSnapshotPending)

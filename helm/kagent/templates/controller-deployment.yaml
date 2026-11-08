@@ -21,8 +21,6 @@ metadata:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controller.replicas }}
-  strategy:
-    type: RollingUpdate
   selector:
     matchLabels:
       {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
@@ -30,16 +28,16 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
-        {{- with omit (.Values.controller.podAnnotations | default .Values.podAnnotations | default dict) "kagent.dev/checkpoint-execution-claims" }}
+        {{- with .Values.controller.podAnnotations | default .Values.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
-        kagent.dev/checkpoint-execution-claims: v1
       labels:
         {{- /* extra pod labels: component merged over global, selector labels
              applied last so they can never be overridden */}}
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.controller.podLabels | default dict) (include "kagent.controller.selectorLabels" . | fromYaml) }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
+      terminationGracePeriodSeconds: {{ .Values.controller.terminationGracePeriodSeconds }}
       {{- with include "kagent.imagePullSecrets" (dict "root" . "local" .Values.controller.imagePullSecrets) }}{{- . | nindent 6 }}{{- end }}
       {{- with (.Values.controller.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:

@@ -191,7 +191,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		require.Equal(t, ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, substrate.LatestActorSnapshot(actor).GetFidelity())
 		require.NotEmpty(t, substrate.SnapshotURI(substrate.LatestActorSnapshot(actor)))
 		if states[i%len(states)].Terminal() {
-			_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: requests[i].TaskId}, "alice", uuid.NewString())
+			_, snapshot, err := reserveCheckpoint(t.Context(), store, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: requests[i].TaskId}, "alice", uuid.NewString())
 			require.NoError(t, err)
 			require.Equal(t, "s3://snapshots/snapshot-1", snapshot.URI)
 		}

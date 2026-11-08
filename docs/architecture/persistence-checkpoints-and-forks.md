@@ -64,71 +64,53 @@ Creating a checkpoint does not suspend the Actor again:
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
 4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
 
-The RPC reserves durable work and waits for its outcome. Only the leader-elected
-checkpoint worker creates and deletes snapshot tags; API replicas do not issue
-competing copies. Canceling a request stops its wait, not the admitted operation.
-Retrying with the same request ID observes the same checkpoint. Startup and
-periodic scans resume `CREATING` and `DELETING` work without requiring the caller
-to return. The worker polls once per second so admission on another API replica does not
-wait for a caller-local signal; local API requests also wake it immediately.
+The request inserts the `CREATING` reservation and its bounded execution claim
+in one transaction, copies the tag inline, then conditionally publishes `READY`
+or `FAILED` while clearing the claim in the same update. Database transactions
+never span Substrate calls. The normal create path writes only the reservation
+and final outcome; it does not acquire a second claim or poll for a worker.
 
-Each attempt obtains a database execution claim before reading its current phase.
-The claim and every backend call share a deadline of at most two minutes, starting
-before claim acquisition. An overlapping worker cannot claim live work; after an
-expired attempt, the replacement reads the persisted phase again. Cleanup,
-publication, and deletion require the current executor identity under the row
-lock, and a delayed release cannot revoke a replacement's claim. Leader election
-reduces duplicate scans but is not the execution fence. A slow remote copy is
-still synchronized through Substrate's tag lease after a client attempt expires.
+Each attempt shares a request deadline of at most two minutes with its claim.
+Retries with the same owner/request ID reuse the existing reservation. They
+acquire expired work and execute the same function, or return the current outcome
+when another request owns it. A live operation returns retryable `Aborted`.
+Backend errors describe the current attempt, without persisting an error that a
+later repaired request could accidentally replay. Public errors exclude backend
+configuration. A canceled or uncertain attempt retains `CREATING` and expires its
+claim immediately while retaining the executor identity.
 
-Discovery enqueues checkpoint IDs independently of four execution workers, so a
-slow copy cannot hold up unrelated new work. Failed attempts retry with capped
-exponential backoff from one to thirty seconds and jitter, including at the cap.
-Scans and immediate dirty-key requeues respect each checkpoint's retry deadline.
-The retry schedule is local to a worker; reservations and execution claims remain
-durable across restarts.
+A small leader-elected sweep runs at startup and every thirty seconds. It reads
+only expired `CREATING` and `DELETING` work and uses the same execution path as
+requests. Claims fence publication and deletion across replicas, restarts, and
+paused executors; a delayed release cannot revoke a replacement claim. The sweep
+interval bounds background retries. Live requests execute independently of the
+sweep, without a queue, retry map, or wakeup protocol.
 
-Permanent operation errors are recorded under the current execution claim,
-without deleting the checkpoint or releasing its references. Public waiters on
-any API replica return the recorded status, such as `FailedPrecondition`, rather
-than waiting for their deadline. Backend configuration is excluded from these
-public error messages. Confirmed progress clears the error. Both creation and
-deletion waiters use exponential polling backoff from 100 ms to one second with
-jitter; canceling a caller still leaves the admitted work available for recovery.
+A pending tag is not evidence of abandonment. Substrate holds its Actor and Tag
+leases through `CreateTag`, including copying and finalization. Recovery calls
+`CreateTag` before interpreting `AlreadyExists`: that reply establishes that the
+previous serialized attempt stopped, but does not establish copy completion.
+Kagent must still verify the tag's identity, template lineage, completed storage,
+and the source Actor's snapshot and UID. Transport errors retain admission until
+a subsequent serialized attempt establishes an outcome.
 
-Controller upgrades remain `RollingUpdate`. New Pods advertise the private
-`kagent.dev/checkpoint-execution-claims: v1` annotation. Each API replica uses the
-live Kubernetes API to wait for all unmarked Pods in its Deployment's stable
-selector to exit and their ReplicaSets to acknowledge scale-down to zero.
-Unready and terminating legacy Pods still block activation, as do old ReplicaSets
-that could recreate them.
-This barrier runs independently of leader election and Pod readiness, so new
-replicas can serve other traffic while Kubernetes drains the previous generation.
-Checkpoint creation and deletion return retryable `Unavailable` before admitting
-new work until activation; the recovery worker waits on the same barrier.
-Already admitted reservations and reference pins survive the transition.
+After a copy has stopped, failed verification marks the checkpoint `FAILED` and
+releases source admission. Its exact tag UID remains retained for explicit
+UID-conditional deletion, including when tag storage is still `PENDING` and has
+no completed URI. Failed checkpoints cannot be forked. Their history and revision
+references remain pinned until deletion succeeds. An unrelated or replaced tag
+is never adopted or deleted.
 
-Compatible future rollouts activate immediately without a controller API outage.
-Custom deployments must preserve the protocol annotation and controller Pod
-identity. A standalone development controller conservatively checks controller
-Pods in its namespace; stop legacy Pods before running it. Kubernetes read errors
-keep recovery closed. Do not force-delete terminating legacy writers. Before
-rolling back to an older chart without the protocol, quiesce checkpoint requests
-and finish pending recovery, then stop all current controllers
-and wait for them to exit: the startup barrier does not fence a later downgrade.
-
-A pending tag is not evidence of abandonment. Substrate serializes `CreateTag`
-against both the source Actor and the tag, including a copy still finishing after
-an earlier controller disappeared. Recovery calls `CreateTag` under those leases
-before interpreting `AlreadyExists`: a completed copy can be published, while a
-partial copy can be compensated once the prior copy has ended. Transport errors
-retain the reservation; checkpoint age never authorizes cleanup.
-
-Compensation first records the failure and exact tag UID while the checkpoint
-remains `CREATING`. Source admission and all reference pins remain held. A restart
-resumes deletion of that UID rather than creating or publishing another copy.
-Only confirmed cleanup marks the checkpoint `FAILED`; a replaced or unverified
-tag is never deleted. Database transactions do not span Substrate calls.
+The first upgrade from a controller without checkpoint execution claims requires
+an explicit boundary: quiesce checkpoint creation/deletion, stop every old
+controller, and wait for those processes to exit before starting the new version
+and resuming checkpoint requests. Merely marking a Pod unready is insufficient.
+Legacy reservations have NULL claims; recovery waits until their UUIDv7 creation
+age exceeds the two-minute operation timeout. This grace is an additional delay,
+not proof that an old writer exited: old code has no bounded overall operation
+and can wait in a reservation transaction. Do not mix old checkpoint writers with
+new recovery. Future rollouts between claim-aware controllers can remain rolling.
+Before downgrading, finish pending checkpoint work and drain all current writers.
 
 Kagent requests synchronous Substrate suspension before recording a checkpoint.
 If an earlier attempt already suspended the Actor but left a pending durable
@@ -142,8 +124,8 @@ and requires a COMPLETED durable copy. The Tag's template UID must
 match that lineage, and the Actor UID must remain unchanged across the copy.
 
 The `CREATING` reservation blocks task writes and idle or explicit lifecycle changes until the
-copy completes or cleanup finishes. A lost response can reuse a completed Tag;
-an incomplete copy is deleted before the failed reservation is released. A
+copy is definitively verified or failed. A lost response can reuse a completed Tag;
+a stopped incomplete copy becomes FAILED and retains its Tag UID for deletion. A
 failed database finalization leaves the reservation and completed Tag for retry.
 Idle lifecycle work records snapshots without retaining every turn: only explicit
 checkpoints survive subsequent suspends or source deletion.
@@ -160,7 +142,7 @@ Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
 the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
 
 Failed checkpoints can also be deleted by their owner. Creation marks a checkpoint
-failed only after snapshot-tag cleanup succeeds or confirms that no tag exists.
+failed after the serialized copy has stopped and verification has failed.
 Deletion verifies that absence before removing the row; it never deletes an
 unexpected tag without a retained UID. Backend errors leave the checkpoint in
 `DELETING` for the checkpoint worker to retry. Its history and runtime revision
@@ -234,7 +216,7 @@ scoped to the resolved session. Forks have independent public identities.
 ## Schema migrations
 
 Merged migration files are immutable. Core changes use new transactional Goose
-migrations, including the partial index used to discover pending checkpoint work.
+migrations, including the two nullable checkpoint claim columns.
 Development databases created from older, rewritten alpha baselines still need
 to be recreated; new migrations do not bridge those historical schemas.
 

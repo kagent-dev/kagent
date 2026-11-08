@@ -3,7 +3,6 @@ package checkpoint
 import (
 	"context"
 	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,357 +12,265 @@ import (
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
-	clocktesting "k8s.io/utils/clock/testing"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
-func TestPublicDeleteRetainsPermanentFailure(t *testing.T) {
+func TestCheckpointRequestsAndRecovery(t *testing.T) {
 	store := reviewStore(t)
-	source, head := recoverySource(t, store)
-	tags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}}
-	service := NewService(store, testAuthorizer{}, tags, nil)
 	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	cp, err := createAndRecover(service, owner, source.Id, uuid.NewString(), head)
-	require.NoError(t, err)
-	tags.mu.Lock()
-	tags.base.created.Metadata.Uid = "replacement-uid"
-	tags.mu.Unlock()
-	stop := startRecovery(t, service)
-	// Given a replaced tag, when a separate API replica calls public Delete,
-	// assert that it receives the worker's failure without waiting for timeout.
-	follower := NewService(store, testAuthorizer{}, tags, nil)
-	ctx, cancel := context.WithTimeout(owner, 3*time.Second)
-	defer cancel()
-	require.Equal(t, codes.FailedPrecondition, status.Code(follower.Delete(ctx, cp.Id)))
-	stop()
-	pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
-	require.NoError(t, err)
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, pending.Checkpoint.State)
-	require.Equal(t, int32(codes.FailedPrecondition), pending.OperationError.GetCode())
-	require.Equal(t, "tag-uid", pending.TagUID)
-	tags.mu.Lock()
-	require.Zero(t, tags.base.deleteCalls)
-	tags.mu.Unlock()
-	// A fresh service with no worker or local error cache must observe the same
-	// durable result, while another owner cannot read the operation error.
-	follower = NewService(store, testAuthorizer{}, tags, nil)
-	require.Equal(t, codes.FailedPrecondition, status.Code(follower.Delete(ctx, cp.Id)))
-	_, err = store.GetCheckpointOperation(t.Context(), cp.Id, "bob")
-	require.ErrorIs(t, err, database.ErrNotFound)
-}
 
-func TestPublicDeleteReportsPermanentBackendErrors(t *testing.T) {
-	for _, method := range []string{"GetTag", "DeleteTag"} {
-		for _, code := range []codes.Code{codes.FailedPrecondition, codes.InvalidArgument, codes.PermissionDenied, codes.Unauthenticated} {
-			t.Run("Given "+method+" returns "+code.String()+", when public Delete runs, assert that its safe error survives worker replacement and recovery", func(t *testing.T) {
-				store := reviewStore(t)
-				source, head := recoverySource(t, store)
-				tags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}}
-				service := NewService(store, testAuthorizer{}, tags, nil)
-				owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-				cp, err := createAndRecover(service, owner, source.Id, uuid.NewString(), head)
-				require.NoError(t, err)
-				const private = "private-backend-configuration"
-				tags.mu.Lock()
-				if method == "GetTag" {
-					tags.base.getErr = status.Error(code, private)
-				} else {
-					tags.base.deleteErr = status.Error(code, private)
-				}
-				tags.mu.Unlock()
-				stop := startRecovery(t, service)
-				follower := NewService(store, testAuthorizer{}, tags, nil)
-				ctx, cancel := context.WithTimeout(owner, 3*time.Second)
-				defer cancel()
-				err = follower.Delete(ctx, cp.Id)
-				require.Equal(t, code, status.Code(err))
-				require.NotContains(t, err.Error(), private)
-				stop()
-				pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
-				require.NoError(t, err)
+	t.Run("Given a ready source, when Create is called without a worker, assert that it returns a retained checkpoint inline", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		counted := &countedClaims{Client: store}
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		service := NewService(counted, testAuthorizer{}, tags, nil)
+		request := uuid.NewString()
+		cp, err := service.Create(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, cp.State)
+		require.Zero(t, counted.claims.Load(), "the reservation INSERT must own the first attempt")
+		retained, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "tag-uid", retained.TagUID)
+		require.Equal(t, "s3://tags/checkpoint", retained.Snapshot.URI)
+		repeated, err := service.Create(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, cp.Id, repeated.Id)
+		require.Equal(t, 1, tags.createCalls)
+		require.NoError(t, service.Delete(owner, cp.Id))
+	})
+
+	for _, later := range []codes.Code{codes.OK, codes.Unavailable} {
+		t.Run("Given a denied deletion, when its backend changes to "+later.String()+", assert that a public retry executes the current attempt", func(t *testing.T) {
+			source, head := recoverySource(t, store)
+			tags := &testTags{snapshotURI: "s3://snapshots/source"}
+			service := NewService(store, testAuthorizer{}, tags, nil)
+			cp, err := service.Create(owner, source.Id, uuid.NewString(), head)
+			require.NoError(t, err)
+			tags.deleteErr = status.Error(codes.PermissionDenied, "private bucket and credentials")
+			require.Equal(t, codes.PermissionDenied, status.Code(service.Delete(owner, cp.Id)))
+			calls := tags.deleteCalls
+			tags.deleteErr = nil
+			if later != codes.OK {
+				tags.deleteErr = status.Error(later, "temporary outage")
+			}
+			replacement := NewService(store, testAuthorizer{}, tags, nil)
+			err = replacement.Delete(owner, cp.Id)
+			require.Equal(t, later, status.Code(err))
+			require.Equal(t, calls+1, tags.deleteCalls, "retry must issue a new backend attempt")
+			if later != codes.OK {
+				pending, readErr := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+				require.NoError(t, readErr)
 				require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, pending.Checkpoint.State)
 				require.Equal(t, "tag-uid", pending.TagUID)
-				require.Equal(t, int32(code), pending.OperationError.GetCode())
-				tags.mu.Lock()
-				require.NotNil(t, tags.base.created, "a failed deletion must retain the tag")
-				tags.mu.Unlock()
-				follower = NewService(store, testAuthorizer{}, tags, nil)
-				require.Equal(t, code, status.Code(follower.Delete(ctx, cp.Id)))
-				// Repair and replace the worker: the reported error must not prevent
-				// completion or release the reference before deletion succeeds.
-				tags.mu.Lock()
-				tags.base.getErr, tags.base.deleteErr = nil, nil
-				tags.mu.Unlock()
-				stop = startRecovery(t, follower)
-				require.Eventually(t, func() bool {
-					_, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
-					return errors.Is(err, database.ErrNotFound)
-				}, 3*time.Second, 10*time.Millisecond)
-				stop()
-				tags.mu.Lock()
-				require.Nil(t, tags.base.created)
-				tags.mu.Unlock()
-			})
-		}
-	}
-}
-
-func TestPublicCreateRejectsUnverifiedExistingTag(t *testing.T) {
-	store := reviewStore(t)
-	source, head := recoverySource(t, store)
-	tags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}}
-	service := NewService(store, testAuthorizer{}, tags, nil)
-	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	request := uuid.NewString()
-	cp, _, err := service.beginCreate(owner, source.Id, request, head)
-	require.NoError(t, err)
-	_, err = tags.CreateTag(t.Context(), "team-a", tagName(cp.Id), "another-actor")
-	require.NoError(t, err)
-	stop := startRecovery(t, service)
-	// Given a pending reservation with a tag belonging to another Actor, when
-	// a fresh API receives public Create, assert that it reports the identity
-	// error without deleting the tag or releasing source admission.
-	follower := NewService(store, testAuthorizer{}, tags, nil)
-	ctx, cancel := context.WithTimeout(owner, 3*time.Second)
-	defer cancel()
-	_, err = follower.Create(ctx, source.Id, request, head)
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
-	stop()
-	pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
-	require.NoError(t, err)
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
-	require.Nil(t, pending.Checkpoint.Failure, "an unverified tag must not authorize compensation")
-	require.Empty(t, pending.TagUID)
-	require.Equal(t, int32(codes.FailedPrecondition), pending.OperationError.GetCode())
-	for _, force := range []bool{false, true} {
-		_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, force)
-		require.ErrorIs(t, err, database.ErrConflict, "pending creation must also block forced deletion")
-	}
-	follower = NewService(store, testAuthorizer{}, tags, nil)
-	_, err = follower.Create(ctx, source.Id, request, head)
-	require.Equal(t, codes.FailedPrecondition, status.Code(err), "a fresh API must observe the durable failure")
-	tags.mu.Lock()
-	require.Zero(t, tags.base.deleteCalls)
-	require.Equal(t, "another-actor", tags.base.created.SourceActor.Name)
-	// Once the backend identity is repaired, a new worker may adopt the same
-	// checkpoint and clear the durable error without a new reservation.
-	tags.base.created.SourceActor.Name = substrate.ActorName(source.Id)
-	tags.mu.Unlock()
-	stop = startRecovery(t, follower)
-	waitCheckpointPhase(t, store, cp.Id, apiv1.CheckpointState_CHECKPOINT_STATE_READY)
-	stop()
-	published, err := follower.Create(ctx, source.Id, request, head)
-	require.NoError(t, err)
-	require.Equal(t, cp.Id, published.Id)
-	pending, err = store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
-	require.NoError(t, err)
-	require.Nil(t, pending.OperationError)
-}
-
-func TestPermanentRecoveryErrorsKeepBackendConfigurationPrivate(t *testing.T) {
-	const private = "private-credential-value"
-	for _, scenario := range []struct {
-		name    string
-		failure error
-		message string
-	}{
-		{name: "backend status", failure: status.Error(codes.FailedPrecondition, private), message: "Checkpoint recovery cannot continue safely"},
-		{name: "service error with private cause", failure: serviceerrors.NewFailedPrecondition("Snapshot identity changed", errors.New(private)), message: "Snapshot identity changed"},
-	} {
-		t.Run("Given a "+scenario.name+", when recovery classifies a permanent failure, assert that callers see only the safe message", func(t *testing.T) {
-			failure := permanentOperationError(scenario.failure)
-			require.Equal(t, codes.FailedPrecondition, failure.Code())
-			require.Equal(t, scenario.message, failure.Message())
-			require.NotContains(t, failure.Message(), private)
+				tags.deleteErr = nil
+				require.NoError(t, replacement.Delete(owner, cp.Id))
+			}
+			_, err = store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+			require.ErrorIs(t, err, database.ErrNotFound)
 		})
 	}
-}
 
-func TestRecoveryDiscoversDuringSlowCopy(t *testing.T) {
-	store := reviewStore(t)
-	slow, slowHead := recoverySource(t, store)
-	fast, fastHead := recoverySource(t, store)
-	gate := make(chan struct{})
-	var release sync.Once
-	defer release.Do(func() { close(gate) })
-	slowTags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}, gate: gate, entered: make(chan struct{})}
-	tags := &indexedTags{actors: map[string]*lockedTags{
-		substrate.ActorName(slow.Id): slowTags,
-		substrate.ActorName(fast.Id): {base: &testTags{snapshotURI: "s3://snapshots/source"}},
-	}}
-	service := NewService(store, testAuthorizer{}, tags, nil)
-	stop := startRecovery(t, service)
-	defer stop()
-	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	slowDone := make(chan error, 1)
-	go func() { _, err := service.Create(owner, slow.Id, uuid.NewString(), slowHead); slowDone <- err }()
-	select {
-	case <-slowTags.entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("slow copy did not start")
-	}
-	// Given a blocked copy, when a later request arrives, assert that a free
-	// worker publishes it while the original copy is still blocked.
-	ctx, cancel := context.WithTimeout(owner, 2*time.Second)
-	defer cancel()
-	cp, err := service.Create(ctx, fast.Id, uuid.NewString(), fastHead)
-	require.NoError(t, err)
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, cp.State)
-	select {
-	case err := <-slowDone:
-		t.Fatalf("slow copy unexpectedly finished: %v", err)
-	default:
-	}
-	release.Do(func() { close(gate) })
-	require.NoError(t, <-slowDone)
-}
-
-func TestRecoveryScansRespectRetryDelay(t *testing.T) {
-	store := reviewStore(t)
-	source, head := recoverySource(t, store)
-	clock := clocktesting.NewFakeClock(time.Now())
-	firstFailure := make(chan struct{})
-	tags := &countedFailingTags{first: firstFailure, entered: make(chan struct{}), lockedTags: &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source", createErr: status.Error(codes.PermissionDenied, "storage denied")}}}
-	service := NewService(store, testAuthorizer{}, tags, nil)
-	service.clock = clock
-	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	cp, _, err := service.beginCreate(owner, source.Id, uuid.NewString(), head)
-	require.NoError(t, err)
-	worker := NewRecoveryWorker(service)
-	worker.interval = 10 * time.Millisecond
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- worker.Start(ctx) }()
-	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
-	waitRetry := func(attempt int64) {
-		require.Eventually(t, func() bool {
-			worker.mu.Lock()
-			defer worker.mu.Unlock()
-			retry := worker.retries[checkpointKey{id: cp.Id, owner: "alice"}]
-			return tags.calls.Load() >= attempt && retry != nil && retry.readyAt.After(clock.Now())
-		}, 3*time.Second, time.Millisecond)
-	}
-	select {
-	case <-tags.entered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("first attempt did not start")
-	}
-	// A discovery while the first attempt runs marks the queue key dirty. The
-	// post-failure immediate requeue must still respect the new retry deadline.
-	require.NoError(t, worker.sweep(t.Context()))
-	close(firstFailure)
-	waitRetry(1)
-	// Given a persistent failure, when discovery is repeatedly woken before
-	// retry eligibility, assert that it makes no extra backend call or unpins.
-	for range 8 {
-		clock.Step(100 * time.Millisecond)
-		service.wakeRecovery()
-	}
-	require.Never(t, func() bool { return tags.calls.Load() > 1 }, 100*time.Millisecond, time.Millisecond)
-	_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
-	require.ErrorIs(t, err, database.ErrConflict)
-	clock.Step(300 * time.Millisecond)
-	service.wakeRecovery()
-	waitRetry(2)
-	// The second retry has a 1.8-2 second delay, not the first one's interval.
-	clock.Step(1500 * time.Millisecond)
-	service.wakeRecovery()
-	require.Equal(t, int64(2), tags.calls.Load())
-	clock.Step(600 * time.Millisecond)
-	waitRetry(3)
-	// Repairing the backend eventually completes the same admitted operation.
-	tags.mu.Lock()
-	tags.base.createErr = nil
-	tags.mu.Unlock()
-	clock.Step(5 * time.Second)
-	service.wakeRecovery()
-	waitCheckpointPhase(t, store, cp.Id, apiv1.CheckpointState_CHECKPOINT_STATE_READY)
-}
-
-func TestPublicCheckpointWaitBackoff(t *testing.T) {
-	for _, operation := range []string{"Create", "Delete"} {
-		t.Run("Given pending work, when public "+operation+" waits for a minute, assert that reads stay bounded and cancellation returns promptly", func(t *testing.T) {
-			store := &countedReadStore{testStore: &testStore{
-				prepared: &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: uuid.NewString(), State: apiv1.CheckpointState_CHECKPOINT_STATE_CREATING},
-				snapshot: &database.SessionTaskSnapshot{},
-			}}
-			clock := clocktesting.NewFakeClock(time.Now())
-			service := NewService(store, testAuthorizer{}, nil, nil)
-			service.clock = clock
-			ctx, cancel := context.WithCancel(auth.AuthSessionTo(t.Context(), testSession{userID: "alice"}))
-			defer cancel()
-			done := make(chan error, 1)
-			go func() {
-				if operation == "Create" {
-					_, err := service.Create(ctx, store.prepared.SessionId, "request", "head")
-					done <- err
-				} else {
-					done <- service.Delete(ctx, store.prepared.Id)
-				}
-			}()
-			for range 6000 {
-				require.Eventually(t, clock.HasWaiters, time.Second, time.Millisecond)
-				clock.Step(10 * time.Millisecond)
-			}
-			cancel()
-			select {
-			case err := <-done:
-				require.ErrorIs(t, err, context.Canceled)
-			case <-time.After(time.Second):
-				t.Fatal("canceled caller remained blocked")
-			}
-			t.Logf("60 seconds of waiting performed %d reads", store.reads.Load())
-			require.Less(t, store.reads.Load(), int64(80))
-			require.Greater(t, store.reads.Load(), int64(55), "waiters must keep checking durable progress")
-		})
-	}
-}
-
-func TestCheckpointActivationPreservesAdmittedWork(t *testing.T) {
-	store := reviewStore(t)
-	source, head := recoverySource(t, store)
-	tags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}, entered: make(chan struct{})}
-	service := NewService(store, testAuthorizer{}, tags, nil)
-	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	request := uuid.NewString()
-	cp, _, err := service.beginCreate(owner, source.Id, request, head)
-	require.NoError(t, err)
-	ready := make(chan struct{})
-	service.GateRecovery(ready)
-	stop := startRecovery(t, service)
-	defer stop()
-	// Given admitted legacy work, when replacements start before writers drain,
-	// assert that public mutations fail promptly and no worker starts a copy.
-	blocked, cancel := context.WithTimeout(owner, time.Second)
-	defer cancel()
-	_, err = service.Create(blocked, source.Id, request, head)
-	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(err))
-	require.Equal(t, serviceerrors.CodeUnavailable, serviceerrors.CodeOf(service.Delete(blocked, cp.Id)))
-	require.Never(t, func() bool {
+	t.Run("Given a canceled caller with a live claim, when a replica retries and later takes over, assert that only the owning request copies", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		gate := make(chan struct{})
+		tags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}, gate: gate, entered: make(chan struct{})}
+		service := NewService(store, testAuthorizer{}, tags, nil)
+		request := uuid.NewString()
+		ctx, cancel := context.WithCancel(owner)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { _, err := service.Create(ctx, source.Id, request, head); done <- err }()
 		select {
 		case <-tags.entered:
-			return true
-		default:
-			return false
+		case <-time.After(5 * time.Second):
+			t.Fatal("inline copy was never reached")
 		}
-	}, 100*time.Millisecond, time.Millisecond, "recovery executed before activation")
-	pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
-	require.NoError(t, err)
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
-	_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
-	require.ErrorIs(t, err, database.ErrConflict)
-	close(ready)
-	published, err := service.Create(owner, source.Id, request, head)
-	require.NoError(t, err)
-	require.Equal(t, cp.Id, published.Id)
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, published.State)
+		follower := NewService(store, testAuthorizer{}, tags, nil)
+		_, err := follower.Create(owner, source.Id, request, head)
+		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeAborted), "%v", err)
+		cancel()
+		require.ErrorIs(t, <-done, context.Canceled)
+		close(gate)
+		cp, err := follower.Create(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, 1, tags.base.createCalls)
+		require.NoError(t, follower.Delete(owner, cp.Id))
+	})
+
+	t.Run("Given abandoned work, when a replacement sweeps, assert that expired creation is published", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		service := NewService(store, testAuthorizer{}, tags, nil)
+		cp, _, err := service.beginCreate(owner, source.Id, uuid.NewString(), head)
+		require.NoError(t, err)
+		replacement := NewService(store, testAuthorizer{}, tags, nil)
+		require.NoError(t, NewRecoveryWorker(replacement).sweep(t.Context()))
+		ready, err := store.GetSessionCheckpoint(t.Context(), cp.Id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, ready.State)
+		require.NoError(t, replacement.Delete(owner, cp.Id))
+	})
+
+	t.Run("Given a stopped partial copy, when it fails verification, assert that admission opens while its UID remains deletable after restart", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source", mutateTag: func(tag *ateapipb.Tag) {
+			tag.Status.Snapshot.DurableSnapshot.State = ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING
+		}}
+		service := NewService(store, testAuthorizer{}, tags, nil)
+		request := uuid.NewString()
+		_, err := service.Create(owner, source.Id, request, head)
+		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable))
+		cp, _, err := service.beginCreate(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, cp.State)
+		pending, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "tag-uid", pending.TagUID)
+		require.Equal(t, "s3://snapshots/source", pending.Snapshot.URI, "pending copy has no completed tag URI")
+		_, err = store.GetSessionCheckpointForkSource(t.Context(), cp.Id, "alice")
+		require.ErrorIs(t, err, database.ErrNotFound)
+		_, err = store.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+		require.NoError(t, err, "the serialized copy has stopped; source admission must open")
+		tags.deleteErr = status.Error(codes.PermissionDenied, "storage denied")
+		require.Equal(t, codes.PermissionDenied, status.Code(service.Delete(owner, cp.Id)))
+		retained, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "tag-uid", retained.TagUID)
+		tags.deleteErr = nil
+		require.NoError(t, NewService(store, testAuthorizer{}, tags, nil).Delete(owner, cp.Id))
+		require.Nil(t, tags.created)
+	})
+
+	t.Run("Given lost create and publication replies, when the same request retries, assert that it adopts the retained tag", func(t *testing.T) {
+		for _, publishFailure := range []bool{false, true} {
+			source, head := recoverySource(t, store)
+			tags := &testTags{snapshotURI: "s3://snapshots/source"}
+			var persistence storeInterface = store
+			if publishFailure {
+				persistence = &failedCheckpointPublish{Client: store, entered: make(chan struct{})}
+			} else {
+				tags.createErr = status.Error(codes.Unavailable, "copy reply lost")
+			}
+			service := NewService(persistence, testAuthorizer{}, tags, nil)
+			request := uuid.NewString()
+			_, err := service.Create(owner, source.Id, request, head)
+			require.Error(t, err)
+			require.NotNil(t, tags.created)
+			uid := tags.created.Metadata.Uid
+			replacement := NewService(store, testAuthorizer{}, tags, nil)
+			cp, err := replacement.Create(owner, source.Id, request, head)
+			require.NoError(t, err)
+			op, err := store.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+			require.NoError(t, err)
+			require.Equal(t, uid, op.TagUID)
+			require.NoError(t, replacement.Delete(owner, cp.Id))
+		}
+	})
+
+	t.Run("Given a lost delete reply, when a replacement retries, assert that backend absence completes deletion", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source", deleteResponseErr: status.Error(codes.Unavailable, "delete reply lost")}
+		service := NewService(store, testAuthorizer{}, tags, nil)
+		cp, err := service.Create(owner, source.Id, uuid.NewString(), head)
+		require.NoError(t, err)
+		require.Equal(t, codes.Unavailable, status.Code(service.Delete(owner, cp.Id)))
+		require.Nil(t, tags.created)
+		require.NoError(t, NewService(store, testAuthorizer{}, tags, nil).Delete(owner, cp.Id))
+		require.Equal(t, 1, tags.deleteCalls)
+	})
+
+	t.Run("Given a lost claim reply, when the request retries, assert that release makes it immediately reclaimable", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		service := NewService(store, testAuthorizer{}, tags, nil)
+		request := uuid.NewString()
+		cp, _, err := service.beginCreate(owner, source.Id, request, head)
+		require.NoError(t, err)
+		lost := NewService(&lostCheckpointClaim{Client: store}, testAuthorizer{}, tags, nil)
+		_, err = lost.Create(owner, source.Id, request, head)
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.Zero(t, tags.createCalls)
+		ready, err := service.Create(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, cp.Id, ready.Id)
+		require.NoError(t, service.Delete(owner, cp.Id))
+	})
+	t.Run("Given an executor paused after claiming, when its deadline passes and a replacement succeeds, assert that the stale executor cannot copy", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		service := NewService(store, testAuthorizer{}, tags, nil)
+		request := uuid.NewString()
+		cp, _, err := service.beginCreate(owner, source.Id, request, head)
+		require.NoError(t, err)
+		resume := make(chan struct{})
+		paused := &pausedCheckpointClaim{Client: store, claimed: make(chan struct{}), resume: resume}
+		old := NewService(paused, testAuthorizer{}, tags, nil)
+		ctx, cancel := context.WithTimeout(owner, 80*time.Millisecond)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { _, err := old.Create(ctx, source.Id, request, head); done <- err }()
+		select {
+		case <-paused.claimed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("claim never reached")
+		}
+		<-ctx.Done()
+		ready, err := service.Create(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, cp.Id, ready.Id)
+		close(resume)
+		require.ErrorIs(t, <-done, context.DeadlineExceeded)
+		require.Equal(t, 1, tags.createCalls)
+		require.NoError(t, service.Delete(owner, cp.Id))
+	})
+	t.Run("Given a lost reservation reply, when the same request retries, assert that it reclaims the committed reservation immediately", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		request := uuid.NewString()
+		lost := NewService(&lostCheckpointReservation{Client: store}, testAuthorizer{}, tags, nil)
+		_, err := lost.Create(owner, source.Id, request, head)
+		require.Error(t, err)
+		require.Zero(t, tags.createCalls)
+		replacement := NewService(store, testAuthorizer{}, tags, nil)
+		cp, err := replacement.Create(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, cp.State)
+		require.NoError(t, replacement.Delete(owner, cp.Id))
+	})
+
+	t.Run("Given a lost successful finalization reply, when Create retries, assert that the published checkpoint is returned without copying again", func(t *testing.T) {
+		source, head := recoverySource(t, store)
+		tags := &testTags{snapshotURI: "s3://snapshots/source"}
+		request := uuid.NewString()
+		lost := NewService(&lostCheckpointFinalization{Client: store}, testAuthorizer{}, tags, nil)
+		_, err := lost.Create(owner, source.Id, request, head)
+		require.Error(t, err)
+		replacement := NewService(store, testAuthorizer{}, tags, nil)
+		cp, err := replacement.Create(owner, source.Id, request, head)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, cp.State)
+		require.Equal(t, 1, tags.createCalls)
+		require.NoError(t, replacement.Delete(owner, cp.Id))
+	})
+}
+
+// Alias prevents the fixture's local store variable from shadowing the interface.
+type storeInterface = store
+
+type countedClaims struct {
+	*database.Client
+	claims atomic.Int64
+}
+
+func (s *countedClaims) ClaimCheckpointOperation(ctx context.Context, id, owner string, executor uuid.UUID) (*database.CheckpointOperation, error) {
+	s.claims.Add(1)
+	return s.Client.ClaimCheckpointOperation(ctx, id, owner, executor)
 }
 
 func reviewStore(t *testing.T) *database.Client {
@@ -376,68 +283,121 @@ func reviewStore(t *testing.T) *database.Client {
 	return database.NewClient(pool, "public")
 }
 
-type countedReadStore struct {
-	*testStore
-	reads atomic.Int64
+func TestPublicBackendErrorsHideConfiguration(t *testing.T) {
+	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", createErr: status.Error(codes.PermissionDenied, "secret endpoint and bucket")}
+	service := NewService(&testStore{}, testAuthorizer{}, tags, nil)
+	_, err := service.Create(auth.AuthSessionTo(t.Context(), testSession{userID: "alice"}), uuid.NewString(), "request", "head")
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.NotContains(t, err.Error(), "secret endpoint")
+	require.False(t, errors.Is(err, database.ErrConflict))
 }
 
-func (s *countedReadStore) GetCheckpointOperation(_ context.Context, _ string, owner string) (*database.CheckpointOperation, error) {
-	s.reads.Add(1)
-	return &database.CheckpointOperation{Checkpoint: proto.CloneOf(s.prepared), Creator: owner}, nil
-}
-
-type countedFailingTags struct {
-	*lockedTags
-	calls   atomic.Int64
-	first   <-chan struct{}
-	entered chan struct{}
-}
-
-func (t *countedFailingTags) CreateTag(ctx context.Context, space, name, actor string) (*ateapipb.Tag, error) {
-	call := t.calls.Add(1)
-	if call == 1 && t.first != nil {
-		close(t.entered)
-		select {
-		case <-t.first:
-		case <-ctx.Done():
-			return nil, ctx.Err()
+func TestPublicDeleteReportsCurrentBackendStatus(t *testing.T) {
+	persistence := reviewStore(t)
+	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	for _, operation := range []string{"lookup", "delete"} {
+		for _, code := range []codes.Code{codes.FailedPrecondition, codes.InvalidArgument, codes.PermissionDenied, codes.Unauthenticated} {
+			t.Run(operation+"/"+code.String(), func(t *testing.T) {
+				source, head := recoverySource(t, persistence)
+				tags := &testTags{snapshotURI: "s3://snapshots/source"}
+				service := NewService(persistence, testAuthorizer{}, tags, nil)
+				cp, err := service.Create(owner, source.Id, uuid.NewString(), head)
+				require.NoError(t, err)
+				failure := status.Error(code, "private storage endpoint")
+				if operation == "lookup" {
+					tags.getErr = failure
+				} else {
+					tags.deleteErr = failure
+				}
+				err = service.Delete(owner, cp.Id)
+				require.Equal(t, code, status.Code(err))
+				require.NotContains(t, err.Error(), "private storage")
+				pending, err := persistence.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+				require.NoError(t, err)
+				require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, pending.Checkpoint.State)
+				require.Equal(t, "tag-uid", pending.TagUID)
+				tags.getErr, tags.deleteErr = nil, nil
+				require.NoError(t, NewService(persistence, testAuthorizer{}, tags, nil).Delete(owner, cp.Id))
+			})
 		}
 	}
-	t.mu.Lock()
-	failure := t.base.createErr
-	t.mu.Unlock()
-	if failure != nil {
-		return nil, failure
+}
+
+func TestPublicCreateRetainsUnverifiedTag(t *testing.T) {
+	persistence := reviewStore(t)
+	source, head := recoverySource(t, persistence)
+	tags := &testTags{snapshotURI: "s3://snapshots/source"}
+	service := NewService(persistence, testAuthorizer{}, tags, nil)
+	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	request := uuid.NewString()
+	cp, _, err := service.beginCreate(owner, source.Id, request, head)
+	require.NoError(t, err)
+	_, err = tags.CreateTag(t.Context(), "team-a", tagName(cp.Id), "unrelated")
+	require.NoError(t, err)
+	_, err = service.Create(owner, source.Id, request, head)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
+	pending, err := persistence.GetCheckpointOperation(t.Context(), cp.Id, "alice")
+	require.NoError(t, err)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, pending.Checkpoint.State)
+	require.Nil(t, pending.Checkpoint.Failure)
+	require.Zero(t, tags.deleteCalls)
+	for _, force := range []bool{false, true} {
+		_, err = persistence.BeginSessionOperation(t.Context(), source.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, force)
+		require.ErrorIs(t, err, database.ErrConflict)
 	}
-	return t.lockedTags.CreateTag(ctx, space, name, actor)
+	// Substrate source references are immutable. Model removal of the unrelated
+	// tag by its owner instead of pretending it can be edited into our tag.
+	require.NoError(t, tags.DeleteTag(t.Context(), "team-a", tagName(cp.Id), tags.created.Metadata.Uid))
+	ready, err := NewService(persistence, testAuthorizer{}, tags, nil).Create(owner, source.Id, request, head)
+	require.NoError(t, err)
+	require.Equal(t, cp.Id, ready.Id)
+	require.NoError(t, service.Delete(owner, cp.Id))
 }
 
-type indexedTags struct {
-	actors map[string]*lockedTags
-	tags   sync.Map
-}
-
-func (t *indexedTags) GetActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
-	return t.actors[name].GetActor(ctx, space, name)
-}
-
-func (t *indexedTags) CreateTag(ctx context.Context, space, name, actor string) (*ateapipb.Tag, error) {
-	t.tags.Store(name, t.actors[actor])
-	return t.actors[actor].CreateTag(ctx, space, name, actor)
-}
-
-func (t *indexedTags) GetTag(ctx context.Context, space, name string) (*ateapipb.Tag, error) {
-	client, ok := t.tags.Load(name)
-	if !ok {
-		return nil, status.Error(codes.NotFound, "tag absent")
+func TestSlowRecoveryDoesNotBlockRequests(t *testing.T) {
+	persistence := reviewStore(t)
+	slowSource, slowHead := recoverySource(t, persistence)
+	fastSource, fastHead := recoverySource(t, persistence)
+	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	gate := make(chan struct{})
+	slowTags := &lockedTags{base: &testTags{snapshotURI: "s3://snapshots/source"}, gate: gate, entered: make(chan struct{})}
+	slow := NewService(persistence, testAuthorizer{}, slowTags, nil)
+	cp, _, err := slow.beginCreate(owner, slowSource.Id, uuid.NewString(), slowHead)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- NewRecoveryWorker(slow).sweep(t.Context()) }()
+	select {
+	case <-slowTags.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sweep never began")
 	}
-	return client.(*lockedTags).GetTag(ctx, space, name)
+	fast := NewService(persistence, testAuthorizer{}, &testTags{snapshotURI: "s3://snapshots/source"}, nil)
+	ctx, cancel := context.WithTimeout(owner, time.Second)
+	defer cancel()
+	ready, err := fast.Create(ctx, fastSource.Id, uuid.NewString(), fastHead)
+	require.NoError(t, err, "a request must execute without waiting behind the recovery sweep")
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, ready.State)
+	close(gate)
+	require.NoError(t, <-done)
+	require.NoError(t, slow.Delete(owner, cp.Id))
+	require.NoError(t, fast.Delete(owner, ready.Id))
 }
 
-func (t *indexedTags) DeleteTag(ctx context.Context, space, name, uid string) error {
-	client, ok := t.tags.Load(name)
-	if !ok {
-		return status.Error(codes.NotFound, "tag absent")
+// The reservation committed; only its successful reply was lost.
+type lostCheckpointReservation struct{ *database.Client }
+
+func (s *lostCheckpointReservation) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1.Checkpoint, owner, request string, executor uuid.UUID) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error) {
+	if _, _, err := s.Client.ReserveSessionCheckpoint(ctx, checkpoint, owner, request, executor); err != nil {
+		return nil, nil, err
 	}
-	return client.(*lockedTags).DeleteTag(ctx, space, name, uid)
+	return nil, nil, status.Error(codes.Unavailable, "reservation reply lost")
+}
+
+type lostCheckpointFinalization struct{ *database.Client }
+
+func (s *lostCheckpointFinalization) FinalizeClaimedSessionCheckpoint(ctx context.Context, checkpoint *apiv1.Checkpoint, executor uuid.UUID, uid, uri, failure string) (*apiv1.Checkpoint, error) {
+	if _, err := s.Client.FinalizeClaimedSessionCheckpoint(ctx, checkpoint, executor, uid, uri, failure); err != nil {
+		return nil, err
+	}
+	return nil, status.Error(codes.Unavailable, "finalization reply lost")
 }

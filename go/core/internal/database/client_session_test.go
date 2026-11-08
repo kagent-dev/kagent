@@ -29,7 +29,7 @@ func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
 		{"delete session", func() error { return deleteSession(ctx, client, "invalid") }},
 		{"get checkpoint", func() error { _, err := client.GetSessionCheckpoint(ctx, "invalid", "alice"); return err }},
 		{"reserve checkpoint", func() error {
-			_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{SessionId: "invalid", HeadTaskId: "task-1"}, "alice", "request")
+			_, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{SessionId: "invalid", HeadTaskId: "task-1"}, "alice", "request")
 			return err
 		}},
 		{"fork", func() error {
@@ -228,11 +228,11 @@ func TestSessionCheckpointRetainsRootFSFidelity(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	want := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/rootfs", Fidelity: "SNAPSHOT_FIDELITY_ROOTFS"}
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, want))
-	checkpoint, snapshot, err := client.ReserveSessionCheckpoint(ctx,
+	checkpoint, snapshot, err := reserveCheckpoint(ctx, client,
 		&apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	require.Equal(t, want, snapshot)
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/rootfs", "")
+	_, err = finalizeCheckpoint(ctx, client, checkpoint.Id, "tag-uid", "s3://tags/rootfs", "")
 	require.NoError(t, err)
 	retained, _, err := client.GetSessionCheckpointSnapshot(ctx, checkpoint.Id, "alice")
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	checkpoint, snapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "22222222-2222-4222-8222-222222222222", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
+	checkpoint, snapshot, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: "22222222-2222-4222-8222-222222222222", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
 	if err != nil {
 		t.Fatalf("ReserveSessionCheckpoint() = %+v, error %v", checkpoint, err)
 	}
@@ -294,11 +294,11 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	}
 	_, err = client.BeginSessionOperation(ctx, sessionID, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.ErrorIs(t, err, ErrConflict)
-	replayed, replayedSnapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
+	replayed, replayedSnapshot, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
 	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *snapshot {
 		t.Fatalf("replayed checkpoint = %+v, error %v", replayed, err)
 	}
-	ready, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
+	ready, err := finalizeCheckpoint(ctx, client, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
 	if err != nil || ready.State != apiv1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("ready checkpoint = %+v, error %v", ready, err)
 	}
@@ -321,14 +321,14 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.Fidelity != snapshot.Fidelity {
 		t.Fatalf("checkpoint tag = %q, error %v", tagUID, err)
 	}
-	if replayed, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", ""); err != nil || replayed.State != apiv1.CheckpointState_CHECKPOINT_STATE_READY {
+	if replayed, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request"); err != nil || replayed.State != apiv1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("replayed ready checkpoint = %+v, error %v", replayed, err)
 	}
-	failed, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "44444444-4444-4444-8444-444444444444", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "failed-checkpoint-request")
+	failed, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: "44444444-4444-4444-8444-444444444444", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "failed-checkpoint-request")
 	if err != nil {
 		t.Fatal(err)
 	}
-	failed, err = client.FinalizeSessionCheckpoint(ctx, failed.GetId(), "", "", "tag creation failed")
+	failed, err = finalizeCheckpoint(ctx, client, failed.GetId(), "", "", "tag creation failed")
 	if err != nil || failed.State != apiv1.CheckpointState_CHECKPOINT_STATE_FAILED || failed.GetFailure().GetMessage() != "tag creation failed" {
 		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
 	}
@@ -338,7 +338,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err := deleteSession(ctx, client, sessionID); err != nil {
 		t.Fatal(err)
 	}
-	replayed, replayedSnapshot, err = client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "55555555-5555-4555-8555-555555555555", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
+	replayed, replayedSnapshot, err = reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: "55555555-5555-4555-8555-555555555555", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
 	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *retained {
 		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
 	}
@@ -346,10 +346,10 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || len(listed) != 1 || listed[0].Id != checkpoint.Id {
 		t.Fatalf("listed checkpoints = %+v, error %v", listed, err)
 	}
-	if ref, tag, err := client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) || ref != nil || tag != "" {
+	if ref, tag, err := beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) || ref != nil || tag != "" {
 		t.Fatalf("unauthorized deletion = %+v, %q, %v", ref, tag, err)
 	}
-	deletingSnapshot, deletingTagUID, err := client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+	deletingSnapshot, deletingTagUID, err := beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "alice")
 	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *retained || deletingTagUID != "tag-uid" {
 		t.Fatalf("deleting snapshot = %+v, tag = %q, error %v", deletingSnapshot, deletingTagUID, err)
 	}
@@ -359,11 +359,11 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "too late"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("rename of a deleting checkpoint = %v, want not found", err)
 	}
-	deletingSnapshot, deletingTagUID, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+	deletingSnapshot, deletingTagUID, err = beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "alice")
 	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *retained || deletingTagUID != "tag-uid" {
 		t.Fatalf("deleting snapshot = %+v, tag = %q, error %v", deletingSnapshot, deletingTagUID, err)
 	}
-	if err := client.DeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"); err != nil {
+	if err := deleteCheckpoint(ctx, client, checkpoint.GetId(), "alice"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -374,7 +374,7 @@ func TestReserveSessionCheckpointRejectsCorruptSource(t *testing.T) {
 	client := NewClient(db, "public")
 	sessionID := "99999999-9999-4999-8999-999999999999"
 	insertReadySessionFixture(t, db, sessionID, "session-request", []byte{0xff})
-	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID}, "alice", "checkpoint-request")
+	_, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID}, "alice", "checkpoint-request")
 	require.ErrorContains(t, err, "decode Session")
 }
 
@@ -429,7 +429,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "hitl-checkpoint-request")
+	_, _, err = reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "hitl-checkpoint-request")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	first.Status.State = a2a.TaskStateCompleted
@@ -437,13 +437,13 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "checkpoint-request-1")
+	checkpoint, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "checkpoint-request-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice")
 	require.ErrorIs(t, err, ErrNotFound, "creating checkpoints cannot supply fork provenance")
-	if _, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid-1", "s3://tags/checkpoint", ""); err != nil {
+	if _, err := finalizeCheckpoint(ctx, client, checkpoint.GetId(), "tag-uid-1", "s3://tags/checkpoint", ""); err != nil {
 		t.Fatal(err)
 	}
 	_, err = client.UpdateSessionName(ctx, source.GetId(), "alice", "Renamed after checkpoint")
@@ -525,18 +525,18 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if _, _, err := client.ForkSession(ctx, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "fork-request-1", "ignored"); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting fork request error = %v", err)
 	}
-	if _, _, err := client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("delete referenced checkpoint error = %v", err)
 	}
 
 	if _, err := markSessionReady(ctx, client, fork.GetId(), "fork.example"); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint2, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", SessionId: fork.GetId(), HeadTaskId: string(copied.ID)}, "alice", "checkpoint-request-2")
+	checkpoint2, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", SessionId: fork.GetId(), HeadTaskId: string(copied.ID)}, "alice", "checkpoint-request-2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.FinalizeSessionCheckpoint(ctx, checkpoint2.GetId(), "tag-uid-2", "s3://tags/checkpoint", ""); err != nil {
+	if _, err := finalizeCheckpoint(ctx, client, checkpoint2.GetId(), "tag-uid-2", "s3://tags/checkpoint", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := deleteSession(ctx, client, fork.GetId()); err != nil {
@@ -549,9 +549,9 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	}
 	// Deleting a fork releases its checkpoint pin but preserves its original
 	// request identity, even after that checkpoint itself has been removed.
-	_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+	_, _, err = beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "alice")
 	require.NoError(t, err)
-	require.NoError(t, client.DeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"))
+	require.NoError(t, deleteCheckpoint(ctx, client, checkpoint.GetId(), "alice"))
 	_, _, err = client.ForkSession(ctx, checkpoint.GetId(), "alice", "fork-request-1", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	_, _, err = client.ForkSession(ctx, checkpoint2.GetId(), "alice", "fork-request-1", uuid.NewString())
@@ -826,14 +826,14 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 		require.NoError(t, saveRuntimeTask(t, client, source.GetId(), task, task,
 			&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	}
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
+	checkpoint, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: source.GetId(), HeadTaskId: "a-second",
 	}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	waiting, err := client.GetSessionTask(ctx, source.GetId(), "z-first", nil)
 	require.NoError(t, err)
 	require.ErrorIs(t, saveRuntimeTask(t, client, source.GetId(), waiting, waiting, nil), ErrFailedPrecondition)
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag", "tag-snapshot", "")
+	_, err = finalizeCheckpoint(ctx, client, checkpoint.GetId(), "tag", "tag-snapshot", "")
 	require.NoError(t, err)
 	_, _, err = client.ForkSession(ctx, checkpoint.GetId(), "bob", uuid.NewString(), uuid.NewString())
 	require.ErrorIs(t, err, ErrNotFound)
@@ -863,12 +863,12 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 		}
 	}
 	// A fork can itself be checkpointed without losing task chronology.
-	nested, snapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
+	nested, snapshot, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: fork.GetId(), HeadTaskId: forkHead,
 	}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	require.Equal(t, "tag-snapshot", snapshot.URI)
-	_, err = client.FinalizeSessionCheckpoint(ctx, nested.GetId(), "nested-tag", "nested-snapshot", "")
+	_, err = finalizeCheckpoint(ctx, client, nested.GetId(), "nested-tag", "nested-snapshot", "")
 	require.NoError(t, err)
 	fork2, _, err := client.ForkSession(ctx, nested.GetId(), "alice", uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)

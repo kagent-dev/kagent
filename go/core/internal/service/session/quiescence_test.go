@@ -182,7 +182,7 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 			_, err = store.CreateRuntimeTask(t.Context(), session.Id, hash[:], next, "")
 			require.ErrorIs(t, err, database.ErrFailedPrecondition)
 			checkpoint := &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
-			_, _, err = store.ReserveSessionCheckpoint(t.Context(), checkpoint, "alice", "checkpoint")
+			_, _, err = reserveCheckpoint(t.Context(), store, checkpoint, "alice", "checkpoint")
 			require.ErrorIs(t, err, database.ErrFailedPrecondition)
 			close(release)
 
@@ -198,7 +198,7 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 				require.False(t, pending, "uncertain claims must not keep recovery retries active")
 			} else {
 				require.Eventually(t, func() bool {
-					_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), checkpoint, "alice", "checkpoint")
+					_, snapshot, err := reserveCheckpoint(t.Context(), store, checkpoint, "alice", "checkpoint")
 					return err == nil && snapshot.URI == "s3://snapshots/snapshot-1"
 				}, 5*time.Second, 10*time.Millisecond)
 				require.EqualValues(t, 1, actors.mutations.Load(), "database retries must not suspend the actor again")

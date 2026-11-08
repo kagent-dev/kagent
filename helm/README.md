@@ -361,19 +361,6 @@ validation commands, defaults, and runtime configuration.
 
 ## Upgrading
 
-The controller keeps `RollingUpdate`. New replicas become Ready and serve API
-traffic while checkpoint recovery waits for legacy writer Pods to exit.
-Checkpoint creation and deletion return retryable `Unavailable` during this
-handoff, without admitting new work; other APIs remain available. Keep the chart's
-private execution-protocol annotation and Downward API Pod identity when using
-custom deployment templates. Do not force-delete terminating legacy writers.
-
-Before rolling back to an older chart without the execution protocol, quiesce
-checkpoint requests and finish pending recovery. Then scale the
-current controller Deployment to zero and wait for its Pods to exit. Only then
-restore the old chart; startup activation does not protect a later downgrade.
-See the [checkpoint recovery contract](../docs/architecture/persistence-checkpoints-and-forks.md).
-
 When upgrading, make sure to upgrade both charts:
 
 ```bash
