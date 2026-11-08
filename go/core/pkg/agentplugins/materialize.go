@@ -88,11 +88,7 @@ func (m Materialization) ClaudeFormatPluginRoots() []string {
 // It does not load runtime configuration.
 // The caller must serialize access to the package cache.
 func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths) (Materialization, error) {
-	plugins, err := materializeResources(ctx, resources, paths)
-	if err != nil {
-		return Materialization{}, err
-	}
-	return Materialization{SkillsDirectory: paths.Skills, plugins: plugins}, nil
+	return materialize(ctx, resources, paths, fetchArtifact)
 }
 
 // LoadMCP resolves standard MCP configuration from a materialization. The
@@ -111,7 +107,34 @@ func LoadMCP(ctx context.Context, materialization Materialization, dataRoot stri
 	return result, nil
 }
 
-func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, error) {
+// fetchFunc writes the contents of a Git or S3 source into an empty staging
+// directory. Materialize publishes the directory only when fetchFunc succeeds
+// and the selected package is valid.
+type fetchFunc func(ctx context.Context, source agentplugin.Source, staging string) error
+
+func fetchArtifact(ctx context.Context, source agentplugin.Source, staging string) error {
+	switch {
+	case source.Git != nil:
+		return skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, staging)
+	case source.S3 != nil:
+		return skillsinit.FetchS3(ctx, skillsinit.S3Ref{
+			URI: "s3://" + source.S3.Bucket + "/" + source.S3.Key, Dest: staging,
+			Endpoint: source.S3.Endpoint, Region: source.S3.Region, VersionID: source.S3.VersionID,
+		})
+	default:
+		return fmt.Errorf("artifact source is required")
+	}
+}
+
+func materialize(ctx context.Context, resources agentplugin.Resources, paths Paths, fetch fetchFunc) (Materialization, error) {
+	plugins, err := materializeResources(ctx, resources, paths, fetch)
+	if err != nil {
+		return Materialization{}, err
+	}
+	return Materialization{SkillsDirectory: paths.Skills, plugins: plugins}, nil
+}
+
+func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths, fetch fetchFunc) ([]materializedPlugin, error) {
 	selectedSkills := make([]string, 0, len(resources.Skills))
 	for _, skill := range resources.Skills {
 		selectedSkills = append(selectedSkills, skill.Name)
@@ -137,7 +160,7 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 		if err != nil {
 			return nil, err
 		}
-		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
+		sourceRoot, err := fetchSource(ctx, skill.Source, root, fetch, "SKILL.md")
 		if err != nil {
 			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
 		}
@@ -158,7 +181,7 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 		if err != nil {
 			return nil, err
 		}
-		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json", claudeManifest)
+		pluginRoot, err := fetchSource(ctx, plugin.Source, root, fetch, "plugin.json", claudeManifest)
 		if err != nil {
 			return nil, fmt.Errorf("materialize plugin %d: %w", i, err)
 		}
@@ -244,7 +267,7 @@ func validateSkillName(name string) error {
 
 const claudeManifest = ".claude-plugin/plugin.json"
 
-func fetchSource(ctx context.Context, source agentplugin.Source, destination string, requiredFiles ...string) (root string, resultErr error) {
+func fetchSource(ctx context.Context, source agentplugin.Source, destination string, fetch fetchFunc, requiredFiles ...string) (root string, resultErr error) {
 	selected := 0
 	if source.Directory != "" {
 		selected++
@@ -294,21 +317,8 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 			resultErr = errors.Join(resultErr, fmt.Errorf("remove staged artifact: %w", err))
 		}
 	}()
-	switch {
-	case source.Git != nil:
-		if err := skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, staging); err != nil {
-			return "", err
-		}
-	case source.S3 != nil:
-		ref := skillsinit.S3Ref{
-			URI: "s3://" + source.S3.Bucket + "/" + source.S3.Key, Dest: staging,
-			Endpoint: source.S3.Endpoint, Region: source.S3.Region, VersionID: source.S3.VersionID,
-		}
-		if err := skillsinit.FetchS3(ctx, ref); err != nil {
-			return "", err
-		}
-	default:
-		return "", fmt.Errorf("artifact source is required")
+	if err := fetch(ctx, source, staging); err != nil {
+		return "", err
 	}
 	root, err = validatedPackageRoot(staging, source.Path)
 	if err != nil {

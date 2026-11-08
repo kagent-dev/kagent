@@ -8,7 +8,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
-	"github.com/kagent-dev/kagent/go/internal/testutil"
 )
 
 func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
@@ -18,8 +17,10 @@ func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
 		Skills:   filepath.Join(root, "skills"),
 		Data:     filepath.Join(root, "data"),
 	}
-	repository, commit := testutil.CommitFiles(t, map[string]string{"SKILL.md": "# Skill"})
-	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}
+	source := agentplugin.Source{Directory: t.TempDir()}
+	if err := os.WriteFile(filepath.Join(source.Directory, "SKILL.md"), []byte("# Skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	agentConfig := &configv1.ADKAgentConfig{
 		AgentPlugins: PluginConfig(agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "root", Source: source}}}),
 		SubAgents:    []*configv1.ADKAgentConfig{{Name: "child", AgentPlugins: PluginConfig(agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "child", Source: source}}})}},
@@ -43,8 +44,14 @@ func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
 func TestMaterializeAgentPluginsRejectsClaudeFormatPlugin(t *testing.T) {
 	root := t.TempDir()
 	paths := AgentPluginPaths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")}
-	repository, commit := testutil.CommitFiles(t, map[string]string{".claude-plugin/plugin.json": `{"name":"acme-claude"}`})
-	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}
+	source := agentplugin.Source{Directory: t.TempDir()}
+	manifest := filepath.Join(source.Directory, ".claude-plugin", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"name":"acme-claude"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	agentConfig := &configv1.ADKAgentConfig{AgentPlugins: PluginConfig(agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: source}}})}
 	if err := MaterializeAgentPlugins(t.Context(), agentConfig, paths); err == nil {
 		t.Fatal("MaterializeAgentPlugins() accepted a Claude-format plugin")

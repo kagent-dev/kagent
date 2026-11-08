@@ -13,7 +13,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/internal/testutil"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -88,11 +87,14 @@ func TestNativeProcessRetriesAreOptIn(t *testing.T) {
 func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	skillRoot := filepath.Join(durableDir, "generated", "claude")
-	repository, commit := testutil.CommitFiles(t, map[string]string{"SKILL.md": "# Review"})
+	skillDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Review"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Production("claude-test", "help")
 	cfg.StrictVersion = false
 	cfg.SkillResources = &agentplugin.Resources{Skills: []agentplugin.Skill{{
-		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}},
+		Name: "review", Source: agentplugin.Source{Directory: skillDir},
 	}}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {Type: "http", URL: "https://mcp.example.com/mcp"}}
 	raw, err := json.Marshal(cfg)
