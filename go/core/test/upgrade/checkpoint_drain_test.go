@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +20,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
 // Exercise the process-drain boundary in an isolated namespace. This models
@@ -113,4 +115,31 @@ func drainLegacyCheckpointWriters(t *testing.T, env upgradeEnv) error {
 		pods, err := podNamesForSelectorE(t, env, controllerSelector)
 		return err == nil && len(pods) == 0, err
 	})
+}
+
+func requireLegacyCheckpointRollbackReady(t *testing.T, env upgradeEnv) {
+	t.Helper()
+	port, stop := startPortForward(t, env, postgresServiceName, 5432)
+	defer stop()
+	config, err := postgres.PoolConfig(postgresURL(t, env, port), postgresRole)
+	require.NoError(t, err)
+	config.ConnConfig.RuntimeParams["search_path"] = kagentSchema
+	pool, err := pgxpool.NewWithConfig(t.Context(), config)
+	require.NoError(t, err)
+	defer pool.Close()
+	require.NoError(t, checkLegacyCheckpointRollback(t.Context(), pool))
+}
+
+// Legacy deletion requires a completed URI and cannot collect retained partial
+// tags. Keep this guard shared with the PostgreSQL rollback regression.
+func checkLegacyCheckpointRollback(ctx context.Context, pool *pgxpool.Pool) error {
+	var blockers int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM session_checkpoint
+		WHERE state IN ('CREATING', 'DELETING') OR (state = 'FAILED' AND tag_uid <> '')`).Scan(&blockers); err != nil {
+		return fmt.Errorf("check checkpoint rollback compatibility: %w", err)
+	}
+	if blockers != 0 {
+		return fmt.Errorf("finish pending operations and delete retained failed checkpoints before restoring a legacy writer: %d incompatible checkpoints", blockers)
+	}
+	return nil
 }

@@ -90,20 +90,26 @@ func (s *Service) claimAndExecute(ctx context.Context, observed *database.Checkp
 	}()
 	op, err := s.store.ClaimCheckpointOperation(ctx, id, owner, executor)
 	if errors.Is(err, database.ErrConflict) {
-		current, readErr := s.store.GetCheckpointOperation(ctx, id, owner)
-		if errors.Is(readErr, database.ErrNotFound) {
-			return nil, nil
-		}
-		if readErr != nil {
-			return nil, readErr
-		}
-		return createOutcome(current.Checkpoint)
+		return s.currentOutcome(ctx, id, owner)
 	}
 	if err != nil {
 		return nil, err
 	}
 	acquired = true
 	return s.execute(ctx, op, executor)
+}
+
+// Losing execution authority permits observation, never another backend call.
+// Absence lets Delete succeed; Create translates it to NotFound at its boundary.
+func (s *Service) currentOutcome(ctx context.Context, id, owner string) (*apiv1.Checkpoint, error) {
+	current, err := s.store.GetCheckpointOperation(ctx, id, owner)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to observe checkpoint operation", err)
+	}
+	return createOutcome(current.Checkpoint)
 }
 
 func (s *Service) release(ctx context.Context, id string, executor uuid.UUID) error {
@@ -144,12 +150,16 @@ func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation,
 	if err != nil {
 		failure = "Checkpoint snapshot copy could not be verified"
 	}
-	// CreateTag's serialized reply established that copying stopped. FAILED can
-	// release admission now and retain the UID for a later explicit Delete.
+	// Under the required backend serialization contract, the definitive reply
+	// permits FAILED to release admission and retain its UID for explicit Delete.
+	// Expiry of the kagent claim alone never establishes that copying stopped.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	checkpoint, err := s.store.FinalizeClaimedSessionCheckpoint(finishCtx, op.Checkpoint, executor,
 		tag.GetMetadata().GetUid(), substrate.SnapshotURI(tag.GetStatus().GetSnapshot()), failure)
+	if errors.Is(err, database.ErrConflict) {
+		return s.currentOutcome(finishCtx, op.Checkpoint.Id, op.Creator)
+	}
 	if err != nil {
 		return nil, err
 	}

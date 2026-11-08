@@ -96,12 +96,13 @@ func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHead
 	}
 	if op.Checkpoint.Id != id.String() {
 		result, err = s.claimAndExecute(ctx, op)
-		if err == nil && result == nil {
-			return nil, serviceerrors.NewNotFound("Checkpoint no longer exists", nil)
-		}
-		return result, err
+	} else {
+		result, err = s.execute(ctx, op, executor)
 	}
-	return s.execute(ctx, op, executor)
+	if err == nil && result == nil {
+		return nil, serviceerrors.NewNotFound("Checkpoint no longer exists", nil)
+	}
+	return result, err
 }
 
 func (s *Service) reserveCreate(ctx context.Context, sessionID, requestID, expectedHeadTaskID, id string, executor uuid.UUID) (*database.CheckpointOperation, error) {
@@ -163,9 +164,11 @@ func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1.Checkpoint, r
 		return nil, beforeErr
 	}
 	name := tagName(checkpoint.Id)
-	// CreateTag holds Substrate's actor and tag leases. AlreadyExists is a
-	// synchronization barrier: a pending tag read after it is no longer being
-	// copied by an earlier call. A plain GetTag cannot establish that fact.
+	// v1.0.0 takes Actor and Tag leases before its workflow checks. Interpreting
+	// terminal replies requires the backend guarantee that earlier external
+	// writes cannot outlive serialization, including cancellation/lease loss;
+	// see the architecture document's required backend contract. GetTag alone
+	// cannot establish that a pending copy stopped.
 	tag, err := s.tags.CreateTag(ctx, reference.Atespace, name, actorName)
 	if err != nil {
 		switch status.Code(err) {
@@ -328,6 +331,16 @@ func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOpera
 		}
 	}
 	if err := s.store.DeleteClaimedSessionCheckpoint(ctx, checkpointID, userID, executor); err != nil {
+		if errors.Is(err, database.ErrConflict) {
+			_, readErr := s.store.GetCheckpointOperation(ctx, checkpointID, userID)
+			if errors.Is(readErr, database.ErrNotFound) {
+				return nil
+			}
+			if readErr != nil {
+				return serviceerrors.NewInternal("Failed to observe checkpoint deletion", readErr)
+			}
+			return serviceerrors.NewAborted("Checkpoint deletion is still pending; retry the same request", nil)
+		}
 		return serviceerrors.NewInternal("Failed to delete checkpoint", err)
 	}
 	return nil

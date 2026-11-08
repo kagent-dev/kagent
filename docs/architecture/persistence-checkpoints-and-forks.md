@@ -74,6 +74,10 @@ Each attempt shares a request deadline of at most two minutes with its claim.
 Retries with the same owner/request ID reuse the existing reservation. They
 acquire expired work and execute the same function, or return the current outcome
 when another request owns it. A live operation returns retryable `Aborted`.
+If completion loses execution authority, the caller only observes the current
+outcome: READY is returned, pending work returns `Aborted`, and a completed
+deletion succeeds. Create returns `NotFound` if the checkpoint was deleted.
+The observation never repeats a backend mutation or overwrites the new executor.
 Backend errors describe the current attempt, without persisting an error that a
 later repaired request could accidentally replay. Public errors exclude backend
 configuration. A canceled or uncertain attempt retains `CREATING` and expires its
@@ -87,10 +91,11 @@ operations can delay later background work; each attempt remains bounded by two
 minutes. The post-sweep interval paces background retries. Live requests execute
 independently of the sweep, without a queue, retry map, or wakeup protocol.
 
-A pending tag is not evidence of abandonment. Substrate holds its Actor and Tag
-leases through `CreateTag`, including copying and finalization. Recovery calls
-`CreateTag` before interpreting `AlreadyExists`: that reply establishes that the
-previous serialized attempt stopped, but does not establish copy completion.
+A pending tag is not evidence of abandonment. Substrate v1.0.0 acquires its Actor
+and Tag leases before copying and finalizing in `CreateTag`. Recovery calls
+`CreateTag` before interpreting `AlreadyExists`, which means the name is taken,
+not that its copy completed. Interpreting a retained partial copy as stopped
+depends on the backend serialization contract below.
 A busy backend lease returns `Aborted`; that leaves creation pending without
 inspecting or cleaning the still-live tag. A later retry can adopt the completed
 copy under the same request ID.
@@ -99,6 +104,25 @@ Kagent must still verify the tag's identity, template lineage, completed storage
 and the source Actor's snapshot and UID. Transport errors retain admission until
 a subsequent serialized attempt establishes an outcome.
 
+### Required backend contract: pending Substrate confirmation
+
+The recovery path requires previous external writes to have stopped before a
+new serialized attempt can classify a retained tag as failed or delete it.
+Besides `AlreadyExists`, the service interprets `CreateTag` replies of
+`FailedPrecondition` and `NotFound` as definitive enough to inspect the tag.
+Those paths, and UID-conditional deletion, require the same safety guarantee.
+
+The live Substrate regression verifies contention while the original RPC still
+holds valid leases: the caller disconnects without delivering cancellation to
+that RPC, another replica receives `Aborted`, and a later retry adopts its UID.
+It does not verify cancellation delivered to Substrate, failed lease renewal,
+process failure, or delayed object-store writes after lease loss. Lease tokens
+protect lease ownership; neither a kagent claim timeout nor a successful lease
+acquisition alone proves that earlier external writes stopped. The stronger
+contract needs confirmation and fault coverage in Substrate. If it does not
+hold, fix the owning backend or retain admission until the outcome is safe;
+do not infer safety from elapsed time. This remains a release acceptance item.
+
 After a copy has stopped, failed verification marks the checkpoint `FAILED` and
 releases source admission. Its exact tag UID remains retained for explicit
 UID-conditional deletion, including when tag storage is still `PENDING` and has
@@ -106,15 +130,19 @@ no completed URI. Failed checkpoints cannot be forked. Their history and revisio
 references remain pinned until deletion succeeds. An unrelated or replaced tag
 is never adopted or deleted.
 
-The first upgrade from a controller without checkpoint execution claims requires
-an explicit boundary: quiesce checkpoint creation/deletion, stop every old
-controller, and wait for those processes to exit before starting the new version
-and resuming checkpoint requests. Merely marking a Pod unready is insufficient.
+### Proposed initial upgrade boundary: pending maintainer acceptance
+
+The proposed first upgrade from a controller without checkpoint execution claims
+quiesces checkpoint creation/deletion, stops every old controller, and waits for
+those processes to exit before starting the new version and resuming requests.
+This interrupts the controller API. Merely marking a Pod unready is insufficient.
 Legacy reservations have NULL claims; recovery waits until their UUIDv7 creation
 age exceeds the two-minute operation timeout. This grace is an additional delay,
 not proof that an old writer exited: old code has no bounded overall operation
 and can wait in a reservation transaction. Do not mix old checkpoint writers with
-new recovery. Future rollouts between claim-aware controllers can remain rolling.
+new recovery. Claim-aware controllers can coordinate through the database during
+later rolling upgrades; this does not establish compatibility of every other
+release change.
 Before downgrading to a controller without execution claims, finish pending
 checkpoint operations, delete failed
 checkpoints that retain tag UIDs, and drain all current writers. Legacy deletion
@@ -123,6 +151,16 @@ The upgrade suite keeps its old-code/new-schema checks, drains every legacy Pod
 before starting the new controller, and repeats that boundary before application
 rollback. A separate process-lifetime test holds a terminating legacy Pod to
 verify that scaling to zero or losing readiness alone does not open the boundary.
+The PostgreSQL migration regression seeds a populated version 3 checkpoint before
+claim columns exist, upgrades it, and verifies recovery preserves its request and
+history boundary. The rollback guard is also exercised with a retained failed
+partial-tag fixture. These are storage fixtures, not previous-release binaries.
+
+The production installer still performs normal Helm upgrades; only the upgrade
+test explicitly drains checkpoint writers. The proposed maintenance window is
+not an accepted release policy or an enforced installer sequence. Before release,
+maintainers must choose that boundary with public upgrade/rollback instructions,
+or a staged compatible rollout if API interruption is unacceptable.
 
 Kagent requests synchronous Substrate suspension before recording a checkpoint.
 If an earlier attempt already suspended the Actor but left a pending durable

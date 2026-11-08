@@ -251,8 +251,7 @@ func TestUpgrade(t *testing.T) {
 	if !t.Run("roll back application to previous release", func(t *testing.T) {
 		if legacyCheckpointWriters {
 			require.NoError(t, drainLegacyCheckpointWriters(t, env))
-			require.Zero(t, pgQueryInt(t, env, "SELECT count(*) FROM session_checkpoint WHERE state IN ('CREATING', 'DELETING') OR (state = 'FAILED' AND tag_uid <> '')"),
-				"finish pending operations and delete retained failed checkpoints before restoring a legacy writer")
+			requireLegacyCheckpointRollbackReady(t, env)
 		}
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
 		defer cancel()
