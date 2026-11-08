@@ -173,6 +173,9 @@ flowchart TD
    to become ready.
 8. Advance the Agent's latest-successful pointer.
 
+[Agent creation](agent-creation.md) traces these steps, including the SQL and
+gRPC calls each one makes.
+
 Agent owns readiness, warnings, the desired revision, and the latest successful
 revision. AgentTemplate is shared context with no runtime status. Child template
 references are resolved under the root Agent's Harness; they do not require

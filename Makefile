@@ -215,6 +215,42 @@ semconv-verify: semconv-check semconv-policies-test semconv-generate ## Check th
 		exit 1; \
 	fi
 
+##@ Diagrams
+
+# Kroki's Excalidraw renderer: POST a scene, receive an SVG. The Diagram Render
+# Check service container in ci.yaml must run the same image, and CI fails when
+# it does not; that job also sets KROKI_EXCALIDRAW_URL itself.
+KROKI_EXCALIDRAW_IMAGE ?= yuzutech/kroki-excalidraw:0.35.0@sha256:9697a29506d2bea4268586c402735754fe6eb0bcff974ca37676b27b1bd48bcb
+KROKI_EXCALIDRAW_CONTAINER ?= kagent-kroki-excalidraw
+KROKI_EXCALIDRAW_URL ?= http://localhost:8004/
+DIAGRAM_SCENES = $(shell git ls-files -- '*.excalidraw')
+DIAGRAM_SVGS = $(DIAGRAM_SCENES:.excalidraw=.svg)
+
+.PHONY: diagrams-renderer
+diagrams-renderer: ## Start the pinned Kroki Excalidraw renderer on localhost:8004 and wait until it is ready
+	$(CONTAINER_RUNTIME) start $(KROKI_EXCALIDRAW_CONTAINER) >/dev/null 2>&1 || \
+		$(CONTAINER_RUNTIME) run --detach --rm --name $(KROKI_EXCALIDRAW_CONTAINER) --publish 8004:8004 $(KROKI_EXCALIDRAW_IMAGE)
+	@# The service listens only after its Chromium starts. It answers this empty request with 400.
+	@curl --silent --output /dev/null --retry 30 --retry-delay 2 --retry-all-errors '$(KROKI_EXCALIDRAW_URL)'
+
+.PHONY: diagrams-render
+diagrams-render: ## Render every Excalidraw scene, NAME.excalidraw, to NAME.svg beside it, using the renderer at KROKI_EXCALIDRAW_URL
+	@for scene in $(DIAGRAM_SCENES); do \
+		echo "$$scene -> $${scene%.excalidraw}.svg"; \
+		curl --fail-with-body --silent --show-error \
+			--header 'Content-Type: text/plain' --data-binary "@$$scene" \
+			--output "$${scene%.excalidraw}.svg" '$(KROKI_EXCALIDRAW_URL)' || \
+			{ echo "Rendering failed. Is the renderer running? Start it with 'make diagrams-renderer'." >&2; exit 1; }; \
+	done
+
+.PHONY: diagrams-check
+diagrams-check: diagrams-render ## Fail when a diagram SVG is missing or differs from a fresh render of its scene
+	@if test -n "$$(git status --porcelain -- $(DIAGRAM_SVGS))"; then \
+		echo "Diagrams are out of date. Run 'make diagrams-render' and commit the result:"; \
+		git status --short -- $(DIAGRAM_SVGS); \
+		exit 1; \
+	fi
+
 ##@ Git
 
 .PHONY: init-git-hooks
