@@ -144,6 +144,15 @@ delete the failed checkpoint before creating a new request. Public failed
 checkpoint responses use a generic service-owned failure message, including for
 legacy rows that retained raw backend errors; the stored operation is not rewritten.
 
+MCP checkpoint tools use the same classified public errors, excluding storage
+causes and wrapped cancellation details. Backend status is retained as
+`kagent.dev/grpc-code`; terminal creation failures also retain
+`kagent.dev/error-reason` and `kagent.dev/checkpoint-id` for cleanup. The Web UI
+lists failed snapshots separately from saved transcript boundaries, refreshes
+after a failed creation reply, and reads subsequent list pages. Failed records
+can be inspected and deleted, but cannot be forked or renamed. A failed deletion
+keeps its details open for retry.
+
 ### Proposed initial upgrade boundary: pending maintainer acceptance
 
 The proposed first upgrade from a controller without checkpoint execution claims

@@ -41,7 +41,7 @@ it("forks through Session RPCs and reads the new conversation identity", async (
   expect(result).toMatchObject({ id: "forked-session", contextId: "forked-session", name: "Saved turn" });
 });
 
-it.each(["KAGENT_CHECKPOINT_CONVERSATION_ADVANCED", undefined])("does not retry %s", async (reason) => {
+it.each(["KAGENT_CHECKPOINT_CONVERSATION_ADVANCED", "KAGENT_CHECKPOINT_FAILED", undefined])("does not retry %s", async (reason) => {
   let calls = 0;
   setApiTransport(createRouterTransport((router) => {
     router.service(CheckpointService, {
@@ -55,4 +55,38 @@ it.each(["KAGENT_CHECKPOINT_CONVERSATION_ADVANCED", undefined])("does not retry 
   }));
   await expect(defaultOperations["agentInstances.checkpoints.create"]({ id: "instance", requestId: "request", expectedHeadTaskId: "turn-a" }, {})).rejects.toMatchObject({ reason });
   expect(calls).toBe(1);
+});
+
+it("reads failed cleanup candidates beyond the first page", async () => {
+  const tokens: string[] = [];
+  setApiTransport(createRouterTransport((router) => {
+    router.service(CheckpointService, {
+      listCheckpoints(request) {
+        tokens.push(request.page?.pageToken ?? "");
+        return request.page?.pageToken
+          ? { checkpoints: [{ id: "failed", sessionId: request.sessionId, state: CheckpointState.FAILED, failure: { message: "Copy could not be verified" } }], page: {} }
+          : { checkpoints: [{ id: "ready", sessionId: request.sessionId, state: CheckpointState.READY }], page: { nextPageToken: "next" } };
+      },
+    });
+  }));
+  const result = await defaultOperations["agentInstances.checkpoints.list"]({ id: "instance" }, {});
+  expect(tokens).toEqual(["", "next"]);
+  expect(result).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "ready", state: "ready" }),
+    expect.objectContaining({ id: "failed", state: "failed", failure: "Copy could not be verified" }),
+  ]));
+});
+
+it("rejects a repeated snapshot page rather than returning an incomplete list", async () => {
+  let calls = 0;
+  setApiTransport(createRouterTransport((router) => {
+    router.service(CheckpointService, {
+      listCheckpoints() {
+        calls++;
+        return { checkpoints: [], page: { nextPageToken: "same" } };
+      },
+    });
+  }));
+  await expect(defaultOperations["agentInstances.checkpoints.list"]({ id: "instance" }, {})).rejects.toThrow("repeated a page");
+  expect(calls).toBe(2);
 });

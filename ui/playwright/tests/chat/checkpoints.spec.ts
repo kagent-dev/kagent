@@ -13,6 +13,55 @@ const dividers = (page: import("@playwright/test").Page) =>
 /** The seeded boundary's generated name: its conversation, joined to its turn. */
 const SEEDED_NAME = `${instances.ready}-seed-task-1`;
 
+test.describe("chat: failed snapshots", () => {
+  test.use({ expectedNoise: [/Could not (?:checkpoint the conversation|delete the checkpoint):/] });
+
+  test("chat: a failed creation can be found, inspected and deleted after reload", async ({ page }) => {
+    await page.goto(`${agentChat(instances.ready)}?checkpoint=failed`);
+    await expect(dividers(page)).toHaveCount(1);
+    await sendAndAwaitTurn(page, "A new turn for a failed snapshot.");
+    await page.getByTestId("chat-checkpoint").click();
+
+    const notice = page.getByTestId("chat-failed-snapshots");
+    await expect(notice).toBeVisible();
+    // A failure is a cleanup record, not a saved history boundary.
+    await expect(dividers(page)).toHaveCount(1);
+    await expect(page.getByTestId("chat-checkpoint")).toBeEnabled();
+    const failed = notice.locator('[data-testid^="chat-failed-snapshot-"]');
+    const id = (await failed.getAttribute("data-testid"))!.replace("chat-failed-snapshot-", "");
+
+    await page.reload();
+    await expect(page.getByTestId(`chat-failed-snapshot-${id}`)).toBeVisible();
+    await page.getByTestId(`chat-failed-snapshot-${id}`).click();
+    await expect(page.getByTestId("snapshot-details-state")).toHaveAttribute("data-state", "failed");
+    await expect(page.getByTestId("snapshot-details-fields")).toContainText(id);
+    await expect(page.getByTestId("snapshot-details-fork")).toBeDisabled();
+    await expect(page.getByTestId("snapshot-details-rename")).toBeDisabled();
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("checkpointDelete", "denied");
+      window.history.replaceState({}, "", url);
+    });
+    await page.getByTestId("snapshot-details-delete").click();
+    await pressOnce(page.getByTestId("snapshot-details-delete-confirm"));
+    await expect(page.getByTestId("snapshot-action-error")).toBeVisible();
+    await expect(page.getByTestId("snapshot-details-body")).toBeVisible();
+    await expect(notice).toBeVisible();
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("checkpointDelete");
+      window.history.replaceState({}, "", url);
+    });
+    await page.getByTestId("snapshot-details-delete").click();
+    await pressOnce(page.getByTestId("snapshot-details-delete-confirm"));
+    await expect(notice).toHaveCount(0);
+    await expect(page.getByTestId("snapshot-details-body")).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByTestId("chat-failed-snapshots")).toHaveCount(0);
+    await expect(dividers(page)).toHaveCount(1);
+  });
+});
+
 /** Opens one boundary's record, which is what pressing its line does. */
 async function openSnapshot(
   page: import("@playwright/test").Page,

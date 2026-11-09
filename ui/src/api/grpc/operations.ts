@@ -625,6 +625,7 @@ function toAgentInstance(instance: PbSession): AgentInstance {
  * worth reporting rather than a list worth truncating.
  */
 const INSTANCE_PAGE_LIMIT = 50;
+const CHECKPOINT_PAGE_LIMIT = 50;
 
 function toAgentInstanceShare(share: PbSessionShare): AgentInstanceShare {
   return {
@@ -803,22 +804,30 @@ const agentInstances: Pick<
     return checkpoint;
   },
 
-  /*
-   * Newest first, because that is the order the chat needs them in and the controller
-   * does not promise one. One page: a conversation's boundaries are counted in
-   * handfuls, and paging a list this short would be machinery with nothing to do.
-   */
+  // FAILED cleanup candidates can be on later pages. Read the complete list
+  // before sorting it newest-first, just as for conversation discovery above.
   "agentInstances.checkpoints.list": async (input, options) => {
     const name = "CheckpointService/ListCheckpoints";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(CheckpointService).listCheckpoints(
-        { sessionId: input.id },
-        call("agentInstances.checkpoints.list", options),
-      ),
-    );
-    return list(response.checkpoints)
-      .map(toCheckpoint)
-      .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+    const rows: Checkpoint[] = [];
+    let pageToken = "";
+    const seen = new Set<string>();
+    for (let page = 0; page < CHECKPOINT_PAGE_LIMIT; page += 1) {
+      const response = await rpc(name, options.signal, () =>
+        serviceClient(CheckpointService).listCheckpoints(
+          { sessionId: input.id, page: { pageToken } },
+          call("agentInstances.checkpoints.list", options),
+        ),
+      );
+      rows.push(...list(response.checkpoints).map(toCheckpoint));
+      const next = response.page?.nextPageToken ?? "";
+      if (!next) return rows.sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+      if (seen.has(next)) {
+        throw new ApiError("The API repeated a page of snapshots instead of advancing.", { kind: "parse", url: name });
+      }
+      seen.add(next);
+      pageToken = next;
+    }
+    throw new ApiError("The snapshot list could not be read to the end.", { kind: "parse", url: name });
   },
 
   /*

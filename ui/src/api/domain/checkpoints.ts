@@ -14,9 +14,9 @@
  * How far the controller has got with retaining the snapshot.
  *
  * `CheckpointState` in the proto, spelled as words for the reasons given in
- * `agentInstances.ts`. Creation answers `ready` or `failed` and never `creating` —
- * the RPC copies the snapshot before it returns — so a caller that wants to fork can
- * check the state it was handed rather than poll.
+ * `agentInstances.ts`. Successful creation answers `ready`; a terminal failure is
+ * an error. Owner queries also return `failed` records so they can be deleted.
+ * Only `ready` records can be forked or renamed.
  */
 export type CheckpointState =
   | "unspecified"

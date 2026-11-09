@@ -12,6 +12,7 @@ import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
 import { SnapshotDetailsModal } from "@/components/chat/SnapshotDetailsModal";
 import { SnapshotRenameDialog } from "@/components/chat/SnapshotRenameDialog";
+import { snapshotLabel } from "@/components/chat/snapshotLabel";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { TaskPushNotificationsModal } from "@/components/chat/TaskPushNotificationsModal";
 import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
@@ -145,6 +146,7 @@ export function AgentChatPage() {
   const invalidateConversations = useInvalidateConversations();
   const links = useExtensionAgentLinks();
   const checkpoints = useCheckpoints(id);
+  const failedCheckpoints = (checkpoints.data ?? []).filter((checkpoint) => checkpoint.state === "failed");
   /**
    * Boundaries saved since this page loaded, by the message they were saved at.
    *
@@ -178,7 +180,7 @@ export function AgentChatPage() {
   const openSnapshot = useCallback(
     (checkpointId: string) =>
       setOpenCheckpoint(checkpoints.data?.find((row) => row.id === checkpointId)),
-    [checkpoints.data],
+    [checkpoints.data, setOpenCheckpoint],
   );
   /* The rename box, reachable from the line as well as from the record — held as its
      own record for the reason `openCheckpoint` is. */
@@ -186,7 +188,7 @@ export function AgentChatPage() {
   const renameSnapshot = useCallback(
     (checkpointId: string) =>
       setRenamingCheckpoint(checkpoints.data?.find((row) => row.id === checkpointId)),
-    [checkpoints.data],
+    [checkpoints.data, setRenamingCheckpoint],
   );
 
   const checkpointByMessage = useMemo(
@@ -235,6 +237,12 @@ export function AgentChatPage() {
       const reason = cause instanceof Error ? cause.message : String(cause);
       console.error("Could not checkpoint the conversation:", cause);
       toast.error(`Could not save the snapshot: ${reason}`);
+      // A failed or uncertain reply can still leave a retained FAILED record.
+      try {
+        await checkpoints.refresh();
+      } catch (refreshError: unknown) {
+        console.error("Could not re-read the saved boundaries:", refreshError);
+      }
     } finally {
       setCheckpointing(false);
     }
@@ -260,7 +268,7 @@ export function AgentChatPage() {
         const reason = cause instanceof Error ? cause.message : String(cause);
         console.error("Could not delete the checkpoint:", cause);
         toast.error(`Could not delete: ${reason}`);
-        return;
+        throw cause;
       }
       try {
         await checkpoints.refresh();
@@ -635,6 +643,47 @@ export function AgentChatPage() {
 
           {/* The transcript owns its own scrolling now, so this passes it the room to
               do it in and nothing else. */}
+          {failedCheckpoints.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              data-testid="chat-failed-snapshots"
+              title="Some snapshots could not be saved"
+              description={
+                <div>
+                  Open a failed snapshot to view its details or delete it.
+                  <ul>
+                    {failedCheckpoints.map((checkpoint) => (
+                      <li key={checkpoint.id}>
+                        <Button
+                          type="link"
+                          data-testid={`chat-failed-snapshot-${checkpoint.id}`}
+                          onClick={() => openSnapshot(checkpoint.id)}
+                        >
+                          {snapshotLabel(checkpoint)}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              }
+            />
+          ) : null}
+          {checkpoints.error ? (
+            <Alert
+              type="error"
+              showIcon
+              title="Could not load snapshots"
+              description={checkpoints.error.message}
+              action={
+                <Button onClick={() => void checkpoints.refresh().catch((cause: unknown) => {
+                  console.error("Could not re-read the saved boundaries:", cause);
+                })}>
+                  Retry
+                </Button>
+              }
+            />
+          ) : null}
           <ChatTranscript
             chat={chat}
             isLoading={instance.isLoading}

@@ -91,7 +91,7 @@ func (s *Service) claimAndExecute(ctx context.Context, observed *database.Checkp
 	if err != nil {
 		// A lost COMMIT reply can hide successful acquisition. Retire this
 		// executor before returning the uncertain error, as on reservation.
-		return nil, errors.Join(err, s.release(ctx, id, executor))
+		return nil, errors.Join(publicOperationError(err), s.release(ctx, id, executor))
 	}
 	return s.execute(ctx, op, executor)
 }
@@ -161,7 +161,7 @@ func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation,
 		return s.currentOutcome(finishCtx, op.Checkpoint.Id, op.Creator)
 	}
 	if err != nil {
-		return nil, err
+		return nil, publicOperationError(err)
 	}
 	releaseNeeded = false
 	return createOutcome(checkpoint)
