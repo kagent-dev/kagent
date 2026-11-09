@@ -1,14 +1,61 @@
 package upgrade
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
+
+func TestInvokeHarnesses(t *testing.T) {
+	manifest, err := os.ReadFile("../e2e/manifests/lifecycle.yaml.tmpl")
+	require.NoError(t, err)
+	for _, scenario := range []struct {
+		name       string
+		repository string
+	}{
+		{"Given a released controller, when preparing invocation fixtures, assert that they use its published runtimes", "ghcr.io/kagent-dev/kagent"},
+		{"Given an upgraded controller, when preparing invocation fixtures, assert that they use its locally built runtimes", "localhost:5001/kagent-dev/kagent"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			images := &configv1.HarnessImagesConfig{
+				Kagent: scenario.repository + "/golang-adk@sha256:" + strings.Repeat("a", 64),
+				Claude: scenario.repository + "/claude-harness@sha256:" + strings.Repeat("b", 64),
+				Codex:  scenario.repository + "/codex-harness@sha256:" + strings.Repeat("c", 64),
+			}
+			encoded, err := invokeHarnesses(manifest, images)
+			require.NoError(t, err)
+			var fixtures v1alpha3.HarnessList
+			require.NoError(t, json.Unmarshal(encoded, &fixtures))
+			require.Equal(t, "List", fixtures.Kind)
+			require.Len(t, fixtures.Items, 4)
+			want := map[string]string{
+				"kagent": images.Kagent, "byo-adk-e2e": images.Kagent,
+				"claude-e2e": images.Claude, "codex-e2e": images.Codex,
+			}
+			for _, fixture := range fixtures.Items {
+				require.Equal(t, "Harness", fixture.Kind)
+				require.Contains(t, want, fixture.Name)
+				require.NotNil(t, fixture.Spec.Workload.Image)
+				require.Equal(t, want[fixture.Name], *fixture.Spec.Workload.Image)
+				require.Equal(t, "kagent-default", fixture.Spec.Substrate.WorkerPoolRef.Name)
+				delete(want, fixture.Name)
+			}
+			require.Empty(t, want)
+		})
+	}
+	t.Run("Given no runtime catalog, when preparing invocation fixtures, assert that setup reports the missing images", func(t *testing.T) {
+		_, err := invokeHarnesses(manifest, nil)
+		require.ErrorContains(t, err, "installed controller must provide kagent, claude, and codex runtime images")
+	})
+}
 
 func TestLoadUpgradeEnv(t *testing.T) {
 	repoRoot := t.TempDir()
