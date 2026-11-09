@@ -30,8 +30,13 @@ details out of the public API unless callers need them to express intent.
 Namespace and name identify an object; UID distinguishes deletion and recreation.
 Validate names according to the referenced kind, not a universal DNS-label rule.
 Use native structured types such as `LocalObjectReference`,
-`TypedLocalObjectReference`, and `SecretKeySelector`. Start with same-namespace
-references; crossing namespaces requires an explicit authorization policy.
+`TypedLocalObjectReference`, and `SecretKeySelector` when their semantics match.
+When they do not, own the reference type instead of patching a native one with
+CEL. For example, `TypedObjectReference` treats an omitted `apiGroup` as the core
+group, so model and MCP server references own `group` and `kind`
+fields that default to the kagent kind. The controller rejects other kinds with
+reason `InvalidKind`. Start with same-namespace references; crossing namespaces
+requires an explicit authorization policy.
 
 Do not encode references as `"namespace/name"` strings. Keep inline configuration
 and references in separate, typed fields. If both forms are supported, define

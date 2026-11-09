@@ -117,6 +117,19 @@ spec:
                               ModelConfigRef references the ModelConfig (defaulting to the Harness namespace) that
                               writes the summaries. Omitted uses the agent's own model.
                             properties:
+                              group:
+                                description: Group is the referenced API group. It
+                                  defaults to api.kagent.dev and requires kind.
+                                maxLength: 253
+                                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                type: string
+                              kind:
+                                description: Kind is the referenced kind. It defaults
+                                  to ModelConfig.
+                                maxLength: 63
+                                minLength: 1
+                                pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
+                                type: string
                               name:
                                 maxLength: 253
                                 minLength: 1
@@ -132,6 +145,8 @@ spec:
                             x-kubernetes-validations:
                             - message: name must not be empty
                               rule: has(self.name) && self.name != ''
+                            - message: group requires kind
+                              rule: '!has(self.group) || has(self.kind)'
                           promptTemplate:
                             description: |-
                               PromptTemplate replaces the runtime's default summarization prompt. It
@@ -167,6 +182,19 @@ spec:
                         description: ModelConfigRef references the embedding ModelConfig
                           (defaulting to the Harness namespace).
                         properties:
+                          group:
+                            description: Group is the referenced API group. It defaults
+                              to api.kagent.dev and requires kind.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          kind:
+                            description: Kind is the referenced kind. It defaults
+                              to ModelConfig.
+                            maxLength: 63
+                            minLength: 1
+                            pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
+                            type: string
                           name:
                             maxLength: 253
                             minLength: 1
@@ -179,6 +207,9 @@ spec:
                         required:
                         - name
                         type: object
+                        x-kubernetes-validations:
+                        - message: group requires kind
+                          rule: '!has(self.group) || has(self.kind)'
                       ttlDays:
                         description: TTLDays controls how many days a stored memory
                           entry remains valid.

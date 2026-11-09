@@ -51,6 +51,18 @@ spec:
                 description: ModelConfig is required by managed harnesses and optional
                   for BYO harnesses.
                 properties:
+                  group:
+                    description: Group is the referenced API group. It defaults to
+                      api.kagent.dev and requires kind.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
+                  kind:
+                    description: Kind is the referenced kind. It defaults to ModelConfig.
+                    maxLength: 63
+                    minLength: 1
+                    pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
+                    type: string
                   name:
                     maxLength: 253
                     minLength: 1
@@ -66,6 +78,8 @@ spec:
                 x-kubernetes-validations:
                 - message: name must not be empty
                   rule: has(self.name) && self.name != ''
+                - message: group requires kind
+                  rule: '!has(self.group) || has(self.kind)'
               outputSchema:
                 description: |-
                   OutputSchema constrains successful terminal output when this template is
@@ -330,43 +344,46 @@ spec:
                             Tools is omitted or empty.
                           type: boolean
                         server:
-                          description: TypedObjectReference contains enough information
-                            to let you locate the typed referenced object
+                          description: MCPServerReference identifies an MCP server;
+                            an omitted namespace means the owner's namespace.
                           properties:
                             apiGroup:
                               description: |-
-                                APIGroup is the group for the resource being referenced.
-                                If APIGroup is not specified, the specified Kind must be in the core API group.
-                                For any other third-party types, APIGroup is required.
+                                APIGroup is not supported.
+
+                                Deprecated: use Group.
+                              type: string
+                            group:
+                              description: Group is the referenced API group. It defaults
+                                to api.kagent.dev.
+                              maxLength: 253
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                               type: string
                             kind:
-                              description: Kind is the type of resource being referenced
+                              default: RemoteMCPServer
+                              description: Kind is the referenced kind. It defaults
+                                to RemoteMCPServer.
+                              maxLength: 63
+                              minLength: 1
+                              pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
                               type: string
                             name:
-                              description: Name is the name of resource being referenced
+                              maxLength: 253
+                              minLength: 1
                               type: string
                             namespace:
-                              description: |-
-                                Namespace is the namespace of resource being referenced
-                                Note that when a namespace is specified, a gateway.networking.k8s.io/ReferenceGrant object is required in the referent namespace to allow that namespace's owner to accept the reference. See the ReferenceGrant documentation for details.
-                                (Alpha) This field requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
+                              maxLength: 63
                               type: string
                           required:
-                          - kind
                           - name
                           type: object
                           x-kubernetes-validations:
-                          - message: kind must be RemoteMCPServer
-                            rule: self.kind == 'RemoteMCPServer'
-                          - message: apiGroup must be omitted
+                          - message: use group instead of apiGroup
                             rule: '!has(self.apiGroup)'
-                          - fieldPath: .name
-                            message: name must contain between 1 and 253 characters
-                            rule: size(self.name) > 0 && size(self.name) <= 253
-                          - fieldPath: .namespace
-                            message: namespace must contain at most 63 characters
-                            rule: '!has(self.namespace) || size(self.namespace) <=
-                              63'
+                          - message: a group other than api.kagent.dev requires its
+                              own kind
+                            rule: '!has(self.group) || self.group == ''api.kagent.dev''
+                              || (has(self.kind) && self.kind != ''RemoteMCPServer'')'
                         tools:
                           description: |-
                             Tools optionally limits which server tools are exposed. An omitted or empty

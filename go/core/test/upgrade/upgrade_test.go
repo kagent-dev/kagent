@@ -142,6 +142,12 @@ func TestUpgrade(t *testing.T) {
 		return
 	}
 
+	v1References := "upgrade-refs-" + seed[len(seed)-8:]
+	v1Seeded := t.Run("Given v1.0.x reference shapes, when the previous release reconciles an edit, assert that they resolve", func(t *testing.T) {
+		seedV1References(t, env, v1References)
+		requireV1ReferencesReconciled(t, env, v1References, "previous release")
+	})
+
 	if !t.Run("upgrade to current build", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 		defer cancel()
@@ -184,6 +190,12 @@ func TestUpgrade(t *testing.T) {
 		t.Logf("kagent-controller %s restarts=%d", pod, restarts)
 	}) {
 		return
+	}
+
+	if v1Seeded {
+		t.Run("Given v1.0.x reference shapes from the previous release, when the upgraded controller reconciles an edit, assert that they resolve", func(t *testing.T) {
+			requireV1ReferencesReconciled(t, env, v1References, "upgraded")
+		})
 	}
 
 	t.Run("verify seeded data survived migrations", func(t *testing.T) {
@@ -249,6 +261,12 @@ func TestUpgrade(t *testing.T) {
 			"previous-release controller pod %s crash-looped against the target schema", pod)
 	}) {
 		return
+	}
+
+	if v1Seeded {
+		t.Run("Given v1.0.x reference shapes the upgraded controller reconciled, when the rolled-back controller reconciles an edit, assert that they resolve", func(t *testing.T) {
+			requireV1ReferencesReconciled(t, env, v1References, "rolled back")
+		})
 	}
 
 	if !t.Run("previous release invokes against target schema", func(t *testing.T) {
