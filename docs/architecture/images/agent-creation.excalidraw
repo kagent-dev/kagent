@@ -36,9 +36,9 @@
       "id": "tex2",
       "type": "text",
       "x": 45,
-      "y": 70,
+      "y": 70.0,
       "width": 172.48000000000002,
-      "height": 70,
+      "height": 70.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -104,7 +104,7 @@
       "x": 45,
       "y": 352.5,
       "width": 156.8,
-      "height": 35,
+      "height": 35.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -141,7 +141,7 @@
       "x": 20,
       "y": 560,
       "width": 2420,
-      "height": 600,
+      "height": 620,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -168,9 +168,9 @@
       "id": "tex6",
       "type": "text",
       "x": 45,
-      "y": 842.5,
+      "y": 852.5,
       "width": 172.48000000000002,
-      "height": 35,
+      "height": 35.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -205,9 +205,9 @@
       "id": "rec7",
       "type": "rectangle",
       "x": 20,
-      "y": 1220,
+      "y": 1240,
       "width": 2420,
-      "height": 270,
+      "height": 330,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -234,9 +234,9 @@
       "id": "tex8",
       "type": "text",
       "x": 45,
-      "y": 1320,
+      "y": 1370.0,
       "width": 141.12,
-      "height": 70,
+      "height": 70.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -268,7 +268,7 @@
       "baseline": 28
     },
     {
-      "id": "tex11",
+      "id": "tex9",
       "type": "text",
       "x": 300,
       "y": 35,
@@ -285,9 +285,9 @@
       "groupIds": [],
       "frameId": null,
       "roundness": null,
-      "seed": 87109,
+      "seed": 71271,
       "version": 1,
-      "versionNonce": 1152019,
+      "versionNonce": 942561,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
@@ -305,12 +305,12 @@
       "baseline": 30
     },
     {
-      "id": "tex12",
+      "id": "tex10",
       "type": "text",
       "x": 300,
       "y": 88,
       "width": 504.00000000000006,
-      "height": 25,
+      "height": 25.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -322,9 +322,9 @@
       "groupIds": [],
       "frameId": null,
       "roundness": null,
-      "seed": 95028,
+      "seed": 79190,
       "version": 1,
-      "versionNonce": 1256748,
+      "versionNonce": 1047290,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
@@ -342,7 +342,7 @@
       "baseline": 20
     },
     {
-      "id": "arr13",
+      "id": "arr11",
       "type": "arrow",
       "x": 1880,
       "y": 50,
@@ -350,6 +350,86 @@
       "height": 0,
       "angle": 0,
       "strokeColor": "#2f9e44",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 87109,
+      "version": 1,
+      "versionNonce": 1152019,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          80,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "startBinding": null,
+      "endBinding": null
+    },
+    {
+      "id": "tex12",
+      "type": "text",
+      "x": 1975,
+      "y": 40,
+      "width": 215.04000000000002,
+      "height": 20.0,
+      "angle": 0,
+      "strokeColor": "#2f9e44",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 95028,
+      "version": 1,
+      "versionNonce": 1256748,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "SQL to kagent PostgreSQL",
+      "originalText": "SQL to kagent PostgreSQL",
+      "fontSize": 16,
+      "fontFamily": 2,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "lineHeight": 1.25,
+      "autoResize": true,
+      "baseline": 16
+    },
+    {
+      "id": "arr13",
+      "type": "arrow",
+      "x": 1880,
+      "y": 84,
+      "width": 80,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -388,11 +468,11 @@
       "id": "tex14",
       "type": "text",
       "x": 1975,
-      "y": 40,
-      "width": 215.04000000000002,
-      "height": 20,
+      "y": 74,
+      "width": 295.68,
+      "height": 20.0,
       "angle": 0,
-      "strokeColor": "#2f9e44",
+      "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -410,8 +490,8 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "SQL to kagent PostgreSQL",
-      "originalText": "SQL to kagent PostgreSQL",
+      "text": "gRPC between kagent and Substrate",
+      "originalText": "gRPC between kagent and Substrate",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "left",
@@ -425,11 +505,11 @@
       "id": "arr15",
       "type": "arrow",
       "x": 1880,
-      "y": 84,
+      "y": 118,
       "width": 80,
       "height": 0,
       "angle": 0,
-      "strokeColor": "#1971c2",
+      "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -468,11 +548,11 @@
       "id": "tex16",
       "type": "text",
       "x": 1975,
-      "y": 74,
-      "width": 295.68,
-      "height": 20,
+      "y": 108,
+      "width": 125.44000000000001,
+      "height": 20.0,
       "angle": 0,
-      "strokeColor": "#1971c2",
+      "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -490,8 +570,8 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "gRPC between kagent and Substrate",
-      "originalText": "gRPC between kagent and Substrate",
+      "text": "Kubernetes API",
+      "originalText": "Kubernetes API",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "left",
@@ -505,15 +585,15 @@
       "id": "arr17",
       "type": "arrow",
       "x": 1880,
-      "y": 118,
+      "y": 152,
       "width": 80,
       "height": 0,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
+      "strokeColor": "#868e96",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
-      "strokeStyle": "solid",
+      "strokeStyle": "dashed",
       "roughness": 0,
       "opacity": 100,
       "groupIds": [],
@@ -548,11 +628,11 @@
       "id": "tex18",
       "type": "text",
       "x": 1975,
-      "y": 108,
-      "width": 125.44000000000001,
-      "height": 20,
+      "y": 142,
+      "width": 322.56000000000006,
+      "height": 20.0,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
+      "strokeColor": "#868e96",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -570,8 +650,8 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Kubernetes API",
-      "originalText": "Kubernetes API",
+      "text": "In-process, or internal to Substrate",
+      "originalText": "In-process, or internal to Substrate",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "left",
@@ -582,57 +662,48 @@
       "baseline": 16
     },
     {
-      "id": "arr19",
-      "type": "arrow",
-      "x": 1880,
-      "y": 152,
-      "width": 80,
-      "height": 0,
+      "id": "rec19",
+      "type": "rectangle",
+      "x": 300,
+      "y": 280,
+      "width": 240,
+      "height": 180,
       "angle": 0,
-      "strokeColor": "#868e96",
-      "backgroundColor": "transparent",
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#f8f9fa",
       "fillStyle": "solid",
       "strokeWidth": 2,
-      "strokeStyle": "dashed",
+      "strokeStyle": "solid",
       "roughness": 0,
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": null,
+      "roundness": {
+        "type": 3
+      },
       "seed": 150461,
       "version": 1,
       "versionNonce": 1989851,
       "isDeleted": false,
-      "boundElements": [],
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "tex20"
+        }
+      ],
       "updated": 1,
       "link": null,
-      "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          80,
-          0
-        ]
-      ],
-      "lastCommittedPoint": null,
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false,
-      "startBinding": null,
-      "endBinding": null
+      "locked": false
     },
     {
       "id": "tex20",
       "type": "text",
-      "x": 1975,
-      "y": 142,
-      "width": 322.56000000000006,
-      "height": 20,
+      "x": 340.2,
+      "y": 332.5,
+      "width": 159.60000000000002,
+      "height": 75.0,
       "angle": 0,
-      "strokeColor": "#868e96",
+      "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -650,23 +721,23 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "In-process, or internal to Substrate",
-      "originalText": "In-process, or internal to Substrate",
-      "fontSize": 16,
+      "text": "Agent\n\nbehavior, Harness,\nand egress policies",
+      "originalText": "Agent\n\nbehavior, Harness,\nand egress policies",
+      "fontSize": 15,
       "fontFamily": 2,
-      "textAlign": "left",
-      "verticalAlign": "top",
-      "containerId": null,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "rec19",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 16
+      "baseline": 15
     },
     {
       "id": "rec21",
       "type": "rectangle",
-      "x": 300,
+      "x": 600,
       "y": 280,
-      "width": 220,
+      "width": 300,
       "height": 180,
       "angle": 0,
       "strokeColor": "#1e1e1e",
@@ -689,14 +760,6 @@
         {
           "type": "text",
           "id": "tex22"
-        },
-        {
-          "type": "arrow",
-          "id": "arr68"
-        },
-        {
-          "type": "arrow",
-          "id": "arr70"
         }
       ],
       "updated": 1,
@@ -706,10 +769,10 @@
     {
       "id": "tex22",
       "type": "text",
-      "x": 321.8,
-      "y": 323.125,
-      "width": 176.4,
-      "height": 93.75,
+      "x": 636.3199999999999,
+      "y": 317.5,
+      "width": 227.36,
+      "height": 105.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -729,23 +792,23 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Agent\n\nspec.template\nspec.harnessRef\nspec.egressPolicyRefs",
-      "originalText": "Agent\n\nspec.template\nspec.harnessRef\nspec.egressPolicyRefs",
-      "fontSize": 15,
+      "text": "Referenced resources\n\nHarness · AgentTemplate\nModelConfig · RemoteMCPServer\nWorkerPool · ConfigMap\nSecret · EgressPolicy",
+      "originalText": "Referenced resources\n\nHarness · AgentTemplate\nModelConfig · RemoteMCPServer\nWorkerPool · ConfigMap\nSecret · EgressPolicy",
+      "fontSize": 14,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec21",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 15
+      "baseline": 14
     },
     {
       "id": "rec23",
       "type": "rectangle",
-      "x": 600,
+      "x": 960,
       "y": 280,
-      "width": 300,
+      "width": 260,
       "height": 180,
       "angle": 0,
       "strokeColor": "#1e1e1e",
@@ -768,10 +831,6 @@
         {
           "type": "text",
           "id": "tex24"
-        },
-        {
-          "type": "arrow",
-          "id": "arr72"
         }
       ],
       "updated": 1,
@@ -781,10 +840,10 @@
     {
       "id": "tex24",
       "type": "text",
-      "x": 636.3199999999999,
-      "y": 308.75,
-      "width": 227.36,
-      "height": 122.5,
+      "x": 985.0,
+      "y": 323.125,
+      "width": 210.00000000000003,
+      "height": 93.75,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -804,27 +863,27 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Referenced resources\n\nHarness \u00b7 AgentTemplate\nModelConfig \u00b7 RemoteMCPServer\nWorkerPool (Substrate CRD)\nConfigMap \u00b7 Secret\nEgressPolicy",
-      "originalText": "Referenced resources\n\nHarness \u00b7 AgentTemplate\nModelConfig \u00b7 RemoteMCPServer\nWorkerPool (Substrate CRD)\nConfigMap \u00b7 Secret\nEgressPolicy",
-      "fontSize": 14,
+      "text": "Agent status\n\nwhether the Agent is\nready, and which revision\nnew Sessions use",
+      "originalText": "Agent status\n\nwhether the Agent is\nready, and which revision\nnew Sessions use",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec23",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 14
+      "baseline": 15
     },
     {
       "id": "rec25",
       "type": "rectangle",
-      "x": 960,
-      "y": 280,
-      "width": 260,
-      "height": 180,
+      "x": 260,
+      "y": 580,
+      "width": 1220,
+      "height": 580,
       "angle": 0,
       "strokeColor": "#1e1e1e",
-      "backgroundColor": "#f8f9fa",
+      "backgroundColor": "#f3f0ff",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -839,16 +898,7 @@
       "version": 1,
       "versionNonce": 2618225,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex26"
-        },
-        {
-          "type": "arrow",
-          "id": "arr78"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false
@@ -856,10 +906,10 @@
     {
       "id": "tex26",
       "type": "text",
-      "x": 989.2,
-      "y": 313.75,
-      "width": 201.60000000000002,
-      "height": 112.5,
+      "x": 774.8,
+      "y": 588,
+      "width": 190.4,
+      "height": 25.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -879,27 +929,27 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Agent status\n\nReady\nEgressPoliciesApplied\ndesiredRevision\nlatestSuccessfulRevision",
-      "originalText": "Agent status\n\nReady\nEgressPoliciesApplied\ndesiredRevision\nlatestSuccessfulRevision",
-      "fontSize": 15,
+      "text": "kagent controller",
+      "originalText": "kagent controller",
+      "fontSize": 20,
       "fontFamily": 2,
       "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "rec25",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 15
+      "baseline": 20
     },
     {
       "id": "rec27",
       "type": "rectangle",
-      "x": 260,
-      "y": 580,
-      "width": 960,
-      "height": 460,
+      "x": 300,
+      "y": 630,
+      "width": 240,
+      "height": 150,
       "angle": 0,
       "strokeColor": "#1e1e1e",
-      "backgroundColor": "#f3f0ff",
+      "backgroundColor": "#ffffff",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -927,10 +977,10 @@
     {
       "id": "tex28",
       "type": "text",
-      "x": 644.8,
-      "y": 590,
-      "width": 190.4,
-      "height": 25,
+      "x": 331.8,
+      "y": 667.5,
+      "width": 176.4,
+      "height": 75.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -950,24 +1000,24 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "kagent controller",
-      "originalText": "kagent controller",
-      "fontSize": 20,
+      "text": "Informers\n\nnotice changes to the\nAgent and its inputs",
+      "originalText": "Informers\n\nnotice changes to the\nAgent and its inputs",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
-      "verticalAlign": "top",
+      "verticalAlign": "middle",
       "containerId": "rec27",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 20
+      "baseline": 15
     },
     {
       "id": "rec29",
       "type": "rectangle",
-      "x": 300,
+      "x": 600,
       "y": 630,
-      "width": 220,
-      "height": 110,
+      "width": 300,
+      "height": 150,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#ffffff",
@@ -989,18 +1039,6 @@
         {
           "type": "text",
           "id": "tex30"
-        },
-        {
-          "type": "arrow",
-          "id": "arr70"
-        },
-        {
-          "type": "arrow",
-          "id": "arr72"
-        },
-        {
-          "type": "arrow",
-          "id": "arr74"
         }
       ],
       "updated": 1,
@@ -1010,10 +1048,10 @@
     {
       "id": "tex30",
       "type": "text",
-      "x": 342.8,
-      "y": 665,
-      "width": 134.4,
-      "height": 40,
+      "x": 657.6,
+      "y": 658.125,
+      "width": 184.8,
+      "height": 93.75,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1033,24 +1071,24 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Controller\n(KRT informers)",
-      "originalText": "Controller\n(KRT informers)",
-      "fontSize": 16,
+      "text": "Translator\n\nturns an Agent into an\nimmutable revision.\nNo I/O.",
+      "originalText": "Translator\n\nturns an Agent into an\nimmutable revision.\nNo I/O.",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec29",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 16
+      "baseline": 15
     },
     {
       "id": "rec31",
       "type": "rectangle",
-      "x": 600,
+      "x": 960,
       "y": 630,
-      "width": 240,
-      "height": 110,
+      "width": 280,
+      "height": 230,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#ffffff",
@@ -1072,14 +1110,6 @@
         {
           "type": "text",
           "id": "tex32"
-        },
-        {
-          "type": "arrow",
-          "id": "arr74"
-        },
-        {
-          "type": "arrow",
-          "id": "arr76"
         }
       ],
       "updated": 1,
@@ -1089,10 +1119,10 @@
     {
       "id": "tex32",
       "type": "text",
-      "x": 657.28,
-      "y": 665,
-      "width": 125.44000000000001,
-      "height": 40,
+      "x": 999.2,
+      "y": 679.375,
+      "width": 201.60000000000002,
+      "height": 131.25,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1112,24 +1142,24 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Translator\n(pure, no I/O)",
-      "originalText": "Translator\n(pure, no I/O)",
-      "fontSize": 16,
+      "text": "Reconciler\n\nmakes the revision exist\nin PostgreSQL and\nSubstrate, retries,\nand reports status.\nLeader only.",
+      "originalText": "Reconciler\n\nmakes the revision exist\nin PostgreSQL and\nSubstrate, retries,\nand reports status.\nLeader only.",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec31",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 16
+      "baseline": 15
     },
     {
       "id": "rec33",
       "type": "rectangle",
       "x": 960,
-      "y": 630,
-      "width": 220,
-      "height": 180,
+      "y": 960,
+      "width": 280,
+      "height": 150,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#ffffff",
@@ -1151,30 +1181,6 @@
         {
           "type": "text",
           "id": "tex34"
-        },
-        {
-          "type": "arrow",
-          "id": "arr76"
-        },
-        {
-          "type": "arrow",
-          "id": "arr78"
-        },
-        {
-          "type": "arrow",
-          "id": "arr80"
-        },
-        {
-          "type": "arrow",
-          "id": "arr82"
-        },
-        {
-          "type": "arrow",
-          "id": "arr84"
-        },
-        {
-          "type": "arrow",
-          "id": "arr96"
         }
       ],
       "updated": 1,
@@ -1184,10 +1190,10 @@
     {
       "id": "tex34",
       "type": "text",
-      "x": 1011.76,
-      "y": 700,
-      "width": 116.48000000000002,
-      "height": 40,
+      "x": 1011.8,
+      "y": 997.5,
+      "width": 176.4,
+      "height": 75.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1207,27 +1213,27 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Reconciler\n(leader only)",
-      "originalText": "Reconciler\n(leader only)",
-      "fontSize": 16,
+      "text": "BootstrapService\n\ngives a golden actor\nits own configuration",
+      "originalText": "BootstrapService\n\ngives a golden actor\nits own configuration",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec33",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 16
+      "baseline": 15
     },
     {
       "id": "rec35",
       "type": "rectangle",
-      "x": 960,
-      "y": 900,
-      "width": 220,
-      "height": 100,
+      "x": 1540,
+      "y": 580,
+      "width": 880,
+      "height": 580,
       "angle": 0,
       "strokeColor": "#1e1e1e",
-      "backgroundColor": "#ffffff",
+      "backgroundColor": "#fff4e6",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -1242,24 +1248,7 @@
       "version": 1,
       "versionNonce": 3665515,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex36"
-        },
-        {
-          "type": "arrow",
-          "id": "arr92"
-        },
-        {
-          "type": "arrow",
-          "id": "arr94"
-        },
-        {
-          "type": "arrow",
-          "id": "arr98"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false
@@ -1267,10 +1256,10 @@
     {
       "id": "tex36",
       "type": "text",
-      "x": 998.3199999999999,
-      "y": 930,
-      "width": 143.36,
-      "height": 40,
+      "x": 1929.6,
+      "y": 588,
+      "width": 100.80000000000001,
+      "height": 25.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1290,27 +1279,27 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "BootstrapService\n(gRPC)",
-      "originalText": "BootstrapService\n(gRPC)",
-      "fontSize": 16,
+      "text": "Substrate",
+      "originalText": "Substrate",
+      "fontSize": 20,
       "fontFamily": 2,
       "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "rec35",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 16
+      "baseline": 20
     },
     {
       "id": "rec37",
       "type": "rectangle",
-      "x": 1500,
-      "y": 580,
-      "width": 920,
-      "height": 560,
+      "x": 1580,
+      "y": 630,
+      "width": 260,
+      "height": 230,
       "angle": 0,
       "strokeColor": "#1e1e1e",
-      "backgroundColor": "#fff4e6",
+      "backgroundColor": "#ffffff",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -1338,10 +1327,10 @@
     {
       "id": "tex38",
       "type": "text",
-      "x": 1909.6,
-      "y": 590,
-      "width": 100.80000000000001,
-      "height": 25,
+      "x": 1621.8,
+      "y": 698.125,
+      "width": 176.4,
+      "height": 93.75,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1361,24 +1350,24 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Substrate",
-      "originalText": "Substrate",
-      "fontSize": 20,
+      "text": "ate-api\n\ncreates templates\nand actors, and\napplies egress policy",
+      "originalText": "ate-api\n\ncreates templates\nand actors, and\napplies egress policy",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
-      "verticalAlign": "top",
+      "verticalAlign": "middle",
       "containerId": "rec37",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 20
+      "baseline": 15
     },
     {
       "id": "rec39",
       "type": "rectangle",
-      "x": 1540,
-      "y": 630,
-      "width": 240,
-      "height": 180,
+      "x": 1580,
+      "y": 960,
+      "width": 260,
+      "height": 150,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#ffffff",
@@ -1400,30 +1389,6 @@
         {
           "type": "text",
           "id": "tex40"
-        },
-        {
-          "type": "arrow",
-          "id": "arr80"
-        },
-        {
-          "type": "arrow",
-          "id": "arr82"
-        },
-        {
-          "type": "arrow",
-          "id": "arr84"
-        },
-        {
-          "type": "arrow",
-          "id": "arr86"
-        },
-        {
-          "type": "arrow",
-          "id": "arr88"
-        },
-        {
-          "type": "arrow",
-          "id": "arr94"
         }
       ],
       "updated": 1,
@@ -1433,10 +1398,10 @@
     {
       "id": "tex40",
       "type": "text",
-      "x": 1597.28,
-      "y": 700,
-      "width": 125.44000000000001,
-      "height": 40,
+      "x": 1605.0,
+      "y": 997.5,
+      "width": 210.00000000000003,
+      "height": 75.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1456,27 +1421,27 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "ate-api\n(Control gRPC)",
-      "originalText": "ate-api\n(Control gRPC)",
-      "fontSize": 16,
+      "text": "egress gateway\n\nenforces egress and\nadds the actor's identity",
+      "originalText": "egress gateway\n\nenforces egress and\nadds the actor's identity",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec39",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 16
+      "baseline": 15
     },
     {
       "id": "rec41",
       "type": "rectangle",
-      "x": 1540,
-      "y": 910,
-      "width": 240,
-      "height": 110,
+      "x": 1990,
+      "y": 880,
+      "width": 410,
+      "height": 260,
       "angle": 0,
       "strokeColor": "#1e1e1e",
-      "backgroundColor": "#ffffff",
+      "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -1491,20 +1456,7 @@
       "version": 1,
       "versionNonce": 4293889,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex42"
-        },
-        {
-          "type": "arrow",
-          "id": "arr90"
-        },
-        {
-          "type": "arrow",
-          "id": "arr92"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false
@@ -1512,10 +1464,10 @@
     {
       "id": "tex42",
       "type": "text",
-      "x": 1550.24,
-      "y": 930,
-      "width": 219.52,
-      "height": 70,
+      "x": 2005,
+      "y": 890,
+      "width": 226.8,
+      "height": 18.75,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1535,27 +1487,27 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "egress gateway\n\nenforces golden and\nper-actor 'default' policies",
-      "originalText": "egress gateway\n\nenforces golden and\nper-actor 'default' policies",
-      "fontSize": 14,
+      "text": "atelet on a WorkerPool node",
+      "originalText": "atelet on a WorkerPool node",
+      "fontSize": 15,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "rec41",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 14
+      "baseline": 15
     },
     {
       "id": "rec43",
       "type": "rectangle",
-      "x": 2010,
-      "y": 850,
-      "width": 390,
-      "height": 270,
+      "x": 2005,
+      "y": 925,
+      "width": 190,
+      "height": 195,
       "angle": 0,
       "strokeColor": "#1e1e1e",
-      "backgroundColor": "#ffffff",
+      "backgroundColor": "#fff9db",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -1570,7 +1522,12 @@
       "version": 1,
       "versionNonce": 4503347,
       "isDeleted": false,
-      "boundElements": [],
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "tex44"
+        }
+      ],
       "updated": 1,
       "link": null,
       "locked": false
@@ -1578,10 +1535,10 @@
     {
       "id": "tex44",
       "type": "text",
-      "x": 2025,
-      "y": 860,
-      "width": 226.8,
-      "height": 18.75,
+      "x": 2041.2,
+      "y": 966.25,
+      "width": 117.60000000000001,
+      "height": 112.5,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1601,13 +1558,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "atelet on a WorkerPool node",
-      "originalText": "atelet on a WorkerPool node",
+      "text": "golden actor\n\nsaves its\nconfiguration,\nthen is\nsnapshotted",
+      "originalText": "golden actor\n\nsaves its\nconfiguration,\nthen is\nsnapshotted",
       "fontSize": 15,
       "fontFamily": 2,
-      "textAlign": "left",
-      "verticalAlign": "top",
-      "containerId": null,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "rec43",
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 15
@@ -1615,10 +1572,10 @@
     {
       "id": "rec45",
       "type": "rectangle",
-      "x": 2025,
-      "y": 900,
+      "x": 2210,
+      "y": 925,
       "width": 175,
-      "height": 120,
+      "height": 195,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#fff9db",
@@ -1640,18 +1597,6 @@
         {
           "type": "text",
           "id": "tex46"
-        },
-        {
-          "type": "arrow",
-          "id": "arr88"
-        },
-        {
-          "type": "arrow",
-          "id": "arr90"
-        },
-        {
-          "type": "arrow",
-          "id": "arr100"
         }
       ],
       "updated": 1,
@@ -1661,10 +1606,10 @@
     {
       "id": "tex46",
       "type": "text",
-      "x": 2061.54,
-      "y": 925,
-      "width": 101.92000000000002,
-      "height": 70,
+      "x": 2238.7,
+      "y": 985.0,
+      "width": 117.60000000000001,
+      "height": 75.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1684,24 +1629,24 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "golden actor\n\nharness image\n/data",
-      "originalText": "golden actor\n\nharness image\n/data",
-      "fontSize": 14,
+      "text": "Session actors\n\nalready\nrunning",
+      "originalText": "Session actors\n\nalready\nrunning",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec45",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 14
+      "baseline": 15
     },
     {
       "id": "rec47",
       "type": "rectangle",
-      "x": 2215,
-      "y": 900,
-      "width": 170,
-      "height": 120,
+      "x": 260,
+      "y": 1260,
+      "width": 1220,
+      "height": 290,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#fff9db",
@@ -1719,16 +1664,7 @@
       "version": 1,
       "versionNonce": 4922263,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex48"
-        },
-        {
-          "type": "arrow",
-          "id": "arr86"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false
@@ -1736,10 +1672,10 @@
     {
       "id": "tex48",
       "type": "text",
-      "x": 2237.28,
-      "y": 916.25,
-      "width": 125.44000000000001,
-      "height": 87.5,
+      "x": 774.8,
+      "y": 1268,
+      "width": 190.4,
+      "height": 25.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1759,27 +1695,27 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "existing Session\nactors\n\nrunning or\nsuspended",
-      "originalText": "existing Session\nactors\n\nrunning or\nsuspended",
-      "fontSize": 14,
+      "text": "kagent PostgreSQL",
+      "originalText": "kagent PostgreSQL",
+      "fontSize": 20,
       "fontFamily": 2,
       "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "rec47",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 14
+      "baseline": 20
     },
     {
       "id": "rec49",
       "type": "rectangle",
-      "x": 260,
-      "y": 1240,
-      "width": 960,
-      "height": 230,
+      "x": 280,
+      "y": 1310,
+      "width": 230,
+      "height": 220,
       "angle": 0,
       "strokeColor": "#1e1e1e",
-      "backgroundColor": "#fff9db",
+      "backgroundColor": "#ffffff",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -1798,14 +1734,6 @@
         {
           "type": "text",
           "id": "tex50"
-        },
-        {
-          "type": "arrow",
-          "id": "arr96"
-        },
-        {
-          "type": "arrow",
-          "id": "arr98"
         }
       ],
       "updated": 1,
@@ -1815,10 +1743,10 @@
     {
       "id": "tex50",
       "type": "text",
-      "x": 644.8,
-      "y": 1250,
-      "width": 190.4,
-      "height": 25,
+      "x": 323.6,
+      "y": 1354.375,
+      "width": 142.8,
+      "height": 131.25,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1838,24 +1766,24 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "kagent PostgreSQL",
-      "originalText": "kagent PostgreSQL",
-      "fontSize": 20,
+      "text": "Agent definition\n\none per Agent:\ndesired revision,\nrevision new\nSessions use,\negress grants",
+      "originalText": "Agent definition\n\none per Agent:\ndesired revision,\nrevision new\nSessions use,\negress grants",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
-      "verticalAlign": "top",
+      "verticalAlign": "middle",
       "containerId": "rec49",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 20
+      "baseline": 15
     },
     {
       "id": "rec51",
       "type": "rectangle",
-      "x": 275,
-      "y": 1290,
-      "width": 220,
-      "height": 160,
+      "x": 590,
+      "y": 1310,
+      "width": 230,
+      "height": 220,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#ffffff",
@@ -1886,10 +1814,10 @@
     {
       "id": "tex52",
       "type": "text",
-      "x": 283.08,
-      "y": 1326.25,
-      "width": 203.84000000000003,
-      "height": 87.5,
+      "x": 637.8,
+      "y": 1373.125,
+      "width": 134.4,
+      "height": 93.75,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1909,24 +1837,24 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "agent_definition\n\ndesired_revision\nlatest_successful_revision\negress grants",
-      "originalText": "agent_definition\n\ndesired_revision\nlatest_successful_revision\negress grants",
-      "fontSize": 14,
+      "text": "Agent revision\n\nAgent Card and\nconfiguration\nfor one revision",
+      "originalText": "Agent revision\n\nAgent Card and\nconfiguration\nfor one revision",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec51",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 14
+      "baseline": 15
     },
     {
       "id": "rec53",
       "type": "rectangle",
-      "x": 510,
-      "y": 1290,
-      "width": 220,
-      "height": 160,
+      "x": 900,
+      "y": 1310,
+      "width": 230,
+      "height": 220,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#ffffff",
@@ -1957,10 +1885,10 @@
     {
       "id": "tex54",
       "type": "text",
-      "x": 545.52,
-      "y": 1317.5,
-      "width": 148.96,
-      "height": 105,
+      "x": 935.2,
+      "y": 1373.125,
+      "width": 159.60000000000002,
+      "height": 93.75,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1980,24 +1908,24 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "runtime_revision\n\ntemplate name + UID\nspec digest\ngolden retry state\npinned egress base",
-      "originalText": "runtime_revision\n\ntemplate name + UID\nspec digest\ngolden retry state\npinned egress base",
-      "fontSize": 14,
+      "text": "Runtime revision\n\nSubstrate template,\npinned egress,\ngolden retries",
+      "originalText": "Runtime revision\n\nSubstrate template,\npinned egress,\ngolden retries",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec53",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 14
+      "baseline": 15
     },
     {
       "id": "rec55",
       "type": "rectangle",
-      "x": 745,
-      "y": 1290,
-      "width": 220,
-      "height": 160,
+      "x": 1210,
+      "y": 1310,
+      "width": 230,
+      "height": 220,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "#ffffff",
@@ -2028,10 +1956,10 @@
     {
       "id": "tex56",
       "type": "text",
-      "x": 792.28,
-      "y": 1335,
-      "width": 125.44000000000001,
-      "height": 70,
+      "x": 1262.0,
+      "y": 1382.5,
+      "width": 126.00000000000001,
+      "height": 75.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -2051,60 +1979,69 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "agent_revision\n\nAgent Card\nbootstrap bundle",
-      "originalText": "agent_revision\n\nAgent Card\nbootstrap bundle",
-      "fontSize": 14,
+      "text": "Sessions\n\nwhich revision\neach actor runs",
+      "originalText": "Sessions\n\nwhich revision\neach actor runs",
+      "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rec55",
       "lineHeight": 1.25,
       "autoResize": true,
-      "baseline": 14
+      "baseline": 15
     },
     {
-      "id": "rec57",
-      "type": "rectangle",
-      "x": 980,
-      "y": 1290,
-      "width": 220,
-      "height": 160,
+      "id": "arr57",
+      "type": "arrow",
+      "x": 510,
+      "y": 1420,
+      "width": 80,
+      "height": 0,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
-      "backgroundColor": "#ffffff",
+      "strokeColor": "#868e96",
+      "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
-      "strokeStyle": "solid",
+      "strokeStyle": "dashed",
       "roughness": 0,
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": {
-        "type": 3
-      },
+      "roundness": null,
       "seed": 451383,
       "version": 1,
       "versionNonce": 5969553,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex58"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
-      "locked": false
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          80,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex58",
       "type": "text",
-      "x": 1027.28,
-      "y": 1326.25,
-      "width": 125.44000000000001,
-      "height": 87.5,
+      "x": 514.72,
+      "y": 1395,
+      "width": 70.56,
+      "height": 17.5,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
+      "strokeColor": "#495057",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -2122,64 +2059,69 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "runtime_instance\n+ session\n\nallocated actors\n(egress targets)",
-      "originalText": "runtime_instance\n+ session\n\nallocated actors\n(egress targets)",
+      "text": "points to",
+      "originalText": "points to",
       "fontSize": 14,
       "fontFamily": 2,
       "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "rec57",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
     },
     {
-      "id": "rec59",
-      "type": "rectangle",
-      "x": 2010,
-      "y": 1240,
-      "width": 390,
-      "height": 230,
+      "id": "arr59",
+      "type": "arrow",
+      "x": 820,
+      "y": 1420,
+      "width": 80,
+      "height": 0,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
-      "backgroundColor": "#fff9db",
+      "strokeColor": "#868e96",
+      "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
-      "strokeStyle": "solid",
+      "strokeStyle": "dashed",
       "roughness": 0,
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": {
-        "type": 3
-      },
+      "roundness": null,
       "seed": 467221,
       "version": 1,
       "versionNonce": 6179011,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex60"
-        },
-        {
-          "type": "arrow",
-          "id": "arr100"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
-      "locked": false
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          80,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex60",
       "type": "text",
-      "x": 2066.4,
-      "y": 1317.5,
-      "width": 277.20000000000005,
-      "height": 75,
+      "x": 832.56,
+      "y": 1395,
+      "width": 54.88,
+      "height": 17.5,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
+      "strokeColor": "#495057",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -2197,24 +2139,175 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Snapshot storage\n(Harness snapshotPolicy location)\n\ngolden and Session snapshots",
-      "originalText": "Snapshot storage\n(Harness snapshotPolicy location)\n\ngolden and Session snapshots",
+      "text": "extends",
+      "originalText": "extends",
+      "fontSize": 14,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "top",
+      "containerId": null,
+      "lineHeight": 1.25,
+      "autoResize": true,
+      "baseline": 14
+    },
+    {
+      "id": "arr61",
+      "type": "arrow",
+      "x": 1210,
+      "y": 1420,
+      "width": 80,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#868e96",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 483059,
+      "version": 1,
+      "versionNonce": 6388469,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -80,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "startBinding": null,
+      "endBinding": null
+    },
+    {
+      "id": "tex62",
+      "type": "text",
+      "x": 1154.32,
+      "y": 1395,
+      "width": 31.360000000000003,
+      "height": 17.5,
+      "angle": 0,
+      "strokeColor": "#495057",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 490978,
+      "version": 1,
+      "versionNonce": 6493198,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "pins",
+      "originalText": "pins",
+      "fontSize": 14,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "top",
+      "containerId": null,
+      "lineHeight": 1.25,
+      "autoResize": true,
+      "baseline": 14
+    },
+    {
+      "id": "rec63",
+      "type": "rectangle",
+      "x": 1990,
+      "y": 1260,
+      "width": 410,
+      "height": 290,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#fff9db",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 498897,
+      "version": 1,
+      "versionNonce": 6597927,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "tex64"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "tex64",
+      "type": "text",
+      "x": 2098.4,
+      "y": 1367.5,
+      "width": 193.20000000000002,
+      "height": 75.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 506816,
+      "version": 1,
+      "versionNonce": 6702656,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Snapshot storage\n\nthe golden snapshot\nnew Sessions start from",
+      "originalText": "Snapshot storage\n\nthe golden snapshot\nnew Sessions start from",
       "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "rec59",
+      "containerId": "rec63",
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 15
     },
     {
-      "id": "tex61",
+      "id": "tex65",
       "type": "text",
-      "x": 1560,
-      "y": 1320,
+      "x": 1580,
+      "y": 1380,
       "width": 164.64000000000001,
-      "height": 35,
+      "height": 35.0,
       "angle": 0,
       "strokeColor": "#868e96",
       "backgroundColor": "transparent",
@@ -2226,9 +2319,9 @@
       "groupIds": [],
       "frameId": null,
       "roundness": null,
-      "seed": 483059,
+      "seed": 514735,
       "version": 1,
-      "versionNonce": 6388469,
+      "versionNonce": 6807385,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
@@ -2246,9 +2339,9 @@
       "baseline": 14
     },
     {
-      "id": "arr68",
+      "id": "arr66",
       "type": "arrow",
-      "x": 410,
+      "x": 420,
       "y": 125,
       "width": 0,
       "height": 155,
@@ -2263,16 +2356,11 @@
       "groupIds": [],
       "frameId": null,
       "roundness": null,
-      "seed": 538492,
+      "seed": 522654,
       "version": 1,
-      "versionNonce": 7121572,
+      "versionNonce": 6912114,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex69"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -2291,19 +2379,95 @@
       "endArrowhead": "arrow",
       "elbowed": false,
       "startBinding": null,
-      "endBinding": {
-        "elementId": "rec21",
-        "focus": 0,
-        "gap": 2
-      }
+      "endBinding": null
     },
     {
-      "id": "tex69",
+      "id": "tex67",
       "type": "text",
-      "x": 347.28,
-      "y": 193.75,
-      "width": 125.44000000000001,
+      "x": 430,
+      "y": 190,
+      "width": 62.720000000000006,
       "height": 17.5,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 530573,
+      "version": 1,
+      "versionNonce": 7016843,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "1  apply",
+      "originalText": "1  apply",
+      "fontSize": 14,
+      "fontFamily": 2,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "lineHeight": 1.25,
+      "autoResize": true,
+      "baseline": 14
+    },
+    {
+      "id": "arr68",
+      "type": "arrow",
+      "x": 420,
+      "y": 460,
+      "width": 0,
+      "height": 170,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 538492,
+      "version": 1,
+      "versionNonce": 7121572,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          170
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "startBinding": null,
+      "endBinding": null
+    },
+    {
+      "id": "arr69",
+      "type": "arrow",
+      "x": 750,
+      "y": 460,
+      "width": 270,
+      "height": 170,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -2323,24 +2487,30 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "1  kubectl apply",
-      "originalText": "1  kubectl apply",
-      "fontSize": 14,
-      "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr68",
-      "lineHeight": 1.25,
-      "autoResize": true,
-      "baseline": 14
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -270,
+          170
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "startBinding": null,
+      "endBinding": null
     },
     {
-      "id": "arr70",
-      "type": "arrow",
-      "x": 410,
-      "y": 460,
-      "width": 0,
-      "height": 170,
+      "id": "tex70",
+      "type": "text",
+      "x": 430,
+      "y": 535,
+      "width": 62.720000000000006,
+      "height": 17.5,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -2356,45 +2526,26 @@
       "version": 1,
       "versionNonce": 7331030,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex71"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          170
-        ]
-      ],
-      "lastCommittedPoint": null,
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false,
-      "startBinding": {
-        "elementId": "rec21",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec29",
-        "focus": 0,
-        "gap": 2
-      }
+      "text": "2  watch",
+      "originalText": "2  watch",
+      "fontSize": 14,
+      "fontFamily": 2,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "lineHeight": 1.25,
+      "autoResize": true,
+      "baseline": 14
     },
     {
       "id": "tex71",
       "type": "text",
-      "x": 378.64,
-      "y": 536.25,
+      "x": 640,
+      "y": 535,
       "width": 62.720000000000006,
       "height": 17.5,
       "angle": 0,
@@ -2420,9 +2571,9 @@
       "originalText": "2  watch",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr70",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -2430,16 +2581,16 @@
     {
       "id": "arr72",
       "type": "arrow",
-      "x": 720,
-      "y": 460,
-      "width": 240,
-      "height": 170,
+      "x": 540,
+      "y": 705,
+      "width": 60,
+      "height": 0,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
+      "strokeColor": "#868e96",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
-      "strokeStyle": "solid",
+      "strokeStyle": "dashed",
       "roughness": 0,
       "opacity": 100,
       "groupIds": [],
@@ -2449,12 +2600,7 @@
       "version": 1,
       "versionNonce": 7540488,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex73"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -2464,38 +2610,30 @@
           0
         ],
         [
-          -240,
-          170
+          60,
+          0
         ]
       ],
       "lastCommittedPoint": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec23",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec29",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
-      "id": "tex73",
-      "type": "text",
-      "x": 568.64,
-      "y": 536.25,
-      "width": 62.720000000000006,
-      "height": 17.5,
+      "id": "arr73",
+      "type": "arrow",
+      "x": 900,
+      "y": 705,
+      "width": 60,
+      "height": 0,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
+      "strokeColor": "#868e96",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
-      "strokeStyle": "solid",
+      "strokeStyle": "dashed",
       "roughness": 0,
       "opacity": 100,
       "groupIds": [],
@@ -2509,30 +2647,36 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "2  watch",
-      "originalText": "2  watch",
-      "fontSize": 14,
-      "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr72",
-      "lineHeight": 1.25,
-      "autoResize": true,
-      "baseline": 14
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          60,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "startBinding": null,
+      "endBinding": null
     },
     {
-      "id": "arr74",
-      "type": "arrow",
-      "x": 520,
-      "y": 685,
-      "width": 80,
-      "height": 0,
+      "id": "tex74",
+      "type": "text",
+      "x": 926.08,
+      "y": 680,
+      "width": 7.840000000000001,
+      "height": 17.5,
       "angle": 0,
-      "strokeColor": "#868e96",
+      "strokeColor": "#495057",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
-      "strokeStyle": "dashed",
+      "strokeStyle": "solid",
       "roughness": 0,
       "opacity": 100,
       "groupIds": [],
@@ -2542,49 +2686,30 @@
       "version": 1,
       "versionNonce": 7749946,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex75"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          80,
-          0
-        ]
-      ],
-      "lastCommittedPoint": null,
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false,
-      "startBinding": {
-        "elementId": "rec29",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec31",
-        "focus": 0,
-        "gap": 2
-      }
+      "text": "2",
+      "originalText": "2",
+      "fontSize": 14,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "top",
+      "containerId": null,
+      "lineHeight": 1.25,
+      "autoResize": true,
+      "baseline": 14
     },
     {
       "id": "tex75",
       "type": "text",
-      "x": 556.08,
-      "y": 676.25,
+      "x": 566.08,
+      "y": 680,
       "width": 7.840000000000001,
       "height": 17.5,
       "angle": 0,
-      "strokeColor": "#868e96",
+      "strokeColor": "#495057",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -2602,13 +2727,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "3",
-      "originalText": "3",
+      "text": "2",
+      "originalText": "2",
       "fontSize": 14,
       "fontFamily": 2,
       "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr74",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -2616,100 +2741,7 @@
     {
       "id": "arr76",
       "type": "arrow",
-      "x": 840,
-      "y": 685,
-      "width": 120,
-      "height": 0,
-      "angle": 0,
-      "strokeColor": "#868e96",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "dashed",
-      "roughness": 0,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "roundness": null,
-      "seed": 601844,
-      "version": 1,
-      "versionNonce": 7959404,
-      "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex77"
-        }
-      ],
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          120,
-          0
-        ]
-      ],
-      "lastCommittedPoint": null,
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false,
-      "startBinding": {
-        "elementId": "rec31",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec33",
-        "focus": 0,
-        "gap": 2
-      }
-    },
-    {
-      "id": "tex77",
-      "type": "text",
-      "x": 896.08,
-      "y": 676.25,
-      "width": 7.840000000000001,
-      "height": 17.5,
-      "angle": 0,
-      "strokeColor": "#868e96",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 0,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "roundness": null,
-      "seed": 609763,
-      "version": 1,
-      "versionNonce": 8064133,
-      "isDeleted": false,
-      "boundElements": [],
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "text": "4",
-      "originalText": "4",
-      "fontSize": 14,
-      "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr76",
-      "lineHeight": 1.25,
-      "autoResize": true,
-      "baseline": 14
-    },
-    {
-      "id": "arr78",
-      "type": "arrow",
-      "x": 1070,
+      "x": 1100,
       "y": 630,
       "width": 0,
       "height": 170,
@@ -2724,16 +2756,11 @@
       "groupIds": [],
       "frameId": null,
       "roundness": null,
-      "seed": 617682,
+      "seed": 601844,
       "version": 1,
-      "versionNonce": 8168862,
+      "versionNonce": 7959404,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex79"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -2751,26 +2778,98 @@
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec33",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec25",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
+    },
+    {
+      "id": "tex77",
+      "type": "text",
+      "x": 1110,
+      "y": 535,
+      "width": 117.60000000000001,
+      "height": 17.5,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 609763,
+      "version": 1,
+      "versionNonce": 8064133,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "6  report ready",
+      "originalText": "6  report ready",
+      "fontSize": 14,
+      "fontFamily": 2,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "lineHeight": 1.25,
+      "autoResize": true,
+      "baseline": 14
+    },
+    {
+      "id": "arr78",
+      "type": "arrow",
+      "x": 1000,
+      "y": 860,
+      "width": 300,
+      "height": 400,
+      "angle": 0,
+      "strokeColor": "#2f9e44",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 617682,
+      "version": 1,
+      "versionNonce": 8168862,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -300,
+          400
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex79",
       "type": "text",
-      "x": 1007.28,
-      "y": 536.25,
-      "width": 125.44000000000001,
-      "height": 17.5,
+      "x": 700,
+      "y": 960,
+      "width": 164.64000000000001,
+      "height": 70.0,
       "angle": 0,
-      "strokeColor": "#1e1e1e",
+      "strokeColor": "#2f9e44",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -2788,13 +2887,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "14  UpdateStatus",
-      "originalText": "14  UpdateStatus",
+      "text": "3  record intent\n4  bind template\n    and configuration\n6  promote revision",
+      "originalText": "3  record intent\n4  bind template\n    and configuration\n6  promote revision",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr78",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -2802,9 +2901,9 @@
     {
       "id": "arr80",
       "type": "arrow",
-      "x": 1180,
-      "y": 655,
-      "width": 360,
+      "x": 1240,
+      "y": 660,
+      "width": 340,
       "height": 0,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -2821,12 +2920,7 @@
       "version": 1,
       "versionNonce": 8378320,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex81"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -2836,7 +2930,7 @@
           0
         ],
         [
-          360,
+          340,
           0
         ]
       ],
@@ -2844,24 +2938,16 @@
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec33",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec39",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex81",
       "type": "text",
-      "x": 1207.12,
-      "y": 637.5,
-      "width": 305.76000000000005,
-      "height": 35,
+      "x": 1255,
+      "y": 638,
+      "width": 274.40000000000003,
+      "height": 17.5,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -2881,13 +2967,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "6  gRPC GetActor, GetActorEgressPolicy,\nCreate/UpdateActorEgressPolicy",
-      "originalText": "6  gRPC GetActor, GetActorEgressPolicy,\nCreate/UpdateActorEgressPolicy",
+      "text": "3  apply grants to running Sessions",
+      "originalText": "3  apply grants to running Sessions",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr80",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -2895,9 +2981,9 @@
     {
       "id": "arr82",
       "type": "arrow",
-      "x": 1180,
-      "y": 720,
-      "width": 360,
+      "x": 1240,
+      "y": 745,
+      "width": 340,
       "height": 0,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -2914,12 +3000,7 @@
       "version": 1,
       "versionNonce": 8587778,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex83"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -2929,7 +3010,7 @@
           0
         ],
         [
-          360,
+          340,
           0
         ]
       ],
@@ -2937,24 +3018,16 @@
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec33",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec39",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex83",
       "type": "text",
-      "x": 1211.04,
-      "y": 702.5,
-      "width": 297.92,
-      "height": 35,
+      "x": 1255,
+      "y": 723,
+      "width": 203.84000000000003,
+      "height": 17.5,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -2974,13 +3047,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "7  gRPC GetActorTemplate, GetAtespace,\nCreateAtespace, CreateActorTemplate",
-      "originalText": "7  gRPC GetActorTemplate, GetAtespace,\nCreateAtespace, CreateActorTemplate",
+      "text": "4  create runtime template",
+      "originalText": "4  create runtime template",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr82",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -2988,9 +3061,9 @@
     {
       "id": "arr84",
       "type": "arrow",
-      "x": 1180,
-      "y": 785,
-      "width": 360,
+      "x": 1240,
+      "y": 830,
+      "width": 340,
       "height": 0,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -3007,12 +3080,7 @@
       "version": 1,
       "versionNonce": 8797236,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex85"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -3022,7 +3090,7 @@
           0
         ],
         [
-          360,
+          340,
           0
         ]
       ],
@@ -3030,24 +3098,16 @@
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec33",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec39",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex85",
       "type": "text",
-      "x": 1222.8,
-      "y": 767.5,
-      "width": 274.40000000000003,
-      "height": 35,
+      "x": 1255,
+      "y": 790,
+      "width": 196.00000000000003,
+      "height": 35.0,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -3067,13 +3127,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "12  gRPC GetActorTemplate every 1s,\nDeleteActorTemplate if golden fails",
-      "originalText": "12  gRPC GetActorTemplate every 1s,\nDeleteActorTemplate if golden fails",
+      "text": "6  check golden snapshot,\n    recreate if it failed",
+      "originalText": "6  check golden snapshot,\n    recreate if it failed",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr84",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -3081,10 +3141,10 @@
     {
       "id": "arr86",
       "type": "arrow",
-      "x": 1780,
+      "x": 1840,
       "y": 660,
-      "width": 520,
-      "height": 240,
+      "width": 460,
+      "height": 265,
       "angle": 0,
       "strokeColor": "#868e96",
       "backgroundColor": "transparent",
@@ -3100,12 +3160,7 @@
       "version": 1,
       "versionNonce": 9006694,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex87"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -3115,42 +3170,30 @@
           0
         ],
         [
-          260,
+          460,
           0
         ],
         [
-          520,
-          0
-        ],
-        [
-          520,
-          240
+          460,
+          265
         ]
       ],
       "lastCommittedPoint": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec39",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec47",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex87",
       "type": "text",
-      "x": 2072,
-      "y": 651.25,
-      "width": 196.00000000000003,
+      "x": 1860,
+      "y": 636,
+      "width": 117.60000000000001,
       "height": 17.5,
       "angle": 0,
-      "strokeColor": "#868e96",
+      "strokeColor": "#495057",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -3168,13 +3211,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "6  apply 'default' policy",
-      "originalText": "6  apply 'default' policy",
+      "text": "3  apply grants",
+      "originalText": "3  apply grants",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr86",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -3182,10 +3225,10 @@
     {
       "id": "arr88",
       "type": "arrow",
-      "x": 1780,
-      "y": 770,
-      "width": 332,
-      "height": 130,
+      "x": 1840,
+      "y": 760,
+      "width": 260,
+      "height": 165,
       "angle": 0,
       "strokeColor": "#868e96",
       "backgroundColor": "transparent",
@@ -3201,12 +3244,7 @@
       "version": 1,
       "versionNonce": 9216152,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex89"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -3216,42 +3254,30 @@
           0
         ],
         [
-          332,
+          260,
           0
         ],
         [
-          332,
-          45
-        ],
-        [
-          332,
-          130
+          260,
+          165
         ]
       ],
       "lastCommittedPoint": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec39",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec45",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex89",
       "type": "text",
-      "x": 2025.76,
-      "y": 783.75,
-      "width": 172.48000000000002,
+      "x": 1860,
+      "y": 736,
+      "width": 164.64000000000001,
       "height": 17.5,
       "angle": 0,
-      "strokeColor": "#868e96",
+      "strokeColor": "#495057",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -3269,13 +3295,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "8b  start golden actor",
-      "originalText": "8b  start golden actor",
+      "text": "5  start golden actor",
+      "originalText": "5  start golden actor",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr88",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -3283,9 +3309,9 @@
     {
       "id": "arr90",
       "type": "arrow",
-      "x": 2025,
-      "y": 960,
-      "width": 245,
+      "x": 2005,
+      "y": 1035,
+      "width": 165,
       "height": 0,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -3302,12 +3328,7 @@
       "version": 1,
       "versionNonce": 9425610,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex91"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -3317,7 +3338,7 @@
           0
         ],
         [
-          -245,
+          -165,
           0
         ]
       ],
@@ -3325,24 +3346,16 @@
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec45",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec41",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex91",
       "type": "text",
-      "x": 1800.58,
-      "y": 951.25,
-      "width": 203.84000000000003,
-      "height": 17.5,
+      "x": 1850,
+      "y": 1043,
+      "width": 101.92000000000002,
+      "height": 35.0,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -3362,13 +3375,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "9  gRPC GetBootstrapConfig",
-      "originalText": "9  gRPC GetBootstrapConfig",
+      "text": "5  fetch\nconfiguration",
+      "originalText": "5  fetch\nconfiguration",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr90",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -3376,9 +3389,9 @@
     {
       "id": "arr92",
       "type": "arrow",
-      "x": 1540,
-      "y": 960,
-      "width": 360,
+      "x": 1580,
+      "y": 1035,
+      "width": 340,
       "height": 0,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -3395,12 +3408,7 @@
       "version": 1,
       "versionNonce": 9635068,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex93"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -3410,7 +3418,7 @@
           0
         ],
         [
-          -360,
+          -340,
           0
         ]
       ],
@@ -3418,24 +3426,16 @@
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec41",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec35",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex93",
       "type": "text",
-      "x": 1258.08,
-      "y": 951.25,
-      "width": 203.84000000000003,
-      "height": 17.5,
+      "x": 1255,
+      "y": 1043,
+      "width": 180.32000000000002,
+      "height": 35.0,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -3455,13 +3455,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "9  gRPC GetBootstrapConfig",
-      "originalText": "9  gRPC GetBootstrapConfig",
+      "text": "5  fetch configuration,\n    with actor identity",
+      "originalText": "5  fetch configuration,\n    with actor identity",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr92",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -3469,10 +3469,10 @@
     {
       "id": "arr94",
       "type": "arrow",
-      "x": 1180,
-      "y": 910,
-      "width": 420,
-      "height": 100,
+      "x": 1240,
+      "y": 980,
+      "width": 340,
+      "height": 140,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -3488,12 +3488,7 @@
       "version": 1,
       "versionNonce": 9844526,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex95"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -3503,31 +3498,23 @@
           0
         ],
         [
-          420,
-          -100
+          340,
+          -140
         ]
       ],
       "lastCommittedPoint": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec35",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec39",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex95",
       "type": "text",
-      "x": 1252.8,
-      "y": 851.25,
-      "width": 274.40000000000003,
+      "x": 1300,
+      "y": 940,
+      "width": 125.44000000000001,
       "height": 17.5,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -3548,13 +3535,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "10  gRPC GetActor, GetActorTemplate",
-      "originalText": "10  gRPC GetActor, GetActorTemplate",
+      "text": "5  verify caller",
+      "originalText": "5  verify caller",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr94",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -3562,10 +3549,10 @@
     {
       "id": "arr96",
       "type": "arrow",
-      "x": 960,
-      "y": 760,
-      "width": 80,
-      "height": 480,
+      "x": 1100,
+      "y": 1110,
+      "width": 0,
+      "height": 150,
       "angle": 0,
       "strokeColor": "#2f9e44",
       "backgroundColor": "transparent",
@@ -3581,12 +3568,7 @@
       "version": 1,
       "versionNonce": 10053984,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex97"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -3596,39 +3578,23 @@
           0
         ],
         [
-          -80,
-          0
-        ],
-        [
-          -80,
-          270
-        ],
-        [
-          -80,
-          480
+          0,
+          150
         ]
       ],
       "lastCommittedPoint": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec33",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec49",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex97",
       "type": "text",
-      "x": 801.6,
-      "y": 886.25,
-      "width": 156.8,
+      "x": 1110,
+      "y": 1180,
+      "width": 164.64000000000001,
       "height": 17.5,
       "angle": 0,
       "strokeColor": "#2f9e44",
@@ -3649,13 +3615,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "5 \u00b7 6 \u00b7 8a \u00b7 13  SQL",
-      "originalText": "5 \u00b7 6 \u00b7 8a \u00b7 13  SQL",
+      "text": "5  read configuration",
+      "originalText": "5  read configuration",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr96",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14
@@ -3663,16 +3629,16 @@
     {
       "id": "arr98",
       "type": "arrow",
-      "x": 1070,
-      "y": 1000,
+      "x": 2100,
+      "y": 1120,
       "width": 0,
-      "height": 240,
+      "height": 140,
       "angle": 0,
-      "strokeColor": "#2f9e44",
+      "strokeColor": "#868e96",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
-      "strokeStyle": "solid",
+      "strokeStyle": "dashed",
       "roughness": 0,
       "opacity": 100,
       "groupIds": [],
@@ -3682,12 +3648,7 @@
       "version": 1,
       "versionNonce": 10263442,
       "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex99"
-        }
-      ],
+      "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -3698,41 +3659,25 @@
         ],
         [
           0,
-          70
-        ],
-        [
-          0,
-          110
-        ],
-        [
-          0,
-          240
+          140
         ]
       ],
       "lastCommittedPoint": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false,
-      "startBinding": {
-        "elementId": "rec35",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec49",
-        "focus": 0,
-        "gap": 2
-      }
+      "startBinding": null,
+      "endBinding": null
     },
     {
       "id": "tex99",
       "type": "text",
-      "x": 964.16,
-      "y": 1081.25,
-      "width": 211.68,
+      "x": 2110,
+      "y": 1180,
+      "width": 86.24000000000001,
       "height": 17.5,
       "angle": 0,
-      "strokeColor": "#2f9e44",
+      "strokeColor": "#495057",
       "backgroundColor": "transparent",
       "fillStyle": "solid",
       "strokeWidth": 2,
@@ -3750,114 +3695,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "10  SQL GetBootstrapBinding",
-      "originalText": "10  SQL GetBootstrapBinding",
+      "text": "5  snapshot",
+      "originalText": "5  snapshot",
       "fontSize": 14,
       "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr98",
-      "lineHeight": 1.25,
-      "autoResize": true,
-      "baseline": 14
-    },
-    {
-      "id": "arr100",
-      "type": "arrow",
-      "x": 2112,
-      "y": 1020,
-      "width": 0,
-      "height": 220,
-      "angle": 0,
-      "strokeColor": "#868e96",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "dashed",
-      "roughness": 0,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "roundness": null,
-      "seed": 791900,
-      "version": 1,
-      "versionNonce": 10472900,
-      "isDeleted": false,
-      "boundElements": [
-        {
-          "type": "text",
-          "id": "tex101"
-        }
-      ],
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          150
-        ],
-        [
-          0,
-          190
-        ],
-        [
-          0,
-          220
-        ]
-      ],
-      "lastCommittedPoint": null,
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false,
-      "startBinding": {
-        "elementId": "rec45",
-        "focus": 0,
-        "gap": 2
-      },
-      "endBinding": {
-        "elementId": "rec59",
-        "focus": 0,
-        "gap": 2
-      }
-    },
-    {
-      "id": "tex101",
-      "type": "text",
-      "x": 2037.52,
-      "y": 1181.25,
-      "width": 148.96,
-      "height": 17.5,
-      "angle": 0,
-      "strokeColor": "#868e96",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 0,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "roundness": null,
-      "seed": 799819,
-      "version": 1,
-      "versionNonce": 10577629,
-      "isDeleted": false,
-      "boundElements": [],
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "text": "11  golden snapshot",
-      "originalText": "11  golden snapshot",
-      "fontSize": 14,
-      "fontFamily": 2,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "arr100",
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
       "lineHeight": 1.25,
       "autoResize": true,
       "baseline": 14

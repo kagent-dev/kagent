@@ -1,94 +1,140 @@
 # Creating an Agent
 
-This document traces how the control plane prepares a newly applied Agent, from
-`kubectl apply` until the Agent reaches `Ready=True`.
-[Failures and recovery](#failures-and-recovery) explains what happens when a step
-fails.
+This document explains which component is responsible for each part of
+preparing a newly applied Agent, and why the components interact the way they
+do. Use it to decide where a change belongs. The RPCs and queries behind each
+arrow are in the code linked at the end.
 
 ![Creating an Agent](images/agent-creation.svg)
 
-## Reading the diagram
+## Phases
 
-Numbers on the arrows match the [steps](#steps) below. Steps 8a and 8b
-run at the same time. Every gRPC arrow names the RPCs it carries.
+Numbers on the arrows match these phases.
 
-| Arrow | Meaning |
-| --- | --- |
-| Green, solid | SQL to kagent PostgreSQL. Only kagent reads and writes this database. |
-| Blue, solid | gRPC between kagent and Substrate, in either direction. |
-| Black, solid | Kubernetes API: apply, watch, and status updates. |
-| Grey, dashed | In-process work inside kagent, or work internal to Substrate. |
+1. **Apply.** The user applies the Agent and the resources it references.
+2. **Compile.** Informers notice the change. The translator turns the Agent and
+   its inputs into an immutable revision, identified by a digest.
+3. **Record intent.** The reconciler stores the desired revision and the
+   Agent's egress grants, then applies the grants to any running Session
+   actors. A new Agent has none.
+4. **Create the runtime template.** The reconciler asks Substrate for an
+   ActorTemplate, then records which template belongs to the revision together
+   with its configuration.
+5. **Bootstrap and snapshot.** Substrate starts a golden actor. It fetches its
+   configuration from BootstrapService, saves it, and Substrate snapshots it.
+6. **Ready.** The reconciler sees the snapshot is ready, promotes the revision,
+   and reports `Ready=True`. New Sessions now start from this revision.
 
-Substrate's own state is not shown.
+## Responsibilities
 
-## Steps
-
-| # | Kind | What happens |
+| Component | Responsible for | Not responsible for |
 | --- | --- | --- |
-| 1 | Kubernetes | The user applies the Agent and any EgressPolicy it selects. |
-| 2 | Kubernetes | KRT informers observe the Agent and every resource it references. |
-| 3 | In-process | The translator resolves the template tree and WorkerPool, then selects the harness compiler. It performs no I/O. |
-| 4 | In-process | The translator produces the immutable revision, its SHA-256 digest, the bootstrap bundle, and the desired ActorTemplate. Egress grants are resolved separately and are not part of the digest. |
-| 5 | SQL | `UpsertAgentDefinition` stores `desired_revision` and the egress grants before any compute exists. |
-| 6 | SQL + gRPC | The controller pushes egress to existing actors. SQL `ListRuntimeEgressSourceTargets` lists them. For each actor, gRPC `GetActor` and `GetActorEgressPolicy` read the current state, SQL `GetRuntimeEgressPolicy` combines the pinned base with current grants, and gRPC `CreateActorEgressPolicy` or `UpdateActorEgressPolicy` applies the result. Up to 16 actors are processed in parallel, and unchanged policies are skipped. When an Agent is first created it has no Session actors, so this step finds nothing to do. |
-| 7 | gRPC | `GetActorTemplate` finds no template, so the controller calls `GetAtespace`, `CreateAtespace` if the Atespace is missing, and `CreateActorTemplate` with the name `<agent>-<digest>`. The template carries the golden actor's egress policy: the golden actor can make HTTP(S) requests only to the kagent control-plane URL, and the egress gateway adds a `kagent-bootstrap` actor JWT to each one. Session actors use the policy from step 6 instead. |
-| 8a | SQL | `RecordRuntimeRevision` records the revision, the template UID, and the bootstrap bundle in one transaction. BootstrapService serves a bundle only to an actor whose template matches this UID and spec digest, so step 10 cannot succeed until this commits. Substrate assigns the UID in step 7, so it cannot be recorded earlier. |
-| 8b | Substrate | At the same time, Substrate starts the golden actor as soon as the template exists. |
-| 9 | gRPC | The template holds only a small descriptor: the control-plane URL, revision, format version, and bundle digest. The compiled configuration and Agent Card stay in PostgreSQL, so the golden actor fetches them with `GetBootstrapConfig`, and the golden snapshot and every Session started from it contain them. The call goes through the egress gateway, which adds the actor JWT, and retries while the binding is pending, until step 8a has committed. |
-| 10 | gRPC + SQL | BootstrapService verifies the caller with ate-api (`GetActor`, `GetActorTemplate`), then reads the bundle with SQL `GetBootstrapBinding`. |
-| 11 | Substrate | The actor saves the bundle under `/data/kagent/bootstrap` and passes `/readyz`. Substrate then snapshots and tags the template. |
-| 12 | gRPC | While the golden snapshot is pending, the controller re-runs steps 5 to 7 every second and reads golden status with `GetActorTemplate`. |
-| 13 | SQL | `RecordRuntimeRevision` marks the revision ready and sets `latest_successful_revision`. |
-| 14 | Kubernetes | The controller updates status to `Ready=True`, replacing `ActorTemplatePending`, and sets `EgressPoliciesApplied`. New Sessions can now use the revision. |
+| Kubernetes API | What the user wants, and the status reported back | Runtime state |
+| Translator | Turning an Agent into a revision, using the Harness's compiler | Any I/O, or applying what it produces |
+| Reconciler | Making the revision exist in PostgreSQL and Substrate, retrying, and reporting status. It is the only writer of an Agent's grants. | Compiling, and Session lifecycle |
+| BootstrapService | Giving a golden actor its configuration, and only its own | Sessions, or any user authority |
+| ate-api | Templates, actors, and their egress policies | Knowing what an Agent is |
+| egress gateway | Enforcing egress and adding the actor's identity to its requests | Deciding what is allowed |
+| Golden actor | Saving its configuration and becoming ready to be snapshotted | Serving users |
 
-The controller entry points are
-[`controller/reconciler.go`](../../go/core/internal/controller/reconciler.go) for
-steps 5, 7, 8a, 12, and 13, and
-[`controller/egress.go`](../../go/core/internal/controller/egress.go) for step 6.
-BootstrapService is in
-[`service/bootstrap/service.go`](../../go/core/internal/service/bootstrap/service.go).
+## What kagent stores
+
+kagent PostgreSQL, not Kubernetes, is what Sessions are created from. Only
+kagent reads it.
+
+| Record | Holds | Why |
+| --- | --- | --- |
+| Agent definition (`agent_definition`) | One row per Agent UID: the desired revision, the revision new Sessions use, and egress grants | Grants and promotion depend on what the Agent wants now, not on any one revision. A recreated Agent has a new UID and inherits no grants. |
+| Agent revision (`agent_revision`) | The Agent Card and configuration bundle for one revision | Agent-specific data for a revision. The bundle is immutable, so every actor started from the revision gets the same configuration. |
+| Runtime revision (`runtime_revision`) | The Substrate template, egress pinned at compile time, and golden retry state | Links kagent's revision to Substrate's template so BootstrapService can check a caller. Shared with sandboxes. |
+| Sessions (`runtime_instance`, `session`) | Which revision each actor runs | Egress updates reach every running actor, and a revision cannot be deleted while it is in use. |
+
+They are associated as follows:
+
+- An Agent definition points to two Agent revisions: the desired one and the
+  one new Sessions use. The second only changes when the desired revision
+  becomes ready.
+- An Agent revision extends exactly one runtime revision.
+- Each Session is pinned to one revision, so editing the Agent never changes a
+  running Session.
+
+## Why it works this way
+
+**Compilation has no I/O.** The same inputs always give the same digest, so
+retries, restarts, and replicas reach the same template. Compilers can be
+tested without a cluster.
+
+**Intent is recorded before compute exists.** A revision is promoted only if
+it is still the desired one, so a late result from a replaced preparation can
+never become the revision new Sessions use.
+
+**Egress grants are separate from the revision.** Editing an EgressPolicy
+updates running actors without a new revision or snapshot, and an unrelated
+compile error cannot block a revocation.
+
+**Configuration is fetched, not embedded.** A template environment value is
+limited to 32,768 characters; a bundle can be 256 KiB. The template carries
+only a small pointer to the bundle.
+
+**The bundle is bound to the template.** BootstrapService serves a bundle only
+to an actor started from its template. Substrate assigns the template's UID on
+creation, so the binding is recorded afterwards and the golden actor retries
+until it exists.
+
+**The golden actor holds no credential.** The egress gateway adds its identity
+to each request, and it can reach only the control plane.
+
+**Sessions start from a golden snapshot.** The configuration is in the
+snapshot, so new Sessions, forks, and restarts never call BootstrapService.
+
+**A failed revision does not affect new Sessions.** They keep using the last
+successful revision until a new one is ready.
+
+## Where changes belong
+
+- A new Agent field that changes runtime behavior: the translator or a harness
+  compiler. It changes the digest.
+- A new harness: a compiler registered for its runtime type.
+- State that must survive a controller restart: a store method the reconciler
+  calls.
+- A new Substrate call: the Substrate client, called from the reconciler.
+- Configuration a runtime needs at startup: the bootstrap bundle, not the
+  template environment.
 
 ## Failures and recovery
 
-A failed preparation does not affect existing Sessions. The last successful
-revision keeps serving new Sessions until a new revision is ready.
-
 ### Retryable errors
 
-Any SQL or Substrate call can fail, including the egress push in step 6. The
-Agent reports `Ready=False` with reason `RuntimePreparationFailed`, and the
-controller requeues it with a backoff from 1s to 30s and no attempt limit.
+Any PostgreSQL or Substrate call can fail. The reconciler's queue owns the
+retry: the Agent reports `Ready=False` with reason `RuntimePreparationFailed`
+and is requeued with a backoff from 1s to 30s and no attempt limit. While its
+configuration is not yet bound, the golden actor retries the fetch itself.
 
 ### Golden build failures
 
-If Substrate reports that the golden snapshot failed, the controller deletes the
-ActorTemplate by UID with `DeleteActorTemplate` and creates it again after 15s,
-1m, 4m, and then every 10m, with up to 20% jitter. Until then the Agent reports
-`Ready=False` with reason `ActorTemplateRetrying`. The schedule is stored on
-`runtime_revision`, so it survives controller restarts.
+If the golden snapshot fails, the reconciler deletes the template and creates
+it again after 15s, 1m, 4m, and then every 10m, with up to 20% jitter. The
+Agent reports `Ready=False` with reason `ActorTemplateRetrying`. The schedule is
+stored with the runtime revision, so it survives controller restarts.
 
 ### Errors that need a change
 
-These failures are not retried until the Agent or its inputs change:
+These are not retried until the Agent or its inputs change:
 
 - Compilation fails with `RevisionInvalid`, `WorkerPoolNotFound`, or
   `ActorTemplateInvalid`. This also clears `desiredRevision`.
-- Substrate rejects the template with `InvalidArgument`
-  (`ActorTemplateRejected`).
+- Substrate rejects the template (`ActorTemplateRejected`).
 - An existing immutable template differs (`ActorTemplateConflict`).
 
-See [Configuration and compilation](configuration-and-compilation.md#prepared-revision-pipeline)
-for revision and retry semantics, and
-[Egress policies](egress-policies.md#preparation-and-lifecycle) for grant status.
+Grant errors set `EgressPoliciesApplied=False` but never block `Ready`. See
+[Configuration and compilation](configuration-and-compilation.md#prepared-revision-pipeline)
+and [Egress policies](egress-policies.md#preparation-and-lifecycle) for details.
 
-## Related behavior
+## Code
 
-- Editing an EgressPolicy or its Secret re-runs only steps 5 and 6. It never
-  creates a revision or a golden snapshot.
-- Grant errors set `EgressPoliciesApplied=False` with reason
-  `EgressPolicyNotFound`, `InvalidEgressPolicy`, or `EgressGrantConflict`. They
-  never block `Ready`.
-- New Session actors receive the same effective egress policy before they first
-  run.
-- Step 11 and the egress gateway are described from kagent's side of the
-  contract, not from Substrate's implementation.
+- Translator: [`translator/compiler.go`](../../go/core/internal/translator/compiler.go)
+- Reconciler: [`controller/reconciler.go`](../../go/core/internal/controller/reconciler.go)
+  and [`controller/egress.go`](../../go/core/internal/controller/egress.go)
+- BootstrapService: [`service/bootstrap/service.go`](../../go/core/internal/service/bootstrap/service.go)
+- Substrate client: [`substrate/actor_template.go`](../../go/core/internal/substrate/actor_template.go)
+- Store: [`database/runtime_revisions.go`](../../go/core/internal/database/runtime_revisions.go)
