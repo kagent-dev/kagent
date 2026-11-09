@@ -608,7 +608,7 @@ func TestSendRecoveryAnswersTheSend(t *testing.T) {
 			session := &apiv1.Session{Id: uuid.NewString(), State: apiv1.RuntimeState_RUNTIME_STATE_READY}
 			authorizer := &verbAuthorizer{denied: auth.VerbUpdate, err: test.authErr}
 			sessions := NewService(&serviceTestStore{getResult: session}, authorizer, serviceTestWorkflow{err: test.err})
-			interactions := NewInteractionService(nil, nil, sessions, false)
+			interactions := NewInteractionService(nil, nil, sessions, false, true)
 			err := interactions.recoverRuntime(serviceTestContext("alice"), session.Id)
 			if test.want == nil {
 				require.NoError(t, err)
@@ -648,7 +648,7 @@ func TestRecoverRejectedSendReturnsSessionErrors(t *testing.T) {
 		{name: "permission denied", store: &serviceTestStore{}, authorizer: serviceTestAuthorizer{err: serviceerrors.NewPermissionDenied("denied", nil)}, want: a2a.ErrUnauthorized},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			interactions := NewInteractionService(nil, nil, NewService(test.store, test.authorizer, serviceTestWorkflow{}), false)
+			interactions := NewInteractionService(nil, nil, NewService(test.store, test.authorizer, serviceTestWorkflow{}), false, true)
 			message := &a2a.Message{ID: "input", ContextID: uuid.NewString()}
 			err := interactions.RecoverRejectedSend(serviceTestContext("alice"), types.NamespacedName{Namespace: "team-a", Name: "assistant"}, message)
 			require.ErrorIs(t, err, test.want)

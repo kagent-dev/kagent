@@ -48,14 +48,15 @@ type agentService interface {
 // state. It never connects to actors: the gateway owns dispatch and observation.
 // These operations form the persistence boundary for a separate API service.
 type InteractionService struct {
-	store         interactionStore
-	agents        agentService
-	sessions      *Service
-	allowPushHTTP bool
+	store             interactionStore
+	agents            agentService
+	sessions          *Service
+	allowPushHTTP     bool
+	automaticRecovery bool
 }
 
-func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP bool) *InteractionService {
-	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP}
+func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP, automaticRecovery bool) *InteractionService {
+	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP, automaticRecovery: automaticRecovery}
 }
 
 // PreparedSend either grants a new dispatch or returns an already accepted task.
@@ -163,7 +164,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		req.Config = &config
 	}
 	id, err := s.reserveDispatch(ctx, session.Id, initialID)
-	if errors.Is(err, database.ErrConflict) {
+	if s.automaticRecovery && errors.Is(err, database.ErrConflict) {
 		// A crash during a turn leaves that turn active, and active work refuses
 		// every send, so no send would reach the crashed Actor to recover it.
 		// Revert restores a crashed Actor and leaves a busy one alone, so one more
@@ -174,9 +175,9 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		} else if !errors.Is(recoverErr, a2atype.ErrUnauthorized) {
 			return nil, recoverErr
 		}
-		if errors.Is(err, database.ErrConflict) {
-			err = interactionStoreError(ctx, err)
-		}
+	}
+	if errors.Is(err, database.ErrConflict) {
+		err = interactionStoreError(ctx, err)
 	}
 	if errors.Is(err, database.ErrMessageAccepted) {
 		var historyLength *int
@@ -279,6 +280,9 @@ func (s *InteractionService) RevokeSend(ctx context.Context, agent types.Namespa
 // crashed Actor cannot be resumed, so the refusal would repeat on every retry;
 // reverting it first lets the caller's retry reach the restored runtime.
 func (s *InteractionService) RecoverRejectedSend(ctx context.Context, agent types.NamespacedName, message *a2atype.Message) error {
+	if !s.automaticRecovery {
+		return ErrSendNotAccepted
+	}
 	session, err := s.messageSession(ctx, agent, message)
 	if err != nil {
 		return err
@@ -493,7 +497,7 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 	if database.RuntimeLost(session) {
 		return nil, ErrRuntimeUnrecoverable
 	}
-	if database.CrashRecoveryAdmitted(session) {
+	if s.automaticRecovery && database.CrashRecoveryAdmitted(session) {
 		if err := s.recoverRuntime(ctx, session.Id); err != nil {
 			return nil, err
 		}

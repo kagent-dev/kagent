@@ -192,6 +192,8 @@ config:
     # Recovery scans for missed wake-ups and unbound registration cleanup.
     recoveryInterval: 60s
   sessions:
+    # Recover crashed runtimes when a client sends another message.
+    automaticRecovery: false
     idleTtl: 604800s
     shareMaxTtl: 0s
   sandboxes:

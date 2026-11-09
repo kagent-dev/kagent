@@ -237,6 +237,8 @@ message SubstrateConfig {
 }
 
 message SessionsConfig {
+  // Recover crashed runtimes during sends. Disabled by default; explicit revert remains available.
+  bool automatic_recovery = 5;
   // Zero disables idle expiration.
   google.protobuf.Duration idle_ttl = 1 [(buf.validate.field).duration = {
     gte: {}

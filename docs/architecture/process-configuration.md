@@ -107,12 +107,17 @@ push:
   signingPrivateKeyFile: secrets/push-private-key.pem
 sessions:
   idleTtl: 604800s
+  automaticRecovery: false
 runtimeDefaults:
   controlPlaneUrl: http://kagent-controller.kagent.svc:8083
   gatewayUrl: http://kagent-controller.kagent.svc:8083
   logging:
     level: info
 ```
+
+`sessions.automaticRecovery` enables recovery of crashed runtimes during sends.
+It defaults to false. Explicit `RevertSession` calls remain available with either value.
+The setting does not change migrations or stored data.
 
 The controller connects with two logins. `database.owner` applies migrations at
 startup; `database.readWrite` serves every runtime query. Each assumes its `role`

@@ -65,7 +65,7 @@ func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessi
 }
 
 func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string) a2asrv.RequestHandler {
-	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false)
+	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, true)
 	return New(interactions, dialer, url)
 }
 
@@ -141,4 +141,43 @@ func TestListWithoutContextRestrictsShareToOneConversation(t *testing.T) {
 	_, err := gateway.ListTasks(ctx, &a2a.ListTasksRequest{Tenant: gatewayTestAgent})
 	require.NoError(t, err)
 	require.Equal(t, []string{gatewayTestID}, store.listedIDs)
+}
+
+func TestSendRecoveryDisabled(t *testing.T) {
+	for _, scenario := range []struct {
+		name                   string
+		pending, busy, refused bool
+		want                   error
+	}{
+		{name: "an admitted recovery", pending: true, want: a2a.ErrUnsupportedOperation},
+		{name: "an active turn", busy: true, want: a2a.ErrUnsupportedOperation},
+		{name: "a runtime refusal", refused: true, want: sessionsvc.ErrSendNotAccepted},
+	} {
+		t.Run("Given automatic recovery is disabled, when a send encounters "+scenario.name+", assert that it refuses without reverting", func(t *testing.T) {
+			session := gatewayTestSession()
+			if scenario.pending {
+				session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
+			}
+			store := &gatewayTestStore{session: session, revoked: scenario.refused, taskErr: database.ErrNotFound}
+			if scenario.busy {
+				store.reserveErr = database.ErrConflict
+			}
+			runtime := &gatewayTestRuntime{}
+			if scenario.refused {
+				runtime.onSend = func() error { return a2a.ErrInternalError }
+			}
+			authorizer := &gatewayTestAuthorizer{}
+			interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, false)
+			gateway := New(interactions, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			require.ErrorIs(t, err, scenario.want)
+			if !scenario.refused {
+				require.NotErrorIs(t, err, sessionsvc.ErrSendNotAccepted)
+			}
+			require.Zero(t, store.reverts)
+			if scenario.busy {
+				require.Equal(t, 1, store.reserveCalls)
+			}
+		})
+	}
 }
