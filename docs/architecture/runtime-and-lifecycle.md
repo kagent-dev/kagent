@@ -270,35 +270,41 @@ operation, and the client continues it by retrying RevertSession, as with Create
 and Delete. Nothing retries it in the background. While it is
 pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`.
 
-An A2A send also starts recovery. Substrate cannot resume a crashed Actor, so
-a send to one fails before the runtime accepts it. When the gateway proves the
-input was not accepted, it runs the same Revert on that Session before
-answering `KAGENT_SEND_NOT_ACCEPTED`, so the client's retry reaches the restored
-runtime. A Revert of a healthy runtime returns at once. A send while recovery is
-pending joins it the same way. The revert uses the send's own authorization, and
-continues if the caller disconnects. A missing or replaced Actor answers the
-send with a non-retryable error.
+An A2A send also starts recovery, so chat and API clients recover with the
+retry they already make. Substrate cannot resume a crashed Actor, so a send to
+one fails before the runtime accepts it. When the gateway proves the input was
+not accepted, it runs the same Revert on that Session before answering
+`KAGENT_SEND_NOT_ACCEPTED`, and the client's retry reaches the restored runtime.
+A crash during a turn leaves that turn active, and active work refuses every
+send, so a send refused for active work also runs Revert once and then tries
+its reservation again: a crashed runtime is restored and the send proceeds, and
+a busy healthy runtime refuses it as before. A send while recovery is pending
+joins it. Reverting needs Session update access, as `RevertSession` does; a
+caller who may only send gets the original refusal. The revert continues if the
+caller disconnects. No Session read calls Substrate.
+
+A missing, replaced, or retemplated Actor is not this Session's runtime, and
+reverting it would restore the wrong one. Whichever Revert observes that,
+directly or while executing an admitted recovery, records it in one transaction
+guarded by the generation it observed: the Session becomes FAILED/NONE with
+failure reason `RuntimeLost`, every open task fails, and a pending dispatch is
+cleared. A newer generation makes the observation stale and leaves the record
+alone. Later sends and reverts answer from PostgreSQL with a non-retryable error
+and do not ask Substrate again. Delete still works.
 
 Delete supersedes an admitted recovery even after an attempt issued the revert.
 Other issued lifecycle work blocks Delete because it may still create something
 Delete would miss; a revert restores the recorded Actor in place and creates
 nothing. Substrate serializes the two calls, and a late revert fails against the
-deleted Actor. A recovery whose Actor is missing or replaced stays pending, and
-each retry returns
-`FAILED_PRECONDITION` so the client deletes the Session.
+deleted Actor. Recording a lost runtime supersedes an admitted recovery the
+same way.
 
 A successful revert returns the Session to READY with the same Actor suspended.
 The next authorized interaction resumes it through Substrate ingress. Runtime
 changes after the retained snapshot are lost; the discarded turn receives no
 checkpoint at that older snapshot. Another revert returns the Session.
 
-`GetSession` reports `recovery_needed`, a read-only observation of the recorded
-Actor. It is the only Session read that calls Substrate; MCP and the other
-Session responses read the stored record and leave it unset. An unavailable or
-replaced Actor leaves the observation unknown and does not prevent history
-reads. The observation and `RevertSession` share one crash check, so chat offers
-a revert exactly when the revert would be admitted. Chat offers that revert and
-the existing fork action for a saved READY checkpoint.
+Chat shows a pending recovery and a lost runtime from the stored Session state.
 
 ```mermaid
 sequenceDiagram

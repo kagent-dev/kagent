@@ -41,31 +41,30 @@ should likewise retain the `request_id` passed to `create_sandbox`.
 
 ## Recovering a crashed Session
 
-Recovery runs only when a client asks for it. Chat offers a revert or a fork from
-an existing READY checkpoint after a confirmed runtime crash. Call
-`SessionService.RevertSession` with the Session ID to restore its recorded runtime
-to the last durable snapshot.
+A send recovers a crashed runtime. It returns `KAGENT_SEND_NOT_ACCEPTED` after reverting, so retry the send as usual.
+A send refused because a crashed turn is still active recovers the runtime first and then proceeds.
+A send while recovery is pending joins it. Recovering through a send needs Session update access.
+Call `SessionService.RevertSession` with the Session ID to restore the recorded runtime to its last durable snapshot without sending.
 The caller needs Session update access. The operation verifies Substrate's CRASHED state and the recorded Actor identity.
 Recovery fails interrupted turns and waiting tasks absent from the retained snapshot.
 It preserves durable terminal results and returns the Session to READY with its Actor suspended.
 It discards runtime changes since that snapshot and does not replay input.
 A runtime without a snapshot restarts from its initial state.
-`GetSession` reports `recovery_needed`; no other Session read sets it.
 
 Retry an interrupted revert against the same Session ID; nothing retries it in the background.
 Pending recovery retains its operation across API restarts, and a retry joins it.
 While recovery is pending, `GetSession` reports state `FAILED`, operation `REVERT`, and failure reason `RuntimeCrashed`.
-Call `RevertSession` again to finish the recovery.
-An A2A send also recovers a crashed runtime: it returns `KAGENT_SEND_NOT_ACCEPTED` after reverting, so retry the send as usual.
-A send while recovery is pending joins it. If the runtime cannot be recovered, the send fails with an error that is not retryable.
+Retry the send, or call `RevertSession` again, to finish the recovery.
 A retry after a revert whose response was lost returns the recovered Session.
 Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.
 So does a revert while another lifecycle operation is active.
 
 A revert of a runtime that is not crashed returns the Session unchanged.
-A revert that can never succeed returns `FAILED_PRECONDITION`: the recorded Actor is missing, or a same-name Actor replaced it.
-Stop retrying, delete the Session, then start another or fork one from a checkpoint. Delete succeeds even while the recovery is pending.
+When the recorded Actor is missing, or a same-name Actor replaced it, the runtime cannot be recovered.
+The Session is recorded as state `FAILED`, operation `NONE`, failure reason `RuntimeLost`, and its open tasks fail.
+From then on, `RevertSession` returns `FAILED_PRECONDITION` and sends fail with an error that is not retryable.
+Stop retrying, delete the Session, then start another or fork one from a checkpoint.
 Read the reason rather than the message text, which is not stable.
 
 ## Errors

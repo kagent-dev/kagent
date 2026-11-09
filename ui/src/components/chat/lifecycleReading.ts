@@ -60,6 +60,15 @@ export function lifecycleReading(
     };
   }
 
+  if (instance.operation === "revert") {
+    return {
+      active: "resuming",
+      summary: "Recovering this conversation after a crash",
+      source:
+        "The agent's runtime crashed and the controller is restoring it from its last snapshot.",
+    };
+  }
+
   if (instance.operation === "suspend") {
     return {
       active: "suspending",
@@ -166,4 +175,14 @@ export function isLifecycleBusy(
   isAwaitingReply = false,
 ): boolean {
   return lifecycleReading(instance, turnPhase, isAwaitingReply).active !== undefined;
+}
+
+/**
+ * Whether the conversation's recorded runtime is gone for good, so it can no longer
+ * answer. It can still be read, forked from a saved snapshot, or deleted.
+ */
+export function isRuntimeLost(instance: AgentInstance | undefined): boolean {
+  return instance?.state === "failed"
+    && instance.operation === "unspecified"
+    && instance.failure?.reason === "RuntimeLost";
 }

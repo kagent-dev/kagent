@@ -93,7 +93,7 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 		{Id: bobID, Creator: "bob", Agent: &apiv1.AgentProvenance{Ref: agent}},
 	}}
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
-		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, storedRecoveryWorkflow{})
+		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, nil)
 		config.ShareStore = &testShareStore{sessionShare: &apiv1.SessionShare{SessionId: aliceID}, ownerUserID: "alice"}
 	})
 	client := apiv1.NewSessionServiceClient(connection)
@@ -206,24 +206,4 @@ func TestSessionCreateNamespaceThroughGeneratedClient(t *testing.T) {
 			}
 		})
 	}
-}
-
-type storedRecoveryWorkflow struct{}
-
-var errNoRuntimeWorkflow = errors.New("transport test has no runtime workflow")
-
-func (storedRecoveryWorkflow) Create(context.Context, *apiv1.Session) (*apiv1.Session, error) {
-	return nil, errNoRuntimeWorkflow
-}
-
-func (storedRecoveryWorkflow) Revert(context.Context, *apiv1.Session) (*apiv1.Session, error) {
-	return nil, errNoRuntimeWorkflow
-}
-
-func (storedRecoveryWorkflow) Delete(context.Context, *apiv1.Session, bool) (*apiv1.Session, error) {
-	return nil, errNoRuntimeWorkflow
-}
-
-func (storedRecoveryWorkflow) RecoveryNeeded(context.Context, *apiv1.Session) (*bool, error) {
-	return nil, nil
 }

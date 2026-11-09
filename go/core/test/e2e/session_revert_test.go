@@ -13,6 +13,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -26,7 +27,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-func TestSessionRevertCrashedRuntime(t *testing.T) {
+// A worker is lost during a turn. The next send recovers the crashed Actor to its
+// last durable snapshot and is answered by the restored runtime; the client calls
+// nothing but SendMessage.
+func TestSessionSendRecoversCrashedRuntime(t *testing.T) {
 	target := interactionTarget(t)
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_agent.json", interactionMocks)
@@ -126,21 +130,23 @@ func TestSessionRevertCrashedRuntime(t *testing.T) {
 			return actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED, err
 		})
 		require.NoError(t, err)
-		observed, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
+		_, next := newMessageRequest(t, "What is 2+2?")
+		next.Tenant, next.Message.ContextId = fixture.tenant, fixture.sessionID
+		answered, err := sendMessageWithRetry(fixture.ctx, fixture.client, next)
+		require.NoError(t, err, "the send recovers the crashed runtime and reaches the restored one")
+		answer, err := pbconv.FromProtoSendMessageResponse(answered)
 		require.NoError(t, err)
-		require.True(t, observed.Session.GetRecoveryNeeded())
-		reverted, err := fixture.sessions.RevertSession(fixture.ctx, request)
-		require.NoError(t, err)
-		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, reverted.Session.State)
-		// Retry as a client whose success response was lost.
-		retried, err := fixture.sessions.RevertSession(fixture.ctx, request)
-		require.NoError(t, err)
-		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, retried.Session.State)
+		answerTask, ok := answer.(*a2a.Task)
+		require.True(t, ok, "response = %T", answer)
+		require.Equal(t, a2a.TaskStateCompleted, answerTask.Status.State)
+		require.Contains(t, taskText(answerTask), "4")
 		recovered, err := findSubstrateActor(fixture.ctx, fixture.system, namespace, name)
 		require.NoError(t, err)
-		require.Equal(t, running.GetMetadata().GetUid(), recovered.GetMetadata().GetUid())
-		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, recovered.GetStatus().GetState())
-		require.Equal(t, substrate.SnapshotURI(substrate.LatestDurableActorSnapshot(running)), substrate.SnapshotURI(substrate.LatestActorSnapshot(recovered)))
+		require.Equal(t, running.GetMetadata().GetUid(), recovered.GetMetadata().GetUid(), "recovery restores the recorded Actor in place")
+		// RevertSession afterwards finds a healthy runtime.
+		healthy, err = fixture.sessions.RevertSession(fixture.ctx, request)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, healthy.Session.State)
 		retained, err := fixture.client.GetTask(fixture.ctx, getTask)
 		require.NoError(t, err)
 		require.True(t, proto.Equal(before, retained), "recovery preserves the completed task and its history")
@@ -150,8 +156,5 @@ func TestSessionRevertCrashedRuntime(t *testing.T) {
 		case <-time.After(10 * time.Second):
 			t.Fatal("interrupted caller did not stop")
 		}
-		_, _, next := fixture.send(t, "What is 2+2?")
-		require.Equal(t, a2a.TaskStateCompleted, next.Status.State)
-		require.Contains(t, taskText(next), "4")
 	})
 }

@@ -23,6 +23,7 @@ import {
   TaskState,
   type SendMessageRequest,
 } from "@/generated/a2a_pb";
+import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
 import { setApiTransport } from "../transport";
 import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
 import { LinkFile } from "./attachments";
@@ -2099,5 +2100,129 @@ describe("A2AGrpcChatClient.send, when the stream breaks", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await outcome;
     expect(subscribed).toEqual([]);
+  });
+});
+
+/*
+ * A send that reaches a crashed runtime reverts it on the server and is refused with
+ * proof that the message was not accepted. The client sends the identical request
+ * again, which is safe because a repeated message ID cannot be accepted twice.
+ */
+describe("A2AGrpcChatClient.send, when the gateway did not accept the message", () => {
+  /** The error a2a-go writes for kagent's ErrSendNotAccepted. */
+  const notAccepted = (metadata: Record<string, string> = { reason: "KAGENT_SEND_NOT_ACCEPTED", retryAfterMs: "100" }, code = Code.FailedPrecondition) =>
+    new ConnectError("input was not accepted; retry after the session becomes available", code, undefined, [
+      { desc: ErrorInfoSchema, value: { reason: "UNSUPPORTED_OPERATION", domain: "a2a-protocol.org", metadata } },
+    ]);
+
+  const completed = statusFrame({ state: TaskState.COMPLETED });
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  async function run(attempt: (n: number) => AsyncGenerator<unknown>, signal?: AbortSignal) {
+    const requests: SendMessageRequest[] = [];
+    serve(({ service }) => {
+      service(A2AService, {
+        sendStreamingMessage: async function* (request) {
+          requests.push(request);
+          for await (const frame of attempt(requests.length)) yield frame as never;
+        },
+      });
+    });
+    const events: ChatEvent[] = [];
+    let error: unknown;
+    let done = false;
+    const turn = (async () => {
+      try {
+        for await (const event of new A2AGrpcChatClient().send({
+          conversation: CONVERSATION,
+          text: "why is checkout crashlooping?",
+          messageId: "msg-local-1",
+          signal,
+        })) {
+          events.push(event);
+        }
+      } catch (cause) {
+        error = cause;
+      } finally {
+        done = true;
+      }
+    })();
+    for (let tick = 0; !done && tick < 600; tick += 1) {
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    expect(done).toBe(true);
+    await turn;
+    return { events, error, requests };
+  }
+
+  it("re-sends the identical request until the gateway accepts it", async () => {
+    const { events, error, requests } = await run(async function* (n) {
+      if (n < 3) throw notAccepted();
+      yield completed;
+    });
+    expect(error).toBeUndefined();
+    expect(requests).toHaveLength(3);
+    expect(requests.map((request) => request.message?.messageId)).toEqual(["msg-local-1", "msg-local-1", "msg-local-1"]);
+    expect(requests[2]).toEqual(requests[0]);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "completed" });
+  });
+
+  it("waits as long as the gateway asks before re-sending", async () => {
+    const sentAt: number[] = [];
+    const { error } = await run(async function* (n) {
+      sentAt.push(Date.now());
+      if (n === 1) throw notAccepted({ reason: "KAGENT_SEND_NOT_ACCEPTED", retryAfterMs: "1500" });
+      yield completed;
+    });
+    expect(error).toBeUndefined();
+    expect(sentAt[1] - sentAt[0]).toBeGreaterThanOrEqual(1_500);
+  });
+
+  it("never re-sends once a frame has arrived", async () => {
+    const { error, requests } = await run(async function* () {
+      yield statusFrame({});
+      throw notAccepted();
+    });
+    expect(error).toMatchObject({ code: "FailedPrecondition" });
+    expect(requests).toHaveLength(1);
+  });
+
+  it.each([
+    ["another metadata reason", notAccepted({ reason: "SOMETHING_ELSE" })],
+    ["no metadata, as for a runtime that cannot be recovered", notAccepted({})],
+    ["another gRPC code", notAccepted(undefined, Code.Unavailable)],
+    ["no ErrorInfo", new ConnectError("Session runtime cannot be recovered; start another conversation", Code.FailedPrecondition)],
+  ])("does not re-send for %s", async (_, refusal) => {
+    const { error, requests } = await run(async function* () {
+      yield* [];
+      throw refusal;
+    });
+    expect(error).toBeDefined();
+    expect(requests).toHaveLength(1);
+  });
+
+  it("surfaces the refusal once the retry window is spent", async () => {
+    const { error, requests } = await run(async function* () {
+      yield* [];
+      throw notAccepted();
+    });
+    expect(error).toMatchObject({ code: "FailedPrecondition" });
+    // One send every 100 ms for 30 s, and not one more.
+    expect(requests.length).toBeGreaterThan(250);
+    expect(requests.length).toBeLessThanOrEqual(301);
+  });
+
+  it("stops re-sending when the reader presses stop", async () => {
+    const stop = new AbortController();
+    // The reader presses stop while the client waits to send a third time.
+    const { error, requests } = await run(async function* (n) {
+      if (n === 2) setTimeout(() => stop.abort(), 50);
+      yield* [];
+      throw notAccepted({ reason: "KAGENT_SEND_NOT_ACCEPTED", retryAfterMs: "1000" });
+    }, stop.signal);
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(requests).toHaveLength(2);
   });
 });

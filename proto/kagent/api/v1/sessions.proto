@@ -42,6 +42,9 @@ message Session {
   string a2a_authority = 6;
   RuntimeState state = 7;
   RuntimeOperation operation = 8;
+  // Output only. With state FAILED, reason RuntimeCrashed and operation REVERT
+  // mean a crash recovery is pending; reason RuntimeLost and operation NONE mean
+  // the recorded runtime is gone and the Session can only be deleted.
   Failure failure = 9;
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;
@@ -50,10 +53,6 @@ message Session {
   // Output only. A2A conversation ID, equal to this session's ID.
   // Forks receive a new conversation ID and new task IDs.
   string context_id = 14;
-  // Output only. Set only by GetSession: whether the recorded runtime crashed and
-  // needs a revert. Unset when GetSession could not observe the runtime; clients
-  // must not offer a revert then.
-  optional bool recovery_needed = 16;
 }
 
 message AgentProvenance {

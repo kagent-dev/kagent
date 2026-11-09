@@ -18,6 +18,17 @@ import (
 // recorded Actor crashed. Transport failures never set it.
 const SessionRuntimeCrashed = "RuntimeCrashed"
 
+// SessionRuntimeLost is the failure reason of a FAILED Session whose recorded
+// Actor is missing or was replaced. Nothing can restore it; Delete still works.
+const SessionRuntimeLost = "RuntimeLost"
+
+// RuntimeLost reports a Session recorded as having lost its runtime.
+func RuntimeLost(session *apiv1.Session) bool {
+	return session.State == apiv1.RuntimeState_RUNTIME_STATE_FAILED &&
+		session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE &&
+		session.GetFailure().GetReason() == SessionRuntimeLost
+}
+
 // CrashRecoveryAdmitted reports an admitted, unfinished crash recovery. Only
 // BeginCrashedSessionRecovery starts a REVERT, so the operation alone identifies it.
 func CrashRecoveryAdmitted(session *apiv1.Session) bool {
@@ -119,7 +130,7 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if err := execSQL(ctx, tx, `UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL WHERE id = $1`, row.ID, row.Data); err != nil {
 			return err
 		}
-		if err := settleCrashedSessionTasks(ctx, tx, row, snapshot); err != nil {
+		if err := settleCrashedSessionTasks(ctx, tx, row, snapshot, "The runtime crashed before this turn completed. Send a new message to continue."); err != nil {
 			return err
 		}
 		operation, err = toSessionOperation(row)
@@ -128,9 +139,67 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 	return operation, err
 }
 
+// RecordLostSessionRuntime fails a Session whose recorded Actor is missing or was
+// replaced, so later sends and reverts answer from PostgreSQL instead of asking
+// Substrate again. operationID is the generation the loss was observed under: the
+// last completed operation of a READY Session, or its admitted REVERT. A newer
+// generation returns ErrConflict, because the observation may predate it.
+//
+// Every open task is failed, including waits a snapshot captured: no runtime
+// remains to answer them. Saved results are published first.
+func (c *Client) RecordLostSessionRuntime(ctx context.Context, sessionID string, operationID uuid.UUID, message string) (*apiv1.Session, error) {
+	var session *apiv1.Session
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := lockSession(ctx, tx, sessionID)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		session, err = toSession(row)
+		if err != nil {
+			return err
+		}
+		if RuntimeLost(session) {
+			return nil
+		}
+		current := uuid.Nil
+		if row.OperationID != nil {
+			current = *row.OperationID
+		}
+		if current != operationID || (!lifecycleIdle(session) && !CrashRecoveryAdmitted(session)) {
+			return ErrConflict
+		}
+		row.State, row.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED.String(), apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()
+		// A new generation tells an attempt still executing the REVERT that it was
+		// superseded, as Delete does.
+		row.OperationID, row.ExecutorID = new(uuid.New()), nil
+		if err := saveRuntimeLifecycle(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent); err != nil {
+			return err
+		}
+		session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
+		session.Failure = &apiv1.Failure{Reason: SessionRuntimeLost, Message: message}
+		session.UpdatedAt = timestamppb.Now()
+		row.Data, err = marshalSession(session)
+		if err != nil {
+			return err
+		}
+		if err := execSQL(ctx, tx, `UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL WHERE id = $1`, row.ID, row.Data); err != nil {
+			return err
+		}
+		return settleCrashedSessionTasks(ctx, tx, row, SessionTaskSnapshot{}, "The runtime was lost before this turn completed. Start another conversation to continue.")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("record lost Session %s runtime: %w", sessionID, err)
+	}
+	return session, nil
+}
+
+func lifecycleIdle(session *apiv1.Session) bool {
+	return session.State == apiv1.RuntimeState_RUNTIME_STATE_READY && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
+}
+
 // settleCrashedSessionTasks publishes saved results, keeps waits the snapshot
 // captured, and fails the rest of the open work the revert discards.
-func settleCrashedSessionTasks(ctx context.Context, tx pgx.Tx, session sessionRow, snapshot SessionTaskSnapshot) error {
+func settleCrashedSessionTasks(ctx context.Context, tx pgx.Tx, session sessionRow, snapshot SessionTaskSnapshot, reason string) error {
 	if err := publishSavedSessionResults(ctx, tx, session); err != nil {
 		return err
 	}
@@ -167,7 +236,7 @@ func settleCrashedSessionTasks(ctx context.Context, tx pgx.Tx, session sessionRo
 			return err
 		}
 		task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Timestamp: new(time.Now().UTC()),
-			Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("The runtime crashed before this turn completed. Send a new message to continue."))}
+			Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(reason))}
 		apia2a.SetTimelinePosition(task.Status.Message, *task.Status.Timestamp)
 		event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}
 		if err := storeSessionTaskEvent(ctx, tx, session, task, event, false); err != nil {

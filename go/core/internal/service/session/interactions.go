@@ -163,6 +163,21 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		req.Config = &config
 	}
 	id, err := s.reserveDispatch(ctx, session.Id, initialID)
+	if errors.Is(err, database.ErrConflict) {
+		// A crash during a turn leaves that turn active, and active work refuses
+		// every send, so no send would reach the crashed Actor to recover it.
+		// Revert restores a crashed Actor and leaves a busy one alone, so one more
+		// reservation either proceeds or is refused as before. A caller who may
+		// send but not revert gets the original refusal.
+		if recoverErr := s.recoverRuntime(ctx, session.Id); recoverErr == nil {
+			id, err = s.reserveDispatch(ctx, session.Id, initialID)
+		} else if !errors.Is(recoverErr, a2atype.ErrUnauthorized) {
+			return nil, recoverErr
+		}
+		if errors.Is(err, database.ErrConflict) {
+			err = interactionStoreError(ctx, err)
+		}
+	}
 	if errors.Is(err, database.ErrMessageAccepted) {
 		var historyLength *int
 		if req.Config != nil {
@@ -222,7 +237,7 @@ func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, ini
 		if err == nil {
 			return id, nil
 		}
-		if errors.Is(err, database.ErrMessageAccepted) {
+		if errors.Is(err, database.ErrMessageAccepted) || errors.Is(err, database.ErrConflict) {
 			return uuid.Nil, err
 		}
 		if !errors.Is(err, database.ErrDispatchBusy) {
@@ -266,27 +281,36 @@ func (s *InteractionService) RevokeSend(ctx context.Context, agent types.Namespa
 func (s *InteractionService) RecoverRejectedSend(ctx context.Context, agent types.NamespacedName, message *a2atype.Message) error {
 	session, err := s.messageSession(ctx, agent, message)
 	if err != nil {
-		return ErrSendNotAccepted
+		return err
 	}
-	return s.recoverRuntime(ctx, session)
+	if err := s.recoverRuntime(ctx, session.Id); err != nil {
+		return err
+	}
+	return ErrSendNotAccepted
 }
 
 // ErrRuntimeUnrecoverable answers a send to a Session whose recorded Actor is
 // missing or was replaced. Retrying cannot succeed.
 var ErrRuntimeUnrecoverable = a2atype.NewError(a2atype.ErrUnsupportedOperation, "Session runtime cannot be recovered; start another conversation")
 
-// recoverRuntime reverts a crashed runtime under the authority the send already
-// checked, and returns how to answer that send. A healthy runtime returns at once.
-// The revert outlives a caller that disconnects, so a retry finds it finished.
-func (s *InteractionService) recoverRuntime(ctx context.Context, session *apiv1.Session) error {
-	_, err := s.sessions.workflow.Revert(context.WithoutCancel(ctx), session)
-	if errors.Is(err, errRuntimeUnrecoverable) {
+// recoverRuntime reverts a crashed runtime for a send that found it, and returns
+// nil once the runtime is healthy or restored. Reverting needs the same update
+// access as RevertSession, which sending alone does not grant. Contention and
+// outages answer ErrSendNotAccepted, so the caller retries. The revert outlives a
+// caller that disconnects, so a retry finds it finished.
+func (s *InteractionService) recoverRuntime(ctx context.Context, sessionID string) error {
+	_, err := s.sessions.Revert(context.WithoutCancel(ctx), sessionID)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, errRuntimeUnrecoverable):
 		return ErrRuntimeUnrecoverable
+	case serviceerrors.CodeOf(err) == serviceerrors.CodeAborted || serviceerrors.CodeOf(err) == serviceerrors.CodeUnavailable:
+		logging.FromContext(ctx).WarnContext(ctx, "recover crashed runtime", "session_id", sessionID, "error", err)
+		return ErrSendNotAccepted
+	default:
+		return interactionError(ctx, err)
 	}
-	if err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "recover crashed runtime", "session_id", session.Id, "error", err)
-	}
-	return ErrSendNotAccepted
 }
 
 // GetTaskByMessage reads only the task that accepted this input. It uses the
@@ -466,8 +490,14 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match task")
 	}
 	req.Message.ContextID = session.ContextId
+	if database.RuntimeLost(session) {
+		return nil, ErrRuntimeUnrecoverable
+	}
 	if database.CrashRecoveryAdmitted(session) {
-		return nil, s.recoverRuntime(ctx, session)
+		if err := s.recoverRuntime(ctx, session.Id); err != nil {
+			return nil, err
+		}
+		return nil, ErrSendNotAccepted
 	}
 	if session.State != apiv1.RuntimeState_RUNTIME_STATE_READY || session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "Session cannot accept work during a lifecycle operation")

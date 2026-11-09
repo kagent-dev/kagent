@@ -107,8 +107,6 @@ export interface AgentInstance {
   operation: AgentInstanceOperation;
   /** Set only when the controller recorded a failure. */
   failure?: AgentInstanceFailure;
-  /** Set only by GetSession; absent when the controller could not observe the runtime. */
-  recoveryNeeded?: boolean;
   /** RFC3339, or empty when the record carried no timestamp. */
   createdAt: string;
   /** RFC3339, or empty when the record carried no timestamp. */

@@ -327,3 +327,58 @@ func TestRevertCanOnlyJoinAnAdmittedRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, admitted.ID, joined.ID)
 }
+
+func TestRecordLostSessionRuntime(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		admitted bool
+	}{
+		{name: "observed by an idle revert"},
+		{name: "observed by an admitted recovery's claimed attempt", admitted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+			session, task := waitingTaskFixture(t, client)
+			uid := "actor-" + session.Id
+			generation := sessionGeneration(t, client, session.Id).OperationID
+			var executor uuid.UUID
+			if test.admitted {
+				operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, uid), SessionTaskSnapshot{})
+				require.NoError(t, err)
+				executor = uuid.New()
+				claimed, err := client.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)
+				require.NoError(t, err)
+				require.True(t, claimed)
+				_, err = client.RecordLostSessionRuntime(t.Context(), session.Id, generation, "lost")
+				require.ErrorIs(t, err, ErrConflict, "an observation older than the admitted recovery is stale")
+				generation = operation.ID
+			}
+			_, err := client.RecordLostSessionRuntime(t.Context(), session.Id, uuid.New(), "lost")
+			require.ErrorIs(t, err, ErrConflict, "a stale generation records nothing")
+
+			lost, err := client.RecordLostSessionRuntime(t.Context(), session.Id, generation, "Runtime cannot be recovered")
+			require.NoError(t, err)
+			require.True(t, RuntimeLost(lost))
+			require.Equal(t, "Runtime cannot be recovered", lost.Failure.Message)
+			stored, err := client.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.True(t, proto.Equal(lost, stored))
+			settled, err := client.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
+			require.NoError(t, err)
+			require.Equal(t, a2a.TaskStateFailed, settled.Status.State, "no runtime remains to answer the wait")
+
+			replayed, err := client.RecordLostSessionRuntime(t.Context(), session.Id, uuid.New(), "again")
+			require.NoError(t, err)
+			require.True(t, proto.Equal(stored, replayed), "recording a loss twice changes nothing")
+			if test.admitted {
+				_, err = client.FinishSessionOperation(t.Context(), session.Id, generation, executor, "", uid, "")
+				require.ErrorIs(t, err, ErrConflict, "the abandoned revert cannot finish")
+			}
+			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), ErrConflict)
+			deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+			require.NoError(t, err, "a lost runtime can still be deleted")
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, deletion.Instance.Operation)
+		})
+	}
+}

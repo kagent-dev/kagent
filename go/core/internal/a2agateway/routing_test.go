@@ -50,6 +50,9 @@ type gatewayTestWorkflow struct {
 
 func (w gatewayTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	w.store.reverts++
+	if w.store.onRevert != nil {
+		w.store.onRevert()
+	}
 	return session, nil
 }
 

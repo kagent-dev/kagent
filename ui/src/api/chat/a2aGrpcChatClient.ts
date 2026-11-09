@@ -59,6 +59,7 @@ import {
   type Task as A2ATask,
   type TaskStatus,
 } from "@/generated/a2a_pb";
+import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
 import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
 import { A2A_METADATA, metadataString } from "./a2aMetadata";
 import {
@@ -114,6 +115,39 @@ const REATTACH_HEALTHY_MS = 10_000;
 
 /** The wait before the first re-attach after a failure, doubled for each one after. */
 const REATTACH_BACKOFF_MS = 500;
+
+/**
+ * How long a send keeps re-sending a message the gateway proved it did not accept.
+ * The window bounds the retries, not how long an accepted turn may run.
+ */
+const UNACCEPTED_SEND_WINDOW_MS = 30_000;
+
+/** The wait before re-sending when the gateway does not name one. */
+const UNACCEPTED_SEND_RETRY_MS = 100;
+
+/** `ErrorInfo.domain` of every error the A2A server writes (`a2a.ProtocolDomain`). */
+const A2A_PROTOCOL_DOMAIN = "a2a-protocol.org";
+
+/**
+ * The wait before re-sending, when `error` is the gateway's proof that it did not
+ * accept the message; otherwise undefined.
+ *
+ * The gateway answers a send that reached a crashed runtime, or a recovery still in
+ * progress, with A2A's UNSUPPORTED_OPERATION (gRPC FAILED_PRECONDITION) and a
+ * `google.rpc.ErrorInfo` whose metadata says `reason: KAGENT_SEND_NOT_ACCEPTED`.
+ * Only that combination is proof: any other refusal, or a broken connection, may
+ * have accepted the input, and sending it again could start a second turn.
+ */
+function unacceptedSendRetryMs(error: unknown): number | undefined {
+  if (!(error instanceof ConnectError) || error.code !== Code.FailedPrecondition) return undefined;
+  const info = error.findDetails(ErrorInfoSchema).find((detail) =>
+    detail.domain === A2A_PROTOCOL_DOMAIN
+    && detail.reason === "UNSUPPORTED_OPERATION"
+    && detail.metadata.reason === "KAGENT_SEND_NOT_ACCEPTED");
+  if (!info) return undefined;
+  const wait = Number.parseInt(info.metadata.retryAfterMs ?? "", 10);
+  return Number.isFinite(wait) && wait >= 0 ? wait : UNACCEPTED_SEND_RETRY_MS;
+}
 
 /** Resolves after `ms`, or rejects with the abort as soon as `signal` fires. */
 function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
@@ -600,16 +634,24 @@ export class A2AGrpcChatClient implements ChatClient {
      * not taken as a sign the path works: a path that breaks right after it would
      * otherwise never run out of attempts. What resets the count is a frame after
      * it, or a stream that stayed open long enough to have been cut for being quiet.
+     *
+     * Before any frame, a send the gateway proves it did not accept is sent again,
+     * identically. That is how a crashed runtime recovers: the send that finds it
+     * reverts it, and the same message ID can never be accepted twice. Once a frame
+     * has arrived, the message was accepted and is never re-sent.
      */
     let taskId = "";
     let settled = false;
     const follow = async function* (): AsyncGenerator<StreamFrame> {
+      const resendUntil = Date.now() + UNACCEPTED_SEND_WINDOW_MS;
+      let received = false;
       let source = stream;
       for (let failures = 0; ; ) {
         const opened = Date.now();
         let progressed = false;
         try {
           for await (const frame of source) {
+            received = true;
             if (frame.payload.case !== "task") progressed = true;
             const event = frame.payload.value as
               | { id?: string; taskId?: string; status?: TaskStatus }
@@ -623,6 +665,12 @@ export class A2AGrpcChatClient implements ChatClient {
           }
           return;
         } catch (error) {
+          const resendAfter = received ? undefined : unacceptedSendRetryMs(error);
+          if (resendAfter !== undefined && !signal?.aborted && Date.now() + resendAfter <= resendUntil) {
+            await pause(resendAfter, signal);
+            source = client.sendStreamingMessage(request, options);
+            continue;
+          }
           if (progressed || Date.now() - opened >= REATTACH_HEALTHY_MS) failures = 0;
           failures += 1;
           const reattach = !signal?.aborted && taskId !== "" && !settled

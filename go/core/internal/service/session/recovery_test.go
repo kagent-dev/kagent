@@ -16,10 +16,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"k8s.io/apimachinery/pkg/types"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 func (a *lifecycleTestActors) RevertActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
@@ -239,10 +242,18 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 			}
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
-			require.Nil(t, current.Failure)
 			stored, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 			require.NoError(t, err)
+			if test.want != nil {
+				// The loss is recorded so later sends and reverts need not ask Substrate.
+				require.True(t, database.RuntimeLost(current), "state = %s/%s", current.State, current.Operation)
+				require.Equal(t, a2a.TaskStateFailed, stored.Status.State, "no runtime remains to finish the turn")
+				_, err = NewActorWorkflow(store, &recoveryTestActors{lifecycleTestActors: base, readErr: status.Error(codes.Internal, "Substrate must not be read")}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Revert(t.Context(), current)
+				require.ErrorIs(t, err, errRuntimeUnrecoverable)
+				return
+			}
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
+			require.Nil(t, current.Failure)
 			require.Equal(t, a2a.TaskStateWorking, stored.Status.State)
 		})
 	}
@@ -500,7 +511,8 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 }
 
 // A revert restores the recorded Actor in place and creates nothing Delete could
-// miss, so Delete supersedes an admitted recovery even after the revert was issued.
+// miss, so Delete supersedes an admitted recovery even after the revert was issued,
+// and deletes a Session whose recovery ended with a lost Actor.
 func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -554,7 +566,11 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 			pending, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, pending.State)
-			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed attempt keeps the recovery for a retry")
+			if test.gone || test.replaced {
+				require.True(t, database.RuntimeLost(pending), "a lost Actor ends the recovery")
+			} else {
+				require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed attempt keeps the recovery for a retry")
+			}
 			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Delete(t.Context(), pending, false)
 			if test.replaced {
 				require.NotErrorIs(t, err, database.ErrConflict)
@@ -576,17 +592,67 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 
 func TestSendRecoveryAnswersTheSend(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		err  error
-		want error
+		name    string
+		err     error
+		authErr error
+		want    error
 	}{
-		{name: "healthy or reverted", want: ErrSendNotAccepted},
+		{name: "healthy or reverted"},
 		{name: "contention", err: database.ErrConflict, want: ErrSendNotAccepted},
+		{name: "substrate unavailable", err: status.Error(codes.Unavailable, "control plane unavailable"), want: ErrSendNotAccepted},
 		{name: "unrecoverable", err: fmt.Errorf("runtime Actor is missing: %w", errRuntimeUnrecoverable), want: ErrRuntimeUnrecoverable},
+		// Sending needs only create access; reverting needs RevertSession's update access.
+		{name: "no update access", authErr: serviceerrors.NewPermissionDenied("denied", nil), want: a2a.ErrUnauthorized},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			interactions := NewInteractionService(nil, nil, NewService(nil, nil, serviceTestWorkflow{err: test.err}), false)
-			require.ErrorIs(t, interactions.recoverRuntime(t.Context(), &apiv1.Session{Id: uuid.NewString()}), test.want)
+			session := &apiv1.Session{Id: uuid.NewString(), State: apiv1.RuntimeState_RUNTIME_STATE_READY}
+			authorizer := &verbAuthorizer{denied: auth.VerbUpdate, err: test.authErr}
+			sessions := NewService(&serviceTestStore{getResult: session}, authorizer, serviceTestWorkflow{err: test.err})
+			interactions := NewInteractionService(nil, nil, sessions, false)
+			err := interactions.recoverRuntime(serviceTestContext("alice"), session.Id)
+			if test.want == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, test.want)
+			}
+			require.Equal(t, []auth.Verb{auth.VerbUpdate}, authorizer.checked, "recovery is authorized as RevertSession")
+		})
+	}
+}
+
+// verbAuthorizer denies one verb with err, so a test can grant send but not revert.
+type verbAuthorizer struct {
+	denied  auth.Verb
+	err     error
+	checked []auth.Verb
+}
+
+func (a *verbAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, _ auth.Resource) error {
+	a.checked = append(a.checked, verb)
+	if verb == a.denied {
+		return a.err
+	}
+	return nil
+}
+
+// A refused send whose Session can no longer be read answers with that error, so
+// a deleted Session or a revoked grant does not become an endless retry.
+func TestRecoverRejectedSendReturnsSessionErrors(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		store      *serviceTestStore
+		authorizer serviceTestAuthorizer
+		want       error
+	}{
+		{name: "not found", store: &serviceTestStore{getErr: database.ErrNotFound}, want: a2a.ErrTaskNotFound},
+		{name: "permission denied", store: &serviceTestStore{}, authorizer: serviceTestAuthorizer{err: serviceerrors.NewPermissionDenied("denied", nil)}, want: a2a.ErrUnauthorized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			interactions := NewInteractionService(nil, nil, NewService(test.store, test.authorizer, serviceTestWorkflow{}), false)
+			message := &a2a.Message{ID: "input", ContextID: uuid.NewString()}
+			err := interactions.RecoverRejectedSend(serviceTestContext("alice"), types.NamespacedName{Namespace: "team-a", Name: "assistant"}, message)
+			require.ErrorIs(t, err, test.want)
+			require.NotErrorIs(t, err, ErrSendNotAccepted)
 		})
 	}
 }
