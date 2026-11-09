@@ -134,6 +134,16 @@ no completed URI. Failed checkpoints cannot be forked. Their history and revisio
 references remain pinned until deletion succeeds. An unrelated or replaced tag
 is never adopted or deleted.
 
+Owner-scoped Get and List expose both `READY` and `FAILED` checkpoints, including
+after source deletion. `CREATING` and `DELETING` remain hidden, and fork reads and
+transactions still require `READY`. A terminal failed Create returns
+`FailedPrecondition` with `ErrorInfo.reason = KAGENT_CHECKPOINT_FAILED` and the
+checkpoint UUID in `ResourceInfo.resource_name`. Repeating that request returns
+the same terminal identity without copying again. The owner can discover and
+delete the failed checkpoint before creating a new request. Public failed
+checkpoint responses use a generic service-owned failure message, including for
+legacy rows that retained raw backend errors; the stored operation is not rewritten.
+
 ### Proposed initial upgrade boundary: pending maintainer acceptance
 
 The proposed first upgrade from a controller without checkpoint execution claims

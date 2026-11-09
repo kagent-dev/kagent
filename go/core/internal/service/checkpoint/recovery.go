@@ -145,7 +145,7 @@ func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation,
 	}
 	failure := ""
 	if err != nil {
-		failure = "Checkpoint snapshot copy could not be verified"
+		failure = checkpointFailureMessage
 	}
 	// Under the required backend serialization contract, the definitive reply
 	// permits FAILED to release admission and retain its UID for explicit Delete.

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -21,8 +22,9 @@ import (
 )
 
 const (
-	defaultPageSize = 50
-	maxPageSize     = 100
+	defaultPageSize          = 50
+	maxPageSize              = 100
+	checkpointFailureMessage = "Checkpoint snapshot copy could not be verified"
 )
 
 type store interface {
@@ -249,7 +251,7 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1.Checkpoi
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
 	}
-	return checkpoint, nil
+	return publicCheckpoint(checkpoint), nil
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
@@ -277,6 +279,9 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		return ListResult{}, serviceerrors.NewInternal("Failed to list checkpoints", err)
 	}
 	result := ListResult{Checkpoints: rows[:min(len(rows), pageSize)]}
+	for i, checkpoint := range result.Checkpoints {
+		result.Checkpoints[i] = publicCheckpoint(checkpoint)
+	}
 	if len(rows) > pageSize {
 		result.NextPageToken = encodePageToken(rows[pageSize-1].GetId())
 	}
@@ -503,10 +508,29 @@ func createOutcome(checkpoint *apiv1.Checkpoint) (*apiv1.Checkpoint, error) {
 	case apiv1.CheckpointState_CHECKPOINT_STATE_READY:
 		return checkpoint, nil
 	case apiv1.CheckpointState_CHECKPOINT_STATE_FAILED:
-		return nil, serviceerrors.NewUnavailable("Failed to retain checkpoint snapshot", nil)
+		failure, err := status.New(codes.FailedPrecondition,
+			"Checkpoint creation failed; delete the failed checkpoint before creating a new request").WithDetails(
+			&errdetails.ErrorInfo{Domain: "kagent.dev", Reason: "KAGENT_CHECKPOINT_FAILED"},
+			&errdetails.ResourceInfo{ResourceType: "kagent.api.v1.Checkpoint", ResourceName: checkpoint.Id},
+		)
+		if err != nil {
+			return nil, serviceerrors.NewInternal("Failed to report checkpoint failure", err)
+		}
+		return nil, failure.Err()
 	default:
 		return nil, serviceerrors.NewAborted("Checkpoint operation is still pending; retry the same request", nil)
 	}
+}
+
+// Failed records from older controllers can contain raw backend errors. Public
+// reads expose a generic failure without rewriting the retained operation data.
+func publicCheckpoint(checkpoint *apiv1.Checkpoint) *apiv1.Checkpoint {
+	if checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_FAILED {
+		return checkpoint
+	}
+	result := proto.CloneOf(checkpoint)
+	result.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: checkpointFailureMessage}
+	return result
 }
 
 // Backend status text/details can contain private storage configuration. Keep

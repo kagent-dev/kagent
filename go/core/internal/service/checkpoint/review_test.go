@@ -125,7 +125,7 @@ func TestCheckpointRequestsAndRecovery(t *testing.T) {
 		service := NewService(store, testAuthorizer{}, tags, nil)
 		request := uuid.NewString()
 		_, err := service.Create(owner, source.Id, request, head)
-		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable))
+		require.Equal(t, codes.FailedPrecondition, status.Code(err))
 		cp, _, err := service.beginCreate(owner, source.Id, request, head)
 		require.NoError(t, err)
 		require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, cp.State)

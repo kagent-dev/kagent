@@ -343,9 +343,17 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
 	}
 	listed, err := client.ListSessionCheckpoints(ctx, sessionID, "alice", "", 10)
-	if err != nil || len(listed) != 1 || listed[0].Id != checkpoint.Id {
+	if err != nil || len(listed) != 2 || listed[0].Id != checkpoint.Id || listed[1].Id != failed.Id {
 		t.Fatalf("listed checkpoints = %+v, error %v", listed, err)
 	}
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, listed[1].State)
+	page, err := client.ListSessionCheckpoints(ctx, sessionID, "alice", checkpoint.Id, 1)
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+	require.Equal(t, failed.Id, page[0].Id, "pagination must include failed cleanup candidates")
+	foreign, err := client.ListSessionCheckpoints(ctx, sessionID, "mallory", "", 10)
+	require.NoError(t, err)
+	require.Empty(t, foreign)
 	if ref, tag, err := beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) || ref != nil || tag != "" {
 		t.Fatalf("unauthorized deletion = %+v, %q, %v", ref, tag, err)
 	}

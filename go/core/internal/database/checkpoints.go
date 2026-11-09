@@ -372,10 +372,16 @@ func (c *Client) FinalizeClaimedSessionCheckpoint(ctx context.Context, checkpoin
 	return result, nil
 }
 
-// GetSessionCheckpoint returns an owned READY checkpoint. Missing checkpoints, other
-// owners, and other lifecycle states return ErrNotFound.
+// GetSessionCheckpoint returns an owned READY or FAILED checkpoint so the owner
+// can discover a failed copy for cleanup. Missing checkpoints, other owners,
+// CREATING, and DELETING return ErrNotFound. Fork readers remain READY-only.
 func (c *Client) GetSessionCheckpoint(ctx context.Context, id, userID string) (*apiv1.Checkpoint, error) {
-	row, err := readCheckpoint(ctx, c.db, id, userID, new("READY"))
+	row, err := queryOne(ctx, c.db, `
+		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence,
+		    snapshot_atespace, snapshot_uri, snapshot_fidelity, tag_uid, state, data,
+		    source_history_id, prepared_revision
+		FROM session_checkpoint WHERE id = $1 AND user_id = $2 AND state IN ('READY', 'FAILED')
+	`, pgx.RowToStructByName[sessionCheckpointRow], id, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get Session checkpoint: %w", notFoundOr(err))
 	}
@@ -440,9 +446,9 @@ func checkpointSnapshot(row sessionCheckpointRow) *SessionTaskSnapshot {
 	}
 }
 
-// ListSessionCheckpoints returns an owner's READY checkpoints for the source
-// session in ascending ID order after afterID, up to limit. Retained checkpoints remain
-// listable after the source session is deleted.
+// ListSessionCheckpoints returns an owner's READY and FAILED checkpoints for the
+// source session in ascending ID order after afterID, up to limit. CREATING and
+// DELETING stay hidden. Retained checkpoints remain listable after source deletion.
 func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1.Checkpoint, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
@@ -450,7 +456,7 @@ func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, 
 		FROM session_checkpoint
 		WHERE source_session_id = $1
 		  AND user_id = $2
-		  AND state = 'READY'
+		  AND state IN ('READY', 'FAILED')
 		  AND (NULLIF($3::text, '') IS NULL OR id > NULLIF($3::text, '')::uuid)
 		ORDER BY id
 		LIMIT $4

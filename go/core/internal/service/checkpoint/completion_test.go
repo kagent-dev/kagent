@@ -69,7 +69,7 @@ func TestCreateObservesReplacementCompletion(t *testing.T) {
 				_, err = NewService(persistence, testAuthorizer{}, tags, nil).Create(owner, source.Id, request, head)
 				require.NoError(t, err)
 			case "failed":
-				require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable), "%v", err)
+				assertFailedCheckpointIdentity(t, err, checkpointID)
 				op, readErr := persistence.GetCheckpointOperation(owner, checkpointID, "alice")
 				require.NoError(t, readErr)
 				require.Equal(t, "replacement rejected the copy", op.Checkpoint.Failure.Message)
