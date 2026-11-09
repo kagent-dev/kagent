@@ -191,11 +191,12 @@ func testPushWorkerConfig(recoveryInterval time.Duration) PushWorkerConfig {
 // below exercise concurrent scheduling and shutdown.
 func pollPushWorker(t *testing.T, worker *PushWorker) (bool, error) {
 	t.Helper()
-	return worker.poll(t.Context(), 100, func(delivery database.PushDelivery) {
+	empty, err := worker.poll(t.Context(), pushClaimBatchSize, func(delivery database.PushDelivery) {
 		if err := worker.send(t.Context(), delivery); err != nil {
 			t.Logf("push attempt: %v", err)
 		}
 	})
+	return !empty && err == nil, err
 }
 
 func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {

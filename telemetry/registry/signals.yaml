@@ -1,5 +1,49 @@
 file_format: definition/2
 metrics:
+  - name: kagent.session.quiescence.claimed
+    requirement_level: recommended
+    instrument: counter
+    unit: "{session}"
+    brief: Number of session quiescence claims acquired.
+    note: >
+      A synchronous integer counter incremented before runtime I/O. Each returned
+      claim adds one, even if processing later fails. Every trigger series is
+      initialized to zero at worker startup. Repeated quiescence of the
+      same session counts separately; this is not a count of unique sessions or
+      successful suspensions. Empty scans and failed claim requests add nothing.
+      The trigger describes discovery, not proof of a lost signal or the exact
+      fraction of unique work delayed by recovery. Worker handoffs and continued
+      draining retain the originating trigger until a claim finds no work or
+      fails. New work arriving during a drain may inherit its origin.
+      An unchanged counter does not establish that recovery scans ran successfully.
+      Session, task, and error identities are excluded.
+    stability: development
+    attributes:
+      - ref: kagent.worker.trigger
+        requirement_level: required
+
+  - name: kagent.push.delivery.claimed
+    requirement_level: recommended
+    instrument: counter
+    unit: "{attempt}"
+    brief: Number of push delivery attempts claimed.
+    note: >
+      A synchronous integer counter incremented before delivery I/O. Each returned
+      claim adds one, even if processing later fails. Push retries count as
+      separate attempts. Every trigger series is initialized to zero at worker
+      startup. Empty scans and failed claim requests add nothing.
+      The trigger describes discovery, not proof of a lost signal or the exact
+      fraction of unique work delayed by recovery. Continued backlog draining
+      and freed delivery capacity retain the originating trigger until a claim
+      finds no work or fails. New work arriving during a drain may inherit its origin.
+      An unchanged counter does not establish that recovery scans ran
+      successfully. Task, registration, destination, and error
+      identities are excluded.
+    stability: development
+    attributes:
+      - ref: kagent.worker.trigger
+        requirement_level: required
+
   - name: kagent.runtime_revision.gc.pending
     requirement_level: recommended
     instrument: gauge

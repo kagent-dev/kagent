@@ -199,6 +199,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 }
 
 func TestQuiescenceRecoversMissedSignal(t *testing.T) {
+	_, reader, _ := captureWorkTelemetry(t)
 	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Hour).Create(t.Context(), session)
@@ -211,6 +212,7 @@ func TestQuiescenceRecoversMissedSignal(t *testing.T) {
 	_, err = taskstore.NewService(store, nil, nil).SettleTask(settlementContext(t, session), request)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
+	require.Equal(t, wantWorkClaims("recovery", 1), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
 }
 
 func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {

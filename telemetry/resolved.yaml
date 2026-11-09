@@ -2532,6 +2532,42 @@ refinements:
     stability: development
     unit: \u0027{tool_call}\u0027
   - attributes:
+    - brief: What started the drain that acquired a work claim.
+      key: kagent.worker.trigger
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A local task settlement signal.
+          id: signal
+          stability: development
+          value: signal
+        - brief: The idle recovery timer expired.
+          id: recovery
+          stability: development
+          value: recovery
+        - brief: The initial processing pass after worker startup.
+          id: startup
+          stability: development
+          value: startup
+        - brief: A scheduled recheck for pending work or an earlier error.
+          id: retry
+          stability: development
+          value: retry
+    brief: Number of push delivery attempts claimed.
+    id: kagent.push.delivery.claimed
+    instrument: counter
+    name: kagent.push.delivery.claimed
+    note: |
+      A synchronous integer counter incremented before delivery I/O. Each returned claim adds one, even if processing later fails. Push retries count as separate attempts. Every trigger series is initialized to zero at worker startup. Empty scans and failed claim requests add nothing. The trigger describes discovery, not proof of a lost signal or the exact fraction of unique work delayed by recovery. Continued backlog draining and freed delivery capacity retain the originating trigger until a claim finds no work or fails. New work arriving during a drain may inherit its origin. An unchanged counter does not establish that recovery scans ran successfully. Task, registration, destination, and error identities are excluded.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{attempt}\u0027
+  - attributes:
     - brief: |
         Describes a class of error the operation ended with.
       examples:
@@ -2592,6 +2628,42 @@ refinements:
     requirement_level: recommended
     stability: development
     unit: \u0027{revision}\u0027
+  - attributes:
+    - brief: What started the drain that acquired a work claim.
+      key: kagent.worker.trigger
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A local task settlement signal.
+          id: signal
+          stability: development
+          value: signal
+        - brief: The idle recovery timer expired.
+          id: recovery
+          stability: development
+          value: recovery
+        - brief: The initial processing pass after worker startup.
+          id: startup
+          stability: development
+          value: startup
+        - brief: A scheduled recheck for pending work or an earlier error.
+          id: retry
+          stability: development
+          value: retry
+    brief: Number of session quiescence claims acquired.
+    id: kagent.session.quiescence.claimed
+    instrument: counter
+    name: kagent.session.quiescence.claimed
+    note: |
+      A synchronous integer counter incremented before runtime I/O. Each returned claim adds one, even if processing later fails. Every trigger series is initialized to zero at worker startup. Repeated quiescence of the same session counts separately; this is not a count of unique sessions or successful suspensions. Empty scans and failed claim requests add nothing. The trigger describes discovery, not proof of a lost signal or the exact fraction of unique work delayed by recovery. Worker handoffs and continued draining retain the originating trigger until a claim finds no work or fails. New work arriving during a drain may inherit its origin. An unchanged counter does not establish that recovery scans ran successfully. Session, task, and error identities are excluded.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{session}\u0027
   spans:
   - attributes:
     - brief: The A2A method that started the invocation.
@@ -5756,9 +5828,67 @@ registry:
         id: byo
         stability: development
         value: byo
+  - brief: What started the drain that acquired a work claim.
+    key: kagent.worker.trigger
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: A local task settlement signal.
+        id: signal
+        stability: development
+        value: signal
+      - brief: The idle recovery timer expired.
+        id: recovery
+        stability: development
+        value: recovery
+      - brief: The initial processing pass after worker startup.
+        id: startup
+        stability: development
+        value: startup
+      - brief: A scheduled recheck for pending work or an earlier error.
+        id: retry
+        stability: development
+        value: retry
   entities: []
   events: []
   metrics:
+  - attributes:
+    - brief: What started the drain that acquired a work claim.
+      key: kagent.worker.trigger
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A local task settlement signal.
+          id: signal
+          stability: development
+          value: signal
+        - brief: The idle recovery timer expired.
+          id: recovery
+          stability: development
+          value: recovery
+        - brief: The initial processing pass after worker startup.
+          id: startup
+          stability: development
+          value: startup
+        - brief: A scheduled recheck for pending work or an earlier error.
+          id: retry
+          stability: development
+          value: retry
+    brief: Number of push delivery attempts claimed.
+    instrument: counter
+    name: kagent.push.delivery.claimed
+    note: |
+      A synchronous integer counter incremented before delivery I/O. Each returned claim adds one, even if processing later fails. Push retries count as separate attempts. Every trigger series is initialized to zero at worker startup. Empty scans and failed claim requests add nothing. The trigger describes discovery, not proof of a lost signal or the exact fraction of unique work delayed by recovery. Continued backlog draining and freed delivery capacity retain the originating trigger until a claim finds no work or fails. New work arriving during a drain may inherit its origin. An unchanged counter does not establish that recovery scans ran successfully. Task, registration, destination, and error identities are excluded.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{attempt}\u0027
   - attributes:
     - brief: |
         Describes a class of error the operation ended with.
@@ -5818,6 +5948,41 @@ registry:
     requirement_level: recommended
     stability: development
     unit: \u0027{revision}\u0027
+  - attributes:
+    - brief: What started the drain that acquired a work claim.
+      key: kagent.worker.trigger
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A local task settlement signal.
+          id: signal
+          stability: development
+          value: signal
+        - brief: The idle recovery timer expired.
+          id: recovery
+          stability: development
+          value: recovery
+        - brief: The initial processing pass after worker startup.
+          id: startup
+          stability: development
+          value: startup
+        - brief: A scheduled recheck for pending work or an earlier error.
+          id: retry
+          stability: development
+          value: retry
+    brief: Number of session quiescence claims acquired.
+    instrument: counter
+    name: kagent.session.quiescence.claimed
+    note: |
+      A synchronous integer counter incremented before runtime I/O. Each returned claim adds one, even if processing later fails. Every trigger series is initialized to zero at worker startup. Repeated quiescence of the same session counts separately; this is not a count of unique sessions or successful suspensions. Empty scans and failed claim requests add nothing. The trigger describes discovery, not proof of a lost signal or the exact fraction of unique work delayed by recovery. Worker handoffs and continued draining retain the originating trigger until a claim finds no work or fails. New work arriving during a drain may inherit its origin. An unchanged counter does not establish that recovery scans ran successfully. Session, task, and error identities are excluded.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{session}\u0027
   spans:
   - attributes:
     - brief: The A2A method that started the invocation.

@@ -12,12 +12,14 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"go.opentelemetry.io/otel"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 // validatePushConfig checks the fields supported by the OSS callback sender.
@@ -108,6 +110,12 @@ func (p *PushWorker) NeedLeaderElection() bool { return false }
 // Start drains work at startup and after local settlement hints. Recovery scans
 // find missed hints; outstanding retries and leases retain the five-second scan.
 func (p *PushWorker) Start(ctx context.Context) error {
+	counter, err := newWorkClaimCounter(ctx, otel.GetMeterProvider(),
+		conv.KagentPushDeliveryClaimed, conv.KagentPushDeliveryClaimedUnit, conv.KagentPushDeliveryClaimedDescription)
+	if err != nil {
+		return err
+	}
+	drain := &workDrain{trigger: workStartup}
 	timer := time.NewTimer(p.config.RecoveryInterval)
 	defer timer.Stop()
 	cleanupTimer := time.NewTimer(p.config.RecoveryInterval)
@@ -123,9 +131,13 @@ func (p *PushWorker) Start(ctx context.Context) error {
 	cleanup()
 	completed := make(chan struct{}, p.config.MaxConcurrency)
 	active := 0
+	claimed := 0
 	var sends sync.WaitGroup
 	defer sends.Wait()
 	dispatch := func(delivery database.PushDelivery) {
+		claimed++
+		recordWorkClaim(ctx, counter, drain.trigger)
+		drain.logRecoveryClaims(ctx, operationPushDelivery, p.config.RecoveryInterval, 1)
 		active++
 		sends.Go(func() {
 			if err := p.send(ctx, delivery); err != nil {
@@ -152,22 +164,29 @@ func (p *PushWorker) Start(ctx context.Context) error {
 		}
 		// Claim only for available slots: queued claims would consume their leases
 		// while waiting for a slow receiver. Completion immediately frees a slot.
-		fullBatch, err := p.poll(ctx, p.config.MaxConcurrency-active, dispatch)
-		if fullBatch && err == nil {
+		claimed = 0
+		empty, err := p.poll(ctx, p.config.MaxConcurrency-active, dispatch)
+		if empty || err != nil {
+			drain = nil
+		}
+		if claimed == pushClaimBatchSize && err == nil {
 			continue
 		}
 		delay := p.config.RecoveryInterval
+		nextTrigger := workRecovery
 		if err == nil && active < p.config.MaxConcurrency {
 			var pending bool
 			pending, err = p.store.HasPendingPushDelivery(ctx)
 			// If there are pending deliveries, we want to poll more frequently to avoid delays in processing.
 			if pending {
 				delay = min(5*time.Second, p.config.RecoveryInterval)
+				nextTrigger = workRetry
 			}
 		}
 		if err != nil && ctx.Err() == nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to process push notifications", "error", err)
 			delay = min(time.Second, p.config.RecoveryInterval)
+			nextTrigger = workRetry
 		}
 		// Saturated workers need no pending-work queries or recovery scans until
 		// capacity is freed. Registration cleanup has its own timer.
@@ -184,21 +203,31 @@ func (p *PushWorker) Start(ctx context.Context) error {
 				cleanup()
 				continue
 			case <-scan:
+				drain = &workDrain{trigger: nextTrigger}
 			case <-p.wake:
+				if drain == nil {
+					drain = &workDrain{trigger: workSignal}
+				}
 			case <-completed:
 				active--
+				if drain == nil {
+					// The prior drain ended. A late completion rechecks pending
+					// work as a retry without reviving that origin.
+					drain = &workDrain{trigger: workRetry}
+				}
 			}
 			break
 		}
 	}
 }
 
-// poll reports whether it filled the batch, so a backlog can drain without
-// waiting for the idle polling interval.
+const pushClaimBatchSize = 100
+
+// poll reports whether a claim actually found no work. Exhausting capacity or
+// the maintenance batch limit does not end a drain or change its origin.
 func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(database.PushDelivery)) (bool, error) {
 	// Bound each pass so an always-due backlog cannot starve registration cleanup.
-	claimed := 0
-	for range min(100, available) {
+	for range min(pushClaimBatchSize, available) {
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
@@ -207,12 +236,11 @@ func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(data
 			return false, err
 		}
 		if delivery == nil {
-			break
+			return true, nil
 		}
-		claimed++
 		dispatch(*delivery)
 	}
-	return claimed == 100, nil
+	return false, nil
 }
 
 func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) error {

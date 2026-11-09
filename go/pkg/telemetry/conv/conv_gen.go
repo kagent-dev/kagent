@@ -86,6 +86,8 @@ const (
 	KagentMcpServerNameKey = attribute.Key("kagent.mcp.server.name")
 	// KagentRuntimeKey is "kagent.runtime". The framework or harness that runs an agent.
 	KagentRuntimeKey = attribute.Key("kagent.runtime")
+	// KagentWorkerTriggerKey is "kagent.worker.trigger". What started the drain that acquired a work claim.
+	KagentWorkerTriggerKey = attribute.Key("kagent.worker.trigger")
 )
 
 // Values of A2AMethodKey.
@@ -262,6 +264,18 @@ const (
 	KagentRuntimeBYO = "byo"
 )
 
+// Values of KagentWorkerTriggerKey.
+const (
+	// KagentWorkerTriggerSignal: A local task settlement signal.
+	KagentWorkerTriggerSignal = "signal"
+	// KagentWorkerTriggerRecovery: The idle recovery timer expired.
+	KagentWorkerTriggerRecovery = "recovery"
+	// KagentWorkerTriggerStartup: The initial processing pass after worker startup.
+	KagentWorkerTriggerStartup = "startup"
+	// KagentWorkerTriggerRetry: A scheduled recheck for pending work or an earlier error.
+	KagentWorkerTriggerRetry = "retry"
+)
+
 // GenAIClientInferenceDuration: The duration of one model call of a harness turn.
 const (
 	GenAIClientInferenceDuration            = "gen_ai.client.inference.duration"
@@ -346,6 +360,13 @@ const (
 	GenAIInvokeAgentToolCallsDescription = "The tool calls of one execution segment of a harness agent."
 )
 
+// KagentPushDeliveryClaimed: Number of push delivery attempts claimed.
+const (
+	KagentPushDeliveryClaimed            = "kagent.push.delivery.claimed"
+	KagentPushDeliveryClaimedUnit        = "{attempt}"
+	KagentPushDeliveryClaimedDescription = "Number of push delivery attempts claimed."
+)
+
 // KagentRuntimeRevisionGCDuration: Duration of a runtime revision garbage collection attempt.
 const (
 	KagentRuntimeRevisionGCDuration            = "kagent.runtime_revision.gc.duration"
@@ -358,4 +379,11 @@ const (
 	KagentRuntimeRevisionGCPending            = "kagent.runtime_revision.gc.pending"
 	KagentRuntimeRevisionGCPendingUnit        = "{revision}"
 	KagentRuntimeRevisionGCPendingDescription = "Number of cleanup-eligible runtime revisions in the last successful discovery."
+)
+
+// KagentSessionQuiescenceClaimed: Number of session quiescence claims acquired.
+const (
+	KagentSessionQuiescenceClaimed            = "kagent.session.quiescence.claimed"
+	KagentSessionQuiescenceClaimedUnit        = "{session}"
+	KagentSessionQuiescenceClaimedDescription = "Number of session quiescence claims acquired."
 )

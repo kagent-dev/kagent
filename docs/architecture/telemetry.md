@@ -26,7 +26,57 @@ The contract is a Weaver registry in [`telemetry/registry`](../../telemetry/regi
 | Model calls | `gen_ai.client.inference.duration`, `gen_ai.client.inference.operation.*_tokens`, `gen_ai.client.inference.usage.*` | Recorded with the chat spans of the Claude Code and Codex runtimes |
 | Tools and call counts | `gen_ai.execute_tool.duration`, `gen_ai.invoke_agent.inference_calls`, `gen_ai.invoke_agent.tool_calls` | Recorded with the execute_tool and invoke_agent spans of the Claude Code and Codex runtimes |
 
-The registry describes the contract the runtimes are moving to. The next section says what each runtime emits today, and [Blind spots](#blind-spots) lists where the two still differ.
+The registry describes the contract the runtimes are moving to. [Who emits what](#who-emits-what) says what each runtime emits today, and [Blind spots](#blind-spots) lists where the two still differ.
+
+## Session and push recovery
+
+The controller records two integer Counters:
+
+| Metric | Unit | Counts |
+| --- | --- | --- |
+| `kagent.session.quiescence.claimed` | `{session}` | Session quiescence claims, including repeated quiescence of the same session |
+| `kagent.push.delivery.claimed` | `{attempt}` | Push delivery attempts, including retries |
+
+Each acquired claim adds one before runtime or delivery I/O, including attempts
+whose processing later fails. All four trigger series are initialized to zero
+when the worker starts. Empty scans and failed claim requests add nothing, and
+recording the metrics performs no additional database queries. These count
+claims rather than successful suspensions or deliveries. Both are defined in the
+Weaver registry and carry only the required trigger attribute.
+
+`kagent.worker.trigger` separates settlement signals (`signal`), idle recovery
+timers (`recovery`), initial drains (`startup`), scheduled pending-work and error
+rechecks (`retry`). Workers keep the originating trigger while draining, including
+across quiescence handoffs and push capacity refills. An empty or failed claim ends that
+drain; a later completion prompts a retry recheck if no drain remains active.
+A settlement hint does not relabel an active drain. Timer purpose determines the
+trigger even when recovery and retry delays match.
+Filter by `recovery` to monitor fallback discoveries and compare with `signal`
+to assess reliance on recovery. Controller resource metadata identifies the
+producer; request identity and destinations are excluded from metric attributes.
+
+Each recovery-started drain logs `recovery scan found work` once when it first
+acquires work, without waiting for runtime or delivery completion. Quiescence
+handoffs share the discovery log, avoiding per-session info logs. Fields are
+`operation` (`session_quiescence` or `push_delivery`), `trigger`,
+`recovery_interval_seconds`, and `claimed_count`. The logged count covers the
+initial discovery, while the metric includes subsequent claims in the drain.
+The interval is configured, not a measurement of waiting time. Empty passes
+produce no new logs, and existing errors remain logged.
+
+The trigger describes the origin of a drain rather than proving a lost signal
+or measuring the exact fraction of unique work delayed by recovery. New work
+arriving during a drain may inherit that origin. An unchanged counter does not
+establish that scans ran successfully or that a 900-second interval is safe.
+With healthy workers and telemetry, no recovery increases during representative
+traffic support retaining the interval. A positive increase shows reliance on
+recovery, without measuring the delay.
+
+The controller resource already carries `k8s.namespace.name`. In a deployment
+with one controller per tenant namespace, this supplies tenant grouping when the
+backend preserves and exposes the resource attribute. Scan counters and per-item
+success logs remain deferred; any future scan counters should be named per
+operation.
 
 ## Who emits what
 

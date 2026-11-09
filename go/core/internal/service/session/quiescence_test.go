@@ -32,6 +32,14 @@ type idleQuiescenceStore struct {
 
 var _ workflowStore = (*idleQuiescenceStore)(nil)
 
+// wakeQuiescence simulates taskstore's bounded, nonblocking settlement hint.
+func (w *ActorWorkflow) wakeQuiescence() {
+	select {
+	case w.quiescenceWake <- struct{}{}:
+	default:
+	}
+}
+
 func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error) {
 	s.claims.Add(1)
 	if s.claimErr != nil {
