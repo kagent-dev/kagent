@@ -305,7 +305,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			return
 		}
 
-		hitlActivated := HitlActivated(ctx)
+		hitlActivated := apia2a.HITLActive(ctx)
 		if hitlActivated && IsHITLResponse(reqCtx.Message) {
 			// a2a-go appends the inbound decision before invoking the executor. The
 			// original decision is re-emitted once for history/audit, while the

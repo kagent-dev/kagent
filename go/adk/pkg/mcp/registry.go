@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"time"
@@ -72,6 +73,7 @@ func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]str
 // mcpServerParams groups connection parameters for an MCP server,
 // reducing parameter sprawl across createTransport / initializeToolSet.
 type mcpServerParams struct {
+	Name                  string // the configured name; empty when the configuration gave none
 	URL                   string
 	Headers               map[string]string
 	AllowedHeaders        []string              // header names to forward from incoming request
@@ -88,6 +90,19 @@ type mcpServerParams struct {
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
+}
+
+// displayName names the server for the person: its configured name, or else
+// the host of its URL (the command of a stdio server). What the server reports
+// about itself is never used, since a server could then pass for another.
+func (p mcpServerParams) displayName() string {
+	if p.Name != "" {
+		return p.Name
+	}
+	if parsed, err := url.Parse(p.URL); err == nil && parsed.Host != "" {
+		return parsed.Host
+	}
+	return p.URL
 }
 
 // CreateToolsets creates toolsets from all configured HTTP and SSE MCP servers.
@@ -115,7 +130,7 @@ func CreateToolsets(
 	log.InfoContext(ctx, "processing stdio MCP tools", "stdio_tools_count", len(stdioTools))
 	for i, stdioTool := range stdioTools {
 		params := mcpServerParams{
-			URL: stdioTool.Command, ServerType: "stdio", Command: stdioTool.Command,
+			Name: stdioTool.GetName(), URL: stdioTool.Command, ServerType: "stdio", Command: stdioTool.Command,
 			Args: stdioTool.Args, Env: stdioTool.Env, Dir: stdioTool.Dir,
 		}
 		ts, err := addToolset(ctx, log, params, nil, false, "stdio", i+1)
@@ -127,6 +142,7 @@ func CreateToolsets(
 	log.InfoContext(ctx, "processing HTTP MCP tools", "http_tools_count", len(httpTools))
 	for i, httpTool := range httpTools {
 		params := mcpServerParams{
+			Name:                  httpTool.GetName(),
 			URL:                   httpTool.Params.Url,
 			Headers:               httpTool.Params.Headers,
 			AllowedHeaders:        httpTool.AllowedHeaders,
@@ -150,6 +166,7 @@ func CreateToolsets(
 	log.InfoContext(ctx, "processing SSE MCP tools", "sse_tools_count", len(sseTools))
 	for i, sseTool := range sseTools {
 		params := mcpServerParams{
+			Name:                  sseTool.GetName(),
 			URL:                   sseTool.Params.Url,
 			Headers:               sseTool.Params.Headers,
 			AllowedHeaders:        sseTool.AllowedHeaders,
@@ -382,7 +399,7 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 	discovery := &mcpAppDiscovery{listedAppNames: make(map[string]bool), appToolNames: make(map[string]bool)}
 	cfg := mcptoolset.Config{
 		Transport: mcpTransport,
-		Client:    newMCPAppClient(params.URL, toolFilter, discovery),
+		Client:    newMCPAppClient(params.displayName(), toolFilter, discovery),
 	}
 
 	toolset, err := mcptoolset.New(cfg)
@@ -390,5 +407,5 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
-	return &mcpAppToolset{inner: &urlElicitationToolset{inner: toolset, serverURL: params.URL}, discovery: discovery}, nil
+	return &mcpAppToolset{inner: &urlElicitationToolset{inner: toolset, server: params.displayName()}, discovery: discovery}, nil
 }

@@ -72,7 +72,10 @@ request may also carry `nested` child-agent correlation: `subagent_name`,
 `task_id`, `context_id`, and the child's pending tools.
 
 A URL elicitation request names the MCP `server` that asked, its `message`, the
-`url`, and the server's `elicitation_id` when it sent one:
+`url`, and the server's `elicitation_id` when it sent one. `server` is the name
+the server is configured under (the RemoteMCPServer's name or the `mcp.json`
+key, else its host), never the name it reports about itself, so a server cannot
+present its link under another's name:
 
 ```json
 {
@@ -106,6 +109,10 @@ When a URL elicitation shares its pause with other calls, the pause is a tool
 approval, and the waiting call's tool carries the request as `url_elicitation`.
 Approving that tool accepts it.
 
+Only a client that activated the extension can be asked to open a URL. For any
+other caller, such as an agent that calls this one over A2A, the tool call fails
+instead of pausing, and the error names the server without the URL.
+
 The server rejects responses that use the wrong task/context, omit required
 decisions, duplicate IDs, or answer an operation that is no longer pending.
 
@@ -114,9 +121,12 @@ runtime composes that text the same way, and a client receives it whether or not
 it activated the extension:
 
 - an `ask_user` pause renders its questions, joined with `; `;
-- a URL elicitation renders its message followed by the URL, so a client that
-  does not know `url_elicitation_request` still shows the link; in a tool
-  approval, that text is the waiting tool's hint;
+- a URL elicitation renders, for a client that activated the extension, its
+  message followed by the URL, so a client that does not know
+  `url_elicitation_request` still shows the link; for any other client, which
+  may hand the text to a model, it renders `<server> asks you to open a link to
+  continue.`, without the URL or the server's message; in a tool approval, that
+  text is the waiting tool's hint;
 - any other pause renders the hints its tools supplied, followed by the tool
   names in parentheses: `Deleting this file requires approval (delete_file,
   restart_pod)`;

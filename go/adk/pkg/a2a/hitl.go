@@ -63,12 +63,6 @@ func extensionRequested(callCtx *a2asrv.CallContext, uri string) bool {
 	return false
 }
 
-// HitlActivated reports whether HITL was negotiated for this server call.
-func HitlActivated(ctx context.Context) bool {
-	extensions, ok := a2asrv.ExtensionsFrom(ctx)
-	return ok && extensions.Active(&hitlAgentExtension)
-}
-
 // rawHitlMap reads the HITL extension metadata as a map[string]any.
 func rawHitlMap(message *a2atype.Message) map[string]any {
 	if message == nil || !slices.Contains(message.Extensions, HITLExtensionURI) || message.Metadata == nil {
@@ -498,10 +492,9 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 			candidate.ID = hitlTool.ID
 			elicitation = candidate
 			// When other calls share this pause, the URL elicitation is
-			// presented as an approval: the tool carries it typed, and the
-			// text carries the URL for a client without the extension.
+			// presented as an approval: the tool carries it typed.
 			hitlTool.URLElicitation = candidate
-			hint = urlElicitationText(candidate)
+			hint = urlElicitationText(candidate, activated)
 		}
 		tools = append(tools, hitlTool)
 		if hint != "" {
@@ -575,10 +568,15 @@ func parseURLElicitation(payload map[string]any) *apia2a.URLElicitationRequest {
 	return &request
 }
 
-// urlElicitationText is what the person reads about a URL elicitation. It
-// always carries the URL: a client that activated the extension may predate
-// url_elicitation_request and render only the text.
-func urlElicitationText(request *apia2a.URLElicitationRequest) string {
+// urlElicitationText is the status text of a URL elicitation. A client that
+// activated the extension gets the URL, since it may predate
+// url_elicitation_request and render only the text. Any other client gets the
+// server's name alone: it may hand the text to a model, and the server's
+// message can quote the URL.
+func urlElicitationText(request *apia2a.URLElicitationRequest, activated bool) string {
+	if !activated {
+		return fmt.Sprintf("%s asks you to open a link to continue.", request.Server)
+	}
 	text := request.Message
 	if text == "" {
 		text = fmt.Sprintf("%s asks you to open a link to continue.", request.Server)
@@ -590,7 +588,7 @@ func urlElicitationText(request *apia2a.URLElicitationRequest) string {
 // server's URL elicitation: a url_elicitation_request, carried by
 // input-required. The URL goes to the person and never reaches the model.
 func urlElicitationStatusMessage(message *a2atype.Message, request *apia2a.URLElicitationRequest, activated bool) *a2atype.Message {
-	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(urlElicitationText(request)))
+	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(urlElicitationText(request, activated)))
 	public.TaskID, public.ContextID = message.TaskID, message.ContextID
 	if !activated {
 		return public

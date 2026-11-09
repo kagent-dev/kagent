@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -47,8 +48,22 @@ func (s mapState) Get(key string) (any, error) {
 func (s mapState) Set(key string, value any) error { s[key] = value; return nil }
 func (s mapState) All() iter.Seq2[string, any]     { return maps.All(s) }
 
+// newToolContext is the context of a tool call in a turn whose client
+// activated the HITL extension.
 func newToolContext(t *testing.T, state mapState, confirmation *toolconfirmation.ToolConfirmation) *urlElicitationToolContext {
-	return &urlElicitationToolContext{ctx: t.Context(), state: state, confirmation: confirmation}
+	return &urlElicitationToolContext{ctx: hitlCaller(t, true), state: state, confirmation: confirmation}
+}
+
+// hitlCaller is the context of an A2A call whose client activated the HITL
+// extension, or did not.
+func hitlCaller(t *testing.T, activated bool) context.Context {
+	t.Helper()
+	ctx, callCtx := a2asrv.NewCallContext(t.Context(), nil)
+	if activated {
+		extension := apia2a.HITLExtension()
+		callCtx.Extensions().Activate(&extension)
+	}
+	return ctx
 }
 
 func (c *urlElicitationToolContext) State() session.State { return c.state }
@@ -90,7 +105,7 @@ func continuationServer(t *testing.T, calls *atomic.Int32) string {
 	t.Helper()
 	var mu sync.Mutex
 	issued := map[string]bool{}
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gateway", Version: "0.0.1"}, nil)
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "GitHub", Version: "0.0.1"}, nil)
 	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(_ context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		n := calls.Add(1)
 		mu.Lock()
@@ -121,7 +136,7 @@ func continuationServer(t *testing.T, calls *atomic.Int32) string {
 func twoSignInServer(t *testing.T, received *[]mcpsdk.InputResponseMap) string {
 	t.Helper()
 	var mu sync.Mutex
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gateway", Version: "0.0.1"}, nil)
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "GitHub", Version: "0.0.1"}, nil)
 	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(_ context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -144,7 +159,7 @@ func twoSignInServer(t *testing.T, received *[]mcpsdk.InputResponseMap) string {
 // with -32042 until the person signed in.
 func legacyServer(t *testing.T, signedIn *atomic.Bool, calls *atomic.Int32) string {
 	t.Helper()
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gateway", Version: "0.0.1"}, nil)
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "GitHub", Version: "0.0.1"}, nil)
 	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(_ context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		calls.Add(1)
 		require.Less(t, request.ProtocolVersion(), "2026-07-28")
@@ -158,7 +173,7 @@ func legacyServer(t *testing.T, signedIn *atomic.Bool, calls *atomic.Int32) stri
 
 func whoamiTool(t *testing.T, serverURL string, ctx adkagent.ReadonlyContext) *urlElicitationTool {
 	t.Helper()
-	toolset, err := initializeToolSet(t.Context(), mcpServerParams{URL: serverURL, ServerType: "http"}, nil)
+	toolset, err := initializeToolSet(t.Context(), mcpServerParams{Name: "gateway", URL: serverURL, ServerType: "http"}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, toolset.inner.(io.Closer).Close()) })
 	tools, err := toolset.Tools(ctx)
@@ -177,12 +192,38 @@ func requireSignInPause(t *testing.T, ctx *urlElicitationToolContext, err error)
 	require.Equal(t, apia2a.HITLTypeURLElicitationRequest, payload["type"])
 	require.Equal(t, signInURL, payload["url"])
 	require.Equal(t, "Sign in to github", payload["message"])
-	require.NotEmpty(t, payload["server"])
+	require.Equal(t, "gateway", payload["server"], "the configured name, not the one the server reports")
 	require.Equal(t, "Sign in to github", ctx.hint)
 	require.True(t, ctx.actions.SkipSummarization)
 }
 
 func TestURLElicitationTool(t *testing.T) {
+	scenarios := []struct {
+		caller string
+		ctx    func(*testing.T) context.Context
+	}{
+		{caller: "outside an A2A call", ctx: func(t *testing.T) context.Context { return t.Context() }},
+		{caller: "whose client did not activate the HITL extension", ctx: func(t *testing.T) context.Context { return hitlCaller(t, false) }},
+	}
+	for _, scenario := range scenarios {
+		t.Run("Given a server that asks for a sign-in, when a tool call runs "+scenario.caller+", assert that it fails without the URL or the server's message and keeps no continuation", func(t *testing.T) {
+			var calls atomic.Int32
+			serverURL := continuationServer(t, &calls)
+			state := mapState{}
+			whoami := whoamiTool(t, serverURL, newToolContext(t, state, nil))
+
+			call := &urlElicitationToolContext{ctx: scenario.ctx(t), state: state}
+			_, err := whoami.Run(call, map[string]any{})
+			require.Error(t, err)
+			require.NotErrorIs(t, err, tool.ErrConfirmationRequired)
+			require.Contains(t, err.Error(), `"gateway"`)
+			require.NotContains(t, err.Error(), signInURL)
+			require.NotContains(t, err.Error(), "Sign in to github")
+			require.Nil(t, call.payload)
+			require.Empty(t, state)
+		})
+	}
+
 	t.Run("Given a stateless server on MCP 2026-07-28, when the person confirms the paused call, assert that the call returns the server's request state and completes", func(t *testing.T) {
 		var calls atomic.Int32
 		serverURL := continuationServer(t, &calls)
@@ -195,7 +236,7 @@ func TestURLElicitationTool(t *testing.T) {
 		require.Equal(t, int32(1), calls.Load(), "the server is not answered before the person opens the URL")
 		payload := paused.payload.(map[string]any)
 		require.Equal(t, "state-1", payload["elicitation_id"])
-		require.Equal(t, "gateway", payload["server"], "the server's reported name")
+		require.Equal(t, "gateway", payload["server"], "the configured name")
 		require.NotContains(t, fmt.Sprint(payload), "request_state", "the request state stays in the runtime")
 		require.Contains(t, fmt.Sprint(state), "state-1")
 
@@ -318,7 +359,7 @@ func TestAnswerInputRequests(t *testing.T) {
 }
 
 func TestElicitationHandlerRelaysOnlyASafeURL(t *testing.T) {
-	handler := elicitationHandler("https://gateway.example/mcp")
+	handler := elicitationHandler("gateway")
 	for name, params := range map[string]*mcpsdk.ElicitParams{
 		"form":       {Mode: "form", Message: "Your token?", RequestedSchema: map[string]any{"type": "object"}},
 		"javascript": {Mode: "url", Message: "Sign in", URL: "javascript:alert(1)", ElicitationID: "e1"},
@@ -335,7 +376,24 @@ func TestElicitationHandlerRelaysOnlyASafeURL(t *testing.T) {
 	var elicitation *urlElicitationError
 	require.ErrorAs(t, err, &elicitation)
 	require.Equal(t, apia2a.URLElicitationRequest{
-		Type: apia2a.HITLTypeURLElicitationRequest, Server: "gateway.example",
+		Type: apia2a.HITLTypeURLElicitationRequest, Server: "gateway",
 		Message: "Sign in", URL: "https://gateway.example/s", ElicitationID: "e1",
 	}, elicitation.request)
+}
+
+func TestServerDisplayName(t *testing.T) {
+	scenarios := []struct {
+		name   string
+		params mcpServerParams
+		want   string
+	}{
+		{name: "Given a server configured with a name, when it is named for the person, assert that the configured name is used", params: mcpServerParams{Name: "github", URL: "https://gateway.example/mcp"}, want: "github"},
+		{name: "Given a remote server configured without a name, when it is named for the person, assert that its host is used", params: mcpServerParams{URL: "https://gateway.example/mcp"}, want: "gateway.example"},
+		{name: "Given a stdio server configured without a name, when it is named for the person, assert that its command is used", params: mcpServerParams{URL: "./server", ServerType: "stdio"}, want: "./server"},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			require.Equal(t, scenario.want, scenario.params.displayName())
+		})
+	}
 }
