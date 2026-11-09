@@ -224,6 +224,9 @@ config:
 # ==============================================================================
 
 controller:
+  # Allow the 150-second Anthropic self-hosted sandboxes controller drain plus process cleanup.
+  # Established CLI workers continue independently in their sandboxes.
+  terminationGracePeriodSeconds: 180
   # Standard OTEL overrides and external SDK credentials for this process only.
   env: []
   envFrom: []

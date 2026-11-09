@@ -11,6 +11,7 @@ import (
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
@@ -141,4 +142,22 @@ func policyHeaders(policy *ateapipb.EgressPolicy) (map[string]*ateapipb.Credenti
 		}
 	}
 	return headers, nil
+}
+
+// bootstrapEgressPolicy grants golden initialization only bootstrap authority.
+func bootstrapEgressPolicy(atespace, controlPlaneURL string) (*ateapipb.EgressPolicyTemplate, error) {
+	policy, err := ActorEgressPolicy(atespace, []string{controlPlaneURL}, nil, controlPlaneURL)
+	if err != nil {
+		return nil, err
+	}
+	for _, rule := range policy.Rules {
+		effects := rule.GetHttp().GetEffects()
+		if rule.GetHttps() != nil {
+			effects = rule.GetHttps().GetEffects()
+		}
+		for _, header := range effects.GetReplaceHeaders() {
+			header.ActorJwt.Audiences = []string{bootstrap.Audience}
+		}
+	}
+	return &ateapipb.EgressPolicyTemplate{Rules: policy.Rules}, nil
 }

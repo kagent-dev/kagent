@@ -90,6 +90,7 @@ message InstallConfig {
   ChartConfig substrate = 3;
   ChartConfig pod_certificate = 4;
   optional string bundled_postgres_image = 5 [(buf.validate.field).string.min_len = 1];
+  ChartConfig atelet = 6;
 }
 
 message ChartConfig {

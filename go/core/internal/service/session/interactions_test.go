@@ -27,9 +27,11 @@ type interactionTestStore struct {
 	taskLookups int
 	taskReads   int
 	dispatchErr error
+	reservedIDs []string
 }
 
-func (s *interactionTestStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
+func (s *interactionTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialMessageID string) error {
+	s.reservedIDs = append(s.reservedIDs, initialMessageID)
 	return s.dispatchErr
 }
 
@@ -77,6 +79,32 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			if !ok || position.Before(before) || position.After(time.Now().UTC()) || prepared.DispatchID == uuid.Nil {
 				t.Fatalf("dispatched input position = %v, want server time after %v", position, before)
 			}
+		})
+	}
+}
+
+func TestPrepareSendReservesTaskOpeningMessages(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		taskID a2atype.TaskID
+		want   string
+	}{
+		{name: "opening a task in an existing conversation", want: "opening"},
+		{name: "continuing a task", taskID: "task"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
+			tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}}}
+			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false)
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+			message.ID, message.ContextID, message.TaskID = "opening", id, test.taskID
+			_, err := service.PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
+			require.NoError(t, err)
+			require.Equal(t, []string{test.want}, tasks.reservedIDs)
 		})
 	}
 }

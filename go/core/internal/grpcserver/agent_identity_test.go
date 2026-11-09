@@ -187,7 +187,7 @@ func TestAgentIdentityGeneratedClient(t *testing.T) {
 	_, err = client.ResolveAgentIdentity(lookupContext(token), &apiv1.ResolveAgentIdentityRequest{})
 	require.Equal(t, codes.NotFound, status.Code(err), "a recreated Agent cannot inherit the old Actor's binding")
 
-	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.NoError(t, err)
 	executor := uuid.New()
 	claimed, err := store.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)

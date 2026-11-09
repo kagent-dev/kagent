@@ -181,7 +181,7 @@ async def test_adk_turn_gets_a_transport_span_with_identity(monkeypatch, spans, 
         "a2a.method": "SendStreamingMessage",
         "gen_ai.agent.name": "researcher",
         "gen_ai.agent.id": "team-a/researcher",
-        "enduser.id": "alice",
+        "user.id": "alice",
         "gen_ai.conversation.id": attributes["gen_ai.conversation.id"],
         "a2a.task.id": task_id,
         "kagent.invocation.segment": "initial",
@@ -192,7 +192,7 @@ async def test_adk_turn_gets_a_transport_span_with_identity(monkeypatch, spans, 
     (child,) = [span for span in spans.get_finished_spans() if span.name == "model call"]
     assert child.parent.span_id == span.context.span_id
     assert child.attributes["a2a.task.id"] == task_id
-    assert child.attributes["enduser.id"] == "alice"
+    assert child.attributes["user.id"] == "alice"
     assert not LEGACY_KEYS & set(child.attributes)
     assert_trace_shape(spans)
 
@@ -328,5 +328,5 @@ async def test_without_bootstrap_the_span_still_carries_request_identity(monkeyp
 
     span = kagent_span(spans)
     assert span.name == "a2a.request"
-    assert span.attributes["enduser.id"] == "alice"
+    assert span.attributes["user.id"] == "alice"
     assert "flush" not in log

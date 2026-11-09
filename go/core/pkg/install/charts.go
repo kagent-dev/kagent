@@ -17,6 +17,7 @@ const (
 	kagentCRDsRelease     = "kagent-crds"
 	substrateRelease      = "substrate"
 	substrateCRDsRelease  = "substrate-crds"
+	ateletRelease         = "substrate-atelet"
 	podCertificateRelease = "substrate-podcert"
 )
 
@@ -67,6 +68,14 @@ func (s ChartInstall) Command() Command {
 	args = append(args, chartTransportArgs(s.Chart)...)
 	args = append(args, helmValueArgs(s.Chart)...)
 	return Command{Program: "helm", Args: args, Stdin: s.Chart.inlineValues, SecretValues: s.Chart.secretValues}
+}
+
+// Helm's DaemonSet wait allows maxUnavailable pods to remain unready. Wait for
+// every Atelet pod before installing the control plane, including on one node.
+func ateletRolloutCommand() Command {
+	return Command{Program: "kubectl", Args: []string{
+		"rollout", "status", "daemonset/atelet", "--namespace", substrateNamespace, "--timeout=5m",
+	}}
 }
 
 func chartTransportArgs(chart Chart) []string {

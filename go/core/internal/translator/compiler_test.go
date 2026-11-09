@@ -91,7 +91,9 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 				require.NoError(t, err)
 				require.NotEqual(t, defaultID, revisionID, "workload overrides must affect revision identity")
 			}
-			actorTemplate, err := substrate.ActorTemplateForRevision(&result.Revision, revisionID)
+			bundle, err := result.BootstrapBundle(revisionID)
+			require.NoError(t, err)
+			actorTemplate, err := substrate.ActorTemplateForRevision(&result.Revision, revisionID, bundle)
 			require.NoError(t, err)
 			require.Len(t, actorTemplate.Containers, 1)
 			container := actorTemplate.Containers[0]

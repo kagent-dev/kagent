@@ -18,6 +18,8 @@ export const routes = {
   modelNew: "/models/new",
   mcpServers: "/mcp",
   mcpServerNew: "/mcp/new",
+  policies: "/policies",
+  egressPolicyNew: "/policies/egress/new",
   prompts: "/prompts",
   promptNew: "/prompts/new",
   snapshots: "/snapshots",

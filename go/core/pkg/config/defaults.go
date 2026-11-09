@@ -28,6 +28,10 @@ func DefaultCLI(cfg *configv1.CLIConfig) {
 		cfg.Install.PodCertificate = &configv1.ChartConfig{}
 	}
 	defaults(cfg.Install.PodCertificate, &configv1.ChartConfig{Repository: new(cfg.Install.Substrate.GetRepository()), Version: new(cfg.Install.Substrate.GetVersion())})
+	if cfg.Install.Atelet == nil {
+		cfg.Install.Atelet = &configv1.ChartConfig{}
+	}
+	defaults(cfg.Install.Atelet, &configv1.ChartConfig{Repository: new(cfg.Install.Substrate.GetRepository()), Version: new(cfg.Install.Substrate.GetVersion())})
 }
 
 // DefaultController fills only absent settings. Secret file paths are required
@@ -86,7 +90,7 @@ func ResolveControllerPaths(cfg *configv1.ControllerConfig, path string) {
 func ResolveCLIPaths(cfg *configv1.CLIConfig, path string) {
 	resolveLoginPath(cfg.Database.Owner, path)
 	cfg.Connection.CaFile = FilePath(path, cfg.Connection.CaFile)
-	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate} {
+	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate, cfg.Install.Atelet} {
 		for i, value := range chart.ValuesFiles {
 			chart.ValuesFiles[i] = FilePath(path, value)
 		}

@@ -24,6 +24,7 @@ import (
 
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -56,6 +57,7 @@ type compiledTarget struct {
 	Revision      translator.Revision
 	RevisionID    translator.RevisionID
 	ActorTemplate *ateapipb.ActorTemplate
+	Bootstrap     *runtimev1.BootstrapBundle
 }
 
 func (c *compiledTarget) equals(other *compiledTarget) bool {
@@ -63,7 +65,7 @@ func (c *compiledTarget) equals(other *compiledTarget) bool {
 		return c == other
 	}
 	return c.RevisionID == other.RevisionID && c.Revision.Equals(other.Revision) &&
-		proto.Equal(c.ActorTemplate, other.ActorTemplate)
+		proto.Equal(c.ActorTemplate, other.ActorTemplate) && proto.Equal(c.Bootstrap, other.Bootstrap)
 }
 
 func (r AgentReconciliation) ResourceName() string { return r.Agent.Namespace + "/" + r.Agent.Name }
@@ -151,11 +153,15 @@ func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collectio
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
 	}
-	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID)
+	bundle, err := revision.BootstrapBundle(revisionID)
+	if err != nil {
+		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
+	}
+	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID, bundle)
 	if err != nil {
 		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 	}
-	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}, warnings, nil
+	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate, Bootstrap: bundle}, warnings, nil
 }
 
 func compilationFailure(err error) *ReconciliationFailure {
@@ -398,6 +404,20 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	}
 	target := state.Target
 	desiredRef := target.ActorTemplate.GetMetadata()
+	digest, err := substrate.ActorTemplateSpecDigest(target.ActorTemplate)
+	if err != nil {
+		return r.observePreparationError(*state, err)
+	}
+	revision := database.RuntimeRevision{
+		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
+		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
+		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
+		EgressDestinations:      target.Revision.EgressDestinations,
+		Credentials:             target.Revision.Credentials,
+		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
+		ActorTemplateAtespace:   desiredRef.GetAtespace(), ActorTemplateName: desiredRef.GetName(),
+		ActorTemplateSpecDigest: digest,
+	}
 	observed, err := r.templates.GetActorTemplate(ctx, desiredRef.GetAtespace(), desiredRef.GetName())
 	if status.Code(err) == codes.NotFound {
 		if err := r.templates.EnsureAtespace(ctx, desiredRef.GetAtespace()); err != nil {
@@ -430,22 +450,11 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return nil
 	}
 
-	digest, err := substrate.ActorTemplateSpecDigest(observed)
-	if err != nil {
-		return r.observePreparationError(*state, err)
-	}
-	revision := database.RuntimeRevision{
-		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
-		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
-		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
-		EgressDestinations:      target.Revision.EgressDestinations,
-		Credentials:             target.Revision.Credentials,
-		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
-		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
-		ActorTemplateSpecDigest: digest,
-	}
+	revision.ActorTemplateUID = observed.GetMetadata().GetUid()
 	now := time.Now()
-	retry, err := r.store.RecordRuntimeRevision(ctx, revision, goldenRecordOptions(observed, now))
+	options := goldenRecordOptions(observed, now)
+	options.Bootstrap = target.Bootstrap
+	retry, err := r.store.RecordRuntimeRevision(ctx, revision, options)
 	if err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}
@@ -531,26 +540,24 @@ func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string)
 }
 
 func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentStatus) kagentv1alpha3.AgentStatus {
-	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
-	for i := range desired.Conditions {
-		condition := &desired.Conditions[i]
-		previous := apimeta.FindStatusCondition(current.Conditions, condition.Type)
-		if previous != nil && previous.Status == condition.Status {
-			condition.LastTransitionTime = previous.LastTransitionTime
-		} else {
-			condition.LastTransitionTime = metav1.Now()
-		}
-	}
+	desired.Conditions = conditionsWithTransitionTimes(desired.Conditions, current.Conditions)
 	return desired
 }
 
 func modelConfigStatusWithTransitionTimes(desired, current kagentv1alpha3.ModelConfigStatus) kagentv1alpha3.ModelConfigStatus {
-	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
-	for conditionIndex := range desired.Conditions {
-		condition := &desired.Conditions[conditionIndex]
-		if previous := apimeta.FindStatusCondition(current.Conditions, condition.Type); previous != nil &&
-			previous.Status == condition.Status && previous.Reason == condition.Reason &&
-			previous.Message == condition.Message && previous.ObservedGeneration == condition.ObservedGeneration {
+	desired.Conditions = conditionsWithTransitionTimes(desired.Conditions, current.Conditions)
+	return desired
+}
+
+// conditionsWithTransitionTimes keeps the transition time a condition's
+// status holds and stamps the current time when the status changes, as
+// apimeta.SetStatusCondition does; a new reason or message alone is no
+// transition.
+func conditionsWithTransitionTimes(desired, current []metav1.Condition) []metav1.Condition {
+	desired = append([]metav1.Condition(nil), desired...)
+	for conditionIndex := range desired {
+		condition := &desired[conditionIndex]
+		if previous := apimeta.FindStatusCondition(current, condition.Type); previous != nil && previous.Status == condition.Status {
 			condition.LastTransitionTime = previous.LastTransitionTime
 			continue
 		}
