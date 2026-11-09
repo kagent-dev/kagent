@@ -231,8 +231,11 @@ sources, runtimes, and checkpoints no longer retain them.
 
 Go ADK, Python ADK, Codex, Claude, and supported BYO images use this contract.
 Credentials and actor identity retain their separate delivery paths. Golden
-egress allows the control-plane origin with bootstrap authority; normal Session
-egress uses runtime authority.
+egress allows the control-plane origin with bootstrap authority and the
+revision's compiled destinations, such as skill sources needed during
+preparation, without credentials; normal Session egress uses runtime authority.
+An ActorTemplate format version participates in the revision digest, so a
+changed template shape prepares a new revision.
 
 Managed startup explicitly materializes the bootstrap bundle before loading files.
 File loaders (`KAgentConfig.from_file()` in Python and `LoadAgentConfigs` in Go)

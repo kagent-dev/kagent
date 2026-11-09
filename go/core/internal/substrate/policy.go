@@ -53,18 +53,22 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{RuntimeJWTAudience}, ExpirationSeconds: 300},
 			})
 		}
-		target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess
-		port, _ := strconv.ParseInt(target.Port(), 10, 32)
-		ports := &ateapipb.Ports{Numbers: []int32{int32(port)}}
-		// One rule per origin: exact matches win over wildcard rules, keeping
-		// credentials on their exact origin even when a wildcard also grants access.
-		if target.Scheme == "https" {
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Https: &ateapipb.HttpsRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
-		} else {
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Http: &ateapipb.HttpRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
-		}
+		policy.Rules = append(policy.Rules, originEgressRule(origin, effects[origin]))
 	}
 	return policy, nil
+}
+
+// originEgressRule routes one canonical origin. One rule per origin: exact
+// matches win over wildcard rules, keeping credentials on their exact origin
+// even when a wildcard also grants access.
+func originEgressRule(origin string, effects *ateapipb.HttpRuleEffects) *ateapipb.EgressRule {
+	target, _ := egress.ParseOrigin(origin) // validated by CanonicalAccess
+	port, _ := strconv.ParseInt(target.Port(), 10, 32)
+	ports := &ateapipb.Ports{Numbers: []int32{int32(port)}}
+	if target.Scheme == "https" {
+		return &ateapipb.EgressRule{Https: &ateapipb.HttpsRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects}}
+	}
+	return &ateapipb.EgressRule{Http: &ateapipb.HttpRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects}}
 }
 
 // defaultEgressPolicyCompiler adds the allowlist, Secret credentials, and Actor JWTs. It runs first.
@@ -144,8 +148,10 @@ func policyHeaders(policy *ateapipb.EgressPolicy) (map[string]*ateapipb.Credenti
 	return headers, nil
 }
 
-// bootstrapEgressPolicy grants golden initialization only bootstrap authority.
-func bootstrapEgressPolicy(atespace, controlPlaneURL string) (*ateapipb.EgressPolicyTemplate, error) {
+// goldenEgressPolicy grants golden initialization bootstrap authority at the
+// control plane and credential-free access to the revision's compiled
+// destinations, such as skill sources needed during preparation.
+func goldenEgressPolicy(atespace, controlPlaneURL string, destinations []string) (*ateapipb.EgressPolicyTemplate, error) {
 	policy, err := ActorEgressPolicy(atespace, []string{controlPlaneURL}, nil, controlPlaneURL)
 	if err != nil {
 		return nil, err
@@ -157,6 +163,16 @@ func bootstrapEgressPolicy(atespace, controlPlaneURL string) (*ateapipb.EgressPo
 		}
 		for _, header := range effects.GetReplaceHeaders() {
 			header.ActorJwt.Audiences = []string{bootstrap.Audience}
+		}
+	}
+	access, err := egress.CanonicalAccess(append([]string{controlPlaneURL}, destinations...), nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	controlPlane, _ := egress.ParseOrigin(controlPlaneURL) // validated by ActorEgressPolicy
+	for _, origin := range access.Destinations {
+		if origin != controlPlane.String() {
+			policy.Rules = append(policy.Rules, originEgressRule(origin, nil))
 		}
 	}
 	return &ateapipb.EgressPolicyTemplate{Rules: policy.Rules}, nil
