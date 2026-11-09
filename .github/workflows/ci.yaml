@@ -514,6 +514,9 @@ jobs:
         # Validate packaged runtime defaults without accessing an image registry.
         run: bash scripts/package-release-charts_test.sh
 
+      - name: Test CLI install script
+        run: bash scripts/get-kagent_test.sh
+
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent

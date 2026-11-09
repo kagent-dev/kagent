@@ -23,13 +23,14 @@
 : ${VERIFY_CHECKSUM:="true"}
 : ${KAGENT_INSTALL_DIR:="/usr/local/bin"}
 
+KAGENT_RELEASES="https://github.com/kagent-dev/kagent/releases"
+
 HAS_CURL="$(type "curl" &> /dev/null && echo true || echo false)"
 HAS_WGET="$(type "wget" &> /dev/null && echo true || echo false)"
 HAS_OPENSSL="$(type "openssl" &> /dev/null && echo true || echo false)"
 HAS_GPG="$(type "gpg" &> /dev/null && echo true || echo false)"
 HAS_GIT="$(type "git" &> /dev/null && echo true || echo false)"
 HAS_TAR="$(type "tar" &> /dev/null && echo true || echo false)"
-HAS_JQ="$(type "jq" &> /dev/null && echo true || echo false)"
 
 # initArch discovers the architecture for this system.
 initArch() {
@@ -52,8 +53,12 @@ initOS() {
 
   case "$OS" in
     # Minimalist GNU for Windows
-    mingw*|cygwin*) OS='windows';;
+    mingw*|cygwin*|msys*) OS='windows';;
   esac
+  EXT=""
+  if [ "$OS" == "windows" ]; then
+    EXT=".exe"
+  fi
 }
 
 # runs the given command as root (detects if we are root already)
@@ -68,12 +73,15 @@ runAsRoot() {
 # verifySupported checks that the os/arch combination is supported for
 # binary builds, as well whether or not necessary tools are present.
 verifySupported() {
-  local supported="darwin-amd64\ndarwin-arm64\nlinux-386\nlinux-amd64\nlinux-arm\nlinux-arm64\nlinux-ppc64le\nlinux-s390x\nlinux-riscv64\nwindows-amd64\nwindows-arm64"
-  if ! echo "${supported}" | grep -q "${OS}-${ARCH}"; then
-    echo "No prebuilt binary for ${OS}-${ARCH}."
-    echo "To build from source, go to https://github.com/kagent-dev/kagent"
-    exit 1
-  fi
+  # Keep in sync with the release binaries built by go/Makefile.
+  case "${OS}-${ARCH}" in
+    darwin-amd64|darwin-arm64|linux-amd64|linux-arm64|windows-amd64) ;;
+    *)
+      echo "No prebuilt binary for ${OS}-${ARCH}."
+      echo "To build from source, go to https://github.com/kagent-dev/kagent"
+      exit 1
+      ;;
+  esac
 
   if [ "${HAS_CURL}" != "true" ] && [ "${HAS_WGET}" != "true" ]; then
     echo "Either curl or wget is required"
@@ -94,44 +102,45 @@ verifySupported() {
     echo "[ERROR] Could not find tar. It is required to extract the kagent binary archive."
     exit 1
   fi
+}
 
-  if [ "${HAS_JQ}" != "true" ]; then
-    echo "[ERROR] Could not find jq. It is required to parse the kagent version."
+# latestTag prints the tag of the release GitHub marks latest, read from the
+# redirect of /releases/latest. Unlike the GitHub API, it is not rate limited.
+latestTag() {
+  if [ "${HAS_CURL}" == "true" ]; then
+    curl -sSI "${KAGENT_RELEASES}/latest" 2>/dev/null
+  else
+    wget -S --spider --max-redirect=0 "${KAGENT_RELEASES}/latest" 2>&1
+  fi | tr -d '\r' | sed -n 's#^ *[Ll]ocation: .*/releases/tag/##p' | head -n 1
+}
+
+# checkDesiredVersion resolves TAG: the --version argument, or else the release
+# GitHub marks latest.
+checkDesiredVersion() {
+  if [ "x$DESIRED_VERSION" != "x" ]; then
+    TAG=$DESIRED_VERSION
+    return
+  fi
+  TAG=$( latestTag )
+  if [ "x$TAG" == "x" ]; then
+    echo "Could not resolve the latest kagent release from ${KAGENT_RELEASES}/latest."
+    echo "Use --version to choose a release."
     exit 1
   fi
 }
 
-# checkDesiredVersion checks if the desired version is available.
-checkDesiredVersion() {
-  if [ "x$DESIRED_VERSION" == "x" ]; then
-    # Get tag from release URL
-    local latest_release_url="https://api.github.com/repos/kagent-dev/kagent/releases/latest"
-    local latest_release_response=""
-    if [ "${HAS_CURL}" == "true" ]; then
-      latest_release_response=$( curl -L --silent --show-error --fail "$latest_release_url" 2>&1 || true )
-    elif [ "${HAS_WGET}" == "true" ]; then
-      latest_release_response=$( wget "$latest_release_url" -q -O - 2>&1 || true )
-    fi
-    TAG=$( echo "$latest_release_response" | jq -r .tag_name | grep '^v[0-9]' )
-    if [ "x$TAG" == "x" ]; then
-      printf "Could not retrieve the latest release tag information from %s: %s\n" "${latest_release_url}" "${latest_release_response}"
-      exit 1
-    fi
-  else
-    TAG=$DESIRED_VERSION
-  fi
-}
-
-# checkKagentInstalledVersion checks which version of    is installed and
-# if it needs to be changed.
+# checkKagentInstalledVersion checks which version of kagent is installed and
+# if it needs to be changed. It asks only the CLI, never a kagent server.
 checkKagentInstalledVersion() {
-  if [[ -f "${KAGENT_INSTALL_DIR}/${BINARY_NAME}" ]]; then
-    local version=$("${KAGENT_INSTALL_DIR}/${BINARY_NAME}" version | jq -r '.kagent_version')
+  if [[ -f "${KAGENT_INSTALL_DIR}/${BINARY_NAME}${EXT}" ]]; then
+    local version
+    version=$( "${KAGENT_INSTALL_DIR}/${BINARY_NAME}${EXT}" version --client 2>/dev/null \
+      | sed -n 's/.*"kagent_version": *"\([^"]*\)".*/\1/p' || true )
     if [[ "$version" == "$TAG" ]]; then
       echo "kagent ${version} is already ${DESIRED_VERSION:-latest}"
       return 0
     else
-      echo "kagent ${TAG} is available. Changing from version ${version}."
+      echo "kagent ${TAG} is available. Changing from version ${version:-unknown}."
       return 1
     fi
   else
@@ -142,16 +151,16 @@ checkKagentInstalledVersion() {
 # downloadFile downloads the latest binary package and also the checksum
 # for that binary.
 downloadFile() {
-  KAGENT_DIST="kagent-$OS-$ARCH"
-  DOWNLOAD_URL="https://github.com/kagent-dev/kagent/releases/download/$TAG/$KAGENT_DIST"
+  KAGENT_DIST="kagent-$OS-$ARCH$EXT"
+  DOWNLOAD_URL="$KAGENT_RELEASES/download/$TAG/$KAGENT_DIST"
   CHECKSUM_URL="$DOWNLOAD_URL.sha256"
   KAGENT_TMP_ROOT="$(mktemp -dt kagent-installer-XXXXXX)"
   KAGENT_TMP_FILE="$KAGENT_TMP_ROOT/$KAGENT_DIST"
   KAGENT_SUM_FILE="$KAGENT_TMP_ROOT/$KAGENT_DIST.sha256"
   echo "Downloading $DOWNLOAD_URL"
   if [ "${HAS_CURL}" == "true" ]; then
-    curl -SsL "$CHECKSUM_URL" -o "$KAGENT_SUM_FILE"
-    curl -SsL "$DOWNLOAD_URL" -o "$KAGENT_TMP_FILE"
+    curl -SsLf "$CHECKSUM_URL" -o "$KAGENT_SUM_FILE"
+    curl -SsLf "$DOWNLOAD_URL" -o "$KAGENT_TMP_FILE"
   elif [ "${HAS_WGET}" == "true" ]; then
     wget -q -O "$KAGENT_SUM_FILE" "$CHECKSUM_URL"
     wget -q -O "$KAGENT_TMP_FILE" "$DOWNLOAD_URL"
@@ -170,9 +179,9 @@ verifyFile() {
 # installFile installs the kagent binary.
 installFile() {
   echo "Preparing to install $BINARY_NAME into ${KAGENT_INSTALL_DIR}"
-  runAsRoot chmod +x "$KAGENT_TMP_ROOT/$BINARY_NAME-$OS-$ARCH"
-  runAsRoot cp "$KAGENT_TMP_ROOT/$BINARY_NAME-$OS-$ARCH" "$KAGENT_INSTALL_DIR/$BINARY_NAME"
-  echo "$BINARY_NAME installed into $KAGENT_INSTALL_DIR/$BINARY_NAME"
+  runAsRoot chmod +x "$KAGENT_TMP_FILE"
+  runAsRoot cp "$KAGENT_TMP_FILE" "$KAGENT_INSTALL_DIR/$BINARY_NAME$EXT"
+  echo "$BINARY_NAME installed into $KAGENT_INSTALL_DIR/$BINARY_NAME$EXT"
 }
 
 # verifyChecksum verifies the SHA256 checksum of the binary package.
@@ -206,7 +215,7 @@ fail_trap() {
 # testVersion tests the installed client to make sure it is working.
 testVersion() {
   set +e
-  KAGENT="$(command -v $BINARY_NAME)"
+  KAGENT="$(command -v "$BINARY_NAME$EXT")"
   if [ "$?" = "1" ]; then
     echo "$BINARY_NAME not found. Is $KAGENT_INSTALL_DIR on your "'$PATH?'
     exit 1
@@ -218,8 +227,8 @@ testVersion() {
 help () {
   echo "Accepted cli arguments are:"
   echo -e "\t[--help|-h ] ->> prints this help"
-  echo -e "\t[--version|-v <desired_version>] . When not defined it fetches the latest release tag from the kagent GitHub repository"
-  echo -e "\te.g. --version v3.0.0 or -v canary"
+  echo -e "\t[--version|-v <desired_version>] . When not defined it installs the release GitHub marks latest"
+  echo -e "\te.g. --version v1.0.0"
   echo -e "\t[--no-sudo] ->> install without sudo (installs to \$HOME/bin instead of /usr/local/bin)"
 }
 
@@ -269,7 +278,7 @@ while [[ $# -gt 0 ]]; do
                export DESIRED_VERSION="v${1}"
            fi
        else
-           echo -e "Please provide the desired version. e.g. --version v0.1.0 or -v canary"
+           echo -e "Please provide the desired version. e.g. --version v0.1.0"
            exit 0
        fi
        ;;

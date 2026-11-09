@@ -1,6 +1,7 @@
 package grpcserver
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -184,5 +185,50 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, nil, policies, nil, nil)
 			require.Equal(t, codes.Unauthenticated, status.Code(err))
 		})
+	}
+}
+
+func TestReflectionFollowsConfiguredAuthentication(t *testing.T) {
+	issuer := jwttest.New(t)
+	user := "Bearer " + issuer.Token(t, jwt.MapClaims{"iss": "https://users.example", "sub": "alice"})
+	methods := []string{
+		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
+	}
+	scenarios := []struct {
+		name     string
+		provider pkgauth.AuthProvider
+		token    string
+		want     codes.Code
+	}{
+		{
+			name:     "Given insecure authentication, when an anonymous caller lists services through reflection, assert that the call is admitted",
+			provider: &authimpl.InsecureAuthenticator{},
+			want:     codes.OK,
+		},
+		{
+			name:     "Given trusted proxy authentication, when an anonymous caller lists services through reflection, assert that the call is unauthenticated",
+			provider: authimpl.NewProxyAuthenticator("sub"),
+			want:     codes.Unauthenticated,
+		},
+		{
+			name:     "Given trusted proxy authentication, when an authenticated user lists services through reflection, assert that the call is admitted",
+			provider: authimpl.NewProxyAuthenticator("sub"),
+			token:    user,
+			want:     codes.OK,
+		},
+	}
+	for _, scenario := range scenarios {
+		for _, method := range methods {
+			t.Run(scenario.name+" ("+strings.ReplaceAll(strings.TrimPrefix(method, "/"), "/", " ")+")", func(t *testing.T) {
+				md := metadata.MD{}
+				if scenario.token != "" {
+					md.Set("authorization", scenario.token)
+				}
+				ctx := metadata.NewIncomingContext(t.Context(), md)
+				_, err := authenticate(ctx, method, scenario.provider, nil, DefaultMethodPolicies(), nil, nil)
+				require.Equal(t, scenario.want, status.Code(err), "%v", err)
+			})
+		}
 	}
 }

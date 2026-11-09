@@ -17,6 +17,10 @@ service SystemService {
   rpc GetSubstrateSummary(GetSubstrateSummaryRequest) returns (GetSubstrateSummaryResponse);
   rpc ListSubstrateActors(ListSubstrateActorsRequest) returns (ListSubstrateActorsResponse);
   rpc ListSubstrateWorkers(ListSubstrateWorkersRequest) returns (ListSubstrateWorkersResponse);
+  // ListWorkerPools reads WorkerPool resources from Kubernetes only. A Harness
+  // names a pool in its own namespace, so forms use this rather than the summary,
+  // which walks every ate-api actor and worker.
+  rpc ListWorkerPools(ListWorkerPoolsRequest) returns (ListWorkerPoolsResponse);
 }
 
 message GetVersionRequest {}
@@ -133,4 +137,17 @@ message ListSubstrateWorkersResponse {
   repeated substrate.ateapi.v1.Worker workers = 3;
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
+}
+
+message ListWorkerPoolsRequest {
+  // Kubernetes namespace of the pools. Empty uses watched namespaces.
+  string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
+}
+
+message ListWorkerPoolsResponse {
+  // Pools the caller may read, in namespace/name order.
+  repeated SubstrateWorkerPool worker_pools = 1;
 }
