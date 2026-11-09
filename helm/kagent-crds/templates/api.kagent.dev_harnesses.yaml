@@ -245,8 +245,8 @@ spec:
                   workerPoolRef:
                     description: |-
                       WorkerPoolRef references a WorkerPool. An omitted namespace means the
-                      resource's namespace. A WorkerPool in another namespace must allow the
-                      resource's namespace through the kagent.dev/allowed-namespaces annotation.
+                      resource's namespace. Another namespace must be listed in the
+                      controller's substrate.workerPoolNamespaces setting.
                     properties:
                       name:
                         maxLength: 253
