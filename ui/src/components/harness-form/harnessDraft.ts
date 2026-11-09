@@ -15,6 +15,11 @@ export interface HarnessDraft {
   snapshotLocation: string;
 }
 
+/** Whether the adapter honors workload command and args overrides. The CRD rejects them for the rest. */
+export function adapterSupportsCommand(adapter: HarnessAdapter): boolean {
+  return adapter === "kagent" || adapter === "byo";
+}
+
 /**
  * A new harness on the release's built-in image. The worker pool stays empty until the
  * form knows which pools exist, so it never names one the cluster does not have.
@@ -47,6 +52,7 @@ export function harnessDraftFromSpec(spec: HarnessSpec): HarnessDraft {
  */
 export function harnessSpecFromDraft(draft: HarnessDraft, existing?: HarnessSpec): HarnessSpec {
   const spec: HarnessSpec = { ...existing } as HarnessSpec;
+  const overrides = adapterSupportsCommand(draft.adapter);
   for (const adapter of HARNESS_ADAPTERS) {
     if (adapter !== draft.adapter) delete spec[adapter];
   }
@@ -54,8 +60,8 @@ export function harnessSpecFromDraft(draft: HarnessDraft, existing?: HarnessSpec
   const image = draft.image.trim();
   const workload = {
     ...(image ? { image } : {}),
-    ...(draft.command.length > 0 ? { command: draft.command } : {}),
-    ...(draft.args.length > 0 ? { args: draft.args } : {}),
+    ...(overrides && draft.command.length > 0 ? { command: draft.command } : {}),
+    ...(overrides && draft.args.length > 0 ? { args: draft.args } : {}),
   };
   return {
     ...spec,
