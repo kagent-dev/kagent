@@ -90,3 +90,58 @@ it("rejects a repeated snapshot page rather than returning an incomplete list", 
   await expect(defaultOperations["agentInstances.checkpoints.list"]({ id: "instance" }, {})).rejects.toThrow("repeated a page");
   expect(calls).toBe(2);
 });
+
+it("confirms a missing snapshot after a delete retry without masking a retained record", async () => {
+  let retained = true;
+  const calls: string[] = [];
+  setApiTransport(createRouterTransport((router) => {
+    router.service(CheckpointService, {
+      deleteCheckpoint(request) {
+        calls.push(`delete:${request.checkpointId}`);
+        throw new ConnectError("checkpoint still referenced or already deleted", Code.NotFound);
+      },
+      getCheckpoint(request) {
+        calls.push(`get:${request.checkpointId}`);
+        if (!retained) throw new ConnectError("checkpoint absent", Code.NotFound);
+        return { checkpoint: { id: request.checkpointId, state: CheckpointState.READY } };
+      },
+    });
+  }));
+  const remove = () => defaultOperations["agentInstances.checkpoints.delete"]({ checkpointId: "checkpoint" }, {});
+  await expect(remove()).rejects.toMatchObject({ code: "NotFound", message: "checkpoint still referenced or already deleted" });
+  retained = false;
+  await expect(remove()).resolves.toBeUndefined();
+  expect(calls).toEqual(["delete:checkpoint", "get:checkpoint", "delete:checkpoint", "get:checkpoint"]);
+});
+
+it.each([Code.PermissionDenied, Code.Unavailable, "empty" as const])("preserves a failed absence check (%s)", async (failure) => {
+  setApiTransport(createRouterTransport((router) => {
+    router.service(CheckpointService, {
+      deleteCheckpoint() { throw new ConnectError("checkpoint absent or referenced", Code.NotFound); },
+      getCheckpoint() {
+        if (failure === "empty") return {};
+        throw new ConnectError("lookup failed", failure);
+      },
+    });
+  }));
+  await expect(defaultOperations["agentInstances.checkpoints.delete"]({ checkpointId: "checkpoint" }, {})).rejects.toMatchObject(
+    failure === "empty" ? { kind: "parse" } : { code: Code[failure], message: "lookup failed" },
+  );
+});
+
+it.each([undefined, Code.PermissionDenied, Code.Unavailable])("does not look up a snapshot after delete outcome %s", async (failure) => {
+  let lookups = 0;
+  setApiTransport(createRouterTransport((router) => {
+    router.service(CheckpointService, {
+      deleteCheckpoint() {
+        if (failure !== undefined) throw new ConnectError("delete failed", failure);
+        return {};
+      },
+      getCheckpoint() { lookups++; return {}; },
+    });
+  }));
+  const result = defaultOperations["agentInstances.checkpoints.delete"]({ checkpointId: "checkpoint" }, {});
+  if (failure === undefined) await expect(result).resolves.toBeUndefined();
+  else await expect(result).rejects.toMatchObject({ code: Code[failure] });
+  expect(lookups).toBe(0);
+});

@@ -951,11 +951,22 @@ on(CheckpointService.method.updateCheckpointName, (input) => {
   return { checkpoint: checkpointMessage(renamed) };
 });
 
+on(CheckpointService.method.getCheckpoint, (input) => {
+  const checkpoint = checkpointById(input.checkpointId);
+  if (!checkpoint) throw notFound(`Checkpoint ${input.checkpointId}`);
+  return { checkpoint: checkpointMessage(checkpoint) };
+});
+
 on(CheckpointService.method.deleteCheckpoint, (input) => {
-  if (new URLSearchParams(window.location.search).get("checkpointDelete") === "denied") {
+  const outcome = new URLSearchParams(window.location.search).get("checkpointDelete");
+  if (outcome === "denied") {
     throw new ConnectError("Checkpoint operation could not complete", Code.PermissionDenied);
   }
+  // The store also refuses deletion with NotFound while forks reference a snapshot.
+  if (outcome === "referenced") throw notFound(`Checkpoint ${input.checkpointId}`);
   if (!deleteCheckpoint(input.checkpointId)) throw notFound(`Checkpoint ${input.checkpointId}`);
+  // The next retry sees NotFound: deletion committed but its reply never arrived.
+  if (outcome === "lost") throw new ConnectError("Checkpoint operation could not complete", Code.Unavailable);
   return {};
 });
 

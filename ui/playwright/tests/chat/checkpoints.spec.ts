@@ -13,6 +13,77 @@ const dividers = (page: import("@playwright/test").Page) =>
 /** The seeded boundary's generated name: its conversation, joined to its turn. */
 const SEEDED_NAME = `${instances.ready}-seed-task-1`;
 
+async function deleteOutcome(page: import("@playwright/test").Page, outcome?: string) {
+  await page.evaluate((value) => {
+    const url = new URL(window.location.href);
+    if (value) url.searchParams.set("checkpointDelete", value);
+    else url.searchParams.delete("checkpointDelete");
+    window.history.replaceState({}, "", url);
+  }, outcome);
+}
+
+test.describe("chat: snapshot delete failures", () => {
+  test.use({ expectedNoise: [/Could not (?:checkpoint the conversation|delete the checkpoint):/] });
+
+  test("chat: a refused transcript delete reports failure and can be retried", async ({ page }) => {
+    await page.goto(`${agentChat(instances.ready)}?checkpointDelete=denied`);
+    const line = dividers(page).first();
+    await expect(line).toBeVisible();
+    const id = (await line.getAttribute("data-testid"))!.replace("chat-checkpoint-mark-", "");
+    await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
+    await pressOnce(page.getByTestId(`chat-checkpoint-delete-confirm-${id}`));
+    await expect(page.getByText("Could not delete: Checkpoint operation could not complete", { exact: true })).toBeVisible();
+    await expect(line).toBeVisible();
+    await expect(page.getByText("Delete this snapshot?", { exact: true })).toBeHidden();
+    await deleteOutcome(page);
+    await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
+    await pressOnce(page.getByTestId(`chat-checkpoint-delete-confirm-${id}`));
+    await expect(dividers(page)).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByTestId("chat-checkpoint")).toBeVisible();
+    await expect(dividers(page)).toHaveCount(0);
+  });
+
+  test("chat: a completed cleanup closes stale failed details on retry", async ({ page }) => {
+    await page.goto(`${agentChat(instances.ready)}?checkpoint=failed`);
+    await expect(dividers(page)).toHaveCount(1);
+    await sendAndAwaitTurn(page, "A new turn for cleanup after a lost deletion reply.");
+    await page.getByTestId("chat-checkpoint").click();
+    const notice = page.getByTestId("chat-failed-snapshots");
+    await expect(notice).toBeVisible();
+    await notice.locator('[data-testid^="chat-failed-snapshot-"]').click();
+    await deleteOutcome(page, "lost");
+    await page.getByTestId("snapshot-details-delete").click();
+    await pressOnce(page.getByTestId("snapshot-details-delete-confirm"));
+    await expect(page.getByTestId("snapshot-action-error")).toBeVisible();
+    await expect(notice).toBeVisible();
+    await expect(page.getByText("Delete this snapshot?", { exact: true })).toBeHidden();
+    await page.getByTestId("snapshot-details-delete").click();
+    await pressOnce(page.getByTestId("snapshot-details-delete-confirm"));
+    await expect(page.getByTestId("snapshot-details-body")).toHaveCount(0);
+    await expect(notice).toHaveCount(0);
+    await page.reload();
+    await expect(dividers(page)).toHaveCount(1);
+    await expect(notice).toHaveCount(0);
+  });
+
+  test("chat: a referenced snapshot is retained when deletion returns not found", async ({ page }) => {
+    await page.goto(`${agentChat(instances.ready)}?checkpointDelete=referenced`);
+    const line = dividers(page).first();
+    await expect(line).toBeVisible();
+    await openSnapshot(page, line);
+    await page.getByTestId("snapshot-details-delete").click();
+    await pressOnce(page.getByTestId("snapshot-details-delete-confirm"));
+    await expect(page.getByTestId("snapshot-action-error")).toBeVisible();
+    await expect(page.getByTestId("snapshot-details-body")).toBeVisible();
+    await expect(line).toBeVisible();
+    await page.reload();
+    await expect(dividers(page)).toHaveCount(1);
+    await openSnapshot(page, dividers(page).first());
+    await expect(page.getByTestId("snapshot-details-state")).toHaveAttribute("data-state", "ready");
+  });
+});
+
 test.describe("chat: failed snapshots", () => {
   test.use({ expectedNoise: [/Could not (?:checkpoint the conversation|delete the checkpoint):/] });
 

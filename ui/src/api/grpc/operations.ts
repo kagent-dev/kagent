@@ -37,8 +37,8 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb
  *
  * `CheckpointService` is reached through the `agentInstances.checkpoints.*` ids, and
  * **`agentInstances.fork`** composes two of them — a checkpoint of the conversation
- * as it stands, then a fork of it. `GetCheckpoint` and `DeleteCheckpoint` have no id:
- * the chat reads boundaries from the list and nothing removes one yet.
+ * as it stands, then a fork of it. Deletion confirms absence through `GetCheckpoint`
+ * after NotFound, since a retained checkpoint with dependent forks returns that too.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1/models_pb";
@@ -870,12 +870,33 @@ const agentInstances: Pick<
   },
 
   "agentInstances.checkpoints.delete": async (input, options) => {
-    await rpc("CheckpointService/DeleteCheckpoint", options.signal, () =>
-      serviceClient(CheckpointService).deleteCheckpoint(
-        { checkpointId: input.checkpointId },
-        call("agentInstances.checkpoints.delete", options),
-      ),
-    );
+    try {
+      await rpc("CheckpointService/DeleteCheckpoint", options.signal, () =>
+        serviceClient(CheckpointService).deleteCheckpoint(
+          { checkpointId: input.checkpointId },
+          call("agentInstances.checkpoints.delete", options),
+        ),
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "NotFound") throw error;
+      // Recovery may have completed deletion after an earlier failed reply. A
+      // fork-pinned snapshot also rejects Delete with NotFound, so confirm absence
+      // before letting callers remove their local record and close its details.
+      const name = "CheckpointService/GetCheckpoint";
+      try {
+        const response = await rpc(name, options.signal, () =>
+          serviceClient(CheckpointService).getCheckpoint(
+            { checkpointId: input.checkpointId },
+            call("agentInstances.checkpoints.delete", options),
+          ),
+        );
+        required(response.checkpoint, name, "checkpoint");
+      } catch (lookupError) {
+        if (lookupError instanceof ApiError && lookupError.code === "NotFound") return;
+        throw lookupError;
+      }
+      throw error;
+    }
   },
 
   /*

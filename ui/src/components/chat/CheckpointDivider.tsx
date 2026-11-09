@@ -45,7 +45,7 @@ export function CheckpointDivider({
   /** Names this boundary, and with it the forks taken from it. */
   onRename?: () => void;
   /** Removes this boundary. */
-  onDelete?: () => void;
+  onDelete?: () => void | Promise<void>;
 }) {
   const theme = useTheme();
   const { mode } = useThemeMode();
@@ -286,7 +286,14 @@ export function CheckpointDivider({
               cancelButtonProps={{
                 "data-testid": `chat-checkpoint-delete-cancel-${checkpointId}`,
               }}
-              onConfirm={onDelete}
+              onConfirm={async () => {
+                try {
+                  await onDelete();
+                } catch {
+                  // The page reports the failure and retains the row for retry.
+                  // Popconfirm rethrows rejected callbacks as uncaught errors.
+                }
+              }}
             >
               {/* No tooltip, unlike its neighbours. The pointer that opens the
                   confirmation is still resting on this button, so the tooltip stays up
