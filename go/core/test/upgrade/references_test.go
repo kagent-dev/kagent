@@ -67,7 +67,11 @@ func seedV1References(t *testing.T, env upgradeEnv, name string) {
 	kubectl(t, env, time.Minute, "get", "modelconfig", v1ReferenceModelConfig, "-n", env.namespace)
 	kubectl(t, env, time.Minute, "get", "remotemcpserver", v1ReferenceMCPServer, "-n", env.namespace)
 	manifest := fmt.Sprintf(v1ReferenceManifest, name, env.namespace, v1ReferenceModelConfig, v1ReferenceMCPServer)
-	path := filepath.Join(t.TempDir(), "ga-references.yaml")
+	// kubectl apply -f splits on commas, and t.TempDir() embeds the subtest name, which has them.
+	dir, err := os.MkdirTemp("", "upgrade-refs-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "v1-references.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(manifest), 0o600))
 	kubectl(t, env, time.Minute, "apply", "-f", path)
 }
