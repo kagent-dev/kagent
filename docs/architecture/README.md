@@ -102,6 +102,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [Runtime credential injection](credential-injection.md)
 - [Configuration and compilation](configuration-and-compilation.md)
 - [Creating an Agent](agent-creation.md)
+- [Sending a Message to an Agent](agent-send-message.md)
 - [Process configuration](process-configuration.md)
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
 - [Client lifecycle retries](../lifecycle-retries.md)
