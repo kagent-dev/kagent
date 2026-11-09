@@ -68,6 +68,14 @@ Installation passes embedded defaults before configured chart values files.
 Files are applied in order, with the last file winning. Provider credentials
 continue to use the provider SDK environment interface.
 
+`kagent install --provider` overrides `install.defaultModelProvider` for one
+install; the protovalidate `in` rule on that field defines the accepted names.
+After a successful install the CLI prints next steps.
+
+`kagent version --client` prints only the CLI build without connecting to the
+controller. The `get-kagent` install script uses it to skip reinstalling a
+matching version.
+
 ## Controller
 
 The controller reads `/etc/kagent/controller.yaml`, or the file selected by
