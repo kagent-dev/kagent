@@ -570,3 +570,9 @@ func testAgent(template *kagentv1alpha3.AgentTemplate, harness *kagentv1alpha3.H
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
+
+func TestWorkerPoolWatchNamespaces(t *testing.T) {
+	require.Nil(t, workerPoolWatchNamespaces(nil, []string{"kagent-workers"}))
+	require.Equal(t, []string{"kagent-workers", "team-a"}, workerPoolWatchNamespaces([]string{"team-a"}, []string{"kagent-workers"}))
+	require.Equal(t, []string{"kagent-workers", "team-a"}, workerPoolWatchNamespaces([]string{"team-a", "kagent-workers"}, []string{"kagent-workers"}))
+}

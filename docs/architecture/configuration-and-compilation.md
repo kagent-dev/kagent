@@ -343,10 +343,10 @@ Only placement moves: Actors, Sessions and sandboxes stay in the Atespace of the
 Agent or SandboxTemplate namespace, and credential-provider policies remain keyed
 on that namespace. The pool's namespace participates in the revision digest, so
 moving to another pool prepares a new revision, while references without a
-namespace keep their digests. As with other cross-namespace references, a
-reference cannot widen the watch scope: when `kubernetes.watchNamespaces` is set,
-it must include every listed pool namespace, and configuration validation rejects
-it otherwise.
+namespace keep their digests. The controller watches WorkerPools in the listed
+namespaces and nothing else there, so a shared worker namespace does not join
+`kubernetes.watchNamespaces`. With namespaced RBAC, the Helm chart grants
+read-only access to `workerpools` in each listed namespace outside `rbac.namespaces`.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining

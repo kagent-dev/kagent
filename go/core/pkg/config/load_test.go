@@ -259,26 +259,18 @@ func TestSessionAutomaticRecovery(t *testing.T) {
 	}
 }
 
-func TestWorkerPoolNamespacesMustBeWatched(t *testing.T) {
-	for _, tc := range []struct {
-		name, input string
-		valid       bool
-	}{
-		{"cluster-wide", "substrate: {workerPoolNamespaces: [ate-workers]}", true},
-		{"watched", "kubernetes: {watchNamespaces: [team-a, ate-workers]}\nsubstrate: {workerPoolNamespaces: [ate-workers]}", true},
-		{"not watched", "kubernetes: {watchNamespaces: [team-a]}\nsubstrate: {workerPoolNamespaces: [ate-workers]}", false},
+func TestWorkerPoolNamespacesOutsideWatch(t *testing.T) {
+	for name, input := range map[string]string{
+		"cluster-wide": "substrate: {workerPoolNamespaces: [ate-workers]}",
+		"watched":      "kubernetes: {watchNamespaces: [team-a, ate-workers]}\nsubstrate: {workerPoolNamespaces: [ate-workers]}",
+		"not watched":  "kubernetes: {watchNamespaces: [team-a]}\nsubstrate: {workerPoolNamespaces: [ate-workers]}",
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			cfg := &configv1.ControllerConfig{}
-			require.NoError(t, config.Decode([]byte(tc.input), cfg))
+			require.NoError(t, config.Decode([]byte(input), cfg))
 			config.DefaultController(cfg)
 			setLogins(cfg)
-			err := config.Validate(cfg)
-			if tc.valid {
-				require.NoError(t, err)
-				return
-			}
-			require.ErrorContains(t, err, "substrate.worker_pool_namespaces must be within kubernetes.watch_namespaces")
+			require.NoError(t, config.Validate(cfg))
 		})
 	}
 }

@@ -1190,7 +1190,7 @@ type SubstrateConfig struct {
 	// Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file.
 	ActorJwtIssuer *string `protobuf:"bytes,5,opt,name=actor_jwt_issuer,json=actorJwtIssuer,proto3,oneof" json:"actor_jwt_issuer,omitempty"`
 	// Namespaces whose WorkerPools a Harness or SandboxTemplate in any other
-	// namespace may reference. The controller also watches WorkerPools there.
+	// namespace may reference. The controller watches only WorkerPools there.
 	WorkerPoolNamespaces []string `protobuf:"bytes,6,rep,name=worker_pool_namespaces,json=workerPoolNamespaces,proto3" json:"worker_pool_namespaces,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
@@ -2193,7 +2193,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\fvalues_files\x18\x03 \x03(\tB\f\xbaH\t\x92\x01\x06\"\x04r\x02\x10\x01R\vvaluesFilesB\r\n" +
 	"\v_repositoryB\n" +
 	"\n" +
-	"\b_version\"\x97\x0e\n" +
+	"\b_version\"\xe3\v\n" +
 	"\x10ControllerConfig\x12B\n" +
 	"\n" +
 	"kubernetes\x18\x01 \x01(\v2\".kagent.config.v1.KubernetesConfigR\n" +
@@ -2212,10 +2212,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\ttelemetry\x18\f \x01(\v2!.kagent.config.v1.TelemetryConfigR\ttelemetry\x12R\n" +
 	"\x10runtime_defaults\x18\r \x01(\v2'.kagent.config.v1.RuntimeDefaultsConfigR\x0fruntimeDefaults\x12L\n" +
 	"\x0eharness_images\x18\x0e \x01(\v2%.kagent.config.v1.HarnessImagesConfigR\rharnessImages\x120\n" +
-	"\x04push\x18\x0f \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04push:\x8d\x06\xbaH\x89\x06\x1a\xce\x01\n" +
+	"\x04push\x18\x0f \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04push:\xd9\x03\xbaH\xd5\x03\x1a\xce\x01\n" +
 	"\x1econtroller.database_read_write\x12Fdatabase.read_write.url_file and database.read_write.role are required\x1adhas(this.database) && this.database.read_write.url_file != '' && this.database.read_write.role != ''\x1a\x81\x02\n" +
-	"\x19controller.database_owner\x12ddatabase.owner.url_file and database.owner.role are required unless database.skip_migrations is true\x1a~!has(this.database) || this.database.skip_migrations || (this.database.owner.url_file != '' && this.database.owner.role != '')\x1a\xb1\x02\n" +
-	")controller.worker_pool_namespaces_watched\x12Ksubstrate.worker_pool_namespaces must be within kubernetes.watch_namespaces\x1a\xb6\x01!has(this.substrate) || !has(this.kubernetes) || this.kubernetes.watch_namespaces.size() == 0 || this.substrate.worker_pool_namespaces.all(ns, ns in this.kubernetes.watch_namespaces)\"\xf0\x01\n" +
+	"\x19controller.database_owner\x12ddatabase.owner.url_file and database.owner.role are required unless database.skip_migrations is true\x1a~!has(this.database) || this.database.skip_migrations || (this.database.owner.url_file != '' && this.database.owner.role != '')\"\xf0\x01\n" +
 	"\x13HarnessImagesConfig\x12\x18\n" +
 	"\arelease\x18\x01 \x01(\tR\arelease\x12?\n" +
 	"\x06kagent\x18\x02 \x01(\tB'\xbaH$r\"2 ^$|^[^\\s@]+@sha256:[a-f0-9]{64}$R\x06kagent\x12?\n" +

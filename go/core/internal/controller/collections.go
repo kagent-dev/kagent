@@ -52,7 +52,8 @@ func (p AgentRuntimeObservation) ResourceName() string {
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces. workerPoolNamespaces may hold
-// WorkerPools referenced from other namespaces.
+// WorkerPools referenced from other namespaces; only WorkerPools are watched
+// there.
 func NewCollections(client kube.Client, watchNamespaces, workerPoolNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) Collections {
 	egressPolicies := typedCollection[*kagentv1alpha3.EgressPolicy](client, watchNamespaces, "EgressPolicies", opts)
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
@@ -63,7 +64,7 @@ func NewCollections(client kube.Client, watchNamespaces, workerPoolNamespaces []
 	remoteMCPServers := typedCollection[*kagentv1alpha3.RemoteMCPServer](client, watchNamespaces, "RemoteMCPServers", opts)
 	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
-	workerPools := typedCollection[*atev1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
+	workerPools := typedCollection[*atev1.WorkerPool](client, workerPoolWatchNamespaces(watchNamespaces, workerPoolNamespaces), "WorkerPools", opts)
 	agentRuntimeObservations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := translator.Collections{
@@ -94,6 +95,17 @@ func NewCollections(client kube.Client, watchNamespaces, workerPoolNamespaces []
 		ResolvedModelConfigs:     resolvedModelConfigs,
 		AgentStatuses:            statuses,
 	}
+}
+
+// workerPoolWatchNamespaces adds the pool namespaces to a namespaced watch.
+// An empty watch already covers them.
+func workerPoolWatchNamespaces(watchNamespaces, workerPoolNamespaces []string) []string {
+	if len(watchNamespaces) == 0 {
+		return nil
+	}
+	namespaces := slices.Concat(watchNamespaces, workerPoolNamespaces)
+	slices.Sort(namespaces)
+	return slices.Compact(namespaces)
 }
 
 func typedCollection[T controllers.ComparableObject](client kube.Client, namespaces []string, name string, opts krt.OptionsBuilder) krt.Collection[T] {

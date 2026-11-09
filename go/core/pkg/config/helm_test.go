@@ -134,5 +134,5 @@ func TestHelmControllerConfig(t *testing.T) {
 	_, _, err = render("rbac:\n  namespaces: [NAMESPACE, team-a, kagent-workers]\nconfig:\n  substrate: {workerPoolNamespaces: [kagent-workers]}\n")
 	require.NoError(t, err)
 	_, _, err = render("rbac:\n  namespaces: [NAMESPACE, team-a]\nconfig:\n  substrate: {workerPoolNamespaces: [kagent-workers]}\n")
-	require.ErrorContains(t, err, "substrate.worker_pool_namespaces must be within kubernetes.watch_namespaces")
+	require.NoError(t, err)
 }
