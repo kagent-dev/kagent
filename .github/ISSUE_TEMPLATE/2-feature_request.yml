@@ -60,14 +60,22 @@ body:
   - type: dropdown
     id: affected_services
     attributes:
-      label: 🎯 Affected Service(s)
-      description: Which services or components would this feature impact?
+      label: 🎯 Affected Component(s)
+      description: Select every component this affects
+      multiple: true
       options:
-        - UI Service
-        - App Service
-        - Controller Service
-        - Multiple services / System-wide
-        - Not Sure
+        - Control plane (controller, API server, sessions)
+        - Web UI
+        - CLI
+        - Harness: kagent
+        - Harness: Codex
+        - Harness: Claude
+        - Go ADK
+        - Python ADK or framework integrations
+        - MCP and tool servers
+        - Helm chart / installation
+        - Documentation
+        - Not sure
 
   - type: textarea
     id: additional_context
