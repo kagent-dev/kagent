@@ -39,20 +39,12 @@ const (
 	postgresRole      = "kagent_owner"
 )
 
-// pgTrackVersion returns the current applied migration version, or zero when
-// the migration source is disabled and its tracking table does not exist.
+// pgTrackVersion returns the current applied migration version.
 func pgTrackVersion(t *testing.T, env upgradeEnv, table string) int {
 	t.Helper()
 
-	// PostgreSQL resolves table references before evaluating CASE, so an absent
-	// optional tracking table must be checked in a separate statement.
-	exists := pgQuery(t, env, fmt.Sprintf("SELECT to_regclass(%s) IS NOT NULL", pgQuote(kagentSchema+"."+table)))
-	if exists == "f" {
-		return 0
-	}
-
 	raw := pgQuery(t, env, fmt.Sprintf(
-		"SELECT COALESCE(MAX(version_id), 0) FROM %s.%s WHERE is_applied",
+		"SELECT CASE WHEN to_regclass('%[1]s.%[2]s') IS NULL THEN 0 ELSE (SELECT COALESCE(MAX(version_id), 0) FROM %[1]s.%[2]s WHERE is_applied) END",
 		kagentSchema, table))
 	return parseInt(t, raw, table+" version")
 }

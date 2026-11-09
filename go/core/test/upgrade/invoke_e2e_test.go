@@ -1,11 +1,8 @@
 package upgrade
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,12 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	kubeyaml "k8s.io/apimachinery/pkg/util/yaml"
-	"sigs.k8s.io/yaml"
 
-	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
@@ -60,7 +52,6 @@ func runInvokeE2E(t *testing.T, env upgradeEnv, treeGoDir, label string) {
 	t.Helper()
 
 	requireInvokeEnvironment(t, treeGoDir, label)
-	installInvokeHarnesses(t, env, treeGoDir)
 	port, stop := startPortForward(t, env, controllerServiceName, controllerAPIPort)
 	defer stop()
 
@@ -75,60 +66,6 @@ func runInvokeE2E(t *testing.T, env upgradeEnv, treeGoDir, label string) {
 	require.NoErrorf(t, err, "[%s] invoke e2e slice (%s) failed:\n%s", label, treeGoDir, string(out))
 	require.Contains(t, string(out), "--- PASS: TestSessionInteraction",
 		"[%s] selected invoke test did not run:\n%s", label, string(out))
-}
-
-// Reapply the matching release's fixtures at each invocation stage so upgrades
-// and application rollbacks exercise that installation's runtime images too.
-func installInvokeHarnesses(t *testing.T, env upgradeEnv, treeGoDir string) {
-	t.Helper()
-
-	manifest, err := os.ReadFile(filepath.Join(treeGoDir, "core/test/e2e/manifests/lifecycle.yaml.tmpl"))
-	require.NoError(t, err)
-	controllerYAML := kubectl(t, env, time.Minute, "get", "configmap", controllerServiceName,
-		"-n", env.namespace, "-o", `jsonpath={.data.controller\.yaml}`)
-	var config struct {
-		HarnessImages *configv1.HarnessImagesConfig `json:"harnessImages"`
-	}
-	require.NoError(t, yaml.Unmarshal([]byte(controllerYAML), &config))
-	fixtures, err := invokeHarnesses(manifest, config.HarnessImages)
-	require.NoError(t, err)
-	path := filepath.Join(t.TempDir(), "harnesses.json")
-	require.NoError(t, os.WriteFile(path, fixtures, 0o600))
-	kubectl(t, env, time.Minute, "apply", "-f", path)
-}
-
-func invokeHarnesses(manifest []byte, images *configv1.HarnessImagesConfig) ([]byte, error) {
-	if images.GetKagent() == "" || images.GetClaude() == "" || images.GetCodex() == "" {
-		return nil, fmt.Errorf("installed controller must provide kagent, claude, and codex runtime images")
-	}
-	rendered := strings.NewReplacer(
-		"${KAGENT_E2E_RUNTIME_IMAGE}", images.GetKagent(),
-		"${KAGENT_E2E_CLAUDE_IMAGE}", images.GetClaude(),
-		"${KAGENT_E2E_CODEX_IMAGE}", images.GetCodex(),
-	).Replace(string(manifest))
-	decoder := kubeyaml.NewYAMLOrJSONDecoder(bytes.NewBufferString(rendered), 4096)
-	fixtures := metav1.List{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "List"}}
-	for {
-		var resource runtime.RawExtension
-		if err := decoder.Decode(&resource); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("decode lifecycle fixture: %w", err)
-		}
-		var metadata metav1.PartialObjectMetadata
-		if err := json.Unmarshal(resource.Raw, &metadata); err != nil {
-			return nil, fmt.Errorf("decode lifecycle fixture metadata: %w", err)
-		}
-		if metadata.Kind != "Harness" {
-			continue
-		}
-		switch metadata.Name {
-		case "kagent", "codex-e2e", "claude-e2e", "byo-adk-e2e":
-			fixtures.Items = append(fixtures.Items, resource)
-		}
-	}
-	return json.Marshal(fixtures)
 }
 
 func upgradeE2EEnv(t *testing.T, env upgradeEnv, port int) []string {

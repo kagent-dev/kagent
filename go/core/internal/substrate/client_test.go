@@ -430,8 +430,6 @@ func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
 			fake := &suspendActorFake{actor: actor, get: func(context.Context) (*ateapipb.Actor, error) { reads++; return next, nil }}
 			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
 			got, err := client.SuspendActor(t.Context(), "team", "actor")
-			// Crash recovery depends on this: with no upload left in progress, a
-			// revert restores the snapshot admission settled against (applyRevert).
 			require.Equal(t, ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS, fake.request.GetOptions().GetMode())
 			require.Equal(t, 1, reads)
 			if test.wantError != "" {

@@ -27,7 +27,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
-	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -107,7 +106,7 @@ func main() {
 		streamMode = adkagent.StreamingModeSSE
 	}
 
-	for ev, err := range r.Run(mcp.WithDiscoveryScope(ctx), "user", sess.Session.ID(), content, adkagent.RunConfig{
+	for ev, err := range r.Run(ctx, "user", sess.Session.ID(), content, adkagent.RunConfig{
 		StreamingMode: streamMode,
 	}) {
 		if err != nil {

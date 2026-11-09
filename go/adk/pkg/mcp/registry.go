@@ -371,18 +371,31 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	return rt.base.RoundTrip(req)
 }
 
-// initializeToolSet prepares a lazy MCP toolset. Neither classification nor
-// ADK discovery may connect before the runtime reports ready.
+// initializeToolSet fetches tools from an MCP server using Google ADK's
+// mcptoolset and wraps the result with any MCP App-capable tool names found
+// during classification.
 func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter map[string]bool) (*mcpAppToolset, error) {
 	mcpTransport, err := createTransport(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
 	}
 
-	discovery := &mcpAppDiscovery{listedAppNames: make(map[string]bool), appToolNames: make(map[string]bool)}
+	var toolPredicate tool.Predicate
+	var appToolNames map[string]bool
+	if params.TokenPassthrough {
+		// Startup has no caller token, so discover lazily on the first invocation.
+		toolPredicate = configuredToolPredicate(toolFilter)
+	} else {
+		toolPredicate, appToolNames, err = agentVisibleToolFilter(ctx, params, toolFilter)
+		if err != nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to classify MCP tools; falling back to lazy tool discovery", "error", err, "url", params.URL)
+			appToolNames = nil
+			toolPredicate = configuredToolPredicate(toolFilter)
+		}
+	}
+
 	cfg := mcptoolset.Config{
 		Transport: mcpTransport,
-		Client:    newMCPAppClient(toolFilter, discovery),
 	}
 
 	toolset, err := mcptoolset.New(cfg)
@@ -390,5 +403,24 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
-	return &mcpAppToolset{inner: toolset, discovery: discovery}, nil
+	visibleTools := tool.Toolset(toolset)
+	if toolPredicate != nil {
+		visibleTools = tool.FilterToolset(toolset, toolPredicate)
+	}
+	return &mcpAppToolset{inner: visibleTools, appToolNames: appToolNames}, nil
+}
+
+// configuredToolPredicate selects the configured tool names, or every tool
+// when none are configured.
+func configuredToolPredicate(toolFilter map[string]bool) tool.Predicate {
+	if len(toolFilter) == 0 {
+		return nil
+	}
+	allowedTools := make([]string, 0, len(toolFilter))
+	for name, enabled := range toolFilter {
+		if enabled {
+			allowedTools = append(allowedTools, name)
+		}
+	}
+	return tool.StringPredicate(allowedTools)
 }

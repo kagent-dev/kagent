@@ -26,8 +26,7 @@ type SessionOperation struct {
 // turns, pending dispatch, and unfinished runtime cleanup, while checkpoint and
 // lifecycle guards remain. Accepted deletion stays retryable without force.
 // Creation retries and already-at-target requests return current state. Delete
-// may supersede unclaimed work and any crash recovery; other uncertain lifecycle
-// work blocks it.
+// may supersede unclaimed work; uncertain lifecycle work blocks it.
 // Callers authorize access. Deleted sessions return ErrNotFound, except Delete
 // can observe the tombstone for a caller already authorized before deletion.
 func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, kind apiv1.RuntimeOperation, force bool) (*SessionOperation, error) {

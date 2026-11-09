@@ -17,12 +17,16 @@ limitations under the License.
 package v1alpha3
 
 import (
+	"context"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/utils"
 )
 
 // ObjectReference identifies a resource; an omitted namespace means the owner's namespace.
@@ -143,6 +147,21 @@ type ValueSource struct {
 	Key string `json:"key"`
 }
 
+func (s *ValueSource) Resolve(ctx context.Context, client client.Client, namespace string) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("ValueSource cannot be nil")
+	}
+
+	switch s.Type {
+	case ConfigMapValueSource:
+		return utils.GetConfigMapValue(ctx, client, types.NamespacedName{Namespace: namespace, Name: s.Name}, s.Key)
+	case SecretValueSource:
+		return utils.GetSecretValue(ctx, client, types.NamespacedName{Namespace: namespace, Name: s.Name}, s.Key)
+	default:
+		return "", fmt.Errorf("unknown value source type: %s", s.Type)
+	}
+}
+
 // ValueRef represents a configuration value
 // +kubebuilder:validation:ExactlyOneOf=value;valueFrom
 type ValueRef struct {
@@ -153,4 +172,24 @@ type ValueRef struct {
 	Value string `json:"value,omitempty"`
 	// +optional
 	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
+}
+
+func (r *ValueRef) Resolve(ctx context.Context, client client.Client, namespace string) (string, string, error) {
+	if r == nil {
+		return "", "", fmt.Errorf("ValueRef cannot be nil")
+	}
+
+	switch {
+	case r.Value != "":
+		return r.Name, r.Value, nil
+	case r.ValueFrom != nil:
+		value, err := r.ValueFrom.Resolve(ctx, client, namespace)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to resolve value for ref %s: %v", r.Name, err)
+		}
+
+		return r.Name, value, nil
+	default:
+		return r.Name, "", nil
+	}
 }

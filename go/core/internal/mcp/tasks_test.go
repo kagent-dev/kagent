@@ -568,10 +568,6 @@ func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1.Session) (*
 	return session, nil
 }
 
-func (*fakeSessionWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return session, nil
-}
-
 func (*fakeSessionWorkflow) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return session, nil
 }

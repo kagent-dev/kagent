@@ -19,22 +19,20 @@ import (
 // tool carrying a UI resourceUri, independent of the tool's name or payload keys.
 const mcpAppRenderedNotice = "The interactive UI for this tool has been rendered to the user and now updates live inside the app. Treat this as complete and do not call this tool again unless the user explicitly asks for it."
 
-// makeMCPAppModelResultCallback replaces what the model sees for MCP App
+// MakeMCPAppModelResultCallback replaces what the model sees for MCP App
 // (UI-rendering) tool results: instead of the heavy render payload it receives a
 // terminal directive (see mcpAppRenderedNotice). The full result is still
 // streamed to the UI separately, so this only changes the model's view and
 // prevents the model from looping on the rendering tool. Errors are passed
 // through so the model can still react to and recover from failures.
-// Tool names are resolved during model preparation so discovery stays lazy.
-func makeMCPAppModelResultCallback(appToolNames func(agent.Context) map[string]bool) llmagent.BeforeModelCallback {
-	return func(ctx agent.Context, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
-		names := appToolNames(ctx)
+func MakeMCPAppModelResultCallback(appToolNames map[string]bool) llmagent.BeforeModelCallback {
+	return func(_ agent.Context, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
 		for _, content := range req.Contents {
 			if content == nil {
 				continue
 			}
 			for _, part := range content.Parts {
-				if part == nil || part.FunctionResponse == nil || !names[part.FunctionResponse.Name] {
+				if part == nil || part.FunctionResponse == nil || !appToolNames[part.FunctionResponse.Name] {
 					continue
 				}
 				part.FunctionResponse.Response = compactMCPAppModelResponse(part.FunctionResponse.Response)

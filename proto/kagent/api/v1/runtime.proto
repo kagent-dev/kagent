@@ -25,7 +25,4 @@ enum RuntimeOperation {
   RUNTIME_OPERATION_DELETE = 4;
   // No lifecycle operation is active.
   RUNTIME_OPERATION_NONE = 5;
-  // Restores a crashed runtime to its last durable snapshot. Only a confirmed
-  // crash admits it; the Session stays FAILED until it finishes.
-  RUNTIME_OPERATION_REVERT = 6;
 }

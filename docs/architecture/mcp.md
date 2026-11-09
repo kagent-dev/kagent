@@ -75,30 +75,3 @@ not protected: registering a name or URI core already uses replaces it.
 Authorization inside an added tool stays with the program that adds it.
 
 The implementation is in [`go/core/internal/mcp`](../../go/core/internal/mcp).
-
-## Go ADK runtime discovery
-
-The Go ADK connects to MCP servers and discovers tools during invocation
-preparation. Startup and Actor resume do not wait for HTTP or SSE connections
-or start stdio MCP processes. This also applies to subagents.
-
-Discovery filters app-only tools and applies configured allowlists before tools
-reach the model. The MCP SDK caches filtered responses and owns TTL expiry and
-catalog-notification invalidation. Cached tools remain filtered. Credentials,
-approvals, and tool-call authorization continue to apply.
-
-If discovery fails, that server's toolset stays hidden for the current A2A
-execution, including subsequent model steps and subagent calls. Healthy toolsets
-remain available. The next execution retries, including an approval continuation.
-There is no fallback to unclassified tools. Discovery failures are logged as
-warnings. Cancellation and tool-call errors retain their existing handling.
-
-MCP App results are compacted for the model while stored results remain intact
-for UI rendering. Removed app names remain recognized for historical compaction
-during the process lifetime. Tools reclassified as ordinary keep their full
-output, including historical results. A new process rediscovers app metadata
-during invocation preparation.
-
-Standalone runners can use `mcp.WithDiscoveryScope(ctx)` for each `runner.Run`
-to get the same omission behavior. Without it, discovery errors propagate.
-Controller-side catalog discovery used by the UI is independent.
