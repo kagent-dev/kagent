@@ -117,7 +117,7 @@ func TestHITLActivationInterceptorSplitsJoinedHeader(t *testing.T) {
 	if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
 		t.Fatalf("Before() error = %v", err)
 	}
-	if !HitlActivated(ctx) {
+	if !apia2a.HITLActive(ctx) {
 		t.Fatal("HITL was not activated from a joined header value")
 	}
 }
@@ -129,7 +129,7 @@ func TestHITLActivationInterceptor(t *testing.T) {
 	if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
 		t.Fatalf("Before() error = %v", err)
 	}
-	if !HitlActivated(ctx) {
+	if !apia2a.HITLActive(ctx) {
 		t.Fatal("HITL was not activated")
 	}
 }
@@ -502,9 +502,25 @@ func TestBuildHITLStatusMessageURLElicitation(t *testing.T) {
 	}
 
 	plain := BuildHITLStatusMessage(urlElicitationConfirmationMessage(), false)
-	if text := messageText(plain); !strings.Contains(text, "https://gateway.example/oauth/proxy/start?s=1") {
-		t.Fatalf("a client without the extension gets no link: %q", text)
+	if text := messageText(plain); text != "gateway asks you to open a link to continue." {
+		t.Fatalf("a client without the extension may hand the text to a model, so it names the server alone: %q", text)
 	}
+	if GetURLElicitationRequest(plain) != nil {
+		t.Fatal("a client without the extension receives the typed request")
+	}
+}
+
+func TestBuildHITLStatusMessageURLElicitationText(t *testing.T) {
+	t.Run("Given two calls paused on URL elicitations, when the pause is built for a client without the HITL extension, assert that its text carries neither the URL nor the server's message", func(t *testing.T) {
+		message := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+			urlElicitationPart("confirm-1", "call-1"),
+			urlElicitationPart("confirm-2", "call-2"),
+		), false)
+		text := messageText(message)
+		if !strings.Contains(text, "gateway asks you to open a link to continue.") || strings.Contains(text, "https://") || strings.Contains(text, "Sign in to github") {
+			t.Fatalf("status text = %q", text)
+		}
+	})
 }
 
 // A URL elicitation that shares its pause with another call is presented as

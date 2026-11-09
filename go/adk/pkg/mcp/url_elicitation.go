@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"net/url"
 	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -32,9 +31,9 @@ func (e *urlElicitationError) Error() string {
 	return fmt.Sprintf("MCP server %s asked for a URL elicitation", e.request.Server)
 }
 
-// newElicitingClient returns the MCP client of one server, which declares
-// form and URL elicitation. A form is declined: what the person typed into it
-// would reach the model's context.
+// newElicitingClient returns the MCP client of the server configured as
+// server, which declares form and URL elicitation. A form is declined: what
+// the person typed into it would reach the model's context.
 //
 // A URL elicitation ends the tool call with a urlElicitationError, and
 // urlElicitationTool asks the person instead. A server on MCP 2026-07-28 asks
@@ -44,7 +43,7 @@ func (e *urlElicitationError) Error() string {
 // is read by urlElicitationRequired. An elicitation/create request that a
 // 2025-11-25 server sends while the call runs gets the error back: the call
 // cannot pause while that request is open.
-func newElicitingClient(serverURL string, options *mcpsdk.ClientOptions) *mcpsdk.Client {
+func newElicitingClient(server string, options *mcpsdk.ClientOptions) *mcpsdk.Client {
 	if options == nil {
 		options = &mcpsdk.ClientOptions{}
 	}
@@ -52,19 +51,19 @@ func newElicitingClient(serverURL string, options *mcpsdk.ClientOptions) *mcpsdk
 		options.Capabilities = &mcpsdk.ClientCapabilities{}
 	}
 	options.Capabilities.Elicitation = &mcpsdk.ElicitationCapabilities{Form: &mcpsdk.FormElicitationCapabilities{}, URL: &mcpsdk.URLElicitationCapabilities{}}
-	options.ElicitationHandler = elicitationHandler(serverURL)
+	options.ElicitationHandler = elicitationHandler(server)
 	options.MultiRoundTrip = &mcpsdk.MultiRoundTripOptions{Disabled: true}
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk"}, options)
-	client.AddSendingMiddleware(inputRequiredMiddleware(serverURL))
+	client.AddSendingMiddleware(inputRequiredMiddleware(server))
 	return client
 }
 
-func elicitationHandler(serverURL string) func(context.Context, *mcpsdk.ElicitRequest) (*mcpsdk.ElicitResult, error) {
+func elicitationHandler(server string) func(context.Context, *mcpsdk.ElicitRequest) (*mcpsdk.ElicitResult, error) {
 	return func(_ context.Context, request *mcpsdk.ElicitRequest) (*mcpsdk.ElicitResult, error) {
 		if request.Params.Mode != "url" || apia2a.ValidateElicitationURL(request.Params.URL) != nil {
 			return &mcpsdk.ElicitResult{Action: "decline"}, nil
 		}
-		return nil, &urlElicitationError{request: urlElicitationRequest(serverName(request.Session, serverURL), request.Params)}
+		return nil, &urlElicitationError{request: urlElicitationRequest(server, request.Params)}
 	}
 }
 
@@ -75,25 +74,11 @@ func urlElicitationRequest(server string, params *mcpsdk.ElicitParams) apia2a.UR
 	}
 }
 
-// serverName names an MCP server for the person: the name it reported, or
-// its host.
-func serverName(session *mcpsdk.ClientSession, serverURL string) string {
-	if session != nil {
-		if result := session.InitializeResult(); result != nil && result.ServerInfo != nil && result.ServerInfo.Name != "" {
-			return result.ServerInfo.Name
-		}
-	}
-	if parsed, err := url.Parse(serverURL); err == nil && parsed.Host != "" {
-		return parsed.Host
-	}
-	return serverURL
-}
-
 // urlElicitationRequired reads the first safe URL elicitation of a -32042
 // error, the answer of a server on MCP 2025-11-25. The server tracks each
 // elicitation's completion and lists the ones still open when the call runs
 // again.
-func urlElicitationRequired(err error, serverURL string) *apia2a.URLElicitationRequest {
+func urlElicitationRequired(err error, server string) *apia2a.URLElicitationRequest {
 	var rpcErr *jsonrpc.Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != mcpsdk.CodeURLElicitationRequired || len(rpcErr.Data) == 0 {
 		return nil
@@ -106,7 +91,7 @@ func urlElicitationRequired(err error, serverURL string) *apia2a.URLElicitationR
 	}
 	for _, elicitation := range data.Elicitations {
 		if elicitation != nil && elicitation.Mode == "url" && apia2a.ValidateElicitationURL(elicitation.URL) == nil {
-			request := urlElicitationRequest(serverName(nil, serverURL), elicitation)
+			request := urlElicitationRequest(server, elicitation)
 			return &request
 		}
 	}
@@ -143,7 +128,7 @@ func (c *urlElicitationContinuation) apply(call *mcpsdk.ClientRequest[mcpsdk.Par
 // Forms are declined and the call is retried. The first safe URL elicitation
 // ends the call with a urlElicitationError that carries the continuation. A
 // call whose context carries a continuation sends it with its first attempt.
-func inputRequiredMiddleware(serverURL string) mcpsdk.Middleware {
+func inputRequiredMiddleware(server string) mcpsdk.Middleware {
 	return func(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 		return func(ctx context.Context, method string, request mcpsdk.Request) (mcpsdk.Result, error) {
 			call, ok := request.(*mcpsdk.ClientRequest[mcpsdk.Params])
@@ -175,7 +160,7 @@ func inputRequiredMiddleware(serverURL string) mcpsdk.Middleware {
 				}
 				if elicitation != nil {
 					return nil, &urlElicitationError{
-						request:      urlElicitationRequest(serverName(call.Session, serverURL), elicitation),
+						request:      urlElicitationRequest(server, elicitation),
 						continuation: continuation,
 					}
 				}
@@ -216,10 +201,10 @@ func answerInputRequests(result *mcpsdk.CallToolResult) (*urlElicitationContinua
 // urlElicitationToolset turns a URL elicitation of its server during a tool
 // call into a confirmation of that call that carries it: the run pauses until
 // the person completed the interaction at the URL, then the confirmed call
-// runs again.
+// runs again. server is the name the person is shown.
 type urlElicitationToolset struct {
-	inner     tool.Toolset
-	serverURL string
+	inner  tool.Toolset
+	server string
 }
 
 func (s *urlElicitationToolset) Name() string { return s.inner.Name() }
@@ -239,7 +224,7 @@ func (s *urlElicitationToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool
 	wrapped := make([]tool.Tool, len(tools))
 	for i, inner := range tools {
 		if fn, ok := inner.(functionTool); ok {
-			wrapped[i] = &urlElicitationTool{functionTool: fn, serverURL: s.serverURL}
+			wrapped[i] = &urlElicitationTool{functionTool: fn, server: s.server}
 		} else {
 			wrapped[i] = inner
 		}
@@ -249,7 +234,7 @@ func (s *urlElicitationToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool
 
 type urlElicitationTool struct {
 	functionTool
-	serverURL string
+	server string
 }
 
 // ProcessRequest lets the inner tool declare itself, then registers the
@@ -279,6 +264,12 @@ func (t *urlElicitationTool) Run(ctx adkagent.Context, args any) (map[string]any
 	request, continuation := t.urlElicitation(err)
 	if request == nil {
 		return result, err
+	}
+	// Only a caller that activated the HITL extension receives the URL, as a
+	// typed request. Any other caller reads the pause as status text, which
+	// can reach a model, so the call fails without the URL instead.
+	if !apia2a.HITLActive(ctx) {
+		return nil, fmt.Errorf("MCP server %q needs the person to open a link, and this conversation's client cannot show one: the person has to use a client that supports the HITL extension", request.Server)
 	}
 	// ADK does not pause a call that resumes from a confirmation again: a
 	// second RequestConfirmation is recorded and the model runs on.
@@ -346,7 +337,7 @@ func (t *urlElicitationTool) urlElicitation(err error) (*apia2a.URLElicitationRe
 	if errors.As(err, &elicitation) {
 		return &elicitation.request, elicitation.continuation
 	}
-	return urlElicitationRequired(err, t.serverURL), nil
+	return urlElicitationRequired(err, t.server), nil
 }
 
 // confirmationPayload is the URL elicitation request as the map ADK keeps in

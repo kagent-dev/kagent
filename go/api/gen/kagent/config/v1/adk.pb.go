@@ -1732,8 +1732,11 @@ type ADKHTTPMCPServerConfig struct {
 	RequireApproval bool                     `protobuf:"varint,4,opt,name=require_approval,json=requireApproval,proto3" json:"require_approval,omitempty"`
 	// Forward the incoming A2A bearer token as this server's Authorization header.
 	TokenPassthrough bool `protobuf:"varint,5,opt,name=token_passthrough,json=tokenPassthrough,proto3" json:"token_passthrough,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The server's configured name, which the person is shown when the server
+	// asks them to open a URL. The server's self-reported name is never used.
+	Name          string `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ADKHTTPMCPServerConfig) Reset() {
@@ -1801,6 +1804,13 @@ func (x *ADKHTTPMCPServerConfig) GetTokenPassthrough() bool {
 	return false
 }
 
+func (x *ADKHTTPMCPServerConfig) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 type ADKSSEMCPServerConfig struct {
 	state           protoimpl.MessageState  `protogen:"open.v1"`
 	Params          *ADKSSEConnectionParams `protobuf:"bytes,1,opt,name=params,proto3" json:"params,omitempty"`
@@ -1809,8 +1819,11 @@ type ADKSSEMCPServerConfig struct {
 	RequireApproval bool                    `protobuf:"varint,4,opt,name=require_approval,json=requireApproval,proto3" json:"require_approval,omitempty"`
 	// Forward the incoming A2A bearer token as this server's Authorization header.
 	TokenPassthrough bool `protobuf:"varint,5,opt,name=token_passthrough,json=tokenPassthrough,proto3" json:"token_passthrough,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The server's configured name, which the person is shown when the server
+	// asks them to open a URL. The server's self-reported name is never used.
+	Name          string `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ADKSSEMCPServerConfig) Reset() {
@@ -1878,12 +1891,21 @@ func (x *ADKSSEMCPServerConfig) GetTokenPassthrough() bool {
 	return false
 }
 
+func (x *ADKSSEMCPServerConfig) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 type ADKStdioMCPServerConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Command       string                 `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
-	Args          []string               `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
-	Env           map[string]string      `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Dir           string                 `protobuf:"bytes,4,opt,name=dir,proto3" json:"dir,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Command string                 `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	Args    []string               `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
+	Env     map[string]string      `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Dir     string                 `protobuf:"bytes,4,opt,name=dir,proto3" json:"dir,omitempty"`
+	// The server's configured name, as on ADKHTTPMCPServerConfig.
+	Name          string `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1942,6 +1964,13 @@ func (x *ADKStdioMCPServerConfig) GetEnv() map[string]string {
 func (x *ADKStdioMCPServerConfig) GetDir() string {
 	if x != nil {
 		return x.Dir
+	}
+	return ""
+}
+
+func (x *ADKStdioMCPServerConfig) GetName() string {
+	if x != nil {
+		return x.Name
 	}
 	return ""
 }
@@ -3115,24 +3144,27 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
-	"\x17_tls_disable_system_cas\"\xfa\x01\n" +
+	"\x17_tls_disable_system_cas\"\x8e\x02\n" +
 	"\x16ADKHTTPMCPServerConfig\x12I\n" +
 	"\x06params\x18\x01 \x01(\v2).kagent.config.v1.ADKHTTPConnectionParamsB\x06\xbaH\x03\xc8\x01\x01R\x06params\x12\x14\n" +
 	"\x05tools\x18\x02 \x03(\tR\x05tools\x12'\n" +
 	"\x0fallowed_headers\x18\x03 \x03(\tR\x0eallowedHeaders\x12)\n" +
 	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\x12+\n" +
-	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\"\xf8\x01\n" +
+	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\x12\x12\n" +
+	"\x04name\x18\x06 \x01(\tR\x04name\"\x8c\x02\n" +
 	"\x15ADKSSEMCPServerConfig\x12H\n" +
 	"\x06params\x18\x01 \x01(\v2(.kagent.config.v1.ADKSSEConnectionParamsB\x06\xbaH\x03\xc8\x01\x01R\x06params\x12\x14\n" +
 	"\x05tools\x18\x02 \x03(\tR\x05tools\x12'\n" +
 	"\x0fallowed_headers\x18\x03 \x03(\tR\x0eallowedHeaders\x12)\n" +
 	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\x12+\n" +
-	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\"\xd7\x01\n" +
+	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\x12\x12\n" +
+	"\x04name\x18\x06 \x01(\tR\x04name\"\xeb\x01\n" +
 	"\x17ADKStdioMCPServerConfig\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12D\n" +
 	"\x03env\x18\x03 \x03(\v22.kagent.config.v1.ADKStdioMCPServerConfig.EnvEntryR\x03env\x12\x10\n" +
-	"\x03dir\x18\x04 \x01(\tR\x03dir\x1a6\n" +
+	"\x03dir\x18\x04 \x01(\tR\x03dir\x12\x12\n" +
+	"\x04name\x18\x05 \x01(\tR\x04name\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdb\x02\n" +

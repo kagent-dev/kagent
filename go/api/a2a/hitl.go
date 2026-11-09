@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"slices"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
 const (
@@ -37,6 +39,15 @@ func HITLExtension() a2atype.AgentExtension {
 	return a2atype.AgentExtension{
 		URI: HITLExtensionURI, Description: "Human approval and user input", Required: false,
 	}
+}
+
+// HITLActive reports whether the client of the A2A server call that ctx
+// serves activated the HITL extension. Only such a client receives a typed
+// request; any other reads a pause as its text alone.
+func HITLActive(ctx context.Context) bool {
+	extensions, ok := a2asrv.ExtensionsFrom(ctx)
+	extension := HITLExtension()
+	return ok && extensions.Active(&extension)
 }
 
 // HITLTool describes one tool invocation awaiting a human decision.

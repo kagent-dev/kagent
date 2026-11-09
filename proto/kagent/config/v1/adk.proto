@@ -281,6 +281,9 @@ message ADKHTTPMCPServerConfig {
   bool require_approval = 4;
   // Forward the incoming A2A bearer token as this server's Authorization header.
   bool token_passthrough = 5;
+  // The server's configured name, which the person is shown when the server
+  // asks them to open a URL. The server's self-reported name is never used.
+  string name = 6;
 }
 message ADKSSEMCPServerConfig {
   ADKSSEConnectionParams params = 1 [(buf.validate.field).required = true];
@@ -289,12 +292,17 @@ message ADKSSEMCPServerConfig {
   bool require_approval = 4;
   // Forward the incoming A2A bearer token as this server's Authorization header.
   bool token_passthrough = 5;
+  // The server's configured name, which the person is shown when the server
+  // asks them to open a URL. The server's self-reported name is never used.
+  string name = 6;
 }
 message ADKStdioMCPServerConfig {
   string command = 1;
   repeated string args = 2;
   map<string, string> env = 3;
   string dir = 4;
+  // The server's configured name, as on ADKHTTPMCPServerConfig.
+  string name = 5;
 }
 message ADKRemoteAgentConfig {
   string name = 1;

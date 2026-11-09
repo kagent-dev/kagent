@@ -72,18 +72,18 @@ func TestMaterializeAgentPluginsRejectsClaudeFormatPlugin(t *testing.T) {
 func TestAddMCPConfigConvertsRuntimeNeutralServers(t *testing.T) {
 	agentConfig := &configv1.ADKAgentConfig{}
 	addMCPConfig(agentConfig, agentplugins.MCPConfig{
-		StreamableHTTP: []agentplugins.RemoteMCPServer{{URL: "https://http.example.com", Headers: map[string]string{"X-Test": "http"}}},
-		SSE:            []agentplugins.RemoteMCPServer{{URL: "https://sse.example.com", Headers: map[string]string{"X-Test": "sse"}}},
-		Stdio:          []agentplugins.StdioMCPServer{{Command: "server", Args: []string{"--serve"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}},
+		StreamableHTTP: []agentplugins.RemoteMCPServer{{Name: "http", URL: "https://http.example.com", Headers: map[string]string{"X-Test": "http"}}},
+		SSE:            []agentplugins.RemoteMCPServer{{Name: "sse", URL: "https://sse.example.com", Headers: map[string]string{"X-Test": "sse"}}},
+		Stdio:          []agentplugins.StdioMCPServer{{Name: "local", Command: "server", Args: []string{"--serve"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}},
 	})
 
-	if len(agentConfig.HttpTools) != 1 || agentConfig.HttpTools[0].Params.Url != "https://http.example.com" {
+	if len(agentConfig.HttpTools) != 1 || agentConfig.HttpTools[0].Params.Url != "https://http.example.com" || agentConfig.HttpTools[0].GetName() != "http" {
 		t.Fatalf("HTTP tools = %#v", agentConfig.HttpTools)
 	}
-	if len(agentConfig.SseTools) != 1 || agentConfig.SseTools[0].Params.Url != "https://sse.example.com" {
+	if len(agentConfig.SseTools) != 1 || agentConfig.SseTools[0].Params.Url != "https://sse.example.com" || agentConfig.SseTools[0].GetName() != "sse" {
 		t.Fatalf("SSE tools = %#v", agentConfig.SseTools)
 	}
-	if len(agentConfig.StdioTools) != 1 || agentConfig.StdioTools[0].Command != "server" {
+	if len(agentConfig.StdioTools) != 1 || agentConfig.StdioTools[0].Command != "server" || agentConfig.StdioTools[0].GetName() != "local" {
 		t.Fatalf("stdio tools = %#v", agentConfig.StdioTools)
 	}
 }

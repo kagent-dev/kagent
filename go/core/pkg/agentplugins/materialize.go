@@ -49,12 +49,16 @@ type MCPConfig struct {
 
 // RemoteMCPServer is an HTTP-based MCP server resolved from mcp.json.
 type RemoteMCPServer struct {
+	// Name is the server's key in mcp.json.
+	Name    string
 	URL     string
 	Headers map[string]string
 }
 
 // StdioMCPServer is a local MCP server resolved from mcp.json.
 type StdioMCPServer struct {
+	// Name is the server's key in mcp.json.
+	Name    string
 	Command string
 	Args    []string
 	Env     map[string]string
@@ -509,11 +513,11 @@ func loadMCP(ctx context.Context, root, dataRoot string) MCPConfig {
 		}
 		switch server.Type {
 		case "stdio":
-			result.Stdio = append(result.Stdio, StdioMCPServer{Command: server.Command, Args: server.Args, Env: server.Env, Dir: server.CWD})
+			result.Stdio = append(result.Stdio, StdioMCPServer{Name: name, Command: server.Command, Args: server.Args, Env: server.Env, Dir: server.CWD})
 		case "streamable-http":
-			result.StreamableHTTP = append(result.StreamableHTTP, RemoteMCPServer{URL: server.URL, Headers: server.Headers})
+			result.StreamableHTTP = append(result.StreamableHTTP, RemoteMCPServer{Name: name, URL: server.URL, Headers: server.Headers})
 		case "sse":
-			result.SSE = append(result.SSE, RemoteMCPServer{URL: server.URL, Headers: server.Headers})
+			result.SSE = append(result.SSE, RemoteMCPServer{Name: name, URL: server.URL, Headers: server.Headers})
 		}
 	}
 	return result
