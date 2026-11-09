@@ -117,7 +117,7 @@ the source; the `NAME.svg` beside it is generated, and docs embed the SVG.
 
 - Edit the scene, never the SVG. Use [Excalidraw](https://excalidraw.com), the VS Code Excalidraw extension, or the scene JSON directly.
 - Do not export the SVG from Excalidraw; it will not match the pinned render.
-- Run `make diagrams-renderer`, then `make diagrams-render` to regenerate the SVGs. The first starts the [Kroki](https://kroki.io) Excalidraw renderer image pinned in the Makefile as a local container on port 8004; the second posts each scene to it. Stop the renderer with `docker stop kagent-kroki-excalidraw`.
+- Run `make diagrams-render` to regenerate the SVGs. It starts the [Kroki](https://kroki.io) Excalidraw renderer image pinned in the Makefile as a local container on port 8004, posts each scene to it, and stops it afterward. If a renderer already answers on that port, it uses that one instead.
 - Commit the scene and its SVG together.
 - Keep numbers and labels in the diagram in sync with the doc text that refers to them.
 - CI runs `make diagrams-check` against the same image as a service container, which fails when an SVG is missing or differs from a fresh render of its scene. When upgrading the image, change `KROKI_EXCALIDRAW_IMAGE` in the Makefile and the `Diagram Render Check` service in `.github/workflows/ci.yaml` together; the job fails when they differ.

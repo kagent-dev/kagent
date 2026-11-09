@@ -226,21 +226,22 @@ KROKI_EXCALIDRAW_URL ?= http://localhost:8004/
 DIAGRAM_SCENES = $(shell git ls-files -- '*.excalidraw')
 DIAGRAM_SVGS = $(DIAGRAM_SCENES:.excalidraw=.svg)
 
-.PHONY: diagrams-renderer
-diagrams-renderer: ## Start the pinned Kroki Excalidraw renderer on localhost:8004 and wait until it is ready
-	$(CONTAINER_RUNTIME) start $(KROKI_EXCALIDRAW_CONTAINER) >/dev/null 2>&1 || \
-		$(CONTAINER_RUNTIME) run --detach --rm --name $(KROKI_EXCALIDRAW_CONTAINER) --publish 8004:8004 $(KROKI_EXCALIDRAW_IMAGE)
-	@# The service listens only after its Chromium starts. It answers this empty request with 400.
-	@curl --silent --output /dev/null --retry 30 --retry-delay 2 --retry-all-errors '$(KROKI_EXCALIDRAW_URL)'
-
 .PHONY: diagrams-render
-diagrams-render: ## Render every Excalidraw scene, NAME.excalidraw, to NAME.svg beside it, using the renderer at KROKI_EXCALIDRAW_URL
-	@for scene in $(DIAGRAM_SCENES); do \
+diagrams-render: ## Render every Excalidraw scene, NAME.excalidraw, to NAME.svg beside it, starting the pinned renderer for the run unless one answers at KROKI_EXCALIDRAW_URL
+	@# An empty request gets a 400 once the renderer is up, so curl without --fail
+	@# succeeds only when something is listening. CI provides its own renderer.
+	@if ! curl --silent --output /dev/null '$(KROKI_EXCALIDRAW_URL)'; then \
+		echo "Starting $(KROKI_EXCALIDRAW_CONTAINER)"; \
+		$(CONTAINER_RUNTIME) run --detach --rm --name $(KROKI_EXCALIDRAW_CONTAINER) \
+			--publish 8004:8004 $(KROKI_EXCALIDRAW_IMAGE) >/dev/null || exit 1; \
+		trap '$(CONTAINER_RUNTIME) stop $(KROKI_EXCALIDRAW_CONTAINER) >/dev/null' EXIT; \
+		curl --silent --output /dev/null --retry 30 --retry-delay 2 --retry-all-errors '$(KROKI_EXCALIDRAW_URL)' || exit 1; \
+	fi; \
+	for scene in $(DIAGRAM_SCENES); do \
 		echo "$$scene -> $${scene%.excalidraw}.svg"; \
 		curl --fail-with-body --silent --show-error \
 			--header 'Content-Type: text/plain' --data-binary "@$$scene" \
-			--output "$${scene%.excalidraw}.svg" '$(KROKI_EXCALIDRAW_URL)' || \
-			{ echo "Rendering failed. Is the renderer running? Start it with 'make diagrams-renderer'." >&2; exit 1; }; \
+			--output "$${scene%.excalidraw}.svg" '$(KROKI_EXCALIDRAW_URL)' || exit 1; \
 	done
 
 .PHONY: diagrams-check
