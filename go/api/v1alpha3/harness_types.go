@@ -111,18 +111,23 @@ type BYOHarness struct{}
 
 // HarnessWorkload identifies the immutable runtime image used by a Harness.
 type HarnessWorkload struct {
-	// Image overrides the release's built-in runtime image. BYO requires an image.
-	// When set, it must be an OCI image reference pinned by sha256 digest.
+	// Image overrides the release's built-in runtime image. Supported by all
+	// harnesses and required by byo. It must be an OCI image reference pinned
+	// by sha256 digest.
 	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
 	// +optional
 	Image *string `json:"image,omitempty"`
 
-	// Command overrides the image entrypoint when set.
+	// Command overrides the image entrypoint. Supported by kagent and byo
+	// harnesses and required by byo; claude and codex harnesses reject it.
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +optional
 	Command []string `json:"command,omitempty"`
 
-	// Args overrides the image command arguments when set.
+	// Args overrides the image command arguments. Supported by kagent and byo
+	// harnesses; claude and codex harnesses reject it.
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	Args []string `json:"args,omitempty"`
@@ -130,9 +135,14 @@ type HarnessWorkload struct {
 
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
+// Workload fields that only some adapters support are enforced here, one rule
+// per adapter constraint, each written as "if adapter, then workload constraint".
+//
 // +kubebuilder:validation:ExactlyOneOf=kagent;codex;claude;byo
-// +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.command) && size(self.workload.command) > 0)",message="BYO harnesses must specify workload.command"
 // +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.image))",message="BYO harnesses must specify workload.image"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.command))",message="BYO harnesses must specify workload.command"
+// +kubebuilder:validation:XValidation:rule="!has(self.claude) || !has(self.workload) || (!has(self.workload.command) && !has(self.workload.args))",message="Claude harnesses do not support workload.command or workload.args"
+// +kubebuilder:validation:XValidation:rule="!has(self.codex) || !has(self.workload) || (!has(self.workload.command) && !has(self.workload.args))",message="Codex harnesses do not support workload.command or workload.args"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`

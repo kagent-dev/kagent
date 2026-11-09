@@ -21,6 +21,13 @@ describe("harness draft", () => {
     expect(next.kagent).toBeUndefined();
     expect(next.codex).toEqual({});
   });
+  it("drops command and args for adapters that do not support them", () => {
+    const draft = { ...harnessDraftFromSpec(spec), command: ["/bin/sh"], args: ["-c"] };
+    for (const adapter of ["claude", "codex"] as const) {
+      expect(harnessSpecFromDraft({ ...draft, adapter }, spec).workload).toEqual({ image });
+    }
+    expect(harnessSpecFromDraft(draft, spec).workload).toEqual({ image, command: ["/bin/sh"], args: ["-c"] });
+  });
   it("starts on the release image and the default snapshot location", () => {
     const draft = { ...emptyHarnessDraft(), workerPool: "kagent-default" };
     expect(harnessDraftProblems(draft)).toEqual([]);

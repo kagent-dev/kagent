@@ -8,7 +8,7 @@ import {
   HARNESS_IMAGE_PATTERN,
   type HarnessAdapter,
 } from "@/api/domain/harnesses";
-import type { HarnessDraft } from "./harnessDraft";
+import { adapterSupportsCommand, type HarnessDraft } from "./harnessDraft";
 
 /** What a Harness and a WorkerPool are, for the pages and dialogs that create one. */
 export function HarnessIntro() {
@@ -95,37 +95,41 @@ export function HarnessFields({
         />
       </Form.Item>
 
-      <Form.Item
-        label="Command"
-        required={byo}
-        extra={
-          byo
-            ? "Required for bring-your-own images. Press Enter after each part."
-            : "Overrides the image entrypoint. Press Enter after each part."
-        }
-      >
-        <Select
-          mode="tags"
-          data-testid="harness-command"
-          value={draft.command}
-          onChange={(value) => set("command", value)}
-          open={false}
-          suffixIcon={null}
-          placeholder="/app/server"
-        />
-      </Form.Item>
+      {adapterSupportsCommand(draft.adapter) && (
+        <>
+          <Form.Item
+            label="Command"
+            required={byo}
+            extra={
+              byo
+                ? "Required for bring-your-own images. Press Enter after each part."
+                : "Overrides the image entrypoint. Press Enter after each part."
+            }
+          >
+            <Select
+              mode="tags"
+              data-testid="harness-command"
+              value={draft.command}
+              onChange={(value) => set("command", value)}
+              open={false}
+              suffixIcon={null}
+              placeholder="/app/server"
+            />
+          </Form.Item>
 
-      <Form.Item label="Arguments" extra="Overrides the image arguments. Press Enter after each one.">
-        <Select
-          mode="tags"
-          data-testid="harness-args"
-          value={draft.args}
-          onChange={(value) => set("args", value)}
-          open={false}
-          suffixIcon={null}
-          placeholder="--port=8080"
-        />
-      </Form.Item>
+          <Form.Item label="Arguments" extra="Overrides the image arguments. Press Enter after each one.">
+            <Select
+              mode="tags"
+              data-testid="harness-args"
+              value={draft.args}
+              onChange={(value) => set("args", value)}
+              open={false}
+              suffixIcon={null}
+              placeholder="--port=8080"
+            />
+          </Form.Item>
+        </>
+      )}
 
       <Form.Item
         label="Worker pool"
