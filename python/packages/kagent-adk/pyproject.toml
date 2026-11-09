@@ -59,7 +59,7 @@ kagent-adk = "kagent.adk.cli:run_cli"
 [project.optional-dependencies]
 test = [
   "pytest>=9.2.0",
-  "pytest-asyncio>=0.25.3",
+  "pytest-asyncio>=1.4.1.post1",
 ]
 memory = [
   "psutil>=6.1.0",  # For memory monitoring

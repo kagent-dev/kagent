@@ -53,7 +53,7 @@ overrides = [
 dev = [
     { name = "authlib", specifier = ">=1.9.1" },
     { name = "pytest", specifier = ">=9.2.0" },
-    { name = "pytest-asyncio", specifier = ">=1.4.1" },
+    { name = "pytest-asyncio", specifier = ">=1.4.1.post1" },
     { name = "ruff", specifier = ">=0.17.3" },
 ]
 
@@ -118,7 +118,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.2.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.25.3" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.1.post1" },
     { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.17.0" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
 ]
@@ -150,7 +150,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.2.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.1.post1" },
     { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.17.0" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
 ]
@@ -1919,7 +1919,7 @@ requires-dist = [
     { name = "psutil", marker = "extra == 'memory'", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.2.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.25.3" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.1.post1" },
     { name = "python-multipart", specifier = ">=0.0.22" },
     { name = "typer", specifier = ">=0.27.0" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
@@ -2015,7 +2015,7 @@ requires-dist = [
     { name = "kagent-core", extras = ["crewai"], editable = "packages/kagent-core" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.2.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.1.post1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.2" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
     { name = "uvicorn", specifier = ">=0.20.0" },
@@ -2057,7 +2057,7 @@ requires-dist = [
     { name = "langsmith", extras = ["otel"], specifier = ">=0.14.16" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.2.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.1.post1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.2" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
     { name = "uvicorn", specifier = ">=0.20.0" },
@@ -2103,7 +2103,7 @@ requires-dist = [
     { name = "openai-agents", specifier = ">=0.4.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.2.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.1.post1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.2" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
     { name = "uvicorn", specifier = ">=0.20.0" },
@@ -2144,7 +2144,7 @@ dev = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.2.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.1.post1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.2" },
 ]
 provides-extras = ["dev"]
@@ -4078,15 +4078,15 @@ wheels = [
 
 [[package]]
 name = "pytest-asyncio"
-version = "1.4.1"
+version = "1.4.1.post1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/9a/887535e477847f5159377ab35303923644840b13c0ca03c0a467f84d4680/pytest_asyncio-1.4.1.tar.gz", hash = "sha256:e8266eb094e5ee9ffdb2068c9836f33e209ea77a970eb846933d416b5602669b", size = 145237, upload-time = "2026-10-25T21:05:37.135Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/7f/c60a4338420b33453d4f814ac0c930abd399f162b9bdd21af4b9e363037f/pytest_asyncio-1.4.1.post1.tar.gz", hash = "sha256:f582d9ea4a1c082195abe8bd29a1fe106aeb1cd435e3dad2d3bc2749935c36a2", size = 145360, upload-time = "2026-11-01T18:26:03.732Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/46/d7/cd9e2708afdbf059658adaf08bdb0792ca52489871051d6ce7d498b51277/pytest_asyncio-1.4.1-py3-none-any.whl", hash = "sha256:507afa78ec77c6661164ef1a2368bc7820383fd1a14b2a7f813de8b5a92949cc", size = 17061, upload-time = "2026-10-25T21:05:35.473Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/de/adbc7578959cfab07e5e7c05cf6d54224a51e7667ea2c07458b6bc571e75/pytest_asyncio-1.4.1.post1-py3-none-any.whl", hash = "sha256:0755e488cc0a2b9bd2eab7292cc6390d4cbb8390f1020745647bae5a708e0165", size = 17140, upload-time = "2026-11-01T18:26:02.168Z" },
 ]
 
 [[package]]
