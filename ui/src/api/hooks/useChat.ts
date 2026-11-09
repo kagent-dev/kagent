@@ -194,6 +194,8 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
    * with, and both are written from the same event.
    */
   const taskRef = useRef<string | undefined>(undefined);
+  // Set by the turn in flight; tells its stream to cancel the task once it is named.
+  const cancelWhenNamedRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!conversation || !key) return;
@@ -277,6 +279,11 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
       // machine's only reset, and beginning it anywhere else would carry the
       // previous turn's error into the retry that was meant to clear it.
       taskRef.current = undefined;
+      // Per run, so a stop pressed on an earlier turn cannot reach a later one.
+      let cancelWhenNamed = false;
+      cancelWhenNamedRef.current = () => {
+        cancelWhenNamed = true;
+      };
       setTurn(nextTurn(IDLE_TURN, { type: "start", key }));
       setTranscript((current) =>
         appendLocal(current, key, {
@@ -347,6 +354,21 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
           if (controller.signal.aborted) break;
           awaitNextEvent();
 
+          // Stopped before the task had a name: drop everything until a frame
+          // names it, then cancel it on the server and release the stream.
+          if (cancelWhenNamed) {
+            if (event.type === "status" && event.taskId) {
+              try {
+                await getChatClient().cancel(conversation, event.taskId);
+              } catch {
+                // Best effort, as in `cancel`.
+              }
+              controller.abort();
+              break;
+            }
+            continue;
+          }
+
           switch (event.type) {
             case "message":
               setTranscript((current) =>
@@ -397,7 +419,7 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         // Reported here rather than in the catch because aborting breaks the
         // loop without throwing, and a timeout is a failed turn either way —
         // distinct from a user-initiated stop, which is not a failure.
-        if (timedOut) {
+        if (timedOut && !cancelWhenNamed) {
           dispatch({
             type: "timeout",
             error: new Error(
@@ -409,7 +431,7 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         // Nothing was ever filed under this message, so it is taken back off screen
         // — see `refused`. `taskRef` is the test for "the server started a turn",
         // because the first status frame is what names the task.
-        if (refused && !taskRef.current) {
+        if (refused && !taskRef.current && !cancelWhenNamed) {
           setTranscript((current) =>
             withMessages(current, key, (messages) =>
               messages.filter((existing) => existing.id !== messageId),
@@ -423,7 +445,7 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         // A stream that ended without saying how it went has still ended. The
         // machine leaves an already-finished turn alone, so this cannot overwrite
         // a failure or a cancellation that arrived first.
-        dispatch({ type: "settle" });
+        if (!cancelWhenNamed) dispatch({ type: "settle" });
       }
     },
     // Keyed on the address, not the ref object — the ref is rebuilt every render,
@@ -438,11 +460,20 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
     const controller = abortRef.current;
     if (!controller) return;
 
-    controller.abort();
-    abortRef.current = null;
-
     const taskId = taskRef.current;
     setTurn((current) => (current.key === key ? nextTurn(current, { type: "cancel" }) : current));
+
+    // No task yet: the stream stays open until a frame names it, so the server can
+    // be told. Aborting now would only disconnect, and the task would finish.
+    if (!taskId) {
+      cancelWhenNamedRef.current?.();
+      cancelWhenNamedRef.current = null;
+      abortRef.current = null;
+      return;
+    }
+
+    controller.abort();
+    abortRef.current = null;
 
     if (conversation && taskId) {
       // Best effort: the turn is already stopped locally, so a transport that
