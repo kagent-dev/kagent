@@ -1,11 +1,11 @@
-# Agent creation
+# Creating an Agent
 
 This document traces how the control plane prepares a newly applied Agent, from
 `kubectl apply` until the Agent reaches `Ready=True`. The bottom lane of the
 diagram and [Failures and retries](#failures-and-retries) summarize what happens
 when a step fails. The linked documents describe that behavior in detail.
 
-![Agent creation](images/agent-creation.svg)
+![Creating an Agent](images/agent-creation.svg)
 
 ## Reading the diagram
 
@@ -31,10 +31,10 @@ Substrate's own state is not shown.
 | 4 | In-process | The translator produces the immutable revision, its SHA-256 digest, the bootstrap bundle, and the desired ActorTemplate. Egress grants are resolved separately and are not part of the digest. |
 | 5 | SQL | `UpsertAgentDefinition` stores `desired_revision` and the egress grants before any compute exists. |
 | 6 | SQL + gRPC | The controller pushes egress to existing actors. SQL `ListRuntimeEgressSourceTargets` lists them. For each actor, gRPC `GetActor` and `GetActorEgressPolicy` read the current state, SQL `GetRuntimeEgressPolicy` combines the pinned base with current grants, and gRPC `CreateActorEgressPolicy` or `UpdateActorEgressPolicy` applies the result. Up to 16 actors are processed in parallel, and unchanged policies are skipped. When an Agent is first created it has no Session actors, so this step finds nothing to do. |
-| 7 | gRPC | `GetActorTemplate` finds no template, so the controller calls `GetAtespace`, `CreateAtespace` if the Atespace is missing, and `CreateActorTemplate` with the name `<agent>-<digest>`. The template carries the golden egress policy, which allows only the control plane. |
-| 8a | SQL | `RecordRuntimeRevision` records the revision, the template UID, and the bootstrap bundle. |
+| 7 | gRPC | `GetActorTemplate` finds no template, so the controller calls `GetAtespace`, `CreateAtespace` if the Atespace is missing, and `CreateActorTemplate` with the name `<agent>-<digest>`. The template carries the golden actor's egress policy: the golden actor can make HTTP(S) requests only to the kagent control-plane URL, and the egress gateway adds a `kagent-bootstrap` actor JWT to each one. Session actors use the policy from step 6 instead. |
+| 8a | SQL | `RecordRuntimeRevision` records the revision, the template UID, and the bootstrap bundle in one transaction. BootstrapService serves a bundle only to an actor whose template matches this UID and spec digest, so step 10 cannot succeed until this commits. Substrate assigns the UID in step 7, so it cannot be recorded earlier. |
 | 8b | Substrate | At the same time, Substrate starts the golden actor as soon as the template exists. |
-| 9 | gRPC | The golden actor calls `GetBootstrapConfig` through the egress gateway with its actor JWT. It retries until step 8a has committed. |
+| 9 | gRPC | The template holds only a small descriptor: the control-plane URL, revision, format version, and bundle digest. The compiled configuration and Agent Card stay in PostgreSQL, so the golden actor fetches them with `GetBootstrapConfig`, and the golden snapshot and every Session started from it contain them. The call goes through the egress gateway, which adds the actor JWT, and retries while the binding is pending, until step 8a has committed. |
 | 10 | gRPC + SQL | BootstrapService verifies the caller with ate-api (`GetActor`, `GetActorTemplate`), then reads the bundle with SQL `GetBootstrapBinding`. |
 | 11 | Substrate | The actor saves the bundle under `/data/kagent/bootstrap` and passes `/readyz`. Substrate then snapshots and tags the template. |
 | 12 | gRPC | While the golden snapshot is pending, the controller re-runs steps 5 to 7 every second and reads golden status with `GetActorTemplate`. |

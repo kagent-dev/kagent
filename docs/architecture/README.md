@@ -101,7 +101,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [Egress policies](egress-policies.md)
 - [Runtime credential injection](credential-injection.md)
 - [Configuration and compilation](configuration-and-compilation.md)
-- [Agent creation](agent-creation.md)
+- [Creating an Agent](agent-creation.md)
 - [Process configuration](process-configuration.md)
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
 - [Client lifecycle retries](../lifecycle-retries.md)
