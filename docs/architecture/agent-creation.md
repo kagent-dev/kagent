@@ -1,9 +1,9 @@
 # Creating an Agent
 
 This document traces how the control plane prepares a newly applied Agent, from
-`kubectl apply` until the Agent reaches `Ready=True`. The bottom lane of the
-diagram and [Failures and retries](#failures-and-retries) summarize what happens
-when a step fails. The linked documents describe that behavior in detail.
+`kubectl apply` until the Agent reaches `Ready=True`.
+[Failures and recovery](#failures-and-recovery) explains what happens when a step
+fails.
 
 ![Creating an Agent](images/agent-creation.svg)
 
@@ -48,13 +48,34 @@ steps 5, 7, 8a, 12, and 13, and
 BootstrapService is in
 [`service/bootstrap/service.go`](../../go/core/internal/service/bootstrap/service.go).
 
-## Failures and retries
+## Failures and recovery
 
-| Path | Trigger | Behavior |
-| --- | --- | --- |
-| Retryable preparation error | Any SQL or Substrate call fails, including the egress push | `Ready=False` with reason `RuntimePreparationFailed`. The queue backs off from 1s to 30s with no attempt limit. The last successful revision continues to serve new Sessions. |
-| Golden build failed | Substrate reports a golden snapshot error | The controller deletes the ActorTemplate by UID with `DeleteActorTemplate`, then creates it again after 15s, 1m, 4m, and then every 10m, with up to 20% jitter. `Ready=False` with reason `ActorTemplateRetrying`. The schedule is persisted on `runtime_revision` and survives restarts. |
-| Stops until the inputs change | Compilation fails with `RevisionInvalid`, `WorkerPoolNotFound`, or `ActorTemplateInvalid`, which clears `desiredRevision`; Substrate rejects the template with `InvalidArgument` (`ActorTemplateRejected`); or an existing immutable template differs (`ActorTemplateConflict`) | No retry until the Agent or its inputs change. |
+A failed preparation does not affect existing Sessions. The last successful
+revision keeps serving new Sessions until a new revision is ready.
+
+### Retryable errors
+
+Any SQL or Substrate call can fail, including the egress push in step 6. The
+Agent reports `Ready=False` with reason `RuntimePreparationFailed`, and the
+controller requeues it with a backoff from 1s to 30s and no attempt limit.
+
+### Golden build failures
+
+If Substrate reports that the golden snapshot failed, the controller deletes the
+ActorTemplate by UID with `DeleteActorTemplate` and creates it again after 15s,
+1m, 4m, and then every 10m, with up to 20% jitter. Until then the Agent reports
+`Ready=False` with reason `ActorTemplateRetrying`. The schedule is stored on
+`runtime_revision`, so it survives controller restarts.
+
+### Errors that need a change
+
+These failures are not retried until the Agent or its inputs change:
+
+- Compilation fails with `RevisionInvalid`, `WorkerPoolNotFound`, or
+  `ActorTemplateInvalid`. This also clears `desiredRevision`.
+- Substrate rejects the template with `InvalidArgument`
+  (`ActorTemplateRejected`).
+- An existing immutable template differs (`ActorTemplateConflict`).
 
 See [Configuration and compilation](configuration-and-compilation.md#prepared-revision-pipeline)
 for revision and retry semantics, and
