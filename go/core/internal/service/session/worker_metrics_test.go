@@ -256,53 +256,32 @@ func TestPushRecoveryLogsBeforeNextClaimCompletes(t *testing.T) {
 		ctx, reader, logs := captureWorkTelemetry(t)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		store := &blockedPushClaimStore{}
+		claims := make(chan struct{}, 1)
+		claims <- struct{}{} // Allow the empty startup scan.
+		store := &pushWakeStore{claimGate: claims}
 		worker := NewPushWorker(store, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Minute))
 		done := make(chan error, 1)
 		go func() { done <- worker.Start(ctx) }()
 		synctest.Wait()
-		release := make(chan struct{})
-		store.release = release
-		store.deliveries = make([]database.PushDelivery, 2)
+		store.mu.Lock()
+		store.deliveries = []database.PushDelivery{pushTestDelivery(t, "first"), pushTestDelivery(t, "second")}
+		store.mu.Unlock()
 
 		// When recovery acquires work and its next claim blocks.
+		claims <- struct{}{}
 		time.Sleep(time.Minute)
 		synctest.Wait()
 
 		// Assert that discovery is already visible before the batch completes.
 		require.Equal(t, wantWorkClaims("recovery", 1), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
 		requireRecoveryLog(t, logs, "push_delivery", 1, time.Minute)
-		close(release)
+		close(claims)
 		synctest.Wait()
 		require.Equal(t, wantWorkClaims("recovery", 2), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
 		requireRecoveryLog(t, logs, "push_delivery", 1, time.Minute)
 		cancel()
 		require.NoError(t, <-done)
 	})
-}
-
-type blockedPushClaimStore struct {
-	pushWakeStore
-	release <-chan struct{}
-	claimed bool
-}
-
-var _ pushStore = (*blockedPushClaimStore)(nil)
-
-func (s *blockedPushClaimStore) ClaimDuePushDelivery(ctx context.Context, timeout time.Duration) (*database.PushDelivery, error) {
-	if s.claimed && s.release != nil {
-		select {
-		case <-s.release:
-			s.release = nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-	delivery, err := s.pushWakeStore.ClaimDuePushDelivery(ctx, timeout)
-	if delivery != nil {
-		s.claimed = true
-	}
-	return delivery, err
 }
 
 func TestPushWorkClaimTriggers(t *testing.T) {
