@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Modal, Popconfirm } from "antd";
+import { Button, Checkbox, Modal, Popconfirm } from "antd";
 import { Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -25,6 +25,7 @@ export function DeleteResourceButton({
   label,
   outlined = false,
   confirmation = "popover",
+  forceLabel,
 }: {
   /** What this is, in words a reader would use: "agent", "model configuration". */
   kind: string;
@@ -61,18 +62,21 @@ export function DeleteResourceButton({
    */
   outlined?: boolean;
   confirmation?: "popover" | "modal";
-  onDelete: () => Promise<void>;
+  /** Offer an explicit force option only for resources that support it. */
+  forceLabel?: string;
+  onDelete: (force: boolean) => Promise<void>;
   /** Called after a successful delete, to refresh whatever listed it. */
   onDeleted: () => void | Promise<void>;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [isDeleting, setDeleting] = useState(false);
+  const [force, setForce] = useState(false);
 
   async function confirm() {
     setDeleting(true);
     try {
-      await onDelete();
+      await onDelete(forceLabel !== undefined && force);
       // Refreshed before the toast, so the row is gone by the time the reader is told
       // it is. Swallowed, because every caller passes an `ApiResource.refresh` and
       // those rethrow: unguarded, a failed re-read after a successful delete reports
@@ -105,7 +109,7 @@ export function DeleteResourceButton({
       // was a smaller target than anything else on the row, and it is the control with
       // the worst consequence for a near miss.
       icon={<Trash2 size={16} />}
-      onClick={confirmation === "modal" ? () => setOpen(true) : undefined}
+      onClick={confirmation === "modal" ? () => { setForce(false); setOpen(true); } : undefined}
       loading={isDeleting}
       disabled={disabled}
       data-testid={`delete-${name}`}
@@ -117,7 +121,11 @@ export function DeleteResourceButton({
     </Button>
   );
   const title = `Delete ${kind} ${name}?`;
-  const message = description ?? "This removes it from the cluster and cannot be undone.";
+  const message = <>
+    {description ?? "This removes it from the cluster and cannot be undone."}
+    {forceLabel && <div><Checkbox checked={force} disabled={isDeleting}
+      onChange={(event) => setForce(event.target.checked)}>{forceLabel}</Checkbox></div>}
+  </>;
 
   return confirmation === "modal" ? <>
     {button}
@@ -129,6 +137,7 @@ export function DeleteResourceButton({
     </Modal>
   </> : (
     <Popconfirm title={title} description={message} okText="Delete"
+      onOpenChange={(value) => { if (value) setForce(false); }}
       okButtonProps={{ danger: true, loading: isDeleting }} cancelText="Keep" onConfirm={confirm}>
       {button}
     </Popconfirm>

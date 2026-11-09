@@ -294,7 +294,7 @@ func taskToMCP(id string, task *a2atype.Task) taskFields {
 		updated = task.Status.Timestamp.UTC()
 	}
 	return taskFields{
-		TaskID: id, Status: taskStatus(task), StatusMessage: taskText(task),
+		TaskID: id, Status: taskStatus(task), StatusMessage: taskReply(task),
 		CreatedAt: created.Format(time.RFC3339Nano), LastUpdatedAt: updated.Format(time.RFC3339Nano),
 		TTLMS: nil, PollIntervalMS: defaultTaskPollInterval,
 	}

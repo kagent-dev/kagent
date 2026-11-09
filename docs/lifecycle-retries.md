@@ -2,8 +2,8 @@
 
 Session and Sandbox lifecycle mutations run within the API request. The server
 records the intended operation before calling the runtime and records completion
-before returning success. Sessions expose Create, Fork, and Delete; explicit Suspend
-and Resume are available only for Sandboxes. Session runtime suspension and resumption
+before returning success. Sessions expose Create, Fork, Revert, and Delete; explicit
+Suspend and Resume are available only for Sandboxes. Session runtime suspension and resumption
 are platform-managed. A failed request can have changed the runtime: a timeout
 does not mean that nothing happened, and canceling a request does not undo it.
 
@@ -39,6 +39,29 @@ for subsequent invocations. Omitting it generates a new ID on each invocation,
 so rerunning that command is a new creation rather than a retry. MCP callers
 should likewise retain the `request_id` passed to `create_sandbox`.
 
+## Recovering a crashed Session
+
+Call `SessionService.RevertSession` with the Session ID to restore its recorded runtime to the last durable snapshot.
+The caller needs Session update access. The operation verifies Substrate's CRASHED state and the recorded Actor identity.
+Recovery fails interrupted turns and waiting tasks absent from the retained snapshot.
+It preserves durable terminal results and returns the Session to READY with its Actor suspended.
+It discards runtime changes since that snapshot and does not replay input.
+A runtime without a snapshot restarts from its initial state.
+
+Retry an interrupted revert against the same Session ID; nothing retries it in the background.
+Pending recovery retains its operation across API restarts, and a retry joins it.
+While recovery is pending, `GetSession` reports state `FAILED`, operation `REVERT`, and failure reason `RuntimeCrashed`.
+Interactions fail because a lifecycle operation is in progress. Call `RevertSession` again to finish the recovery.
+A retry after a revert whose response was lost returns the recovered Session.
+Checkpoint creation returns `ABORTED` until it finishes.
+A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.
+So does a revert while another lifecycle operation is active.
+
+A revert of a runtime that is not crashed returns the Session unchanged.
+A revert that can never succeed returns `FAILED_PRECONDITION`: the recorded Actor is missing, or a same-name Actor replaced it.
+Stop retrying, delete the Session, then start another or fork one from a checkpoint. Delete succeeds even while the recovery is pending.
+Read the reason rather than the message text, which is not stable.
+
 ## Errors
 
 | gRPC status | Client action |
@@ -55,6 +78,14 @@ checkpoints. An uncertain issued Session operation must finish through retries
 before a conflicting operation can proceed. Sandboxes allow a new lifecycle
 intent to supersede a pending one after its active attempt ends; commands and
 file transfers can be interrupted.
+
+`DeleteSession` without `force` returns an error while the session has active
+turns, without entering `DELETING`. Use `force: true` (CLI:
+`kagent session delete ID --force`) to delete despite active turns. Authorization
+and checks for conflicting checkpoint or lifecycle work still apply. Once deletion
+is admitted, client retries do not require `force` again, including after a
+preparation failure or controller restart. Both modes call `DeleteActor` directly;
+suspension is not required.
 
 For example, a client creating a sandbox should follow this sequence:
 

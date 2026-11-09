@@ -134,6 +134,23 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	}
 	_, hasGrok5 := foundry["grok-5"]
 	assert.False(t, hasGrok5, "grok-5 is not a published Foundry model ID")
+
+	bedrock := map[string]bool{}
+	for _, info := range models[v1alpha3.ModelProviderBedrock] {
+		bedrock[info.Name] = info.FunctionCalling
+	}
+	for _, name := range []string{
+		"us.xai.grok-4.7",
+		"global.xai.grok-4.7",
+		"us.xai.grok-4.6",
+		"global.xai.grok-4.6",
+	} {
+		calling, ok := bedrock[name]
+		require.Truef(t, ok, "Bedrock catalog missing %s", name)
+		assert.True(t, calling, name)
+	}
+	_, hasFoundryGrokName := bedrock["grok-4.7"]
+	assert.False(t, hasFoundryGrokName, "Bedrock IDs use the xai inference-profile prefix")
 }
 
 func TestDiscoveryConfiguredProviders(t *testing.T) {

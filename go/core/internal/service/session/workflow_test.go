@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,28 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
+
+var (
+	lifecycleCleanup func()
+	// Start PostgreSQL only when a lifecycle fixture is requested, so focused
+	// tests of pure logic still run without Docker. Migrate the template once.
+	lifecycleDatabase = sync.OnceValues(func() (string, error) {
+		conn, cleanup, err := dbtest.Start(context.Background())
+		if err != nil {
+			return "", err
+		}
+		lifecycleCleanup = cleanup
+		return conn, dbtest.Migrate(conn, false)
+	})
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if lifecycleCleanup != nil {
+		lifecycleCleanup()
+	}
+	os.Exit(code)
+}
 
 func TestActorWorkflowLifecycle(t *testing.T) {
 	store, session := lifecycleFixture(t)
@@ -65,7 +88,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, suspended.Operation)
 
-	deleted, err := workflow.Delete(context.Background(), suspended)
+	deleted, err := workflow.Delete(context.Background(), suspended, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +116,7 @@ func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
 			case "suspend":
 				_, err = workflow.Suspend(t.Context(), session)
 			case "delete":
-				_, err = workflow.Delete(t.Context(), session)
+				_, err = workflow.Delete(t.Context(), session, false)
 			}
 			require.ErrorContains(t, err, "verify runtime actor UID")
 			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.Status.State)
@@ -126,12 +149,9 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 // calls are faked, so concurrency assertions exercise PostgreSQL admission.
 func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
-	t.Cleanup(cancel)
-	conn, cleanup, err := dbtest.Start(ctx)
+	template, err := lifecycleDatabase()
 	require.NoError(t, err)
-	t.Cleanup(cleanup)
-	require.NoError(t, dbtest.Migrate(conn, false))
+	conn := dbtest.CloneT(t, template)
 	pool, err := pgxpool.New(t.Context(), conn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
@@ -227,9 +247,16 @@ func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name str
 	return proto.CloneOf(actor), nil
 }
 
-func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {
+func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name, uid string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	actor := a.actors[actorKey(atespace, name)]
+	if actor == nil {
+		return status.Error(codes.NotFound, "missing")
+	}
+	if uid != "" && actor.GetMetadata().GetUid() != uid {
+		return status.Error(codes.FailedPrecondition, "actor UID changed")
+	}
 	delete(a.actors, actorKey(atespace, name))
 	return nil
 }
@@ -393,7 +420,7 @@ func TestActorCreationFailsBeforeIssueWhenEgressPolicyCannotCompile(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, "PreparationFailed", current.GetFailure().GetReason())
 
-	deleted, err := workflow.Delete(t.Context(), current)
+	deleted, err := workflow.Delete(t.Context(), current, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 }
@@ -459,7 +486,7 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.Equal(t, renamed.Name, retried.Name)
 	require.Equal(t, renamed.State, retried.State)
 	require.Equal(t, mutations, actors.mutations.Load(), "creation retry cannot reissue runtime work")
-	deleted, err := service.Delete(ctx, session.Id)
+	deleted, err := service.Delete(ctx, session.Id, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
@@ -468,7 +495,7 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
 	_, err = service.Get(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
-	_, err = service.Delete(ctx, session.Id)
+	_, err = service.Delete(ctx, session.Id, false)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
 }

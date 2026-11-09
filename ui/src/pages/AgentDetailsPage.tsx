@@ -16,7 +16,10 @@ import {
 import { paths } from "@/router/routes";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { agentPageUrl } from "@/components/agent/agentUrl";
-import { bareName, isNotFound, useAgentInstance, useAgentInstances } from "@/api";
+import { bareName, isNotFound, useAgent, useAgentInstance, useAgentInstances } from "@/api";
+import { buildPath } from "@/router/routes";
+import { linkInk } from "@/components/common/linkStyles";
+import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 
 const { Paragraph, Text } = Typography;
 
@@ -72,6 +75,10 @@ export function AgentDetailsPage() {
         })
       : undefined;
 
+  const agentNamespace = data?.agent?.split("/")[0];
+  const agent = useAgent(agentNamespace, data?.agent ? bareName(data.agent) : undefined);
+  const egressRefs = agent.data?.resource.spec.egressPolicyRefs ?? [];
+
   // A 404 is a different answer from a failed request: the controller told us this
   // instance does not exist — or that it is not ours, which the API reports the same
   // way. Retrying would be pointless, so that branch offers a way back instead.
@@ -119,6 +126,34 @@ export function AgentDetailsPage() {
             <ValueOrNotReported value={undefined} />
           ),
         },
+        ...(data.agent
+          ? [
+              {
+                key: "egressPolicies",
+                label: egressCopy.agent.detailsLabel,
+                span: 2,
+                children: agent.error ? (
+                  <ValueOrNotReported value={undefined} />
+                ) : !agent.data ? (
+                  <Text css={{ color: theme.color.textMuted }}>…</Text>
+                ) : egressRefs.length === 0 ? (
+                  <Text css={{ color: theme.color.textMuted }}>{egressCopy.agent.none}</Text>
+                ) : (
+                  <Space size={[12, 4]} wrap data-testid="instance-egress-policies">
+                    {egressRefs.map((ref) => (
+                      <Link
+                        key={ref.name}
+                        to={buildPath(paths.egressPolicyDetail, { namespace: agentNamespace ?? "", name: ref.name })}
+                        css={{ fontFamily: theme.font.mono, ...linkInk(theme) }}
+                      >
+                        {ref.name}
+                      </Link>
+                    ))}
+                  </Space>
+                ),
+              },
+            ]
+          : []),
         {
           key: "preparedRevision",
           label: "Prepared revision",

@@ -20,6 +20,7 @@ export type NavKey =
   | "agents"
   | "models"
   | "mcpServers"
+  | "policies"
   | "prompts"
   | "substrate";
 
@@ -28,6 +29,7 @@ export const navLabels: Record<NavKey, string> = {
   agents: "Agents",
   models: "Models",
   mcpServers: "MCP Servers",
+  policies: "Policies",
   prompts: "Prompts",
   substrate: "Substrate",
 };

@@ -59,11 +59,12 @@ when = '"gen_ai.operation.name" in attributes && attributes["gen_ai.operation.na
 signal = "gen_ai.client.inference"
 
 # The span processor copies request identity onto every span beneath the
-# invocation.
+# invocation. Claude Code sends its own hashed user.id, so the user is not
+# used to find request spans.
 [[live-check.matchers]]
 id = "match.kagent.request"
 sample_type = "span"
-when = '"a2a.task.id" in attributes || "gen_ai.conversation.id" in attributes || "enduser.id" in attributes'
+when = '"a2a.task.id" in attributes || "gen_ai.conversation.id" in attributes || "a2a.method" in attributes'
 attribute_groups = ["kagent.request"]
 
 [[live-check.matchers]]

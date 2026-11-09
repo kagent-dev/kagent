@@ -813,8 +813,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cleanupCancel()
-		// DeleteSession returns only after its Substrate Actor has been
-		// suspended and deleted, so this cleanup covers both resources.
+		// DeleteSession waits for Substrate deletion before completing the Session.
 		if cleanupErr := deleteIdleSession(cleanupCtx, sessions, session.GetId()); cleanupErr != nil {
 			t.Errorf("delete Session: %v", cleanupErr)
 		}

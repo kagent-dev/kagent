@@ -185,7 +185,7 @@ func TestSessionExpirationFencesDispatchAndRetries(t *testing.T) {
 	require.Equal(t, session.Id, pending.Id)
 	require.False(t, created, "runtime deletion must finish before the receipt is removed")
 
-	op, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	op, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.NoError(t, err)
 	require.Equal(t, work.Operation.ID, op.ID, "explicit deletion joins the admitted idle deletion")
 	_, err = client.FinishSessionOperation(ctx, session.Id, op.ID, uuid.Nil, "", "", "temporary preparation failure")
@@ -208,7 +208,7 @@ func TestSessionExpirationFencesDispatchAndRetries(t *testing.T) {
 func TestSessionExpirationSkipsLifecycleAndExplicitTombstones(t *testing.T) {
 	client, session := expirationFixture(t)
 	ctx := t.Context()
-	_, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	_, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
 	require.ErrorIs(t, err, ErrConflict)

@@ -50,6 +50,16 @@ Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.
 
+`TestSessionDeletionAfterInterruptedResume` delays restored Go ADK startup by
+20 seconds and sends a message through kagent. CI installs Substrate with
+[manifests/substrate-values.yaml](manifests/substrate-values.yaml), pinning the
+parking budget to 5 seconds and request timeout to 10 seconds. For local runs,
+include this file in `install.substrate.valuesFiles` when installing the test
+cluster. These overrides keep the test independent of the chart's defaults.
+The test requires the actor to remain `RESUMING` before ordinary Session deletion,
+then verifies Session and Actor absence through kagent APIs. Backend cleanup
+retries are allowed only after the actor reaches `DELETING` or is absent.
+
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness
 fixtures, and each test owns the templates and API resources it creates.
@@ -153,7 +163,7 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=1.0.0-rc2 bash scripts/kind/setup-microvm.sh`.
+`SUBSTRATE_VERSION=1.0.0 bash scripts/kind/setup-microvm.sh`.
 It fetches the matching Substrate release and runs
 `ate-setup deploy sandboxconfig --sandbox-classes=microvm`. The installer assembles
 and verifies the assets, uploads them to RustFS, and applies the SandboxConfig.

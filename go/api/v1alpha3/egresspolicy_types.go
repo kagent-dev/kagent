@@ -9,6 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+const EgressPolicyKind = "EgressPolicy"
+
 // EgressPolicySpec grants additional HTTP(S) access to workloads in its namespace.
 type EgressPolicySpec struct {
 	// Destinations are additional origins the workload may reach.

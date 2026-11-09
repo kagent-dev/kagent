@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -19,8 +20,9 @@ type LifecycleClient interface {
 	CheckActorEgressPolicy(context.Context, string, string) error
 	EnsureActorEgressPolicy(context.Context, string, string, string) error
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
+	RevertActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
-	DeleteActor(context.Context, string, string) error
+	DeleteActor(context.Context, string, string, string) error
 }
 
 var _ LifecycleClient = (*Client)(nil)
@@ -52,6 +54,10 @@ type ActorTransition struct {
 	actor     *ateapipb.Actor
 	creation  *ActorCreation
 }
+
+// ErrActorUnrecoverable reports that a crash recovery's Actor is missing or was
+// replaced. No retry changes that, and no revert of it can still be in progress.
+var ErrActorUnrecoverable = errors.New("actor is missing or was replaced")
 
 // ActorUID returns the observed runtime identity, including after creation.
 func (t *ActorTransition) ActorUID() string {
@@ -118,6 +124,23 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 	return &ActorTransition{binding: binding, operation: operation, actor: actor, creation: creation}, nil
 }
 
+// PrepareActorRevert reads the Actor before the store's durable claim, so a
+// failed read leaves no claim. A missing or retemplated Actor is unrecoverable.
+// The caller then checks the recorded UID; applyRevert checks the state.
+func PrepareActorRevert(ctx context.Context, actors LifecycleClient, binding ActorBinding) (*ActorTransition, error) {
+	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
+	if status.Code(err) == codes.NotFound {
+		return nil, fmt.Errorf("actor %s/%s is missing: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get Actor %s/%s: %w", binding.Atespace, binding.Name, err)
+	}
+	if !binding.Matches(actor) {
+		return nil, fmt.Errorf("actor %s/%s identity or template changed: %w", binding.Atespace, binding.Name, ErrActorUnrecoverable)
+	}
+	return &ActorTransition{binding: binding, operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, actor: actor}, nil
+}
+
 // ApplyActorTransition requires durable execution authority. Errors retain the
 // claim's durable intent and pins. Another bounded attempt can retry that intent.
 func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transition *ActorTransition) error {
@@ -178,21 +201,15 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 				err = fmt.Errorf("suspended Actor requires a durable VOLUMES snapshot")
 			}
 		}
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT:
+		err = transition.applyRevert(ctx, actors)
 	case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 		if actor != nil {
-			switch actor.GetStatus().GetState() {
-			case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_DELETING:
-			default:
-				actor, err = actors.SuspendActor(ctx, binding.Atespace, binding.Name)
-				if err == nil {
-					err = transition.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
-				}
-			}
-			if err == nil {
-				err = actors.DeleteActor(ctx, binding.Atespace, binding.Name)
-				if status.Code(err) == codes.NotFound {
-					err = nil
-				}
+			// An interrupted resume must not make deletion depend on a successful
+			// suspension or final snapshot.
+			err = actors.DeleteActor(ctx, binding.Atespace, binding.Name, actor.GetMetadata().GetUid())
+			if status.Code(err) == codes.NotFound {
+				err = nil
 			}
 		}
 	}
@@ -200,6 +217,21 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 		return fmt.Errorf("perform %s on Actor %s/%s: %w", transition.operation, binding.Atespace, binding.Name, err)
 	}
 	return nil
+}
+
+// applyRevert requires the same Actor back, SUSPENDED. Substrate restores the
+// last completed durable snapshot, which is the one admission settled against:
+// every suspend kagent issues is synchronous, so no upload completes in between.
+func (t *ActorTransition) applyRevert(ctx context.Context, actors LifecycleClient) error {
+	actor := t.actor
+	if state := actor.GetStatus().GetState(); state == ateapipb.ActorState_ACTOR_STATE_CRASHED || state == ateapipb.ActorState_ACTOR_STATE_REVERTING {
+		reverted, err := actors.RevertActor(ctx, t.binding.Atespace, t.binding.Name)
+		if err != nil {
+			return err
+		}
+		actor = reverted
+	}
+	return t.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
 }
 
 // Matches checks that the actor belongs to the expected runtime and template.

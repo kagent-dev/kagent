@@ -17,12 +17,13 @@ import (
 func installConfigWithLocalCharts(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	for _, name := range []string{"kagent", "kagent-crds", "substrate", "substrate-crds", "substrate-podcert"} {
+	for _, name := range []string{"kagent", "kagent-crds", "substrate", "substrate-crds", "substrate-podcert", "substrate-atelet"} {
 		dir := filepath.Join(root, name)
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, "templates"), 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v2\nname: "+name+"\nversion: 0.0.0\n"), 0o600))
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "kagent", "templates", "controller-deployment.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: controller}\nspec: {template: {spec: {serviceAccountName: configured-controller}}}\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "substrate", "values.yaml"), []byte("rustfs: {enabled: true, accessKey: default-key, secretKey: default-secret}\natelet: {storageBackend: s3}\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "operator.yaml"), []byte("controller: {replicas: 2}\nuserProvidedValue: retained\n"), 0o600))
 	config := fmt.Sprintf(`install:
   defaultModelProvider: OpenAI
@@ -79,6 +80,12 @@ func TestInstallDryRunWithoutClusterOrAPIKey(t *testing.T) {
 			require.Contains(t, string(values), "replicas: 2")
 			require.Contains(t, string(values), "k8s-agent:\n  enabled: false")
 			require.NotContains(t, string(values), "secret-that-must-not-be-exported")
+			atelet, err := os.ReadFile(filepath.Join(destination, "values", "substrate-atelet.yaml"))
+			require.NoError(t, err)
+			require.Contains(t, string(atelet), "credentialsSecret: kagent-rustfs-credentials")
+			substrate, err := os.ReadFile(filepath.Join(destination, "values", "substrate.yaml"))
+			require.NoError(t, err)
+			require.Contains(t, string(substrate), "atelet:\n  enabled: false")
 			podcert, err := os.ReadFile(filepath.Join(destination, "values", "substrate-podcert.yaml"))
 			require.NoError(t, err)
 			readme, err := os.ReadFile(filepath.Join(destination, "README.md"))

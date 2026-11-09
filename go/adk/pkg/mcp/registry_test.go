@@ -218,12 +218,12 @@ func TestMCPAppToolNamesFromToolsets(t *testing.T) {
 
 	inner := &stubToolset{name: "mcp-server"}
 	toolsets := []tool.Toolset{
-		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"show_board": true}},
-		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"refresh": true}},
+		&mcpAppToolset{inner: inner, discovery: &mcpAppDiscovery{appToolNames: map[string]bool{"show_board": true}}},
+		&mcpAppToolset{inner: inner, discovery: &mcpAppDiscovery{appToolNames: map[string]bool{"refresh": true}}},
 		inner,
 	}
 
-	got := MCPAppToolNamesFromToolsets(toolsets)
+	got := MCPAppToolNamesFromToolsets(t.Context(), toolsets)
 	if len(got) != 2 || !got["show_board"] || !got["refresh"] {
 		t.Fatalf("MCPAppToolNamesFromToolsets() = %#v, want show_board and refresh", got)
 	}

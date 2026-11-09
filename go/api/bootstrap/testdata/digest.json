@@ -1,0 +1,7 @@
+{
+  "format_version": 1,
+  "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "config_json": "{\"instruction\":\"hello 日\"}",
+  "agent_card_json": "{\"name\":\"agent\"}",
+  "sha256": "d39f35c188017006ad4295ac1f271aee37f0ee64302247e8263dddcbf7737a08"
+}

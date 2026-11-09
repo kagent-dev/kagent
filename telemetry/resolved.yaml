@@ -2665,18 +2665,6 @@ refinements:
           id: auth_required
           stability: development
           value: TASK_STATE_AUTH_REQUIRED
-    - brief: Unique identifier of an end user in the system. It maybe a username, email address, or other identifier.
-      examples:
-      - username
-      key: enduser.id
-      note: |
-        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
-      provenance:
-        source: https://opentelemetry.io/schemas/1.44.0
-      requirement_level:
-        conditionally_required: A trusted identity reached the runtime.
-      stability: development
-      type: string
     - brief: |
         Describes a class of error the operation ended with.
       examples:
@@ -2866,6 +2854,19 @@ refinements:
           id: resumed
           stability: development
           value: resumed
+    - brief: |
+        Unique identifier of the user.
+      examples:
+      - S-1-5-21-202424912787-2692429404-2351956786-1000
+      key: user.id
+      note: |
+        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: A trusted identity reached the runtime.
+      stability: development
+      type: string
     brief: One execution segment of a runtime that emits its own invoke_agent span.
     id: kagent.a2a.request
     kind: internal
@@ -4098,18 +4099,6 @@ refinements:
           id: auth_required
           stability: development
           value: TASK_STATE_AUTH_REQUIRED
-    - brief: Unique identifier of an end user in the system. It maybe a username, email address, or other identifier.
-      examples:
-      - username
-      key: enduser.id
-      note: |
-        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
-      provenance:
-        source: https://opentelemetry.io/schemas/1.44.0
-      requirement_level:
-        conditionally_required: A trusted identity reached the runtime.
-      stability: development
-      type: string
     - brief: |
         Describes a class of error the operation ended with.
       examples:
@@ -4758,6 +4747,19 @@ refinements:
           id: resumed
           stability: development
           value: resumed
+    - brief: |
+        Unique identifier of the user.
+      examples:
+      - S-1-5-21-202424912787-2692429404-2351956786-1000
+      key: user.id
+      note: |
+        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: A trusted identity reached the runtime.
+      stability: development
+      type: string
     brief: One execution segment of a kagent agent.
     id: kagent.invoke_agent.internal
     kind: internal
@@ -5197,18 +5199,6 @@ registry:
         conditionally_required: The gateway assigned an A2A task.
       stability: development
       type: string
-    - brief: Unique identifier of an end user in the system. It maybe a username, email address, or other identifier.
-      examples:
-      - username
-      key: enduser.id
-      note: |
-        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
-      provenance:
-        source: https://opentelemetry.io/schemas/1.44.0
-      requirement_level:
-        conditionally_required: A trusted identity reached the runtime.
-      stability: development
-      type: string
     - brief: The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation.
       examples:
       - conv_5j66UpCpwteGg4YSxUnt7lPY
@@ -5238,6 +5228,19 @@ registry:
           id: resumed
           stability: development
           value: resumed
+    - brief: |
+        Unique identifier of the user.
+      examples:
+      - S-1-5-21-202424912787-2692429404-2351956786-1000
+      key: user.id
+      note: |
+        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: A trusted identity reached the runtime.
+      stability: development
+      type: string
     brief: The A2A request an invocation serves.
     id: kagent.request
     provenance:
@@ -5888,18 +5891,6 @@ registry:
           id: auth_required
           stability: development
           value: TASK_STATE_AUTH_REQUIRED
-    - brief: Unique identifier of an end user in the system. It maybe a username, email address, or other identifier.
-      examples:
-      - username
-      key: enduser.id
-      note: |
-        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
-      provenance:
-        source: https://opentelemetry.io/schemas/1.44.0
-      requirement_level:
-        conditionally_required: A trusted identity reached the runtime.
-      stability: development
-      type: string
     - brief: |
         Describes a class of error the operation ended with.
       examples:
@@ -6089,6 +6080,19 @@ registry:
           id: resumed
           stability: development
           value: resumed
+    - brief: |
+        Unique identifier of the user.
+      examples:
+      - S-1-5-21-202424912787-2692429404-2351956786-1000
+      key: user.id
+      note: |
+        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: A trusted identity reached the runtime.
+      stability: development
+      type: string
     brief: One execution segment of a runtime that emits its own invoke_agent span.
     kind: internal
     name:

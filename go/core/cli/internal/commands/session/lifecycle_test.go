@@ -79,8 +79,21 @@ func TestDeleteSessionAborted(t *testing.T) {
 	cfg := &DeleteCfg{SessionID: testSessionID}
 
 	err := deleteSession(t.Context(), client, cfg, clioutput.FormatTable, &bytes.Buffer{})
-	require.ErrorContains(t, err, "lifecycle work is active or pending; inspect the Session and retry its pending operation")
+	require.ErrorContains(t, err, "stop active turns or use --force, and retry any pending lifecycle operation")
 	assert.Equal(t, codes.Aborted, status.Code(err))
+}
+
+func TestDeleteSessionForce(t *testing.T) {
+	client := &lifecycleSessionClient{deleteSession: &apiv1.Session{Id: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_DELETED}}
+	cfg := &DeleteCfg{SessionID: testSessionID, Force: true}
+	require.NoError(t, deleteSession(t.Context(), client, cfg, clioutput.FormatTable, &bytes.Buffer{}))
+	require.True(t, client.deleteRequest.GetForce())
+	require.Equal(t, testSessionID, client.deleteRequest.GetSessionId())
+	command := newDeleteCmd()
+	require.NoError(t, command.ParseFlags([]string{"--force"}))
+	force, err := command.Flags().GetBool("force")
+	require.NoError(t, err)
+	require.True(t, force)
 }
 
 type lifecycleSessionClient struct {
