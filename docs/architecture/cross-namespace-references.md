@@ -4,8 +4,10 @@ Agents can use ModelConfigs and RemoteMCPServers in other namespaces. A referenc
 contains `name` and optionally `namespace`; omitting or leaving namespace empty
 uses the namespace of the reference owner. Names never contain `namespace/name`.
 A model or MCP server reference may also set `kind`, and `group` with it.
-Omitted values select ModelConfig or RemoteMCPServer; the controller rejects
-any other kind with `ResolvedRefs=False` and reason `InvalidKind`.
+Omitted values select ModelConfig or RemoteMCPServer. An embedding controller
+can register more kinds with `app.Options.ReferenceKinds`, projecting objects
+to those two. The controller rejects any other kind with `ResolvedRefs=False`
+and reason `InvalidKind`.
 
 AgentTemplate owns its model and MCP references, including child templates.
 Inline templates use the Agent namespace. Harness owns memory and summarizer

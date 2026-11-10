@@ -4,6 +4,7 @@ import (
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
@@ -20,4 +21,6 @@ type Collections struct {
 	ConfigMaps           krt.Collection[*corev1.ConfigMap]
 	Secrets              krt.Collection[*corev1.Secret]
 	WorkerPools          krt.Collection[*atev1.WorkerPool]
+	MCPServerKinds       map[schema.GroupKind]krt.Collection[*v1alpha3.RemoteMCPServer]
+	ModelConfigKinds     map[schema.GroupKind]krt.Collection[*v1alpha3.ModelConfig]
 }

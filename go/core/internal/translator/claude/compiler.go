@@ -15,6 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -372,23 +373,23 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	configMaps := map[types.NamespacedName]struct{}{}
 	objects := map[string]struct{}{}
-	addObject := func(kind, name string, uid types.UID, generation int64, content any) {
-		identity := kind + "\x00" + name
+	addObject := func(kind schema.GroupVersionKind, name string, uid types.UID, generation int64, content any) {
+		identity := kind.String() + "\x00" + name
 		if _, exists := objects[identity]; exists {
 			return
 		}
 		objects[identity] = struct{}{}
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), kind, name, uid, generation, content))
+		entries = append(entries, objectProvenance(kind.GroupVersion().String(), kind.Kind, name, uid, generation, content))
 	}
 	var addAgent func(*translator.AgentInput)
 	addAgent = func(agent *translator.AgentInput) {
 		template, model := agent.Template, agent.ResolvedModelConfig.Config
 		if template.Source != nil {
-			addObject("AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec)
+			addObject(v1alpha3.GroupVersion.WithKind("AgentTemplate"), template.Name, template.Source.UID, template.Source.Generation, template.Spec)
 		}
 		// Qualify shared models so same-name resources in different namespaces
 		// remain distinct when deduplicating provenance and computing revisions.
-		addObject("ModelConfig", model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec)
+		addObject(translator.SourceKind(model, "ModelConfig"), model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec)
 		if template.Spec.SystemPromptFrom != nil {
 			configMaps[types.NamespacedName{Namespace: harness.Namespace, Name: template.Spec.SystemPromptFrom.Name}] = struct{}{}
 		}
@@ -404,7 +405,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 			server := tool.Server
 			if server != nil {
 				// Shared MCP servers also need namespace-qualified provenance identities.
-				addObject("RemoteMCPServer", server.Namespace+"/"+server.Name, server.UID, server.Generation, server.Spec)
+				addObject(translator.SourceKind(server, "RemoteMCPServer"), server.Namespace+"/"+server.Name, server.UID, server.Generation, server.Spec)
 				for _, header := range server.Spec.HeadersFrom {
 					if header.ValueFrom != nil && header.ValueFrom.Type == v1alpha3.ConfigMapValueSource {
 						configMaps[types.NamespacedName{Namespace: server.Namespace, Name: header.ValueFrom.Name}] = struct{}{}

@@ -31,6 +31,8 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
+	"istio.io/istio/pkg/kube"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -76,6 +78,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
+	"github.com/kagent-dev/kagent/go/core/pkg/referencekind"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
@@ -135,6 +138,9 @@ type Options struct {
 	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
 	// all must be bound. Authenticator must not forward the caller token.
 	EgressPolicyCompilers []egresspolicy.Compiler
+	// ReferenceKinds adds kinds model and MCP server references may name; Run fails on a built-in key.
+	// A callback, as collections need core's client and krt options, which exist only inside Run.
+	ReferenceKinds func(kube.Client, []string, krt.OptionsBuilder) referencekind.Kinds
 }
 
 // resolve substitutes core's defaults for whichever components the caller left
@@ -297,7 +303,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
 	}
-	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), cfg.GetRuntimeDefaults(), cfg.GetHarnessImages())
+	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), cfg.GetRuntimeDefaults(), cfg.GetHarnessImages(), opts.ReferenceKinds)
 	if err != nil {
 		return err
 	}

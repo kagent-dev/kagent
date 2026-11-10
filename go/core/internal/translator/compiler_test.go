@@ -15,6 +15,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
@@ -226,9 +228,23 @@ func defaultWorkerPool() *atev1.WorkerPool {
 	return &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "default"}}
 }
 
+var (
+	exampleMCPServerKind   = schema.GroupKind{Group: "example.com", Kind: "ExampleMCPServer"}
+	exampleModelConfigKind = schema.GroupKind{Group: "example.com", Kind: "ExampleModelConfig"}
+)
+
 func mockCollections(t *testing.T, objects ...any) translator.Collections {
 	t.Helper()
-	mock := krttest.NewMock(t, objects)
+	// Objects whose TypeMeta names an example.com kind back that registered kind.
+	var builtIn, projected []any
+	for _, object := range objects {
+		if typed, ok := object.(runtime.Object); ok && typed.GetObjectKind().GroupVersionKind().Group == exampleMCPServerKind.Group {
+			projected = append(projected, object)
+		} else {
+			builtIn = append(builtIn, object)
+		}
+	}
+	mock := krttest.NewMock(t, builtIn)
 	collections := translator.Collections{
 		Namespaces:       krttest.GetMockCollection[translator.NamespaceObservation](mock),
 		EgressPolicies:   krttest.GetMockCollection[*v1alpha3.EgressPolicy](mock),
@@ -248,6 +264,13 @@ func mockCollections(t *testing.T, objects ...any) translator.Collections {
 	}
 	resolvedMock := krttest.NewMock(t, resolved)
 	collections.ResolvedModelConfigs = krttest.GetMockCollection[translator.ResolvedModelConfig](resolvedMock)
+	projectedMock := krttest.NewMock(t, projected)
+	collections.MCPServerKinds = map[schema.GroupKind]krt.Collection[*v1alpha3.RemoteMCPServer]{
+		exampleMCPServerKind: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](projectedMock),
+	}
+	collections.ModelConfigKinds = map[schema.GroupKind]krt.Collection[*v1alpha3.ModelConfig]{
+		exampleModelConfigKind: krttest.GetMockCollection[*v1alpha3.ModelConfig](projectedMock),
+	}
 	return collections
 }
 
@@ -1064,6 +1087,37 @@ func TestCompileAgentResolvesReferenceKinds(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(`{"modelConfig":{"name":"default-model"},"systemPrompt":"help","tools":[{"mcp":{"server":{"apiGroup":null,"kind":"RemoteMCPServer","name":"search","namespace":""}}}]}`), &stored.Spec))
 		require.Equal(t, want, digest(t, harness, &stored))
 	})
+	// Projections share the built-in objects' names, so only the kind tells them apart.
+	projectedServer := remoteMCPServer("search", "https://tools.example.com/mcp")
+	projectedServer.TypeMeta = metav1.TypeMeta{APIVersion: "example.com/v1", Kind: exampleMCPServerKind.Kind}
+	projectedServer.Spec.TokenPassthrough = new(true)
+	projectedModel := modelConfig()
+	projectedModel.TypeMeta = metav1.TypeMeta{APIVersion: "example.com/v1", Kind: exampleModelConfigKind.Kind}
+	projectedModel.Spec.TokenPassthrough, projectedModel.Spec.OpenAI = new(true), &v1alpha3.OpenAIConfig{BaseURL: "https://models.example.com/v1"}
+	type provenanceInput struct{ APIVersion, Kind, Name string }
+	for _, tc := range []struct {
+		kind, name, origin string
+		projected          any
+		mutate             func(*v1alpha3.AgentTemplate)
+	}{
+		{exampleMCPServerKind.Kind, "test/search", "https://tools.example.com:443", projectedServer, func(template *v1alpha3.AgentTemplate) {
+			template.Spec.Tools[0].MCP.Server.Group, template.Spec.Tools[0].MCP.Server.Kind = new(exampleMCPServerKind.Group), new(exampleMCPServerKind.Kind)
+		}},
+		{exampleModelConfigKind.Kind, "test/default-model", "https://models.example.com:443", projectedModel, func(template *v1alpha3.AgentTemplate) {
+			template.Spec.ModelConfig.Group, template.Spec.ModelConfig.Kind = new(exampleModelConfigKind.Group), new(exampleModelConfigKind.Kind)
+		}},
+	} {
+		t.Run("Given a registered "+tc.kind+" projecting a passthrough destination, when a template names it, assert that the agent targets it and records its kind", func(t *testing.T) {
+			harness, template := fixture()
+			tc.mutate(template)
+			result, err := compiler(t, modelConfig(), remoteMCPServer("search", "https://search.example.com/mcp"), harness, tc.projected).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.NoError(t, err)
+			require.Equal(t, []egresspolicy.GatewayTarget{{Origin: tc.origin, Header: "authorization", Prefix: "Bearer "}}, result.TokenPassthroughTargets)
+			var provenance struct{ Inputs []provenanceInput }
+			require.NoError(t, json.Unmarshal(result.Provenance, &provenance))
+			require.Contains(t, provenance.Inputs, provenanceInput{"example.com/v1", tc.kind, tc.name})
+		})
+	}
 	for _, tc := range []struct {
 		field, want string
 		mutate      func(*v1alpha3.Harness, *v1alpha3.AgentTemplate)

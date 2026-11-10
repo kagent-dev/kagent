@@ -185,7 +185,8 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.Harne
 	}
 	for _, resolved := range models {
 		model := resolved.Config
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec))
+		kind := translator.SourceKind(model, "ModelConfig")
+		entries = append(entries, objectProvenance(kind.GroupVersion().String(), kind.Kind, model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec))
 	}
 	for name := range configMaps {
 		fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
@@ -197,7 +198,8 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.Harne
 	}
 	for _, tool := range compiled.MCPTools {
 		server := tool.Server
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Namespace+"/"+server.Name, server.UID, server.Generation, server.Spec))
+		kind := translator.SourceKind(server, "RemoteMCPServer")
+		entries = append(entries, objectProvenance(kind.GroupVersion().String(), kind.Kind, server.Namespace+"/"+server.Name, server.UID, server.Generation, server.Spec))
 		for _, header := range server.Spec.HeadersFrom {
 			if header.ValueFrom == nil || header.ValueFrom.Type != v1alpha3.ConfigMapValueSource {
 				continue

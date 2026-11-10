@@ -7,6 +7,8 @@ import (
 
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -67,12 +69,20 @@ func ResolveModelReference(ctx krt.HandlerContext, collections Collections, sour
 }
 
 // fetchModel and fetchMCPServer hold the one kind switch per reference type.
-// A nil object means not found; other kinds fail with ErrInvalidKind.
+// A nil object means not found; unregistered kinds fail with ErrInvalidKind.
 func fetchModel(ctx krt.HandlerContext, collections Collections, source string, ref v1alpha3.ModelConfigReference) (types.NamespacedName, *ResolvedModelConfig, error) {
 	switch kind, key := ref.Target(source); kind {
 	case v1alpha3.ModelConfigGroupKind:
 		return key, krt.FetchOne(ctx, collections.ResolvedModelConfigs, krt.FilterObjectName(key)), nil
 	default:
+		if models, ok := collections.ModelConfigKinds[kind]; ok {
+			model := krt.FetchOne(ctx, models, krt.FilterObjectName(key))
+			if model == nil {
+				return key, nil, nil
+			}
+			resolved, err := ResolveModelConfig(ctx, collections, *model)
+			return key, resolved, err
+		}
 		return key, nil, fmt.Errorf("resolve model %q: %w %s", key, ErrInvalidKind, kind)
 	}
 }
@@ -82,8 +92,20 @@ func fetchMCPServer(ctx krt.HandlerContext, collections Collections, source stri
 	case v1alpha3.RemoteMCPServerGroupKind:
 		return key, ptr.Deref(krt.FetchOne(ctx, collections.RemoteMCPServers, krt.FilterObjectName(key)), nil), nil
 	default:
+		if servers, ok := collections.MCPServerKinds[kind]; ok {
+			return key, ptr.Deref(krt.FetchOne(ctx, servers, krt.FilterObjectName(key)), nil), nil
+		}
 		return key, nil, fmt.Errorf("resolve MCP server %q: %w %s", key, ErrInvalidKind, kind)
 	}
+}
+
+// SourceKind returns a referenced object's kind: the TypeMeta a registered
+// kind's projection sets, or the built-in kind.
+func SourceKind(object runtime.Object, builtin string) schema.GroupVersionKind {
+	if kind := object.GetObjectKind().GroupVersionKind(); !kind.Empty() {
+		return kind
+	}
+	return v1alpha3.GroupVersion.WithKind(builtin)
 }
 
 // SameModelCredentials distinguishes target-local Secrets even when specs match.

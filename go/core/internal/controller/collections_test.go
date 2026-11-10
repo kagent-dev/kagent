@@ -14,10 +14,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
+	"github.com/kagent-dev/kagent/go/core/pkg/referencekind"
 )
 
 func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
@@ -204,6 +207,75 @@ func TestReconciliationReportsUnsupportedReferenceKind(t *testing.T) {
 			Message: `resolve model "team-a/model": unsupported kind ModelProviderConfig.api.kagent.dev`,
 		}, state.CompilationFailure)
 	})
+}
+
+func TestReconciliationCompilesRegisteredModelKind(t *testing.T) {
+	t.Run("Given a registered model kind projecting a passthrough model, when a template references it, assert that the revision targets the projected model", func(t *testing.T) {
+		stop := make(chan struct{})
+		t.Cleanup(func() { close(stop) })
+		opts := krt.NewOptionsBuilder(stop, "registered-kind", nil)
+		kind := schema.GroupKind{Group: "example.com", Kind: "ExampleModelConfig"}
+		template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant"}, Spec: kagentv1alpha3.AgentTemplateSpec{
+			SystemPrompt: "help", ModelConfig: &kagentv1alpha3.ModelConfigReference{Group: new(kind.Group), Kind: new(kind.Kind), Name: "model"},
+		}}
+		runtimeHarness := harness("team-a", "kagent", nil)
+		runtimeHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
+		runtimeHarness.Spec.Workload.Image = new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		runtimeHarness.Spec.Substrate.WorkerPoolRef.Name = "default"
+		mock := krttest.NewMock(t, []any{template, runtimeHarness, &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}})
+		configMaps, secrets := krttest.GetMockCollection[*corev1.ConfigMap](mock), krttest.GetMockCollection[*corev1.Secret](mock)
+		projected := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"},
+			Spec:       kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5", TokenPassthrough: new(true)},
+		}}, opts.WithName("ExampleModelConfigs")...)
+		states := newAgentReconciliations(
+			krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, runtimeHarness)}, opts.WithName("Agents")...),
+			translator.Collections{
+				Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+				ConfigMaps: configMaps, Secrets: secrets, WorkerPools: krttest.GetMockCollection[*atev1.WorkerPool](mock),
+				ModelConfigKinds: map[schema.GroupKind]krt.Collection[*kagentv1alpha3.ModelConfig]{kind: projected},
+			}, krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("Observations")...), opts, testRuntimeDefaults(), nil,
+		)
+		waitFor(t, func() bool { return states.GetKey("team-a/assistant") != nil })
+		state := states.GetKey("team-a/assistant")
+		require.Nil(t, state.CompilationFailure)
+		require.Equal(t, []egresspolicy.GatewayTarget{
+			{Origin: "https://api.openai.com:443", Header: "authorization", Prefix: "Bearer "},
+		}, state.Target.Revision.TokenPassthroughTargets)
+	})
+}
+
+func TestValidateReferenceKinds(t *testing.T) {
+	example := schema.GroupKind{Group: "example.com", Kind: "ExampleMCPServer"}
+	for _, tc := range []struct {
+		name    string
+		kinds   referencekind.Kinds
+		wantErr string
+	}{
+		{
+			name:  "Given an extra MCP server kind, when startup validates it, assert that it is accepted",
+			kinds: referencekind.Kinds{MCPServers: map[schema.GroupKind]krt.Collection[*kagentv1alpha3.RemoteMCPServer]{example: nil}},
+		},
+		{
+			name:    "Given a RemoteMCPServer key, when startup validates it, assert that it is rejected",
+			kinds:   referencekind.Kinds{MCPServers: map[schema.GroupKind]krt.Collection[*kagentv1alpha3.RemoteMCPServer]{kagentv1alpha3.RemoteMCPServerGroupKind: nil}},
+			wantErr: "reference kind RemoteMCPServer.api.kagent.dev is built in",
+		},
+		{
+			name:    "Given a ModelConfig key, when startup validates it, assert that it is rejected",
+			kinds:   referencekind.Kinds{ModelConfigs: map[schema.GroupKind]krt.Collection[*kagentv1alpha3.ModelConfig]{kagentv1alpha3.ModelConfigGroupKind: nil}},
+			wantErr: "reference kind ModelConfig.api.kagent.dev is built in",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateReferenceKinds(tc.kinds)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
 }
 
 func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {

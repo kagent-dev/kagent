@@ -14,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -317,11 +318,11 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 	// is recorded by the enclosing Agent provenance below.
 	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.Source.UID, input.Harness.Source.Generation, input.Harness.Spec))
 	seenObjects := map[string]struct{}{}
-	addObject := func(kind, name string, uid types.UID, generation int64, value any) {
-		identity := kind + "\x00" + name
+	addObject := func(kind schema.GroupVersionKind, name string, uid types.UID, generation int64, value any) {
+		identity := kind.String() + "\x00" + name
 		if _, ok := seenObjects[identity]; !ok {
 			seenObjects[identity] = struct{}{}
-			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), kind, name, uid, generation, value))
+			entries = append(entries, objectProvenance(kind.GroupVersion().String(), kind.Kind, name, uid, generation, value))
 		}
 	}
 	configMaps := map[types.NamespacedName]struct{}{}
@@ -329,9 +330,9 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 	addAgent = func(agent *translator.AgentInput) {
 		model := agent.ResolvedModelConfig.Config
 		if source := agent.Template.Source; source != nil {
-			addObject("AgentTemplate", source.Name, source.UID, source.Generation, agent.Template.Spec)
+			addObject(v1alpha3.GroupVersion.WithKind("AgentTemplate"), source.Name, source.UID, source.Generation, agent.Template.Spec)
 		}
-		addObject("ModelConfig", model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec)
+		addObject(translator.SourceKind(model, "ModelConfig"), model.Namespace+"/"+model.Name, model.UID, model.Generation, model.Spec)
 		if agent.Template.Spec.SystemPromptFrom != nil {
 			configMaps[types.NamespacedName{Namespace: input.Harness.Namespace, Name: agent.Template.Spec.SystemPromptFrom.Name}] = struct{}{}
 		}
@@ -342,11 +343,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *translator.Harnes
 		}
 		for _, tool := range agent.MCPTools {
 			if tool.Server != nil {
-				identity := "RemoteMCPServer\x00" + tool.Server.Namespace + "/" + tool.Server.Name
-				if _, ok := seenObjects[identity]; !ok {
-					seenObjects[identity] = struct{}{}
-					entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", tool.Server.Namespace+"/"+tool.Server.Name, tool.Server.UID, tool.Server.Generation, tool.Server.Spec))
-				}
+				addObject(translator.SourceKind(tool.Server, "RemoteMCPServer"), tool.Server.Namespace+"/"+tool.Server.Name, tool.Server.UID, tool.Server.Generation, tool.Server.Spec)
 				for _, header := range tool.Server.Spec.HeadersFrom {
 					if header.ValueFrom != nil && header.ValueFrom.Type == v1alpha3.ConfigMapValueSource {
 						configMaps[types.NamespacedName{Namespace: tool.Server.Namespace, Name: header.ValueFrom.Name}] = struct{}{}
