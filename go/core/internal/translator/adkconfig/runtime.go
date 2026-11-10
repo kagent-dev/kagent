@@ -62,6 +62,12 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 		TokenThreshold:     runtimeInt(spec.TokenThreshold),
 		EventRetentionSize: runtimeInt(spec.EventRetentionSize),
 	}
+	// overlapSize is optional on the Harness, but Python ADK rejects
+	// compaction_interval without overlap_size. Go ADK already treats an unset
+	// overlap as 0, so default it here for both runtimes.
+	if compaction.CompactionInterval != nil && compaction.OverlapSize == nil {
+		compaction.OverlapSize = new(int64(0))
+	}
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
 		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.NamespacedName(harness.Namespace)) {

@@ -318,3 +318,4 @@ func (c *appCompactionContext) ToolConfirmation() *toolconfirmation.ToolConfirma
 }
 
 func (*appCompactionContext) FunctionCallID() string { return "app-compaction-call" }
+func (*appCompactionContext) SessionID() string      { return "app-compaction-session" }

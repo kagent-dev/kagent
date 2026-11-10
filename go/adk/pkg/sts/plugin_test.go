@@ -12,21 +12,13 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
 	kagentmodels "github.com/kagent-dev/kagent/go/adk/pkg/models"
 )
-
-type fakeSessionContext struct {
-	context.Context
-	sessionID string
-}
-
-func (f fakeSessionContext) SessionID() string {
-	return f.sessionID
-}
 
 type fakeInvocationContext struct {
 	context.Context
@@ -65,20 +57,96 @@ func (f fakeSession) State() session.State      { return nil }
 func (f fakeSession) Events() session.Events    { return nil }
 func (f fakeSession) LastUpdateTime() time.Time { return time.Time{} }
 
-func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
+func TestHeaderProviderUsesSessionIDValue(t *testing.T) {
 	t.Parallel()
+	// Given a cached token, when the request carries its session ID as a value,
+	// assert that the header provider returns the delegated authorization.
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
 	bearer := signedTokenWithSub(t, "alice")
 	plugin.setCachedToken("sess-123", subjectKey(bearer), "token-abc", 0)
 
 	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
-	headers := plugin.HeaderProvider(fakeSessionContext{
-		Context:   ctx,
-		sessionID: "sess-123",
-	})
+	headers := plugin.HeaderProvider(kagentmodels.WithSessionID(ctx, "sess-123"))
 
 	if headers["Authorization"] != "Bearer token-abc" {
 		t.Fatalf("Authorization header = %q, want %q", headers["Authorization"], "Bearer token-abc")
+	}
+}
+
+func TestHeaderProviderPreservesSessionAcrossContextWrappers(t *testing.T) {
+	const sessionID = "native-session"
+	const bearer = "caller-token"
+	const delegated = "delegated-token"
+	scenarios := []struct {
+		name string
+		wrap func(*testing.T, context.Context) context.Context
+	}{
+		{name: "a value", wrap: func(_ *testing.T, ctx context.Context) context.Context {
+			return context.WithValue(ctx, struct{ marker bool }{}, true)
+		}},
+		{name: "cancellation", wrap: func(t *testing.T, ctx context.Context) context.Context {
+			t.Helper()
+			ctx, cancel := context.WithCancel(ctx)
+			t.Cleanup(cancel)
+			return ctx
+		}},
+		{name: "a deadline", wrap: func(t *testing.T, ctx context.Context) context.Context {
+			t.Helper()
+			ctx, cancel := context.WithTimeout(ctx, time.Minute)
+			t.Cleanup(cancel)
+			return ctx
+		}},
+		{name: "detached cancellation", wrap: func(_ *testing.T, ctx context.Context) context.Context {
+			return context.WithoutCancel(ctx)
+		}},
+	}
+	for _, scenario := range scenarios {
+		t.Run("Given a cached delegated token, when the context gains "+scenario.name+", assert that its authorization survives", func(t *testing.T) {
+			plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+			plugin.setCachedToken(sessionID, subjectKey(bearer), delegated, 0)
+			ctx := context.WithValue(t.Context(), kagentmodels.BearerTokenKey, bearer)
+			ctx = scenario.wrap(t, kagentmodels.WithSessionID(ctx, sessionID))
+			require.Equal(t, "Bearer "+delegated, plugin.HeaderProvider(ctx)["Authorization"])
+		})
+	}
+}
+
+func TestHeaderProviderIsolatesWrappedRequests(t *testing.T) {
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const firstSession = "first-session"
+	const secondSession = "second-session"
+	const alice = "alice-token"
+	const bob = "bob-token"
+	const expired = "expired-token"
+	plugin.setCachedToken(firstSession, subjectKey(alice), "first-alice", 0)
+	plugin.setCachedToken(firstSession, subjectKey(bob), "first-bob", 0)
+	plugin.setCachedToken(secondSession, subjectKey(alice), "second-alice", 0)
+	plugin.setCachedToken(firstSession, subjectKey(expired), "expired-delegation", time.Now().Add(-time.Hour).Unix())
+
+	scenarios := []struct {
+		name      string
+		sessionID string
+		bearer    string
+		want      string
+	}{
+		{name: "Alice invokes the first session", sessionID: firstSession, bearer: alice, want: "Bearer first-alice"},
+		{name: "Bob invokes the same session", sessionID: firstSession, bearer: bob, want: "Bearer first-bob"},
+		{name: "Alice invokes another session", sessionID: secondSession, bearer: alice, want: "Bearer second-alice"},
+		{name: "Bob invokes a session without his exchange", sessionID: secondSession, bearer: bob},
+		{name: "a request omits the bearer", sessionID: firstSession},
+		{name: "a request omits the session", bearer: alice},
+		{name: "a request presents an unknown bearer", sessionID: firstSession, bearer: "unknown"},
+		{name: "a request presents an expired exchange", sessionID: firstSession, bearer: expired},
+	}
+	for _, scenario := range scenarios {
+		t.Run("Given cached caller tokens, when "+scenario.name+", assert that only its valid delegation is returned", func(t *testing.T) {
+			t.Parallel()
+			ctx := kagentmodels.WithSessionID(t.Context(), scenario.sessionID)
+			ctx = context.WithValue(ctx, kagentmodels.BearerTokenKey, scenario.bearer)
+			ctx, cancel := context.WithTimeout(ctx, time.Minute)
+			defer cancel()
+			require.Equal(t, scenario.want, plugin.HeaderProvider(ctx)["Authorization"])
+		})
 	}
 }
 
@@ -326,7 +394,7 @@ func TestSharedSessionKeepsPerSubjectTokens(t *testing.T) {
 
 	for _, bearer := range []string{alice, bob} {
 		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
-		headers := plugin.HeaderProvider(fakeSessionContext{Context: ctx, sessionID: sessionID})
+		headers := plugin.HeaderProvider(kagentmodels.WithSessionID(ctx, sessionID))
 		want := "Bearer exchanged-for-" + subjectKey(bearer)
 		if headers["Authorization"] != want {
 			t.Fatalf("Authorization header = %q, want %q", headers["Authorization"], want)
@@ -355,7 +423,7 @@ func TestHeaderProviderRecoversSubjectFromCallContext(t *testing.T) {
 	// A2A CallContext Authorization header.
 	ccCtx, _ := a2asrv.NewCallContext(context.Background(),
 		a2asrv.NewServiceParams(map[string][]string{"authorization": {"Bearer " + alice}}))
-	headers := plugin.HeaderProvider(fakeSessionContext{Context: ccCtx, sessionID: sessionID})
+	headers := plugin.HeaderProvider(kagentmodels.WithSessionID(ccCtx, sessionID))
 
 	if got := headers["Authorization"]; got != "Bearer "+alice {
 		t.Fatalf("Authorization header = %q, want %q", got, "Bearer "+alice)
@@ -394,10 +462,7 @@ func TestHeaderProviderNoBearerDoesNotLeakSubjectToken(t *testing.T) {
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
 	plugin.setCachedToken("sess-x", subjectOf("alice"), "alice-token", 0)
 
-	headers := plugin.HeaderProvider(fakeSessionContext{
-		Context:   context.Background(),
-		sessionID: "sess-x",
-	})
+	headers := plugin.HeaderProvider(kagentmodels.WithSessionID(context.Background(), "sess-x"))
 
 	if got, ok := headers["Authorization"]; ok {
 		t.Fatalf("expected no Authorization header for empty-bearer request, got %q", got)
@@ -436,7 +501,7 @@ func TestHeaderProviderRejectsForgedSubjectClaims(t *testing.T) {
 
 	forged := signedTokenWithKey(t, "https://issuer.example", "alice", "attacker-signing-key")
 	forgedCtx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, forged)
-	headers := plugin.HeaderProvider(fakeSessionContext{Context: forgedCtx, sessionID: sessionID})
+	headers := plugin.HeaderProvider(kagentmodels.WithSessionID(forgedCtx, sessionID))
 
 	if got, ok := headers["Authorization"]; ok {
 		t.Fatalf("forged token must not receive a cached entry, got %q", got)
@@ -489,7 +554,7 @@ func TestSweepKeepsAnInFlightCallerStillUsingItsEntry(t *testing.T) {
 
 	// The run makes another tool call, which renews the bound.
 	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
-	toolCall := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	toolCall := kagentmodels.WithSessionID(ctx, sessionID)
 	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-opaque" {
 		t.Fatalf("in-flight tool call got Authorization %q", got)
 	}
@@ -532,7 +597,7 @@ func TestSessionCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
 	plugin.setCachedToken(sessionID, subjectKey(bearer), "delegated-alice", 0)
 
 	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
-	toolCall := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	toolCall := kagentmodels.WithSessionID(ctx, sessionID)
 
 	const overflow = 5
 	for i := range maxEntriesPerSession + overflow {
@@ -576,7 +641,7 @@ func TestSessionCapacityBoundSparesOtherSessions(t *testing.T) {
 	}
 
 	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, victimBearer)
-	toolCall := fakeSessionContext{Context: ctx, sessionID: victimSession}
+	toolCall := kagentmodels.WithSessionID(ctx, victimSession)
 	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-victim" {
 		t.Fatalf("another session's burst took the victim's credential, Authorization = %q", got)
 	}
@@ -723,7 +788,7 @@ func TestHeaderProviderRejectsEntryPastTheCallerExpiry(t *testing.T) {
 		t.Fatalf("BeforeRunCallback() error = %v", err)
 	}
 
-	headerCtx := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	headerCtx := kagentmodels.WithSessionID(ctx, sessionID)
 	if got := plugin.HeaderProvider(headerCtx)["Authorization"]; got != "Bearer long-lived" {
 		t.Fatalf("Authorization header = %q, want the delegated token", got)
 	}
@@ -759,7 +824,7 @@ func TestFailedExchangeLeavesNoUsableEntry(t *testing.T) {
 		t.Fatalf("BeforeRunCallback() error = %v", err)
 	}
 
-	headerCtx := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	headerCtx := kagentmodels.WithSessionID(ctx, sessionID)
 	if got := plugin.HeaderProvider(headerCtx)["Authorization"]; got != "Bearer exchanged-alice" {
 		t.Fatalf("Authorization header = %q, want the delegated token", got)
 	}

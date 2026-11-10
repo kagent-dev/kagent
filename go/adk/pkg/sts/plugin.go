@@ -432,7 +432,7 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 		return nil
 	}
 
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := models.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		p.logger.DebugContext(ctx, "no session ID in context, MCP request will use existing headers")
 		return nil
@@ -462,18 +462,6 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 	return map[string]string{
 		"Authorization": fmt.Sprintf("Bearer %s", entry.Token),
 	}
-}
-
-// Extract session ID from ADK tool / invocation context, which implements SessionID().
-func sessionIDFromContext(ctx context.Context) string {
-	type sessionContext interface {
-		SessionID() string
-	}
-	sessionCtx, ok := ctx.(sessionContext)
-	if !ok {
-		return ""
-	}
-	return sessionCtx.SessionID()
 }
 
 // ClearCache clears all cached tokens.
