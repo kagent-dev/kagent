@@ -356,8 +356,15 @@ Each default Harness references `substrateWorkerPool.name` and omits
 (`config.harnessImages`). Agent `spec.harnessRef` is namespace-local; Agents in
 other namespaces need their own Harness.
 
-The default OpenAI ModelConfig sets `apiFormat: responses`, which the Codex
-runtime requires and the kagent runtime supports.
+`kagent install` selects `gpt-5-mini` with `apiFormat: responses` for OpenAI,
+which the Codex runtime requires and the kagent runtime supports. It selects
+`gpt-5-mini` with API version `2024-10-21` for Azure OpenAI. Operator values
+files and `--set` overrides take precedence over these CLI defaults.
+
+Direct Helm installations keep `gpt-4.1-mini` for both providers, leave the
+OpenAI API format unset (Chat Completions), and use Azure OpenAI API version
+`2023-05-15`. To use Codex with OpenAI through a direct Helm installation, set
+`providers.openAI.config.apiFormat=responses` and choose a compatible model.
 
 ### Using Make
 

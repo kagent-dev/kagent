@@ -80,9 +80,12 @@ choose the snapshot location and disable individual runtimes. Because
 `harnessRef` is namespace-local, Agents in other namespaces still need a Harness
 in their own namespace.
 
-The chart's default OpenAI ModelConfig sets `openAI.apiFormat: responses`. Codex
-requires the Responses API, and the kagent runtime supports it, so one default
-model serves both default Harnesses.
+`kagent install` selects `gpt-5-mini` with `openAI.apiFormat: responses` for the
+default OpenAI ModelConfig. Codex requires the Responses API, and the kagent
+runtime supports it, so one default model serves both default Harnesses. The
+chart itself keeps `gpt-4.1-mini` with no API format override; direct Helm
+installations must opt into Responses to use Codex. Operator values files and
+`--set` overrides take precedence over the CLI defaults.
 
 ### Harness images and workload overrides
 

@@ -14,7 +14,7 @@ tests:
           value: "OpenAI"
       - equal:
           path: spec.model
-          value: "gpt-5-mini"
+          value: "gpt-4.1-mini"
 
   - it: should use openai configuration by default
     asserts:
@@ -23,16 +23,31 @@ tests:
           value: "OpenAI"
       - equal:
           path: spec.model
-          value: "gpt-5-mini"
+          value: "gpt-4.1-mini"
       - equal:
           path: spec.apiKeySecret
           value: kagent-openai
       - equal:
           path: spec.apiKeySecretKey
           value: OPENAI_API_KEY
-      - equal:
+      - notExists:
           path: spec.openAI.apiFormat
-          value: responses
+
+  - it: should preserve a chat completions gateway without adding an API format
+    set:
+      providers.openAI.config.baseUrl: https://gateway.example.com/v1
+    asserts:
+      - equal:
+          path: spec.openAI
+          value:
+            baseUrl: https://gateway.example.com/v1
+
+  - it: should leave an empty openai configuration unset
+    set:
+      providers.openAI.config: {}
+    asserts:
+      - notExists:
+          path: spec.openAI
 
   - it: should use anthropic when set as default provider
     set:
@@ -62,7 +77,7 @@ tests:
           value: "AzureOpenAI"
       - equal:
           path: spec.model
-          value: "gpt-5-mini"
+          value: "gpt-4.1-mini"
       - equal:
           path: spec.apiKeySecret
           value: kagent-azure-openai
@@ -71,7 +86,7 @@ tests:
           value: AZUREOPENAI_API_KEY
       - equal:
           path: spec.azureOpenAI.apiVersion
-          value: "2024-10-21"
+          value: "2023-05-15"
       - notExists:
           path: spec.azureOpenAI.apiFormat
 
