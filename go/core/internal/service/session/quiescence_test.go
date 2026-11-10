@@ -18,6 +18,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 type idleQuiescenceStore struct {
@@ -31,6 +32,10 @@ type idleQuiescenceStore struct {
 }
 
 var _ workflowStore = (*idleQuiescenceStore)(nil)
+
+func (*idleQuiescenceStore) GetPendingSessionDispatchCleanup(context.Context, string) (*database.SessionDispatchCleanup, error) {
+	return nil, database.ErrNotFound
+}
 
 func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error) {
 	s.claims.Add(1)
@@ -67,6 +72,93 @@ func TestConfiguredQuiescenceInterval(t *testing.T) {
 		cancel()
 		require.NoError(t, <-done, "shutdown must not wait for the polling interval")
 	})
+}
+
+func TestDispatchCleanupScanSkipsActorsUntilRecovery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given two pending cleanups whose actors are not ready to suspend.
+		store := &dispatchScanStore{
+			idleQuiescenceStore: &idleQuiescenceStore{},
+			revision:            &database.RuntimeRevision{Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant"},
+		}
+		base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+		for i, state := range []ateapipb.ActorState{ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED} {
+			id := uuid.UUID{15: byte(i + 1)}.String()
+			session := &apiv1.Session{Id: id, PreparedRevision: store.revision.Revision}
+			actor, err := base.CreateActor(t.Context(), store.revision.ActorTemplateAtespace, substrate.ActorName(id), store.revision.ActorTemplateAtespace, store.revision.ActorTemplateName)
+			require.NoError(t, err)
+			base.actors[actorKey(actor.Metadata.Atespace, actor.Metadata.Name)].Status.State = state
+			store.pending = append(store.pending, &database.SessionDispatchCleanup{Session: session, DispatchID: uuid.New(), ActorUID: actor.Metadata.Uid})
+		}
+		release := make(chan struct{})
+		close(release)
+		actors := &gatedQuiescenceActors{lifecycleTestActors: base, release: release, calls: map[string]int{}}
+		actorReads := func(name string) int {
+			actors.mu.Lock()
+			defer actors.mu.Unlock()
+			return actors.calls[name]
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute).Start(ctx) }()
+		defer func() { cancel(); require.NoError(t, <-done) }()
+
+		// When the workers scan, assert that the first skipped actor does not
+		// hide the later actor or immediately wake another scan.
+		synctest.Wait()
+		require.EqualValues(t, 12, store.lookups.Load(), "each worker should visit both candidates and reach the end of its scan")
+		for _, work := range store.pending {
+			require.Equal(t, 4, actorReads(substrate.ActorName(work.Session.Id)))
+		}
+		time.Sleep(59 * time.Second)
+		synctest.Wait()
+		require.EqualValues(t, 12, store.lookups.Load(), "skipped actors must not cause a busy loop between recovery scans")
+
+		// The durable markers are unchanged. The next recovery scan must
+		// nevertheless revisit both actors, including the first skipped one.
+		time.Sleep(time.Second)
+		synctest.Wait()
+		require.EqualValues(t, 24, store.lookups.Load())
+		for _, work := range store.pending {
+			require.Equal(t, 8, actorReads(substrate.ActorName(work.Session.Id)))
+		}
+	})
+}
+
+type dispatchScanStore struct {
+	*idleQuiescenceStore
+	revision *database.RuntimeRevision
+	pending  []*database.SessionDispatchCleanup
+	lookups  atomic.Int32
+}
+
+var _ workflowStore = (*dispatchScanStore)(nil)
+
+func (s *dispatchScanStore) GetPendingSessionDispatchCleanup(_ context.Context, afterSessionID string) (*database.SessionDispatchCleanup, error) {
+	if s.lookups.Add(1) > 100 {
+		// Bound a broken scan so the regression fails its assertions instead
+		// of hanging synctest.Wait in a goroutine that never becomes idle.
+		return nil, status.Error(codes.Unavailable, "cleanup scan did not advance")
+	}
+	for _, work := range s.pending {
+		if work.Session.Id > afterSessionID {
+			return work, nil
+		}
+	}
+	return nil, database.ErrNotFound
+}
+
+func (s *dispatchScanStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
+	return s.revision, nil
+}
+
+func (s *dispatchScanStore) GetSessionForRuntime(_ context.Context, sessionID, actorUID string) (*apiv1.Session, error) {
+	for _, work := range s.pending {
+		if work.Session.Id == sessionID && work.ActorUID == actorUID {
+			return work.Session, nil
+		}
+	}
+	return nil, database.ErrNotFound
 }
 
 func TestQuiescenceWakeRacesIdleScan(t *testing.T) {

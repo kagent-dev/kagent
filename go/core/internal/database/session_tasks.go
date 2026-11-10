@@ -26,6 +26,14 @@ var ErrDispatchBusy = errors.New("session temporarily unavailable for dispatch")
 // ErrMessageAccepted means an earlier dispatch already persisted this initial input.
 var ErrMessageAccepted = errors.New("message already accepted")
 
+// sessionDispatchLifetime is how long a send attempt has to start a turn.
+// During this window, automatic suspension waits for delivery to finish. If no
+// turn starts before expiry, the dispatch token can no longer start one, and the
+// lifecycle worker may suspend the idle actor. Starting a turn consumes the
+// reservation; this timeout does not stop a turn that is already running.
+// Canceling delivery expires the reservation immediately.
+const sessionDispatchLifetime = 2 * time.Minute
+
 // ReserveSessionDispatch prevents pause/suspend between routing a request
 // and its first persisted task. The attempt expires after two minutes; a late
 // first save must fail before native execution. This is not a native work lease.
@@ -68,15 +76,17 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 			return err
 		}
 		return execSQL(ctx, tx, `
-			UPDATE session SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + INTERVAL '2 minutes'
+			UPDATE session SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + $3 * INTERVAL '1 millisecond'
 			WHERE id = $1
-		`, session.ID, dispatchID)
+		`, session.ID, dispatchID, sessionDispatchLifetime.Milliseconds())
 	})
 }
 
 // RevokeSessionDispatch fences an unused attempt. True proves its first
 // save did not commit and cannot commit later, so retrying the send is safe.
 // False does not prove acceptance: callers must preserve ambiguous outcomes.
+// Repeated revocations retain that proof while the expired reservation remains.
+// Keeping the expired reservation also schedules abandoned runtime cleanup.
 func (c *Client) RevokeSessionDispatch(ctx context.Context, sessionID string, dispatchID uuid.UUID, messageID string) (bool, error) {
 	var notAccepted bool
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -85,7 +95,7 @@ func (c *Client) RevokeSessionDispatch(ctx context.Context, sessionID string, di
 			return notFoundOr(err)
 		}
 		tag, err := tx.Exec(ctx, `
-			UPDATE session SET dispatch_id = NULL, dispatch_expires_at = NULL
+			UPDATE session SET dispatch_expires_at = LEAST(dispatch_expires_at, clock_timestamp())
 			WHERE id = $1 AND dispatch_id = $2
 		`, session.ID, dispatchID)
 		if err != nil || tag.RowsAffected() == 0 {
@@ -186,6 +196,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 			}
 		}
 		wasWaiting := stored != nil && (stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired)
+		remainsWaiting := wasWaiting && stored.Status.State == task.Status.State
 		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
 			return fmt.Errorf("session cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
 		}
@@ -194,7 +205,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 				UPDATE session SET dispatch_id = CASE WHEN $3 THEN dispatch_id END,
 				    dispatch_expires_at = CASE WHEN $3 THEN dispatch_expires_at END
 				WHERE id = $1 AND dispatch_id = $2 AND dispatch_expires_at > clock_timestamp()
-			`, session.ID, dispatchID, stored != nil && stored.Status.State == task.Status.State)
+			`, session.ID, dispatchID, remainsWaiting)
 			if err != nil {
 				return err
 			}
@@ -208,6 +219,14 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		// New execution supersedes idle work that no worker has claimed yet.
 		// Keep the marker for idempotent acknowledgements of the older boundary.
 		if stored == nil || wasWaiting {
+			// A reply can be saved before the task resumes. Keep the dispatch while
+			// the task is still waiting, so a canceled delivery can still trigger
+			// actor suspension.
+			if !remainsWaiting {
+				if err := retireSessionDispatchCleanup(ctx, tx, session.ID); err != nil {
+					return err
+				}
+			}
 			if err := execSQL(ctx, tx, `
 				UPDATE session_task_event SET quiescence_pending = FALSE
 				WHERE history_id = $1 AND quiescence_pending
@@ -826,6 +845,7 @@ func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UU
 		    AND (NOT published OR (quiescence_pending AND quiescence_executor_id IS NOT NULL)))
 		    OR EXISTS (SELECT 1 FROM session WHERE history_id = $1 AND dispatch_expires_at > clock_timestamp()
 		        AND ($2::text = '' OR dispatch_id::text <> $2))
+		    OR EXISTS (SELECT 1 FROM session WHERE history_id = $1 AND dispatch_cleanup_executor_id IS NOT NULL)
 	`, pgx.RowTo[bool], historyID, dispatchID)
 	if err != nil {
 		return err

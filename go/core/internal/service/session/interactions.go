@@ -48,14 +48,15 @@ type agentService interface {
 // state. It never connects to actors: the gateway owns dispatch and observation.
 // These operations form the persistence boundary for a separate API service.
 type InteractionService struct {
-	store         interactionStore
-	agents        agentService
-	sessions      *Service
-	allowPushHTTP bool
+	store          interactionStore
+	agents         agentService
+	sessions       *Service
+	allowPushHTTP  bool
+	quiescenceWake chan<- struct{}
 }
 
-func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP bool) *InteractionService {
-	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP}
+func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP bool, quiescenceWake chan<- struct{}) *InteractionService {
+	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP, quiescenceWake: quiescenceWake}
 }
 
 // PreparedSend either grants a new dispatch or returns an already accepted task.
@@ -256,6 +257,12 @@ func (s *InteractionService) RevokeSend(ctx context.Context, agent types.Namespa
 	revoked, err := s.store.RevokeSessionDispatch(ctx, session.Id, id, message.ID)
 	if err != nil {
 		return false, interactionStoreError(ctx, err)
+	}
+	// Revocation can leave cleanup even when a continuation saved its input
+	// without starting execution. The durable work, not the hint, owns recovery.
+	select {
+	case s.quiescenceWake <- struct{}{}:
+	default:
 	}
 	return revoked, nil
 }

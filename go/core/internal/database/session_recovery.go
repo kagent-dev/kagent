@@ -116,7 +116,10 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if err != nil {
 			return err
 		}
-		if err := execSQL(ctx, tx, `UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL WHERE id = $1`, row.ID, row.Data); err != nil {
+		if err := execSQL(ctx, tx, `
+			UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL, dispatch_cleanup_executor_id = NULL
+			WHERE id = $1
+		`, row.ID, row.Data); err != nil {
 			return err
 		}
 		if err := settleCrashedSessionTasks(ctx, tx, row, snapshot); err != nil {

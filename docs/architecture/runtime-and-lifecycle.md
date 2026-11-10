@@ -208,6 +208,31 @@ leave an actor running until a surviving replica's next recovery scan; increasin
 the interval increases that delay and the time until its snapshot is available.
 Ordinary committed settlements do not wait for the recovery interval.
 
+The existing Session dispatch ID and expiry also track abandoned delivery.
+Revocation expires the reservation immediately, retains its ID, and wakes the
+same workers. An unrevoked reservation becomes eligible at its existing expiry.
+This covers cancellation after actor restore but before a turn starts, when no
+task boundary exists to trigger suspension. Accepted execution clears the
+reservation; saving continuation input without leaving a waiting state retains
+it. An expired reservation cannot authorize a late first task write.
+
+For abandoned dispatches, the worker first reads and verifies the actor without
+blocking new messages. Only a RUNNING actor can be claimed for suspension. The
+claim atomically rechecks the dispatch generation, absence of active tasks, and
+other lifecycle work. A newer message supersedes unclaimed cleanup; a claimed
+suspension blocks new execution until its snapshot is recorded and the dispatch
+reservation and claim are cleared. Cleanup preserves
+the existing history and logical READY state. When history exists, its captured
+head receives the snapshot without adding a task event.
+
+RESUMING or SUSPENDED actors and failed preparation reads remain unclaimed. Each
+worker visits candidates in Session ID order once per scan, then revisits them on
+the existing worker wakeups and recovery scans. A SUSPENDED observation alone
+cannot prove that canceled ingress will not finish restoring later. Such cleanup
+can remain pending until an actor runs, a new message supersedes it, or an explicit
+lifecycle operation retires it. This is cancellation cleanup, not general idle
+actor detection.
+
 An empty claim is followed by a check for unclaimed work on ready sessions. If
 dispatch, checkpoint creation, a lifecycle operation, or a row lock blocks that
 work, workers retry within one second until it becomes eligible or is superseded.
@@ -215,7 +240,7 @@ Database errors also use this short retry. Sessions that are not READY and claim
 work do not keep the short retry active. Idle workers make one claim attempt and
 one pending-work check per recovery interval, rather than querying every second.
 Other background workers and connection-pool idle settings still affect whether
-PostgreSQL can become idle.
+PostgreSQL can become idle. Each scan also checks for abandoned dispatch cleanup.
 
 Unclaimed idle work survives API restarts. A claim for possibly issued runtime work
 never expires: losing the worker does not prove that the suspend stopped. Uncertain

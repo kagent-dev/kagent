@@ -48,7 +48,7 @@ func beginSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow, reason
 	if err != nil {
 		return nil, err
 	}
-	if err := execSQL(ctx, tx, `UPDATE session SET dispatch_id = NULL, dispatch_expires_at = NULL WHERE id = $1`, row.ID); err != nil {
+	if err := retireSessionDispatchCleanup(ctx, tx, row.ID); err != nil {
 		return nil, err
 	}
 	if err := execSQL(ctx, tx, `UPDATE session SET deletion_reason = COALESCE(deletion_reason, $2) WHERE id = $1`, row.ID, string(reason)); err != nil {
@@ -68,6 +68,7 @@ func admitForcedSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow) 
 		SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
 		    OR EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $2
 		        AND quiescence_pending AND quiescence_executor_id IS NOT NULL)
+		    OR EXISTS (SELECT 1 FROM session WHERE id = $1 AND dispatch_cleanup_executor_id IS NOT NULL)
 	`, pgx.RowTo[bool], row.ID, row.HistoryID)
 	if err != nil {
 		return err

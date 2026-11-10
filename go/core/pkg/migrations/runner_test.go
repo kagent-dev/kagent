@@ -320,7 +320,7 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	for _, source := range sources {
 		expected := []int64{0, 1}
 		if source.Name == "core" {
-			expected = append(expected, 2, 3)
+			expected = append(expected, 2, 3, 4)
 		}
 		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, expected) {
 			t.Fatalf("%s versions = %v, want %v", source.Name, versions, expected)
@@ -336,6 +336,9 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	if !testColumnExists(t, dsn, "session", "deletion_reason") {
 		t.Fatal("session deletion reason is missing")
+	}
+	if !testColumnExists(t, dsn, "session", "dispatch_cleanup_executor_id") {
+		t.Fatal("session dispatch cleanup executor is missing")
 	}
 	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
 		t.Fatal("initial migration must create explicit Agent definitions without legacy pairs")
@@ -360,6 +363,25 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
         VALUES ($1, 'user', 'schedule', $2, $3)`, scheduleID, make([]byte, 32), []byte{})
 	execSQL(t, dsn, `INSERT INTO scheduled_run_execution (id, scheduled_run_id, manual_request_id, session_id, data, deadline)
         VALUES ($1, $2, 'manual', $3, $4, statement_timestamp() + interval '1 minute')`, executionID, scheduleID, sessionID, []byte{})
+	t.Run("Given issued dispatch cleanup, when rollback is requested, assert that the admission fence remains installed", func(t *testing.T) {
+		execSQL(t, dsn, `UPDATE session SET dispatch_id = $1, dispatch_expires_at = statement_timestamp(), dispatch_cleanup_executor_id = $1 WHERE id = $1`, sessionID)
+		defer execSQL(t, dsn, `UPDATE session SET dispatch_id = NULL, dispatch_expires_at = NULL, dispatch_cleanup_executor_id = NULL WHERE id = $1`, sessionID)
+		for _, source := range sources {
+			if source.Name != "core" {
+				continue
+			}
+			err := WithProvider(t.Context(), config, source, func(provider *goose.Provider) error {
+				_, err := provider.DownTo(t.Context(), 3)
+				return err
+			})
+			if err == nil || !strings.Contains(err.Error(), "issued work is unresolved") {
+				t.Fatalf("rollback with issued cleanup = %v", err)
+			}
+			if !testColumnExists(t, dsn, "session", "dispatch_cleanup_executor_id") {
+				t.Fatal("failed rollback removed the cleanup fence")
+			}
+		}
+	})
 	for _, source := range slices.Backward(sources) {
 		if err := WithProvider(context.Background(), config, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(context.Background(), 0)

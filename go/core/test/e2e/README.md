@@ -60,6 +60,16 @@ The test requires the actor to remain `RESUMING` before ordinary Session deletio
 then verifies Session and Actor absence through kagent APIs. Backend cleanup
 retries are allowed only after the actor reaches `DELETING` or is absent.
 
+`TestSessionSuspendsAfterCanceledDispatch` clones the `byo-e2e` Harness with the
+test runtime's `--block-first-restored-send` flag. Its first restored activation
+blocks before accepting a task. The test cancels after the Actor reaches
+`RUNNING`, then requires suspension, released worker capacity, and empty task
+history. A later invocation must complete and suspend normally. A marker in the
+runtime's durable directory releases the gate on that later restore, so the
+successful invocation also verifies that cleanup saved the runtime state.
+Build the BYO fixture with `make build-byo-a2a` and install its digest in
+`byo-e2e` before running this test; the gate is disabled for other tests.
+
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness
 fixtures, and each test owns the templates and API resources it creates.

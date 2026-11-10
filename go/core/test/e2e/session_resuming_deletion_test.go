@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
@@ -19,6 +21,89 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
+
+func TestSessionSuspendsAfterCanceledDispatch(t *testing.T) {
+	t.Parallel()
+	// Given a runtime whose first restored activation blocks before accepting
+	// input, while later restores use the ordinary executor and TaskStore.
+	target := interactionTarget(t)
+	kube := interactionKubeClient(t)
+	base := &v1alpha3.Harness{}
+	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: "kagent", Name: "byo-e2e"}, base))
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "canceled-dispatch-", Namespace: "kagent"},
+		Spec:       *base.Spec.DeepCopy(),
+	}
+	harness.Spec.Workload.Args = append(harness.Spec.Workload.Args, "--block-first-restored-send")
+	require.NoError(t, kube.Create(t.Context(), harness))
+	t.Cleanup(func() {
+		if err := kube.Delete(context.Background(), harness); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete canceled-dispatch Harness: %v", err)
+		}
+	})
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "canceled-dispatch-", Namespace: "kagent"},
+		Spec:       v1alpha3.AgentTemplateSpec{Description: "Canceled dispatch lifecycle fixture"},
+	}
+	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, harness.Name, template.Name)
+	actorName := substrate.ActorName(fixture.sessionID)
+	initial, err := findSubstrateActor(fixture.ctx, fixture.system, "kagent", actorName)
+	require.NoError(t, err)
+	require.NotNil(t, initial)
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, initial.GetStatus().GetState())
+
+	// When the caller cancels after restore, no task has reached persistence.
+	_, request := newMessageRequest(t, "hello")
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
+	sendCtx, cancel := context.WithCancel(fixture.ctx)
+	defer cancel()
+	sent := make(chan error, 1)
+	go func() {
+		_, err := fixture.client.SendMessage(sendCtx, request)
+		sent <- err
+	}()
+	require.NoError(t, wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
+		select {
+		case err := <-sent:
+			return false, fmt.Errorf("send ended before cancellation: %v", err)
+		default:
+		}
+		actor, err := findSubstrateActor(ctx, fixture.system, "kagent", actorName)
+		if err != nil {
+			return false, err
+		}
+		return actor != nil && actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_RUNNING, nil
+	}))
+	cancel()
+	select {
+	case err := <-sent:
+		require.Equal(t, codes.Canceled, status.Code(err))
+	case <-time.After(5 * time.Second):
+		t.Fatal("send did not return after cancellation")
+	}
+
+	// Assert that turnless cleanup releases the allocation without inventing
+	// task history, and preserves the snapshot needed for the next invocation.
+	assertActorSuspended(t, fixture)
+	suspended, err := findSubstrateActor(fixture.ctx, fixture.system, "kagent", actorName)
+	require.NoError(t, err)
+	require.NotNil(t, suspended)
+	require.Nil(t, suspended.GetStatus().GetWorkerAssignment())
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fixture.contextID})
+	require.NoError(t, err)
+	listed, err := fixture.client.ListTasks(fixture.ctx, listRequest)
+	require.NoError(t, err)
+	require.Empty(t, listed.GetTasks())
+	current, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.GetSession().GetState())
+
+	_, _, task := fixture.send(t, "hello")
+	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
+	require.Contains(t, taskText(task), "BYO agent response")
+	assertActorSuspended(t, fixture)
+}
 
 // The Go ADK startup delay reproduces the router timeout independently of the
 // model protocol. The installed Harness is left intact.

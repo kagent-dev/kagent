@@ -54,7 +54,7 @@ func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessi
 }
 
 func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string) a2asrv.RequestHandler {
-	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false)
+	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, nil)
 	return New(interactions, dialer, url)
 }
 

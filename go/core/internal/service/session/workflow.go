@@ -20,6 +20,9 @@ type workflowStore interface {
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
+	GetPendingSessionDispatchCleanup(context.Context, string) (*database.SessionDispatchCleanup, error)
+	ClaimSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup) (*database.SessionDispatchCleanup, error)
+	FinishSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup, *database.SessionTaskSnapshot) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
@@ -54,18 +57,35 @@ func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake ch
 // logical READY state and records its external snapshot URI. Only a checkpoint
 // retains a copy after the Actor advances.
 func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*database.SessionTaskSnapshot, error) {
+	revision, current, err := w.prepareQuiescence(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	return w.suspendQuiescentActor(ctx, session, revision, current)
+}
+
+// prepareQuiescence loads the Session's runtime configuration and verifies its
+// actor's identity without changing the actor or blocking new sends.
+func (w *ActorWorkflow) prepareQuiescence(ctx context.Context, session *apiv1.Session) (*database.RuntimeRevision, *ateapipb.Actor, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
-		return nil, fmt.Errorf("load prepared revision: %w", err)
+		return nil, nil, fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
 	current, err := w.actors.GetActor(ctx, atespace, name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := w.verifyActor(ctx, session, revision, current); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	return revision, current, nil
+}
+
+// suspendQuiescentActor suspends the verified actor and returns its durable volume
+// snapshot. The caller must prevent new turns until the snapshot is recorded.
+func (w *ActorWorkflow) suspendQuiescentActor(ctx context.Context, session *apiv1.Session, revision *database.RuntimeRevision, current *ateapipb.Actor) (*database.SessionTaskSnapshot, error) {
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
 	actor, err := w.actors.SuspendActor(ctx, atespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("suspend Actor %s/%s: %w", atespace, name, err)

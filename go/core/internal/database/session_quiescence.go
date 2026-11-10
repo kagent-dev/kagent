@@ -56,6 +56,7 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 			  AND i.state = 'RUNTIME_STATE_READY'
 			  AND i.operation = 'RUNTIME_OPERATION_NONE'
 			  AND (i.dispatch_expires_at IS NULL OR i.dispatch_expires_at <= clock_timestamp())
+			  AND NOT EXISTS (SELECT 1 FROM session WHERE id = i.id AND dispatch_cleanup_executor_id IS NOT NULL)
 			  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = i.id AND state = 'CREATING')
 			ORDER BY e.sequence LIMIT 1 FOR UPDATE OF i SKIP LOCKED
 		`, pgx.RowToStructByName[candidate])
@@ -89,6 +90,7 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 			WHERE sequence = $1 AND published AND quiescence_pending
 			  AND quiescence_executor_id IS NULL
 			  AND NOT EXISTS (SELECT 1 FROM session WHERE id = $3 AND dispatch_expires_at > clock_timestamp())
+			  AND NOT EXISTS (SELECT 1 FROM session WHERE id = $3 AND dispatch_cleanup_executor_id IS NOT NULL)
 			  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $3 AND state = 'CREATING')
 		`, result.Version, result.ExecutorID, session.ID)
 		if err != nil {
@@ -138,23 +140,28 @@ func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuies
 		if stored.State != string(work.State) {
 			return ErrConflict
 		}
-		if snapshot != nil {
-			if err := execSQL(ctx, tx, `
-				UPDATE session_task SET snapshot_atespace = $3, snapshot_uri = $4,
-				    snapshot_fidelity = $5, history_sequence = $6
-				WHERE history_id = $1 AND id = $2
-			`, session.HistoryID, work.TaskID, snapshot.Atespace, snapshot.URI, snapshot.Fidelity, work.Version); err != nil {
-				return err
-			}
-			if err := execSQL(ctx, tx, `
-				UPDATE session_task_event SET snapshot_atespace = $2, snapshot_uri = $3, snapshot_fidelity = $4
-				WHERE sequence = $1
-			`, work.Version, snapshot.Atespace, snapshot.URI, snapshot.Fidelity); err != nil {
-				return err
-			}
+		if err := saveSessionTaskSnapshot(ctx, tx, session.HistoryID, work.TaskID, work.Version, snapshot); err != nil {
+			return err
 		}
 		return execSQL(ctx, tx, `
 			UPDATE session_task_event SET quiescence_pending = FALSE WHERE sequence = $1
 		`, work.Version)
 	})
+}
+
+// saveSessionTaskSnapshot associates a confirmed runtime snapshot with its
+// captured history version and head task. The caller holds the Session lock and
+// has validated the version under exclusive lifecycle authority.
+func saveSessionTaskSnapshot(ctx context.Context, tx pgx.Tx, historyID uuid.UUID, taskID string, version int64, snapshot *SessionTaskSnapshot) error {
+	if err := execSQL(ctx, tx, `
+		UPDATE session_task SET snapshot_atespace = $3, snapshot_uri = $4,
+		    snapshot_fidelity = $5, history_sequence = $6
+		WHERE history_id = $1 AND id = $2
+	`, historyID, taskID, snapshot.Atespace, snapshot.URI, snapshot.Fidelity, version); err != nil {
+		return err
+	}
+	return execSQL(ctx, tx, `
+		UPDATE session_task_event SET snapshot_atespace = $2, snapshot_uri = $3, snapshot_fidelity = $4
+		WHERE sequence = $1
+	`, version, snapshot.Atespace, snapshot.URI, snapshot.Fidelity)
 }
