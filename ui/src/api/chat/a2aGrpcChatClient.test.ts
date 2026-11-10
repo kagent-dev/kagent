@@ -25,7 +25,8 @@ import {
 } from "@/generated/a2a_pb";
 import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
 import { setApiTransport } from "../transport";
-import { A2AGrpcChatClient, isSendNotAccepted, mayNeedRecovery, SEND_NOT_ACCEPTED, SEND_REFUSED } from "./a2aGrpcChatClient";
+import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
+import { isSendNotAccepted, mayNeedRecovery, SEND_NOT_ACCEPTED, SESSION_BUSY } from "../ApiError";
 import { LinkFile } from "./attachments";
 import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
@@ -2191,8 +2192,9 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
   });
 
   it.each([
-    ["another metadata reason", notAccepted({ reason: "SOMETHING_ELSE" }), SEND_REFUSED],
-    ["no metadata, as for an earlier turn that is still open", notAccepted({}), SEND_REFUSED],
+    ["an open turn or checkpoint holding the Session", notAccepted({ reason: SESSION_BUSY }), SESSION_BUSY],
+    ["another metadata reason", notAccepted({ reason: "SOMETHING_ELSE" }), undefined],
+    ["no metadata, as for a runtime that cannot be recovered", notAccepted({}), undefined],
     ["another gRPC code", notAccepted(undefined, Code.Unavailable), undefined],
     ["no ErrorInfo", new ConnectError("Session runtime cannot be recovered; start another conversation", Code.FailedPrecondition), undefined],
   ])("does not re-send for %s", async (_, refusal, reason) => {
@@ -2207,14 +2209,14 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
     expect(requests).toHaveLength(1);
   });
 
-  it("keeps the gateway's words for an outright refusal", async () => {
+  it("keeps the gateway's words for a busy Session", async () => {
     const { error } = await run(async function* () {
       yield* [];
       throw new ConnectError("resource conflict", Code.FailedPrecondition, undefined, [
-        { desc: ErrorInfoSchema, value: { reason: "UNSUPPORTED_OPERATION", domain: "a2a-protocol.org", metadata: {} } },
+        { desc: ErrorInfoSchema, value: { reason: "UNSUPPORTED_OPERATION", domain: "a2a-protocol.org", metadata: { reason: SESSION_BUSY } } },
       ]);
     });
-    expect(error).toMatchObject({ message: "resource conflict", code: "FailedPrecondition", reason: SEND_REFUSED });
+    expect(error).toMatchObject({ message: "resource conflict", code: "FailedPrecondition", reason: SESSION_BUSY });
   });
 
   it("doubles the wait between re-sends, up to two seconds", async () => {

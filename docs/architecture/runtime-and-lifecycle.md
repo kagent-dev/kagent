@@ -289,8 +289,9 @@ send refused as `KAGENT_SEND_NOT_ACCEPTED` with the same message ID, doubling
 the wait up to two seconds for 30 seconds, and then offers Recover, which calls
 `RevertSession`. A crash during a turn leaves that turn active, so with the
 setting off the next send is refused outright as a conflict while the Session
-still reads READY. Chat offers Recover for that refusal too, because nothing
-else observes the crash. Chat also offers Recover while a recovery is pending,
+still reads READY. The gateway names that refusal `KAGENT_SESSION_BUSY` in its
+ErrorInfo metadata, and chat offers Recover for it too, because nothing else
+observes the crash. Other refusals keep a plain error. Chat also offers Recover while a recovery is pending,
 because a recovery whose attempt failed stays FAILED/REVERT until a client
 retries it.
 Recover returns a healthy runtime unchanged and records a lost one, so it is

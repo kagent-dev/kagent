@@ -3,13 +3,12 @@ import type { ReactNode } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import type { ChatController, ChatTurnPhase, Checkpoint } from "@/api";
+import { isSendNotAccepted, mayNeedRecovery, type ChatController, type ChatTurnPhase, type Checkpoint } from "@/api";
 import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
 import { CheckpointDivider } from "./CheckpointDivider";
 import { groupByCheckpoint } from "./messageCheckpoints";
 import { scrollbarStyles } from "@/components/agent/controlStyles";
-import { isSendNotAccepted, mayNeedRecovery } from "@/api/chat/a2aGrpcChatClient";
 
 /** Stable, so a transcript with no boundaries does not regroup on every render. */
 const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
@@ -87,8 +86,9 @@ export function ChatTranscript({
   /** Opens active callbacks for one A2A task. */
   onManageTaskPush?: (taskId: string) => void;
   /**
-   * Reverts a runtime that may have crashed, offered when sends keep being refused
-   * as not accepted. Absent when read-only.
+   * Reverts a runtime that may have crashed, offered when a send is refused as not
+   * accepted after every retry, or because an open turn holds the Session. Absent when
+   * read-only.
    */
   onRecover?: () => void;
   /** A revert from `onRecover` is in flight. */

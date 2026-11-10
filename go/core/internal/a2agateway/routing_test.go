@@ -2,6 +2,7 @@ package a2agateway
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
@@ -148,10 +149,11 @@ func TestSendRecoveryDisabled(t *testing.T) {
 		name                   string
 		pending, busy, refused bool
 		want                   error
+		reason                 string
 	}{
 		{name: "an admitted recovery", pending: true, want: a2a.ErrUnsupportedOperation},
-		{name: "an active turn", busy: true, want: a2a.ErrUnsupportedOperation},
-		{name: "a runtime refusal", refused: true, want: sessionsvc.ErrSendNotAccepted},
+		{name: "an active turn", busy: true, want: a2a.ErrUnsupportedOperation, reason: "KAGENT_SESSION_BUSY"},
+		{name: "a runtime refusal", refused: true, want: sessionsvc.ErrSendNotAccepted, reason: "KAGENT_SEND_NOT_ACCEPTED"},
 	} {
 		t.Run("Given automatic recovery is disabled, when a send encounters "+scenario.name+", assert that it refuses without reverting", func(t *testing.T) {
 			session := gatewayTestSession()
@@ -171,13 +173,21 @@ func TestSendRecoveryDisabled(t *testing.T) {
 			gateway := New(interactions, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
 			require.ErrorIs(t, err, scenario.want)
-			if !scenario.refused {
-				require.NotErrorIs(t, err, sessionsvc.ErrSendNotAccepted)
-			}
+			require.Equal(t, scenario.reason, errorInfoReason(err))
 			require.Zero(t, store.reverts)
 			if scenario.busy {
 				require.Equal(t, 1, store.reserveCalls)
 			}
 		})
 	}
+}
+
+// errorInfoReason is the kagent reason a refusal carries in its ErrorInfo metadata.
+func errorInfoReason(err error) string {
+	refusal, ok := errors.AsType[*a2a.Error](err)
+	if !ok {
+		return ""
+	}
+	meta, _ := refusal.ErrorInfo().Value["metadata"].(map[string]string)
+	return meta["reason"]
 }

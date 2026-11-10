@@ -713,11 +713,11 @@ export function AgentChatPage() {
             onRenameCheckpoint={renameSnapshot}
             onFork={forkCheckpoint}
             onDeleteCheckpoint={deleteCheckpoint}
-            // The mock chat client has no A2A push store; hide the control rather
-            // than showing a backend error over an otherwise scripted transcript.
             // A conversation that is not ready has its own alert with Recover.
             onRecover={canSend ? () => void recover() : undefined}
             isRecovering={isRecovering}
+            // The mock chat client has no A2A push store; hide the control rather
+            // than showing a backend error over an otherwise scripted transcript.
             onManageTaskPush={isMockMode ? undefined : (taskId) => {
               if (conversation) setPushTask({ conversationId: conversation.id, taskId });
             }}

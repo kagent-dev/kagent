@@ -7,7 +7,15 @@
  * is still held over HTTP.
  */
 
-export { ApiError, isApiError, isNotFound } from "./ApiError";
+export {
+  ApiError,
+  isApiError,
+  isNotFound,
+  isSendNotAccepted,
+  mayNeedRecovery,
+  SEND_NOT_ACCEPTED,
+  SESSION_BUSY,
+} from "./ApiError";
 export type { ApiErrorKind } from "./ApiError";
 
 export { apiBaseUrl, apiMode, isMockMode, MOCK_API_BASE_URL } from "./config";

@@ -177,7 +177,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		}
 	}
 	if errors.Is(err, database.ErrConflict) {
-		err = interactionStoreError(ctx, err)
+		err = errSessionBusy(err)
 	}
 	if errors.Is(err, database.ErrMessageAccepted) {
 		var historyLength *int
@@ -255,6 +255,15 @@ func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, ini
 		case <-timer.C:
 		}
 	}
+}
+
+// errSessionBusy refuses a send while an open turn or a checkpoint holds the
+// Session. A runtime that crashed mid-turn leaves its turn open, so with recovery
+// on send disabled this is also how a crash reaches the client; the reason lets a
+// client offer RevertSession for this refusal and no other.
+func errSessionBusy(err error) error {
+	return a2atype.NewError(a2atype.ErrUnsupportedOperation, err.Error()).
+		WithErrorInfoMeta(map[string]string{"reason": "KAGENT_SESSION_BUSY"})
 }
 
 // ErrSendNotAccepted tells callers they may retry this input because no dispatch

@@ -60,7 +60,7 @@ import {
   type TaskStatus,
 } from "@/generated/a2a_pb";
 import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
-import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
+import { ApiError, fromConnectError, rethrowIfAborted, SEND_NOT_ACCEPTED, SESSION_BUSY } from "../ApiError";
 import { A2A_METADATA, metadataString } from "./a2aMetadata";
 import {
   HITL_EXTENSION_HEADER,
@@ -131,33 +131,6 @@ const UNACCEPTED_SEND_RETRY_MS = 100;
  */
 const UNACCEPTED_SEND_MAX_RETRY_MS = 2_000;
 
-/**
- * `ApiError.reason` of a send the gateway kept refusing as not accepted until the
- * retry window ran out. The runtime may have crashed; `RevertSession` is safe to
- * offer, because it returns a healthy Session unchanged.
- */
-export const SEND_NOT_ACCEPTED = "KAGENT_SEND_NOT_ACCEPTED";
-
-/** Whether `error` is a send the gateway never accepted, after every retry. */
-export function isSendNotAccepted(error: unknown): boolean {
-  return error instanceof ApiError && error.reason === SEND_NOT_ACCEPTED;
-}
-
-/**
- * `ApiError.reason` of a send the gateway refused outright, before accepting it.
- *
- * A runtime that crashed mid-turn leaves that turn open, and an open turn refuses
- * every send as a conflict. Unless the controller recovers on send, nothing then
- * observes the crash, so the refusal is the only sign of it. A busy, healthy runtime
- * is refused the same way; `RevertSession` leaves it alone.
- */
-export const SEND_REFUSED = "SEND_REFUSED";
-
-/** Whether chat should offer a revert after `error`. */
-export function mayNeedRecovery(error: unknown): boolean {
-  return error instanceof ApiError && (error.reason === SEND_NOT_ACCEPTED || error.reason === SEND_REFUSED);
-}
-
 /** `ErrorInfo.domain` of every error the A2A server writes (`a2a.ProtocolDomain`). */
 const A2A_PROTOCOL_DOMAIN = "a2a-protocol.org";
 
@@ -183,7 +156,7 @@ function a2aRefusal(error: unknown) {
  */
 function unacceptedSendRetryMs(error: unknown): number | undefined {
   const info = a2aRefusal(error);
-  if (info?.metadata.reason !== "KAGENT_SEND_NOT_ACCEPTED") return undefined;
+  if (info?.metadata.reason !== SEND_NOT_ACCEPTED) return undefined;
   const wait = Number.parseInt(info.metadata.retryAfterMs ?? "", 10);
   return Number.isFinite(wait) && wait >= 0 ? wait : UNACCEPTED_SEND_RETRY_MS;
 }
@@ -725,7 +698,9 @@ export class A2AGrpcChatClient implements ChatClient {
             source = client.sendStreamingMessage(request, options);
             continue;
           }
-          if (!received && !signal?.aborted && a2aRefusal(error)) throw refusedSendError(error, SEND_REFUSED);
+          if (!received && !signal?.aborted && a2aRefusal(error)?.metadata.reason === SESSION_BUSY) {
+            throw refusedSendError(error, SESSION_BUSY);
+          }
           if (progressed || Date.now() - opened >= REATTACH_HEALTHY_MS) failures = 0;
           failures += 1;
           const reattach = !signal?.aborted && taskId !== "" && !settled

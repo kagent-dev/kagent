@@ -8,8 +8,7 @@ import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
 import { CheckpointService, CheckpointState } from "@/generated/kagent/api/v1/checkpoints_pb";
 import { RuntimeOperation, RuntimeState } from "@/generated/kagent/api/v1/runtime_pb";
 import { setApiTransport } from "@/api/transport";
-import { ApiError, type ChatController } from "@/api";
-import { SEND_NOT_ACCEPTED, SEND_REFUSED } from "@/api/chat/a2aGrpcChatClient";
+import { ApiError, SEND_NOT_ACCEPTED, SESSION_BUSY, type ChatController } from "@/api";
 import { themeFor } from "@/theme/theme";
 import { AgentChatPage } from "./AgentChatPage";
 
@@ -192,7 +191,7 @@ describe("a send the gateway never accepted", () => {
     // conflict while the Session still reads READY.
     lifecycle = READY;
     (chat as { turnError?: Error }).turnError = new ApiError("resource conflict", {
-      kind: "http", code: "FailedPrecondition", reason: SEND_REFUSED, url: "A2AService/SendStreamingMessage",
+      kind: "http", code: "FailedPrecondition", reason: SESSION_BUSY, url: "A2AService/SendStreamingMessage",
     });
     renderPage();
     const alert = await screen.findByTestId("chat-turn-error");
