@@ -24,7 +24,6 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 // lockedTags models Substrate's tag lease independently of a request or worker.
@@ -130,17 +129,6 @@ func recoverySourceForActor(t *testing.T, store *database.Client, actor *ateapip
 	require.NoError(t, store.FinishSessionQuiescence(ctx, boundary,
 		&database.SessionTaskSnapshot{Atespace: space, URI: substrate.SnapshotURI(snapshot), Fidelity: snapshot.GetFidelity().String()}))
 	return session, string(task.ID)
-}
-
-func waitCheckpointPhase(t *testing.T, store *database.Client, id string, phase apiv1.CheckpointState) *database.CheckpointOperation {
-	t.Helper()
-	var op *database.CheckpointOperation
-	require.Eventually(t, func() bool {
-		var err error
-		op, err = store.GetCheckpointOperation(t.Context(), id, "alice")
-		return err == nil && op.Checkpoint.State == phase
-	}, 5*time.Second, 10*time.Millisecond)
-	return op
 }
 
 type failedCheckpointPublish struct {
@@ -249,18 +237,6 @@ func (s *Service) beginCreate(ctx context.Context, source, request, head string)
 		return nil, "", err
 	}
 	return op.Checkpoint, op.Creator, nil
-}
-
-func (s *Service) beginDelete(ctx context.Context, id string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
-	defer cancel()
-	owner, err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "Checkpoint", Name: id})
-	if err != nil {
-		return "", err
-	}
-	executor := uuid.New()
-	_, err = s.store.BeginDeleteSessionCheckpoint(ctx, id, owner, executor)
-	return owner, errors.Join(err, s.release(ctx, id, executor))
 }
 
 func TestRecoveryWaitsAfterSlowSweep(t *testing.T) {

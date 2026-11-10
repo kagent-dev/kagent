@@ -59,141 +59,39 @@ Input-required and auth-required tasks are durably suspended with VOLUMES snapsh
 but are not checkpointable or forkable; callers must resolve the interaction first.
 Creating a checkpoint does not suspend the Actor again:
 
-1. Reserve the checkpoint in PostgreSQL.
+1. Reserve the checkpoint and a bounded execution claim in PostgreSQL.
 2. Verify that the suspended Actor still holds the external snapshot URI and fidelity recorded on the boundary.
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
-4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
+4. Conditionally persist the Tag UID and copied snapshot URI and mark the checkpoint ready, only while this executor's claim is live.
 
-The request inserts the `CREATING` reservation and its bounded execution claim
-in one transaction, copies the tag inline, then conditionally publishes `READY`
-or `FAILED` while clearing the claim in the same update. Database transactions
-never span Substrate calls. The normal create path writes only the reservation
-and final outcome; it does not acquire a second claim or poll for a worker.
+Create and Delete execute inline; they do not wait for a background worker.
+The reservation owns the first attempt's claim. Retries acquire an expired claim
+and read the current phase before making backend calls. Claims last at most two
+minutes, and finalization clears the claim atomically. Uncertain outcomes retain
+durable work for retry. A leader-elected sweep resumes expired creation/deletion
+and collects failed tags, waiting 30 seconds after each completed sweep.
 
-Each attempt shares a request deadline of at most two minutes with its claim.
-Retries with the same owner/request ID reuse the existing reservation. They
-acquire expired work and execute the same function, or return the current outcome
-when another request owns it. A live operation returns retryable `Aborted`.
-If completion loses execution authority, the caller only observes the current
-outcome: READY is returned, pending work returns `Aborted`, and a completed
-deletion succeeds. Create returns `NotFound` if the checkpoint was deleted.
-The observation never repeats a backend mutation or overwrites the new executor.
-Create observers skip obsolete claim releases, so a release failure cannot mask
-READY or the translation of absence to `NotFound`. A definitive acquisition
-conflict also needs no release. Other acquisition errors may hide a committed
-claim; those attempts still release their specific executor before returning.
-An uncertain initial reservation also waits for its source Session transaction
-before looking for the inserted row: locking the checkpoint alone cannot see an
-uncommitted INSERT. This coordination is confined to reservation errors and keeps
-the normal two-write path unchanged. Retirement remains bounded by five seconds;
-if storage prevents it, claim expiry still permits later recovery.
-Backend errors describe the current attempt, without persisting an error that a
-later repaired request could accidentally replay. Public errors exclude backend
-configuration. A canceled or uncertain attempt retains `CREATING` and expires its
-claim immediately while retaining the executor identity.
+Only READY checkpoints are public and forkable. Failed verification records an
+internal FAILED result and releases source admission. The sweep deletes any
+retained tag by UID, then conditionally clears that UID and its execution claim.
+Cleanup errors preserve the handle for retry. The FAILED row retains request
+identity, history and revision references, so replay returns the same terminal
+failure without copying again. A fresh invalid source fails before starting a
+copy; recovery still synchronizes with a possible earlier copy through Substrate.
 
-A small leader-elected sweep runs at startup and waits thirty seconds after each
-completed sweep before starting another. It reads only expired `CREATING` and
-`DELETING` work and uses the same execution path as requests. Claims fence publication and deletion across replicas, restarts, and
-paused executors; a delayed release cannot revoke a replacement claim. Slow
-operations can delay later background work; each attempt remains bounded by two
-minutes. The post-sweep interval paces background retries. Live requests execute
-independently of the sweep, without a queue, retry map, or wakeup protocol.
+Ordinary rolling upgrades are supported. The claim migration adds nullable columns;
+legacy NULL-claim creation/deletion waits two minutes by UUIDv7 age before takeover.
+Overlapping tag attempts serialize through Substrate's Actor and Tag leases.
+During the mixed-version window, old controllers still have their existing
+unconditional failure-cleanup race; UID-conditional cleanup applies once the
+rollout completes. Rollback leaves the additive schema in place.
 
-A pending tag is not evidence of abandonment. Substrate v1.0.0 acquires its Actor
-and Tag leases before copying and finalizing in `CreateTag`. Recovery calls
-`CreateTag` before interpreting `AlreadyExists`, which means the name is taken,
-not that its copy completed. Interpreting a retained partial copy as stopped
-depends on the backend serialization contract below.
-A busy backend lease returns `Aborted`; that leaves creation pending without
-inspecting or cleaning the still-live tag. A later retry can adopt the completed
-copy under the same request ID.
-
-Kagent must still verify the tag's identity, template lineage, completed storage,
-and the source Actor's snapshot and UID. Transport errors retain admission until
-a subsequent serialized attempt establishes an outcome.
-
-### Required backend contract: pending Substrate confirmation
-
-The recovery path requires previous external writes to have stopped before a
-new serialized attempt can classify a retained tag as failed or delete it.
-Besides `AlreadyExists`, the service interprets `CreateTag` replies of
-`FailedPrecondition` and `NotFound` as definitive enough to inspect the tag.
-Those paths, and UID-conditional deletion, require the same safety guarantee.
-
-The live Substrate regression verifies contention while the original RPC still
-holds valid leases: the caller disconnects without delivering cancellation to
-that RPC, another replica receives `Aborted`, and a later retry adopts its UID.
-It does not verify cancellation delivered to Substrate, failed lease renewal,
-process failure, or delayed object-store writes after lease loss. Lease tokens
-protect lease ownership; neither a kagent claim timeout nor a successful lease
-acquisition alone proves that earlier external writes stopped. The stronger
-contract needs confirmation and fault coverage in Substrate. If it does not
-hold, fix the owning backend or retain admission until the outcome is safe;
-do not infer safety from elapsed time. This remains a release acceptance item.
-
-After a copy has stopped, failed verification marks the checkpoint `FAILED` and
-releases source admission. Its exact tag UID remains retained for explicit
-UID-conditional deletion, including when tag storage is still `PENDING` and has
-no completed URI. Failed checkpoints cannot be forked. Their history and revision
-references remain pinned until deletion succeeds. An unrelated or replaced tag
-is never adopted or deleted.
-
-Owner-scoped Get and List expose both `READY` and `FAILED` checkpoints, including
-after source deletion. `CREATING` and `DELETING` remain hidden, and fork reads and
-transactions still require `READY`. A terminal failed Create returns
-`FailedPrecondition` with `ErrorInfo.reason = KAGENT_CHECKPOINT_FAILED` and the
-checkpoint UUID in `ResourceInfo.resource_name`. Repeating that request returns
-the same terminal identity without copying again. The owner can discover and
-delete the failed checkpoint before creating a new request. Public failed
-checkpoint responses use a generic service-owned failure message, including for
-legacy rows that retained raw backend errors; the stored operation is not rewritten.
-
-MCP checkpoint tools use the same classified public errors, excluding storage
-causes and wrapped cancellation details. Backend status is retained as
-`kagent.dev/grpc-code`; terminal creation failures also retain
-`kagent.dev/error-reason` and `kagent.dev/checkpoint-id` for cleanup. The Web UI
-lists failed snapshots separately from saved transcript boundaries, refreshes
-after a failed creation reply, and reads subsequent list pages. Failed records
-can be inspected and deleted, but cannot be forked or renamed. A failed deletion
-keeps its details open for retry.
-Confirmed deletion removes the cached record before rereading the list, so a
-subsequent read outage cannot leave a deleted FAILED entry on screen. Failed
-refreshes retain the last data and expose an error with a retry action.
-An older read failure cannot replace a newer read's outcome or undo a confirmed
-cache update; only the current read may publish an error or schedule its retry.
-
-### Proposed initial upgrade boundary: pending maintainer acceptance
-
-The proposed first upgrade from a controller without checkpoint execution claims
-quiesces checkpoint creation/deletion, stops every old controller, and waits for
-those processes to exit before starting the new version and resuming requests.
-This interrupts the controller API. Merely marking a Pod unready is insufficient.
-Legacy reservations have NULL claims; recovery waits until their UUIDv7 creation
-age exceeds the two-minute operation timeout. This grace is an additional delay,
-not proof that an old writer exited: old code has no bounded overall operation
-and can wait in a reservation transaction. Do not mix old checkpoint writers with
-new recovery. Claim-aware controllers can coordinate through the database during
-later rolling upgrades; this does not establish compatibility of every other
-release change.
-Before downgrading to a controller without execution claims, finish pending
-checkpoint operations, delete failed
-checkpoints that retain tag UIDs, and drain all current writers. Legacy deletion
-requires a completed URI and cannot collect a retained partial failed tag.
-The upgrade suite keeps its old-code/new-schema checks, drains every legacy Pod
-before starting the new controller, and repeats that boundary before application
-rollback. A separate process-lifetime test holds a terminating legacy Pod to
-verify that scaling to zero or losing readiness alone does not open the boundary.
-The PostgreSQL migration regression seeds a populated version 3 checkpoint before
-claim columns exist, upgrades it, and verifies recovery preserves its request and
-history boundary. The rollback guard is also exercised with a retained failed
-partial-tag fixture. These are storage fixtures, not previous-release binaries.
-
-The production installer still performs normal Helm upgrades; only the upgrade
-test explicitly drains checkpoint writers. The proposed maintenance window is
-not an accepted release policy or an enforced installer sequence. Before release,
-maintainers must choose that boundary with public upgrade/rollback instructions,
-or a staged compatible rollout if API interruption is unacceptable.
+Substrate v1.0.0 acquires both leases before returning AlreadyExists, and deletion
+uses the Tag lease. Object-store writes can outlive lease loss, but each copied
+snapshot uses a tag-UID-specific destination prefix that is never reused. Late
+writes can leak storage or finish a FAILED tag; they cannot make it forkable.
+READY still requires COMPLETED storage and matching source/tag identity. Stronger
+object-store fencing belongs in Substrate and does not block this recovery path.
 
 Kagent requests synchronous Substrate suspension before recording a checkpoint.
 If an earlier attempt already suspended the Actor but left a pending durable
@@ -207,8 +105,8 @@ and requires a COMPLETED durable copy. The Tag's template UID must
 match that lineage, and the Actor UID must remain unchanged across the copy.
 
 The `CREATING` reservation blocks task writes and idle or explicit lifecycle changes until the
-copy is definitively verified or failed. A lost response can reuse a completed Tag;
-a stopped incomplete copy becomes FAILED and retains its Tag UID for deletion. A
+copy is verified or marked FAILED. A lost response can reuse a completed Tag;
+an incomplete copy becomes internal FAILED work for background collection. A
 failed database finalization leaves the reservation and completed Tag for retry.
 Idle lifecycle work records snapshots without retaining every turn: only explicit
 checkpoints survive subsequent suspends or source deletion.
@@ -224,13 +122,10 @@ deleted while its context and checkpoint remain.
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
 the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
 
-Failed checkpoints can also be deleted by their owner. Creation marks a checkpoint
-failed after the serialized copy has stopped and verification has failed.
-Deletion verifies that absence before removing the row; it never deletes an
-unexpected tag without a retained UID. Backend errors leave the checkpoint in
-`DELETING` for the checkpoint worker to retry. Its history and runtime revision
-references remain retained until deletion completes. Checkpoints still in
-`CREATING` cannot be deleted through this path.
+Deletion never removes an unexpected tag without its retained UID. Backend errors
+leave the checkpoint in `DELETING` for a request or the sweep to retry. History and
+runtime revision references remain retained until deletion completes. Checkpoints
+still in `CREATING` cannot be deleted through this path.
 
 Checkpoint deletion passes the retained tag UID as a Substrate delete precondition,
 so a tag replaced after lookup cannot have its snapshot deleted. A rejected delete
@@ -296,12 +191,11 @@ snapshot forks. The Agent endpoint and globally unique task ID identify a task.
 Reads, writes, cancellation, subscriptions, authorization, and dispatch remain
 scoped to the resolved session. Forks have independent public identities.
 
-## Schema migrations
+## Unreleased schema
 
-Merged migration files are immutable. Core changes use new transactional Goose
-migrations, including the two nullable checkpoint claim columns.
-Development databases created from older, rewritten alpha baselines still need
-to be recreated; new migrations do not bridge those historical schemas.
+Until release, core schema changes are folded into `000001_initial.sql`.
+Recreate development databases when that baseline changes; there is no upgrade
+path from earlier development schemas. The Down migration removes the core schema.
 
 Deploy the controller and clients together: clients must use `Session.context_id`
 or omit the context and let the routed gateway resolve it.

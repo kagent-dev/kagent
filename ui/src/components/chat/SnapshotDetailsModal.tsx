@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Descriptions, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
+import { Button, Descriptions, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { canForkFrom, type Checkpoint, type CheckpointState } from "@/api";
@@ -67,19 +67,15 @@ export function SnapshotDetailsModal({
   const theme = useTheme();
   const [isRenaming, setRenaming] = useState(false);
   const [isBusy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string>();
   const label = snapshotLabel(checkpoint);
   const forkable = canForkFrom(checkpoint);
   const state = STATE_APPEARANCE[checkpoint.state];
 
   async function act(run: () => void | Promise<void>) {
     setBusy(true);
-    setActionError(undefined);
     try {
       await run();
       onClose();
-    } catch (cause: unknown) {
-      setActionError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
     }
@@ -110,12 +106,11 @@ export function SnapshotDetailsModal({
               children: (
                 <Space size={4}>
                   <Text data-testid="snapshot-details-name">{label}</Text>
-                  <Tooltip title={checkpoint.state === "ready" ? "Rename this snapshot" : "Only ready snapshots can be renamed"}>
+                  <Tooltip title="Rename this snapshot">
                     <Button
                       type="text"
                       size="small"
                       icon={<Pencil size={13} />}
-                      disabled={checkpoint.state !== "ready" || isBusy}
                       onClick={() => setRenaming(true)}
                       data-testid="snapshot-details-rename"
                       aria-label="Rename this snapshot"
@@ -188,8 +183,6 @@ export function SnapshotDetailsModal({
           ]}
         />
 
-        {actionError ? <Alert type="error" showIcon title="Could not update this snapshot" description={actionError} data-testid="snapshot-action-error" /> : null}
-
         <Space
           size={8}
           css={{ marginBlockStart: theme.space(4), display: "flex", flexWrap: "wrap" }}
@@ -235,7 +228,7 @@ export function SnapshotDetailsModal({
             okButtonProps={{ danger: true, "data-testid": "snapshot-details-delete-confirm" }}
             cancelText="Cancel"
             cancelButtonProps={{ "data-testid": "snapshot-details-delete-cancel" }}
-            onConfirm={() => act(() => onDelete(checkpoint.id))}
+            onConfirm={() => void act(() => onDelete(checkpoint.id))}
           >
             <Button
               danger
@@ -276,7 +269,7 @@ export function SnapshotDetailsModal({
 
       {/* Mounted only while open, which is what seeds the box with the stored name
           without an effect to put it there — see `RenameConversationDialog`. */}
-      {isRenaming && checkpoint.state === "ready" ? (
+      {isRenaming ? (
         <SnapshotRenameDialog
           checkpoint={checkpoint}
           onClose={() => setRenaming(false)}

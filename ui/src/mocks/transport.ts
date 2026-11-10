@@ -81,7 +81,6 @@ import type {
 } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
 import type { Transport, UnaryResponse } from "@connectrpc/connect";
 import { HarnessService } from "@/generated/kagent/api/v1/harnesses_pb";
 import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_pb";
@@ -915,8 +914,7 @@ const checkpointMessage = (row: MockCheckpoint) => ({
   sessionId: row.agentInstanceId,
   name: row.name,
   headTaskId: row.headTaskId,
-  state: row.state === "failed" ? PbCheckpointState.FAILED : PbCheckpointState.READY,
-  failure: row.failure ? { reason: "SnapshotTagFailed", message: row.failure } : undefined,
+  state: PbCheckpointState.READY,
   createdAt: timestampFromDate(new Date(row.createdAt)),
 });
 
@@ -926,55 +924,29 @@ on(CheckpointService.method.createCheckpoint, (input, call) => {
   if (input.expectedHeadTaskId !== headTaskId) {
     throw new ConnectError("Conversation advanced beyond the expected task", Code.FailedPrecondition);
   }
-  const failed = new URLSearchParams(window.location.search).get("checkpoint") === "failed";
   const checkpoint = saveCheckpoint({
     id: randomId(),
     agentInstanceId: instance.id,
     name: generatedCheckpointName({ agentInstanceId: instance.id, headTaskId }),
     headTaskId,
     createdAt: new Date().toISOString(),
-    state: failed ? "failed" : "ready",
-    failure: failed ? "Checkpoint snapshot copy could not be verified" : undefined,
   });
-  if (failed) {
-    throw new ConnectError("Checkpoint creation failed; delete the failed checkpoint before creating a new request", Code.FailedPrecondition, undefined, [
-      { desc: ErrorInfoSchema, value: { domain: "kagent.dev", reason: "KAGENT_CHECKPOINT_FAILED" } },
-    ]);
-  }
   return { checkpoint: checkpointMessage(checkpoint) };
 });
 
 on(CheckpointService.method.updateCheckpointName, (input) => {
-  if (checkpointById(input.checkpointId)?.state === "failed") throw notFound(`Checkpoint ${input.checkpointId}`);
   const renamed = renameCheckpoint(input.checkpointId, input.name);
   if (!renamed) throw notFound(`Checkpoint ${input.checkpointId}`);
   return { checkpoint: checkpointMessage(renamed) };
 });
 
-on(CheckpointService.method.getCheckpoint, (input) => {
-  const checkpoint = checkpointById(input.checkpointId);
-  if (!checkpoint) throw notFound(`Checkpoint ${input.checkpointId}`);
-  return { checkpoint: checkpointMessage(checkpoint) };
-});
-
 on(CheckpointService.method.deleteCheckpoint, (input) => {
-  const outcome = new URLSearchParams(window.location.search).get("checkpointDelete");
-  if (outcome === "denied") {
-    throw new ConnectError("Checkpoint operation could not complete", Code.PermissionDenied);
-  }
-  // The store also refuses deletion with NotFound while forks reference a snapshot.
-  if (outcome === "referenced") throw notFound(`Checkpoint ${input.checkpointId}`);
   if (!deleteCheckpoint(input.checkpointId)) throw notFound(`Checkpoint ${input.checkpointId}`);
-  // The next retry sees NotFound: deletion committed but its reply never arrived.
-  if (outcome === "lost") throw new ConnectError("Checkpoint operation could not complete", Code.Unavailable);
   return {};
 });
 
 on(CheckpointService.method.listCheckpoints, (input, call) => {
   const instance = instanceFor(requireInstanceId(input.sessionId), call);
-  if (new URLSearchParams(window.location.search).get("checkpointList") === "unavailable") {
-    throw new ConnectError("Snapshot list unavailable", Code.Unavailable);
-  }
   return { checkpoints: readCheckpoints(instance.id).map(checkpointMessage), page: {} };
 });
 
@@ -986,7 +958,7 @@ on(CheckpointService.method.listCheckpoints, (input, call) => {
  */
 on(CheckpointService.method.forkSession, (input, call) => {
   const checkpoint = checkpointById(input.checkpointId);
-  if (!checkpoint || checkpoint.state === "failed") throw notFound(`Checkpoint ${input.checkpointId}`);
+  if (!checkpoint) throw notFound(`Checkpoint ${input.checkpointId}`);
   const source = instanceFor(checkpoint.agentInstanceId, call);
   const now = new Date().toISOString();
   const forked = saveAgentInstance({

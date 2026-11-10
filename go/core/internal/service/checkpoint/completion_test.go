@@ -15,7 +15,7 @@ import (
 )
 
 func TestCreateObservesReplacementCompletion(t *testing.T) {
-	persistence := reviewStore(t)
+	persistence := recoveryStore(t)
 	for _, outcome := range []string{"pending", "ready", "failed", "deleted"} {
 		t.Run("Given replacement ownership with outcome "+outcome+", when the original Create finishes, assert that it observes the current result", func(t *testing.T) {
 			owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
@@ -69,7 +69,7 @@ func TestCreateObservesReplacementCompletion(t *testing.T) {
 				_, err = NewService(persistence, testAuthorizer{}, tags, nil).Create(owner, source.Id, request, head)
 				require.NoError(t, err)
 			case "failed":
-				assertFailedCheckpointIdentity(t, err, checkpointID)
+				assertFailedCheckpointOutcome(t, err)
 				op, readErr := persistence.GetCheckpointOperation(owner, checkpointID, "alice")
 				require.NoError(t, readErr)
 				require.Equal(t, "replacement rejected the copy", op.Checkpoint.Failure.Message)
@@ -86,7 +86,7 @@ func TestCreateObservesReplacementCompletion(t *testing.T) {
 }
 
 func TestClaimConflictObservesCompletionWithoutRelease(t *testing.T) {
-	persistence := reviewStore(t)
+	persistence := recoveryStore(t)
 	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 	source, head := recoverySource(t, persistence)
 	tags := &testTags{snapshotURI: "s3://snapshots/source"}
@@ -112,7 +112,7 @@ func TestClaimConflictObservesCompletionWithoutRelease(t *testing.T) {
 }
 
 func TestDeleteObservesReplacementCompletion(t *testing.T) {
-	persistence := reviewStore(t)
+	persistence := recoveryStore(t)
 	for _, outcome := range []string{"pending", "deleted"} {
 		t.Run("Given replacement ownership with outcome "+outcome+", when the original Delete finishes, assert that it observes the current result", func(t *testing.T) {
 			owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})

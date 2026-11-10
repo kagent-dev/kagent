@@ -79,6 +79,104 @@ func TestCheckpointReleaseWaitsForClaimCommit(t *testing.T) {
 	require.NoError(t, err, "release must retire the claim after its delayed commit")
 }
 
+func TestCanceledCheckpointClaimCannotCommitAfterRelease(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool, "public")
+	checkpoint, _ := reserveRecoveryCheckpoint(t, client)
+	gate := &checkpointUpdateGate{entered: make(chan struct{}), resume: make(chan struct{})}
+	config := pool.Config().Copy()
+	config.ConnConfig.Tracer = gate
+	latePool, err := Connect(t.Context(), &PostgresConfig{Pool: config, Schema: "public"})
+	require.NoError(t, err)
+	t.Cleanup(latePool.Close)
+	var once sync.Once
+	resume := func() { once.Do(func() { close(gate.resume) }) }
+	t.Cleanup(resume)
+	ctx, cancel := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
+	defer cancel()
+	executor := uuid.New()
+	done := make(chan error, 1)
+	go func() {
+		_, err := NewClient(latePool, "public").ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", executor)
+		done <- err
+	}()
+	select {
+	case <-gate.entered:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	cancel()
+	// No UPDATE has locked the row yet: retirement can complete first.
+	require.NoError(t, client.ReleaseCheckpointOperation(t.Context(), checkpoint.Id, executor))
+	resume()
+	claimErr := <-done
+	replacement, stop := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
+	defer stop()
+	_, err = client.ClaimCheckpointOperation(replacement, checkpoint.Id, "alice", uuid.New())
+	require.NoError(t, err, "a retired caller must not leave a late claim behind")
+	require.ErrorIs(t, claimErr, context.Canceled)
+}
+
+// Deliver the UPDATE after cancellation and retirement, modeling lost query
+// cancellation. PostgreSQL executes the real write; COMMIT keeps the caller's
+// canceled context. No persisted lifecycle state or timestamp is fabricated.
+type checkpointUpdateGate struct {
+	entered, resume chan struct{}
+	once            sync.Once
+}
+
+func (g *checkpointUpdateGate) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if strings.Contains(data.SQL, "UPDATE session_checkpoint SET executor_id") {
+		g.once.Do(func() {
+			close(g.entered)
+			<-g.resume
+		})
+		return context.WithoutCancel(ctx)
+	}
+	return ctx
+}
+
+func (*checkpointUpdateGate) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func TestFailedCheckpointCollectionPreservesRequestAndFencesCleanup(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	checkpoint, _ := reserveRecoveryCheckpoint(t, client)
+	ctx, cancel := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
+	defer cancel()
+	creator := uuid.New()
+	_, err := client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", creator)
+	require.NoError(t, err)
+	failed, err := client.FinalizeClaimedSessionCheckpoint(ctx, checkpoint, creator, "partial-tag", "", "copy failed")
+	require.NoError(t, err)
+	page, err := client.ListPendingCheckpoints(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, page, 1, "FAILED cleanup has no legacy-age grace")
+	executor := uuid.New()
+	_, err = client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", executor)
+	require.NoError(t, err)
+	require.ErrorIs(t, client.ClearFailedCheckpointTag(ctx, checkpoint.Id, "mallory", "partial-tag", executor), ErrConflict)
+	require.ErrorIs(t, client.ClearFailedCheckpointTag(ctx, checkpoint.Id, "alice", "replacement", executor), ErrConflict)
+	require.ErrorIs(t, client.ClearFailedCheckpointTag(ctx, checkpoint.Id, "alice", "partial-tag", creator), ErrConflict)
+	require.NoError(t, client.ReleaseCheckpointOperation(ctx, checkpoint.Id, executor))
+	require.ErrorIs(t, client.ClearFailedCheckpointTag(ctx, checkpoint.Id, "alice", "partial-tag", executor), ErrConflict, "an expired executor cannot record cleanup")
+	executor = uuid.New()
+	_, err = client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", executor)
+	require.NoError(t, err)
+	require.NoError(t, client.ClearFailedCheckpointTag(ctx, checkpoint.Id, "alice", "partial-tag", executor))
+	retained, err := client.GetCheckpointOperation(ctx, checkpoint.Id, "alice")
+	require.NoError(t, err)
+	require.Empty(t, retained.TagUID)
+	require.True(t, proto.Equal(failed, retained.Checkpoint), "cleanup keeps the terminal request result")
+	cleared, err := queryOne(ctx, client.db, `SELECT executor_id IS NULL AND executor_expires_at IS NULL FROM session_checkpoint WHERE id = $1`, pgx.RowTo[bool], checkpoint.Id)
+	require.NoError(t, err)
+	require.True(t, cleared)
+	page, err = client.ListPendingCheckpoints(ctx, "", 100)
+	require.NoError(t, err)
+	require.Empty(t, page)
+	_, err = client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", uuid.New())
+	require.ErrorIs(t, err, ErrConflict)
+}
+
 func reserveRecoveryCheckpoint(t *testing.T, client *Client) (*apiv1.Checkpoint, *apiv1.Session) {
 	t.Helper()
 	ctx := t.Context()

@@ -12,7 +12,6 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -33,6 +32,7 @@ type store interface {
 	ClaimCheckpointOperation(context.Context, string, string, uuid.UUID) (*database.CheckpointOperation, error)
 	ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error
 	ReleaseCheckpointReservation(context.Context, string, string, uuid.UUID) error
+	ClearFailedCheckpointTag(context.Context, string, string, string, uuid.UUID) error
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string, uuid.UUID) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeClaimedSessionCheckpoint(context.Context, *apiv1.Checkpoint, uuid.UUID, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
@@ -100,7 +100,7 @@ func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHead
 	if op.Checkpoint.Id != id.String() {
 		result, err = s.claimAndExecute(ctx, op)
 	} else {
-		result, err = s.execute(ctx, op, executor)
+		result, err = s.execute(ctx, op, executor, true)
 	}
 	if err == nil && result == nil {
 		return nil, serviceerrors.NewNotFound("Checkpoint no longer exists", nil)
@@ -124,7 +124,7 @@ func (s *Service) reserveCreate(ctx context.Context, sessionID, requestID, expec
 		return nil, err
 	}
 	checkpoint, snapshot, err := s.store.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: id, SessionId: sessionID, HeadTaskId: expectedHeadTaskID}, userID, requestID, executor)
-	if err != nil {
+	if err != nil && !definiteAcquisitionError(err) {
 		// The INSERT may still be committing after its reply was lost. Its
 		// source Session lock makes the new row visible before retiring the claim.
 		err = errors.Join(err, releaseClaim(ctx, id, func(releaseCtx context.Context) error {
@@ -162,19 +162,20 @@ var errTagCopyFailed = errors.New("snapshot tag copy cannot be published")
 // ensureTag synchronizes with any prior backend copy and verifies both sides
 // of the copy because ate-api also permits Actors to change outside kagent.
 // The CREATING reservation keeps source admission closed until finalization.
-
-func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1.Checkpoint, reference *database.SessionTaskSnapshot) (*ateapipb.Tag, error) {
+func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1.Checkpoint, reference *database.SessionTaskSnapshot, firstAttempt bool) (*ateapipb.Tag, error) {
 	actorName := substrate.ActorName(checkpoint.SessionId)
 	actor, beforeErr := s.verifySnapshot(ctx, actorName, reference)
 	if beforeErr != nil && status.Code(beforeErr) != codes.FailedPrecondition && status.Code(beforeErr) != codes.NotFound {
 		return nil, beforeErr
 	}
+	if beforeErr != nil && firstAttempt {
+		// No copy has been requested for this newly reserved checkpoint.
+		return nil, errors.Join(errTagCopyFailed, beforeErr)
+	}
 	name := tagName(checkpoint.Id)
-	// v1.0.0 takes Actor and Tag leases before its workflow checks. Interpreting
-	// terminal replies requires the backend guarantee that earlier external
-	// writes cannot outlive serialization, including cancellation/lease loss;
-	// see the architecture document's required backend contract. GetTag alone
-	// cannot establish that a pending copy stopped.
+	// Recovery may have an earlier copy: synchronize through the Actor/Tag leases
+	// before interpreting an existing pending tag. A fresh invalid source never
+	// starts a copy; completed tags still require full identity verification.
 	tag, err := s.tags.CreateTag(ctx, reference.Atespace, name, actorName)
 	if err != nil {
 		switch status.Code(err) {
@@ -255,7 +256,7 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1.Checkpoi
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
 	}
-	return publicCheckpoint(checkpoint), nil
+	return checkpoint, nil
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
@@ -283,9 +284,6 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		return ListResult{}, serviceerrors.NewInternal("Failed to list checkpoints", err)
 	}
 	result := ListResult{Checkpoints: rows[:min(len(rows), pageSize)]}
-	for i, checkpoint := range result.Checkpoints {
-		result.Checkpoints[i] = publicCheckpoint(checkpoint)
-	}
 	if len(rows) > pageSize {
 		result.NextPageToken = encodePageToken(rows[pageSize-1].GetId())
 	}
@@ -306,7 +304,6 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) (err error) {
 	executor := uuid.New()
 	op, err := s.store.BeginDeleteSessionCheckpoint(ctx, checkpointID, userID, executor)
 	if err != nil {
-		err = errors.Join(err, s.release(ctx, checkpointID, executor))
 		if errors.Is(err, database.ErrConflict) {
 			_, err = s.claimAndExecute(ctx, &database.CheckpointOperation{Checkpoint: &apiv1.Checkpoint{Id: checkpointID}, Creator: userID})
 			return err
@@ -314,30 +311,19 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) (err error) {
 		if errors.Is(err, database.ErrNotFound) {
 			return serviceerrors.NewNotFound("Checkpoint not found", err)
 		}
+		if !definiteAcquisitionError(err) {
+			err = errors.Join(err, s.release(ctx, checkpointID, executor))
+		}
 		return serviceerrors.NewInternal("Failed to begin checkpoint deletion", err)
 	}
-	_, err = s.execute(ctx, op, executor)
+	_, err = s.execute(ctx, op, executor, false)
 	return err
 }
 
 func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) error {
 	checkpointID, userID := op.Checkpoint.Id, op.Creator
-	snapshot, tagUID := op.Snapshot, op.TagUID
-	tag, err := s.tags.GetTag(ctx, snapshot.Atespace, tagName(checkpointID))
-	if err != nil && status.Code(err) != codes.NotFound {
-		return publicOperationError(fmt.Errorf("get checkpoint snapshot tag: %w", err))
-	}
-	if err == nil {
-		// The retained UID is authoritative for failed partial copies too:
-		// their storage may still be PENDING and has no completed snapshot URI.
-		if tagUID == "" || tag.GetMetadata().GetUid() != tagUID ||
-			tag.GetMetadata().GetAtespace() != snapshot.Atespace || tag.GetMetadata().GetName() != tagName(checkpointID) ||
-			(op.Checkpoint.Failure == nil && substrate.SnapshotURI(tag.GetStatus().GetSnapshot()) != snapshot.URI) {
-			return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
-		}
-		if err := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpointID), tagUID); err != nil && status.Code(err) != codes.NotFound {
-			return publicOperationError(fmt.Errorf("delete checkpoint snapshot tag: %w", err))
-		}
+	if err := s.deleteTag(ctx, op); err != nil {
+		return err
 	}
 	if err := s.store.DeleteClaimedSessionCheckpoint(ctx, checkpointID, userID, executor); err != nil {
 		if errors.Is(err, database.ErrConflict) {
@@ -351,6 +337,28 @@ func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOpera
 			return serviceerrors.NewAborted("Checkpoint deletion is still pending; retry the same request", nil)
 		}
 		return serviceerrors.NewInternal("Failed to delete checkpoint", err)
+	}
+	return nil
+}
+
+func (s *Service) deleteTag(ctx context.Context, op *database.CheckpointOperation) error {
+	checkpointID := op.Checkpoint.Id
+	snapshot, tagUID := op.Snapshot, op.TagUID
+	tag, err := s.tags.GetTag(ctx, snapshot.Atespace, tagName(checkpointID))
+	if err != nil && status.Code(err) != codes.NotFound {
+		return publicOperationError(fmt.Errorf("get checkpoint snapshot tag: %w", err))
+	}
+	if err == nil {
+		// The retained UID is authoritative for failed partial copies too:
+		// their storage may still be PENDING and has no completed snapshot URI.
+		if tagUID == "" || tag.GetMetadata().GetUid() != tagUID ||
+			tag.GetMetadata().GetAtespace() != snapshot.Atespace || tag.GetMetadata().GetName() != tagName(checkpointID) ||
+			(op.Checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_FAILED && op.Checkpoint.Failure == nil && substrate.SnapshotURI(tag.GetStatus().GetSnapshot()) != snapshot.URI) {
+			return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
+		}
+		if err := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpointID), tagUID); err != nil && status.Code(err) != codes.NotFound {
+			return publicOperationError(fmt.Errorf("delete checkpoint snapshot tag: %w", err))
+		}
 	}
 	return nil
 }
@@ -512,29 +520,16 @@ func createOutcome(checkpoint *apiv1.Checkpoint) (*apiv1.Checkpoint, error) {
 	case apiv1.CheckpointState_CHECKPOINT_STATE_READY:
 		return checkpoint, nil
 	case apiv1.CheckpointState_CHECKPOINT_STATE_FAILED:
-		failure, err := status.New(codes.FailedPrecondition,
-			"Checkpoint creation failed; delete the failed checkpoint before creating a new request").WithDetails(
-			&errdetails.ErrorInfo{Domain: "kagent.dev", Reason: "KAGENT_CHECKPOINT_FAILED"},
-			&errdetails.ResourceInfo{ResourceType: "kagent.api.v1.Checkpoint", ResourceName: checkpoint.Id},
-		)
-		if err != nil {
-			return nil, serviceerrors.NewInternal("Failed to report checkpoint failure", err)
-		}
-		return nil, failure.Err()
+		return nil, status.Error(codes.FailedPrecondition, "Checkpoint creation failed")
 	default:
 		return nil, serviceerrors.NewAborted("Checkpoint operation is still pending; retry the same request", nil)
 	}
 }
 
-// Failed records from older controllers can contain raw backend errors. Public
-// reads expose a generic failure without rewriting the retained operation data.
-func publicCheckpoint(checkpoint *apiv1.Checkpoint) *apiv1.Checkpoint {
-	if checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_FAILED {
-		return checkpoint
-	}
-	result := proto.CloneOf(checkpoint)
-	result.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: checkpointFailureMessage}
-	return result
+// Semantic rejections cannot have committed a reservation or execution claim.
+func definiteAcquisitionError(err error) bool {
+	return errors.Is(err, database.ErrFailedPrecondition) || errors.Is(err, database.ErrConflict) ||
+		errors.Is(err, database.ErrNotFound) || errors.Is(err, database.ErrIdempotencyConflict)
 }
 
 // Backend status text/details can contain private storage configuration. Keep

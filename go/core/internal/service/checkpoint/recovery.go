@@ -89,11 +89,14 @@ func (s *Service) claimAndExecute(ctx context.Context, observed *database.Checkp
 		return s.currentOutcome(ctx, id, owner)
 	}
 	if err != nil {
+		if definiteAcquisitionError(err) {
+			return nil, publicOperationError(err)
+		}
 		// A lost COMMIT reply can hide successful acquisition. Retire this
 		// executor before returning the uncertain error, as on reservation.
 		return nil, errors.Join(publicOperationError(err), s.release(ctx, id, executor))
 	}
-	return s.execute(ctx, op, executor)
+	return s.execute(ctx, op, executor, false)
 }
 
 // Losing execution authority permits observation, never another backend call.
@@ -129,7 +132,7 @@ func releaseClaim(ctx context.Context, id string, release func(context.Context) 
 	return nil
 }
 
-func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) (result *apiv1.Checkpoint, err error) {
+func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID, firstAttempt bool) (result *apiv1.Checkpoint, err error) {
 	releaseNeeded := true
 	defer func() {
 		if releaseNeeded {
@@ -144,7 +147,12 @@ func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation,
 		releaseNeeded = err != nil
 		return nil, err
 	}
-	tag, err := s.ensureTag(ctx, op.Checkpoint, op.Snapshot)
+	if op.Checkpoint.State == apiv1.CheckpointState_CHECKPOINT_STATE_FAILED {
+		err = s.collectFailedTag(ctx, op, executor)
+		releaseNeeded = err != nil
+		return nil, err
+	}
+	tag, err := s.ensureTag(ctx, op.Checkpoint, op.Snapshot, firstAttempt)
 	if err != nil && !errors.Is(err, errTagCopyFailed) {
 		return nil, publicOperationError(err)
 	}
@@ -155,9 +163,7 @@ func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation,
 	if err != nil {
 		failure = checkpointFailureMessage
 	}
-	// Under the required backend serialization contract, the definitive reply
-	// permits FAILED to release admission and retain its UID for explicit Delete.
-	// Expiry of the kagent claim alone never establishes that copying stopped.
+	// FAILED releases source admission; the sweep collects its retained tag by UID.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	checkpoint, err := s.store.FinalizeClaimedSessionCheckpoint(finishCtx, op.Checkpoint, executor,
@@ -173,4 +179,25 @@ func (s *Service) execute(ctx context.Context, op *database.CheckpointOperation,
 	}
 	releaseNeeded = false
 	return createOutcome(checkpoint)
+}
+
+func (s *Service) collectFailedTag(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) error {
+	if err := s.deleteTag(ctx, op); err != nil {
+		return err
+	}
+	err := s.store.ClearFailedCheckpointTag(ctx, op.Checkpoint.Id, op.Creator, op.TagUID, executor)
+	if errors.Is(err, database.ErrConflict) {
+		current, readErr := s.store.GetCheckpointOperation(ctx, op.Checkpoint.Id, op.Creator)
+		if errors.Is(readErr, database.ErrNotFound) || (readErr == nil && current.TagUID == "") {
+			return nil
+		}
+		if readErr != nil {
+			return serviceerrors.NewInternal("Failed to observe checkpoint cleanup", readErr)
+		}
+		return serviceerrors.NewAborted("Checkpoint cleanup is still pending", nil)
+	}
+	if err != nil {
+		return serviceerrors.NewInternal("Failed to collect checkpoint tag", err)
+	}
+	return nil
 }

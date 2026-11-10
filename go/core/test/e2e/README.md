@@ -136,29 +136,6 @@ checks also run in parallel. Trace cases share the receiver but select spans by
 their own trace IDs; the receiver is cleared once before starting those cases.
 
 Controller restart cases stay sequential with respect to the rest of the suite.
-`TestCheckpointReplayAfterControllerRestart` loses a successful public checkpoint
-response, replaces the controller once for the harness matrix, retries the same
-request, and forks the retained snapshot to verify conversation continuity.
-The response loss is caller-side after success; interrupted tag copying,
-publication and deletion are exercised with PostgreSQL-backed workflow fault
-tests. This test does not inject live Substrate packet loss.
-
-`bash core/test/e2e/checkpoint-recovery.sh` (from `go/`) runs the checkpoint
-lifecycle service against real PostgreSQL and the installed Substrate. Set
-`KAGENT_E2E_RUNTIME_IMAGE` to the digest-pinned Go ADK image. The script reads the
-test controller's projected identity into temporary private files and forwards
-the Substrate service; it leaves controller configuration unchanged. Both CI
-runtime jobs run it before the public API E2E suite, and a configured environment
-must fail rather than skip on missing prerequisites. It owns its ActorTemplate,
-Actors and Tags. Cases cover abandoned reservations, lost successful tag replies,
-copy completion before database publication,
-a source deleted before tag creation, a failed retained copy after a real source
-change, denied deletion of actual partially copied objects followed by storage
-repair, and lost successful deletion replies. Transport faults are injected at
-the service's client boundary around real calls; backend responses and database
-phases are not fabricated. The deterministic PostgreSQL tests separately cover
-pending-copy leases and overlapping/expired executors. The partial-copy case applies a real object-store policy denial; transport loss
-remains injected at the client boundary.
 The scheduled-run restart test starts all selected harness executions before one
 shared controller restart, then releases their model responses and checks recovery
 in parallel. Each harness retains its own Session, task, and prompt-count assertions.

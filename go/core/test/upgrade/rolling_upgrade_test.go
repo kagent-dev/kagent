@@ -31,8 +31,6 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
 	waitForPostgresSchema(t, env, 3*time.Minute)
 
-	// Checkpoint mutations remain quiescent in this SQL compatibility lane.
-	// TestUpgrade separately drains legacy writers at the first checkpoint upgrade.
 	// Run even when there is no migration delta: a rolling upgrade rolls the new
 	// image regardless of migrations, so the deploy can still break for
 	// non-schema reasons (a crashing new image, readiness, old pods against

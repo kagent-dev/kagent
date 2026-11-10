@@ -36,23 +36,6 @@ function setScenario(scenario: "ok" | "empty" | "error"): void {
 beforeEach(() => setScenario("ok"));
 afterEach(() => clearApiExtensions());
 
-it("retains a failed snapshot for owner cleanup and rejects fork and rename", async () => {
-  window.history.replaceState({}, "", "/?checkpoint=failed");
-  await expect(invoke("agentInstances.checkpoints.create", {
-    id: SEEDED_CHECKPOINT.agentInstanceId,
-    requestId: "failed-copy",
-    expectedHeadTaskId: SEEDED_CHECKPOINT.headTaskId,
-  })).rejects.toMatchObject({ reason: "KAGENT_CHECKPOINT_FAILED" });
-  const rows = await invoke("agentInstances.checkpoints.list", { id: SEEDED_CHECKPOINT.agentInstanceId });
-  const failed = rows.find((row) => row.state === "failed")!;
-  expect(failed).toMatchObject({ failure: "Checkpoint snapshot copy could not be verified" });
-  await expect(invoke("agentInstances.checkpoints.fork", { checkpointId: failed.id, requestId: "failed-fork" })).rejects.toMatchObject({ code: "NotFound" });
-  await expect(invoke("agentInstances.checkpoints.rename", { checkpointId: failed.id, name: "Not ready" })).rejects.toMatchObject({ code: "NotFound" });
-  await invoke("agentInstances.checkpoints.delete", { checkpointId: failed.id });
-  const after = await invoke("agentInstances.checkpoints.list", { id: SEEDED_CHECKPOINT.agentInstanceId });
-  expect(after.some((row) => row.id === failed.id)).toBe(false);
-});
-
 /**
  * A plausible input for every operation.
  *

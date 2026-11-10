@@ -9,12 +9,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 )
 
 const (
@@ -106,7 +104,13 @@ func (h *Handler) deleteCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, 
 func (h *Handler) createCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CreateCheckpointInput) (*mcp.CallToolResult, CreateCheckpointOutput, error) {
 	created, err := h.checkpoints.Create(ctx, input.SessionID, stableRequestID(input.RequestID), input.ExpectedHeadTaskID)
 	if err != nil {
-		return checkpointToolError(err), CreateCheckpointOutput{}, nil
+		result := checkpointToolError(err)
+		for _, detail := range status.Convert(err).Details() {
+			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == "kagent.dev" {
+				result.Meta = mcp.Meta{"kagent.dev/error-reason": info.Reason}
+			}
+		}
+		return result, CreateCheckpointOutput{}, nil
 	}
 	output := CreateCheckpointOutput{Checkpoint: checkpointSummary(created)}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Created checkpoint %s", created.GetId())}}}, output, nil
@@ -143,37 +147,15 @@ func stableRequestID(id string) string {
 	return uuid.NewString()
 }
 
-// Checkpoint services classify storage failures and sanitize backend statuses.
-// Project only their public message, retaining status and cleanup identity for
-// MCP clients that do not pass through the gRPC error-mapping interceptor.
+// MCP bypasses the gRPC error interceptor. Use classified public messages and
+// strip private causes from wrapped cancellation errors at this boundary too.
 func checkpointToolError(err error) *mcp.CallToolResult {
 	if errors.Is(err, context.Canceled) {
-		err = status.Error(codes.Canceled, "Checkpoint operation canceled")
+		err = errors.New("checkpoint operation canceled")
 	} else if errors.Is(err, context.DeadlineExceeded) {
-		err = status.Error(codes.DeadlineExceeded, "Checkpoint operation deadline exceeded")
+		err = errors.New("checkpoint operation deadline exceeded")
 	}
-	if serviceerrors.CodeOf(err) != "" {
-		return sessionToolError(err)
-	}
-	value, ok := status.FromError(err)
-	if !ok {
-		return sessionToolError(serviceerrors.NewInternal("Checkpoint operation could not complete", err))
-	}
-	result := toolError(errors.New(value.Message()))
-	result.Meta = mcp.Meta{"kagent.dev/grpc-code": value.Code().String()}
-	for _, detail := range value.Details() {
-		switch info := detail.(type) {
-		case *errdetails.ErrorInfo:
-			if info.Domain == "kagent.dev" {
-				result.Meta["kagent.dev/error-reason"] = info.Reason
-			}
-		case *errdetails.ResourceInfo:
-			if info.ResourceType == "kagent.api.v1.Checkpoint" {
-				result.Meta["kagent.dev/checkpoint-id"] = info.ResourceName
-			}
-		}
-	}
-	return result
+	return sessionToolError(err)
 }
 
 func checkpointSummary(value *apiv1.Checkpoint) CheckpointSummary {

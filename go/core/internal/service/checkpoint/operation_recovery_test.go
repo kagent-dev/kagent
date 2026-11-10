@@ -21,7 +21,7 @@ import (
 )
 
 func TestCheckpointRequestsAndRecovery(t *testing.T) {
-	store := reviewStore(t)
+	store := recoveryStore(t)
 	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 
 	t.Run("Given a ready source, when Create is called without a worker, assert that it returns a retained checkpoint inline", func(t *testing.T) {
@@ -260,6 +260,60 @@ func TestCheckpointRequestsAndRecovery(t *testing.T) {
 	})
 }
 
+func TestDefiniteAcquisitionFailuresDoNotRetireClaims(t *testing.T) {
+	for _, failure := range []error{database.ErrCheckpointAdvanced, database.ErrSnapshotPending,
+		database.ErrIdempotencyConflict, database.ErrNotFound, database.ErrConflict, database.ErrFailedPrecondition} {
+		t.Run("Given a definite reserve rejection, when Create returns "+failure.Error()+", assert that no retirement is attempted", func(t *testing.T) {
+			persistence := &acquisitionFailureStore{testStore: &testStore{reserveErr: failure}}
+			tags := &testTags{}
+			owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+			_, err := NewService(persistence, testAuthorizer{}, tags, nil).Create(owner, uuid.NewString(), uuid.NewString(), "head")
+			require.Error(t, err)
+			require.Zero(t, persistence.releases)
+			require.Zero(t, tags.createCalls)
+		})
+	}
+	for _, operation := range []string{"Delete", "claim"} {
+		t.Run("Given a definite precondition rejection, when "+operation+" is attempted, assert that no retirement is attempted", func(t *testing.T) {
+			persistence := &acquisitionFailureStore{testStore: &testStore{}, failure: database.ErrFailedPrecondition}
+			service := NewService(persistence, testAuthorizer{}, nil, nil)
+			owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+			var err error
+			if operation == "Delete" {
+				err = service.Delete(owner, uuid.NewString())
+			} else {
+				_, err = service.claimAndExecute(owner, &database.CheckpointOperation{Checkpoint: &apiv1.Checkpoint{Id: uuid.NewString()}, Creator: "alice"})
+			}
+			require.Error(t, err)
+			require.Zero(t, persistence.releases)
+		})
+	}
+}
+
+type acquisitionFailureStore struct {
+	*testStore
+	failure  error
+	releases int
+}
+
+func (s *acquisitionFailureStore) BeginDeleteSessionCheckpoint(context.Context, string, string, uuid.UUID) (*database.CheckpointOperation, error) {
+	return nil, s.failure
+}
+
+func (s *acquisitionFailureStore) ClaimCheckpointOperation(context.Context, string, string, uuid.UUID) (*database.CheckpointOperation, error) {
+	return nil, s.failure
+}
+
+func (s *acquisitionFailureStore) ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error {
+	s.releases++
+	return errors.New("unexpected claim retirement")
+}
+
+func (s *acquisitionFailureStore) ReleaseCheckpointReservation(context.Context, string, string, uuid.UUID) error {
+	s.releases++
+	return errors.New("unexpected reservation retirement")
+}
+
 // Alias prevents the fixture's local store variable from shadowing the interface.
 type storeInterface = store
 
@@ -273,7 +327,7 @@ func (s *countedClaims) ClaimCheckpointOperation(ctx context.Context, id, owner 
 	return s.Client.ClaimCheckpointOperation(ctx, id, owner, executor)
 }
 
-func reviewStore(t *testing.T) *database.Client {
+func recoveryStore(t *testing.T) *database.Client {
 	t.Helper()
 	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
 	require.NoError(t, dbtest.Migrate(dsn, false))
@@ -293,7 +347,7 @@ func TestPublicBackendErrorsHideConfiguration(t *testing.T) {
 }
 
 func TestPublicDeleteReportsCurrentBackendStatus(t *testing.T) {
-	persistence := reviewStore(t)
+	persistence := recoveryStore(t)
 	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 	for _, operation := range []string{"lookup", "delete"} {
 		for _, code := range []codes.Code{codes.FailedPrecondition, codes.InvalidArgument, codes.PermissionDenied, codes.Unauthenticated} {
@@ -324,7 +378,7 @@ func TestPublicDeleteReportsCurrentBackendStatus(t *testing.T) {
 }
 
 func TestPublicCreateRetainsUnverifiedTag(t *testing.T) {
-	persistence := reviewStore(t)
+	persistence := recoveryStore(t)
 	source, head := recoverySource(t, persistence)
 	tags := &testTags{snapshotURI: "s3://snapshots/source"}
 	service := NewService(persistence, testAuthorizer{}, tags, nil)
@@ -355,7 +409,7 @@ func TestPublicCreateRetainsUnverifiedTag(t *testing.T) {
 }
 
 func TestSlowRecoveryDoesNotBlockRequests(t *testing.T) {
-	persistence := reviewStore(t)
+	persistence := recoveryStore(t)
 	slowSource, slowHead := recoverySource(t, persistence)
 	fastSource, fastHead := recoverySource(t, persistence)
 	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
@@ -403,7 +457,7 @@ func (s *lostCheckpointFinalization) FinalizeClaimedSessionCheckpoint(ctx contex
 }
 
 func TestPublicCheckpointErrorsHideReleaseFailures(t *testing.T) {
-	persistence := reviewStore(t)
+	persistence := recoveryStore(t)
 	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 	for _, operation := range []string{"Create", "Delete"} {
 		t.Run("Given a private claim release failure, when "+operation+" also fails at the backend, assert that its current status excludes database details", func(t *testing.T) {

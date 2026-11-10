@@ -21,7 +21,7 @@ import (
 )
 
 // This is a populated legacy-schema fixture, not a previous-release binary.
-// Backend serialization is tested separately against real Substrate.
+// The normal API E2E covers controller restart and request replay separately.
 func TestCheckpointRecoveryAcrossClaimMigration(t *testing.T) {
 	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
 	config := dbtest.PoolConfig(dsn)

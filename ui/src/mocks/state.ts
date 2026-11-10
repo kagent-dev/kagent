@@ -383,8 +383,6 @@ export interface MockCheckpoint {
   name: string;
   headTaskId: string;
   createdAt: string;
-  state?: "ready" | "failed";
-  failure?: string;
 }
 
 /**

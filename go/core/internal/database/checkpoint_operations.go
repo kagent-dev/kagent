@@ -22,9 +22,9 @@ type CheckpointOperation struct {
 }
 
 // ClaimCheckpointOperation grants one bounded attempt exclusive execution of an
-// owner's pending checkpoint and returns its current phase, not a caller's earlier
-// observation. The caller must establish its attempt deadline before claiming and
-// use that context for every backend call. Missing, terminal, or actively claimed
+// owner's pending work, including FAILED tag cleanup, and returns its current
+// phase. The caller must establish its attempt deadline before claiming and
+// use that context for every backend call. Missing, completed, or actively claimed
 // work returns ErrConflict. No database lock survives this call.
 func (c *Client) ClaimCheckpointOperation(ctx context.Context, id, owner string, executor uuid.UUID) (*CheckpointOperation, error) {
 	deadline, ok := ctx.Deadline()
@@ -47,8 +47,9 @@ func (c *Client) ClaimCheckpointOperation(ctx context.Context, id, owner string,
 		row, err := queryOne(ctx, tx, `
 		UPDATE session_checkpoint SET executor_id = $3,
 		    executor_expires_at = clock_timestamp() + $4 * interval '1 millisecond'
-		WHERE id = $1 AND user_id = $2 AND state IN ('CREATING', 'DELETING')
-		    AND ((executor_id IS NULL AND $5::boolean) OR executor_expires_at <= clock_timestamp())
+		WHERE id = $1 AND user_id = $2
+		    AND (state IN ('CREATING', 'DELETING') OR (state = 'FAILED' AND tag_uid <> ''))
+		    AND ((executor_id IS NULL AND (state = 'FAILED' OR $5::boolean)) OR executor_expires_at <= clock_timestamp())
 		RETURNING id, source_session_id, user_id, request_id, head_task_id, history_sequence,
 		    snapshot_atespace, snapshot_uri, snapshot_fidelity, tag_uid, state, data,
 		    source_history_id, prepared_revision
@@ -124,8 +125,8 @@ func (c *Client) GetCheckpointOperation(ctx context.Context, id, owner string) (
 	return checkpointOperation(row)
 }
 
-// ListPendingCheckpoints returns a bounded ID-ordered page of durable creation
-// and deletion work across owners. Only the controller's checkpoint worker uses
+// ListPendingCheckpoints returns a bounded ID-ordered page of durable creation,
+// deletion, and FAILED tag cleanup across owners. Only the checkpoint worker uses
 // this unscoped query; age never establishes whether a tag copy is still live.
 func (c *Client) ListPendingCheckpoints(ctx context.Context, afterID string, limit int) ([]*CheckpointOperation, error) {
 	var after *string
@@ -137,8 +138,8 @@ func (c *Client) ListPendingCheckpoints(ctx context.Context, afterID string, lim
 		    snapshot_atespace, snapshot_uri, snapshot_fidelity, tag_uid, state, data,
 		    source_history_id, prepared_revision
 		FROM session_checkpoint
-		WHERE state IN ('CREATING', 'DELETING')
-          AND (executor_expires_at <= statement_timestamp() OR (executor_id IS NULL AND id < $3::uuid))
+		WHERE (state IN ('CREATING', 'DELETING') OR (state = 'FAILED' AND tag_uid <> ''))
+          AND (executor_expires_at <= statement_timestamp() OR (executor_id IS NULL AND (state = 'FAILED' OR id < $3::uuid)))
 		  AND ($1::uuid IS NULL OR id > $1::uuid)
 		ORDER BY id LIMIT $2
 	`, pgx.RowToStructByName[sessionCheckpointRow], after, limit, legacyCheckpointCutoff(time.Now()))
@@ -156,6 +157,27 @@ func (c *Client) ListPendingCheckpoints(ctx context.Context, afterID string, lim
 	return result, nil
 }
 
+// ClearFailedCheckpointTag records successful UID-conditional cleanup without
+// discarding the owner's terminal request result. Only the current executor can
+// clear the retained UID and claim atomically; stale completions return ErrConflict.
+func (c *Client) ClearFailedCheckpointTag(ctx context.Context, id, owner, tagUID string, executor uuid.UUID) error {
+	if tagUID == "" || executor == uuid.Nil {
+		return ErrFailedPrecondition
+	}
+	tag, err := c.db.Exec(ctx, `
+		UPDATE session_checkpoint SET tag_uid = '', executor_id = NULL, executor_expires_at = NULL
+		WHERE id = $1 AND user_id = $2 AND state = 'FAILED' AND tag_uid = $3
+		    AND executor_id = $4 AND executor_expires_at > clock_timestamp()
+	`, id, owner, tagUID, executor)
+	if err != nil {
+		return fmt.Errorf("clear failed checkpoint tag: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrConflict
+	}
+	return nil
+}
+
 func checkpointOperation(row sessionCheckpointRow) (*CheckpointOperation, error) {
 	checkpoint, err := toSessionCheckpoint(row)
 	if err != nil {
@@ -165,8 +187,8 @@ func checkpointOperation(row sessionCheckpointRow) (*CheckpointOperation, error)
 		Snapshot: checkpointSnapshot(row), TagUID: row.TagUID}, nil
 }
 
-// Legacy rows have no claim. The UUID grace avoids taking freshly reserved work
-// during rollout, but is not a fence: the first upgrade must drain old writers.
+// Legacy rows have no claim. The UUID grace delays freshly reserved work during
+// rolling upgrades; overlapping tag attempts still serialize through Substrate.
 func legacyCheckpointCutoff(now time.Time) uuid.UUID {
 	var id uuid.UUID
 	binary.BigEndian.PutUint64(id[:8], uint64(now.Add(-RuntimeOperationTimeout).UnixMilli())<<16)

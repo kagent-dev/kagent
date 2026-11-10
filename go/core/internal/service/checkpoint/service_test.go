@@ -894,3 +894,8 @@ func (*testStore) ReleaseCheckpointOperation(context.Context, string, uuid.UUID)
 func (*testStore) ReleaseCheckpointReservation(context.Context, string, string, uuid.UUID) error {
 	return nil
 }
+
+func (s *testStore) ClearFailedCheckpointTag(context.Context, string, string, string, uuid.UUID) error {
+	s.tagUID = ""
+	return nil
+}

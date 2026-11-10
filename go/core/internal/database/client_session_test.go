@@ -343,14 +343,14 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
 	}
 	listed, err := client.ListSessionCheckpoints(ctx, sessionID, "alice", "", 10)
-	if err != nil || len(listed) != 2 || listed[0].Id != checkpoint.Id || listed[1].Id != failed.Id {
+	if err != nil || len(listed) != 1 || listed[0].Id != checkpoint.Id {
 		t.Fatalf("listed checkpoints = %+v, error %v", listed, err)
 	}
-	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, listed[1].State)
 	page, err := client.ListSessionCheckpoints(ctx, sessionID, "alice", checkpoint.Id, 1)
 	require.NoError(t, err)
-	require.Len(t, page, 1)
-	require.Equal(t, failed.Id, page[0].Id, "pagination must include failed cleanup candidates")
+	require.Empty(t, page, "pagination must not expose internal FAILED rows")
+	_, err = client.GetSessionCheckpoint(ctx, failed.Id, "alice")
+	require.ErrorIs(t, err, ErrNotFound)
 	foreign, err := client.ListSessionCheckpoints(ctx, sessionID, "mallory", "", 10)
 	require.NoError(t, err)
 	require.Empty(t, foreign)

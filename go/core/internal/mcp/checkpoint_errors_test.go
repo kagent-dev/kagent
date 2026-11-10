@@ -49,35 +49,32 @@ func TestCheckpointToolsHideStorageFailures(t *testing.T) {
 	}
 }
 
-func TestCheckpointToolsRetainTerminalIdentity(t *testing.T) {
-	store := &checkpointErrorStore{phase: "failed"}
-	h := &Handler{checkpoints: checkpoint.NewService(store, &auth.NoopAuthorizer{}, nil, nil)}
-	result := checkpointToolResponse(t, h.checkpoints, createCheckpointToolName, map[string]any{
-		"session_id": testSessionID, "expected_head_task_id": testTaskID, "request_id": "failed-request"})
-	require.Equal(t, true, result["isError"])
-	meta := result["_meta"].(map[string]any)
-	require.Equal(t, "FailedPrecondition", meta["kagent.dev/grpc-code"])
-	require.Equal(t, "KAGENT_CHECKPOINT_FAILED", meta["kagent.dev/error-reason"])
-	id := meta["kagent.dev/checkpoint-id"].(string)
-	require.Equal(t, "33333333-3333-4333-8333-333333333333", id)
-	read, output, err := h.getCheckpoint(authContext(), nil, CheckpointIDInput{CheckpointID: id})
-	require.NoError(t, err)
-	require.False(t, read.IsError)
-	require.Equal(t, id, output.Checkpoint.ID)
-	require.NotContains(t, output.Checkpoint.Failure.Message, "private")
-}
-
 func TestCheckpointToolsRetainCurrentBackendStatus(t *testing.T) {
 	for _, code := range []codes.Code{codes.PermissionDenied, codes.FailedPrecondition, codes.InvalidArgument, codes.Unauthenticated, codes.Unavailable, codes.Aborted} {
 		t.Run("Given backend "+code.String()+", when Delete is called, assert that the current code survives without private details", func(t *testing.T) {
 			backend := &checkpointErrorBackend{err: status.Error(code, "private backend endpoint")}
-			h := &Handler{checkpoints: checkpoint.NewService(&checkpointErrorStore{phase: "backend"}, &auth.NoopAuthorizer{}, backend, nil)}
-			result, _, err := h.deleteCheckpoint(authContext(), nil, CheckpointIDInput{CheckpointID: "33333333-3333-4333-8333-333333333333"})
-			require.NoError(t, err)
-			require.True(t, result.IsError)
+			result := checkpointToolResponse(t, checkpoint.NewService(&checkpointErrorStore{phase: "backend"}, &auth.NoopAuthorizer{}, backend, nil), deleteCheckpointToolName,
+				map[string]any{"checkpoint_id": "33333333-3333-4333-8333-333333333333"})
+			text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+			require.Equal(t, true, result["isError"])
 			require.Equal(t, 1, backend.calls)
-			require.Equal(t, code.String(), result.Meta["kagent.dev/grpc-code"])
-			require.NotContains(t, fmt.Sprint(result.Content), "private")
+			require.Contains(t, text, code.String())
+			require.NotContains(t, text, "private")
+		})
+	}
+}
+
+func TestCheckpointToolsPreserveSnapshotRetryReasons(t *testing.T) {
+	for reason, failure := range map[string]error{
+		"KAGENT_CHECKPOINT_SNAPSHOT_PENDING":      database.ErrSnapshotPending,
+		"KAGENT_CHECKPOINT_CONVERSATION_ADVANCED": database.ErrCheckpointAdvanced,
+	} {
+		t.Run("Given "+reason+", when Create is called, assert that existing retry metadata is retained", func(t *testing.T) {
+			store := &checkpointErrorStore{reserveErr: failure}
+			result := checkpointToolResponse(t, checkpoint.NewService(store, &auth.NoopAuthorizer{}, nil, nil), createCheckpointToolName,
+				map[string]any{"session_id": testSessionID, "expected_head_task_id": testTaskID, "request_id": "retry-reason"})
+			require.Equal(t, true, result["isError"])
+			require.Equal(t, reason, result["_meta"].(map[string]any)["kagent.dev/error-reason"])
 		})
 	}
 }
@@ -85,13 +82,12 @@ func TestCheckpointToolsRetainCurrentBackendStatus(t *testing.T) {
 func TestCheckpointToolsSanitizeWrappedCancellation(t *testing.T) {
 	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
 		store := &checkpointErrorStore{phase: "claim failure", claimErr: fmt.Errorf("private database endpoint: %w", cause)}
-		h := &Handler{checkpoints: checkpoint.NewService(store, &auth.NoopAuthorizer{}, nil, nil)}
-		result, _, err := h.createCheckpoint(authContext(), nil, CreateCheckpointInput{
-			SessionID: testSessionID, ExpectedHeadTaskID: testTaskID, RequestID: "canceled-request"})
-		require.NoError(t, err)
-		require.True(t, result.IsError)
-		require.Equal(t, status.FromContextError(cause).Code().String(), result.Meta["kagent.dev/grpc-code"])
-		require.NotContains(t, fmt.Sprint(result.Content), "private")
+		result := checkpointToolResponse(t, checkpoint.NewService(store, &auth.NoopAuthorizer{}, nil, nil), createCheckpointToolName,
+			map[string]any{"session_id": testSessionID, "expected_head_task_id": testTaskID, "request_id": "canceled-request"})
+		text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+		require.Equal(t, true, result["isError"])
+		require.NotEmpty(t, text)
+		require.NotContains(t, text, "private")
 	}
 }
 
@@ -107,12 +103,16 @@ func checkpointToolResponse(t *testing.T, service *checkpoint.Service, tool stri
 
 type checkpointErrorStore struct {
 	*database.Client
-	phase    string
-	failures int
-	claimErr error
+	phase      string
+	failures   int
+	claimErr   error
+	reserveErr error
 }
 
 func (s *checkpointErrorStore) ReserveSessionCheckpoint(_ context.Context, cp *apiv1.Checkpoint, _ string, _ string, _ uuid.UUID) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error) {
+	if s.reserveErr != nil {
+		return nil, nil, s.reserveErr
+	}
 	if s.phase == "reserve failure" {
 		s.failures++
 		return nil, nil, errors.New("connect to private-db.internal user=controller database=kagent: connection refused")
@@ -121,10 +121,6 @@ func (s *checkpointErrorStore) ReserveSessionCheckpoint(_ context.Context, cp *a
 	cp.State = apiv1.CheckpointState_CHECKPOINT_STATE_READY
 	if s.phase == "claim failure" {
 		cp.State = apiv1.CheckpointState_CHECKPOINT_STATE_CREATING
-	}
-	if s.phase == "failed" {
-		cp.State = apiv1.CheckpointState_CHECKPOINT_STATE_FAILED
-		cp.Failure = &apiv1.Failure{Message: "private legacy failure"}
 	}
 	return cp, &database.SessionTaskSnapshot{}, nil
 }
@@ -154,10 +150,6 @@ func (s *checkpointErrorStore) BeginDeleteSessionCheckpoint(context.Context, str
 		return &database.CheckpointOperation{Checkpoint: &apiv1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", State: apiv1.CheckpointState_CHECKPOINT_STATE_DELETING}, Creator: "alice", Snapshot: &database.SessionTaskSnapshot{Atespace: "team-a"}}, nil
 	}
 	return nil, database.ErrConflict
-}
-
-func (s *checkpointErrorStore) GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error) {
-	return &apiv1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", State: apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, Failure: &apiv1.Failure{Message: "private legacy failure"}}, nil
 }
 
 type checkpointErrorBackend struct {
