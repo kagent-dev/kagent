@@ -68,6 +68,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
   });
 
   await test.step("4. the form says what a template is, and refuses an unusable one", async () => {
+    await page.getByTestId("agents-create").click();
     await page.getByTestId("agents-new-template").click();
     await page.waitForURL(/\/agent-templates\/new(\?|$)/);
 

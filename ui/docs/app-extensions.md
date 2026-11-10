@@ -249,6 +249,8 @@ point lives.
 | `app_shell_appLayout_contentArea_globalOverlay` | none |
 | `app_shell_appLayout_appSidebar_footer` | none |
 | `app_agents_agentsList_pageHeader_actions` | none |
+| `app_agents_agentsList_overview_createActions` | `{ kind: "Agent" \| "AgentTemplate" \| "Harness" }` |
+| `app_agents_agentsList_createModal_options` | none. Render a `CreateOptionRow` (`{ title, tagline, to, testId? }`), exported from `@/appExtensions`, so the row matches the built-in ones |
 | `app_agents_agentsList_agentListItem_badge` | `{ agentName: string; namespace: string }` |
 | `app_agents_agentChat_agentChatMessage_additionalActionsButton` | `{ messageId: string; role: "user" \| "agent"; text: string }` |
 | `app_agents_agentChat_snapshotDetails_footer` | `{ snapshotId: string; instanceId: string; label: string }` |

@@ -1,6 +1,9 @@
 import { Card, Typography } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
-import { useSearchParams } from "react-router-dom";
+import { Plus } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ExtensionSlot } from "@/appExtensions";
+import { CREATE_OPTIONS, type CreateOption } from "./createOptions";
 
 const { Text } = Typography;
 
@@ -78,11 +81,13 @@ export function AgentConcepts() {
         <div css={{ display: "grid", gap: theme.space(2), flex: "1 1 260px", minWidth: 0 }}>
           <Box
             kind="AgentTemplate"
+            create={CREATE_OPTIONS.AgentTemplate}
             detail="The model, prompt and tools."
             onOpen={() => open("templates")}
           />
           <Box
             kind="Harness"
+            create={CREATE_OPTIONS.Harness}
             detail="The runtime, image and worker pool."
             onOpen={() => open("harnesses")}
           />
@@ -91,6 +96,7 @@ export function AgentConcepts() {
         <MergeArrow theme={theme} />
         <Box
           kind="Agent"
+          create={CREATE_OPTIONS.Agent}
           detail="Inline or shared behavior on a platform-managed harness."
           onOpen={() => open("agents")}
         />
@@ -113,67 +119,102 @@ function Box({
   kind,
   detail,
   onOpen,
+  create,
 }: {
   kind: string;
   detail: string;
   onOpen?: () => void;
+  /** Adds a corner "+" that goes to this option's create form. */
+  create?: CreateOption;
 }) {
   const theme = useTheme();
   const interactive = Boolean(onOpen);
 
   return (
-    <button
-      type="button"
-      data-testid={`concept-${kind}`}
-      disabled={!interactive}
-      onClick={onOpen}
-      css={{
-        flex: "1 1 220px",
-        minWidth: 0,
-        textAlign: "left",
-        // Centred down the box, because a card that stretches to match the two stacked
-        // beside it would otherwise hold its text at the top of an empty rectangle.
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        gap: 2,
-        font: "inherit",
-        padding: `${theme.space(3)} ${theme.space(3)}`,
-        borderRadius: theme.radius.md,
-        border: `1px solid ${theme.color.border}`,
-        background: theme.color.bg,
-        transition: "background 140ms ease, border-color 140ms ease, transform 140ms ease",
-        cursor: interactive ? "pointer" : "default",
-        ...(interactive
-          ? {
-              "&:hover": {
-                borderColor: `${theme.color.primary}A6`,
-                background: theme.color.bgElevated,
-              },
-              // Pressed, and distinct from hovered: a press that looks like a hover
-              // reads as a click that did not register.
-              "&:active": {
-                background: `${theme.color.primary}33`,
-                transform: "translateY(1px)",
-              },
-              "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
-            }
-          : {}),
-      }}
-    >
-      <div
+    // The "+" is a sibling of the box button, not a child: a button inside a button is
+    // invalid, and a sibling keeps a click on the "+" from also opening the tab.
+    <div css={{ position: "relative", display: "flex", flex: "1 1 220px", minWidth: 0 }}>
+      <button
+        type="button"
+        data-testid={`concept-${kind}`}
+        disabled={!interactive}
+        onClick={onOpen}
         css={{
-          fontFamily: theme.font.mono,
-          fontSize: 13,
-          // The derived one is marked, because it is the one that is not a resource and
-          // the confusion is people looking for where to create it.
-          color: theme.color.text,
+          flex: 1,
+          minWidth: 0,
+          textAlign: "left",
+          // Centred down the box, because a card that stretches to match the two stacked
+          // beside it would otherwise hold its text at the top of an empty rectangle.
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 2,
+          font: "inherit",
+          padding: `${theme.space(3)} ${theme.space(3)}`,
+          // Room for the corner "+" so the text never runs underneath it.
+          paddingRight: create ? theme.space(6) : theme.space(3),
+          borderRadius: theme.radius.md,
+          border: `1px solid ${theme.color.border}`,
+          background: theme.color.bg,
+          transition: "background 140ms ease, border-color 140ms ease, transform 140ms ease",
+          cursor: interactive ? "pointer" : "default",
+          ...(interactive
+            ? {
+                "&:hover": {
+                  borderColor: `${theme.color.primary}A6`,
+                  background: theme.color.bgElevated,
+                },
+                // Pressed, and distinct from hovered: a press that looks like a hover
+                // reads as a click that did not register.
+                "&:active": {
+                  background: `${theme.color.primary}33`,
+                  transform: "translateY(1px)",
+                },
+                "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
+              }
+            : {}),
         }}
       >
-        {kind}
-      </div>
-      <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{detail}</Text>
-    </button>
+        <div
+          css={{
+            fontFamily: theme.font.mono,
+            fontSize: 13,
+            // The derived one is marked, because it is the one that is not a resource and
+            // the confusion is people looking for where to create it.
+            color: theme.color.text,
+          }}
+        >
+          {kind}
+        </div>
+        <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{detail}</Text>
+      </button>
+      {create && (
+        <div css={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 4 }}>
+          <ExtensionSlot
+            id="app_agents_agentsList_overview_createActions"
+            context={{ kind: create.kind }}
+          />
+          <Link
+            to={create.to}
+            aria-label={`Create ${create.kind}`}
+            title={`Create ${create.kind}`}
+            data-testid={`concept-create-${kind}`}
+            css={{
+              display: "flex",
+              padding: 5,
+              borderRadius: theme.radius.md,
+              color: theme.color.textMuted,
+              // A faint tint of the muted text colour: light on dark themes, dark on light.
+              background: `${theme.color.textMuted}26`,
+              "&:hover": { color: theme.color.primaryText, background: `${theme.color.primary}33` },
+              "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
+            }}
+          >
+            <Plus size={14} />
+          </Link>
+        </div>
+      )}
+    </div>
   );
 }
 

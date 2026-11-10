@@ -1,14 +1,15 @@
-import { Button, Space, Tabs } from "antd";
+import { useState } from "react";
+import { Button, Modal, Space, Tabs } from "antd";
 import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
-import { ExtensionSlot } from "@/appExtensions";
-import { paths } from "@/router/routes";
+import { useSearchParams } from "react-router-dom";
+import { CreateOptionRow, ExtensionSlot } from "@/appExtensions";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentsTab } from "@/pages/AgentsPage";
 import { AgentTemplatesTab } from "@/pages/AgentTemplatesPage";
 import { AgentConcepts } from "./AgentConcepts";
 import { HarnessesTab } from "./HarnessesTab";
+import { CREATE_OPTIONS } from "./createOptions";
 
 const TABS = ["agents", "templates", "harnesses"] as const;
 
@@ -29,6 +30,7 @@ type TabKey = (typeof TABS)[number];
 export function AgentsLandingPage() {
   const theme = useTheme();
   const [params, setParams] = useSearchParams();
+  const [creating, setCreating] = useState(false);
 
   /*
    * No page-level refresh, deliberately.
@@ -64,21 +66,14 @@ export function AgentsLandingPage() {
           {/* The point the agents list has always offered, kept where the controls
               now are rather than left behind in the tab they moved out of. */}
           <ExtensionSlot id="app_agents_agentsList_pageHeader_actions" />
-          <Link to={paths.agentNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new">
-              New Agent
-            </Button>
-          </Link>
-          <Link to={paths.agentTemplateNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-template">
-              New Template
-            </Button>
-          </Link>
-          <Link to={paths.harnessNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-harness">
-              New Harness
-            </Button>
-          </Link>
+          <Button
+            type="primary"
+            icon={<Plus size={14} />}
+            data-testid="agents-create"
+            onClick={() => setCreating(true)}
+          >
+            Create
+          </Button>
         </Space>
       }
     >
@@ -87,6 +82,20 @@ export function AgentsLandingPage() {
       <div css={{ marginTop: `-${theme.space(3)}` }}>
         <AgentConcepts />
       </div>
+
+      <Modal
+        title="Create"
+        open={creating}
+        footer={null}
+        onCancel={() => setCreating(false)}
+      >
+        <div css={{ display: "grid", gap: theme.space(2) }}>
+          {Object.values(CREATE_OPTIONS).map(({ kind, to, tagline, testId }) => (
+            <CreateOptionRow key={kind} title={kind} to={to} tagline={tagline} testId={testId} />
+          ))}
+          <ExtensionSlot id="app_agents_agentsList_createModal_options" />
+        </div>
+      </Modal>
 
       <Tabs
         activeKey={active}
