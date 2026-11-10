@@ -167,7 +167,7 @@ export function specFromDraft(
       .filter((tool) => tool.serverRef.name.trim() !== "")
       .map((tool) => ({
         mcp: {
-          // The only kind the CRD's enum allows.
+          // The form only selects RemoteMCPServers.
           server: { kind: "RemoteMCPServer" as const, ...normalizedReference(tool.serverRef, draft.namespace) },
           ...(tool.tools.length > 0 ? { tools: [...tool.tools] } : {}),
           // omitempty on the CRD: false is the default, so only true is sent.

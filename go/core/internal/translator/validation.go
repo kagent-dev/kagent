@@ -1,10 +1,14 @@
 package translator
 
 import (
+	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/types"
 )
+
+// ErrInvalidKind marks a reference to a kind its field cannot resolve.
+var ErrInvalidKind = errors.New("unsupported kind")
 
 // WorkerPoolNotFoundError identifies an unresolved Harness capacity reference.
 type WorkerPoolNotFoundError struct {
