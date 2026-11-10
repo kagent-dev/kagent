@@ -287,8 +287,12 @@ The setting is off by default. Sends then keep the refusals they had before
 recovery existed, and only an explicit `RevertSession` recovers. Chat retries a
 send refused as `KAGENT_SEND_NOT_ACCEPTED` with the same message ID, doubling
 the wait up to two seconds for 30 seconds, and then offers Recover, which calls
-`RevertSession`. Chat also offers Recover while a recovery is pending, because a
-recovery whose attempt failed stays FAILED/REVERT until a client retries it.
+`RevertSession`. A crash during a turn leaves that turn active, so with the
+setting off the next send is refused outright as a conflict while the Session
+still reads READY. Chat offers Recover for that refusal too, because nothing
+else observes the crash. Chat also offers Recover while a recovery is pending,
+because a recovery whose attempt failed stays FAILED/REVERT until a client
+retries it.
 Recover returns a healthy runtime unchanged and records a lost one, so it is
 safe to offer on a guess.
 

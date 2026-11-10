@@ -9,7 +9,7 @@ import { CheckpointService, CheckpointState } from "@/generated/kagent/api/v1/ch
 import { RuntimeOperation, RuntimeState } from "@/generated/kagent/api/v1/runtime_pb";
 import { setApiTransport } from "@/api/transport";
 import { ApiError, type ChatController } from "@/api";
-import { SEND_NOT_ACCEPTED } from "@/api/chat/a2aGrpcChatClient";
+import { SEND_NOT_ACCEPTED, SEND_REFUSED } from "@/api/chat/a2aGrpcChatClient";
 import { themeFor } from "@/theme/theme";
 import { AgentChatPage } from "./AgentChatPage";
 
@@ -185,6 +185,31 @@ describe("a send the gateway never accepted", () => {
     renderPage();
     fireEvent.click(within(await screen.findByTestId("chat-turn-error")).getByRole("button", { name: "Recover" }));
     expect(await screen.findByText("This conversation's runtime cannot be recovered")).toBeInTheDocument();
+  });
+
+  it("offers Recover when an earlier turn left the conversation refusing sends", async () => {
+    // A runtime that crashed mid-turn leaves that turn open, so sends are refused as a
+    // conflict while the Session still reads READY.
+    lifecycle = READY;
+    (chat as { turnError?: Error }).turnError = new ApiError("resource conflict", {
+      kind: "http", code: "FailedPrecondition", reason: SEND_REFUSED, url: "A2AService/SendStreamingMessage",
+    });
+    renderPage();
+    const alert = await screen.findByTestId("chat-turn-error");
+    expect(alert).toHaveTextContent("The agent's runtime may have crashed");
+    expect(alert).toHaveTextContent("resource conflict");
+    fireEvent.click(within(alert).getByRole("button", { name: "Recover" }));
+    await waitFor(() => expect(revertSession).toHaveBeenCalledTimes(1));
+  });
+
+  it("leaves Recover to the not-ready alert while a recovery is pending", async () => {
+    lifecycle = RECOVERING;
+    (chat as { turnError?: Error }).turnError = refused();
+    renderPage();
+    await screen.findByTestId("chat-not-ready");
+    const alert = await screen.findByTestId("chat-turn-error");
+    expect(within(alert).queryByRole("button", { name: "Recover" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Recover" })).toHaveLength(1);
   });
 
   it("offers only Retry for any other failure", async () => {

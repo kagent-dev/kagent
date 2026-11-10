@@ -143,8 +143,33 @@ export function isSendNotAccepted(error: unknown): boolean {
   return error instanceof ApiError && error.reason === SEND_NOT_ACCEPTED;
 }
 
+/**
+ * `ApiError.reason` of a send the gateway refused outright, before accepting it.
+ *
+ * A runtime that crashed mid-turn leaves that turn open, and an open turn refuses
+ * every send as a conflict. Unless the controller recovers on send, nothing then
+ * observes the crash, so the refusal is the only sign of it. A busy, healthy runtime
+ * is refused the same way; `RevertSession` leaves it alone.
+ */
+export const SEND_REFUSED = "SEND_REFUSED";
+
+/** Whether chat should offer a revert after `error`. */
+export function mayNeedRecovery(error: unknown): boolean {
+  return error instanceof ApiError && (error.reason === SEND_NOT_ACCEPTED || error.reason === SEND_REFUSED);
+}
+
 /** `ErrorInfo.domain` of every error the A2A server writes (`a2a.ProtocolDomain`). */
 const A2A_PROTOCOL_DOMAIN = "a2a-protocol.org";
+
+/**
+ * A2A's UNSUPPORTED_OPERATION refusal (gRPC FAILED_PRECONDITION), or undefined.
+ * The gateway answers an input it cannot take this way, before running anything.
+ */
+function a2aRefusal(error: unknown) {
+  if (!(error instanceof ConnectError) || error.code !== Code.FailedPrecondition) return undefined;
+  return error.findDetails(ErrorInfoSchema).find((detail) =>
+    detail.domain === A2A_PROTOCOL_DOMAIN && detail.reason === "UNSUPPORTED_OPERATION");
+}
 
 /**
  * The wait before re-sending, when `error` is the gateway's proof that it did not
@@ -157,22 +182,18 @@ const A2A_PROTOCOL_DOMAIN = "a2a-protocol.org";
  * have accepted the input, and sending it again could start a second turn.
  */
 function unacceptedSendRetryMs(error: unknown): number | undefined {
-  if (!(error instanceof ConnectError) || error.code !== Code.FailedPrecondition) return undefined;
-  const info = error.findDetails(ErrorInfoSchema).find((detail) =>
-    detail.domain === A2A_PROTOCOL_DOMAIN
-    && detail.reason === "UNSUPPORTED_OPERATION"
-    && detail.metadata.reason === "KAGENT_SEND_NOT_ACCEPTED");
-  if (!info) return undefined;
+  const info = a2aRefusal(error);
+  if (info?.metadata.reason !== "KAGENT_SEND_NOT_ACCEPTED") return undefined;
   const wait = Number.parseInt(info.metadata.retryAfterMs ?? "", 10);
   return Number.isFinite(wait) && wait >= 0 ? wait : UNACCEPTED_SEND_RETRY_MS;
 }
 
-/** The refusal of a send the gateway never accepted, tagged for the page to offer a revert. */
-function sendNotAcceptedError(error: unknown): ApiError {
+/** A refused send, tagged with `reason` for the page to offer a revert. */
+function refusedSendError(error: unknown, reason: string, message?: string): ApiError {
   const failure = fromConnectError(error, "A2AService/SendStreamingMessage");
-  return new ApiError("The agent's runtime did not accept the message. It may have crashed.", {
+  return new ApiError(message ?? failure.message, {
     kind: failure.kind, status: failure.status, code: failure.code,
-    reason: SEND_NOT_ACCEPTED, url: failure.url, cause: error,
+    reason, url: failure.url, cause: error,
   });
 }
 
@@ -697,11 +718,14 @@ export class A2AGrpcChatClient implements ChatClient {
           const resendAfter = received ? undefined : unacceptedSendRetryMs(error);
           if (resendAfter !== undefined && !signal?.aborted) {
             resendWait = Math.max(resendAfter, Math.min(resendWait * 2, UNACCEPTED_SEND_MAX_RETRY_MS));
-            if (Date.now() + resendWait > resendUntil) throw sendNotAcceptedError(error);
+            if (Date.now() + resendWait > resendUntil) {
+              throw refusedSendError(error, SEND_NOT_ACCEPTED, "The agent's runtime did not accept the message. It may have crashed.");
+            }
             await pause(resendWait, signal);
             source = client.sendStreamingMessage(request, options);
             continue;
           }
+          if (!received && !signal?.aborted && a2aRefusal(error)) throw refusedSendError(error, SEND_REFUSED);
           if (progressed || Date.now() - opened >= REATTACH_HEALTHY_MS) failures = 0;
           failures += 1;
           const reattach = !signal?.aborted && taskId !== "" && !settled

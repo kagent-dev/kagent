@@ -9,7 +9,7 @@ import { ChatMessageItem } from "./ChatMessageItem";
 import { CheckpointDivider } from "./CheckpointDivider";
 import { groupByCheckpoint } from "./messageCheckpoints";
 import { scrollbarStyles } from "@/components/agent/controlStyles";
-import { isSendNotAccepted } from "@/api/chat/a2aGrpcChatClient";
+import { isSendNotAccepted, mayNeedRecovery } from "@/api/chat/a2aGrpcChatClient";
 
 /** Stable, so a transcript with no boundaries does not regroup on every render. */
 const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
@@ -457,13 +457,15 @@ export function ChatTranscript({
       ) : null}
 
       {chat.turnError && !chat.pendingQuestion ? (
-        isSendNotAccepted(chat.turnError) && onRecover && !readOnly ? (
+        mayNeedRecovery(chat.turnError) && onRecover && !readOnly ? (
           <Alert
             type="error"
             showIcon
             data-testid="chat-turn-error"
             title="The agent's runtime may have crashed"
-            description="The runtime kept refusing this message. Recover restores a crashed runtime from its last snapshot and leaves a running one alone. Then retry the message."
+            description={isSendNotAccepted(chat.turnError)
+              ? "The runtime kept refusing this message. Recover restores a crashed runtime from its last snapshot and leaves a running one alone. Then retry the message."
+              : `The conversation refused this message: ${chat.turnError.message}. If an earlier turn is still running, wait and retry. If the runtime crashed, Recover restores it from its last snapshot and leaves a running one alone.`}
             action={
               <span css={{ display: "flex", gap: 8 }}>
                 <Button size="small" type="primary" loading={isRecovering} onClick={onRecover}>
