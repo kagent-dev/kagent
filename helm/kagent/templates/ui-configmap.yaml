@@ -8,9 +8,9 @@ metadata:
 data:
   KAGENT_UI_API_BASE_URL: {{ .Values.ui.publicBackendUrl | default "/api" | quote }}
   {{- with .Values.ui.basePath }}
-  {{- /* Keep in sync with ui/entrypoint/main.go. nginx strips the prefix, so it must not start with a path nginx serves. */}}
+  {{- /* Keep in sync with ui/entrypoint/main.go. The UI server strips the prefix, so it must not start with a path it serves. */}}
   {{- if or (not (regexMatch "^(/[A-Za-z0-9._~-]+)*/?$" .)) (regexMatch "(^|/)\\.\\.?(/|$)" .) }}{{ fail "ui.basePath must be a path like /ui" }}{{ end }}
-  {{- if regexMatch "^/(api|a2a|assets|health|env-config\\.js|index\\.html|mockServiceWorker\\.js)(/|$)" . }}{{ fail "ui.basePath cannot start with a path nginx serves, such as /api or /assets" }}{{ end }}
+  {{- if regexMatch "^/(api|a2a|assets|health|env-config\\.js|index\\.html|mockServiceWorker\\.js)(/|$)" . }}{{ fail "ui.basePath cannot start with a path the UI server serves, such as /api or /assets" }}{{ end }}
   KAGENT_UI_BASE_PATH: {{ . | quote }}
   {{- end }}
   {{- if .Values.ui.auth }}
@@ -19,3 +19,11 @@ data:
   {{- if .Values.ui.streamTimeoutSeconds }}
   KAGENT_UI_STREAM_TIMEOUT_MS: {{ mul (int .Values.ui.streamTimeoutSeconds) 1000 | quote }}
   {{- end }}
+  {{- /* The UI server reads its proxy settings from these. */}}
+  KAGENT_UI_UPSTREAM: {{ include "kagent.controllerServiceAuthority" . | quote }}
+  KAGENT_UI_PROXY_READ_TIMEOUT: {{ .Values.ui.nginx.proxyReadTimeout | quote }}
+  KAGENT_UI_PROXY_SEND_TIMEOUT: {{ .Values.ui.nginx.proxySendTimeout | quote }}
+  KAGENT_UI_MAX_BODY_SIZE: {{ .Values.ui.nginx.clientMaxBodySize | quote }}
+  KAGENT_UI_FORWARDED_HEADERS: {{ join "," (default list .Values.ui.additionalForwardedHeaders) | quote }}
+  KAGENT_UI_TRUSTED_PROXY: {{ eq .Values.config.server.auth.mode "trusted-proxy" | quote }}
+  KAGENT_UI_IPV6: {{ .Values.ipv6.enabled | quote }}

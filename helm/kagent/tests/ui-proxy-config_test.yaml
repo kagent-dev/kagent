@@ -1,0 +1,94 @@
+suite: test ui proxy settings
+templates:
+  - ui-configmap.yaml
+tests:
+  - it: should point the proxy at the controller Cluster DNS name
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_UPSTREAM
+          value: RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083
+
+  - it: should render the chart defaults for timeouts and body size
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_PROXY_READ_TIMEOUT
+          value: 1800s
+      - equal:
+          path: data.KAGENT_UI_PROXY_SEND_TIMEOUT
+          value: 1800s
+      - equal:
+          path: data.KAGENT_UI_MAX_BODY_SIZE
+          value: 20m
+
+  - it: should pass the ui.nginx values through
+    set:
+      ui:
+        nginx:
+          proxyReadTimeout: 900s
+          proxySendTimeout: 800s
+          clientMaxBodySize: 200m
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_PROXY_READ_TIMEOUT
+          value: 900s
+      - equal:
+          path: data.KAGENT_UI_PROXY_SEND_TIMEOUT
+          value: 800s
+      - equal:
+          path: data.KAGENT_UI_MAX_BODY_SIZE
+          value: 200m
+
+  - it: should listen on IPv4 only by default
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_IPV6
+          value: "false"
+
+  - it: should add IPv6 when ipv6 is enabled
+    set:
+      ipv6:
+        enabled: true
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_IPV6
+          value: "true"
+
+  - it: should list no forwarded identity headers by default
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_FORWARDED_HEADERS
+          value: ""
+      - equal:
+          path: data.KAGENT_UI_TRUSTED_PROXY
+          value: "false"
+
+  - it: should pass the opted-in identity headers and the trusted-proxy mode
+    set:
+      config.server.auth.mode: trusted-proxy
+      ui.additionalForwardedHeaders: [X-Forwarded-Email, X-Agent-Name]
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_FORWARDED_HEADERS
+          value: X-Forwarded-Email,X-Agent-Name
+      - equal:
+          path: data.KAGENT_UI_TRUSTED_PROXY
+          value: "true"
+
+  # Existing values files keep rendering: no ui value is removed or renamed.
+  - it: should render a values file written for the nginx-based UI
+    set:
+      ui:
+        replicas: 2
+        resources:
+          requests:
+            cpu: 200m
+        nginx:
+          proxyReadTimeout: 3600s
+          proxySendTimeout: 3600s
+          clientMaxBodySize: 50m
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: data.KAGENT_UI_PROXY_READ_TIMEOUT
+          value: 3600s
