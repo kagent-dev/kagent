@@ -10,6 +10,7 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
@@ -57,7 +58,9 @@ type scopedToolset struct {
 }
 
 func (s scopedToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
-	values, end := startCallScope(ctx)
+	// Capture the native session used by the STS cache before HTTP and MCP
+	// wrappers hide ADK methods. The public A2A context ID can differ.
+	values, end := startCallScope(models.WithSessionID(ctx, ctx.SessionID()))
 	defer end()
 	tools, err := s.Toolset.Tools(readonlyValuesContext{ReadonlyContext: ctx, values: values})
 	if err != nil {
@@ -102,7 +105,7 @@ func (t scopedTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest) 
 }
 
 func (t scopedTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
-	values, end := startCallScope(telemetry.WithBaggage(ctx,
+	values, end := startCallScope(telemetry.WithBaggage(models.WithSessionID(ctx, ctx.SessionID()),
 		conv.GenAIToolCallIDKey.String(ctx.FunctionCallID()),
 	))
 	defer end()

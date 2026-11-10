@@ -6,13 +6,13 @@ import (
 	"reflect"
 	"strings"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 // ProviderModelRefresher refreshes the discovered models for one provider config.
@@ -192,7 +192,20 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "Meta-Llama-3.1-8B-Instruct", FunctionCalling: true},
 			{Name: "Mistral-large", FunctionCalling: true},
 			{Name: "cohere-command-a", FunctionCalling: true},
+			// xAI Grok models sold through Foundry. grok-3 remains for existing
+			// deployments. The later names are the model IDs in
+			// https://learn.microsoft.com/azure/foundry/foundry-models/how-to/use-foundry-models-grok
+			// grok-5 is not a published Foundry model ID.
 			{Name: "grok-3", FunctionCalling: true},
+			{Name: "grok-4.7", FunctionCalling: true},
+			{Name: "grok-4.6", FunctionCalling: true},
+			{Name: "grok-4.3", FunctionCalling: true},
+			{Name: "grok-4-20-reasoning", FunctionCalling: true},
+			{Name: "grok-4-20-non-reasoning", FunctionCalling: true},
+			{Name: "grok-4.1-fast-reasoning", FunctionCalling: true},
+			{Name: "grok-4.1-fast-non-reasoning", FunctionCalling: true},
+			{Name: "grok-4", FunctionCalling: true},
+			{Name: "grok-code-fast-1", FunctionCalling: true},
 			// Claude models on Foundry (Anthropic Messages API).
 			{Name: "claude-opus-4-8", FunctionCalling: true},
 			{Name: "claude-opus-5", FunctionCalling: true},
@@ -250,6 +263,13 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "us.anthropic.claude-3-5-haiku-20241022-v1:0", FunctionCalling: true},
 			// Amazon Nova
 			{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false},
+			// xAI Grok on Bedrock. These are bedrock-runtime cross-Region
+			// inference profiles, not the Microsoft Foundry model names.
+			// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-xai-grok-4-7.html
+			{Name: "us.xai.grok-4.7", FunctionCalling: true},
+			{Name: "global.xai.grok-4.7", FunctionCalling: true},
+			{Name: "us.xai.grok-4.6", FunctionCalling: true},
+			{Name: "global.xai.grok-4.6", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderSAPAICore: {
 			// Anthropic (via SAP Generative AI Hub proxy naming)
@@ -353,13 +373,13 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 }
 
 func (s *Service) ListConfiguredProviders(ctx context.Context) ([]ConfiguredProvider, error) {
-	var modelProviderConfigList v1alpha3.ModelProviderConfigList
-	if err := s.kubeClient.List(ctx, &modelProviderConfigList, client.InNamespace(s.defaultNamespace)); err != nil {
-		return nil, serviceerrors.NewInternal("Failed to list model provider configs", err)
+	providerConfigs, err := s.providerConfigs.List(ctx, s.defaultNamespace)
+	if err != nil {
+		return nil, err
 	}
 
-	var providers []ConfiguredProvider
-	for _, providerConfig := range modelProviderConfigList.Items {
+	providers := make([]ConfiguredProvider, 0, len(providerConfigs))
+	for _, providerConfig := range providerConfigs {
 		if meta.IsStatusConditionTrue(providerConfig.Status.Conditions, v1alpha3.ModelProviderConfigConditionTypeReady) {
 			providers = append(providers, ConfiguredProvider{
 				Name:     providerConfig.Name,
@@ -376,8 +396,17 @@ func (s *Service) GetProviderModels(ctx context.Context, request GetProviderMode
 		return ProviderModelsResult{}, serviceerrors.NewInvalidArgument("Model provider name is required", nil)
 	}
 
+	ref := types.NamespacedName{Namespace: s.defaultNamespace, Name: request.Name}
 	var models []string
 	if request.Refresh {
+		// The RPC also serves cached reads, so its transport read policy cannot
+		// reject this mutation. A share must never trigger provider discovery.
+		if _, shared := auth.ShareContextFrom(ctx); shared {
+			return ProviderModelsResult{}, serviceerrors.NewPermissionDenied("Session shares cannot refresh provider models", nil)
+		}
+		if err := s.providerConfigs.Authorize(ctx, auth.VerbUpdate, ref); err != nil {
+			return ProviderModelsResult{}, err
+		}
 		if s.providerModelRefresher == nil {
 			return ProviderModelsResult{}, serviceerrors.NewInternal(
 				"Failed to refresh models for model provider",
@@ -390,17 +419,12 @@ func (s *Service) GetProviderModels(ctx context.Context, request GetProviderMode
 		}
 		models = refreshedModels
 	} else {
-		providerConfig := &v1alpha3.ModelProviderConfig{}
-		if err := s.kubeClient.Get(ctx, client.ObjectKey{Namespace: s.defaultNamespace, Name: request.Name}, providerConfig); err != nil {
-			if apierrors.IsNotFound(err) {
-				return ProviderModelsResult{}, serviceerrors.NewNotFound(err.Error(), err)
-			}
-			return ProviderModelsResult{}, serviceerrors.NewInternal("Failed to get model provider config", err)
+		_, err := s.providerConfigs.Get(ctx, ref)
+		if err != nil {
+			return ProviderModelsResult{}, err
 		}
-		if len(providerConfig.Status.DiscoveredModels) == 0 {
-			return ProviderModelsResult{}, serviceerrors.NewNotFound("No models discovered for model provider, try refreshing", nil)
-		}
-		models = providerConfig.Status.DiscoveredModels
+		// ModelProviderConfig status no longer stores a model inventory.
+		return ProviderModelsResult{}, serviceerrors.NewNotFound("No cached model inventory is available for model provider", nil)
 	}
 
 	return ProviderModelsResult{Provider: request.Name, Models: models}, nil

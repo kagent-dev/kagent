@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -73,66 +72,6 @@ func TestLoadAgentConfig_FileNotFound(t *testing.T) {
 	_, err := LoadAgentConfig("/nonexistent/config.json")
 	if err == nil {
 		t.Error("Expected error for nonexistent file, got nil")
-	}
-}
-
-func TestMaterializeFromEnv(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	t.Setenv("KAGENT_CONFIG_JSON", `{
-  "agent": {
-    "model": {
-      "model": "gpt-4",
-      "openai": {}
-    },
-    "instruction": "hi"
-  }
-}`)
-	t.Setenv("KAGENT_AGENT_CARD_JSON", `{
-  "name": "test-agent",
-  "version": "1.0.0"
-}`)
-
-	if err := MaterializeFromEnv(tmpDir); err != nil {
-		t.Fatalf("MaterializeFromEnv() error = %v", err)
-	}
-
-	config, err := LoadAgentConfig(filepath.Join(tmpDir, "config.json"))
-	if err != nil {
-		t.Fatalf("LoadAgentConfig() error = %v", err)
-	}
-	if config.Agent.Instruction != "hi" {
-		t.Fatalf("instruction = %q, want hi", config.Agent.Instruction)
-	}
-
-	card, err := LoadAgentCard(filepath.Join(tmpDir, "agent-card.json"))
-	if err != nil {
-		t.Fatalf("LoadAgentCard() error = %v", err)
-	}
-	if card.Name != "test-agent" {
-		t.Fatalf("card name = %q, want test-agent", card.Name)
-	}
-
-	if runtime.GOOS != "windows" {
-		for _, name := range []string{"config.json", "agent-card.json"} {
-			fi, err := os.Stat(filepath.Join(tmpDir, name))
-			if err != nil {
-				t.Fatalf("stat %s: %v", name, err)
-			}
-			if perm := fi.Mode().Perm(); perm != 0o600 {
-				t.Errorf("%s permissions = %o, want 0600", name, perm)
-			}
-		}
-	}
-}
-
-func TestMaterializeFromEnv_SkipsUnset(t *testing.T) {
-	tmpDir := t.TempDir()
-	if err := MaterializeFromEnv(tmpDir); err != nil {
-		t.Fatalf("MaterializeFromEnv() error = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(tmpDir, "config.json")); !os.IsNotExist(err) {
-		t.Fatalf("expected no config.json when env unset, stat err = %v", err)
 	}
 }
 

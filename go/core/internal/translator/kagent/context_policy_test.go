@@ -3,8 +3,9 @@ package kagent
 import (
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func TestApplyOperatorOnlyTraceContextPolicy(t *testing.T) {

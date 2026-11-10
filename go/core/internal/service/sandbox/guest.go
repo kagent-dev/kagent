@@ -2,23 +2,19 @@ package sandbox
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -33,20 +29,16 @@ type GuestDialer struct {
 	endpoint      string
 }
 
-func NewGuestDialer(routerURL string, authenticator auth.AuthProvider) (*GuestDialer, error) {
-	router, err := url.Parse(routerURL)
-	if err != nil || router.Host == "" || (router.Scheme != "http" && router.Scheme != "https") {
-		return nil, fmt.Errorf("invalid sandbox router URL")
-	}
-	transport := insecure.NewCredentials()
-	if router.Scheme == "https" {
-		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: router.Hostname()})
-	}
-	conn, err := grpc.NewClient(router.Host, grpc.WithTransportCredentials(transport))
+func NewGuestDialer(cfg *configv1.SubstrateConfig, authenticator auth.AuthProvider) (*GuestDialer, error) {
+	target, transport, err := substrate.RouterTransport(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return &GuestDialer{conn: conn, authenticator: authenticator, endpoint: routerURL}, nil
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(transport))
+	if err != nil {
+		return nil, err
+	}
+	return &GuestDialer{conn: conn, authenticator: authenticator, endpoint: cfg.GetRouterUrl()}, nil
 }
 
 func (d *GuestDialer) Close() error { return d.conn.Close() }
@@ -62,7 +54,7 @@ func (d *GuestDialer) context(ctx context.Context, instance *apiv1.Sandbox, revi
 	if !ok {
 		return nil, serviceerrors.NewUnauthenticated("Guest access requires authentication", nil)
 	}
-	if err := d.authenticator.UpstreamAuth(request, session, auth.Principal{User: auth.User{ID: instance.Creator}}); err != nil {
+	if err := d.authenticator.UpstreamAuth(request, session, ""); err != nil {
 		return nil, err
 	}
 	md := metadata.MD{}
@@ -96,7 +88,7 @@ func (s *Service) guestAccess(ctx context.Context, id string, verb auth.Verb) (c
 	return guestCtx, cancel, nil
 }
 
-func (s *Service) StartProcess(ctx context.Context, sandboxID string, request *guestpb.StartProcessRequest) (*guestpb.StartProcessResponse, error) {
+func (s *Service) StartProcess(ctx context.Context, sandboxID string, request *guestpb.StartProcessRequest) (*guestpb.Process, error) {
 	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
@@ -118,7 +110,7 @@ func (s *Service) GetProcess(ctx context.Context, sandboxID string, request *gue
 	return guestpb.NewProcessServiceClient(s.config.Guests.conn).GetProcess(callCtx, request)
 }
 
-func (s *Service) KillProcess(ctx context.Context, sandboxID string, request *guestpb.KillProcessRequest) (*guestpb.KillProcessResponse, error) {
+func (s *Service) SignalProcess(ctx context.Context, sandboxID string, request *guestpb.SignalProcessRequest) (*guestpb.Process, error) {
 	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
@@ -126,16 +118,16 @@ func (s *Service) KillProcess(ctx context.Context, sandboxID string, request *gu
 	defer cancelGuest()
 	callCtx, cancel := context.WithTimeout(guestCtx, 30*time.Second)
 	defer cancel()
-	return guestpb.NewProcessServiceClient(s.config.Guests.conn).KillProcess(callCtx, request)
+	return guestpb.NewProcessServiceClient(s.config.Guests.conn).SignalProcess(callCtx, request)
 }
 
-func (s *Service) StreamProcessOutputs(ctx context.Context, sandboxID string, request *guestpb.StreamProcessOutputsRequest, send func(*guestpb.OutputChunk) error) error {
+func (s *Service) StreamProcessOutput(ctx context.Context, sandboxID string, request *guestpb.StreamProcessOutputRequest, send func(*guestpb.ProcessOutput) error) error {
 	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbGet)
 	if err != nil {
 		return err
 	}
 	defer cancelGuest()
-	stream, err := guestpb.NewProcessServiceClient(s.config.Guests.conn).StreamProcessOutputs(guestCtx, request)
+	stream, err := guestpb.NewProcessServiceClient(s.config.Guests.conn).StreamProcessOutput(guestCtx, request)
 	if err != nil {
 		return err
 	}
@@ -153,8 +145,13 @@ func (s *Service) StreamProcessOutputs(ctx context.Context, sandboxID string, re
 	}
 }
 
-func (s *Service) ReadFile(ctx context.Context, sandboxID string, request *guestpb.ReadFileRequest, send func(*guestpb.FileChunk) error) error {
-	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbGet)
+func (s *Service) ReadFile(ctx context.Context, sandboxID string, request *guestpb.ReadFileRequest, send func(*guestpb.ReadFileResponse) error) error {
+	verb := auth.VerbGet
+	if request.GetMode() != 0 {
+		// The guest creates missing files when a mode is supplied.
+		verb = auth.VerbUpdate
+	}
+	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, verb)
 	if err != nil {
 		return err
 	}
@@ -172,7 +169,7 @@ func (s *Service) ReadFile(ctx context.Context, sandboxID string, request *guest
 		if err != nil {
 			return err
 		}
-		total += int64(len(chunk.Data))
+		total += int64(len(chunk.GetChunk()))
 		if total > maxFileBytes {
 			return serviceerrors.NewResourceExhausted("File exceeds 64 MiB transfer limit", nil)
 		}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -276,8 +277,11 @@ func TestAnthropicModelGenerateContentSendsStructuredOutputWithTools(t *testing.
 		t.Fatal(err)
 	}
 	schema := map[string]any{
-		"type":                 "object",
-		"properties":           map[string]any{"answer": map[string]any{"type": "integer"}},
+		"type": "object",
+		"properties": map[string]any{
+			"answer": map[string]any{"type": "integer"},
+			"due":    map[string]any{"type": "string", "format": "date-time", "pattern": "^2026-"},
+		},
 		"required":             []any{"answer"},
 		"additionalProperties": false,
 	}
@@ -306,6 +310,10 @@ func TestAnthropicModelGenerateContentSendsStructuredOutputWithTools(t *testing.
 	}
 	if gotSchema, ok := format["schema"].(map[string]any); !ok || gotSchema["additionalProperties"] != false {
 		t.Fatalf("output_config.format.schema = %#v", format["schema"])
+	}
+	due := format["schema"].(map[string]any)["properties"].(map[string]any)["due"]
+	if want := map[string]any{"type": "string", "format": "date-time", "pattern": "^2026-"}; !reflect.DeepEqual(due, want) {
+		t.Fatalf("output_config.format.schema due = %#v, want %#v", due, want)
 	}
 	if tools, ok := body["tools"].([]any); !ok || len(tools) != 1 {
 		t.Fatalf("tools = %#v, want one tool", body["tools"])

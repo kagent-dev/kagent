@@ -98,6 +98,9 @@ Preserve unrelated work in a dirty tree. Do not hand-edit generated outputs, add
 
 ## 7. Testing and Validation
 
+- Before writing or changing Go behavior tests anywhere in this repository, use the
+  [`given-when-assert-that`](.agents/skills/given-when-assert-that/SKILL.md) skill.
+  Apply it to feature and bug-fix tests as well as test-only changes.
 - Unit-test new semantic behavior and failure paths.
 - Use table-driven Go tests where they make cases clearer; do not force the pattern onto a single case.
 - Mock external services in unit tests. Use real integration boundaries in E2E tests.
@@ -119,10 +122,14 @@ Common commands:
 
 ## 8. Contribution Requirements
 
-- Every commit must include the DCO sign-off required by
-  [CONTRIBUTING.md](CONTRIBUTING.md).
+Follow [CONTRIBUTING.md](CONTRIBUTING.md). In particular:
+
+- Every commit must include the DCO sign-off.
 - Use Conventional Commit prefixes in pull request titles so repository
   automation can classify changes.
+- Target fixes at `main` first, and follow the
+  [release branch and backport policy](CONTRIBUTING.md#release-branches-and-backports)
+  before opening or backporting a fix.
 
 ## 9. References
 

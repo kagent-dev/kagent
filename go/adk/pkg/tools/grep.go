@@ -10,47 +10,23 @@ import (
 	"strings"
 )
 
-// WithinRoot reports whether resolved (an already symlink-resolved path) is
-// root itself or nested under it. Callers are responsible for resolving
-// symlinks on both arguments first; this is a pure path-containment check.
-//
-// It lives here with classifyWalkEntry, its main caller, but is also the
-// containment test behind resolveSandboxedPath in skills.go.
-func WithinRoot(resolved, root string) bool {
-	resolved = filepath.Clean(resolved)
-	root = filepath.Clean(root)
-	return resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))
+// withinRoot checks containment after callers have resolved symlinks.
+// This bounds search scope; Substrate owns Actor isolation.
+func withinRoot(resolved, root string) bool {
+	relative, err := filepath.Rel(root, resolved)
+	return err == nil && filepath.IsLocal(relative)
 }
 
 type walkEntryAction int
 
 const (
-	// walkEntryGrep: a regular, in-bounds file that should be grepped.
 	walkEntryGrep walkEntryAction = iota
-	// walkEntrySkip: silently excluded by policy, not a read failure -- a
-	// directory, a symlinked directory, a non-regular file (FIFO/socket/
-	// device), or a symlink whose target escapes the search root.
 	walkEntrySkip
-	// walkEntryUnreadable: a genuine read/stat failure on this entry.
 	walkEntryUnreadable
 )
 
-// classifyWalkEntry decides how GrepContent's WalkDir callback should treat
-// p, given the resolved search root. It never opens p for reading -- the
-// caller is responsible for that once this returns walkEntryGrep, and must
-// read the returned resolved path rather than p itself: p is the symlink
-// as walked, and re-resolving or reopening it separately from this check
-// would reintroduce a TOCTOU window where the symlink's target could change
-// between the check and the read.
-//
-// This narrows that window but doesn't eliminate it: resolved is still a
-// path string, so the later os.Open on it is a fresh lookup, not an
-// operation on a captured file handle. A path component of resolved could
-// still be swapped out between this check and that open. Closing that
-// residual race fully would need platform-specific work (e.g. Linux's
-// openat2 with RESOLVE_NO_SYMLINKS), which isn't done anywhere else in this
-// file either -- this function only guarantees "reads what was just
-// verified", not "reads atomically with no concurrent tampering".
+// classifyWalkEntry skips special files and symlinks outside the requested
+// search tree. It does not impose an additional sandbox boundary.
 func classifyWalkEntry(root, p string, d fs.DirEntry) (walkEntryAction, string) {
 	if d.IsDir() {
 		return walkEntrySkip, ""
@@ -75,7 +51,7 @@ func classifyWalkEntry(root, p string, d fs.DirEntry) (walkEntryAction, string) 
 		// connected), and grep has no business reading them.
 		return walkEntrySkip, ""
 	}
-	if !WithinRoot(resolved, root) {
+	if !withinRoot(resolved, root) {
 		// The symlink-resolved target escapes the root being searched, so
 		// a symlink can't be used to read files outside the requested
 		// directory.
@@ -84,15 +60,11 @@ func classifyWalkEntry(root, p string, d fs.DirEntry) (walkEntryAction, string) 
 	return walkEntryGrep, resolved
 }
 
-// GrepContent searches path for lines matching a regular expression pattern.
+// grepContent searches path for lines matching a regular expression pattern.
 // If path is a directory, recursive must be true to search its files.
 //
-// A recursive search walks the whole tree under path, which is unbounded from
-// this function's point of view, so ctx is honored between entries and lets a
-// caller abort one. Note Go needs no equivalent of the Python runtime's regex
-// timeout: this uses RE2, which is linear-time and cannot backtrack
-// catastrophically, so it is the walk rather than the match that can run long.
-func GrepContent(ctx context.Context, path, pattern string, recursive, ignoreCase bool) (string, error) {
+// Search results and per-line buffers are bounded; cancellation is checked per line.
+func grepContent(ctx context.Context, path, pattern string, recursive, ignoreCase bool) (string, error) {
 	expr := pattern
 	if ignoreCase {
 		expr = "(?i)" + expr
@@ -109,10 +81,14 @@ func GrepContent(ctx context.Context, path, pattern string, recursive, ignoreCas
 
 	var result strings.Builder
 	var skipped int
+	truncated := false
 	grepFile := func(filePath string) error {
-		return scanFileLines(filePath, func(lineNum int, line string) bool {
+		return scanFileLines(ctx, filePath, func(lineNum int, line string) bool {
 			if re.MatchString(line) {
-				fmt.Fprintf(&result, "%s:%d:%s\n", filePath, lineNum, truncateRunes(line, maxLineRunes))
+				if !appendResultLine(&result, fmt.Sprintf("%s:%d:%s", filePath, lineNum, truncateRunes(line, maxLineRunes))) {
+					truncated = true
+					return false
+				}
 			}
 			return true
 		})
@@ -122,21 +98,13 @@ func GrepContent(ctx context.Context, path, pattern string, recursive, ignoreCas
 		if !recursive {
 			return "", fmt.Errorf("%q is a directory; set recursive=true to search directories", path)
 		}
-		// Reuse the outer err (rather than := , which would shadow it in this
-		// block) so a WalkDir failure below is actually observed by the
-		// err != nil check after this if/else.
 		var root string
 		root, err = filepath.EvalSymlinks(path)
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve %q: %w", path, err)
 		}
-		// Walk the resolved root, not path: filepath.WalkDir uses Lstat on
-		// its root argument, so if path itself were an unresolved directory
-		// symlink, WalkDir would see a non-directory at the root and never
-		// descend into it at all.
+		// WalkDir does not descend through an unresolved symlink root.
 		err = filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
-			// Checked per entry rather than per line: a single file's scan is
-			// bounded by its size, but the number of entries is not.
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
@@ -164,7 +132,13 @@ func GrepContent(ctx context.Context, path, pattern string, recursive, ignoreCas
 				// exceeding the scan buffer, etc.) shouldn't abort matches
 				// already found elsewhere in the tree.
 				if grepErr := grepFile(resolved); grepErr != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					skipped++
+				}
+				if truncated {
+					return fs.SkipAll
 				}
 			}
 			return nil

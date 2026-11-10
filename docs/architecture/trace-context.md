@@ -29,9 +29,9 @@ controller:
 Prefer an opaque identifier such as an OIDC `sub` for `user.id`. Do not put
 names or email addresses on spans; see [Sensitive values](#sensitive-values).
 
-The controller forwards `KAGENT_TRACE_CONTEXT_KEYS` to every agent it creates.
-Both the Go and the Python runtime read it, so behaviour is identical whichever
-one an agent runs.
+The controller forwards `KAGENT_TRACE_CONTEXT_KEYS` to managed kagent runtimes.
+BYO runtimes require an explicit allowlist in their environment.
+Both the Go and Python runtimes read the same allowlist format.
 
 Adding a new traced value is a configuration change, not a code change: append
 the key and redeploy.
@@ -66,7 +66,7 @@ before the invocation span starts, so the allowlist also covers that span.
 Baggage propagation across processes is separately opt-in on current kagent.
 Set `OTEL_PROPAGATORS=tracecontext,baggage` on the controller and each runtime
 that should exchange baggage. Use `controller.env` for the controller and the
-Harness workload environment for runtimes. Controller `OTEL_*` overrides are
+Harness `spec.env` for runtimes. Controller `OTEL_*` overrides are
 process-local; they are not forwarded to managed runtimes. Metadata promotion
 and local span attributes do not require outbound baggage propagation.
 
@@ -81,9 +81,10 @@ metadata: {"thread_id": "1717171.42"} →  thread_id                = "1717171.4
 ```
 
 The request-scoped kagent attribute bag still carries runtime values
-(`enduser.id`, `gen_ai.conversation.id`, `a2a.task.id`, …). That processor runs after the
-baggage processor, so caller baggage cannot override attributes the runtime already
-stamped.
+(`user.id`, `gen_ai.conversation.id`, `a2a.task.id`, …). Its processor runs after
+the baggage processor, so runtime identity wins on conflict.
+Authenticated `user.id` takes precedence over caller metadata mapped to that name.
+Use a custom destination such as `caller.subject` for a separate caller-supplied identifier.
 
 This is deliberate: Langfuse v4 and comparable backends resolve trace-level
 filters against the attributes present on each span, so stamping only the

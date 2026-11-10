@@ -3,25 +3,21 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"unicode"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/contrib/processors/baggagecopy"
 	"go.opentelemetry.io/otel/baggage"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 const (
 	maxContextKeys      = 32
 	maxContextKeyLength = 64
 )
-
-// Names come from env.KagentTraceContextKeys so the controller and the
-// runtime share one source of truth.
-var traceContextKeysEnvVar = env.KagentTraceContextKeys.Name()
 
 // contextMapping is one allowlisted promotion: read source from baggage or
 // A2A metadata and write it to baggage as attribute. The upstream
@@ -109,7 +105,7 @@ func AllowedBaggageCopyFilter() baggagecopy.Filter {
 }
 
 func parseAllowedContextMappings() []contextMapping {
-	raw := strings.TrimSpace(os.Getenv(traceContextKeysEnvVar))
+	raw := strings.TrimSpace(env.KagentTraceContextKeys.Get())
 	if raw == "" {
 		return nil
 	}

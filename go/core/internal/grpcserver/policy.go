@@ -1,6 +1,8 @@
 package grpcserver
 
 import (
+	"maps"
+
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -14,49 +16,45 @@ type MethodPolicies map[string]auth.AccessMode
 
 func DefaultMethodPolicies() MethodPolicies {
 	policies := MethodPolicies{
-		runtimev1.TaskStoreService_CreateTask_FullMethodName:             auth.AccessRuntime,
-		runtimev1.TaskStoreService_GetTask_FullMethodName:                auth.AccessRuntime,
-		runtimev1.TaskStoreService_UpdateTask_FullMethodName:             auth.AccessRuntime,
-		runtimev1.TaskStoreService_SettleTask_FullMethodName:             auth.AccessRuntime,
-		runtimev1.TaskStoreService_ListTasks_FullMethodName:              auth.AccessRuntime,
-		apiv1.SystemService_GetVersion_FullMethodName:                    auth.AccessPublic,
-		apiv1.SystemService_GetCurrentUser_FullMethodName:                auth.AccessRead,
-		apiv1.SystemService_ListNamespaces_FullMethodName:                auth.AccessRead,
-		apiv1.SystemService_GetSubstrateSummary_FullMethodName:           auth.AccessRead,
-		apiv1.SystemService_ListSubstrateActors_FullMethodName:           auth.AccessRead,
-		apiv1.SystemService_ListSubstrateWorkers_FullMethodName:          auth.AccessRead,
-		runtimev1.MemoryService_AddSession_FullMethodName:                auth.AccessCreate,
-		runtimev1.MemoryService_AddSessionBatch_FullMethodName:           auth.AccessCreate,
-		runtimev1.MemoryService_Search_FullMethodName:                    auth.AccessRead,
-		runtimev1.MemoryService_List_FullMethodName:                      auth.AccessRead,
-		runtimev1.MemoryService_Delete_FullMethodName:                    auth.AccessDelete,
-		apiv1.ModelService_ListModelConfigs_FullMethodName:               auth.AccessRead,
-		apiv1.ModelService_GetModelConfig_FullMethodName:                 auth.AccessRead,
-		apiv1.ModelService_CreateModelConfig_FullMethodName:              auth.AccessCreate,
-		apiv1.ModelService_UpdateModelConfig_FullMethodName:              auth.AccessUpdate,
-		apiv1.ModelService_DeleteModelConfig_FullMethodName:              auth.AccessDelete,
-		apiv1.ModelService_ListSupportedModelProviders_FullMethodName:    auth.AccessRead,
-		apiv1.ModelService_ListConfiguredProviders_FullMethodName:        auth.AccessRead,
-		apiv1.ModelService_ListProviderModels_FullMethodName:             auth.AccessRead,
-		apiv1.ModelService_ListSupportedModels_FullMethodName:            auth.AccessRead,
-		apiv1.ToolService_ListTools_FullMethodName:                       auth.AccessRead,
-		apiv1.ToolService_ListToolServers_FullMethodName:                 auth.AccessRead,
-		apiv1.ToolService_CreateToolServer_FullMethodName:                auth.AccessCreate,
-		apiv1.ToolService_DeleteToolServer_FullMethodName:                auth.AccessDelete,
-		apiv1.ToolService_ListToolServerTypes_FullMethodName:             auth.AccessRead,
-		apiv1.ToolService_ListMCPAppTools_FullMethodName:                 auth.AccessRead,
-		apiv1.ToolService_CallMCPAppTool_FullMethodName:                  auth.AccessCreate,
-		apiv1.ToolService_ReadMCPAppResource_FullMethodName:              auth.AccessRead,
-		apiv1.PromptTemplateService_ListPromptTemplates_FullMethodName:   auth.AccessRead,
-		apiv1.PromptTemplateService_GetPromptTemplate_FullMethodName:     auth.AccessRead,
-		apiv1.PromptTemplateService_CreatePromptTemplate_FullMethodName:  auth.AccessCreate,
-		apiv1.PromptTemplateService_UpdatePromptTemplate_FullMethodName:  auth.AccessUpdate,
-		apiv1.PromptTemplateService_DeletePromptTemplate_FullMethodName:  auth.AccessDelete,
-		grpc_health_v1.Health_Check_FullMethodName:                       auth.AccessPublic,
-		grpc_health_v1.Health_List_FullMethodName:                        auth.AccessPublic,
-		grpc_health_v1.Health_Watch_FullMethodName:                       auth.AccessPublic,
-		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":      auth.AccessPublic,
-		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo": auth.AccessPublic,
+		runtimev1.BootstrapService_GetBootstrapConfig_FullMethodName:    auth.AccessRead,
+		apiv1.AgentIdentityService_ResolveAgentIdentity_FullMethodName:  auth.AccessRead,
+		apiv1.SystemService_GetVersion_FullMethodName:                   auth.AccessPublic,
+		apiv1.SystemService_GetCurrentUser_FullMethodName:               auth.AccessRead,
+		apiv1.SystemService_ListNamespaces_FullMethodName:               auth.AccessRead,
+		apiv1.SystemService_GetSubstrateSummary_FullMethodName:          auth.AccessRead,
+		apiv1.SystemService_ListSubstrateActors_FullMethodName:          auth.AccessRead,
+		apiv1.SystemService_ListSubstrateWorkers_FullMethodName:         auth.AccessRead,
+		apiv1.SystemService_ListWorkerPools_FullMethodName:              auth.AccessRead,
+		apiv1.ModelService_ListModelConfigs_FullMethodName:              auth.AccessRead,
+		apiv1.ModelService_GetModelConfig_FullMethodName:                auth.AccessRead,
+		apiv1.ModelService_CreateModelConfig_FullMethodName:             auth.AccessCreate,
+		apiv1.ModelService_UpdateModelConfig_FullMethodName:             auth.AccessUpdate,
+		apiv1.ModelService_DeleteModelConfig_FullMethodName:             auth.AccessDelete,
+		apiv1.ModelService_ListSupportedModelProviders_FullMethodName:   auth.AccessRead,
+		apiv1.ModelService_ListConfiguredProviders_FullMethodName:       auth.AccessRead,
+		apiv1.ModelService_ListProviderModels_FullMethodName:            auth.AccessRead,
+		apiv1.ModelService_ListSupportedModels_FullMethodName:           auth.AccessRead,
+		apiv1.ToolService_ListTools_FullMethodName:                      auth.AccessRead,
+		apiv1.ToolService_ListToolServers_FullMethodName:                auth.AccessRead,
+		apiv1.ToolService_CreateToolServer_FullMethodName:               auth.AccessCreate,
+		apiv1.ToolService_DeleteToolServer_FullMethodName:               auth.AccessDelete,
+		apiv1.ToolService_ListToolServerTypes_FullMethodName:            auth.AccessRead,
+		apiv1.ToolService_ListMCPAppTools_FullMethodName:                auth.AccessRead,
+		apiv1.ToolService_CallMCPAppTool_FullMethodName:                 auth.AccessCreate,
+		apiv1.ToolService_ReadMCPAppResource_FullMethodName:             auth.AccessRead,
+		apiv1.PromptTemplateService_ListPromptTemplates_FullMethodName:  auth.AccessRead,
+		apiv1.PromptTemplateService_GetPromptTemplate_FullMethodName:    auth.AccessRead,
+		apiv1.PromptTemplateService_CreatePromptTemplate_FullMethodName: auth.AccessCreate,
+		apiv1.PromptTemplateService_UpdatePromptTemplate_FullMethodName: auth.AccessUpdate,
+		apiv1.PromptTemplateService_DeletePromptTemplate_FullMethodName: auth.AccessDelete,
+		grpc_health_v1.Health_Check_FullMethodName:                      auth.AccessPublic,
+		grpc_health_v1.Health_List_FullMethodName:                       auth.AccessPublic,
+		grpc_health_v1.Health_Watch_FullMethodName:                      auth.AccessPublic,
+		// Reflection describes every registered service, including consumer
+		// extensions, so it follows the configured authentication. Insecure mode
+		// still answers anonymous callers.
+		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":      auth.AccessRead,
+		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo": auth.AccessRead,
 		apiv1.AgentService_ListAgents_FullMethodName:                     auth.AccessRead,
 		apiv1.AgentService_GetAgent_FullMethodName:                       auth.AccessRead,
 		apiv1.AgentService_CreateAgent_FullMethodName:                    auth.AccessCreate,
@@ -69,11 +67,18 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1.AgentTemplateService_DeleteAgentTemplate_FullMethodName:    auth.AccessDelete,
 		apiv1.HarnessService_ListHarnesses_FullMethodName:                auth.AccessRead,
 		apiv1.HarnessService_CreateHarness_FullMethodName:                auth.AccessCreate,
+		apiv1.HarnessService_UpdateHarness_FullMethodName:                auth.AccessUpdate,
 		apiv1.HarnessService_DeleteHarness_FullMethodName:                auth.AccessDelete,
 
 		apiv1.SandboxTemplateService_ListSandboxTemplates_FullMethodName:  auth.AccessRead,
 		apiv1.SandboxTemplateService_CreateSandboxTemplate_FullMethodName: auth.AccessCreate,
 		apiv1.SandboxTemplateService_DeleteSandboxTemplate_FullMethodName: auth.AccessDelete,
+
+		apiv1.EgressPolicyService_ListEgressPolicies_FullMethodName: auth.AccessRead,
+		apiv1.EgressPolicyService_GetEgressPolicy_FullMethodName:    auth.AccessRead,
+		apiv1.EgressPolicyService_CreateEgressPolicy_FullMethodName: auth.AccessCreate,
+		apiv1.EgressPolicyService_UpdateEgressPolicy_FullMethodName: auth.AccessUpdate,
+		apiv1.EgressPolicyService_DeleteEgressPolicy_FullMethodName: auth.AccessDelete,
 	}
 	policies[apiv1.SessionService_CreateSession_FullMethodName] = auth.AccessCreate
 	policies[apiv1.SessionService_GetSession_FullMethodName] = auth.AccessRead
@@ -81,8 +86,7 @@ func DefaultMethodPolicies() MethodPolicies {
 	// A rename is the only write on this service that is not a lifecycle
 	// operation, and it must not inherit the read mode its neighbours carry.
 	policies[apiv1.SessionService_UpdateSessionName_FullMethodName] = auth.AccessUpdate
-	policies[apiv1.SessionService_SuspendSession_FullMethodName] = auth.AccessUpdate
-	policies[apiv1.SessionService_ResumeSession_FullMethodName] = auth.AccessUpdate
+	policies[apiv1.SessionService_RevertSession_FullMethodName] = auth.AccessUpdate
 	policies[apiv1.SessionService_DeleteSession_FullMethodName] = auth.AccessDelete
 	policies[apiv1.SessionService_CreateSessionShare_FullMethodName] = auth.AccessCreate
 	policies[apiv1.SessionService_ListSessionShares_FullMethodName] = auth.AccessRead
@@ -120,9 +124,27 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[apiv1.SandboxService_DeleteSandbox_FullMethodName] = auth.AccessDelete
 	policies[guestpb.ProcessService_StartProcess_FullMethodName] = auth.AccessCreate
 	policies[guestpb.ProcessService_GetProcess_FullMethodName] = auth.AccessRead
-	policies[guestpb.ProcessService_KillProcess_FullMethodName] = auth.AccessUpdate
-	policies[guestpb.ProcessService_StreamProcessOutputs_FullMethodName] = auth.AccessRead
+	policies[guestpb.ProcessService_StreamProcessOutput_FullMethodName] = auth.AccessRead
+	policies[guestpb.ProcessService_SignalProcess_FullMethodName] = auth.AccessUpdate
 	policies[guestpb.FileSystemService_ReadFile_FullMethodName] = auth.AccessRead
 	policies[guestpb.FileSystemService_WriteFile_FullMethodName] = auth.AccessUpdate
+	maps.Copy(policies, runtimeMethodPolicies())
+	policies[runtimev1.MemoryService_List_FullMethodName] = auth.AccessRead
+	policies[runtimev1.MemoryService_Delete_FullMethodName] = auth.AccessDelete
 	return policies
+}
+
+// runtimeMethodPolicies marks storage methods that require a verified actor.
+// Shared APIs accept either caller identity and authorize in their services.
+func runtimeMethodPolicies() MethodPolicies {
+	return MethodPolicies{
+		runtimev1.TaskStoreService_CreateTask_FullMethodName:   auth.AccessRuntime,
+		runtimev1.TaskStoreService_GetTask_FullMethodName:      auth.AccessRuntime,
+		runtimev1.TaskStoreService_UpdateTask_FullMethodName:   auth.AccessRuntime,
+		runtimev1.TaskStoreService_SettleTask_FullMethodName:   auth.AccessRuntime,
+		runtimev1.TaskStoreService_ListTasks_FullMethodName:    auth.AccessRuntime,
+		runtimev1.MemoryService_AddSession_FullMethodName:      auth.AccessRuntime,
+		runtimev1.MemoryService_AddSessionBatch_FullMethodName: auth.AccessRuntime,
+		runtimev1.MemoryService_Search_FullMethodName:          auth.AccessRuntime,
+	}
 }

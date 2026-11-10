@@ -24,6 +24,8 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { Agent, AgentSpec, AgentStatus } from "@/api/domain/agents";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
+import type { EgressPolicy, EgressPolicySpec } from "@/api/domain/egressPolicies";
+import type { SandboxTemplate } from "@/api/domain/sandboxTemplates";
 
 export const mockModels: ModelConfig[] = [
   {
@@ -119,6 +121,7 @@ export const mockProviders: Provider[] = [
       "n",
       "timeout",
       "reasoningEffort",
+      "apiFormat",
     ],
   },
   {
@@ -300,7 +303,6 @@ export const mockSubstrateInventory: {
       name: "coder-template",
       phase: "Ready",
       goldenTag: "ate-golden/snap-2026-07-28",
-      sandboxClass: "gvisor",
       workerSelector: "pool=kagent-default",
     },
     {
@@ -382,15 +384,10 @@ export const MOCK_INSTANCE_CREATOR = "alice@example.com";
 /**
  * Agent instances, spread across the states the page has to render.
  *
- * Deliberately not a set of healthy rows. Six of the seven `AgentInstanceState`
- * values appear here — every one but `deleted`, which is the state a record leaves
- * the list in — because the states are the entire point of the page and a fixture
- * set of ready instances would prove only that a table renders. In particular:
+ * Includes ready conversations and states that prevent interaction:
  *
- * - one `ready` and one `suspended`, so both lifecycle buttons have something to
- *   act on and each is disabled on the other's row;
- * - one mid-operation (`creating` with `create` claimed), where both buttons must
- *   be refused because the controller's `claim` refuses a second operation;
+ * - ready conversations, including an idle unnamed sibling;
+ * - one mid-operation (`creating` with `create` claimed);
  * - one `failed` carrying a `Failure`, which is the only row that has one;
  * - one whose state the controller never reported, with no harness, no template
  *   and no timestamps — the row that catches a page rendering absent values as
@@ -431,7 +428,7 @@ export const mockAgentInstances: AgentInstance[] = [
     agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-b28e4f13.kagent.svc.cluster.local:8080",
-    state: "suspended",
+    state: "ready",
     operation: "unspecified",
     /*
      * Older than the named sibling above it, which the rail renders *after* this one
@@ -610,6 +607,24 @@ export const mockAgentInstances: AgentInstance[] = [
  * exactly the class of failure this file's fixtures have caused before.
  */
 export const mockHarnesses: Harness[] = [
+  // The three the chart installs: no workload, so each runs the release's image.
+  ...(["kagent", "codex", "claude"] as const).map((runtime) => ({
+    ref: `kagent/${runtime}-default`,
+    namespace: "kagent",
+    name: `${runtime}-default`,
+    runtime,
+    workloadImage: "",
+    resource: {
+      metadata: { name: `${runtime}-default`, namespace: "kagent" },
+      spec: {
+        [runtime]: {},
+        substrate: {
+          workerPoolRef: { name: "kagent-default" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
+        },
+      },
+    },
+  })),
   {
     ref: "kagent/k8s-agent",
     namespace: "kagent",
@@ -617,7 +632,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "kagent",
     workloadImage:
       "ghcr.io/kagent-dev/kagent/golang-adk@sha256:3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a",
-    ready: true,
     resource: {
       metadata: { name: "k8s-agent", namespace: "kagent" },
       spec: {
@@ -634,10 +648,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "claude",
     workloadImage:
       "ghcr.io/kagent-dev/kagent/claude-adk@sha256:9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e",
-    // Not ready, and still offered: the controller may simply not have observed it
-    // yet, so refusing to let a reader choose it would block a create that would
-    // succeed. The picker says so instead.
-    ready: false,
     resource: {
       metadata: { name: "support-triage", namespace: "kagent" },
       spec: {
@@ -655,7 +665,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "codex",
     workloadImage:
       "ghcr.io/kagent-dev/kagent/codex-adk@sha256:4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b",
-    ready: true,
     resource: {
       metadata: { name: "fast-lane", namespace: "kagent" },
       spec: {
@@ -674,7 +683,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "byo",
     workloadImage:
       "ghcr.io/example/echo-agent@sha256:a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0",
-    ready: true,
     resource: {
       metadata: { name: "byo-echo", namespace: "kagent" },
       spec: {
@@ -697,7 +705,6 @@ export const mockHarnesses: Harness[] = [
     runtime: "kagent",
     workloadImage:
       "ghcr.io/kagent-dev/kagent/golang-adk@sha256:6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f",
-    ready: true,
     resource: {
       metadata: { name: "reporting", namespace: "analytics" },
       spec: {
@@ -876,8 +883,24 @@ export const mockAgents: Agent[] = [
       systemPrompt: "You write short, accurate release notes.",
     } },
     harnessRef: { name: "k8s-agent" },
+    egressPolicyRefs: [{ name: "github-api" }],
+  }, withEgressApplied(readyStatus("rev-release-notes"))),
+  // Ran once, then an edit pointed it at a Harness image nobody can pull. The message is
+  // what `controller/golden_retry.go` writes while it waits to rebuild the golden snapshot.
+  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }, {
+    observedGeneration: 2,
+    desiredRevision: "rev-triage-on-claude-2",
+    latestSuccessfulRevision: "rev-triage-on-claude",
+    conditions: [
+      { type: "Accepted", status: "True", reason: "Accepted", message: "Agent explicitly selects its template and harness" },
+      { type: "ResolvedRefs", status: "True", reason: "Resolved", message: "All runtime references resolved" },
+      { type: "Compatible", status: "True", reason: "Compatible", message: "Resolved configuration is compatible with the Harness" },
+      {
+        type: "Ready", status: "False", reason: "ActorTemplateRetrying",
+        message: "golden build failed (GoldenActorCrashed): could not pull image ghcr.io/kagent-dev/kagent/claude-harnes:0.9.0, retry 2 at 2026-11-07T10:01:12Z",
+      },
+    ],
   }),
-  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }),
   agent("kagent", "scratchpad", {
     template: { inline: {
       modelConfig: { name: "default-model-config" },
@@ -887,4 +910,103 @@ export const mockAgents: Agent[] = [
     harnessRef: { name: "k8s-agent" },
   }),
   agent("analytics", "reporting-agent-9d4e2f1", { template: { ref: { name: "reporting-agent-9d4e2f1" } }, harnessRef: { name: "reporting" } }),
+];
+
+/** The independent condition the controller adds once every referenced policy is admitted. */
+function withEgressApplied(status: AgentStatus): AgentStatus {
+  return {
+    ...status,
+    conditions: [
+      ...(status.conditions ?? []),
+      {
+        type: "EgressPoliciesApplied",
+        status: "True",
+        reason: "Applied",
+        message: "All egress grants are admitted",
+        observedGeneration: status.observedGeneration,
+      },
+    ],
+  };
+}
+
+function egressPolicy(namespace: string, name: string, spec: EgressPolicySpec): EgressPolicy {
+  return {
+    ref: `${namespace}/${name}`,
+    namespace,
+    name,
+    resource: {
+      apiVersion: "api.kagent.dev/v1alpha3",
+      kind: "EgressPolicy",
+      metadata: { name, namespace, resourceVersion: "1", generation: 1, creationTimestamp: "2026-10-01T09:00:00Z" },
+      spec,
+    },
+  };
+}
+
+/** Shaped after `egresspolicy_types.go` and the cases its CEL tests accept. */
+export const mockEgressPolicies: EgressPolicy[] = [
+  egressPolicy("kagent", "github-api", {
+    destinations: [
+      {
+        origin: "https://api.github.com",
+        authentication: { header: "Authorization", prefix: "Bearer ", secretKeyRef: { name: "github-token", key: "token" } },
+      },
+      { origin: "https://*.githubusercontent.com" },
+    ],
+  }),
+  egressPolicy("kagent", "internal-tools", {
+    destinations: [
+      {
+        origin: "https://tools.internal.example.com",
+        authentication: {
+          header: "Authorization",
+          prefix: "Bearer ",
+          actorJwt: { audiences: ["https://tools.internal.example.com"], expirationSeconds: 900 },
+        },
+      },
+    ],
+  }),
+  egressPolicy("platform", "package-mirrors", {
+    destinations: [{ origin: "https://registry.npmjs.org" }, { origin: "https://pypi.org" }, { origin: "https://*.pythonhosted.org" }],
+  }),
+  egressPolicy("analytics", "warehouse", {
+    destinations: [
+      {
+        origin: "https://warehouse.example.com:8443",
+        authentication: { header: "X-API-Key", secretKeyRef: { name: "warehouse-credentials", key: "api-key" } },
+      },
+    ],
+  }),
+];
+
+function sandboxTemplate(
+  namespace: string,
+  name: string,
+  refs: string[],
+  condition: { status: string; reason: string; message: string },
+): SandboxTemplate {
+  return {
+    ref: `${namespace}/${name}`,
+    namespace,
+    name,
+    resource: {
+      metadata: { name, namespace, generation: 1 },
+      spec: { egressPolicyRefs: refs.map((ref) => ({ name: ref })) },
+      status: { conditions: [{ type: "EgressPoliciesApplied", ...condition, observedGeneration: 1 }] },
+    },
+  };
+}
+
+/** Only the fields the UI reads; a real SandboxTemplate also carries workload and substrate. */
+export const mockSandboxTemplates: SandboxTemplate[] = [
+  sandboxTemplate("kagent", "python-sandbox", ["github-api", "retired-mirror"], {
+    status: "False",
+    reason: "EgressPolicyNotFound",
+    message: 'kagent/retired-mirror: egresspolicies.api.kagent.dev "retired-mirror" not found',
+  }),
+  sandboxTemplate("analytics", "report-sandbox", ["warehouse"], {
+    status: "True",
+    reason: "Applied",
+    message: "All egress grants are admitted",
+  }),
 ];

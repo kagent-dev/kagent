@@ -6,9 +6,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from kagent.skills import get_session_path, initialize_session_path
+from kagent.tools import get_workspace_path
 
 from kagent.adk.tools.file_tools import GrepFileTool, _run_with_deadline
+
+
+@pytest.fixture(autouse=True)
+def workspace(tmp_path, monkeypatch):
+    monkeypatch.setattr("kagent.tools.workspace.WORKSPACE", tmp_path / "workspace")
 
 
 class MockSession:
@@ -62,12 +67,11 @@ async def test_grep_file_tool_times_out_on_catastrophic_backtracking(tmp_path):
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
     session_id = "test-session-grep-catastrophic"
-    initialize_session_path(session_id, str(skills_dir))
 
-    working_dir = Path(get_session_path(session_id=session_id))
+    working_dir = Path(get_workspace_path())
     (working_dir / "evil.txt").write_text(CATASTROPHIC_SUBJECT + "\n")
 
-    tool = GrepFileTool(skills_directory=str(skills_dir))
+    tool = GrepFileTool()
     # Comfortably above worker spawn cost, low enough to keep the test quick.
     tool._TIMEOUT_SECONDS = 3
 
@@ -103,10 +107,9 @@ def _session_with_file(tmp_path, session_id: str, name: str, content: str):
     """
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
-    initialize_session_path(session_id, str(skills_dir))
-    working_dir = Path(get_session_path(session_id=session_id))
+    working_dir = Path(get_workspace_path())
     (working_dir / name).write_text(content)
-    return GrepFileTool(skills_directory=str(skills_dir))
+    return GrepFileTool()
 
 
 @pytest.mark.asyncio
@@ -154,9 +157,8 @@ async def test_grep_file_tool_still_rejects_a_whitespace_only_pattern(tmp_path):
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
     session_id = "test-session-grep-blank"
-    initialize_session_path(session_id, str(skills_dir))
 
-    tool = GrepFileTool(skills_directory=str(skills_dir))
+    tool = GrepFileTool()
 
     with patch("kagent.adk.tools.file_tools.grep_content") as mocked:
         result = await tool.run_async(

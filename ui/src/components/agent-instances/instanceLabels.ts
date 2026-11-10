@@ -42,7 +42,7 @@ const STATES: Record<AgentInstanceState, StateAppearance> = {
   ready: {
     label: "Ready",
     tone: "success",
-    meaning: "The instance is running and can be reached over A2A.",
+    meaning: "The conversation is ready for messages.",
   },
   creating: {
     label: "Creating",
@@ -53,7 +53,7 @@ const STATES: Record<AgentInstanceState, StateAppearance> = {
     label: "Suspended",
     tone: "default",
     meaning:
-      "The instance is stopped but its state is kept. Resuming brings it back.",
+      "The runtime is stopped and its state is retained.",
   },
   failed: {
     label: "Failed",
@@ -109,6 +109,7 @@ const OPERATIONS: Record<AgentInstanceOperation, OperationAppearance> = {
   suspend: { label: "Suspending", tone: "processing", inProgress: true },
   resume: { label: "Resuming", tone: "processing", inProgress: true },
   delete: { label: "Deleting", tone: "warning", inProgress: true },
+  revert: { label: "Reverting", tone: "warning", inProgress: true },
   unknown: { label: "Unrecognised operation", tone: "warning", inProgress: true },
 };
 

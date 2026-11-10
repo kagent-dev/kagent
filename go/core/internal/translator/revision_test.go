@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/stretchr/testify/require"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
@@ -18,13 +18,13 @@ func TestRevisionDigestIncludesSandboxClass(t *testing.T) {
 	require.NotEqual(t, "563beefdd1b191baae375aa92e70bcab812a3c4fd2a189cdf74668f1ad45456d", original.String(),
 		"the default class must participate in the digest instead of preserving the legacy digest")
 
-	revision.SandboxClass = atev1alpha1.SandboxClassGvisor
+	revision.SandboxClass = atev1.SandboxClassGvisor
 	gvisor, err := revision.Digest()
 	require.NoError(t, err)
 	require.Equal(t, original, gvisor, "empty and explicit gVisor select the same runtime")
-	require.Equal(t, atev1alpha1.SandboxClassGvisor, revision.SandboxClass, "hashing must not mutate the revision")
+	require.Equal(t, atev1.SandboxClassGvisor, revision.SandboxClass, "hashing must not mutate the revision")
 
-	revision.SandboxClass = atev1alpha1.SandboxClassMicroVM
+	revision.SandboxClass = atev1.SandboxClassMicroVM
 	microvm, err := revision.Digest()
 	require.NoError(t, err)
 	require.NotEqual(t, gvisor, microvm, "changing sandbox class must create a new immutable revision")
@@ -142,4 +142,15 @@ func TestRevisionDigestIncludesBinaryAgentCard(t *testing.T) {
 	revision.AgentCard.Name = string([]byte{0xff})
 	_, err = revision.Digest()
 	require.Error(t, err)
+}
+
+func TestRevisionDigestIncludesResources(t *testing.T) {
+	revision := Revision{CPU: "1", Memory: "1Gi"}
+	before, err := revision.Digest()
+	require.NoError(t, err)
+	for _, changed := range []Revision{{CPU: "2", Memory: "1Gi"}, {CPU: "1", Memory: "2Gi"}} {
+		after, err := changed.Digest()
+		require.NoError(t, err)
+		require.NotEqual(t, before, after)
+	}
 }

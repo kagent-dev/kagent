@@ -61,9 +61,9 @@ export function UnmappedConversationsPage() {
    * whole action and re-reads the list — so what could not be deleted stays visible
    * rather than appearing to have gone.
    */
-  async function removeAll(): Promise<void> {
+  async function removeAll(force = false): Promise<void> {
     await Promise.all(
-      orphans.map((row) => apiClient.agentInstances.remove(row.id)),
+      orphans.map((row) => apiClient.agentInstances.remove(row.id, { force })),
     );
   }
 
@@ -108,7 +108,8 @@ export function UnmappedConversationsPage() {
         <DeleteResourceButton
           kind="conversation"
           name={conversationTitle(row)}
-          onDelete={() => apiClient.agentInstances.remove(row.id)}
+          forceLabel="Stop active turns and delete"
+          onDelete={(force) => apiClient.agentInstances.remove(row.id, { force })}
           onDeleted={conversations.refresh}
           description="This conversation cannot be reached from any agent, and deleting it releases the worker it holds."
         />
@@ -133,9 +134,10 @@ export function UnmappedConversationsPage() {
           {orphans.length > 0 ? (
             <DeleteResourceButton
               kind="conversations"
-              name={`all ${orphans.length} unmapped`}
+              name={`all ${orphans.length} visible unmapped`}
               label="Delete all"
               outlined
+              forceLabel="Stop active turns and delete"
               onDelete={removeAll}
               onDeleted={conversations.refresh}
               description={
@@ -143,7 +145,7 @@ export function UnmappedConversationsPage() {
                   css={{ display: "inline-block", maxWidth: 340 }}
                   data-testid="unmapped-delete-all-consequence"
                 >
-                  This will delete all conversations that do not have an agent Agent definition — {orphans.length} in all. They cannot be
+                  This will delete the {orphans.length} visible conversations whose Agent definition no longer exists. They cannot be
                   recovered, and the workers they hold are released.
                 </span>
               }
@@ -169,6 +171,10 @@ export function UnmappedConversationsPage() {
           />
         ) : null}
 
+        {conversations.widerReadRefused !== undefined && !conversations.error ? (
+          <Alert type="info" showIcon title="Showing your unmapped conversations only" data-testid="unmapped-owned-conversations" />
+        ) : null}
+
         <Alert
           type="info"
           showIcon
@@ -187,7 +193,9 @@ export function UnmappedConversationsPage() {
           locale={{
             emptyText: loadFailure
               ? " "
-              : "Every conversation belongs to an agent. Nothing to show here.",
+              : conversations.widerReadRefused !== undefined
+                ? "None of your conversations are unmapped."
+                : "No visible conversations are unmapped.",
           }}
         />
       </Space>

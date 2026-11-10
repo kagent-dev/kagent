@@ -49,7 +49,7 @@ func TestRuntimeGenAIBaggage(t *testing.T) {
 			require.NoError(t, err)
 			prompt := "Add 3 and 5 using the configured MCP server."
 			require.NoError(t, json.Unmarshal([]byte(`{"role":"user","content":"`+prompt+`"}`), &cfg.OpenAI[0].Match.Message))
-			recorder := startModelRecorder(t, startMockLLMConfig(t, cfg), nil)
+			recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMConfig(t, cfg)), nil)
 			model := createInteractionModel(t, kube, reachableModelURL(t, recorder.URL), map[string]string{"X-Kagent-E2E-Model": "agent"})
 
 			harness := createPropagatorsHarness(t, kube, tc.propagators)
@@ -171,11 +171,11 @@ func createGenAIBaggageTemplate(t *testing.T, kube ctrlclient.Client, harnessNam
 			Labels: map[string]string{"kagent.dev/harness": harnessName},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: modelName},
+			ModelConfig:  &v1alpha3.ObjectReference{Name: modelName},
 			Description:  "GenAI baggage E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 			}}},
 		},
 	}

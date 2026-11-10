@@ -5,6 +5,7 @@ package outputschema
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -25,6 +26,8 @@ const (
 // accept raw JSON Schema and for final response validation. genai.Schema lacks
 // const and additionalProperties, and represents enum values as strings, so
 // those constraints may be enforced only by the provider and final validator.
+// genai.Schema holds one type, so a type list with two or more non-null types
+// loses its type constraint too.
 func ToGenAISchema(raw json.RawMessage) (*genai.Schema, error) {
 	var schema jsonschema.Schema
 	if err := json.Unmarshal(raw, &schema); err != nil {
@@ -80,24 +83,44 @@ func (c *schemaConverter) convert(schema *jsonschema.Schema, stack map[*jsonsche
 	}
 
 	converted := &genai.Schema{Title: schema.Title, Description: schema.Description}
-	switch schema.Type {
-	case "":
-	case "object":
-		converted.Type = genai.TypeObject
-	case "array":
-		converted.Type = genai.TypeArray
-	case "string":
-		converted.Type = genai.TypeString
-	case "number":
-		converted.Type = genai.TypeNumber
-	case "integer":
-		converted.Type = genai.TypeInteger
-	case "boolean":
-		converted.Type = genai.TypeBoolean
-	case "null":
+	types := schema.Types
+	if schema.Type != "" {
+		types = []string{schema.Type}
+	}
+	nullable := false
+	nonNull := make([]genai.Type, 0, len(types))
+	for _, name := range types {
+		switch name {
+		case "object":
+			nonNull = append(nonNull, genai.TypeObject)
+		case "array":
+			nonNull = append(nonNull, genai.TypeArray)
+		case "string":
+			nonNull = append(nonNull, genai.TypeString)
+		case "number":
+			nonNull = append(nonNull, genai.TypeNumber)
+		case "integer":
+			nonNull = append(nonNull, genai.TypeInteger)
+		case "boolean":
+			nonNull = append(nonNull, genai.TypeBoolean)
+		case "null":
+			nullable = true
+		default:
+			return nil, fmt.Errorf("unsupported output schema type %q", name)
+		}
+	}
+	switch {
+	case len(nonNull) == 0 && nullable:
 		converted.Type = genai.TypeNULL
-	default:
-		return nil, fmt.Errorf("unsupported output schema type %q", schema.Type)
+	case nullable:
+		converted.Nullable = new(true)
+	}
+	if len(nonNull) == 1 {
+		converted.Type = nonNull[0]
+	}
+	converted.Pattern = schema.Pattern
+	if slices.Contains(supportedStringFormats, schema.Format) {
+		converted.Format = schema.Format
 	}
 	converted.Required = append([]string(nil), schema.Required...)
 	if schema.Items != nil {

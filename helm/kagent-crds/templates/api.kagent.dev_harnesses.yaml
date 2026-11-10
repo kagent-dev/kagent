@@ -17,9 +17,6 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='Ready')].status
-      name: Ready
-      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -46,8 +43,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: HarnessSpec defines a reusable runtime and its infrastructure
-              policy.
+            description: |-
+              HarnessSpec defines a reusable runtime and its infrastructure policy.
+
+              Workload fields that only some adapters support are enforced here, one rule
+              per adapter constraint, each written as "if adapter, then workload constraint".
             properties:
               byo:
                 description: BYOHarness selects an image that implements kagent's
@@ -114,20 +114,21 @@ spec:
                         properties:
                           modelConfigRef:
                             description: |-
-                              ModelConfigRef references the ModelConfig in the Harness namespace that
+                              ModelConfigRef references the ModelConfig (defaulting to the Harness namespace) that
                               writes the summaries. Omitted uses the agent's own model.
                             properties:
                               name:
-                                default: ""
-                                description: |-
-                                  Name of the referent.
-                                  This field is effectively required, but due to backwards compatibility is
-                                  allowed to be empty. Instances of this type with an empty value here are
-                                  almost certainly wrong.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                maxLength: 253
+                                minLength: 1
+                                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                 type: string
+                              namespace:
+                                maxLength: 63
+                                pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                                type: string
+                            required:
+                            - name
                             type: object
-                            x-kubernetes-map-type: atomic
                             x-kubernetes-validations:
                             - message: name must not be empty
                               rule: has(self.name) && self.name != ''
@@ -164,19 +165,20 @@ spec:
                     properties:
                       modelConfigRef:
                         description: ModelConfigRef references the embedding ModelConfig
-                          in the Harness namespace.
+                          (defaulting to the Harness namespace).
                         properties:
                           name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
+                          namespace:
+                            maxLength: 63
+                            pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                            type: string
+                        required:
+                        - name
                         type: object
-                        x-kubernetes-map-type: atomic
                       ttlDays:
                         description: TTLDays controls how many days a stored memory
                           entry remains valid.
@@ -231,21 +233,28 @@ spec:
                   command. BYO requires it.
                 properties:
                   args:
-                    description: Args overrides the image command arguments when set.
+                    description: |-
+                      Args overrides the image command arguments. Supported by kagent and byo
+                      harnesses; claude and codex harnesses reject it.
                     items:
                       type: string
                     maxItems: 64
+                    minItems: 1
                     type: array
                   command:
-                    description: Command overrides the image entrypoint when set.
+                    description: |-
+                      Command overrides the image entrypoint. Supported by kagent and byo
+                      harnesses and required by byo; claude and codex harnesses reject it.
                     items:
                       type: string
                     maxItems: 32
+                    minItems: 1
                     type: array
                   image:
                     description: |-
-                      Image overrides the release's built-in runtime image. BYO requires an image.
-                      When set, it must be an OCI image reference pinned by sha256 digest.
+                      Image overrides the release's built-in runtime image. Supported by all
+                      harnesses and required by byo. It must be an OCI image reference pinned
+                      by sha256 digest.
                     pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
                     type: string
                 type: object
@@ -253,152 +262,23 @@ spec:
             - substrate
             type: object
             x-kubernetes-validations:
-            - message: BYO harnesses must specify workload.command
-              rule: '!has(self.byo) || (has(self.workload) && has(self.workload.command)
-                && size(self.workload.command) > 0)'
             - message: BYO harnesses must specify workload.image
               rule: '!has(self.byo) || (has(self.workload) && has(self.workload.image))'
+            - message: BYO harnesses must specify workload.command
+              rule: '!has(self.byo) || (has(self.workload) && has(self.workload.command))'
+            - message: Claude harnesses do not support workload.command or workload.args
+              rule: '!has(self.claude) || !has(self.workload) || (!has(self.workload.command)
+                && !has(self.workload.args))'
+            - message: Codex harnesses do not support workload.command or workload.args
+              rule: '!has(self.codex) || !has(self.workload) || (!has(self.workload.command)
+                && !has(self.workload.args))'
             - message: exactly one of the fields in [kagent codex claude byo] must
                 be set
               rule: (has(self.kagent)?1:0)+(has(self.codex)?1:0)+(has(self.claude)?1:0)+(has(self.byo)?1:0)
                 == 1
-          status:
-            description: HarnessStatus reports controller-derived capabilities and
-              current health.
-            properties:
-              capabilities:
-                description: Capabilities is the single capability record for the
-                  selected runtime.
-                properties:
-                  approvals:
-                    type: boolean
-                  checkpoint:
-                    type: boolean
-                  dedicatedAgentTools:
-                    type: boolean
-                  inputModalities:
-                    items:
-                      type: string
-                    maxItems: 16
-                    type: array
-                    x-kubernetes-list-type: set
-                  inputRequired:
-                    type: boolean
-                  interruption:
-                    type: boolean
-                  maxNativeAgentDepth:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  mcpInjection:
-                    type: boolean
-                  nativeAgentTools:
-                    type: boolean
-                  outputModalities:
-                    items:
-                      type: string
-                    maxItems: 16
-                    type: array
-                    x-kubernetes-list-type: set
-                  resume:
-                    type: boolean
-                  streaming:
-                    type: boolean
-                  structuredOutput:
-                    description: |-
-                      StructuredOutput reports whether the pinned adapter can enforce a root
-                      JSON output contract and emit it as an A2A DataPart.
-                    type: boolean
-                  version:
-                    description: Version identifies the controller capability catalog
-                      entry.
-                    minLength: 1
-                    type: string
-                required:
-                - approvals
-                - checkpoint
-                - dedicatedAgentTools
-                - inputRequired
-                - interruption
-                - maxNativeAgentDepth
-                - mcpInjection
-                - nativeAgentTools
-                - resume
-                - streaming
-                - structuredOutput
-                - version
-                type: object
-              conditions:
-                description: Conditions report adapter and dependency health.
-                items:
-                  description: Condition contains details for one aspect of the current
-                    state of this API Resource.
-                  properties:
-                    lastTransitionTime:
-                      description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-                      format: date-time
-                      type: string
-                    message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This may be an empty string.
-                      maxLength: 32768
-                      type: string
-                    observedGeneration:
-                      description: |-
-                        observedGeneration represents the .metadata.generation that the condition was set based upon.
-                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-                        with respect to the current state of the instance.
-                      format: int64
-                      minimum: 0
-                      type: integer
-                    reason:
-                      description: |-
-                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
-                        Producers of specific condition types may define expected values and meanings for this field,
-                        and whether the values are considered a guaranteed API.
-                        The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
-                      type: string
-                  required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
-                  type: object
-                maxItems: 8
-                type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
-              observedGeneration:
-                description: ObservedGeneration is the latest Harness generation observed
-                  by the controller.
-                format: int64
-                type: integer
-            type: object
         required:
         - spec
         type: object
     served: true
     storage: true
-    subresources:
-      status: {}
+    subresources: {}

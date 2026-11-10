@@ -22,11 +22,16 @@ func DefaultCLI(cfg *configv1.CLIConfig) {
 		Logging:    &configv1.LoggingConfig{Level: new("info")},
 		Install:    &configv1.InstallConfig{DefaultModelProvider: new("OpenAI"), BundledPostgresImage: new("postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"), Kagent: &configv1.ChartConfig{Repository: new("oci://ghcr.io/kagent-dev/kagent/helm/"), Version: new(version.Version)}, Substrate: &configv1.ChartConfig{Repository: new("oci://ghcr.io/kagent-dev/substrate/helm/"), Version: new(version.SubstrateVersion)}},
 		Database:   defaultDatabase(),
+		Tui:        &configv1.TUIConfig{Sidebar: new("shown"), Bell: new(true)},
 	})
 	if cfg.Install.PodCertificate == nil {
 		cfg.Install.PodCertificate = &configv1.ChartConfig{}
 	}
 	defaults(cfg.Install.PodCertificate, &configv1.ChartConfig{Repository: new(cfg.Install.Substrate.GetRepository()), Version: new(cfg.Install.Substrate.GetVersion())})
+	if cfg.Install.Atelet == nil {
+		cfg.Install.Atelet = &configv1.ChartConfig{}
+	}
+	defaults(cfg.Install.Atelet, &configv1.ChartConfig{Repository: new(cfg.Install.Substrate.GetRepository()), Version: new(cfg.Install.Substrate.GetVersion())})
 }
 
 // DefaultController fills only absent settings. Secret file paths are required
@@ -36,17 +41,17 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Kubernetes:       &configv1.KubernetesConfig{Namespace: new("kagent"), LeaderElection: new(true)},
 		Server:           &configv1.ControllerServerConfig{BindAddress: new(":8083"), Auth: &configv1.AuthenticationConfig{Mode: new("insecure")}},
 		Database:         defaultDatabase(),
-		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("http://atenet-router.ate-system.svc:80")},
+		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("https://atenet-router.ate-system.svc:443"), ActorJwtIssuer: new("https://idp.ate-system.svc")},
 		Sessions:         &configv1.SessionsConfig{IdleTtl: durationpb.New(7 * 24 * time.Hour), ExpirationInterval: durationpb.New(time.Minute), QuiescenceRecoveryInterval: durationpb.New(time.Minute)},
 		Gateway:          &configv1.GatewayConfig{PublicUrl: new("http://localhost:8083")},
-		Push:             &configv1.PushConfig{RecoveryInterval: durationpb.New(time.Minute)},
+		Push:             &configv1.PushConfig{RecoveryInterval: durationpb.New(time.Minute), MaxConcurrency: new(int32(10)), SendTimeout: durationpb.New(5 * time.Second)},
 		Sandboxes:        &configv1.SandboxConfig{Cpu: new("1"), Memory: new("1Gi"), DefaultTtl: durationpb.New(time.Hour), MaxTtl: durationpb.New(24 * time.Hour), ExpirationInterval: durationpb.New(time.Second)},
 		ScheduledRuns:    &configv1.ScheduledRunsConfig{PollInterval: durationpb.New(time.Second), ExecutionInterval: durationpb.New(time.Second)},
 		RuntimeRevisions: &configv1.RuntimeRevisionsConfig{GcInterval: durationpb.New(time.Minute)},
 		Metrics:          &configv1.MetricsConfig{BindAddress: new("0")},
 		Logging:          &configv1.LoggingConfig{Level: new("info")},
 		Telemetry:        &configv1.TelemetryConfig{},
-		RuntimeDefaults:  &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}, Telemetry: &configv1.TelemetryConfig{}},
+		RuntimeDefaults:  &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}, Telemetry: &configv1.TelemetryConfig{}},
 	})
 	if cfg.Push.Issuer == nil {
 		cfg.Push.Issuer = new(cfg.Gateway.GetPublicUrl())
@@ -85,7 +90,7 @@ func ResolveControllerPaths(cfg *configv1.ControllerConfig, path string) {
 func ResolveCLIPaths(cfg *configv1.CLIConfig, path string) {
 	resolveLoginPath(cfg.Database.Owner, path)
 	cfg.Connection.CaFile = FilePath(path, cfg.Connection.CaFile)
-	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate} {
+	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate, cfg.Install.Atelet} {
 		for i, value := range chart.ValuesFiles {
 			chart.ValuesFiles[i] = FilePath(path, value)
 		}

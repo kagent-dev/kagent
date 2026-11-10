@@ -20,6 +20,8 @@ type FoundryConfig struct {
 	Deployment string
 	APIVersion string
 
+	StrictOutputSchema *bool
+
 	// credential overrides the Azure credential used for the implicit Workload
 	// Identity auth path. When nil, azureai.NewDefaultCredential is used. It is
 	// unexported and exists so tests can inject a fake credential.
@@ -89,9 +91,10 @@ func NewFoundryModel(ctx context.Context, config *FoundryConfig) (*OpenAIModel, 
 	logger.InfoContext(ctx, "initialized Foundry model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion)
 	return &OpenAIModel{
 		Config: &OpenAIConfig{
-			TransportConfig: config.TransportConfig,
-			Model:           deployment,
-			BaseUrl:         strings.TrimSuffix(endpoint, "/") + "/",
+			TransportConfig:    config.TransportConfig,
+			Model:              deployment,
+			BaseUrl:            strings.TrimSuffix(endpoint, "/") + "/",
+			StrictOutputSchema: config.StrictOutputSchema,
 		},
 		Client:  client,
 		IsAzure: true,

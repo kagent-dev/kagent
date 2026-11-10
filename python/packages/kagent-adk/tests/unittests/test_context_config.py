@@ -119,13 +119,6 @@ class TestContextConfigParsing:
         assert parsed.compaction.overlap_size == 2
         assert parsed.compaction.token_threshold == 1000
 
-    def test_network_config(self):
-        data = json.loads(_make_agent_config_json())
-        data["agent"]["network"] = {"allowed_domains": ["api.example.com", "*.example.org"]}
-        config = parse_config(data).agent
-        assert config.network is not None
-        assert config.network.allowed_domains == ["api.example.com", "*.example.org"]
-
     def test_model_accepts_legacy_tls_insecure_skip_verify_field(self):
         data = json.loads(_make_agent_config_json())
         data["agent"]["model"]["tls_insecure_skip_verify"] = True
@@ -150,6 +143,20 @@ class TestBuildAdkContextConfigs:
         assert events_cfg.overlap_size == 0
         assert events_cfg.token_threshold == 1000
         assert events_cfg.event_retention_size == 0
+
+    def test_compaction_interval_without_overlap_defaults_overlap_to_zero(self):
+        # The Harness CRD allows omitting overlap_size, but google-adk requires
+        # compaction_interval and overlap_size together.
+        config = ContextConfig(compaction=ContextCompressionSettings(compaction_interval=5))
+        events_cfg, _ = build_adk_context_configs(config)
+        assert events_cfg.compaction_interval == 5
+        assert events_cfg.overlap_size == 0
+
+    def test_token_threshold_alone_leaves_overlap_unset(self):
+        config = ContextConfig(compaction=ContextCompressionSettings(token_threshold=1000, event_retention_size=4))
+        events_cfg, _ = build_adk_context_configs(config)
+        assert events_cfg.compaction_interval is None
+        assert events_cfg.overlap_size is None
 
     def test_compaction_only(self):
         config = ContextConfig(

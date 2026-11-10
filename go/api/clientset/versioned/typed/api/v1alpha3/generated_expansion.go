@@ -12,6 +12,8 @@ type HarnessExpansion interface{}
 
 type ModelConfigExpansion interface{}
 
+type ModelProviderConfigExpansion interface{}
+
 type RemoteMCPServerExpansion interface{}
 
 type SandboxTemplateExpansion interface{}

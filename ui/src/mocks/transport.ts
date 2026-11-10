@@ -2,8 +2,8 @@ import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtim
 import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
-import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
-import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageState, type WorkerSchema, type ActorSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
+import type { ActorTemplateSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
@@ -87,6 +87,14 @@ import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_
 import { ModelService } from "@/generated/kagent/api/v1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
+import { EgressPolicyService } from "@/generated/kagent/api/v1/egress_policies_pb";
+import { SandboxTemplateService } from "@/generated/kagent/api/v1/sandbox_templates_pb";
+import {
+  destinationProblems,
+  specProblems,
+  type EgressPolicy,
+  type EgressPolicyResource,
+} from "@/api/domain/egressPolicies";
 import {
   SystemService,
 } from "@/generated/kagent/api/v1/system_pb";
@@ -124,6 +132,7 @@ import {
 import {
   MOCK_INSTANCE_CREATOR,
   mockNamespaces,
+  mockSandboxTemplates,
   mockProviderModels,
   mockProviders,
   mockSubstrateInventory,
@@ -135,6 +144,9 @@ import {
   allAgentTemplates,
   allAgents,
   saveAgent,
+  allEgressPolicies,
+  saveEgressPolicy,
+  deleteEgressPolicy,
   allModels,
   allPromptDetails,
   allPromptSummaries,
@@ -623,6 +635,7 @@ const PB_OPERATION_BY_NAME: Record<AgentInstanceOperation, RuntimeOperation> = {
   suspend: RuntimeOperation.SUSPEND,
   resume: RuntimeOperation.RESUME,
   delete: RuntimeOperation.DELETE,
+  revert: RuntimeOperation.REVERT,
   unknown: RuntimeOperation.NONE,
 };
 
@@ -638,7 +651,7 @@ function agentInstanceMessage(
     // turns it into a title rather than treating it as a gap.
     name: row.name,
     creator: row.creator,
-    agent: row.agent ? splitRef(row.agent) : undefined,
+    agent: row.agent ? { ref: splitRef(row.agent) } : undefined,
     // Proto3 cannot carry an absent string, so an unset field goes back as the
     // empty one the controller would also send — and `orUndefined` on the client
     // turns it back into "not reported".
@@ -777,55 +790,6 @@ function instanceFor(id: string, call: MockCall): AgentInstance {
   return found;
 }
 
-/**
- * A lifecycle operation, refused exactly where the controller refuses it.
- *
- * `ActorWorkflow.Suspend` claims the instance from `READY` and `Resume` from
- * `SUSPENDED`, and the claim itself fails when an operation is already in flight —
- * both come back as `ErrAgentInstanceConflict`, which the service maps to `Aborted`.
- * Reproducing that here is the difference between a disabled button that is right
- * and one that is merely decorative: the page can be tested against a fake that
- * says no for the same reasons a cluster does.
- *
- * Both complete synchronously on success, leaving `operation` cleared — so the
- * record handed back is final, not a promise to look again later.
- */
-function lifecycle(
-  id: string,
-  call: MockCall,
-  from: AgentInstanceState,
-  to: AgentInstanceState,
-  operation: AgentInstanceOperation,
-): AgentInstance {
-  const instance = instanceFor(
-    requireInstanceId(id),
-    call,
-  );
-
-  if (instance.operation !== "unspecified") {
-    throw new ConnectError(
-      `AgentInstance has a conflicting lifecycle operation: ${instance.operation} is already in progress.`,
-      Code.Aborted,
-    );
-  }
-  if (instance.state !== from) {
-    throw new ConnectError(
-      `AgentInstance has a conflicting lifecycle operation: only a ${from} instance can be ${operation}ed, and this one is ${instance.state}.`,
-      Code.Aborted,
-    );
-  }
-
-  return saveAgentInstance({
-    ...instance,
-    state: to,
-    operation: "unspecified",
-    // A successful operation cannot leave the previous failure standing: the record
-    // would then show a healthy instance beside the reason it broke.
-    failure: undefined,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
 on(SessionService.method.listSessions, (input, call) => {
   if (call.scenario === "empty") return { sessions: [], page: {} };
 
@@ -871,18 +835,6 @@ on(SessionService.method.getSession, (input, call) => ({
       requireInstanceId(input.sessionId),
       call,
     ),
-  ),
-}));
-
-on(SessionService.method.suspendSession, (input, call) => ({
-  session: agentInstanceMessage(
-    lifecycle(input.sessionId, call, "ready", "suspended", "suspend"),
-  ),
-}));
-
-on(SessionService.method.resumeSession, (input, call) => ({
-  session: agentInstanceMessage(
-    lifecycle(input.sessionId, call, "suspended", "ready", "resume"),
   ),
 }));
 
@@ -1078,13 +1030,7 @@ on(HarnessService.method.listHarnesses, (input, call) => {
   return {
     harnesses: allHarnesses()
       .filter((harness) => scope === "" || harness.namespace === scope)
-      .map((harness) => ({
-        ref: { namespace: harness.namespace, name: harness.name },
-        resource: structured("Harness", harness.resource as unknown as JsonObject),
-        runtime: harness.runtime,
-        workloadImage: harness.workloadImage,
-        ready: harness.ready,
-      })),
+      .map(harnessMessage),
   };
 });
 
@@ -1117,14 +1063,8 @@ function templateFor(namespace: string, name: string): AgentTemplate {
 /**
  * A written harness, as this backend will answer it back.
  *
- * The denormalised fields — `runtime`, `workloadImage`, `ready` — are what the
- * controller computes from the spec, so they are computed here too rather than taken
- * from the request: a fixture that echoed whatever it was sent would let a client claim
- * a harness was ready by saying so.
- *
- * `ready` is false on a freshly created harness, which is what a cluster reports too:
- * the controller has not observed it yet. That is a state the tab has to render
- * correctly, and it would be missed entirely if new harnesses arrived ready.
+ * The controller derives `runtime` and `workloadImage` from the spec, so the mock
+ * computes them from the written resource as well.
  */
 function harnessFromResource(namespace: string, name: string, resource: JsonObject): Harness {
   const spec = (resource.spec ?? {}) as {
@@ -1133,7 +1073,7 @@ function harnessFromResource(namespace: string, name: string, resource: JsonObje
     claude?: unknown;
     workload?: { image?: string };
   };
-  const runtime = ["kagent", "codex", "claude"].find(
+  const runtime = ["kagent", "codex", "claude", "byo"].find(
     (key) => (spec as Record<string, unknown>)[key] !== undefined,
   );
   return {
@@ -1142,7 +1082,6 @@ function harnessFromResource(namespace: string, name: string, resource: JsonObje
     name,
     runtime: runtime ?? "",
     workloadImage: spec.workload?.image ?? "",
-    ready: false,
     resource: {
       ...(resource as unknown as Harness["resource"]),
       metadata: {
@@ -1164,7 +1103,7 @@ function templateFromResource(
     ref: `${namespace}/${name}`,
     namespace,
     name,
-    modelConfigRef: spec.modelConfig?.name ? `${namespace}/${spec.modelConfig.name}` : "",
+    modelConfigRef: spec.modelConfig?.name ? `${spec.modelConfig.namespace || namespace}/${spec.modelConfig.name}` : "",
     description: spec.description ?? "",
     // Recomputed by `saveAgentTemplate` from the labels; whatever is passed here is
     // replaced.
@@ -1195,6 +1134,60 @@ on(AgentTemplateService.method.getAgentTemplate, (input) => ({
   ),
 }));
 
+/**
+ * The CRD's own rules, refused here rather than accepted and forgotten.
+ *
+ * A fixture that took anything would let a form ship that builds a resource a
+ * cluster rejects — which is the failure this backend exists to catch, and the one
+ * that is invisible until somebody tries it for real. Mirrors
+ * `go/api/v1alpha3/harness_types.go`: the image is optional except for BYO, which
+ * also needs a command, and the substrate policy is required.
+ */
+function admitHarnessSpec(value: JsonObject) {
+  const spec = (value.spec ?? {}) as {
+    byo?: unknown;
+    workload?: { image?: string; command?: string[] };
+    substrate?: { workerPoolRef?: { name?: string }; snapshotPolicy?: { location?: string } };
+  };
+  const adapters = ["kagent", "codex", "claude", "byo"].filter(
+    (key) => (spec as Record<string, unknown>)[key] !== undefined,
+  );
+  if (adapters.length !== 1) {
+    throw new ConnectError(
+      "exactly one of kagent, codex, claude, or byo must be specified",
+      Code.InvalidArgument,
+    );
+  }
+  const image = spec.workload?.image;
+  if (image !== undefined && !/^[^\s@]+@sha256:[a-f0-9]{64}$/.test(image)) {
+    throw new ConnectError(
+      "spec.workload.image must be pinned by sha256 digest",
+      Code.InvalidArgument,
+    );
+  }
+  if (spec.byo !== undefined && image === undefined) {
+    throw new ConnectError("BYO harnesses must specify workload.image", Code.InvalidArgument);
+  }
+  if (spec.byo !== undefined && (spec.workload?.command ?? []).length === 0) {
+    throw new ConnectError("BYO harnesses must specify workload.command", Code.InvalidArgument);
+  }
+  if (!spec.substrate?.workerPoolRef?.name) {
+    throw new ConnectError("workerPoolRef name must not be empty", Code.InvalidArgument);
+  }
+  if (!/^[^\s]+$/.test(spec.substrate.snapshotPolicy?.location ?? "")) {
+    throw new ConnectError("spec.substrate.snapshotPolicy.location is required", Code.InvalidArgument);
+  }
+}
+
+function harnessMessage(harness: Harness) {
+  return {
+    ref: { namespace: harness.namespace, name: harness.name },
+    resource: structured("Harness", harness.resource as unknown as JsonObject),
+    runtime: harness.runtime,
+    workloadImage: harness.workloadImage,
+  };
+}
+
 on(HarnessService.method.createHarness, (input, call) => {
   const namespace = requireNamespace(input.ref?.namespace ?? "");
   const name = input.ref?.name ?? "";
@@ -1204,50 +1197,50 @@ on(HarnessService.method.createHarness, (input, call) => {
   if (call.scenario === "error") {
     throw new ConnectError("the mock backend was asked to fail", Code.Internal);
   }
+  if (allHarnesses().some((row) => row.namespace === namespace && row.name === name)) {
+    throw new ConnectError(`Harness ${namespace}/${name} already exists`, Code.AlreadyExists);
+  }
   const value = (input.resource?.value ?? {}) as JsonObject;
-  const spec = (value.spec ?? {}) as {
-    kagent?: unknown;
-    codex?: unknown;
-    claude?: unknown;
-    workload?: { image?: string };
-    substrate?: { workerPoolRef?: { name?: string } };
-  };
+  admitHarnessSpec(value);
+  const created = harnessFromResource(namespace, name, value);
+  const metadata = { ...created.resource.metadata, resourceVersion: "1" };
+  return { harness: harnessMessage(saveHarness({ ...created, resource: { ...created.resource, metadata } })) };
+});
 
-  /*
-   * The CRD's own rules, refused here rather than accepted and forgotten.
-   *
-   * A fixture that took anything would let a form ship that builds a resource a
-   * cluster rejects — which is the failure this backend exists to catch, and the one
-   * that is invisible until somebody tries it for real.
-   */
-  const adapters = ["kagent", "codex", "claude"].filter(
-    (key) => (spec as Record<string, unknown>)[key] !== undefined,
-  );
-  if (adapters.length !== 1) {
-    throw new ConnectError(
-      "exactly one of kagent, codex, or claude must be specified",
-      Code.InvalidArgument,
-    );
+// Replaces spec and labels only, and refuses a stale resourceVersion as the controller does.
+on(HarnessService.method.updateHarness, (input, call) => {
+  const namespace = requireNamespace(input.ref?.namespace ?? "");
+  const name = input.ref?.name ?? "";
+  if (call.scenario === "error") {
+    throw new ConnectError("the mock backend was asked to fail", Code.Internal);
   }
-  if (!/^[^\s@]+@sha256:[a-f0-9]{64}$/.test(spec.workload?.image ?? "")) {
-    throw new ConnectError(
-      "spec.workload.image must be pinned by sha256 digest",
-      Code.InvalidArgument,
-    );
+  const previous = allHarnesses().find((row) => row.namespace === namespace && row.name === name);
+  if (!previous) throw new ConnectError(`Harness ${namespace}/${name} not found`, Code.NotFound);
+  const value = (input.resource?.value ?? {}) as JsonObject;
+  const metadata = (value.metadata ?? {}) as { name?: string; namespace?: string; resourceVersion?: string; labels?: Record<string, string> };
+  if ((metadata.name && metadata.name !== name) || (metadata.namespace && metadata.namespace !== namespace)) {
+    throw new ConnectError("resource metadata must match the request ref", Code.InvalidArgument);
   }
-  if (!spec.substrate?.workerPoolRef?.name) {
-    throw new ConnectError("workerPoolRef name must not be empty", Code.InvalidArgument);
+  const stored = previous.resource.metadata.resourceVersion;
+  if (metadata.resourceVersion && stored && metadata.resourceVersion !== stored) {
+    throw new ConnectError("Harness was modified; reload and retry", Code.Aborted);
   }
-
-  const saved = saveHarness(harnessFromResource(namespace, name, value));
+  admitHarnessSpec(value);
+  const next = harnessFromResource(namespace, name, { ...value, metadata: {} });
   return {
-    harness: {
-      ref: { namespace: saved.namespace, name: saved.name },
-      resource: structured("Harness", saved.resource as unknown as JsonObject),
-      runtime: saved.runtime,
-      workloadImage: saved.workloadImage,
-      ready: saved.ready,
-    },
+    harness: harnessMessage(
+      saveHarness({
+        ...next,
+        resource: {
+          ...next.resource,
+          metadata: {
+            ...previous.resource.metadata,
+            labels: metadata.labels,
+            resourceVersion: String((Number(stored) || 1) + 1),
+          },
+        },
+      }),
+    ),
   };
 });
 
@@ -1322,11 +1315,11 @@ function substrateWorkerPoolMessage(pool: SubstrateWorkerPoolEntry) {
   return {
     ref: { namespace: pool.namespace, name: pool.name },
     resource: structured("WorkerPool", {
-      apiVersion: "ate.dev/v1alpha1",
+      apiVersion: "ate.dev/v1",
       kind: "WorkerPool",
       metadata: { namespace: pool.namespace, name: pool.name },
       spec: { replicas: pool.replicas ?? 0, workerImage: pool.ateomImage ?? "" },
-    }, "ate.dev/v1alpha1"),
+    }, "ate.dev/v1"),
   };
 }
 
@@ -1345,11 +1338,6 @@ function substrateActorTemplateMessage(
           : undefined,
         errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
       },
-    },
-    sandboxConfig: {
-      sandboxClass:
-        SandboxClass[template.sandboxClass?.toUpperCase() as keyof typeof SandboxClass]
-        ?? SandboxClass.UNSPECIFIED,
     },
     workerSelector: {
       matchLabels: template.workerSelector
@@ -1373,7 +1361,7 @@ function substrateActorMessage(
       name: actor.actorTemplateName ?? "",
     },
     status: {
-      state: ActorState[
+      state: actor.status === "Paused" ? ActorState.SUSPENDED : ActorState[
         actor.status.replace(/^ACTOR_STATE_/, "").toUpperCase() as keyof typeof ActorState
       ] ?? ActorState.UNSPECIFIED,
       workerAssignment: actor.ateomPodName ? {
@@ -1382,10 +1370,18 @@ function substrateActorMessage(
         workerPodIps: actor.ateomPodIp ? [actor.ateomPodIp] : [],
         workerPool: actor.workerPoolName ?? "",
       } : undefined,
-      externalSnapshot: actor.latestSnapshot
-        ? { snapshotUri: actor.latestSnapshot }
-        : undefined,
-      inProgressLocalSnapshotName: actor.inProgressSnapshot ?? "",
+      snapshots: [
+        ...(actor.latestSnapshot ? [{
+          generation: 1,
+          durableSnapshot: { state: SnapshotStorageState.COMPLETED, object: { snapshotUri: actor.latestSnapshot } },
+        }] : []),
+        ...(actor.status === "Paused" ? [{ generation: 2, locality: "worker-node" }] : []),
+        ...(actor.inProgressSnapshot ? [{
+          generation: 3,
+          uuid: actor.inProgressSnapshot,
+          durableSnapshot: { state: SnapshotStorageState.PENDING },
+        }] : []),
+      ],
     },
   };
 }
@@ -1395,9 +1391,9 @@ function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    ips: worker.ip ? [worker.ip] : [],
     metadata: { version: BigInt(worker.version ?? 0) },
     status: {
+      ips: worker.ip ? [worker.ip] : [],
       allocated: {
         // Worker allocation includes actors from every atespace.
         actors: mockSubstrateInventory.actors.filter((actor) =>
@@ -1418,6 +1414,17 @@ function substratePage<T>(rows: T[], pageSize: number, pageToken: string) {
     nextPageToken: end < rows.length ? String(end) : "",
   };
 }
+
+// Kubernetes only, like the controller, so it answers whatever ate-api is doing.
+on(SystemService.method.listWorkerPools, (input, call) => {
+  if (call.scenario === "empty") return { workerPools: [] };
+  const inScope = substrateScope(input.namespace);
+  return {
+    workerPools: mockSubstrateInventory.workerPools
+      .filter((pool) => inScope(pool.namespace))
+      .map(substrateWorkerPoolMessage),
+  };
+});
 
 on(SystemService.method.getSubstrateSummary, (input, call) => {
   if (call.scenario === "empty") return {};
@@ -1708,6 +1715,7 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
       condition("ResolvedRefs", false, "ReferenceResolutionFailed", missing),
       condition("Compatible", false, "Blocked", "blocked by ResolvedRefs"),
       condition("Ready", false, "Blocked", "blocked by ResolvedRefs"),
+      ...egressCondition(namespace, spec, generation),
     ]};
   }
   return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: desiredRevision, conditions: [
@@ -1715,7 +1723,19 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
     condition("ResolvedRefs", true, "Resolved", "All runtime references resolved"),
     condition("Compatible", true, "Compatible", "Resolved configuration is compatible with the Harness"),
     condition("Ready", true, "Ready", "ActorTemplate golden snapshot is ready"),
+    ...egressCondition(namespace, spec, generation),
   ]};
+}
+/** `EgressPoliciesApplied`, set only when the Agent references policies. Never affects Ready. */
+function egressCondition(namespace: string, spec: Agent["resource"]["spec"], observedGeneration: number) {
+  const refs = spec.egressPolicyRefs ?? [];
+  if (refs.length === 0) return [];
+  const missing = refs.filter((ref) => !allEgressPolicies().some((row) => row.namespace === namespace && row.name === ref.name));
+  // Matches the controller: one issue per missing policy, each prefixed with its namespace/name.
+  const message = missing.map((ref) => `${namespace}/${ref.name}: egresspolicies.api.kagent.dev "${ref.name}" not found`).join("; ");
+  return [missing.length
+    ? { type: "EgressPoliciesApplied", status: "False", reason: "EgressPolicyNotFound", message, observedGeneration }
+    : { type: "EgressPoliciesApplied", status: "True", reason: "Applied", message: "All egress grants are admitted", observedGeneration }];
 }
 function stableHash(text: string): string {
   let hash = 0;
@@ -1736,4 +1756,114 @@ on(AgentService.method.deleteAgent, input => {
   const agent = agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "");
   markDeleted(`Agent:${agent.ref}`);
   return {};
+});
+
+// ---------------------------------------------------------------------------
+// Egress policies and sandbox templates
+// ---------------------------------------------------------------------------
+
+const egressPolicyMessage = (policy: EgressPolicy) => ({
+  ref: { namespace: policy.namespace, name: policy.name },
+  resource: structured("EgressPolicy", policy.resource),
+});
+
+function egressPolicyFor(namespace: string, name: string): EgressPolicy {
+  const found = allEgressPolicies().find((row) => row.namespace === namespace && row.name === name);
+  if (!found) throw new ConnectError(`EgressPolicy ${namespace}/${name} not found`, Code.NotFound);
+  return found;
+}
+
+/** The CRD's schema and CEL rules, refused the way the API server refuses them. */
+function admittedEgressPolicy(
+  ref: { namespace?: string; name?: string } | undefined,
+  value: JsonObject | undefined,
+): EgressPolicy {
+  const namespace = requireNamespace(ref?.namespace ?? "");
+  const name = requireOptionalName("egress policy", ref?.name);
+  if (!name) throw new ConnectError("EgressPolicy name is required", Code.InvalidArgument);
+  const resource = value as unknown as EgressPolicyResource | undefined;
+  const spec = { destinations: resource?.spec?.destinations ?? [] };
+  const problems = [...specProblems(spec), ...spec.destinations.flatMap(destinationProblems)];
+  if (problems.length > 0) {
+    throw new ConnectError(`EgressPolicy.api.kagent.dev "${name}" is invalid: ${problems.join(" ")}`, Code.InvalidArgument);
+  }
+  return {
+    ref: `${namespace}/${name}`,
+    namespace,
+    name,
+    resource: {
+      apiVersion: "api.kagent.dev/v1alpha3",
+      kind: "EgressPolicy",
+      metadata: { ...resource?.metadata, name, namespace },
+      spec,
+    },
+  };
+}
+
+on(EgressPolicyService.method.listEgressPolicies, (input, call) => {
+  if (call.scenario === "empty") return { egressPolicies: [] };
+  const scope = input.namespace.trim();
+  return {
+    egressPolicies: allEgressPolicies()
+      .filter((row) => scope === "" || row.namespace === scope)
+      .map(egressPolicyMessage),
+  };
+});
+
+on(EgressPolicyService.method.getEgressPolicy, (input) => ({
+  egressPolicy: egressPolicyMessage(egressPolicyFor(input.ref?.namespace ?? "", input.ref?.name ?? "")),
+}));
+
+on(EgressPolicyService.method.createEgressPolicy, (input) => {
+  const policy = admittedEgressPolicy(input.ref, input.resource?.value);
+  if (allEgressPolicies().some((row) => row.ref === policy.ref)) {
+    throw new ConnectError(`EgressPolicy ${policy.ref} already exists`, Code.AlreadyExists);
+  }
+  const metadata = { ...policy.resource.metadata, resourceVersion: undefined, generation: 1 };
+  return { egressPolicy: egressPolicyMessage(saveEgressPolicy({ ...policy, resource: { ...policy.resource, metadata } })) };
+});
+
+// Replaces spec and labels only, and refuses a stale resourceVersion as the controller does.
+on(EgressPolicyService.method.updateEgressPolicy, (input) => {
+  const previous = egressPolicyFor(input.ref?.namespace ?? "", input.ref?.name ?? "");
+  const next = admittedEgressPolicy(input.ref, input.resource?.value);
+  const sent = next.resource.metadata.resourceVersion;
+  if (sent && sent !== previous.resource.metadata.resourceVersion) {
+    throw new ConnectError("EgressPolicy was modified; reload and retry", Code.Aborted);
+  }
+  return {
+    egressPolicy: egressPolicyMessage(
+      saveEgressPolicy({
+        ...previous,
+        resource: {
+          ...previous.resource,
+          metadata: {
+            ...previous.resource.metadata,
+            labels: next.resource.metadata.labels,
+            generation: (previous.resource.metadata.generation ?? 1) + 1,
+          },
+          spec: next.resource.spec,
+        },
+      }),
+    ),
+  };
+});
+
+on(EgressPolicyService.method.deleteEgressPolicy, (input) => {
+  deleteEgressPolicy(egressPolicyFor(input.ref?.namespace ?? "", input.ref?.name ?? ""));
+  return {};
+});
+
+on(SandboxTemplateService.method.listSandboxTemplates, (input, call) => {
+  if (call.scenario === "empty") return { sandboxTemplates: [] };
+  const scope = input.namespace.trim();
+  return {
+    sandboxTemplates: mockSandboxTemplates
+      .filter((row) => scope === "" || row.namespace === scope)
+      .map((row) => ({
+        ref: { namespace: row.namespace, name: row.name },
+        resource: structured("SandboxTemplate", row.resource),
+        workloadImage: "",
+      })),
+  };
 });

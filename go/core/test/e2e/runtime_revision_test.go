@@ -9,9 +9,9 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -36,7 +36,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		templateName := createInteractionTemplate(t, harness, modelURL)
 		kube := interactionKubeClient(t)
 		conn := newControllerConn(t, target)
-		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
+		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version)), 6*time.Minute)
 		t.Cleanup(cancel)
 		sessions := apiv1.NewSessionServiceClient(conn)
 		checkpoints := apiv1.NewCheckpointServiceClient(conn)
@@ -57,7 +57,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 			t.Helper()
 			session, err := sessions.GetSession(ctx, &apiv1.GetSessionRequest{SessionId: id})
 			require.NoError(t, err)
-			ref := session.GetSession().GetAgent()
+			ref := session.GetSession().GetAgent().GetRef()
 			fixture := &interactionFixture{
 				ctx: ctx, client: a2apb.NewA2AServiceClient(conn), sessionID: id, contextID: id, tenant: ref.GetNamespace() + "/" + ref.GetName(),
 			}

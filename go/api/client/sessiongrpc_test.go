@@ -37,7 +37,7 @@ func (s *recordingSessionService) CreateSession(ctx context.Context, _ *apiv1.Cr
 
 func (s *recordingSessionService) GetSession(_ context.Context, request *apiv1.GetSessionRequest) (*apiv1.GetSessionResponse, error) {
 	return &apiv1.GetSessionResponse{Session: &apiv1.Session{
-		Id: request.SessionId, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Id: request.SessionId, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}}, nil
 }
 
@@ -46,6 +46,7 @@ type a2aCallObservation struct {
 	id            string
 	userID        string
 	authorization string
+	versions      []string
 	hasDeadline   bool
 }
 
@@ -101,6 +102,7 @@ func (s *recordingA2AService) observe(ctx context.Context, tenant, contextID str
 		contextID:     contextID,
 		userID:        first(values.Get(userIDHeader)),
 		authorization: first(values.Get("authorization")),
+		versions:      values.Get(a2atype.SvcParamVersion),
 		hasDeadline:   hasDeadline,
 	})
 }
@@ -158,9 +160,9 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 
 	a2aService.mu.Lock()
 	require.Equal(t, []a2aCallObservation{
-		{id: "team-a/assistant", userID: "caller", authorization: "Bearer model-key", hasDeadline: true},
-		{id: "team-a/assistant", userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
-		{id: "team-a/assistant", userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
+		{id: "team-a/assistant", versions: []string{"1.0"}, userID: "caller", authorization: "Bearer model-key", hasDeadline: true},
+		{id: "team-a/assistant", versions: []string{"1.0"}, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
+		{id: "team-a/assistant", versions: []string{"1.0"}, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
 	}, a2aService.observations)
 	a2aService.mu.Unlock()
 	sessionClient, err := gatewayClient.A2A.ForSession(context.Background(), sessionClientTestID)
@@ -168,6 +170,7 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	_, err = sessionClient.SendMessage(context.Background(), &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser)})
 	require.NoError(t, err)
 	a2aService.mu.Lock()
+	require.Equal(t, []string{"1.0"}, a2aService.observations[3].versions)
 	require.Equal(t, sessionClientTestID, a2aService.observations[3].contextID)
 	require.Equal(t, "team-a/assistant", a2aService.observations[3].id)
 	a2aService.mu.Unlock()
@@ -177,15 +180,20 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "callback", created.ID)
 	a2aService.mu.Lock()
-	require.Equal(t, a2aCallObservation{id: "team-a/assistant", userID: "caller", hasDeadline: true}, a2aService.observations[4])
+	require.Equal(t, a2aCallObservation{id: "team-a/assistant", versions: []string{"1.0"}, userID: "caller", hasDeadline: true}, a2aService.observations[4])
 	a2aService.mu.Unlock()
-	page, err := gatewayClient.A2A.ListTaskPushConfigsPage(context.Background(), sessionClientTestID, "task-id", 1, "previous")
-	require.NoError(t, err)
-	require.Equal(t, "next", page.GetNextPageToken())
-	require.Equal(t, "callback", page.GetConfigs()[0].GetId())
-	a2aService.mu.Lock()
-	require.Equal(t, a2aCallObservation{id: "team-a/assistant", userID: "caller", hasDeadline: true}, a2aService.observations[5])
-	a2aService.mu.Unlock()
+	for i, pageContext := range []context.Context{
+		context.Background(),
+		metadata.AppendToOutgoingContext(context.Background(), a2atype.SvcParamVersion, string(a2atype.Version)),
+	} {
+		page, err := gatewayClient.A2A.ListTaskPushConfigsPage(pageContext, sessionClientTestID, "task-id", 1, "previous")
+		require.NoError(t, err)
+		require.Equal(t, "next", page.GetNextPageToken())
+		require.Equal(t, "callback", page.GetConfigs()[0].GetId())
+		a2aService.mu.Lock()
+		require.Equal(t, a2aCallObservation{id: "team-a/assistant", versions: []string{"1.0"}, userID: "caller", hasDeadline: true}, a2aService.observations[5+i])
+		a2aService.mu.Unlock()
+	}
 	assert.Equal(t, int32(2), dialCount.Load())
 }
 

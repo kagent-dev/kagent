@@ -50,6 +50,16 @@ Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.
 
+`TestSessionDeletionAfterInterruptedResume` delays restored Go ADK startup by
+20 seconds and sends a message through kagent. CI installs Substrate with
+[manifests/substrate-values.yaml](manifests/substrate-values.yaml), pinning the
+parking budget to 5 seconds and request timeout to 10 seconds. For local runs,
+include this file in `install.substrate.valuesFiles` when installing the test
+cluster. These overrides keep the test independent of the chart's defaults.
+The test requires the actor to remain `RESUMING` before ordinary Session deletion,
+then verifies Session and Actor absence through kagent APIs. Backend cleanup
+retries are allowed only after the actor reaches `DELETING` or is absent.
+
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness
 fixtures, and each test owns the templates and API resources it creates.
@@ -61,10 +71,12 @@ mock servers, and cleanup. The same assertions run against all model protocols.
 The opaque BYO fixture has its own test because it does not consume managed
 agent configuration.
 
-Until Substrate supplies runtime credentials (#1660), TaskStore uses a temporary
-unsigned identity header in every deployment; no test authentication flag is
-needed. Run these prerelease builds in isolated deployments. Verified actor
-credentials will replace this path outright.
+`TestRuntimeActorJWTAuthentication` exercises real Substrate Actor JWT injection
+for every harness on the same controller endpoint used by user calls. It verifies
+that missing, forged, and uninjected credentials are rejected for TaskStore and
+actor-only Memory methods. Controller and runtime images must match. The gRPC
+integration tests cover user and actor memory access on a shared listener, actor
+API restrictions, and rejection of invalid Actor JWTs in both user auth modes.
 
 Add portable tests using this pattern:
 
@@ -151,9 +163,11 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=0.4.0-alpha1 bash scripts/kind/setup-microvm.sh`.
-It fetches the matching Substrate release to use its asset installer and caches
-the downloaded assets under `.cache/substrate/microvm-assets/`.
+`SUBSTRATE_VERSION=1.0.0 bash scripts/kind/setup-microvm.sh`.
+It fetches the matching Substrate release and runs
+`ate-setup deploy sandboxconfig --sandbox-classes=microvm`. The installer assembles
+and verifies the assets, uploads them to RustFS, and applies the SandboxConfig.
+Its outputs are cached under `.cache/substrate/microvm-assets/`.
 
 To compare four versus eight on the same revision and runner, manually dispatch
 the CI workflow with `e2e_parallel` set to `4` or `8`. Compare the `Run e2e tests`
@@ -201,11 +215,30 @@ cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 `KAGENT_E2E_LOCAL_HOST` when the cluster uses a different host address.
 
 Substrate policies require DNS names and explicit protocols and ports.
-The mocks use Kubernetes Service names. For tracing, configure the controller's
-OTLP endpoint as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
+The mocks use full Kubernetes Service names. Substrate alpha3 returns NXDOMAIN
+for denied search-expanded names, so musl-based native clients can resolve the
+allowed hostname without trailing dots or worker DNS overrides.
+
+`TestSessionEgressDeniesUnconfiguredDestination` first proves the redirect
+destination works when configured, then verifies that an unconfigured redirect
+fails without reaching it. The denied call must reach FAILED within 30 seconds,
+with exactly one model request and no access to the denied destination.
+The lifecycle and tracing Harness fixtures set the hidden, test-only environment
+variables `KAGENT_TEST_CODEX_DISABLE_RETRIES=true` and
+`KAGENT_TEST_CLAUDE_DISABLE_RETRIES=true` for their respective adapters. These
+disable Codex's OpenAI-compatible request/stream retries and set Claude's native
+`CLAUDE_CODE_MAX_RETRIES=0`. Unset, empty, or false preserves native retry defaults;
+Codex's unbounded connection retries remain disabled in production and tests.
+The DNS fix allows service resolution, but the patched-worker experiment still
+retried denied requests for 28 seconds in Codex and 177 seconds in Claude.
+TODO: REMOVE these switches and revisit the one-request assertion and deadline
+when denial handling permits native retries in tests (see
+[substrate#2663](https://github.com/agent-substrate/substrate/issues/2663)).
+
+For tracing, configure the controller's `telemetry` and `runtimeDefaults.telemetry`
+OTLP endpoints as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
 `manifests/tracing.yaml.tmpl` with `KAGENT_E2E_LOCAL_HOST` set to the test host's
 reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
-
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
 
@@ -254,6 +287,12 @@ prefix) and X-API-Key (without a prefix) match the Secret. The script has only
 inert placeholders. The test and its harness subtests run in parallel. Actor
 identity, policy checks, and credential injection use the normal Substrate path.
 
+`TestRuntimeActorJWTAuthentication` exercises TaskStore persistence through
+Substrate's Actor JWT injection on every harness, then verifies that direct
+calls with unsigned identity headers, public credentials, or an uninjected
+placeholder are rejected. The checkpoint and suspension tests also exercise
+authentication after the runtime's projected identity changes.
+
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task
 persistence across HTTP and gRPC. `TestSessionHTTPResubscribeAndCancel`
@@ -267,7 +306,16 @@ For local interaction debugging, start any retained response fixture from the
 go run ./core/hack/mockllm invoke_mcp_agent.json
 ```
 
-Pending-input coverage waits for a suspended Actor and a verified external DATA
+Pending-input coverage waits for a suspended Actor and a verified durable VOLUMES
 snapshot before approval, denial, cancellation, and native ask-user responses.
 The approval matrix asserts one MCP execution on approval and none on denial or
 cancellation; native question continuations preserve the task and context IDs.
+
+`TestSubstrateInventoryPagination` verifies Kagent continuation tokens against the
+real ate-api by requesting one row per page. It creates and cleans up two Sessions
+and checks both global and scoped Actor listings, then traverses worker pages.
+The test requires at least two registered Substrate workers (CI provisions four);
+missing worker capacity fails the test rather than skipping continuation coverage.
+There are no retries around list calls, so a Substrate token-format change fails
+on continuation. Run with `KAGENT_E2E_API_URL` and the normal kagent harness fixture
+configured, using `go test ./core/test/e2e -run '^TestSubstrateInventoryPagination$'`.

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 func TestCanonicalAccess(t *testing.T) {
@@ -15,9 +17,9 @@ func TestCanonicalAccess(t *testing.T) {
 	require.Equal(t, []string{"http://api.example.com:80", "https://*.example.com:443", "https://api.example.com:443", "https://api.example.com:8443"}, access.Destinations)
 	require.Len(t, access.Credentials, 1)
 	require.Equal(t, "https://api.example.com:443", access.Credentials[0].Origin)
-	_, err = CanonicalAccess([]string{credential.Origin}, []Credential{credential}, []string{"https://api.example.com:443"})
+	_, err = CanonicalAccess([]string{credential.Origin}, []Credential{credential}, []egresspolicy.GatewayTarget{{Origin: "https://API.example.com", Header: "authorization"}})
 	require.ErrorContains(t, err, "cannot combine caller-token passthrough with gateway credentials")
-	_, err = CanonicalAccess([]string{credential.Origin}, []Credential{credential}, []string{"https://api.example.com:8443", "http://api.example.com:443"})
+	_, err = CanonicalAccess([]string{credential.Origin}, []Credential{credential}, []egresspolicy.GatewayTarget{{Origin: "https://api.example.com:8443", Header: "authorization"}, {Origin: "http://api.example.com:443", Header: "authorization"}})
 	require.NoError(t, err, "caller tokens on different origins do not conflict")
 	for _, raw := range []string{"https://*", "https://*.com", "https://foo.*.com", "https://192.0.2.1", "https://[::1]", "https://user@api.example.com", "https://api.example.com/", "https://api.example.com?", "https://api.example.com#", "https://api.example.com:", "https://api.example.com:0", "https://api.example.com:65536", "ftp://api.example.com"} {
 		t.Run(raw, func(t *testing.T) {

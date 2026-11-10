@@ -90,7 +90,7 @@ test("extension points: configured components mount where the point promises", a
 
     // And each row carries its own, located by the short id the table shows beside
     // the conversation's name.
-    for (const id of [instances.ready, instances.suspended]) {
+    for (const id of [instances.ready, instances.idle]) {
       await expect(
         rowNamed(page, id.slice(0, 8)).locator(`[data-testid="extension-slot-${badge}"]`),
         `row "${id}" should carry its own slot`,

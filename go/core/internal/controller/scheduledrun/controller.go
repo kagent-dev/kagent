@@ -14,6 +14,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -29,7 +30,7 @@ type controllerStore interface {
 type controllerWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Suspend(context.Context, *apiv1.Session) (*apiv1.Session, error)
-	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Delete(context.Context, *apiv1.Session, bool) (*apiv1.Session, error)
 }
 
 // Controller reconciles executions on every replica. SQL leases fence status
@@ -126,7 +127,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	if err != nil {
 		return err
 	}
-	ctx = a2atype.AttachTenant(ctx, session.GetAgent().GetNamespace()+"/"+session.GetAgent().GetName())
+	ctx = a2atype.AttachTenant(ctx, session.GetAgent().GetRef().GetNamespace()+"/"+session.GetAgent().GetRef().GetName())
 	// A lost response may precede persisting the returned task ID. Recover it
 	// from the original message, including at expiry when sending is forbidden.
 	task, err := c.executionTask(ctx, execution)
@@ -177,7 +178,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	}
 	execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(execution.GetPrompt()))
-	message.ID = "scheduled-run/" + execution.GetId()
+	message.ID = scheduling.MessageIDPrefix + execution.GetId()
 	message.ContextID = session.GetId()
 	events := c.gateway.SendStreamingMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message})
 	// The runtime assigns the task ID. Return after its first event; a lost
@@ -215,7 +216,7 @@ func (c *Controller) executionTask(ctx context.Context, execution *apiv1.Schedul
 		}
 		for _, task := range page.Tasks {
 			for _, message := range task.History {
-				if message.ID == "scheduled-run/"+execution.GetId() {
+				if message.ID == scheduling.MessageIDPrefix+execution.GetId() {
 					return task, nil
 				}
 			}
@@ -236,7 +237,7 @@ func (c *Controller) stop(ctx context.Context, execution *apiv1.ScheduledRunExec
 	}
 	// No invocation was accepted; clean up the ordinary session lifecycle.
 	if session.GetState() == apiv1.RuntimeState_RUNTIME_STATE_CREATING {
-		_, err := c.workflow.Delete(ctx, session)
+		_, err := c.workflow.Delete(ctx, session, false)
 		return nil, err
 	}
 	_, err := c.workflow.Suspend(ctx, session)

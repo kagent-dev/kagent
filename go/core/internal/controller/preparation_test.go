@@ -9,11 +9,11 @@ import (
 	"testing/synctest"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -56,7 +56,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
-			reconciler := &Reconciler{collections: collections, templates: templates, store: store}
+			reconciler := &Reconciler{collections: collections, templates: templates, store: store, golden: defaultGoldenRetries}
 			require.NoError(t, reconciler.reconcileAgent(ctx, initial.ResourceName()))
 
 			updatedHarness := harnesses.List()[0].DeepCopy()
@@ -99,7 +99,8 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			// A delayed success for the abandoned preparation must not replace A.
 			abandoned, err := store.GetRuntimeRevision(ctx, preparing.Target.RevisionID.String())
 			require.NoError(t, err)
-			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned, database.RecordRevisionOptions{Ready: true}))
+			_, err = store.RecordRuntimeRevision(ctx, *abandoned, database.RecordRevisionOptions{Ready: true})
+			require.NoError(t, err)
 			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
 			require.Len(t, unreferenced, 1)
@@ -110,7 +111,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 
 			fresh, _, err := store.CreateSession(ctx, &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 			}, "last-good-session")
 			require.NoError(t, err, "unresolved edits must leave the last successful revision available")
 			require.Equal(t, initial.Target.RevisionID.String(), fresh.PreparedRevision)
@@ -144,8 +145,6 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 		store     fakeRuntimeRevisionStore
 		code      codes.Code
 	}{
-		{name: "missing sandbox config", templates: fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" not found`)}, code: codes.FailedPrecondition},
-		{name: "wrong sandbox class", templates: fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" has class "gvisor" but sandbox_config.sandbox_class is "microvm"`)}, code: codes.FailedPrecondition},
 		{name: "sensitive creation error", templates: fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "private-backend-detail")}, code: codes.FailedPrecondition},
 		{name: "get failed", templates: fakeActorTemplates{getErr: status.Error(codes.Unavailable, "private-endpoint")}, code: codes.Unavailable},
 		{name: "get invalid argument", templates: fakeActorTemplates{getErr: status.Error(codes.InvalidArgument, "private-endpoint")}, code: codes.InvalidArgument},
@@ -181,12 +180,8 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 			require.Equal(t, "RuntimePreparationFailed", ready.Reason)
 			require.Contains(t, ready.Message, test.code.String())
 			require.NotContains(t, ready.Message, "private-")
-			if test.code == codes.FailedPrecondition {
-				require.Contains(t, ready.Message, `SandboxConfig "microvm"`)
-				require.Contains(t, ready.Message, `spec.sandboxClass="microvm"`)
-			}
+
 			observation := collections.AgentRuntimeObservations.GetKey(initial.ResourceName())
-			require.Nil(t, observation.Template)
 			require.Equal(t, initial.Target.RevisionID, observation.RevisionID)
 			require.Error(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()), "publishing a failure must not prevent the next retry")
 
@@ -195,7 +190,7 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 			require.NoError(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()))
 			waitFor(t, func() bool {
 				state := collections.Reconciliations.GetKey(initial.ResourceName())
-				return state.PreparationFailure == nil && state.ObservedActorTemplate != nil
+				return state.PreparationFailure == nil && state.Golden.phase == goldenBuilding
 			})
 			require.Nil(t, collections.AgentRuntimeObservations.GetKey(initial.ResourceName()).Failure)
 			test.templates.template = proto.CloneOf(test.templates.template)
@@ -212,32 +207,10 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 	}
 }
 
-func TestRuntimePreparationFailureSanitizesErrors(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		class      atev1alpha1.SandboxClass
-		configName string
-		wantClass  string
-	}{
-		{name: "default", configName: "gvisor-default", wantClass: "gvisor"},
-		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, configName: "gvisor-default", wantClass: "gvisor"},
-		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, configName: "microvm", wantClass: "microvm"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			failure := runtimePreparationFailure(status.Error(codes.FailedPrecondition, "private-backend-detail"), test.configName, test.class)
-			require.Equal(t, kagentv1alpha3.AgentConditionReady, failure.Condition)
-			require.True(t, failure.Retryable)
-			require.Contains(t, failure.Message, `SandboxConfig "`+test.configName+`"`)
-			require.Contains(t, failure.Message, `spec.sandboxClass="`+test.wantClass+`"`)
-			require.NotContains(t, failure.Message, "private-backend-detail")
-		})
-	}
-}
-
 func TestPreparationRevisionIsolation(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
-	templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" not found`)}
+	templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "runtime prerequisites unavailable")}
 	reconciler := &Reconciler{collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
 	require.Error(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()))
 	waitFor(t, func() bool {
@@ -270,7 +243,6 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 		templates fakeActorTemplates
 		store     fakeRuntimeRevisionStore
 	}{
-		{name: "missing sandbox config", templates: fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "missing config")}},
 		{name: "revision being collected", store: fakeRuntimeRevisionStore{pairErr: database.ErrObjectDeleting}},
 		{name: "persistence unavailable", store: fakeRuntimeRevisionStore{revisionErr: errors.New("database unavailable")}},
 	} {
@@ -383,6 +355,12 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
+func (p *preparationTestBackend) DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.templates.DeleteActorTemplate(ctx, atespace, name, uid)
+}
+
 func (p *preparationTestBackend) ListAgentEgressSources(ctx context.Context) ([]database.RuntimeEgressSource, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -395,7 +373,7 @@ func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, defi
 	return p.store.UpsertAgentDefinition(ctx, definition)
 }
 
-func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
+func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.store.RecordRuntimeRevision(ctx, revision, options)
@@ -449,7 +427,7 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 }
 
 func TestPreparationTerminalFailures(t *testing.T) {
-	for _, reason := range []string{"ActorTemplateRejected", "ActorTemplateConflict", "ActorTemplateFailed"} {
+	for _, reason := range []string{"ActorTemplateRejected", "ActorTemplateConflict"} {
 		t.Run(reason, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				collections, harnesses := newPreparationTestCollections(t, "microvm")
@@ -461,9 +439,6 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				case "ActorTemplateConflict":
 					templates.template = proto.CloneOf(initial.Target.ActorTemplate)
 					templates.template.Containers[0].Args = []string{"unexpected"}
-				case "ActorTemplateFailed":
-					templates.template = proto.CloneOf(initial.Target.ActorTemplate)
-					templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "snapshot failed"}}
 				}
 				store := &fakeRuntimeRevisionStore{}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
@@ -540,8 +515,15 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 
 func newPreparationTestCollections(t *testing.T, workerPool string) (Collections, krt.StaticCollection[*kagentv1alpha3.Harness]) {
 	t.Helper()
-	opts := krt.NewOptionsBuilder(t.Context().Done(), "test-preparation", nil)
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
+	return newPreparationTestCollectionsFor(t, workerPool, template)
+}
+
+// newPreparationTestCollectionsFor prepares template on a BYO Harness with extra
+// mock objects, such as the RemoteMCPServers the template references.
+func newPreparationTestCollectionsFor(t *testing.T, workerPool string, template *kagentv1alpha3.AgentTemplate, extra ...any) (Collections, krt.StaticCollection[*kagentv1alpha3.Harness]) {
+	t.Helper()
+	opts := krt.NewOptionsBuilder(t.Context().Done(), "test-preparation", nil)
 	runtimeHarness := harness("team-a", "byo", nil)
 	runtimeHarness.UID = "harness-uid"
 	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
@@ -551,11 +533,11 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	harnesses := krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{runtimeHarness}, opts.WithName("Harnesses")...)
-	mock := krttest.NewMock(t, []any{
+	mock := krttest.NewMock(t, append([]any{
 		template,
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassGvisor}},
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "microvm"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
-	})
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}, Spec: atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassGvisor}}}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "microvm"}, Spec: atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}}},
+	}, extra...))
 	collections := Collections{
 		EgressPolicies:           krt.NewStaticCollection[*kagentv1alpha3.EgressPolicy](nil, nil, opts.WithName("EgressPolicies")...),
 		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
@@ -564,7 +546,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		RemoteMCPServers:         krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 		ConfigMaps:               krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:                  krttest.GetMockCollection[*corev1.Secret](mock),
-		WorkerPools:              krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+		WorkerPools:              krttest.GetMockCollection[*atev1.WorkerPool](mock),
 		AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
 		ModelConfigStatuses:      krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
 	}

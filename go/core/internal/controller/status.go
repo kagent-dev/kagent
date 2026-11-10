@@ -49,8 +49,9 @@ func statusForAgent(state AgentReconciliation, generation int64, latestSuccessfu
 	}
 	setAgentCondition(&status, generation, kagentv1alpha3.AgentConditionResolvedRefs, metav1.ConditionTrue, "Resolved", "All runtime references resolved")
 	setAgentCondition(&status, generation, kagentv1alpha3.AgentConditionCompatible, metav1.ConditionTrue, "Compatible", "Resolved configuration is compatible with the Harness")
-	if state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil {
-		setAgentCondition(&status, generation, kagentv1alpha3.AgentConditionReady, metav1.ConditionFalse, "ActorTemplatePending", "waiting for the ActorTemplate golden snapshot")
+	if !state.Golden.ready() {
+		message := state.Golden.pendingMessage("waiting for the ActorTemplate golden snapshot")
+		setAgentCondition(&status, generation, kagentv1alpha3.AgentConditionReady, metav1.ConditionFalse, "ActorTemplatePending", message)
 		return status
 	}
 	status.LatestSuccessfulRevision = state.Target.RevisionID.String()

@@ -4,8 +4,8 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Actor, ActorState, ActorTemplate, Worker } from "../../../ateapi_pb";
-import { file_ateapi } from "../../../ateapi_pb";
+import type { Actor, ActorState, ActorTemplate, Worker } from "../../../api/ateapi/v1/ateapi_pb";
+import { file_api_ateapi_v1_ateapi } from "../../../api/ateapi/v1/ateapi_pb";
 import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
@@ -17,7 +17,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1/system.proto.
  */
 export const file_kagent_api_v1_system: GenFile = /*@__PURE__*/
-  fileDesc("ChprYWdlbnQvYXBpL3YxL3N5c3RlbS5wcm90bxINa2FnZW50LmFwaS52MSITChFHZXRWZXJzaW9uUmVxdWVzdCJUChJHZXRWZXJzaW9uUmVzcG9uc2USFgoOa2FnZW50X3ZlcnNpb24YASABKAkSEgoKZ2l0X2NvbW1pdBgCIAEoCRISCgpidWlsZF9kYXRlGAMgASgJIhcKFUdldEN1cnJlbnRVc2VyUmVxdWVzdCJBChZHZXRDdXJyZW50VXNlclJlc3BvbnNlEicKBmNsYWltcxgBIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiFwoVTGlzdE5hbWVzcGFjZXNSZXF1ZXN0IikKCU5hbWVzcGFjZRIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCSJGChZMaXN0TmFtZXNwYWNlc1Jlc3BvbnNlEiwKCm5hbWVzcGFjZXMYASADKAsyGC5rYWdlbnQuYXBpLnYxLk5hbWVzcGFjZSJ3ChNTdWJzdHJhdGVXb3JrZXJQb29sEi0KA3JlZhgFIAEoCzIgLmthZ2VudC5hcGkudjEuUmVzb3VyY2VSZWZlcmVuY2USMQoIcmVzb3VyY2UYBiABKAsyHy5rYWdlbnQuYXBpLnYxLlN0cnVjdHVyZWRPYmplY3QimwEKGkdldFN1YnN0cmF0ZVN1bW1hcnlSZXF1ZXN0Ej4KCW5hbWVzcGFjZRgBIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JBI9CghhdGVzcGFjZRgCIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JCJNChlTdWJzdHJhdGVBY3RvclN0YXR1c0NvdW50Eg0KBWNvdW50GAIgASgDEiEKBXN0YXRlGAMgASgOMhIuYXRlYXBpLkFjdG9yU3RhdGUi+QIKG0dldFN1YnN0cmF0ZVN1bW1hcnlSZXNwb25zZRIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEjgKDHdvcmtlcl9wb29scxgDIAMoCzIiLmthZ2VudC5hcGkudjEuU3Vic3RyYXRlV29ya2VyUG9vbBITCgthY3Rvcl9jb3VudBgFIAEoAxIUCgx3b3JrZXJfY291bnQYBiABKAMSGwoTcnVubmluZ19hY3Rvcl9jb3VudBgHIAEoAxIZChFidXN5X3dvcmtlcl9jb3VudBgIIAEoAxJFChNhY3Rvcl9zdGF0dXNfY291bnRzGAkgAygLMigua2FnZW50LmFwaS52MS5TdWJzdHJhdGVBY3RvclN0YXR1c0NvdW50Ei8KC2NvbXB1dGVkX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCg9hY3Rvcl90ZW1wbGF0ZXMYCyADKAsyFS5hdGVhcGkuQWN0b3JUZW1wbGF0ZSKFAQoaTGlzdFN1YnN0cmF0ZUFjdG9yc1JlcXVlc3QSPQoIYXRlc3BhY2UYBiABKAlCK7pIKHImGD8yIl4oW2EtejAtOV0oWy1hLXowLTldKlthLXowLTldKT8pPyQSKAoEcGFnZRgCIAEoCzIaLmthZ2VudC5hcGkudjEuUGFnZVJlcXVlc3QirwEKG0xpc3RTdWJzdHJhdGVBY3RvcnNSZXNwb25zZRIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEh0KBmFjdG9ycxgDIAMoCzINLmF0ZWFwaS5BY3RvchIpCgRwYWdlGAQgASgLMhsua2FnZW50LmFwaS52MS5QYWdlUmVzcG9uc2USLwoLY29tcHV0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIocBChtMaXN0U3Vic3RyYXRlV29ya2Vyc1JlcXVlc3QSPgoJbmFtZXNwYWNlGAEgASgJQiu6SChyJhg/MiJeKFthLXowLTldKFstYS16MC05XSpbYS16MC05XSk/KT8kEigKBHBhZ2UYAiABKAsyGi5rYWdlbnQuYXBpLnYxLlBhZ2VSZXF1ZXN0IrIBChxMaXN0U3Vic3RyYXRlV29ya2Vyc1Jlc3BvbnNlEhUKDWF0ZV9hcGlfZXJyb3IYAiABKAkSHwoHd29ya2VycxgDIAMoCzIOLmF0ZWFwaS5Xb3JrZXISKQoEcGFnZRgEIAEoCzIbLmthZ2VudC5hcGkudjEuUGFnZVJlc3BvbnNlEi8KC2NvbXB1dGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcDLtBAoNU3lzdGVtU2VydmljZRJRCgpHZXRWZXJzaW9uEiAua2FnZW50LmFwaS52MS5HZXRWZXJzaW9uUmVxdWVzdBohLmthZ2VudC5hcGkudjEuR2V0VmVyc2lvblJlc3BvbnNlEl0KDkdldEN1cnJlbnRVc2VyEiQua2FnZW50LmFwaS52MS5HZXRDdXJyZW50VXNlclJlcXVlc3QaJS5rYWdlbnQuYXBpLnYxLkdldEN1cnJlbnRVc2VyUmVzcG9uc2USXQoOTGlzdE5hbWVzcGFjZXMSJC5rYWdlbnQuYXBpLnYxLkxpc3ROYW1lc3BhY2VzUmVxdWVzdBolLmthZ2VudC5hcGkudjEuTGlzdE5hbWVzcGFjZXNSZXNwb25zZRJsChNHZXRTdWJzdHJhdGVTdW1tYXJ5Eikua2FnZW50LmFwaS52MS5HZXRTdWJzdHJhdGVTdW1tYXJ5UmVxdWVzdBoqLmthZ2VudC5hcGkudjEuR2V0U3Vic3RyYXRlU3VtbWFyeVJlc3BvbnNlEmwKE0xpc3RTdWJzdHJhdGVBY3RvcnMSKS5rYWdlbnQuYXBpLnYxLkxpc3RTdWJzdHJhdGVBY3RvcnNSZXF1ZXN0Gioua2FnZW50LmFwaS52MS5MaXN0U3Vic3RyYXRlQWN0b3JzUmVzcG9uc2USbwoUTGlzdFN1YnN0cmF0ZVdvcmtlcnMSKi5rYWdlbnQuYXBpLnYxLkxpc3RTdWJzdHJhdGVXb3JrZXJzUmVxdWVzdBorLmthZ2VudC5hcGkudjEuTGlzdFN1YnN0cmF0ZVdvcmtlcnNSZXNwb25zZUI9WjtnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MTthcGl2MWIGcHJvdG8z", [file_ateapi, file_buf_validate_validate, file_google_protobuf_struct, file_google_protobuf_timestamp, file_kagent_api_v1_common]);
+  fileDesc("ChprYWdlbnQvYXBpL3YxL3N5c3RlbS5wcm90bxINa2FnZW50LmFwaS52MSITChFHZXRWZXJzaW9uUmVxdWVzdCJUChJHZXRWZXJzaW9uUmVzcG9uc2USFgoOa2FnZW50X3ZlcnNpb24YASABKAkSEgoKZ2l0X2NvbW1pdBgCIAEoCRISCgpidWlsZF9kYXRlGAMgASgJIhcKFUdldEN1cnJlbnRVc2VyUmVxdWVzdCJBChZHZXRDdXJyZW50VXNlclJlc3BvbnNlEicKBmNsYWltcxgBIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiFwoVTGlzdE5hbWVzcGFjZXNSZXF1ZXN0IikKCU5hbWVzcGFjZRIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCSJGChZMaXN0TmFtZXNwYWNlc1Jlc3BvbnNlEiwKCm5hbWVzcGFjZXMYASADKAsyGC5rYWdlbnQuYXBpLnYxLk5hbWVzcGFjZSJ3ChNTdWJzdHJhdGVXb3JrZXJQb29sEi0KA3JlZhgFIAEoCzIgLmthZ2VudC5hcGkudjEuUmVzb3VyY2VSZWZlcmVuY2USMQoIcmVzb3VyY2UYBiABKAsyHy5rYWdlbnQuYXBpLnYxLlN0cnVjdHVyZWRPYmplY3QimwEKGkdldFN1YnN0cmF0ZVN1bW1hcnlSZXF1ZXN0Ej4KCW5hbWVzcGFjZRgBIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JBI9CghhdGVzcGFjZRgCIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JCJaChlTdWJzdHJhdGVBY3RvclN0YXR1c0NvdW50Eg0KBWNvdW50GAIgASgDEi4KBXN0YXRlGAMgASgOMh8uc3Vic3RyYXRlLmF0ZWFwaS52MS5BY3RvclN0YXRlIoYDChtHZXRTdWJzdHJhdGVTdW1tYXJ5UmVzcG9uc2USFQoNYXRlX2FwaV9lcnJvchgCIAEoCRI4Cgx3b3JrZXJfcG9vbHMYAyADKAsyIi5rYWdlbnQuYXBpLnYxLlN1YnN0cmF0ZVdvcmtlclBvb2wSEwoLYWN0b3JfY291bnQYBSABKAMSFAoMd29ya2VyX2NvdW50GAYgASgDEhsKE3J1bm5pbmdfYWN0b3JfY291bnQYByABKAMSGQoRYnVzeV93b3JrZXJfY291bnQYCCABKAMSRQoTYWN0b3Jfc3RhdHVzX2NvdW50cxgJIAMoCzIoLmthZ2VudC5hcGkudjEuU3Vic3RyYXRlQWN0b3JTdGF0dXNDb3VudBIvCgtjb21wdXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASOwoPYWN0b3JfdGVtcGxhdGVzGAsgAygLMiIuc3Vic3RyYXRlLmF0ZWFwaS52MS5BY3RvclRlbXBsYXRlIoUBChpMaXN0U3Vic3RyYXRlQWN0b3JzUmVxdWVzdBI9CghhdGVzcGFjZRgGIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JBIoCgRwYWdlGAIgASgLMhoua2FnZW50LmFwaS52MS5QYWdlUmVxdWVzdCK8AQobTGlzdFN1YnN0cmF0ZUFjdG9yc1Jlc3BvbnNlEhUKDWF0ZV9hcGlfZXJyb3IYAiABKAkSKgoGYWN0b3JzGAMgAygLMhouc3Vic3RyYXRlLmF0ZWFwaS52MS5BY3RvchIpCgRwYWdlGAQgASgLMhsua2FnZW50LmFwaS52MS5QYWdlUmVzcG9uc2USLwoLY29tcHV0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIocBChtMaXN0U3Vic3RyYXRlV29ya2Vyc1JlcXVlc3QSPgoJbmFtZXNwYWNlGAEgASgJQiu6SChyJhg/MiJeKFthLXowLTldKFstYS16MC05XSpbYS16MC05XSk/KT8kEigKBHBhZ2UYAiABKAsyGi5rYWdlbnQuYXBpLnYxLlBhZ2VSZXF1ZXN0Ir8BChxMaXN0U3Vic3RyYXRlV29ya2Vyc1Jlc3BvbnNlEhUKDWF0ZV9hcGlfZXJyb3IYAiABKAkSLAoHd29ya2VycxgDIAMoCzIbLnN1YnN0cmF0ZS5hdGVhcGkudjEuV29ya2VyEikKBHBhZ2UYBCABKAsyGy5rYWdlbnQuYXBpLnYxLlBhZ2VSZXNwb25zZRIvCgtjb21wdXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiWAoWTGlzdFdvcmtlclBvb2xzUmVxdWVzdBI+CgluYW1lc3BhY2UYASABKAlCK7pIKHImGD8yIl4oW2EtejAtOV0oWy1hLXowLTldKlthLXowLTldKT8pPyQiUwoXTGlzdFdvcmtlclBvb2xzUmVzcG9uc2USOAoMd29ya2VyX3Bvb2xzGAEgAygLMiIua2FnZW50LmFwaS52MS5TdWJzdHJhdGVXb3JrZXJQb29sMs8FCg1TeXN0ZW1TZXJ2aWNlElEKCkdldFZlcnNpb24SIC5rYWdlbnQuYXBpLnYxLkdldFZlcnNpb25SZXF1ZXN0GiEua2FnZW50LmFwaS52MS5HZXRWZXJzaW9uUmVzcG9uc2USXQoOR2V0Q3VycmVudFVzZXISJC5rYWdlbnQuYXBpLnYxLkdldEN1cnJlbnRVc2VyUmVxdWVzdBolLmthZ2VudC5hcGkudjEuR2V0Q3VycmVudFVzZXJSZXNwb25zZRJdCg5MaXN0TmFtZXNwYWNlcxIkLmthZ2VudC5hcGkudjEuTGlzdE5hbWVzcGFjZXNSZXF1ZXN0GiUua2FnZW50LmFwaS52MS5MaXN0TmFtZXNwYWNlc1Jlc3BvbnNlEmwKE0dldFN1YnN0cmF0ZVN1bW1hcnkSKS5rYWdlbnQuYXBpLnYxLkdldFN1YnN0cmF0ZVN1bW1hcnlSZXF1ZXN0Gioua2FnZW50LmFwaS52MS5HZXRTdWJzdHJhdGVTdW1tYXJ5UmVzcG9uc2USbAoTTGlzdFN1YnN0cmF0ZUFjdG9ycxIpLmthZ2VudC5hcGkudjEuTGlzdFN1YnN0cmF0ZUFjdG9yc1JlcXVlc3QaKi5rYWdlbnQuYXBpLnYxLkxpc3RTdWJzdHJhdGVBY3RvcnNSZXNwb25zZRJvChRMaXN0U3Vic3RyYXRlV29ya2VycxIqLmthZ2VudC5hcGkudjEuTGlzdFN1YnN0cmF0ZVdvcmtlcnNSZXF1ZXN0Gisua2FnZW50LmFwaS52MS5MaXN0U3Vic3RyYXRlV29ya2Vyc1Jlc3BvbnNlEmAKD0xpc3RXb3JrZXJQb29scxIlLmthZ2VudC5hcGkudjEuTGlzdFdvcmtlclBvb2xzUmVxdWVzdBomLmthZ2VudC5hcGkudjEuTGlzdFdvcmtlclBvb2xzUmVzcG9uc2VCPVo7Z2l0aHViLmNvbS9rYWdlbnQtZGV2L2thZ2VudC9nby9hcGkvZ2VuL2thZ2VudC9hcGkvdjE7YXBpdjFiBnByb3RvMw", [file_api_ateapi_v1_ateapi, file_buf_validate_validate, file_google_protobuf_struct, file_google_protobuf_timestamp, file_kagent_api_v1_common]);
 
 /**
  * @generated from message kagent.api.v1.GetVersionRequest
@@ -151,7 +151,7 @@ export type SubstrateWorkerPool = Message<"kagent.api.v1.SubstrateWorkerPool"> &
   ref?: ResourceReference | undefined;
 
   /**
-   * The whole upstream ate.dev/v1alpha1 WorkerPool CR, including spec and status.
+   * The whole upstream ate.dev/v1 WorkerPool CR, including spec and status.
    *
    * @generated from field: kagent.api.v1.StructuredObject resource = 6;
    */
@@ -184,7 +184,8 @@ export type GetSubstrateSummaryRequest = Message<"kagent.api.v1.GetSubstrateSumm
   namespace: string;
 
   /**
-   * ATE atespace for actors and templates. Empty lists all atespaces.
+   * ATE atespace for actors and templates. Empty uses the watched namespaces, or every
+   * atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
    *
    * @generated from field: string atespace = 2;
    */
@@ -208,7 +209,7 @@ export type SubstrateActorStatusCount = Message<"kagent.api.v1.SubstrateActorSta
   count: bigint;
 
   /**
-   * @generated from field: ateapi.ActorState state = 3;
+   * @generated from field: substrate.ateapi.v1.ActorState state = 3;
    */
   state: ActorState;
 };
@@ -278,7 +279,7 @@ export type GetSubstrateSummaryResponse = Message<"kagent.api.v1.GetSubstrateSum
   /**
    * Inventory metadata and status only; runtime configuration may contain credentials.
    *
-   * @generated from field: repeated ateapi.ActorTemplate actor_templates = 11;
+   * @generated from field: repeated substrate.ateapi.v1.ActorTemplate actor_templates = 11;
    */
   actorTemplates: ActorTemplate[];
 };
@@ -291,13 +292,15 @@ export const GetSubstrateSummaryResponseSchema: GenMessage<GetSubstrateSummaryRe
   messageDesc(file_kagent_api_v1_system, 10);
 
 /**
- * One upstream page of actors, in Substrate order.
+ * One page of actors. A controller that watches some namespaces reads its watched
+ * atespaces one at a time, in name order, and Substrate order inside each.
  *
  * @generated from message kagent.api.v1.ListSubstrateActorsRequest
  */
 export type ListSubstrateActorsRequest = Message<"kagent.api.v1.ListSubstrateActorsRequest"> & {
   /**
-   * ATE atespace of the actor itself. Empty lists all atespaces.
+   * ATE atespace of the actor itself. Empty uses the watched namespaces, or every
+   * atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
    *
    * @generated from field: string atespace = 6;
    */
@@ -329,12 +332,13 @@ export type ListSubstrateActorsResponse = Message<"kagent.api.v1.ListSubstrateAc
   ateApiError: string;
 
   /**
-   * @generated from field: repeated ateapi.Actor actors = 3;
+   * @generated from field: repeated substrate.ateapi.v1.Actor actors = 3;
    */
   actors: Actor[];
 
   /**
-   * Upstream continuation token. A page can be empty even when another page exists.
+   * Continuation after the last returned actor. Authorization and namespace
+   * filtering precede pagination; tokens never expose filtered-out identities.
    *
    * @generated from field: kagent.api.v1.PageResponse page = 4;
    */
@@ -354,8 +358,8 @@ export const ListSubstrateActorsResponseSchema: GenMessage<ListSubstrateActorsRe
   messageDesc(file_kagent_api_v1_system, 12);
 
 /**
- * One upstream page of workers, in Substrate order.
- * Namespace filtering applies to this page only; it may be empty and still have a next token.
+ * One page of authorized workers, in Substrate worker-name order. Continuation
+ * resumes after the last returned worker, with authorization checked again.
  *
  * @generated from message kagent.api.v1.ListSubstrateWorkersRequest
  */
@@ -388,7 +392,7 @@ export type ListSubstrateWorkersResponse = Message<"kagent.api.v1.ListSubstrateW
   ateApiError: string;
 
   /**
-   * @generated from field: repeated ateapi.Worker workers = 3;
+   * @generated from field: repeated substrate.ateapi.v1.Worker workers = 3;
    */
   workers: Worker[];
 
@@ -409,6 +413,44 @@ export type ListSubstrateWorkersResponse = Message<"kagent.api.v1.ListSubstrateW
  */
 export const ListSubstrateWorkersResponseSchema: GenMessage<ListSubstrateWorkersResponse> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1_system, 14);
+
+/**
+ * @generated from message kagent.api.v1.ListWorkerPoolsRequest
+ */
+export type ListWorkerPoolsRequest = Message<"kagent.api.v1.ListWorkerPoolsRequest"> & {
+  /**
+   * Kubernetes namespace of the pools. Empty uses watched namespaces.
+   *
+   * @generated from field: string namespace = 1;
+   */
+  namespace: string;
+};
+
+/**
+ * Describes the message kagent.api.v1.ListWorkerPoolsRequest.
+ * Use `create(ListWorkerPoolsRequestSchema)` to create a new message.
+ */
+export const ListWorkerPoolsRequestSchema: GenMessage<ListWorkerPoolsRequest> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1_system, 15);
+
+/**
+ * @generated from message kagent.api.v1.ListWorkerPoolsResponse
+ */
+export type ListWorkerPoolsResponse = Message<"kagent.api.v1.ListWorkerPoolsResponse"> & {
+  /**
+   * Pools the caller may read, in namespace/name order.
+   *
+   * @generated from field: repeated kagent.api.v1.SubstrateWorkerPool worker_pools = 1;
+   */
+  workerPools: SubstrateWorkerPool[];
+};
+
+/**
+ * Describes the message kagent.api.v1.ListWorkerPoolsResponse.
+ * Use `create(ListWorkerPoolsResponseSchema)` to create a new message.
+ */
+export const ListWorkerPoolsResponseSchema: GenMessage<ListWorkerPoolsResponse> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1_system, 16);
 
 /**
  * @generated from service kagent.api.v1.SystemService
@@ -461,6 +503,18 @@ export const SystemService: GenService<{
     methodKind: "unary";
     input: typeof ListSubstrateWorkersRequestSchema;
     output: typeof ListSubstrateWorkersResponseSchema;
+  },
+  /**
+   * ListWorkerPools reads WorkerPool resources from Kubernetes only. A Harness
+   * names a pool in its own namespace, so forms use this rather than the summary,
+   * which walks every ate-api actor and worker.
+   *
+   * @generated from rpc kagent.api.v1.SystemService.ListWorkerPools
+   */
+  listWorkerPools: {
+    methodKind: "unary";
+    input: typeof ListWorkerPoolsRequestSchema;
+    output: typeof ListWorkerPoolsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_kagent_api_v1_system, 0);

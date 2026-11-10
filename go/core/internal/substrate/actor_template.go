@@ -1,20 +1,24 @@
 package substrate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -42,29 +46,42 @@ var egressTrustEnvironment = map[string]struct{}{
 }
 
 // ActorTemplateForRevision constructs the immutable ate-api resource for a
-// compiled revision. It performs no reads or writes, which makes it safe to use
+// compiled revision and its immutable bootstrap bundle.
+// It performs no reads or writes, which makes it safe to use
 // inside a KRT transformation.
-func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID) (*ateapipb.ActorTemplate, error) {
+func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID, bundle *runtimev1.BootstrapBundle) (*ateapipb.ActorTemplate, error) {
 	if revisionID.IsZero() {
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentName, revisionID)
-	// Config and SDK placeholders contain no Secret values. Render the typed
-	// card only at this boundary.
-	card, err := apia2a.FromProtoAgentCard(spec.AgentCard)
-	if err != nil {
-		return nil, fmt.Errorf("convert runtime Agent Card: %w", err)
+	if err := bootstrap.ValidateBundle(bundle); err != nil {
+		return nil, err
 	}
-	cardJSON, err := json.Marshal(card)
-	if err != nil {
-		return nil, fmt.Errorf("render runtime Agent Card: %w", err)
+	if bundle.Revision != revisionID.String() {
+		return nil, fmt.Errorf("bootstrap revision mismatch")
 	}
+	descriptor := bootstrap.Descriptor{FormatVersion: bootstrap.FormatVersion, ControlPlaneURL: spec.ControlPlaneURL, Revision: revisionID.String(), SHA256: bundle.Sha256}
+	if err := descriptor.Validate(); err != nil {
+		return nil, err
+	}
+	descriptorJSON, err := json.Marshal(descriptor)
+	if err != nil {
+		return nil, fmt.Errorf("encode bootstrap descriptor: %w", err)
+	}
+	goldenPolicy, err := bootstrapEgressPolicy(spec.Namespace, spec.ControlPlaneURL)
+	if err != nil {
+		return nil, err
+	}
+
 	environment := withServiceVersion(append([]corev1.EnvVar(nil), spec.Environment...), revisionID.Short())
 	// The systemInfo trustBundle volume below projects the gateway CA. These
 	// variables tell each TLS client to trust it; mounting the file alone does
 	// not configure trust. The gateway intercepts HTTPS even without credentials.
 	for _, variable := range environment {
+		if variable.Name == bootstrap.Environment || variable.Name == "KAGENT_CONFIG_JSON" || variable.Name == "KAGENT_AGENT_CARD_JSON" {
+			return nil, fmt.Errorf("runtime environment %q conflicts with runtime bootstrap", variable.Name)
+		}
 		if _, owned := egressTrustEnvironment[variable.Name]; owned {
 			return nil, fmt.Errorf("runtime environment %q conflicts with gateway trust", variable.Name)
 		}
@@ -74,8 +91,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	}
 	environment = append(environment, corev1.EnvVar{Name: "SSL_CERT_DIR", Value: egressTrustMount})
 	environment = append(environment,
-		corev1.EnvVar{Name: "KAGENT_CONFIG_JSON", Value: string(spec.ConfigJSON)},
-		corev1.EnvVar{Name: "KAGENT_AGENT_CARD_JSON", Value: string(cardJSON)},
+		corev1.EnvVar{Name: bootstrap.Environment, Value: string(descriptorJSON)},
 	)
 	actorEnv, err := actorTemplateEnvFromPodEnv(environment)
 	if err != nil {
@@ -84,21 +100,22 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if len(actorEnv) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
-	sandboxConfig, err := sandboxConfigForClass(spec.SandboxClass)
+	resources, err := actorResources(spec.CPU, spec.Memory)
 	if err != nil {
 		return nil, err
 	}
 
 	template := &ateapipb.ActorTemplate{
-		Metadata:      &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
-		SandboxConfig: sandboxConfig,
+		GoldenEgressPolicy: goldenPolicy,
+		Metadata:           &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
+		Resources:          resources,
 		Containers: []*ateapipb.Container{{
 			Name:    defaultContainerName,
 			Image:   spec.Image,
 			Command: append([]string(nil), spec.Command...),
 			Args:    append([]string(nil), spec.Args...),
 			Env:     actorEnv,
-			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{
+			WakeupProbe: &ateapipb.WakeupProbe{HttpGet: &ateapipb.HttpGetAction{
 				Path: "/readyz",
 				Port: 8081,
 			}, TimeoutSeconds: 30},
@@ -110,8 +127,10 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: spec.SnapshotLocation,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			StorageLocation:   spec.SnapshotLocation,
+			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
+			// Pin the server default so immutable comparison survives creation.
+			GoldenSnapshotConfig: &ateapipb.GoldenSnapshotConfig{Mode: ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED},
 		},
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
@@ -120,8 +139,6 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			{Name: actorIdentityVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
 				{ActorMetadata: &ateapipb.ActorMetadataDataSource{Items: []*ateapipb.ActorMetadataItem{
 					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME, Path: "name"},
-					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_ATESPACE, Path: "atespace"},
-					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_UID, Path: "uid"},
 				}}},
 			}}},
 			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
@@ -150,6 +167,17 @@ func ActorTemplateSpecEqual(left, right *ateapipb.ActorTemplate) bool {
 	return proto.Equal(actorTemplateSpec(left), actorTemplateSpec(right))
 }
 
+// ActorTemplateSpecDigest hashes the same fields ActorTemplateSpecEqual compares,
+// so a stored digest can recognize a recreated template without its UID.
+func ActorTemplateSpecDigest(template *ateapipb.ActorTemplate) (string, error) {
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(actorTemplateSpec(template))
+	if err != nil {
+		return "", fmt.Errorf("encode ActorTemplate spec: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate {
 	if template == nil {
 		return nil
@@ -159,12 +187,12 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector: template.GetWorkerSelector(),
-		Containers:     template.GetContainers(),
-		Volumes:        template.GetVolumes(),
-		SnapshotConfig: template.GetSnapshotConfig(),
-		SandboxConfig:  template.GetSandboxConfig(),
-		Resources:      template.GetResources(),
+		WorkerSelector:     template.GetWorkerSelector(),
+		Containers:         template.GetContainers(),
+		Volumes:            template.GetVolumes(),
+		SnapshotConfig:     template.GetSnapshotConfig(),
+		Resources:          template.GetResources(),
+		GoldenEgressPolicy: template.GetGoldenEgressPolicy(),
 	}
 }
 
@@ -235,19 +263,18 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 	return result, nil
 }
 
-func sandboxConfigForClass(class atev1alpha1.SandboxClass) (*ateapipb.SandboxConfig, error) {
-	switch class {
-	case "", atev1alpha1.SandboxClassGvisor:
-		return &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
-			ConfigName:   "gvisor-default",
-		}, nil
-	case atev1alpha1.SandboxClassMicroVM:
-		return &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM,
-			ConfigName:   "microvm",
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported sandbox class %q", class)
+// actorResources enforces the required limits at the Substrate boundary.
+func actorResources(cpu, memory string) (*ateapipb.ResourceRequirements, error) {
+	cpuQuantity, err := resource.ParseQuantity(cpu)
+	if err != nil || cpuQuantity.Sign() <= 0 || cpuQuantity.Cmp(resource.MustParse("999999m")) > 0 {
+		return nil, fmt.Errorf("invalid runtime cpu limit %q", cpu)
 	}
+	memoryQuantity, err := resource.ParseQuantity(memory)
+	if err != nil || memoryQuantity.Sign() <= 0 || memoryQuantity.Cmp(*resource.NewQuantity(math.MaxInt64, resource.DecimalSI)) > 0 {
+		return nil, fmt.Errorf("invalid runtime memory limit %q", memory)
+	}
+	return &ateapipb.ResourceRequirements{Limits: &ateapipb.Resources{
+		CpuMillicores: cpuQuantity.MilliValue(),
+		MemoryBytes:   memoryQuantity.Value(),
+	}}, nil
 }

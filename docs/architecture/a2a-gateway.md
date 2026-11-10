@@ -145,6 +145,10 @@ cache, preserving the original question for native approval/input validation.
 
 Both adapters persist an initial active event before native work, stop execution
 on persistence failure, and wait for native cleanup before settling a boundary.
+Go runtime writes use the store's bounded retry context independently of SDK
+execution cancellation. An executor error can cancel an intermediate save as
+well as the subsequent failure update; both must finish against known versions
+before cleanup can publish the failed task and permit suspension.
 Go uses the SDK cleanup callback; Python withholds the final event until its native
 runner returns. Snapshot work runs independently after publication.
 Substrate self-suspend is planned. Moving suspension into the runtime after native
@@ -156,6 +160,22 @@ SDK upgrades must run the real gRPC/PostgreSQL fixtures covering failed saves,
 cancellation, continuation, disconnects, and slow subscribers.
 
 ## Reconnect and client behavior
+
+The core MCP `list_agents` tool returns authorized `{namespace, name}` references
+that can be passed directly to `invoke_agent`. It accepts optional `namespace`,
+`page_size` (0 for all, or 1–100), and `page_token` arguments. Authorization scope
+filtering precedes pagination, using the same Agent service and cursors as gRPC.
+Both text and structured results include `agents` and `next_page_token` when
+another page exists. Discovery does not require an existing Session and does not
+guarantee readiness or invocation permission.
+
+The core MCP `invoke_agent` tool accepts either `session_id` to continue an
+existing conversation or `agent: {namespace, name}` to start one. An Agent target
+sends the message through A2A without a context or task ID, so the gateway owns
+Session creation, authorization, and initial-message deduplication. Reuse the
+same `message_id`, Agent, and message when retrying creation. Supplying an unknown
+`session_id` returns an error. Synchronous results and completed MCP task results
+include the assigned Session and A2A task IDs in structured content.
 
 Get/List serve committed state without waking the runtime. Subscribe returns
 current stored state for quiescent tasks; otherwise the runtime supplies its
@@ -177,8 +197,12 @@ conversation. Continuation sends do not gain this guarantee: once context/task I
 are known, use GetTask or SubscribeToTask after an ambiguous response. Storage RPC
 retries remain internal to the runtime adapter and have a separate guarantee.
 
-The scheduler records its single dispatch attempt before sending. After an
-uncertain send it only looks for the task in stored history; it never sends again.
+The scheduler records its single dispatch attempt before sending, using a message
+ID prefixed with `scheduled-run/`. After an uncertain send it only looks for the
+task holding that message ID in stored history; it never sends again. The prefix
+is reserved for the in-process control plane: the session service rejects it from
+every other caller, so a Session's creator cannot plant a task the scheduler would
+adopt.
 A crash between claiming and sending can therefore leave an execution unresolved
 until its deadline, when normal timeout cleanup runs.
 
@@ -186,21 +210,74 @@ Codex and Claude reserve their native session while approval/input is pending.
 Their local executor interceptor rejects input for another task before SDK
 execution. Other harnesses retain their existing policy for parked tasks. All harnesses permit at most one active execution.
 
-## Runtime authority and deployment prerequisite
+## Runtime authority
 
-TaskStore currently uses a temporary unsigned
-`x-kagent-insecure-runtime-identity` header carrying the projected atespace, actor
-name, and UID. Go and Python reread those files on every call so restored actors
-use their own identity. The API checks the requested session, atespace, and
-recorded actor UID; user and share credentials do not grant private persistence
-access. Public authentication remains unchanged.
+Actor and user calls use the same controller listener (`server.bindAddress`,
+`:8083` by default). Actor calls require a Substrate-issued Actor JWT in
+`Authorization`. Go and Python controller clients send `Bearer placeholder`;
+the exact control-plane origin's egress rule replaces it with a five-minute JWT
+bound to the `kagent-runtime` audience. Other destinations receive no runtime JWT,
+and this rule does not grant network access to sandboxes that cannot already
+reach the control plane.
 
-This is the single prerelease path, with no configuration switch. The header can
-be forged and does not establish verified actor identity. These builds are for
-isolated deployments until [Substrate #1660](https://github.com/agent-substrate/substrate/issues/1660)
-supplies actor JWT injection. That implementation will replace the header path
-outright, including trusted issuer/JWKS, signature, audience, and expiry validation;
-there will be no fallback to unsigned headers.
+HTTP, MCP, and gRPC use the same `auth.AuthProvider`. It selects the Actor JWT
+verifier using the issuer or actor claim, then binds the verified identity to the
+current session's atespace and Actor UID. Invalid or stale actor credentials never
+fall back to user authentication. `Principal.RuntimeBinding` identifies the verified
+runtime's Session. Its `CreatorID` selects that Session's data partition and does
+not grant the creator's permissions. Human and service-account callers have no
+runtime binding. The bound Agent is resolved through the verified Session.
+
+`Principal.ID` always identifies the caller. `UpstreamAuth` receives the destination
+Session ID separately; principals do not carry agent names or destination IDs.
+
+Services authorize resources through `auth.Authorizer` / `CollectionAuthorizer`.
+The default actor policy permits reading its own Agent, listing only that Agent,
+and reading, sending to, or updating its existing Session. Session collections
+filter out every other session before pagination, including sessions for the same
+agent and owner. Creating or deleting sessions, using shares, and access to other
+protected resources are denied. Namespace inventory requires the
+`SystemNamespaces` capability and is denied to actors. Static APIs without protected resources remain
+available after authentication. Unconfigured gRPC methods remain denied.
+
+The same policy applies to MCP tools and HTTP/gRPC A2A calls. Permitted calls to
+the private runtime carry the bound owner's ID; the incoming Actor JWT is never
+forwarded as a user credential. Cross-agent delegation and configurable actor
+grants are not implemented. User permissions continue through the configured
+authorizer independently of the actor policy.
+
+User calls retain configured authentication. Insecure mode intentionally permits
+unauthenticated user access. Substrate replaces Authorization only when the actor
+sends the header; a request without it follows the configured user authentication
+policy. TaskStore and actor-only Memory methods always require an Actor JWT.
+Secure user access still requires the configured trusted authentication boundary.
+
+The controller trusts `substrate.actorJwtIssuer` (default
+`https://idp.ate-system.svc`). It fetches OIDC discovery and JWKS over TLS using
+`substrate.caFile`, checks the exact issuer, signature, audience, and required
+expiration, issued-at, and not-before claims. Time checks allow 30 seconds of
+clock skew. It requires an `actor.ate.dev` identity consistent with the subject.
+Worker-for-actor tokens are not accepted. Signing keys refresh every
+minute; publish new verification keys at least a minute before using them.
+
+The service checks the verified actor name against the requested session and
+matches its atespace and recorded Actor UID. Memory derives its agent namespace
+and user from that persisted session binding, ignoring caller-supplied identity
+fields. Users can also list and delete their own memories on the same endpoint.
+Both actor and user memory operations check the `Memory` resource, whose name is
+the exact `namespace/name` Agent key. User management calls use the requested
+agent key and the authenticated user ID,
+ignoring the request's user ID, and do not require a live actor or session.
+User and share credentials cannot grant access to actor-only methods. The
+unsigned identity header is not accepted.
+
+Substrate supplies the calling Actor's current identity after restore and fork;
+no token is persisted in a runtime snapshot. Only the projected actor name is
+read locally, to choose the session being addressed. Controller and runtime
+images must be upgraded together; snapshots of older runtime images still send
+the removed header and must be recreated. Memory keys now use the stored
+`namespace/name` agent reference; existing memories keyed by runtime display
+names are not migrated.
 
 ## Push notifications
 

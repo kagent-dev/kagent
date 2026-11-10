@@ -8,11 +8,15 @@ import (
 	"reflect"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 const shortRevisionBytes = 6
@@ -39,6 +43,8 @@ type CompileResult struct {
 
 // Revision is the resolved runtime configuration for one immutable revision.
 type Revision struct {
+	ControlPlaneURL string
+
 	// These fields identify the Agent that produced the revision.
 	AgentName string
 	AgentUID  string
@@ -49,7 +55,9 @@ type Revision struct {
 	Command     []string
 	Args        []string
 	Environment []corev1.EnvVar
-	// ConfigJSON is injected into the runtime container verbatim.
+	CPU         string
+	Memory      string
+	// ConfigJSON is delivered in the immutable bootstrap bundle.
 	// AgentCard stays typed until a runtime or public protocol boundary renders it.
 	ConfigJSON  []byte
 	AgentCard   *a2apb.AgentCard
@@ -57,7 +65,7 @@ type Revision struct {
 
 	// WorkerPoolName, SandboxClass and SnapshotLocation control Substrate placement and state.
 	WorkerPoolName   string
-	SandboxClass     atev1alpha1.SandboxClass
+	SandboxClass     atev1.SandboxClass
 	SnapshotLocation string
 
 	// Provenance records non-secret source configuration for diagnostics. Revision
@@ -65,8 +73,8 @@ type Revision struct {
 	Provenance json.RawMessage
 	// Credentials contains references resolved by the egress gateway.
 	Credentials []egress.Credential
-	// TokenPassthroughOrigins cannot receive gateway credentials, including live grants.
-	TokenPassthroughOrigins []string
+	// TokenPassthroughTargets reserve their origins against Secret credentials.
+	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
 }
@@ -86,38 +94,44 @@ func (r Revision) Equals(other Revision) bool {
 func (r *Revision) Digest() (RevisionID, error) {
 	sandboxClass := r.SandboxClass
 	switch sandboxClass {
-	case "", atev1alpha1.SandboxClassGvisor:
-		sandboxClass = atev1alpha1.SandboxClassGvisor
-	case atev1alpha1.SandboxClassMicroVM:
+	case "", atev1.SandboxClassGvisor:
+		sandboxClass = atev1.SandboxClassGvisor
+	case atev1.SandboxClassMicroVM:
 	default:
 		return RevisionID{}, fmt.Errorf("unsupported sandbox class %q", sandboxClass)
 	}
 	raw, err := json.Marshal(struct {
-		AgentName               string                   `json:"agentName"`
-		AgentUID                string                   `json:"agentUID"`
-		Namespace               string                   `json:"namespace"`
-		Image                   string                   `json:"image"`
-		Command                 []string                 `json:"command,omitempty"`
-		Args                    []string                 `json:"args,omitempty"`
-		Environment             []corev1.EnvVar          `json:"environment"`
-		ConfigJSON              json.RawMessage          `json:"config"`
-		SkillImages             []SkillImage             `json:"skillImages,omitempty"`
-		WorkerPoolName          string                   `json:"workerPoolName"`
-		SnapshotLocation        string                   `json:"snapshotLocation"`
-		Credentials             []egress.Credential      `json:"credentials,omitempty"`
-		TokenPassthroughOrigins []string                 `json:"tokenPassthroughOrigins,omitempty"`
-		EgressDestinations      []string                 `json:"egressDestinations"`
-		SandboxClass            atev1alpha1.SandboxClass `json:"sandboxClass"`
+		BootstrapVersion        uint32                       `json:"bootstrapVersion"`
+		ControlPlaneURL         string                       `json:"controlPlaneURL"`
+		AgentName               string                       `json:"agentName"`
+		AgentUID                string                       `json:"agentUID"`
+		Namespace               string                       `json:"namespace"`
+		CPU                     string                       `json:"cpu"`
+		Memory                  string                       `json:"memory"`
+		Image                   string                       `json:"image"`
+		Command                 []string                     `json:"command,omitempty"`
+		Args                    []string                     `json:"args,omitempty"`
+		Environment             []corev1.EnvVar              `json:"environment"`
+		ConfigJSON              json.RawMessage              `json:"config"`
+		SkillImages             []SkillImage                 `json:"skillImages,omitempty"`
+		WorkerPoolName          string                       `json:"workerPoolName"`
+		SnapshotLocation        string                       `json:"snapshotLocation"`
+		Credentials             []egress.Credential          `json:"credentials,omitempty"`
+		TokenPassthroughTargets []egresspolicy.GatewayTarget `json:"tokenPassthroughTargets,omitempty"`
+		EgressDestinations      []string                     `json:"egressDestinations"`
+		SandboxClass            atev1.SandboxClass           `json:"sandboxClass"`
 
 		// Placement now matches the pool's namespace as well as its name.
 		// Hash it explicitly so existing immutable templates do not conflict after upgrades.
 		WorkerPoolNamespace string `json:"workerPoolNamespace"`
 	}{
+		BootstrapVersion: bootstrap.FormatVersion, ControlPlaneURL: r.ControlPlaneURL,
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
+		CPU: r.CPU, Memory: r.Memory,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		SkillImages:    r.SkillImages,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
-		TokenPassthroughOrigins: r.TokenPassthroughOrigins, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
+		TokenPassthroughTargets: r.TokenPassthroughTargets, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
 	})
 	if err != nil {
@@ -128,4 +142,19 @@ func (r *Revision) Digest() (RevisionID, error) {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision Agent Card: %w", err)
 	}
 	return RevisionID(sha256.Sum256(append(raw, card...))), nil
+}
+
+// BootstrapBundle renders the immutable payload served to a revision's actors.
+func (r *Revision) BootstrapBundle(id RevisionID) (*runtimev1.BootstrapBundle, error) {
+	card, err := apia2a.FromProtoAgentCard(r.AgentCard)
+	if err != nil {
+		return nil, fmt.Errorf("convert bootstrap Agent Card: %w", err)
+	}
+	// Keep the rendered bytes: re-rendering the structured card after an upgrade
+	// could change JSON encoding and invalidate the descriptor digest.
+	raw, err := json.Marshal(card)
+	if err != nil {
+		return nil, fmt.Errorf("render bootstrap Agent Card: %w", err)
+	}
+	return bootstrap.NewBundle(id.String(), r.ConfigJSON, raw)
 }

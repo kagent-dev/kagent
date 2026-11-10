@@ -31,10 +31,15 @@ install:
   defaultModelProvider: OpenAI
   kagent:
     valuesFiles: [kagent-values.yaml]
+  atelet:
+    valuesFiles: [atelet-values.yaml]
 database:
   owner:
     urlFile: secrets/postgres-owner-url
     role: kagent_owner
+tui:
+  sidebar: shown
+  bell: true
 ```
 
 ```bash
@@ -49,12 +54,27 @@ commands make no service connections. Database credentials are opened only by
 database commands, which connect as `database.owner`; `--db-url-file` and
 `--db-role` override its configured values.
 
+`tui.sidebar: hidden` starts the interactive `kagent` workspace with only the
+chat showing. Typing `/sidebar` in the chat toggles the panels for that run and
+changes no file.
+
+`tui.bell: false` stops the terminal bell that otherwise rings when a turn
+finishes or waits for input while the terminal window is unfocused.
+
 `install.bundledPostgresImage` selects the development PostgreSQL image, including
 mirrors.
 
 Installation passes embedded defaults before configured chart values files.
 Files are applied in order, with the last file winning. Provider credentials
 continue to use the provider SDK environment interface.
+
+`kagent install --provider` overrides `install.defaultModelProvider` for one
+install; the protovalidate `in` rule on that field defines the accepted names.
+After a successful install the CLI prints next steps.
+
+`kagent version --client` prints only the CLI build without connecting to the
+controller. The `get-kagent` install script uses it to skip reinstalling a
+matching version.
 
 ## Controller
 
@@ -175,7 +195,7 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
     "log_level": "info",
     "port": 80,
     "max_content_length": "0",
-    "skill_tools": { "file_search_tools": false },
+    "builtin_tools": { "disable_file_search": false },
     "token_propagation": { "enabled": false }
   }
 }
@@ -211,25 +231,37 @@ the same `TelemetryConfig` as controller settings (including protobuf durations)
 
 An absent request size limit uses the runtime default; zero means unlimited.
 
-Skill tool settings live together under `runtime.skill_tools`:
-`file_search_tools`, `bash_venv_path`, and `disable_bash`. Move existing flat
-settings into this block when updating configuration files.
-Go ADK automatically registers the built-in `bash` tool when skills are loaded.
-Set `runtime.skill_tools.disable_bash` to `true` to omit it for the root agent and all
-subagents. Skill discovery and loading, `read_file`, `write_file`, and `edit_file`
-remain available; `list_files` and `grep_file` still depend on
-`runtime.skill_tools.file_search_tools`. For controller-managed runtimes, set
-`config.runtimeDefaults.skillTools.disableBash: true` in Helm values. The default is `false`;
-this setting affects only the built-in Go ADK bash tool, not Python or tools
-provided through MCP or other integrations.
+Built-in tool settings live under `runtime.builtin_tools`:
+`disable_file_search`, `bash_venv_path`, `disable_bash`, and `disable_ask_user`.
+This replaces the former `runtime.skill_tools` block
+(Helm: `config.runtimeDefaults.builtinTools`).
+Replace the former `file_search_tools` flag with `disable_file_search`, reversing
+its value: `file_search_tools: true` becomes `disable_file_search: false`.
+Go and Python ADK register `read_file`, `write_file`, `edit_file`, `list_files`,
+`grep_file`, and `bash` for the root agent and subagents, even when no skills are
+configured or installed.
+Set `runtime.builtin_tools.disable_bash` to `true` to omit built-in bash.
+Set `runtime.builtin_tools.disable_file_search` to `true` to omit `list_files`
+and `grep_file`. Both opt-outs default to `false`. Skill discovery and loading
+remain conditional on installed skills.
+For controller-managed runtimes, set
+`config.runtimeDefaults.builtinTools.disableBash: true` in Helm values.
+`bash_venv_path` selects a separate environment for shell commands in both runtimes:
+its `bin` directory is prepended to `PATH`, and `VIRTUAL_ENV` is set.
+Set `runtime.builtin_tools.disable_ask_user` to `true` to omit the built-in
+question tool in the Go and Python ADKs, including Go Shared subagents. This
+defaults to `false`; for controller-managed runtimes, use
+`config.runtimeDefaults.builtinTools.disableAskUser: true` in Helm values.
+See [Configuring built-in questions](human-in-the-loop.md#configuring-built-in-questions)
+for scope and limitations.
 
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
-`parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private
-`KAGENT_CONFIG_JSON` and `KAGENT_AGENT_CARD_JSON` payloads supplied by Substrate.
-Actor/session identity, credential projection, and private bootstrap paths keep
-their existing contracts. Substrate's limits remain 32 environment entries and
-32,768 characters per value.
+`parse_config()` and constructs the SDK agent with `create_agent()`.
+Managed runtimes receive configuration and the Agent Card through the
+[prepared revision's bootstrap bundle](configuration-and-compilation.md#configuration-delivery).
+The controller supplies `KAGENT_BOOTSTRAP_JSON`; configuration payloads are not
+passed through environment variables.
 
 ## OpenTelemetry
 
@@ -245,6 +277,5 @@ Controller overrides apply only to the controller. Managed runtimes use
 supports `controller.env` and `controller.envFrom` for controller OTEL and
 external SDK inputs. See [telemetry](telemetry.md) for exporter and capture details.
 
-Other remaining public env interfaces are documented in [the generated
-reference](../env.md): provider credentials, SDK trust, `KUBECONFIG`, UI settings,
+Other remaining public env interfaces are registered in `go/core/pkg/env`: provider credentials, SDK trust, `KUBECONFIG`, UI settings,
 and test inputs. Application settings have no env fallback.

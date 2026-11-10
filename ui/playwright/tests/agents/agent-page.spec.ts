@@ -100,15 +100,15 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   });
 
   await test.step("2. an unnamed one says it is untitled rather than showing its key", async () => {
-    const untitled = page.getByTestId(`conversation-link-${instances.suspended}`);
+    const untitled = page.getByTestId(`conversation-link-${instances.idle}`);
     // Not the UUID. A database key presented under a "Conversation" heading reads as
     // a name somebody chose, and eight rows of it are indistinguishable at a glance
     // — which is the specific failure that started this rework.
-    await expect(untitled).not.toHaveText(instances.suspended);
+    await expect(untitled).not.toHaveText(instances.idle);
     await expect(untitled).toContainText("Untitled");
     // The short id is still there: two untitled conversations with one agent have
     // nothing else to tell them apart.
-    await expect(untitled).toContainText(instances.suspended.slice(0, 8));
+    await expect(untitled).toContainText(instances.idle.slice(0, 8));
   });
 
   await test.step("3. renaming one changes what the list shows", async () => {
@@ -118,7 +118,7 @@ test("agents: a conversation is named by the reader, and never renders as a bare
      * new name", which points at the save rather than at the press that never landed.
      */
     const rename = page.getByTestId("conversation-rename-input");
-    await pressUntil(page.getByTestId(`conversation-rename-${instances.suspended}`), () =>
+    await pressUntil(page.getByTestId(`conversation-rename-${instances.idle}`), () =>
       expect(rename).toBeVisible(),
     );
     // The box opens *empty* for an unnamed conversation rather than pre-filled with
@@ -134,12 +134,12 @@ test("agents: a conversation is named by the reader, and never renders as a bare
       expect(rowNamed(page, "Rollback rehearsal")).toHaveCount(1),
     );
     await expect(
-      page.getByTestId(`conversation-link-${instances.suspended}`),
+      page.getByTestId(`conversation-link-${instances.idle}`),
     ).toHaveText("Rollback rehearsal");
   });
 
   await test.step("4. a name the controller would refuse is refused before the round trip", async () => {
-    await page.getByTestId(`conversation-rename-${instances.suspended}`).click();
+    await page.getByTestId(`conversation-rename-${instances.idle}`).click();
     const field = page.getByTestId("conversation-rename-input").locator("input");
     await field.fill(" leading space");
 
@@ -155,7 +155,7 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   });
 
   await test.step("5. clearing a name puts it back to being untitled", async () => {
-    await page.getByTestId(`conversation-rename-${instances.suspended}`).click();
+    await page.getByTestId(`conversation-rename-${instances.idle}`).click();
     const field = page.getByTestId("conversation-rename-input").locator("input");
     await expect(field).toHaveValue("Rollback rehearsal");
     await field.fill("");
@@ -163,7 +163,7 @@ test("agents: a conversation is named by the reader, and never renders as a bare
     await pressOnce(page.getByRole("button", { name: "Save" }));
 
     await expect(
-      page.getByTestId(`conversation-link-${instances.suspended}`),
+      page.getByTestId(`conversation-link-${instances.idle}`),
     ).toContainText("Untitled");
   });
 });
@@ -401,6 +401,31 @@ test("agents: a conversation is created by its first message, not by the click",
     await expect(blocked).toBeVisible();
     await expect(blocked).toHaveAttribute("data-blocked-reason", /golden snapshot/);
   });
+});
+
+test("agents: a failed edit says why on the agent's page, not only in a tooltip", async ({ page }) => {
+  /*
+   * A typo in a Harness image used to surface only as "Update failed" with the
+   * controller's message on hover. Nothing is blocked, because conversations keep the
+   * last good revision, so `agent-cannot-start` never appears; this alert is the
+   * only place on the page that says what went wrong.
+   */
+  await loadPage(page, agentPage(agents.updateFailed));
+  await expectSettled(page);
+
+  const failed = page.getByTestId("agent-update-failed");
+  await expect(failed).toBeVisible();
+  await expect(failed).toContainText("could not pull image ghcr.io/kagent-dev/kagent/claude-harnes:0.9.0");
+  await expect(failed).toContainText("last good revision");
+  await expect(page.getByTestId("agent-cannot-start")).toHaveCount(0);
+  await expect(page.getByTestId("agent-revision-state")).toHaveAttribute("data-revision-state", "updateFailed");
+});
+
+test("agents: a ready agent shows no failure alert", async ({ page }) => {
+  await loadPage(page, agentPage(agents.k8s));
+  await expectSettled(page);
+  await expect(page.getByTestId("agent-revision-state")).toHaveAttribute("data-revision-state", "ready");
+  await expect(page.getByTestId("agent-update-failed")).toHaveCount(0);
 });
 
 test("agents: deleting an Agent preserves shared resources and conversations", async ({ page }) => {

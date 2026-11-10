@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -16,13 +15,15 @@ import (
 )
 
 type workflowStore interface {
+	GetSessionGeneration(context.Context, string) (*database.SessionGeneration, error)
+	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration, database.SessionTaskSnapshot) (*database.SessionOperation, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
-	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation) (*database.SessionOperation, error)
+	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation, bool) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
 	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1.Session, error)
@@ -76,57 +77,49 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*d
 	if !validActorIdentity(actor, revision, name) || metadata.GetUid() != current.GetMetadata().GetUid() {
 		return nil, fmt.Errorf("suspend actor %s/%s returned invalid identity", atespace, name)
 	}
-	snapshot := actor.GetStatus().GetExternalSnapshot()
-	if snapshot.GetSnapshotUri() == "" {
+	snapshot := substrate.LatestActorSnapshot(actor)
+	if substrate.SnapshotURI(snapshot) == "" {
 		return nil, fmt.Errorf("suspend Actor %s/%s returned no snapshot", atespace, name)
 	}
-	scope := snapshot.GetContentScope()
-	if scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
-		return nil, fmt.Errorf("actor %s/%s returned invalid snapshot content scope %s", atespace, name, scope)
+	fidelity := snapshot.GetFidelity()
+	if fidelity != ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES {
+		return nil, fmt.Errorf("actor %s/%s returned invalid snapshot fidelity %s", atespace, name, fidelity)
 	}
 	return &database.SessionTaskSnapshot{
-		Atespace: atespace, URI: snapshot.GetSnapshotUri(),
-		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
+		Atespace: atespace, URI: substrate.SnapshotURI(snapshot),
+		Fidelity: fidelity.String(),
 	}, nil
 }
 
 // Create provisions the persisted session once, using its pinned checkpoint for
 // forks. Retries return current state; an uncertain prior creation blocks execution.
 func (w *ActorWorkflow) Create(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 }
 
-// Suspend returns after the Actor and session are suspended. A retry observes
-// the same operation rather than issuing a second mutation.
+// Suspend is used by controller-owned deadline cleanup when no scheduled task
+// can be identified.
+// It returns after the Actor and Session are suspended; retries observe the same
+// operation rather than issuing a second mutation. It has no public Session RPC.
 func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
-}
-
-// Resume returns after the Actor is running and the session is ready. Missing
-// Actors are errors; Resume never creates replacement compute.
-func (w *ActorWorkflow) Resume(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 }
 
 // Delete closes admission before stopping and deleting compute. It can supersede
-// unissued creation, but never deletes a session while a prior call is uncertain.
-func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+// unissued work and any crash recovery, but never deletes a session while another
+// issued call is uncertain.
+func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session, force bool) (*apiv1.Session, error) {
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, force)
 }
 
-func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1.RuntimeOperation) (*apiv1.Session, error) {
+func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1.RuntimeOperation, force bool) (*apiv1.Session, error) {
 	ctx, cancelAttempt := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancelAttempt()
-	operation, err := w.store.BeginSessionOperation(ctx, sessionID, requestedKind)
+	operation, err := w.store.BeginSessionOperation(ctx, sessionID, requestedKind, force)
 	if err != nil {
 		return nil, err
 	}
-	result, err := w.execute(ctx, operation)
-	if err == nil && result.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY {
-		// A resume can make old unclaimed idle work eligible again.
-		w.wakeQuiescence()
-	}
-	return result, err
+	return w.execute(ctx, operation)
 }
 
 // execute keeps lifecycle preparation separate from the durable issue boundary.
@@ -152,8 +145,8 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		if err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("load pinned checkpoint: %w", err))
 		}
-		if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope != "DATA" {
-			return w.failPreparation(ctx, operation, fmt.Errorf("fork requires a retained DATA checkpoint"))
+		if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.Fidelity != "SNAPSHOT_FIDELITY_VOLUMES" {
+			return w.failPreparation(ctx, operation, fmt.Errorf("fork requires a retained volume checkpoint"))
 		}
 		tagName = "checkpoint-" + operation.SourceCheckpointID.String()
 	}
@@ -164,20 +157,27 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		creation = &substrate.ActorCreation{}
 		if snapshot != nil {
-			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES}
 		}
 	}
-	prepare := substrate.PrepareActorTransition
-	if operation.ExecutorID != uuid.Nil {
-		prepare = substrate.PrepareActorRetry
+	var transition *substrate.ActorTransition
+	switch {
+	case database.CrashRecoveryAdmitted(session):
+		transition, err = substrate.PrepareActorRevert(ctx, w.actors, binding)
+	case operation.ExecutorID != uuid.Nil:
+		transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
+	default:
+		transition, err = substrate.PrepareActorTransition(ctx, w.actors, binding, kind, creation)
 	}
-	transition, err := prepare(ctx, w.actors, binding, kind, creation)
 	if err != nil {
 		return w.failPreparation(ctx, operation, err)
 	}
 
 	if uid := transition.ActorUID(); uid != "" && kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		if _, err := w.store.GetSessionForRuntime(ctx, session.Id, uid); err != nil {
+			if database.CrashRecoveryAdmitted(session) && errors.Is(err, database.ErrNotFound) {
+				err = fmt.Errorf("runtime Actor was replaced: %w", substrate.ErrActorUnrecoverable)
+			}
 			return w.failPreparation(ctx, operation, fmt.Errorf("verify runtime actor UID: %w", err))
 		}
 	}
@@ -221,6 +221,15 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 // the same generation instead. Completion returns current state; supersession
 // returns a conflict. A local preparation error cannot clear a newer operation.
 func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.SessionOperation, cause error) (*apiv1.Session, error) {
+	if database.CrashRecoveryAdmitted(admitted.Instance) {
+		// Admission already failed the interrupted turn, so clearing the operation
+		// would leave a FAILED Session that a retried RevertSession could not
+		// continue. Delete can supersede the kept intent, even after a claim.
+		if errors.Is(cause, substrate.ErrActorUnrecoverable) {
+			return nil, fmt.Errorf("%w: %w", cause, errRuntimeUnrecoverable)
+		}
+		return nil, cause
+	}
 	if admitted.ExecutorID != uuid.Nil {
 		return nil, cause // An earlier attempt may have issued work; retain its intent.
 	}

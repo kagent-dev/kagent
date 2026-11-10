@@ -15,6 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"google.golang.org/grpc"
@@ -26,6 +27,8 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
+	"github.com/kagent-dev/kagent/go/core/internal/service/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -48,6 +51,7 @@ const (
 )
 
 type Config struct {
+	BootstrapService       *bootstrap.Service
 	SandboxService         *sandbox.Service
 	BindAddress            string
 	MaxMessageBytes        int
@@ -55,15 +59,16 @@ type Config struct {
 	TLSCertFile            string
 	TLSKeyFile             string
 	Authenticator          auth.AuthProvider
-	RuntimeAuthenticator   auth.AuthProvider
 	ShareStore             sessionsvc.ShareStore
 	AgentService           *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
+	AgentIdentityService   *agentidentity.Service
 	AgentTemplateService   *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	HarnessService         *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService           *modelservice.Service
 	ToolService            *toolservice.Service
 	PromptTemplateService  *prompttemplateservice.Service
 	SystemService          *systemservice.Service
+	WorkerPoolService      *kubecrud.Service[*atev1.WorkerPool, *atev1.WorkerPoolList]
 	MemoryService          *memoryservice.Service
 	TaskStoreService       *taskstore.Service
 	SessionService         *sessionsvc.Service
@@ -71,6 +76,7 @@ type Config struct {
 	ScheduledRunService    *scheduledrun.Service
 	A2AHandler             a2asrv.RequestHandler
 	SandboxTemplateService *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
+	EgressPolicyService    *kubecrud.Service[*v1alpha3.EgressPolicy, *v1alpha3.EgressPolicyList]
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.
 	RegisterServices func(grpc.ServiceRegistrar)
@@ -112,14 +118,14 @@ func New(config Config) (*Server, error) {
 		grpc.ChainUnaryInterceptor(
 			loggingUnaryInterceptor,
 			recoverUnaryInterceptor,
-			authenticationUnaryInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
+			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies, config.AgentIdentityService, config.BootstrapService),
 			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
 			loggingStreamInterceptor,
 			recoverStreamInterceptor,
-			authenticationStreamInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
+			authenticationStreamInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies, config.AgentIdentityService, config.BootstrapService),
 			protovalidatemiddleware.StreamServerInterceptor(validator),
 			errorMappingStreamInterceptor,
 		),
@@ -133,8 +139,10 @@ func New(config Config) (*Server, error) {
 	grpcServer := grpc.NewServer(serverOptions...)
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	apiv1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
+	apiv1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.WorkerPoolService, config.MaxMessageBytes))
 	apiv1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
+	runtimev1.RegisterBootstrapServiceServer(grpcServer, &bootstrapServer{service: config.BootstrapService})
+	apiv1.RegisterAgentIdentityServiceServer(grpcServer, &agentIdentityServer{service: config.AgentIdentityService})
 	apiv1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
 	apiv1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
 	apiv1.RegisterSandboxServiceServer(grpcServer, &sandboxServer{service: config.SandboxService})
@@ -142,6 +150,7 @@ func New(config Config) (*Server, error) {
 	guestpb.RegisterProcessServiceServer(grpcServer, guestServer)
 	guestpb.RegisterFileSystemServiceServer(grpcServer, guestServer)
 	apiv1.RegisterSandboxTemplateServiceServer(grpcServer, &sandboxTemplateServer{service: config.SandboxTemplateService, maxMessageBytes: config.MaxMessageBytes})
+	apiv1.RegisterEgressPolicyServiceServer(grpcServer, &egressPolicyServer{service: config.EgressPolicyService, maxMessageBytes: config.MaxMessageBytes})
 	apiv1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
 	apiv1.RegisterToolServiceServer(grpcServer, newToolServer(config.ToolService, config.MaxMessageBytes))
 	apiv1.RegisterPromptTemplateServiceServer(grpcServer, newPromptTemplateServer(config.PromptTemplateService))

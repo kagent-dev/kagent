@@ -24,7 +24,7 @@ tests:
           value: STREAMABLE_HTTP
       - equal:
           path: spec.url
-          value: http://kagent-controller.kagent.svc:8083/mcp
+          value: http://kagent-controller.kagent.svc.cluster.local:8083/mcp
 
   - it: follows the controller fullname, namespace, and service port overrides
     set:
@@ -32,6 +32,7 @@ tests:
       namespaceOverride: agents
       controller.service.ports.port: 9000
       controller.service.ports.targetPort: 8083
+      global.clusterDomain: cluster.example
     asserts:
       - equal:
           path: metadata.name
@@ -41,7 +42,7 @@ tests:
           value: agents
       - equal:
           path: spec.url
-          value: http://custom-kagent-controller.agents.svc:9000/mcp
+          value: http://custom-kagent-controller.agents.svc.cluster.example:9000/mcp
 
   - it: follows release naming and remains available when bundled tools are disabled
     release:
@@ -58,4 +59,4 @@ tests:
           value: staging-control-api
       - equal:
           path: spec.url
-          value: http://staging-control-controller.agents.svc:8083/mcp
+          value: http://staging-control-controller.agents.svc.cluster.local:8083/mcp

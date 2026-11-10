@@ -9,11 +9,11 @@ description = "Framework-specific integration points with agentsts-core"
 requires-python = ">=3.11"
 dependencies = [
   "agentsts-core>=0.1.0",
-  "google-adk[a2a]>=2.11.0,<3",
-  "google-genai>=2.29.0,<3",
-  "google-auth>=2.40.2",
+  "google-adk[a2a]>=2.13.0,<3",
+  "google-genai>=2.34.0,<3",
+  "google-auth>=2.62.1",
   "httpx>=0.25.0",
-  "pydantic>=2.14.0",
+  "pydantic>=2.14.3",
   "typing-extensions>=4.16.0",
   "aiofiles>=24.1.0",
   "anyio>=4.14.2",
@@ -25,9 +25,9 @@ agentsts-core = {workspace = true}
 
 [project.optional-dependencies]
 test = [
-  "pytest>=8.3.5",
-  "pytest-asyncio>=0.25.3",
-  "pytest-mock>=3.16.0",
+  "pytest>=9.2.0",
+  "pytest-asyncio>=1.4.1.post1",
+  "pytest-mock>=3.17.0",
 ]
 
 [tool.hatch.build.targets.wheel]

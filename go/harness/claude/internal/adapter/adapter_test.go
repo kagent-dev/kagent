@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -39,6 +41,47 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 		if info.Mode().Perm() != 0o700 {
 			t.Errorf("%s permissions = %o, want 700", path, info.Mode().Perm())
 		}
+	}
+}
+
+func TestNativeProcessRetriesAreOptIn(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		environment []string
+		want        string
+	}{
+		{name: "unset", want: "unset"},
+		{name: "empty", environment: []string{env.TestClaudeDisableRetries + "="}, want: "unset"},
+		{name: "false", environment: []string{env.TestClaudeDisableRetries + "=false"}, want: "unset"},
+		{name: "true", environment: []string{env.TestClaudeDisableRetries + "=true"}, want: "0"},
+		{name: "preserve native setting", environment: []string{config.MaxRetriesEnvName + "=10"}, want: "10"},
+		{name: "override native setting", environment: []string{env.TestClaudeDisableRetries + "=true", config.MaxRetriesEnvName + "=10"}, want: "0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			executable := filepath.Join(dir, "claude")
+			script := fmt.Sprintf("#!/bin/sh\n[ \"${CLAUDE_CODE_MAX_RETRIES-unset}\" = %s ] || exit 42\necho %s\n", test.want, config.PinnedClaudeVersion)
+			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Production("claude-test", "help")
+			cfg.ClaudeExecutable = executable
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner, err := New(t.Context(), Input{
+				ConfigJSON: raw, Workspace: filepath.Join(dir, "workspace"),
+				DurableDir: filepath.Join(dir, "data"), EphemeralDir: filepath.Join(dir, "ephemeral"), Environment: test.environment,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = runner.Close() })
+			if err := runner.Validate(t.Context()); err != nil {
+				t.Fatalf("native process did not receive the expected retry setting: %v", err)
+			}
+		})
 	}
 }
 
@@ -265,5 +308,49 @@ func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLargeSystemPromptIsDeliveredThroughFile(t *testing.T) {
+	// Given instructions larger than Linux's per-argument limit, when the
+	// adapter prepares a turn, assert that the CLI receives a private file
+	// containing the complete prompt instead of the prompt text in argv.
+	prompt := strings.Repeat("Helpful context. ", 8000) + "bootstrap-large-prompt-end"
+	cfg := config.Config{Version: config.Version, ClaudeExecutable: "claude", AppendSystemPrompt: prompt, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGraceMillis: 100}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	runner, err := New(t.Context(), Input{ConfigJSON: raw, Workspace: filepath.Join(directory, "workspace"), DurableDir: filepath.Join(directory, "data"), EphemeralDir: filepath.Join(directory, "ephemeral")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := runner.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	args := runner.Args(runtime.Turn{Prompt: "What is 2+2?"})
+	index := slices.Index(args, "--append-system-prompt-file")
+	if index < 0 || index+1 >= len(args) {
+		t.Fatalf("missing prompt file argument: %v", args)
+	}
+	content, err := os.ReadFile(args[index+1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != prompt {
+		t.Fatal("system prompt file lost compiled instructions")
+	}
+	info, err := os.Stat(args[index+1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("prompt permissions = %o", info.Mode().Perm())
+	}
+	if slices.Contains(args, prompt) || slices.Contains(args, "--append-system-prompt") {
+		t.Fatal("system prompt is still passed inline")
 	}
 }

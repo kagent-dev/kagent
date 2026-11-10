@@ -25,7 +25,10 @@ var (
 	OTELExporterOTLPTimeout                = RegisterStringVar("OTEL_EXPORTER_OTLP_TIMEOUT", "", otlpDescription, ComponentController, ComponentAgentRuntime)
 	OTELExporterOTLPCompression            = RegisterStringVar("OTEL_EXPORTER_OTLP_COMPRESSION", "", otlpDescription, ComponentController, ComponentAgentRuntime)
 	OTELMetricsDefaultHistogramAggregation = RegisterStringVar("OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION", "", "SDK histogram aggregation; defaults to base2_exponential_bucket_histogram.", ComponentController, ComponentAgentRuntime)
-	OTELGenAICaptureMessageContent         = RegisterStringVar("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "", "Override runtime content capture: SPAN_ONLY enables prompts and responses; NO_CONTENT disables capture.", ComponentAgentRuntime)
+	// TODO: Migrate to OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT when the pinned
+	// ADK supports it, preserving explicit overrides during the transition.
+	// https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-spans.md#content-capture-configuration
+	OTELGenAICaptureMessageContent = RegisterStringVar("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "", "Override runtime content capture: SPAN_ONLY enables prompts and responses; NO_CONTENT disables capture.", ComponentAgentRuntime)
 
 	OTELLogUserPrompts         = RegisterStringVar("OTEL_LOG_USER_PROMPTS", "", "Claude Code prompt capture flag, managed by the harness content-capture configuration.", ComponentAgentRuntime)
 	OTELLogToolDetails         = RegisterStringVar("OTEL_LOG_TOOL_DETAILS", "", "Claude Code tool-detail capture flag, managed by the harness content-capture configuration.", ComponentAgentRuntime)

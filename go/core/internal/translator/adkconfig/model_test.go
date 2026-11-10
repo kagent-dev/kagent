@@ -129,7 +129,7 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
 				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				TokenPassthrough: true,
+				TokenPassthrough: new(true),
 				Ollama:           &v1alpha3.OllamaConfig{},
 			},
 			wantNames: []string{},

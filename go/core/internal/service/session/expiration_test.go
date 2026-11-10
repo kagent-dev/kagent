@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -65,9 +65,9 @@ type expirationActors struct {
 	deletions          int
 }
 
-func (e *expirationActors) DeleteActor(ctx context.Context, space, name string) error {
+func (e *expirationActors) DeleteActor(ctx context.Context, space, name, uid string) error {
 	e.deletions++
-	if err := e.retryTestActors.DeleteActor(ctx, space, name); err != nil {
+	if err := e.retryTestActors.DeleteActor(ctx, space, name, uid); err != nil {
 		return err
 	}
 	if e.loseDeleteResponse {
@@ -77,12 +77,38 @@ func (e *expirationActors) DeleteActor(ctx context.Context, space, name string) 
 	return nil
 }
 
+func TestWaitingSessionExpirationDeletesRuntime(t *testing.T) {
+	for _, state := range []a2a.TaskState{a2a.TaskStateInputRequired, a2a.TaskStateAuthRequired} {
+		t.Run(string(state), func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			session, err := workflow.Create(t.Context(), session)
+			require.NoError(t, err)
+			request := stageQuiescenceTask(t, store.Client, session, state)
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+			work, err := store.ClaimSessionQuiescence(t.Context())
+			require.NoError(t, err)
+			snapshot, err := workflow.Quiesce(t.Context(), session)
+			require.NoError(t, err)
+			require.NoError(t, store.FinishSessionQuiescence(t.Context(), work, snapshot))
+
+			worker, err := NewExpirationWorker(store, workflow, time.Hour, time.Minute)
+			require.NoError(t, err)
+			require.NoError(t, worker.expire(t.Context(), session.Id, time.Now()))
+			_, err = store.GetSessionByID(t.Context(), session.Id)
+			require.ErrorIs(t, err, database.ErrNotFound)
+			require.Empty(t, actors.actors, "expiration removes the suspended runtime without another interaction")
+		})
+	}
+}
+
 func TestSessionExpirationRetainsCheckpointHistory(t *testing.T) {
 	store, source := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	_, checkpointID := lifecycleForkFixture(t, store, actors, source)
 	interactions := NewInteractionService(store, nil, NewService(store, serviceTestAuthorizer{}, nil), false)
-	agent := types.NamespacedName{Namespace: source.Agent.Namespace, Name: source.Agent.Name}
+	agent := types.NamespacedName{Namespace: source.GetAgent().Ref.Namespace, Name: source.GetAgent().Ref.Name}
 	// Real ownership filtering must hide an existing conversation in exactly
 	// the same way as a missing or expired conversation, without reading history.
 	_, err := interactions.ListTasks(serviceTestContext("visitor"), agent, &a2a.ListTasksRequest{ContextID: source.ContextId})
@@ -128,7 +154,7 @@ func TestSessionDeleteCompletesIdleDeletion(t *testing.T) {
 
 	// An explicit Delete joins the idle deletion and removes its receipt in
 	// the ordinary completion transaction; no separate expiration finish runs.
-	_, err = workflow.Delete(t.Context(), session)
+	_, err = workflow.Delete(t.Context(), session, false)
 	require.NoError(t, err)
 	_, err = store.GetSessionByID(t.Context(), session.Id)
 	require.ErrorIs(t, err, database.ErrNotFound)

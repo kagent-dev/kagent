@@ -4,6 +4,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
 import type { ResourceReference, StructuredObject } from "./common_pb";
 import { file_kagent_api_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -12,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1/harnesses.proto.
  */
 export const file_kagent_api_v1_harnesses: GenFile = /*@__PURE__*/
-  fileDesc("Ch1rYWdlbnQvYXBpL3YxL2hhcm5lc3Nlcy5wcm90bxINa2FnZW50LmFwaS52MSKjAQoHSGFybmVzcxItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlEjEKCHJlc291cmNlGAIgASgLMh8ua2FnZW50LmFwaS52MS5TdHJ1Y3R1cmVkT2JqZWN0Eg8KB3J1bnRpbWUYAyABKAkSFgoOd29ya2xvYWRfaW1hZ2UYBCABKAkSDQoFcmVhZHkYBSABKAgiKQoUTGlzdEhhcm5lc3Nlc1JlcXVlc3QSEQoJbmFtZXNwYWNlGAEgASgJIkIKFUxpc3RIYXJuZXNzZXNSZXNwb25zZRIpCgloYXJuZXNzZXMYASADKAsyFi5rYWdlbnQuYXBpLnYxLkhhcm5lc3MieAoUQ3JlYXRlSGFybmVzc1JlcXVlc3QSLQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZRIxCghyZXNvdXJjZRgCIAEoCzIfLmthZ2VudC5hcGkudjEuU3RydWN0dXJlZE9iamVjdCJAChVDcmVhdGVIYXJuZXNzUmVzcG9uc2USJwoHaGFybmVzcxgBIAEoCzIWLmthZ2VudC5hcGkudjEuSGFybmVzcyJFChREZWxldGVIYXJuZXNzUmVxdWVzdBItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlIhcKFURlbGV0ZUhhcm5lc3NSZXNwb25zZTKkAgoOSGFybmVzc1NlcnZpY2USWgoNTGlzdEhhcm5lc3NlcxIjLmthZ2VudC5hcGkudjEuTGlzdEhhcm5lc3Nlc1JlcXVlc3QaJC5rYWdlbnQuYXBpLnYxLkxpc3RIYXJuZXNzZXNSZXNwb25zZRJaCg1DcmVhdGVIYXJuZXNzEiMua2FnZW50LmFwaS52MS5DcmVhdGVIYXJuZXNzUmVxdWVzdBokLmthZ2VudC5hcGkudjEuQ3JlYXRlSGFybmVzc1Jlc3BvbnNlEloKDURlbGV0ZUhhcm5lc3MSIy5rYWdlbnQuYXBpLnYxLkRlbGV0ZUhhcm5lc3NSZXF1ZXN0GiQua2FnZW50LmFwaS52MS5EZWxldGVIYXJuZXNzUmVzcG9uc2VCPVo7Z2l0aHViLmNvbS9rYWdlbnQtZGV2L2thZ2VudC9nby9hcGkvZ2VuL2thZ2VudC9hcGkvdjE7YXBpdjFiBnByb3RvMw", [file_kagent_api_v1_common]);
+  fileDesc("Ch1rYWdlbnQvYXBpL3YxL2hhcm5lc3Nlcy5wcm90bxINa2FnZW50LmFwaS52MSKUAQoHSGFybmVzcxItCgNyZWYYASABKAsyIC5rYWdlbnQuYXBpLnYxLlJlc291cmNlUmVmZXJlbmNlEjEKCHJlc291cmNlGAIgASgLMh8ua2FnZW50LmFwaS52MS5TdHJ1Y3R1cmVkT2JqZWN0Eg8KB3J1bnRpbWUYAyABKAkSFgoOd29ya2xvYWRfaW1hZ2UYBCABKAkiKQoUTGlzdEhhcm5lc3Nlc1JlcXVlc3QSEQoJbmFtZXNwYWNlGAEgASgJIkIKFUxpc3RIYXJuZXNzZXNSZXNwb25zZRIpCgloYXJuZXNzZXMYASADKAsyFi5rYWdlbnQuYXBpLnYxLkhhcm5lc3MieAoUQ3JlYXRlSGFybmVzc1JlcXVlc3QSLQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZRIxCghyZXNvdXJjZRgCIAEoCzIfLmthZ2VudC5hcGkudjEuU3RydWN0dXJlZE9iamVjdCJAChVDcmVhdGVIYXJuZXNzUmVzcG9uc2USJwoHaGFybmVzcxgBIAEoCzIWLmthZ2VudC5hcGkudjEuSGFybmVzcyKIAQoUVXBkYXRlSGFybmVzc1JlcXVlc3QSNQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZUIGukgDyAEBEjkKCHJlc291cmNlGAIgASgLMh8ua2FnZW50LmFwaS52MS5TdHJ1Y3R1cmVkT2JqZWN0Qga6SAPIAQEiQAoVVXBkYXRlSGFybmVzc1Jlc3BvbnNlEicKB2hhcm5lc3MYASABKAsyFi5rYWdlbnQuYXBpLnYxLkhhcm5lc3MiRQoURGVsZXRlSGFybmVzc1JlcXVlc3QSLQoDcmVmGAEgASgLMiAua2FnZW50LmFwaS52MS5SZXNvdXJjZVJlZmVyZW5jZSIXChVEZWxldGVIYXJuZXNzUmVzcG9uc2UygAMKDkhhcm5lc3NTZXJ2aWNlEloKDUxpc3RIYXJuZXNzZXMSIy5rYWdlbnQuYXBpLnYxLkxpc3RIYXJuZXNzZXNSZXF1ZXN0GiQua2FnZW50LmFwaS52MS5MaXN0SGFybmVzc2VzUmVzcG9uc2USWgoNQ3JlYXRlSGFybmVzcxIjLmthZ2VudC5hcGkudjEuQ3JlYXRlSGFybmVzc1JlcXVlc3QaJC5rYWdlbnQuYXBpLnYxLkNyZWF0ZUhhcm5lc3NSZXNwb25zZRJaCg1VcGRhdGVIYXJuZXNzEiMua2FnZW50LmFwaS52MS5VcGRhdGVIYXJuZXNzUmVxdWVzdBokLmthZ2VudC5hcGkudjEuVXBkYXRlSGFybmVzc1Jlc3BvbnNlEloKDURlbGV0ZUhhcm5lc3MSIy5rYWdlbnQuYXBpLnYxLkRlbGV0ZUhhcm5lc3NSZXF1ZXN0GiQua2FnZW50LmFwaS52MS5EZWxldGVIYXJuZXNzUmVzcG9uc2VCPVo7Z2l0aHViLmNvbS9rYWdlbnQtZGV2L2thZ2VudC9nby9hcGkvZ2VuL2thZ2VudC9hcGkvdjE7YXBpdjFiBnByb3RvMw", [file_buf_validate_validate, file_kagent_api_v1_common]);
 
 /**
  * @generated from message kagent.api.v1.Harness
@@ -41,19 +42,12 @@ export type Harness = Message<"kagent.api.v1.Harness"> & {
   runtime: string;
 
   /**
-   * WorkloadImage is spec.workload.image, the digest-pinned runtime image.
+   * WorkloadImage is spec.workload.image, the digest-pinned runtime image. Empty
+   * when the spec leaves it to the controller's release default.
    *
    * @generated from field: string workload_image = 4;
    */
   workloadImage: string;
-
-  /**
-   * Ready mirrors the Ready status condition. False also covers a Harness the
-   * controller has not yet observed.
-   *
-   * @generated from field: bool ready = 5;
-   */
-  ready: boolean;
 };
 
 /**
@@ -137,6 +131,45 @@ export const CreateHarnessResponseSchema: GenMessage<CreateHarnessResponse> = /*
   messageDesc(file_kagent_api_v1_harnesses, 4);
 
 /**
+ * @generated from message kagent.api.v1.UpdateHarnessRequest
+ */
+export type UpdateHarnessRequest = Message<"kagent.api.v1.UpdateHarnessRequest"> & {
+  /**
+   * @generated from field: kagent.api.v1.ResourceReference ref = 1;
+   */
+  ref?: ResourceReference | undefined;
+
+  /**
+   * @generated from field: kagent.api.v1.StructuredObject resource = 2;
+   */
+  resource?: StructuredObject | undefined;
+};
+
+/**
+ * Describes the message kagent.api.v1.UpdateHarnessRequest.
+ * Use `create(UpdateHarnessRequestSchema)` to create a new message.
+ */
+export const UpdateHarnessRequestSchema: GenMessage<UpdateHarnessRequest> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1_harnesses, 5);
+
+/**
+ * @generated from message kagent.api.v1.UpdateHarnessResponse
+ */
+export type UpdateHarnessResponse = Message<"kagent.api.v1.UpdateHarnessResponse"> & {
+  /**
+   * @generated from field: kagent.api.v1.Harness harness = 1;
+   */
+  harness?: Harness | undefined;
+};
+
+/**
+ * Describes the message kagent.api.v1.UpdateHarnessResponse.
+ * Use `create(UpdateHarnessResponseSchema)` to create a new message.
+ */
+export const UpdateHarnessResponseSchema: GenMessage<UpdateHarnessResponse> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1_harnesses, 6);
+
+/**
  * @generated from message kagent.api.v1.DeleteHarnessRequest
  */
 export type DeleteHarnessRequest = Message<"kagent.api.v1.DeleteHarnessRequest"> & {
@@ -151,7 +184,7 @@ export type DeleteHarnessRequest = Message<"kagent.api.v1.DeleteHarnessRequest">
  * Use `create(DeleteHarnessRequestSchema)` to create a new message.
  */
 export const DeleteHarnessRequestSchema: GenMessage<DeleteHarnessRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_harnesses, 5);
+  messageDesc(file_kagent_api_v1_harnesses, 7);
 
 /**
  * @generated from message kagent.api.v1.DeleteHarnessResponse
@@ -164,7 +197,7 @@ export type DeleteHarnessResponse = Message<"kagent.api.v1.DeleteHarnessResponse
  * Use `create(DeleteHarnessResponseSchema)` to create a new message.
  */
 export const DeleteHarnessResponseSchema: GenMessage<DeleteHarnessResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1_harnesses, 6);
+  messageDesc(file_kagent_api_v1_harnesses, 8);
 
 /**
  * HarnessService manages reusable runtime and execution configuration.
@@ -189,6 +222,17 @@ export const HarnessService: GenService<{
     methodKind: "unary";
     input: typeof CreateHarnessRequestSchema;
     output: typeof CreateHarnessResponseSchema;
+  },
+  /**
+   * UpdateHarness replaces the spec and labels of an existing Harness. Agents
+   * that reference it pick up the change on their next reconcile.
+   *
+   * @generated from rpc kagent.api.v1.HarnessService.UpdateHarness
+   */
+  updateHarness: {
+    methodKind: "unary";
+    input: typeof UpdateHarnessRequestSchema;
+    output: typeof UpdateHarnessResponseSchema;
   },
   /**
    * @generated from rpc kagent.api.v1.HarnessService.DeleteHarness

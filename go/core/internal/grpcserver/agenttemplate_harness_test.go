@@ -37,10 +37,10 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 	return newConfigurationConnection(t, kubeClient)
 }
 
-func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client) *grpc.ClientConn {
+func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client, configure ...func(*Config)) *grpc.ClientConn {
 	t.Helper()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
-	server, err := New(Config{
+	config := Config{
 		Listener:               listener,
 		Authenticator:          &authimpl.InsecureAuthenticator{},
 		SystemService:          testSystemService(),
@@ -48,7 +48,12 @@ func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client) *grp
 		AgentTemplateService:   kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.SandboxTemplate{}, &v1alpha3.SandboxTemplateList{}, v1alpha3.SandboxTemplateKind),
-	})
+		EgressPolicyService:    kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.EgressPolicy{}, &v1alpha3.EgressPolicyList{}, v1alpha3.EgressPolicyKind),
+	}
+	for _, apply := range configure {
+		apply(&config)
+	}
+	server, err := New(config)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -78,7 +83,7 @@ func testAgentTemplate(namespace, name, modelConfig string) *v1alpha3.AgentTempl
 	return &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: modelConfig},
+			ModelConfig: &v1alpha3.ObjectReference{Name: modelConfig},
 			Description: "a template",
 		},
 	}
@@ -219,14 +224,6 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 
 func TestHarnessServiceGeneratedClient(t *testing.T) {
 	existing := testHarness("team", "z-existing", "pool-z")
-	existing.Status = v1alpha3.HarnessStatus{
-		Conditions: []metav1.Condition{{
-			Type:               v1alpha3.HarnessConditionTypeReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             "Ready",
-			LastTransitionTime: metav1.Now(),
-		}},
-	}
 	client := apiv1.NewHarnessServiceClient(newTemplateAndHarnessConnection(t, existing))
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "harness-user"))
 	ref := &apiv1.ResourceReference{Namespace: "team", Name: "a-created"}
@@ -241,8 +238,8 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	if got := created.GetHarness(); got.GetRuntime() != harnessRuntimeCodex || got.GetWorkloadImage() != testHarnessImage {
 		t.Fatalf("CreateHarness() = %+v, want codex runtime and pinned image", got)
 	}
-	if created.GetHarness().GetReady() {
-		t.Fatal("CreateHarness() ready = true, want false before the controller observes it")
+	if _, ok := created.GetHarness().GetResource().GetValue().GetFields()["status"]; ok {
+		t.Fatal("CreateHarness() resource must not contain status")
 	}
 
 	_, err = client.CreateHarness(ctx, &apiv1.CreateHarnessRequest{
@@ -257,9 +254,6 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	}
 	if len(listed.GetHarnesses()) != 2 {
 		t.Fatalf("ListHarnesses() count = %d, want 2", len(listed.GetHarnesses()))
-	}
-	if !listed.GetHarnesses()[1].GetReady() {
-		t.Fatal("ListHarnesses()[1].ready = false, want the Ready condition reflected")
 	}
 
 	_, err = client.CreateHarness(ctx, &apiv1.CreateHarnessRequest{
@@ -287,6 +281,73 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	}
 	_, err = client.DeleteHarness(ctx, &apiv1.DeleteHarnessRequest{Ref: ref})
 	assertCode(t, err, codes.NotFound)
+}
+
+func TestHarnessUpdate(t *testing.T) {
+	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "harness-user"))
+	ref := &apiv1.ResourceReference{Namespace: "team", Name: "codex"}
+
+	t.Run("Given a pinned Harness, when a caller updates it to a new pool without an image, assert that a later list reports the new spec and an empty image", func(t *testing.T) {
+		existing := testHarness("team", "codex", "pool-a")
+		existing.Labels = map[string]string{"tier": "old"}
+		client := apiv1.NewHarnessServiceClient(newTemplateAndHarnessConnection(t, existing))
+		incoming := testHarness("team", "codex", "pool-b")
+		incoming.Spec.Workload = v1alpha3.HarnessWorkload{}
+		incoming.Labels = map[string]string{"tier": "new"}
+
+		updated, err := client.UpdateHarness(ctx, &apiv1.UpdateHarnessRequest{Ref: ref, Resource: structured(t, incoming, harnessKind)})
+		if err != nil {
+			t.Fatalf("UpdateHarness() error = %v", err)
+		}
+		if got := updated.GetHarness(); got.GetRuntime() != harnessRuntimeCodex || got.GetWorkloadImage() != "" {
+			t.Fatalf("UpdateHarness() = %+v, want codex runtime with no pinned image", got)
+		}
+
+		listed, err := client.ListHarnesses(ctx, &apiv1.ListHarnessesRequest{Namespace: "team"})
+		if err != nil {
+			t.Fatalf("ListHarnesses() error = %v", err)
+		}
+		if len(listed.GetHarnesses()) != 1 {
+			t.Fatalf("ListHarnesses() count = %d, want 1", len(listed.GetHarnesses()))
+		}
+		stored := &v1alpha3.Harness{}
+		if err := structuredobject.ToGo(listed.GetHarnesses()[0].GetResource(), harnessKind, stored, DefaultMaxMessageSize); err != nil {
+			t.Fatalf("decode listed Harness: %v", err)
+		}
+		if stored.Spec.Substrate.WorkerPoolRef.Name != "pool-b" || stored.Spec.Workload.Image != nil || stored.Labels["tier"] != "new" {
+			t.Fatalf("listed Harness = %+v, want pool-b, no image and the new label", stored)
+		}
+	})
+
+	t.Run("Given no Harness, when a caller updates one, assert that the update is not found", func(t *testing.T) {
+		client := apiv1.NewHarnessServiceClient(newTemplateAndHarnessConnection(t))
+		_, err := client.UpdateHarness(ctx, &apiv1.UpdateHarnessRequest{Ref: ref, Resource: structured(t, testHarness("team", "codex", "pool-b"), harnessKind)})
+		assertCode(t, err, codes.NotFound)
+	})
+
+	t.Run("Given a Harness, when a caller updates it with a payload naming another object, assert that the update is rejected and the stored spec is unchanged", func(t *testing.T) {
+		client := apiv1.NewHarnessServiceClient(newTemplateAndHarnessConnection(t, testHarness("team", "codex", "pool-a")))
+		_, err := client.UpdateHarness(ctx, &apiv1.UpdateHarnessRequest{Ref: ref, Resource: structured(t, testHarness("team", "other", "pool-b"), harnessKind)})
+		assertCode(t, err, codes.InvalidArgument)
+
+		listed, err := client.ListHarnesses(ctx, &apiv1.ListHarnessesRequest{Namespace: "team"})
+		if err != nil {
+			t.Fatalf("ListHarnesses() error = %v", err)
+		}
+		stored := &v1alpha3.Harness{}
+		if err := structuredobject.ToGo(listed.GetHarnesses()[0].GetResource(), harnessKind, stored, DefaultMaxMessageSize); err != nil {
+			t.Fatalf("decode listed Harness: %v", err)
+		}
+		if stored.Spec.Substrate.WorkerPoolRef.Name != "pool-a" {
+			t.Fatalf("stored pool = %q, want pool-a", stored.Spec.Substrate.WorkerPoolRef.Name)
+		}
+	})
+
+	t.Run("Given a Harness, when a caller updates it without a resource, assert that validation rejects the request", func(t *testing.T) {
+		client := apiv1.NewHarnessServiceClient(newTemplateAndHarnessConnection(t, testHarness("team", "codex", "pool-a")))
+		_, err := client.UpdateHarness(ctx, &apiv1.UpdateHarnessRequest{Ref: ref})
+		assertCode(t, err, codes.InvalidArgument)
+	})
 }
 
 func TestHarnessRuntime(t *testing.T) {

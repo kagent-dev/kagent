@@ -120,7 +120,11 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 		case "interrupted":
 			return runtime.Outcome{Failure: &runtime.Failure{Message: "Codex execution was interrupted"}}, true, nil
 		case "failed":
-			return runtime.Outcome{Failure: &runtime.Failure{Message: "Codex execution failed"}}, true, nil
+			var message string
+			if params.Turn.Error != nil {
+				message = params.Turn.Error.Message
+			}
+			return runtime.Outcome{Failure: turnFailure(message)}, true, nil
 		default:
 			return runtime.Outcome{}, false, fmt.Errorf("unsupported Codex terminal status %q", params.Turn.Status)
 		}
@@ -129,6 +133,20 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 		// the public text/tool/terminal contract are safe to ignore.
 		return runtime.Outcome{}, false, nil
 	}
+}
+
+// turnFailure reports a failed turn with Codex's error message, bounded to stay
+// within the public failure limit.
+func turnFailure(message string) *runtime.Failure {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return &runtime.Failure{Message: "Codex execution failed"}
+	}
+	const limit = 400
+	if len(message) > limit {
+		message = strings.ToValidUTF8(message[:limit], "") + "…"
+	}
+	return &runtime.Failure{Message: "Codex execution failed: " + message}
 }
 
 func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink) error {

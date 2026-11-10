@@ -41,7 +41,7 @@ from ._requests import KAgentUser
 logger = logging.getLogger(__name__)
 
 TRANSPORT_SPAN_NAME = "a2a.request"
-ENDUSER_ID = "enduser.id"
+USER_ID = "user.id"
 ERROR_TYPE = "error.type"
 
 _SCOPE = "kagent.core.a2a"
@@ -162,7 +162,7 @@ def _start(method: str, call_context: ServerCallContext, message: a2a_pb2.Messag
             agent_name = providers.identity.agent_name
             duration_attributes = {GEN_AI_AGENT_NAME: agent_name} if agent_name else {}
     if user := _user_id(call_context):
-        attributes[ENDUSER_ID] = user
+        attributes[USER_ID] = user
     start_ns = time.time_ns()
     span = _tracer().start_span(
         name,
@@ -190,7 +190,7 @@ def request_attributes(context: RequestContext) -> dict[str, str]:
     if context.task_id:
         attributes[A2A_TASK_ID] = context.task_id
     if user := _user_id(context.call_context):
-        attributes[ENDUSER_ID] = user
+        attributes[USER_ID] = user
     return attributes
 
 

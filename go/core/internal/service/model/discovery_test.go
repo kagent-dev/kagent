@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,9 +15,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/model"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type recordingProviderModelRefresher struct {
@@ -107,6 +111,46 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	encoded, err := json.Marshal(models[v1alpha3.ModelProviderOpenAI][0])
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"name":"gpt-5.6-terra","function_calling":true}`, string(encoded))
+
+	foundry := map[string]bool{}
+	for _, info := range models[v1alpha3.ModelProviderFoundry] {
+		foundry[info.Name] = info.FunctionCalling
+	}
+	for _, name := range []string{
+		"grok-3",
+		"grok-4.7",
+		"grok-4.6",
+		"grok-4.3",
+		"grok-4-20-reasoning",
+		"grok-4-20-non-reasoning",
+		"grok-4.1-fast-reasoning",
+		"grok-4.1-fast-non-reasoning",
+		"grok-4",
+		"grok-code-fast-1",
+	} {
+		calling, ok := foundry[name]
+		require.Truef(t, ok, "Foundry catalog missing %s", name)
+		assert.True(t, calling, name)
+	}
+	_, hasGrok5 := foundry["grok-5"]
+	assert.False(t, hasGrok5, "grok-5 is not a published Foundry model ID")
+
+	bedrock := map[string]bool{}
+	for _, info := range models[v1alpha3.ModelProviderBedrock] {
+		bedrock[info.Name] = info.FunctionCalling
+	}
+	for _, name := range []string{
+		"us.xai.grok-4.7",
+		"global.xai.grok-4.7",
+		"us.xai.grok-4.6",
+		"global.xai.grok-4.6",
+	} {
+		calling, ok := bedrock[name]
+		require.Truef(t, ok, "Bedrock catalog missing %s", name)
+		assert.True(t, calling, name)
+	}
+	_, hasFoundryGrokName := bedrock["grok-4.7"]
+	assert.False(t, hasFoundryGrokName, "Bedrock IDs use the xai inference-profile prefix")
 }
 
 func TestDiscoveryConfiguredProviders(t *testing.T) {
@@ -139,9 +183,9 @@ func TestDiscoveryConfiguredProviders(t *testing.T) {
 			Status:     v1alpha3.ModelProviderConfigStatus{Conditions: readyCondition},
 		},
 	).Build()
-	service := model.NewService(kubeClient, nil, "service-ns")
+	service := model.NewService(kubeClient, pkgauth.NoopAuthorizer{}, "service-ns")
 
-	providers, err := service.ListConfiguredProviders(context.Background())
+	providers, err := service.ListConfiguredProviders(discoveryContext(t))
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []model.ConfiguredProvider{
 		{
@@ -159,9 +203,9 @@ func TestDiscoveryConfiguredProviders(t *testing.T) {
 
 func TestDiscoveryConfiguredProviderListError(t *testing.T) {
 	listErr := errors.New("list failed")
-	service := model.NewService(&listErrorClient{err: listErr}, nil, "service-ns")
+	service := model.NewService(&listErrorClient{err: listErr}, pkgauth.NoopAuthorizer{}, "service-ns")
 
-	_, err := service.ListConfiguredProviders(context.Background())
+	_, err := service.ListConfiguredProviders(discoveryContext(t))
 	require.Error(t, err)
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal))
 	assert.ErrorIs(t, err, listErr)
@@ -171,22 +215,19 @@ func TestDiscoveryProviderModels(t *testing.T) {
 	scheme := discoveryScheme(t)
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.ModelProviderConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "configured", Namespace: "service-ns"},
-		Status: v1alpha3.ModelProviderConfigStatus{
-			DiscoveredModels: []string{"model-a", "model-b"},
-		},
+		Status:     v1alpha3.ModelProviderConfigStatus{},
 	}).Build()
-	service := model.NewService(kubeClient, nil, "service-ns")
+	service := model.NewService(kubeClient, pkgauth.NoopAuthorizer{}, "service-ns")
 
-	result, err := service.GetProviderModels(context.Background(), model.GetProviderModelsRequest{Name: "configured"})
-	require.NoError(t, err)
-	assert.Equal(t, model.ProviderModelsResult{Provider: "configured", Models: []string{"model-a", "model-b"}}, result)
+	_, err := service.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "configured"})
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 }
 
 func TestDiscoveryProviderModelsRefresh(t *testing.T) {
 	refresher := &recordingProviderModelRefresher{models: []string{"fresh-model"}}
-	service := model.NewService(nil, nil, "service-ns", model.WithProviderModelRefresher(refresher))
+	service := model.NewService(nil, pkgauth.NoopAuthorizer{}, "service-ns", model.WithProviderModelRefresher(refresher))
 
-	result, err := service.GetProviderModels(context.Background(), model.GetProviderModelsRequest{Name: "configured", Refresh: true})
+	result, err := service.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "configured", Refresh: true})
 	require.NoError(t, err)
 	assert.Equal(t, model.ProviderModelsResult{Provider: "configured", Models: []string{"fresh-model"}}, result)
 	assert.Equal(t, 1, refresher.calls)
@@ -199,32 +240,32 @@ func TestDiscoveryProviderModelsErrors(t *testing.T) {
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.ModelProviderConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "empty", Namespace: "service-ns"},
 	}).Build()
-	service := model.NewService(kubeClient, nil, "service-ns")
+	service := model.NewService(kubeClient, pkgauth.NoopAuthorizer{}, "service-ns")
 
 	t.Run("empty provider name", func(t *testing.T) {
-		_, err := service.GetProviderModels(context.Background(), model.GetProviderModelsRequest{})
+		_, err := service.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{})
 		require.Error(t, err)
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument))
 	})
 
 	t.Run("missing provider config", func(t *testing.T) {
-		_, err := service.GetProviderModels(context.Background(), model.GetProviderModelsRequest{Name: "missing"})
+		_, err := service.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "missing"})
 		require.Error(t, err)
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	})
 
 	t.Run("empty discovered models", func(t *testing.T) {
-		_, err := service.GetProviderModels(context.Background(), model.GetProviderModelsRequest{Name: "empty"})
+		_, err := service.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "empty"})
 		require.Error(t, err)
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
-		assert.Equal(t, "No models discovered for model provider, try refreshing", serviceerrors.MessageOf(err))
+		assert.Equal(t, "No cached model inventory is available for model provider", serviceerrors.MessageOf(err))
 	})
 
 	t.Run("cached lookup error", func(t *testing.T) {
 		getErr := errors.New("get failed")
-		getService := model.NewService(&getErrorClient{err: getErr}, nil, "service-ns")
+		getService := model.NewService(&getErrorClient{err: getErr}, pkgauth.NoopAuthorizer{}, "service-ns")
 
-		_, err := getService.GetProviderModels(context.Background(), model.GetProviderModelsRequest{Name: "configured"})
+		_, err := getService.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "configured"})
 		require.Error(t, err)
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal))
 		assert.ErrorIs(t, err, getErr)
@@ -233,9 +274,9 @@ func TestDiscoveryProviderModelsErrors(t *testing.T) {
 	t.Run("refresh error", func(t *testing.T) {
 		refreshErr := errors.New("refresh failed")
 		refresher := &recordingProviderModelRefresher{err: refreshErr}
-		refreshService := model.NewService(nil, nil, "service-ns", model.WithProviderModelRefresher(refresher))
+		refreshService := model.NewService(nil, pkgauth.NoopAuthorizer{}, "service-ns", model.WithProviderModelRefresher(refresher))
 
-		_, err := refreshService.GetProviderModels(context.Background(), model.GetProviderModelsRequest{Name: "configured", Refresh: true})
+		_, err := refreshService.GetProviderModels(discoveryContext(t), model.GetProviderModelsRequest{Name: "configured", Refresh: true})
 		require.Error(t, err)
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal))
 		assert.ErrorIs(t, err, refreshErr)
@@ -294,4 +335,63 @@ func TestOllamaCatalogCoversCloudAndLocal(t *testing.T) {
 		assert.True(t, models.OllamaReachesCloud(name+":cloud", "", true),
 			"%q should route to the cloud when tagged", name)
 	}
+}
+
+func discoveryContext(t *testing.T) context.Context {
+	t.Helper()
+	return pkgauth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgauth.Principal{ID: "provider-user"}})
+}
+
+func TestConfiguredProviderAuthorization(t *testing.T) {
+	ctx := discoveryContext(t)
+	ready := v1alpha3.ModelProviderConfigStatus{Conditions: []metav1.Condition{{Type: v1alpha3.ModelProviderConfigConditionTypeReady, Status: metav1.ConditionTrue}}}
+	kube := fake.NewClientBuilder().WithScheme(discoveryScheme(t)).WithObjects(
+		&v1alpha3.ModelProviderConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "service-ns", Name: "allowed"}, Status: ready},
+		&v1alpha3.ModelProviderConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "service-ns", Name: "denied"}, Status: ready},
+		&v1alpha3.ModelProviderConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "service-ns", Name: "unready"}},
+	).Build()
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"allowed", "unready"}}}}}}}
+	refresher := &recordingProviderModelRefresher{models: []string{"fresh"}}
+	service := model.NewService(kube, authorizer, "service-ns", model.WithProviderModelRefresher(refresher))
+	providers, err := service.ListConfiguredProviders(ctx)
+	require.NoError(t, err)
+	require.Len(t, providers, 1)
+	require.Equal(t, "allowed", providers[0].Name)
+	require.Equal(t, pkgauth.VerbList, authorizer.scopeVerb)
+	require.Equal(t, "ModelProviderConfig", authorizer.scopeType)
+	_, err = service.GetProviderModels(ctx, model.GetProviderModelsRequest{Name: "allowed"})
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
+	require.Equal(t, authorizationCall{verb: pkgauth.VerbGet, resource: pkgauth.Resource{Type: "ModelProviderConfig", Namespace: "service-ns", Name: "allowed"}}, authorizer.checkCalls[0])
+	_, err = service.GetProviderModels(ctx, model.GetProviderModelsRequest{Name: "allowed", Refresh: true})
+	require.NoError(t, err)
+	require.Equal(t, authorizationCall{verb: pkgauth.VerbUpdate, resource: pkgauth.Resource{Type: "ModelProviderConfig", Namespace: "service-ns", Name: "allowed"}}, authorizer.checkCalls[1])
+	require.Equal(t, 1, refresher.calls)
+
+	for _, refresh := range []bool{false, true} {
+		t.Run(fmt.Sprintf("denied refresh=%t", refresh), func(t *testing.T) {
+			denied := model.NewService(kube, denyAuthorizer{}, "service-ns", model.WithProviderModelRefresher(refresher))
+			_, err := denied.GetProviderModels(ctx, model.GetProviderModelsRequest{Name: "denied", Refresh: refresh})
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+			require.Equal(t, 1, refresher.calls)
+			_, err = denied.GetProviderModels(t.Context(), model.GetProviderModelsRequest{Name: "allowed", Refresh: refresh})
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated))
+		})
+	}
+	shared := pkgauth.ShareContextTo(ctx, &pkgauth.ShareContext{UserID: "owner", SessionID: "session"})
+	_, err = service.GetProviderModels(shared, model.GetProviderModelsRequest{Name: "allowed", Refresh: true})
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	require.Equal(t, 1, refresher.calls)
+
+	denied := model.NewService(kube, denyAuthorizer{}, "service-ns")
+	providers, err = denied.ListConfiguredProviders(ctx)
+	require.NoError(t, err)
+	require.Empty(t, providers)
+	require.NotEmpty(t, denied.ListSupportedModelProviders(ctx))
+	require.NotEmpty(t, denied.ListSupportedModels(ctx))
+	unavailable := model.NewService(kube, unavailableAuthorizer{}, "service-ns")
+	_, err = unavailable.ListConfiguredProviders(ctx)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable))
+	authorizer.scope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
+	_, err = service.ListConfiguredProviders(ctx)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal))
 }

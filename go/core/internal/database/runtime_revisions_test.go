@@ -14,9 +14,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 func TestRetireAgentIdentities(t *testing.T) {
@@ -129,12 +132,14 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 			require.NoError(t, err)
 			task.Status.State = a2a.TaskStateCompleted
 			require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
-				&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
+				&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}))
 			checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 				Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID),
 			}, "alice", "checkpoint")
 			require.NoError(t, err)
 			require.ErrorIs(t, deleteSession(ctx, client, session.GetId()), ErrConflict)
+			_, err = client.BeginSessionOperation(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
+			require.ErrorIs(t, err, ErrConflict, "force must preserve checkpoint ownership")
 
 			// A checkpoint retains the runtime throughout creation, use, and deletion,
 			// even after the source session and active template pair are gone.
@@ -180,7 +185,7 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	revision.Revision = "new"
 	revision.AgentUID = "replacement-uid"
 	revision.ActorTemplateName = "new-actor-template"
-	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{})))
 	pair := AgentDefinition{
 		Namespace: "team-a", AgentName: "assistant", AgentUID: revision.AgentUID,
 		DesiredRevision: "new",
@@ -190,7 +195,7 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "")
 	_, _, err = client.CreateSession(ctx, request, "session")
 	require.ErrorIs(t, err, ErrNotFound, "a replacement must not select the previous template UID")
-	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true})))
 	session, _, err := client.CreateSession(ctx, request, "session")
 	require.NoError(t, err)
 	require.Equal(t, "new", session.GetPreparedRevision())
@@ -376,8 +381,8 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	pair.DesiredRevision = "revision"
 	upsertErr = client.UpsertAgentDefinition(ctx, pair)
 	require.ErrorIs(t, upsertErr, ErrObjectDeleting)
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, RecordRevisionOptions{}), ErrObjectDeleting)
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, RecordRevisionOptions{Ready: true}), ErrObjectDeleting)
+	require.ErrorIs(t, recordErr(client.RecordRuntimeRevision(ctx, *original, RecordRevisionOptions{})), ErrObjectDeleting)
+	require.ErrorIs(t, recordErr(client.RecordRuntimeRevision(ctx, *original, RecordRevisionOptions{Ready: true})), ErrObjectDeleting)
 	// A new client rediscovers and retries the committed claim after a crash.
 	restarted := NewClient(pool, "public")
 	revisions, err := restarted.ListUnreferencedRuntimeRevisions(ctx)
@@ -393,7 +398,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.ErrorIs(t, err, ErrNotFound)
 	// The same digest can be prepared again once cleanup has completed.
 	original.ActorTemplateUID = "recreated-actor-uid"
-	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(restarted.RecordRuntimeRevision(ctx, *original, RecordRevisionOptions{})))
 	newClaim, err := restarted.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, newClaim)
@@ -401,7 +406,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err, "a delayed collector must not finalize the new runtime")
 	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "recreated-actor-uid"))
-	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(restarted.RecordRuntimeRevision(ctx, *original, RecordRevisionOptions{})))
 	upsertErr = restarted.UpsertAgentDefinition(ctx, pair)
 	require.NoError(t, upsertErr)
 }
@@ -454,7 +459,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				created, deleted := make(chan error, 1), make(chan error, 1)
 				create := func() {
 					if operation == "promote" {
-						created <- creating.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true})
+						created <- recordErr(creating.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
 						return
 					}
 					upsertErr := creating.UpsertAgentDefinition(ctx, pair)
@@ -514,7 +519,7 @@ func TestRecordReadyRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 		session, _, err := c.CreateSession(ctx, &apiv1.Session{
 			Id: uuid.NewString(), Creator: "alice",
 
-			Agent: &apiv1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName},
+			Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName}},
 		}, uuid.NewString())
 		if want == "" {
 			require.ErrorIs(t, err, ErrNotFound)
@@ -525,32 +530,32 @@ func TestRecordReadyRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 	}
 	upsertErr := c.UpsertAgentDefinition(ctx, pair)
 	require.NoError(t, upsertErr)
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{})))
 	assertAvailableRevision("")
 	stored, err := c.GetRuntimeRevision(ctx, revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, "original", stored.AgentCard.Name)
 
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}))
+	require.NoError(t, recordErr(c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})))
 	assertAvailableRevision("first")
 	pair.DesiredRevision = "second"
 	upsertErr = c.UpsertAgentDefinition(ctx, pair)
 	require.NoError(t, upsertErr)
 	revision.Revision, revision.ActorTemplateName = "second", "second"
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{})))
 	assertAvailableRevision("first")
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}))
+	require.NoError(t, recordErr(c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})))
 	assertAvailableRevision("second")
 	// A delayed report for the old revision must not replace the newer ready revision.
 	revision.Revision, revision.ActorTemplateName = "first", "first"
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}))
+	require.NoError(t, recordErr(c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})))
 	assertAvailableRevision("second")
 	pair.DesiredRevision = "third"
 	upsertErr = c.UpsertAgentDefinition(ctx, pair)
 	require.NoError(t, upsertErr)
 	require.NoError(t, c.RetireAgentIdentities(ctx, pair.Namespace, pair.AgentName))
 	revision.Revision, revision.ActorTemplateName = "third", "third"
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}))
+	require.NoError(t, recordErr(c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true})))
 	assertAvailableRevision("")
 	// Reviving the pair must retain the last success, not a report made while retired.
 	upsertErr = c.UpsertAgentDefinition(ctx, pair)
@@ -564,13 +569,15 @@ func TestRecordReadyRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 
 func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
-	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"https://api.example.com:443"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{}))
+	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"https://api.example.com:443"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}},
+		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}}}
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{})))
 	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, revision.Credentials, got.Credentials)
+	require.Equal(t, revision.TokenPassthroughTargets, got.TokenPassthroughTargets)
 	revision.Credentials[0].URI = "ate-secret://k8s.io/default/team/other/token"
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{}))
+	require.NoError(t, recordErr(client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{})))
 	unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, got.Credentials, unchanged.Credentials, "revision credentials are immutable")
@@ -588,6 +595,15 @@ func TestRuntimeRevisionRejectsMalformedStoredCredentials(t *testing.T) {
 	require.Nil(t, revision)
 }
 
+func TestRuntimeRevisionRejectsMalformedStoredTokenPassthroughTargets(t *testing.T) {
+	revision, err := toRuntimeRevision(runtimeRevisionRow{
+		Revision:                "bad-revision",
+		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://*.example.com", Header: "authorization"}},
+	})
+	require.ErrorContains(t, err, "decode runtime revision bad-revision tokenPassthrough targets")
+	require.Nil(t, revision)
+}
+
 func TestRecordReadyRevisionRollsBackOnPromotionFailure(t *testing.T) {
 	for _, kind := range []string{"agent", "sandbox"} {
 		for _, existing := range []bool{false, true} {
@@ -601,7 +617,7 @@ func TestRecordReadyRevisionRollsBackOnPromotionFailure(t *testing.T) {
 				case "agent":
 					require.NoError(t, client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", DesiredRevision: "revision"}))
 					record = func(uid string, options RecordRevisionOptions) error {
-						return client.RecordRuntimeRevision(ctx, RuntimeRevision{Revision: "revision", Namespace: "team", AgentName: "source", AgentUID: "uid", AgentCard: &a2apb.AgentCard{}, SourceSnapshot: []byte(`{}`), ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: uid}, options)
+						return recordErr(client.RecordRuntimeRevision(ctx, RuntimeRevision{Revision: "revision", Namespace: "team", AgentName: "source", AgentUID: "uid", AgentCard: &a2apb.AgentCard{}, SourceSnapshot: []byte(`{}`), ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: uid}, options))
 					}
 					storedUID = func() (string, error) {
 						revision, err := client.GetRuntimeRevision(ctx, "revision")
@@ -621,7 +637,7 @@ func TestRecordReadyRevisionRollsBackOnPromotionFailure(t *testing.T) {
 				case "sandbox":
 					require.NoError(t, client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team", SandboxTemplateName: "source", SandboxTemplateUID: "uid", DesiredRevision: "revision"}))
 					record = func(uid string, options RecordRevisionOptions) error {
-						return client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: "revision", Namespace: "team", ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: uid}, SandboxTemplateName: "source", SandboxTemplateUID: "uid", SourceSnapshot: []byte(`{}`)}, options)
+						return recordErr(client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: "revision", Namespace: "team", ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: uid}, SandboxTemplateName: "source", SandboxTemplateUID: "uid", SourceSnapshot: []byte(`{}`)}, options))
 					}
 					storedUID = func() (string, error) {
 						revision, err := client.GetSandboxRevision(ctx, "revision")
@@ -652,4 +668,93 @@ func TestRecordReadyRevisionRollsBackOnPromotionFailure(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestRecordRuntimeRevisionGoldenRetry(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool, "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "rev", "assistant", "kagent")
+	revision, err := client.GetRuntimeRevision(ctx, "rev")
+	require.NoError(t, err)
+	failedAt := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	record := func(uid string, options RecordRevisionOptions) GoldenRetry {
+		t.Helper()
+		revision.ActorTemplateUID = uid
+		retry, err := client.RecordRuntimeRevision(ctx, *revision, options)
+		require.NoError(t, err)
+		retry.FailedAt = retry.FailedAt.UTC()
+		return retry
+	}
+
+	require.Equal(t, GoldenRetry{}, record("uid-1", RecordRevisionOptions{}))
+	first := record("uid-1", RecordRevisionOptions{GoldenFailedAt: failedAt})
+	require.Equal(t, GoldenRetry{Retries: 1, FailedAt: failedAt, New: true}, first)
+	restarted := NewClient(pool, "public")
+	again, err := restarted.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{GoldenFailedAt: failedAt.Add(time.Hour)})
+	require.NoError(t, err)
+	again.FailedAt = again.FailedAt.UTC()
+	require.Equal(t, GoldenRetry{Retries: 1, FailedAt: failedAt}, again, "repeat reports of one failure must keep its time across restarts")
+
+	require.Equal(t, GoldenRetry{Retries: 1}, record("uid-2", RecordRevisionOptions{}), "a rebuild keeps the retry count but not the old failure time")
+	require.Equal(t, GoldenRetry{Retries: 2, FailedAt: failedAt, New: true}, record("uid-2", RecordRevisionOptions{GoldenFailedAt: failedAt}))
+
+	require.Equal(t, GoldenRetry{}, record("uid-built", RecordRevisionOptions{Ready: true}), "a successful build resets the retry state")
+	require.Equal(t, GoldenRetry{Retries: 1, FailedAt: failedAt, New: true}, record("uid-failed-later", RecordRevisionOptions{GoldenFailedAt: failedAt}))
+}
+
+// recordErr drops the golden retry state for tests that check only the error.
+func recordErr(_ GoldenRetry, err error) error {
+	return err
+}
+
+func TestBootstrapPublicationIsAtomic(t *testing.T) {
+	c := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	id := strings.Repeat("a", 64)
+	bundle, err := bootstrap.NewBundle(id, []byte(`{"instruction":"`+strings.Repeat("x", bootstrap.MaxPayloadBytes-64)+`"}`), []byte(`{"name":"agent"}`))
+	require.NoError(t, err)
+	revision := RuntimeRevision{Revision: id, Namespace: "team-a", AgentName: "agent", AgentUID: "agent-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: "agent"}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template", ActorTemplateUID: "template-uid", ActorTemplateSpecDigest: "spec"}
+
+	// Given an observed template without a stored revision, when it is recorded,
+	// assert that both its binding and the complete bundle become readable.
+	_, err = c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Bootstrap: bundle})
+	require.NoError(t, err)
+	binding, err := c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.NoError(t, err)
+	require.Equal(t, revision.ActorTemplateUID, binding.ActorTemplateUID)
+	require.True(t, proto.Equal(bundle, binding.Bundle))
+
+	// Given a published bundle, when an observation supplies conflicting bytes
+	// and a replacement UID, assert that the entire observation rolls back.
+	changed, err := bootstrap.NewBundle(id, []byte(`{}`), bundle.AgentCardJson)
+	require.NoError(t, err)
+	revision.ActorTemplateUID = "replacement"
+	_, err = c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Bootstrap: changed})
+	require.ErrorIs(t, err, ErrConflict)
+	stored, err := c.GetRuntimeRevision(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, binding.ActorTemplateUID, stored.ActorTemplateUID)
+	binding, err = c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.NoError(t, err)
+	require.True(t, proto.Equal(bundle, binding.Bundle))
+
+	// Given the same immutable bundle, when a replacement is recorded, assert
+	// that a read returns the new UID together with the original bundle.
+	_, err = c.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Bootstrap: bundle})
+	require.NoError(t, err)
+	binding, err = c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.NoError(t, err)
+	require.Equal(t, revision.ActorTemplateUID, binding.ActorTemplateUID)
+	require.True(t, proto.Equal(bundle, binding.Bundle))
+
+	// Given a published bundle, when deletion begins, assert that bootstrap
+	// cannot read either the binding or payload.
+	deleting, err := c.BeginRuntimeRevisionDeletion(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, deleting)
+	_, err = c.GetBootstrapBinding(ctx, "team-a", "template")
+	require.ErrorIs(t, err, ErrNotFound)
 }

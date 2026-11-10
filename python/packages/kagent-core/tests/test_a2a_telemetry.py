@@ -181,7 +181,7 @@ async def test_adk_turn_gets_a_transport_span_with_identity(monkeypatch, spans, 
         "a2a.method": "SendStreamingMessage",
         "gen_ai.agent.name": "researcher",
         "gen_ai.agent.id": "team-a/researcher",
-        "enduser.id": "alice",
+        "user.id": "alice",
         "gen_ai.conversation.id": attributes["gen_ai.conversation.id"],
         "a2a.task.id": task_id,
         "kagent.invocation.segment": "initial",
@@ -192,7 +192,7 @@ async def test_adk_turn_gets_a_transport_span_with_identity(monkeypatch, spans, 
     (child,) = [span for span in spans.get_finished_spans() if span.name == "model call"]
     assert child.parent.span_id == span.context.span_id
     assert child.attributes["a2a.task.id"] == task_id
-    assert child.attributes["enduser.id"] == "alice"
+    assert child.attributes["user.id"] == "alice"
     assert not LEGACY_KEYS & set(child.attributes)
     assert_trace_shape(spans)
 
@@ -328,7 +328,7 @@ async def test_without_bootstrap_the_span_still_carries_request_identity(monkeyp
 
     span = kagent_span(spans)
     assert span.name == "a2a.request"
-    assert span.attributes["enduser.id"] == "alice"
+    assert span.attributes["user.id"] == "alice"
     assert "flush" not in log
 
 
@@ -342,7 +342,11 @@ async def test_without_bootstrap_the_span_still_carries_request_identity(monkeyp
     ],
 )
 @pytest.mark.parametrize(
-    "allowlist", ["", '[{"from":"sub","to":"user.id"},"gen_ai.agent.name","gen_ai.conversation.id","enduser.id"]']
+    "allowlist",
+    [
+        "",
+        '[{"from":"sub","to":"caller.subject"},{"from":"sub","to":"user.id"},"gen_ai.agent.name","gen_ai.conversation.id"]',
+    ],
 )
 async def test_metadata_policy_covers_invocation_and_model(monkeypatch, log, runtime, allowlist):
     from google.protobuf.json_format import ParseDict
@@ -371,7 +375,7 @@ async def test_metadata_policy_covers_invocation_and_model(monkeypatch, log, run
             "private_token": "must-not-be-exported",
             "gen_ai.agent.name": "forged-agent",
             "gen_ai.conversation.id": "forged-context",
-            "enduser.id": "forged-user",
+            "user.id": "forged-user",
         },
         request.message.metadata,
     )
@@ -384,10 +388,10 @@ async def test_metadata_policy_covers_invocation_and_model(monkeypatch, log, run
         assert len(spans) == 2
         for span in spans:
             attrs = dict(span.attributes or {})
-            assert attrs.get("user.id") == ("opaque-subject" if allowlist else None)
+            assert attrs.get("caller.subject") == ("opaque-subject" if allowlist else None)
             if span.instrumentation_scope.name == "kagent.core.a2a":
                 assert attrs["gen_ai.agent.name"] == "researcher"
-            assert attrs["enduser.id"] == "alice"
+            assert attrs["user.id"] == "alice"
             assert attrs["gen_ai.conversation.id"] != "forged-context"
             assert not any(key.startswith("a2a.message.metadata.") for key in attrs)
             assert "private_token" not in attrs

@@ -73,6 +73,15 @@ export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
 export * from "./domain/agents";
 export * from "./domain/checkpoints";
+export * from "./domain/egressPolicies";
+export * from "./domain/sandboxTemplates";
+export {
+  useEgressPolicies,
+  useEgressPolicy,
+  useInvalidateEgressPolicies,
+  useNamespaceEgressPolicies,
+  useSandboxTemplates,
+} from "./hooks/useEgressPolicies";
 
 export { useMcpServers, useTools } from "./hooks/useMcpServers";
 export {
@@ -87,6 +96,7 @@ export {
   useSubstrateActors,
   useSubstrateSummary,
   useSubstrateWorkers,
+  useWorkerPools,
 } from "./hooks/useSubstrate";
 export {
   useAgentTemplate,

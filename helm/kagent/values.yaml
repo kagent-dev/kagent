@@ -17,11 +17,13 @@ ipv6:
 # Values under `global` are visible to this chart and to every subchart. A parent
 # chart or an operator sets one value here instead of one value per chart.
 global:
+  # -- Kubernetes DNS domain used in runtime-facing service URLs.
+  clusterDomain: cluster.local
   # -- Registry that overrides every per-image registry when set. This is the
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
-  # grafana-mcp, substrateWorkerPool.workerImage, and built-in Harness images
+  # substrateWorkerPool.workerImage, and built-in Harness images
   # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
   # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
@@ -124,11 +126,13 @@ database:
 # ==============================================================================
 
 rbac:
+  # Reconciliation and management API permissions have separate Roles and bindings.
+  # Both are always bound to the controller ServiceAccount.
   # -- Namespaces in which to create Role and RoleBinding resources.
   # Left unset (the default), the scope falls back to global.watchNamespaces.
   # If that is also unset, the chart creates cluster-scoped ClusterRole and
   # ClusterRoleBinding resources, and the controller watches all namespaces.
-  # If set, the chart creates a Role and a RoleBinding per listed namespace.
+  # If set, the chart creates both Roles and their bindings per listed namespace.
   # The controller watches the same list, unless config.kubernetes.watchNamespaces
   # overrides it.
   # An explicit empty list forces cluster-scoped RBAC, even under a parent that
@@ -154,6 +158,11 @@ config:
   server:
     auth:
       mode: insecure
+      # Opt in to Kubernetes TokenReview authentication independently of the mode.
+      # serviceAccount:
+      #   authority: kubernetes
+    # Serve gRPC reflection for tools such as grpcurl. Callers must pass the
+    # configured authentication. `kagent install` enables it.
     grpcReflection: false
   database:
     # Role each login assumes after connecting. Set distinct roles for each install sharing a database.
@@ -172,6 +181,10 @@ config:
   push:
     allowHttp: false
     allowPrivateNetworks: false
+    # Maximum concurrent callback deliveries per controller replica.
+    maxConcurrency: 10
+    # Timeout for each callback attempt.
+    sendTimeout: 5s
     # Recovery scans for missed wake-ups and unbound registration cleanup.
     recoveryInterval: 60s
   sessions:
@@ -185,7 +198,9 @@ config:
     maxTtl: 86400s
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
-    routerUrl: http://atenet-router.ate-system.svc:80
+    routerUrl: https://atenet-router.ate-system.svc:443
+    # Must match Substrate's ateApi.actorJWTIssuer; discovery uses substrate.caFile.
+    actorJwtIssuer: https://idp.ate-system.svc
   logging:
     level: info
   metrics:
@@ -193,10 +208,15 @@ config:
     secure: true
   telemetry: {}
   runtimeDefaults:
-    skillTools:
-      fileSearchTools: false
+    # Limits for each agent runtime; Substrate requires both.
+    cpu: "1"
+    memory: 1Gi
+    builtinTools:
+      disableFileSearch: false
       bashVenvPath: ""
       disableBash: false
+      # Disable built-in questions across ADK agents, including Shared subagents.
+      disableAskUser: false
     logging:
       level: info
     telemetry: {}
@@ -210,6 +230,9 @@ controller:
   # or {from, to} mappings, e.g. [{from: sub, to: user.id}, thread_id].
   # Empty disables promotion. Use opaque identifiers; never names or emails.
   traceContextKeys: []
+  # Allow the 150-second Anthropic self-hosted sandboxes controller drain plus process cleanup.
+  # Established CLI workers continue independently in their sandboxes.
+  terminationGracePeriodSeconds: 180
   # Standard OTEL overrides and external SDK credentials for this process only.
   env: []
   envFrom: []
@@ -393,10 +416,13 @@ substrateWorkerPool:
   workerImage: ""
   # sandboxClass selects the sandbox runtime family (gvisor|microvm) for workers
   # and kagent-generated ActorTemplates whose Harness references this pool.
-  # Use a matching workerImage (ateom-gvisor or ateom-microvm). Substrate must have
+  # Use a matching workerImage (ateworker-gvisor or ateworker-microvm). Substrate must have
   # the corresponding SandboxConfig installed (gvisor-default or microvm);
   # microvm also requires runtime assets and KVM-capable nodes with atelet's device plugin.
   sandboxClass: gvisor
+  # Optional override for the SandboxConfig referenced by the selected class.
+  # Defaults to "microvm" for sandboxClass=microvm and "gvisor-default" otherwise.
+  sandboxConfigRef: ""
   # Extra labels merged onto the WorkerPool metadata. The placement labels
   # kagent.dev/worker-pool-name and kagent.dev/worker-pool-namespace always use this
   # pool's name and namespace, so ActorTemplates generated for other namespaces
@@ -412,6 +438,30 @@ substrateWorkerPool:
   # Optional pod scheduling/resources for worker pods (WorkerPool.spec.template).
   # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
   template: {}
+
+# -- Ready-to-use Harnesses in the release namespace, so Agents there can set
+# spec.harnessRef without first writing a Harness. Each runs on
+# substrateWorkerPool.name and uses the release's built-in runtime image
+# (config.harnessImages), so the chart does not pin an image here. `kagent install`
+# enables them together with the WorkerPool. Agents in other namespaces need
+# their own Harness, because Agent.spec.harnessRef is namespace-local.
+harnesses:
+  # -- Render the default Harnesses. Requires a WorkerPool named
+  # substrateWorkerPool.name in the release namespace (substrateWorkerPool.create
+  # or one managed outside the chart).
+  enabled: false
+  # -- Substrate snapshot location shared by the default Harnesses. The default
+  # matches the ate-snapshots bucket of Substrate's bundled RustFS.
+  snapshotLocation: s3://ate-snapshots/kagent/
+  # -- Render `kagent-default`, a Harness for the kagent runtime.
+  kagent:
+    enabled: true
+  # -- Render `codex-default`, a Harness for the Codex runtime.
+  codex:
+    enabled: true
+  # -- Render `claude-default`, a Harness for the Claude runtime.
+  claude:
+    enabled: true
 
 # ==============================================================================
 # UI CONFIGURATION
@@ -474,7 +524,7 @@ ui:
   # -- Extra environment variables for the UI container, applied after ConfigMap
   # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
   # expansion. An installed app extension's settings go here, named
-  # `KAGENT_UI_EXTENSION_*`; the container's startup script copies
+  # `KAGENT_UI_EXTENSION_*`; the container's entrypoint copies
   # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on
@@ -566,7 +616,7 @@ ui:
     annotations: {}
 
   # -- Custom startup probe for the UI container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Override to adjust thresholds or change the health path. The image has no shell or curl, so use httpGet or tcpSocket.
   # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1
   startupProbe: {}
   # Example:
@@ -578,7 +628,7 @@ ui:
   #     periodSeconds: 5
   #     failureThreshold: 20
   # -- Custom readiness probe for the UI container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Override to adjust thresholds or change the health path. The image has no shell or curl, so use httpGet or tcpSocket.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}
   # Example:
@@ -650,9 +700,13 @@ providers:
   annotations: {}
   openAI:
     provider: OpenAI
-    model: "gpt-4.1-mini"
+    model: "gpt-5-mini"
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
+    # Provider options rendered into spec.openAI of the generated ModelConfig.
+    # The Codex runtime requires the Responses API; the kagent runtime supports both.
+    config:
+      apiFormat: responses
     # apiKey: ""
     # Optional TLS settings for the generated ModelConfig.
     # This same block can be used under any provider.
@@ -690,12 +744,12 @@ providers:
     #   cacheTTL: "5m" # or "1h" for calls spaced more than 5 minutes apart
   azureOpenAI:
     provider: AzureOpenAI
-    model: "gpt-4.1-mini"
+    model: "gpt-5-mini"
     apiKeySecretRef: kagent-azure-openai
     apiKeySecretKey: AZUREOPENAI_API_KEY
     # apiKey: ""
     config:
-      apiVersion: "2023-05-15"
+      apiVersion: "2024-10-21"
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
@@ -769,25 +823,6 @@ proxy:
   # Proxy URL for internally-built k8s URLs
   # Example: "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
-
-# ==============================================================================
-# MCP TOOLS
-# ==============================================================================
-
-grafana-mcp:
-  enabled: true
-  grafana:
-    url: "grafana.kagent:3000/api"
-    serviceAccountToken: ""
-    # apiKey: "" # Deprecated - use serviceAccountToken instead.
-    # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
 
 # ==============================================================================
 # OAUTH2-PROXY CONFIGURATION (Optional)

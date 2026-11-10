@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
@@ -28,7 +28,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: "model"},
+			ModelConfig:  &kagentv1alpha3.ObjectReference{Name: "model"},
 			SystemPrompt: "help",
 		},
 	}
@@ -44,7 +44,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	templates := krt.NewStaticCollection[*kagentv1alpha3.AgentTemplate](nil, nil, opts.WithName("AgentTemplates")...)
 	mock := krttest.NewMock(t, []any{
 		matchingHarness,
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
 	})
 
 	collections := Collections{
@@ -54,7 +54,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		RemoteMCPServers:         krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 		ConfigMaps:               krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:                  krttest.GetMockCollection[*corev1.Secret](mock),
-		WorkerPools:              krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+		WorkerPools:              krttest.GetMockCollection[*atev1.WorkerPool](mock),
 		AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
 	}
 	collections.ModelConfigStatuses, collections.ResolvedModelConfigs = newModelConfigReconciliations(collections.ModelConfigs, collections.ConfigMaps, collections.Secrets, opts)
@@ -86,7 +86,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		return len(states) == 1 && states[0].CompilationFailure == nil && states[0].Target != nil
 	})
 	state := collections.Reconciliations.List()[0]
-	if state.ObservedActorTemplate != nil {
+	if state.Golden.phase != goldenUnobserved {
 		t.Fatal("ActorTemplate was observed before it existed")
 	}
 	waitFor(t, func() bool {
@@ -109,7 +109,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
 		updates := collections.AgentStatuses.List()
-		if len(states) != 1 || states[0].ObservedActorTemplate == nil || len(updates) != 1 {
+		if len(states) != 1 || !states[0].Golden.ready() || len(updates) != 1 {
 			return false
 		}
 		ready := apimeta.FindStatusCondition(updates[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
@@ -119,7 +119,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	modelConfigs.UpdateObject(&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.1"}})
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
-		return len(states) == 1 && states[0].Target.RevisionID != state.Target.RevisionID && states[0].ObservedActorTemplate == nil
+		return len(states) == 1 && states[0].Target.RevisionID != state.Target.RevisionID && states[0].Golden.phase == goldenUnobserved
 	})
 }
 
@@ -139,7 +139,7 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 			runtimeHarness.Spec.Substrate.SnapshotPolicy.Location = "snapshots"
 			if harnessType == translator.HarnessTypeKagent {
 				runtimeHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
-				template.Spec.ModelConfig = &corev1.LocalObjectReference{Name: "model"}
+				template.Spec.ModelConfig = &kagentv1alpha3.ObjectReference{Name: "model"}
 			} else {
 				runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
 				runtimeHarness.Spec.Workload.Command = []string{"/agent"}
@@ -148,7 +148,7 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 				&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"},
 					Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-4", APIKeySecret: "auth", APIKeySecretKey: "key"}},
 				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "auth"}, Data: map[string][]byte{"key": []byte("secret")}},
-				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "selected"}},
+				&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "selected"}},
 			})
 			configMaps, secrets := krttest.GetMockCollection[*corev1.ConfigMap](mock), krttest.GetMockCollection[*corev1.Secret](mock)
 			_, resolvedModels := newModelConfigReconciliations(krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock), configMaps, secrets, opts)
@@ -159,7 +159,7 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 				translator.Collections{
 					Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
 					ResolvedModelConfigs: resolvedModels, ConfigMaps: configMaps, Secrets: secrets,
-					RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock), WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+					RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock), WorkerPools: krttest.GetMockCollection[*atev1.WorkerPool](mock),
 				}, krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("Observations")...), opts, settings, nil,
 			)
 			waitFor(t, func() bool { return states.GetKey("team-a/assistant") != nil })
@@ -183,7 +183,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			opts := krt.NewOptionsBuilder(stop, "test-sandbox", nil)
 			template := &kagentv1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"},
-				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 			}
 			runtimeHarness := harness("team-a", string(harnessType), nil)
 			runtimeHarness.UID = "harness-uid"
@@ -221,9 +221,9 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			configMaps := krttest.GetMockCollection[*corev1.ConfigMap](mock)
 			secrets := krttest.GetMockCollection[*corev1.Secret](mock)
 			_, resolvedModels := newModelConfigReconciliations(krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock), configMaps, secrets, opts)
-			workerPools := krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{
-				{ObjectMeta: metav1.ObjectMeta{Namespace: "team-b", Name: "selected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
-				{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "unselected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
+			workerPools := krt.NewStaticCollection(nil, []*atev1.WorkerPool{
+				{ObjectMeta: metav1.ObjectMeta{Namespace: "team-b", Name: "selected"}, Spec: atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}}},
+				{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "unselected"}, Spec: atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: atev1.SandboxClassMicroVM}}}},
 			}, opts.WithName("WorkerPools")...)
 			observations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
 			reconciliations := newAgentReconciliations(agents, translator.Collections{
@@ -242,7 +242,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			require.Equal(t, missingPool, reconciliations.GetKey(key).CompilationFailure)
 			require.Nil(t, reconciliations.GetKey(key).Target, "missing capacity must fail compilation")
 
-			workerPools.UpdateObject(&atev1alpha1.WorkerPool{
+			workerPools.UpdateObject(&atev1.WorkerPool{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "selected"},
 			})
 			waitFor(t, func() bool {
@@ -253,23 +253,21 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			gvisorRevision := baseline.Target.RevisionID
 			require.False(t, gvisorRevision.IsZero())
 			gvisorTemplate := proto.CloneOf(baseline.Target.ActorTemplate)
-			observed := proto.CloneOf(gvisorTemplate)
-			observed.Metadata.Uid = "actor-template-uid"
 			observations.UpdateObject(AgentRuntimeObservation{
-				Namespace: template.Namespace, AgentName: template.Name, RevisionID: gvisorRevision, Template: observed,
+				Namespace: template.Namespace, AgentName: template.Name, RevisionID: gvisorRevision, Golden: goldenProgress{phase: goldenReady},
 			})
-			waitFor(t, func() bool { return reconciliations.GetKey(key).ObservedActorTemplate != nil })
+			waitFor(t, func() bool { return reconciliations.GetKey(key).Golden.ready() })
 
 			for _, step := range []struct {
 				name    string
-				class   atev1alpha1.SandboxClass
+				class   atev1.SandboxClass
 				remove  bool
 				failure *ReconciliationFailure
 			}{
 				{name: "default"},
-				{name: "explicit gvisor", class: atev1alpha1.SandboxClassGvisor},
-				{name: "microvm", class: atev1alpha1.SandboxClassMicroVM},
-				{name: "back to gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "explicit gvisor", class: atev1.SandboxClassGvisor},
+				{name: "microvm", class: atev1.SandboxClassMicroVM},
+				{name: "back to gvisor", class: atev1.SandboxClassGvisor},
 				{name: "unsupported", class: "unsupported", failure: &ReconciliationFailure{
 					Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: `unsupported sandbox class "unsupported"`,
 				}},
@@ -280,9 +278,9 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					if step.remove {
 						workerPools.DeleteObject("team-a/selected")
 					} else {
-						workerPools.UpdateObject(&atev1alpha1.WorkerPool{
+						workerPools.UpdateObject(&atev1.WorkerPool{
 							ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "selected"},
-							Spec:       atev1alpha1.WorkerPoolSpec{SandboxClass: step.class},
+							Spec:       atev1.WorkerPoolSpec{SandboxClasses: []atev1.WorkerPoolSandboxClass{{Name: step.class}}},
 						})
 					}
 					waitFor(t, func() bool {
@@ -296,7 +294,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					if step.failure != nil {
 						require.Nil(t, state.Target)
 						require.Empty(t, state.desiredRevision())
-						require.Nil(t, state.ObservedActorTemplate)
+						require.Zero(t, state.Golden)
 						pairStatus := statusForAgent(*state, 1, gvisorRevision.String())
 						require.Equal(t, gvisorRevision.String(), pairStatus.LatestSuccessfulRevision)
 						condition := apimeta.FindStatusCondition(pairStatus.Conditions, step.failure.Condition)
@@ -309,19 +307,24 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					expected.Metadata.Name = state.Target.ActorTemplate.GetMetadata().GetName()
 					// Changing the sandbox also changes the revision reported by telemetry.
 					for _, variable := range expected.Containers[0].Env {
+						if variable.Name == "KAGENT_BOOTSTRAP_JSON" {
+							for _, actual := range state.Target.ActorTemplate.Containers[0].Env {
+								if actual.Name == variable.Name {
+									variable.Value = actual.Value
+								}
+							}
+						}
 						if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
 							variable.Value = strings.Replace(variable.Value, "service.version="+gvisorRevision.Short(), "service.version="+state.Target.RevisionID.Short(), 1)
 						}
 					}
-					if step.class == atev1alpha1.SandboxClassMicroVM {
+					if step.class == atev1.SandboxClassMicroVM {
 						require.NotEqual(t, gvisorRevision, state.Target.RevisionID)
 						require.NotEqual(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
-						require.Nil(t, state.ObservedActorTemplate, "a gVisor observation must not satisfy a MicroVM revision")
-						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, ConfigName: "microvm"}
+						require.False(t, state.Golden.ready(), "a gVisor observation must not satisfy a MicroVM revision")
 					} else {
 						require.Equal(t, gvisorRevision, state.Target.RevisionID)
 						require.Equal(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
-						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"}
 					}
 					require.True(t, proto.Equal(expected, state.Target.ActorTemplate), "sandbox selection must preserve the rest of the ActorTemplate")
 					require.Equal(t, map[string]string{"kagent.dev/worker-pool-name": "selected", "kagent.dev/worker-pool-namespace": "team-a"}, state.Target.ActorTemplate.GetWorkerSelector().GetMatchLabels())
@@ -338,7 +341,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "claude"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	claudeHarness := harness("team-a", "claude", map[string]string{"runtime": "claude"})
 	claudeHarness.UID = "harness-uid"
@@ -356,7 +359,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 		claudeHarness,
 		model,
 		secret,
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
 	})
 	templates := krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock)
 	agents := krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, claudeHarness)}, opts.WithName("Agents")...)
@@ -370,7 +373,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 			Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: templates, ResolvedModelConfigs: resolvedModelConfigs,
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
-			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+			WorkerPools: krttest.GetMockCollection[*atev1.WorkerPool](mock),
 		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts, testRuntimeDefaults(), nil,
 	)
 	waitFor(t, func() bool {
@@ -393,7 +396,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	responses := kagentv1alpha3.OpenAIAPIFormatResponses
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "codex"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	codexHarness := harness("team-a", "codex", map[string]string{"runtime": "codex"})
 	codexHarness.UID = "harness-uid"
@@ -412,7 +415,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 		codexHarness,
 		model,
 		secret,
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
 	})
 	templates := krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock)
 	agents := krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, codexHarness)}, opts.WithName("Agents")...)
@@ -426,7 +429,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 			Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: templates, ResolvedModelConfigs: resolvedModelConfigs,
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
-			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+			WorkerPools: krttest.GetMockCollection[*atev1.WorkerPool](mock),
 		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts, testRuntimeDefaults(), nil,
 	)
 	waitFor(t, func() bool {
@@ -448,12 +451,12 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	child := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "child", Labels: map[string]string{"runtime": "python"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "before"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "before"},
 	}
 	root := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "root", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: "model"},
+			ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"},
 			Tools: []kagentv1alpha3.ToolBinding{{SubAgent: &kagentv1alpha3.SubAgentToolBinding{
 				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
@@ -467,7 +470,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	mock := krttest.NewMock(t, []any{
 		harness,
 		&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5"}},
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
+		&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
 	})
 	agents := krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(root, harness)}, opts.WithName("Agents")...)
 	modelConfigs := krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock)
@@ -479,7 +482,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 			Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: templates, ResolvedModelConfigs: resolvedModelConfigs,
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
-			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+			WorkerPools: krttest.GetMockCollection[*atev1.WorkerPool](mock),
 		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts, testRuntimeDefaults(), nil,
 	)
 	var initial string
@@ -532,5 +535,5 @@ func testAgent(template *kagentv1alpha3.AgentTemplate, harness *kagentv1alpha3.H
 }
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
-	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
+	return &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }

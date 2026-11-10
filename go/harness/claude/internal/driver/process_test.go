@@ -112,7 +112,7 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	agentsJSON := `{"reviewer":{"description":"Reviews changes","prompt":"Review carefully","tools":["Read"]}}`
 	mcpConfigPath := filepath.Join(dir, "mcp.json")
 	skillRoot := filepath.Join(dir, "generated-skills")
-	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, PluginDirs: []string{skillRoot, filepath.Join(dir, "plugin-a")}, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPromptFile: filepath.Join(dir, "system-prompt.txt"), AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, PluginDirs: []string{skillRoot, filepath.Join(dir, "plugin-a")}, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
 	if err := d.Validate(t.Context()); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}

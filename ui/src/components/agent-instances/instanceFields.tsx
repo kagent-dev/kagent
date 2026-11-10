@@ -78,7 +78,7 @@ export function instanceFields(
   },
   {
     key: "creator",
-    label: "Creator",
+    label: "Creator ID",
     span: 2,
     children: <ValueOrNotReported value={data.creator} />,
   },

@@ -21,17 +21,11 @@ export interface Harness {
    */
   runtime: string;
 
-  /** `spec.workload.image`. Digest-pinned — a tag is rejected by CEL on the CRD. */
-  workloadImage: string;
-
   /**
-   * The `Ready` status condition.
-   *
-   * False also covers a harness the controller has not observed yet, which is not
-   * the same thing as one that failed — so a page saying "not ready" is right and
-   * a page saying "broken" would not be.
+   * `spec.workload.image`. Digest-pinned — a tag is rejected by the CRD. Empty when
+   * the harness runs this release's built-in image for its adapter.
    */
-  ready: boolean;
+  workloadImage: string;
 
   /**
    * The whole custom resource, for anything the fields above do not carry.
@@ -41,7 +35,7 @@ export interface Harness {
    * copy of it here. `unknown` because nothing in this app reads into it yet, and
    * a shape written speculatively is the thing that drifts.
    */
-  resource: { metadata: ResourceMetadata; spec?: unknown; status?: unknown };
+  resource: { metadata: ResourceMetadata; spec?: unknown };
 }
 
 /**
@@ -60,8 +54,8 @@ export interface HarnessResource {
 
 /** `spec.kagent.compaction.summarizer`: the model and prompt that write the summaries. */
 export interface KagentHarnessSummarizer {
-  /** A ModelConfig in the harness namespace. Omitted summarizes with the agent's own model. */
-  modelConfigRef?: { name: string };
+  /** An authorized ModelConfig, defaulting to the harness namespace. Omitted summarizes with the agent's own model. */
+  modelConfigRef?: { name: string; namespace?: string };
   /** Must contain `{conversation_history}`. */
   promptTemplate?: string;
 }
@@ -81,7 +75,7 @@ export interface KagentHarnessCompaction {
 
 /** `spec.kagent`: runtime policy of the kagent adapter. */
 export interface KagentHarnessSpec {
-  memory?: { modelConfigRef: { name: string }; ttlDays?: number };
+  memory?: { modelConfigRef: { name: string; namespace?: string }; ttlDays?: number };
   compaction?: KagentHarnessCompaction;
 }
 
@@ -91,7 +85,8 @@ export interface HarnessSpec {
   claude?: Record<string, never>;
   /** Bring your own: an image that serves kagent's A2A contract itself. */
   byo?: Record<string, never>;
-  workload: { image: string; command?: string[]; args?: string[] };
+  /** Optional for the built-in adapters, which default to this release's image; BYO needs an image and a command. */
+  workload?: { image?: string; command?: string[]; args?: string[] };
   substrate: {
     workerPoolRef: { name: string };
     snapshotPolicy: { location: string };
@@ -105,3 +100,7 @@ export type HarnessAdapter = (typeof HARNESS_ADAPTERS)[number];
 
 /** The digest pin `workload.image` must satisfy, from the CRD's own pattern. */
 export const HARNESS_IMAGE_PATTERN = /^[^\s@]+@sha256:[a-f0-9]{64}$/;
+
+/** The worker pool and snapshot location the chart's default harnesses use. */
+export const DEFAULT_HARNESS_WORKER_POOL = "kagent-default";
+export const DEFAULT_HARNESS_SNAPSHOT_LOCATION = "s3://ate-snapshots/kagent/";

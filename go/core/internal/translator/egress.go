@@ -111,11 +111,19 @@ func compileEgressPolicy(namespace string, policy *v1alpha3.EgressPolicy, getSec
 		if strings.Contains(origin.Host, "*") {
 			return egress.Access{}, NewValidationError("authentication requires an exact HTTP(S) origin")
 		}
-		secret := auth.SecretKeyRef
+		if (auth.SecretKeyRef == nil) == (auth.ActorJWT == nil) {
+			return egress.Access{}, NewValidationError("authentication requires exactly one secretKeyRef or actorJwt")
+		}
 		binding := egress.Credential{Origin: origin.String(), Header: auth.Header}
 		if auth.Prefix != nil {
 			binding.Prefix = *auth.Prefix
 		}
+		if auth.ActorJWT != nil {
+			binding.ActorJWT = actorJWTSource(auth.ActorJWT)
+			credentials = append(credentials, binding)
+			continue
+		}
+		secret := auth.SecretKeyRef
 		if secret.Name == "" || secret.Key == "" || (secret.Optional != nil && *secret.Optional) {
 			return egress.Access{}, NewValidationError("requires a non-optional Secret name and key")
 		}

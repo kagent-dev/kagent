@@ -3,12 +3,13 @@ package grpcserver
 import (
 	"context"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 )
@@ -16,11 +17,12 @@ import (
 type systemServer struct {
 	apiv1.UnimplementedSystemServiceServer
 	service         *systemservice.Service
+	workerPools     *kubecrud.Service[*atev1.WorkerPool, *atev1.WorkerPoolList]
 	maxMessageBytes int
 }
 
-func newSystemServer(service *systemservice.Service, maxMessageBytes int) *systemServer {
-	return &systemServer{service: service, maxMessageBytes: maxMessageBytes}
+func newSystemServer(service *systemservice.Service, workerPools *kubecrud.Service[*atev1.WorkerPool, *atev1.WorkerPoolList], maxMessageBytes int) *systemServer {
+	return &systemServer{service: service, workerPools: workerPools, maxMessageBytes: maxMessageBytes}
 }
 
 func (s *systemServer) GetVersion(context.Context, *apiv1.GetVersionRequest) (*apiv1.GetVersionResponse, error) {
@@ -119,8 +121,24 @@ func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1.
 	return response, nil
 }
 
-func (s *systemServer) workerPool(workerPool *atev1alpha1.WorkerPool) (*apiv1.SubstrateWorkerPool, error) {
-	resource, err := structuredobject.FromGo(workerPool, atev1alpha1.GroupVersion.String(), "WorkerPool", s.maxMessageBytes)
+func (s *systemServer) ListWorkerPools(ctx context.Context, request *apiv1.ListWorkerPoolsRequest) (*apiv1.ListWorkerPoolsResponse, error) {
+	pools, err := s.workerPools.List(ctx, request.GetNamespace())
+	if err != nil {
+		return nil, err
+	}
+	response := &apiv1.ListWorkerPoolsResponse{WorkerPools: make([]*apiv1.SubstrateWorkerPool, 0, len(pools))}
+	for _, pool := range pools {
+		encoded, err := s.workerPool(pool)
+		if err != nil {
+			return nil, err
+		}
+		response.WorkerPools = append(response.WorkerPools, encoded)
+	}
+	return response, nil
+}
+
+func (s *systemServer) workerPool(workerPool *atev1.WorkerPool) (*apiv1.SubstrateWorkerPool, error) {
+	resource, err := structuredobject.FromGo(workerPool, atev1.GroupVersion.String(), "WorkerPool", s.maxMessageBytes)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to encode WorkerPool resource", err)
 	}

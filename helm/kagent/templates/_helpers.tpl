@@ -303,15 +303,16 @@ Controller gRPC observability Grafana dashboard ConfigMap name.
 {{- if .Values.config.gateway.publicUrl -}}
 {{- .Values.config.gateway.publicUrl -}}
 {{- else -}}
-{{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
+{{- printf "http://%s" (include "kagent.controllerServiceAuthority" .) -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
-Controller Service host:port for nginx upstream (no scheme).
+Controller Service host:port. Use the full DNS name so runtime DNS queries
+match the Substrate egress policy without search-domain expansion.
 */}}
 {{- define "kagent.controllerServiceAuthority" -}}
-{{- printf "%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
+{{- printf "%s-controller.%s.svc.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.global.clusterDomain | default "cluster.local") (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
 
 {{/*

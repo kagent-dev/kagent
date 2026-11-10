@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 // canonicalStoredGrants validates and normalizes source grants for NOT NULL storage.
@@ -33,12 +34,12 @@ func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (e
 	type policyInputs struct {
 		EgressDestinations      []string
 		Credentials             []egress.Credential
-		TokenPassthroughOrigins []string
+		TokenPassthroughTargets []egresspolicy.GatewayTarget
 		GrantDestinations       []string
 		GrantCredentials        []egress.Credential
 	}
 	row, err := queryOne(ctx, c.db, `
-  SELECT r.egress_destinations, r.credentials, r.token_passthrough_origins,
+  SELECT r.egress_destinations, r.credentials, r.token_passthrough_targets,
     COALESCE(ad.grant_destinations, sd.grant_destinations, '{}') AS grant_destinations,
     COALESCE(ad.grant_credentials, sd.grant_credentials, '[]') AS grant_credentials
   FROM runtime_revision r
@@ -52,14 +53,7 @@ func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (e
 	if err != nil {
 		return egress.Access{}, fmt.Errorf("get runtime egress policy %s: %w", revision, notFoundOr(err))
 	}
-	for i, raw := range row.TokenPassthroughOrigins {
-		origin, err := egress.ParseOrigin(raw)
-		if err != nil {
-			return egress.Access{}, fmt.Errorf("decode runtime token origins %s: %w", revision, err)
-		}
-		row.TokenPassthroughOrigins[i] = origin.String()
-	}
-	base, err := egress.CanonicalAccess(row.EgressDestinations, row.Credentials, row.TokenPassthroughOrigins)
+	base, err := egress.CanonicalAccess(row.EgressDestinations, row.Credentials, row.TokenPassthroughTargets)
 	if err != nil {
 		return egress.Access{}, fmt.Errorf("decode runtime egress base %s: %w", revision, err)
 	}
@@ -67,7 +61,7 @@ func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (e
 	if err != nil {
 		return egress.Access{}, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
 	}
-	return egress.EffectiveAccess(base, grants, row.TokenPassthroughOrigins)
+	return egress.EffectiveAccess(base, grants)
 }
 
 var _ egress.PolicyStore = (*Client)(nil)

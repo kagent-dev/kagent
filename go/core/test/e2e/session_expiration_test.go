@@ -40,7 +40,7 @@ func TestSessionIdleExpiration(t *testing.T) {
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
 		original, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 		require.NoError(t, err)
-		request := &apiv1.CreateSessionRequest{Agent: original.Session.Agent, RequestId: uuid.NewString()}
+		request := &apiv1.CreateSessionRequest{Agent: original.Session.GetAgent().Ref, RequestId: uuid.NewString()}
 		created, err := fixture.sessions.CreateSession(fixture.ctx, request)
 		require.NoError(t, err)
 		id := created.Session.Id
@@ -91,6 +91,19 @@ func TestSessionIdleExpiration(t *testing.T) {
 
 func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) {
 	t.Helper()
+	idle, err := time.ParseDuration(ttl)
+	require.NoError(t, err)
+	poll, err := time.ParseDuration(pollInterval)
+	require.NoError(t, err)
+	updateControllerConfig(t, target, func(cfg *configv1.ControllerConfig) {
+		cfg.Sessions.IdleTtl = durationpb.New(idle)
+		cfg.Sessions.ExpirationInterval = durationpb.New(poll)
+	})
+}
+
+// Keep callers sequential and use a stable endpoint across controller rollouts.
+func updateControllerConfig(t *testing.T, target string, update func(*configv1.ControllerConfig)) {
+	t.Helper()
 	kube := interactionKubeClient(t)
 	deployments := &appsv1.DeploymentList{}
 	require.NoError(t, kube.List(t.Context(), deployments, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
@@ -110,12 +123,7 @@ func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) 
 	cfg := &configv1.ControllerConfig{}
 	require.NoError(t, configloader.Decode([]byte(original), cfg))
 	configloader.DefaultController(cfg)
-	idle, err := time.ParseDuration(ttl)
-	require.NoError(t, err)
-	poll, err := time.ParseDuration(pollInterval)
-	require.NoError(t, err)
-	cfg.Sessions.IdleTtl = durationpb.New(idle)
-	cfg.Sessions.ExpirationInterval = durationpb.New(poll)
+	update(cfg)
 	require.NoError(t, configloader.Validate(cfg))
 	updated, err := protojson.Marshal(cfg)
 	require.NoError(t, err)

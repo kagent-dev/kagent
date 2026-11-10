@@ -21,6 +21,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"go.opentelemetry.io/contrib/processors/baggagecopy"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -34,7 +35,6 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"go.opentelemetry.io/contrib/processors/baggagecopy"
 )
 
 // staticUserInterceptor stands in for UserIDCallInterceptor, which the app
@@ -355,7 +355,7 @@ func TestRequestSpanCompletesWhenAStreamingClientDisconnects(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(ctx, request)
+	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(a2aTestContext(ctx), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestRequestSpanCompletesOnAStreamingMessageResult(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(t.Context(), request)
+	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(a2aTestContext(t.Context()), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,10 +512,10 @@ func TestInvocationPromotesOnlyAllowlistedMetadata(t *testing.T) {
 	if mode == "" {
 		// Policy is cached for process lifetime, so each mode needs a fresh process.
 		for _, mode := range []string{"disabled", "enabled"} {
-			t.Run(mode, func(t *testing.T) {
+			t.Run("Given "+mode+" promotion, when a message supplies metadata, assert that only allowed context is exported", func(t *testing.T) {
 				policy := ""
 				if mode == "enabled" {
-					policy = `[{"from":"sub","to":"user.id"},"gen_ai.agent.name","enduser.id"]`
+					policy = `[{"from":"sub","to":"caller.subject"},{"from":"sub","to":"user.id"},"gen_ai.agent.name"]`
 				}
 				command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestInvocationPromotesOnlyAllowlistedMetadata$")
 				command.Env = append(os.Environ(), "KAGENT_CONTEXT_POLICY_TEST="+mode, "KAGENT_TRACE_CONTEXT_KEYS="+policy)
@@ -540,7 +540,7 @@ func TestInvocationPromotesOnlyAllowlistedMetadata(t *testing.T) {
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
 	message.Metadata = map[string]any{
 		"sub": "opaque-subject", "private_token": "must-not-be-exported",
-		"gen_ai.agent.name": "forged-agent", "enduser.id": "forged-user",
+		"gen_ai.agent.name": "forged-agent", "user.id": "forged-user",
 	}
 	sendMessage(t, server, &a2atype.SendMessageRequest{Message: message})
 	span := requestSpan(t, exporter)
@@ -548,8 +548,8 @@ func TestInvocationPromotesOnlyAllowlistedMetadata(t *testing.T) {
 	if mode == "enabled" {
 		wantUser = "opaque-subject"
 	}
-	if got := spanAttribute(span, "user.id"); got != wantUser {
-		t.Fatalf("user.id = %q, want %q", got, wantUser)
+	if got := spanAttribute(span, "caller.subject"); got != wantUser {
+		t.Fatalf("caller.subject = %q, want %q", got, wantUser)
 	}
 	if spanAttribute(span, tracing.AttributeAgentName) != "researcher" || spanAttribute(span, tracing.AttributeUserID) != "trusted-user" {
 		t.Fatal("caller metadata replaced runtime identity")

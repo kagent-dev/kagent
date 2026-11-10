@@ -1,17 +1,15 @@
 name: Scan images
 
 on:
-  # Trigger once a week on the main branch
+  # Scan findings depend on vulnerability data and base images, not on the
+  # commit being scanned, so run daily on the default branch instead of on push.
   schedule:
-  - cron: '0 0 * * 0' # Every Monday at midnight UTC
-
-  # Trigger the workflow on push to main and release branches
-  push:
-    branches: [main, "release/**"]
-    paths-ignore:
-      - '**/*.md'
+  - cron: '0 6 * * *' # Daily at 06:00 UTC
 
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: image-scan-${{ github.event_name }}-${{ github.ref }}
@@ -60,7 +58,7 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
       - name: Set version
         id: vars
         run: echo "version=v0.0.0-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT

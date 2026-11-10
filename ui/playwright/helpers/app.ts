@@ -18,6 +18,8 @@ export const routes = {
   modelNew: "/models/new",
   mcpServers: "/mcp",
   mcpServerNew: "/mcp/new",
+  policies: "/policies",
+  egressPolicyNew: "/policies/egress/new",
   prompts: "/prompts",
   promptNew: "/prompts/new",
   snapshots: "/snapshots",
@@ -40,8 +42,8 @@ export const routes = {
 export const instances = {
   /** Ready, named by the reader, and the one with a seeded transcript behind it. */
   ready: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-  /** Suspended, so it can be resumed. Unnamed, so it renders as untitled. */
-  suspended: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
+  /** Idle and ready for its next turn. Unnamed, so it renders as untitled. */
+  idle: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
   /** Failed, with a reason the conversation's record page shows. */
   failed: "d4b02f87-3a55-4c18-9e6b-1f70c9a8e332",
   /** Somebody else's: listable under its agent, and not openable. */
@@ -57,6 +59,8 @@ export const agents = {
   sharedOnFastLane: { name: "shared-brain-fast", template: "shared-brain", harness: "fast-lane" },
   /** Defined, but with no successful revision — so no conversation can start. */
   preparing: { name: "support-triage-2b91d0e", template: "support-triage-2b91d0e", harness: "support-triage" },
+  /** Ran once; its latest edit names a Harness image that cannot be pulled. */
+  updateFailed: { name: "triage-on-claude", template: "support-triage-2b91d0e", harness: "support-triage" },
 } as const;
 
 /** Where one agent lives: its namespace and name. */
@@ -86,7 +90,7 @@ export const agentNewChat = (
  * instances unless `all_creators` is asked for — a sibling behind that switch would
  * not be in the rail at all.
  */
-export const SIBLING_OF_READY = instances.suspended;
+export const SIBLING_OF_READY = instances.idle;
 
 /** Where one agent's conversation lives. */
 export const agentChat = (id: string) =>

@@ -44,7 +44,7 @@ itself: at `8080` the dev server goes through the UI pod's nginx exactly as a de
 build does, rather than straight to the controller.
 
 Worth knowing which one you are looking at: the dev server does not exercise the
-Dockerfile, nginx, or `scripts/init.sh` rendering settings at start. To see a change
+Dockerfile, nginx, or `ui/entrypoint` rendering settings at start. To see a change
 the way it will ship, rebuild the image and swap it in:
 
 ```sh

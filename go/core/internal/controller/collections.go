@@ -1,12 +1,9 @@
 package controller
 
 import (
-	"reflect"
 	"slices"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"google.golang.org/protobuf/proto"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
@@ -30,7 +27,7 @@ type Collections struct {
 	RemoteMCPServers         krt.Collection[*kagentv1alpha3.RemoteMCPServer]
 	ConfigMaps               krt.Collection[*corev1.ConfigMap]
 	Secrets                  krt.Collection[*corev1.Secret]
-	WorkerPools              krt.Collection[*atev1alpha1.WorkerPool]
+	WorkerPools              krt.Collection[*atev1.WorkerPool]
 	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
 	Reconciliations          krt.Collection[AgentReconciliation]
 	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
@@ -44,23 +41,12 @@ type AgentRuntimeObservation struct {
 	Namespace  string
 	AgentName  string
 	RevisionID translator.RevisionID
-	Template   *ateapipb.ActorTemplate
+	Golden     goldenProgress
 	Failure    *ReconciliationFailure
 }
 
 func (p AgentRuntimeObservation) ResourceName() string {
 	return p.Namespace + "/" + p.AgentName
-}
-
-var _ krt.Equaler[AgentRuntimeObservation] = AgentRuntimeObservation{}
-
-// Equals compares runtime contents rather than protobuf's mutable caches.
-func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
-	if !proto.Equal(p.Template, other.Template) {
-		return false
-	}
-	p.Template, other.Template = nil, nil
-	return reflect.DeepEqual(p, other)
 }
 
 // NewCollections creates the complete read-only input graph. An empty
@@ -75,7 +61,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	remoteMCPServers := typedCollection[*kagentv1alpha3.RemoteMCPServer](client, watchNamespaces, "RemoteMCPServers", opts)
 	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
-	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
+	workerPools := typedCollection[*atev1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	agentRuntimeObservations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := translator.Collections{
@@ -83,6 +69,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		Harnesses:      harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
+	compilerCollections.Namespaces = newReferenceNamespaces(client, agents, compilerCollections, opts)
 	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings, images)
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 

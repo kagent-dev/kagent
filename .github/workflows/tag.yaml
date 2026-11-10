@@ -7,6 +7,11 @@ on:
         description: 'Release tag to create (v prefix required, e.g. v0.1.0)'
         required: true
         type: string
+      latest:
+        description: 'Mark as GitHub latest, the release the CLI install script installs. Clear for patches to an older line.'
+        required: true
+        type: boolean
+        default: true
 
 concurrency:
   group: release
@@ -97,14 +102,14 @@ jobs:
     - name: 'Checkout GitHub Action'
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Install uv
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
     - name: 'Release Python Packages'
       working-directory: python
       run: |
         uv sync --all-extras
         # Bump every package version to $VERSION first
         uv version $VERSION --package kagent-core
-        uv version $VERSION --package kagent-skills
+        uv version $VERSION --package kagent-tools
         uv version $VERSION --package kagent-adk
         uv version $VERSION --package kagent-langgraph
         uv version $VERSION --package kagent-crewai
@@ -115,13 +120,13 @@ jobs:
         # Without this, a user upgrading e.g. kagent-adk via pip/uv could have
         # older intra-repo siblings still locked at a stale version that may be
         # missing symbols the new package requires.
-        for pkg in kagent-core kagent-skills agentsts-core agentsts-adk; do
+        for pkg in kagent-core kagent-tools agentsts-core agentsts-adk; do
           find packages -name "pyproject.toml" \
             -exec sed -i "s/\"${pkg}>=[^\"]*\"/\"${pkg}>=${VERSION}\"/g" {} +
         done
         # Build all packages
         uv build --package kagent-core
-        uv build --package kagent-skills
+        uv build --package kagent-tools
         uv build --package kagent-adk
         uv build --package kagent-langgraph
         uv build --package kagent-crewai
@@ -168,11 +173,15 @@ jobs:
         name: release-charts
         path: dist
     - name: Release
-      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
       with:
         tag_name: ${{ needs.setup.outputs.tag }}
         target_commitish: ${{ github.sha }}
         generate_release_notes: true
+        # GitHub cannot mark a prerelease latest, so a suffixed tag (v1.0.0-rc.1)
+        # is a prerelease only when it is not released as latest.
+        prerelease: ${{ !inputs.latest && contains(inputs.version, '-') }}
+        make_latest: ${{ inputs.latest }}
         files: |
           go/core/bin/kagent-*
           dist/kagent-*.tgz

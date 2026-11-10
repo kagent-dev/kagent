@@ -7,21 +7,20 @@ import (
 	"strings"
 	"testing"
 
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func TestActorTemplateSkillVolumeLimit(t *testing.T) {
 	for _, count := range []int{0, 29, 30} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
-			spec := &translator.Revision{Namespace: "test", AgentName: "skills", AgentCard: &a2apb.AgentCard{
+			spec := &translator.Revision{ControlPlaneURL: testControlPlaneURL, CPU: "1", Memory: "1Gi", Namespace: "test", AgentName: "skills", ConfigJSON: []byte(`{}`), AgentCard: &a2apb.AgentCard{
 				Name: "skills", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
 				DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
 				SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
@@ -31,7 +30,9 @@ func TestActorTemplateSkillVolumeLimit(t *testing.T) {
 			}
 			id, err := spec.Digest()
 			require.NoError(t, err)
-			actor, err := ActorTemplateForRevision(spec, id)
+			bundle, err := spec.BootstrapBundle(id)
+			require.NoError(t, err)
+			actor, err := ActorTemplateForRevision(spec, id, bundle)
 			if count > 29 {
 				require.ErrorContains(t, err, "33 volumes and 33 container mounts")
 				require.ErrorContains(t, err, "at most 32 volumes and 32 mounts per container")
@@ -41,46 +42,6 @@ func TestActorTemplateSkillVolumeLimit(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, actor.Volumes, count+3)
 			require.Len(t, actor.Containers[0].VolumeMounts, count+3)
-		})
-	}
-}
-
-func TestActorTemplateSandboxClass(t *testing.T) {
-	for _, tt := range []struct {
-		name       string
-		class      atev1alpha1.SandboxClass
-		wantClass  ateapipb.SandboxClass
-		wantConfig string
-		wantError  string
-	}{
-		{name: "default", wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
-		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
-		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, wantConfig: "microvm"},
-		{name: "unsupported", class: "unsupported", wantError: `unsupported sandbox class "unsupported"`},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			spec := &translator.Revision{
-				Namespace: "agents", AgentName: "helper",
-				WorkerPoolName: "pool",
-				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
-					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
-					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
-				},
-			}
-			// Exercise builder validation independently of Digest's validation.
-			id, err := spec.Digest()
-			require.NoError(t, err)
-			spec.SandboxClass = tt.class
-			template, err := ActorTemplateForRevision(spec, id)
-			if tt.wantError != "" {
-				require.EqualError(t, err, tt.wantError)
-				require.Nil(t, template)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tt.wantClass, template.GetSandboxConfig().GetSandboxClass())
-			require.Equal(t, tt.wantConfig, template.GetSandboxConfig().GetConfigName())
-			testWorkerPoolSelection(t, template, "agents", "pool")
 		})
 	}
 }
@@ -96,7 +57,7 @@ func testWorkerPoolSelection(t *testing.T, template *ateapipb.ActorTemplate, nam
 }
 
 func TestActorTemplateForRevision(t *testing.T) {
-	spec := &translator.Revision{
+	spec := &translator.Revision{ControlPlaneURL: testControlPlaneURL, CPU: "1", Memory: "1Gi",
 		Namespace: "agents", AgentName: "helper",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Command:        []string{"/agent"},
@@ -110,7 +71,9 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	template, err := ActorTemplateForRevision(spec, revisionID)
+	bundle, err := spec.BootstrapBundle(revisionID)
+	require.NoError(t, err)
+	template, err := ActorTemplateForRevision(spec, revisionID, bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,10 +84,11 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if !slices.Equal(container.Command, spec.Command) || !slices.Equal(container.Args, spec.Args) {
 		t.Fatalf("container command/args = %v %v", container.Command, container.Args)
 	}
-	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
+	if container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, template.GetSnapshotConfig().GetOnCommit())
+	require.Equal(t, ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, template.GetSnapshotConfig().GetPreferredFidelity())
+	require.Equal(t, ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED, template.GetSnapshotConfig().GetGoldenSnapshotConfig().GetMode())
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
@@ -139,19 +103,15 @@ func TestActorTemplateForRevision(t *testing.T) {
 		t.Fatal("gateway trust bundle was not projected")
 	}
 	identity := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()
-	if len(identity) != 3 || identity[0].GetField() != ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME || identity[0].GetPath() != "name" || container.VolumeMounts[2].GetMountPath() != actorIdentityMount {
+	if len(identity) != 1 || identity[0].GetField() != ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME || identity[0].GetPath() != "name" || container.VolumeMounts[2].GetMountPath() != actorIdentityMount {
 		t.Fatal("actor routing identity was not projected")
 	}
-	var rendered a2atype.AgentCard
-	if err := json.Unmarshal([]byte(environment["KAGENT_AGENT_CARD_JSON"].Value), &rendered); err != nil {
-		t.Fatal(err)
-	}
-	if rendered.Name != spec.AgentCard.Name || rendered.Description != "" || !rendered.Capabilities.Streaming || len(rendered.Skills) != 0 {
-		t.Fatalf("runtime card = %#v", rendered)
-	}
-	if environment["KAGENT_CONFIG_JSON"].Value != string(spec.ConfigJSON) {
-		t.Fatal("config was not embedded as a non-secret literal")
-	}
+	var descriptor bootstrap.Descriptor
+	require.NoError(t, json.Unmarshal([]byte(environment[bootstrap.Environment].Value), &descriptor))
+	require.NoError(t, descriptor.Verify(bundle))
+	require.NotContains(t, environment, "KAGENT_CONFIG_JSON")
+	require.NotContains(t, environment, "KAGENT_AGENT_CARD_JSON")
+	require.NotNil(t, template.GoldenEgressPolicy)
 }
 
 func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
@@ -165,16 +125,18 @@ func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
 		{name: "replaces forged version", environment: []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.main_agent.name=helper-kagent,service.version=forged"}}, wantPrefix: "gen_ai.main_agent.name=helper-kagent,"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			spec := &translator.Revision{
+			spec := &translator.Revision{ControlPlaneURL: testControlPlaneURL, CPU: "1", Memory: "1Gi",
 				Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
 				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
 					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
 					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
-				Environment: slices.Clone(test.environment),
+				ConfigJSON: []byte(`{}`), Environment: slices.Clone(test.environment),
 			}
 			revisionID, err := spec.Digest()
 			require.NoError(t, err)
-			template, err := ActorTemplateForRevision(spec, revisionID)
+			bundle, err := spec.BootstrapBundle(revisionID)
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, revisionID, bundle)
 			require.NoError(t, err)
 			require.Equal(t, test.environment, spec.Environment, "stamping the revision must not change the compiled revision")
 			for _, variable := range template.GetContainers()[0].Env {
@@ -200,10 +162,25 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	if !ActorTemplateSpecEqual(left, right) {
 		t.Fatal("server-owned fields changed the immutable spec comparison")
 	}
+	if mustSpecDigest(t, left) != mustSpecDigest(t, right) {
+		t.Fatal("server-owned fields changed the immutable spec digest")
+	}
 	right.Containers[0].Image = "agent:v2"
 	if ActorTemplateSpecEqual(left, right) {
 		t.Fatal("different container image was accepted")
 	}
+	if mustSpecDigest(t, left) == mustSpecDigest(t, right) {
+		t.Fatal("different container image kept the immutable spec digest")
+	}
+}
+
+func mustSpecDigest(t *testing.T, template *ateapipb.ActorTemplate) string {
+	t.Helper()
+	digest, err := ActorTemplateSpecDigest(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
 
 func TestActorTemplateEnvironmentValueSize(t *testing.T) {
@@ -216,19 +193,23 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 		wantError   string
 	}{
 		{name: "ASCII boundary", instruction: strings.Repeat("a", 32768-configOverhead)},
-		{name: "ASCII overflow", instruction: strings.Repeat("a", 32769-configOverhead), wantError: `environment variable "KAGENT_CONFIG_JSON" is 32769 characters; Substrate supports at most 32768`},
+		{name: "ASCII overflow", instruction: strings.Repeat("a", 32769-configOverhead)},
 		{name: "Unicode boundary", instruction: strings.Repeat("日", 32768-configOverhead)},
-		{name: "Unicode overflow", instruction: strings.Repeat("日", 32769-configOverhead), wantError: `environment variable "KAGENT_CONFIG_JSON" is 32769 characters; Substrate supports at most 32768`},
-		{name: "JSON escaping", instruction: strings.Repeat("<>&", 2000), wantError: `environment variable "KAGENT_CONFIG_JSON" is 36018 characters; Substrate supports at most 32768`},
+		{name: "Unicode overflow", instruction: strings.Repeat("日", 32769-configOverhead)},
+		{name: "JSON escaping", instruction: strings.Repeat("<>&", 2000)},
 		{name: "user environment", environment: []corev1.EnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}, wantError: `environment variable "EXTRA" is 32769 characters; Substrate supports at most 32768`},
-		{name: "agent card", description: strings.Repeat("x", 32769), wantError: `environment variable "KAGENT_AGENT_CARD_JSON"`},
+		{name: "reserved bootstrap", environment: []corev1.EnvVar{{Name: bootstrap.Environment}}, wantError: "conflicts with runtime bootstrap"},
+		{name: "reserved legacy config", environment: []corev1.EnvVar{{Name: "KAGENT_CONFIG_JSON"}}, wantError: "conflicts with runtime bootstrap"},
+		{name: "reserved legacy card", environment: []corev1.EnvVar{{Name: "KAGENT_AGENT_CARD_JSON"}}, wantError: "conflicts with runtime bootstrap"},
+		{name: "reserved trust", environment: []corev1.EnvVar{{Name: "SSL_CERT_FILE"}}, wantError: "conflicts with gateway trust"},
+		{name: "agent card", description: strings.Repeat("x", 32769)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config, err := json.Marshal(struct {
 				Instruction string `json:"instruction"`
 			}{test.instruction})
 			require.NoError(t, err)
-			spec := &translator.Revision{
+			spec := &translator.Revision{ControlPlaneURL: testControlPlaneURL, CPU: "1", Memory: "1Gi",
 				Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
 				ConfigJSON: config, Environment: test.environment,
 				AgentCard: &a2apb.AgentCard{Name: "helper", Description: test.description, Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
@@ -237,7 +218,9 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 			}
 			id, err := spec.Digest()
 			require.NoError(t, err)
-			template, err := ActorTemplateForRevision(spec, id)
+			bundle, err := spec.BootstrapBundle(id)
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, id, bundle)
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
 				require.Nil(t, template)
@@ -245,6 +228,70 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, template)
+		})
+	}
+}
+
+func TestActorResources(t *testing.T) {
+	for _, test := range []struct {
+		cpu, memory string
+		millicores  int64
+		bytes       int64
+		wantError   string
+	}{
+		{cpu: "500m", memory: "2Gi", millicores: 500, bytes: 2 << 30},
+		{cpu: "1.5", memory: "1G", millicores: 1500, bytes: 1_000_000_000},
+		{cpu: "0.1m", memory: "1.1", millicores: 1, bytes: 2},
+		{cpu: "999999m", memory: "9223372036854775807", millicores: 999999, bytes: 9223372036854775807},
+		{cpu: "", memory: "1Gi", wantError: "cpu"},
+		{cpu: "0", memory: "1Gi", wantError: "cpu"},
+		{cpu: "-1", memory: "1Gi", wantError: "cpu"},
+		{cpu: "invalid", memory: "1Gi", wantError: "cpu"},
+		{cpu: "1000", memory: "1Gi", wantError: "cpu"},
+		{cpu: "999.9991", memory: "1Gi", wantError: "cpu"},
+		{cpu: "1", memory: "", wantError: "memory"},
+		{cpu: "1", memory: "0", wantError: "memory"},
+		{cpu: "1", memory: "-1Gi", wantError: "memory"},
+		{cpu: "1", memory: "invalid", wantError: "memory"},
+		{cpu: "1", memory: "9223372036854775808", wantError: "memory"},
+	} {
+		t.Run(test.cpu+"/"+test.memory, func(t *testing.T) {
+			resources, err := actorResources(test.cpu, test.memory)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				require.Nil(t, resources)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.millicores, resources.Limits.CpuMillicores)
+			require.Equal(t, test.bytes, resources.Limits.MemoryBytes)
+		})
+	}
+}
+
+func TestGoldenEgressPolicyIsPartOfTemplateIdentity(t *testing.T) {
+	policy, err := bootstrapEgressPolicy("team-a", "https://controller.example")
+	require.NoError(t, err)
+	original := &ateapipb.ActorTemplate{GoldenEgressPolicy: policy}
+	for _, scenario := range []struct {
+		name   string
+		change func(*ateapipb.ActorTemplate)
+	}{
+		{"missing policy", func(template *ateapipb.ActorTemplate) { template.GoldenEgressPolicy = nil }},
+		{"different destination", func(template *ateapipb.ActorTemplate) {
+			template.GoldenEgressPolicy.Rules[0].Https.Hostnames = []string{"other.example"}
+		}},
+		{"different audience", func(template *ateapipb.ActorTemplate) {
+			for _, header := range template.GoldenEgressPolicy.Rules[0].Https.Effects.ReplaceHeaders {
+				header.ActorJwt.Audiences = []string{"other-audience"}
+			}
+		}},
+	} {
+		t.Run("Given a bootstrap policy, when compared with "+scenario.name+", assert that template identity differs", func(t *testing.T) {
+			changed := proto.CloneOf(original)
+			scenario.change(changed)
+			require.False(t, ActorTemplateSpecEqual(original, changed))
+			require.NotEqual(t, mustSpecDigest(t, original), mustSpecDigest(t, changed))
 		})
 	}
 }

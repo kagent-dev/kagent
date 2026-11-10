@@ -13,9 +13,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
@@ -25,26 +25,47 @@ import (
 
 const (
 	listToolName            = "list_sessions"
-	invokeToolName          = "invoke_session"
+	invokeToolName          = "invoke_agent"
 	defaultTaskPollInterval = 1000
 )
 
 type Handler struct {
+	agents      *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
 	sessions    *sessionsvc.Service
 	checkpoints *checkpoint.Service
 	gateway     a2asrv.RequestHandler
 	http        http.Handler
 }
 
-type ListSessionsInput struct {
-	PageSize  int    `json:"page_size,omitempty" jsonschema:"Maximum number of Sessions to return"`
-	PageToken string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+type Config struct {
+	Agents           *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
+	Sessions         *sessionsvc.Service
+	Checkpoints      *checkpoint.Service
+	Gateway          a2asrv.RequestHandler
+	Sandboxes        *sandbox.Service
+	SandboxTemplates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
+	// Extensions adds tools and resources after core has registered its own.
+	Extensions func(*mcp.Server) error
 }
 
+type ListSessionsInput struct {
+	PageSize  int             `json:"page_size,omitempty" jsonschema:"Maximum number of Sessions to return"`
+	PageToken string          `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+	Agent     *agentReference `json:"agent,omitempty" jsonschema:"Only Sessions of this Agent"`
+	AllStates bool            `json:"all_states,omitempty" jsonschema:"Include Sessions in every state, failed and suspended ones too; default lists ready Sessions only"`
+}
+
+// SessionSummary is a Session as every session tool answers it. Agent is
+// namespace/name.
 type SessionSummary struct {
-	ID    string `json:"id"`
-	Agent string `json:"agent"`
-	State string `json:"state"`
+	ID        string          `json:"id"`
+	Agent     string          `json:"agent"`
+	Name      string          `json:"name,omitempty"`
+	State     string          `json:"state"`
+	Operation string          `json:"operation,omitempty"`
+	Failure   *FailureSummary `json:"failure,omitempty"`
+	CreatedAt string          `json:"created_at,omitempty"`
+	UpdatedAt string          `json:"updated_at,omitempty"`
 }
 
 type ListSessionsOutput struct {
@@ -52,13 +73,19 @@ type ListSessionsOutput struct {
 	NextPageToken string           `json:"next_page_token,omitempty"`
 }
 
-type InvokeSessionInput struct {
-	SessionID string `json:"session_id" jsonschema:"Session UUID"`
-	Message   string `json:"message" jsonschema:"Message to send to the agent"`
-	MessageID string `json:"message_id,omitempty" jsonschema:"Optional stable A2A message ID for idempotency"`
+type InvokeAgentInput struct {
+	SessionID string          `json:"session_id,omitempty" jsonschema:"Existing Session UUID; provide either session_id or agent"`
+	Agent     *agentReference `json:"agent,omitempty" jsonschema:"Agent to start a new Session with; omit session_id"`
+	Message   string          `json:"message" jsonschema:"Message to send to the agent"`
+	MessageID string          `json:"message_id,omitempty" jsonschema:"Stable A2A message ID; reuse with the same agent and message to retry creating a Session without another first turn"`
 }
 
-type InvokeSessionOutput struct {
+type agentReference struct {
+	Namespace string `json:"namespace" jsonschema:"Agent namespace"`
+	Name      string `json:"name" jsonschema:"Agent name"`
+}
+
+type InvokeAgentOutput struct {
 	SessionID string `json:"session_id"`
 	TaskID    string `json:"task_id"`
 	ContextID string `json:"context_id"`
@@ -66,15 +93,15 @@ type InvokeSessionOutput struct {
 	Text      string `json:"text,omitempty"`
 }
 
-func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway a2asrv.RequestHandler, sandboxes *sandbox.Service, templates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]) (*Handler, error) {
-	if sessions == nil || checkpoints == nil || gateway == nil {
-		return nil, fmt.Errorf("session service, checkpoint service, and A2A gateway are required")
+func New(cfg Config) (*Handler, error) {
+	if cfg.Agents == nil || cfg.Sessions == nil || cfg.Checkpoints == nil || cfg.Gateway == nil {
+		return nil, fmt.Errorf("agent service, session service, checkpoint service, and A2A gateway are required")
 	}
-	h := &Handler{sessions: sessions, checkpoints: checkpoints, gateway: gateway}
+	h := &Handler{agents: cfg.Agents, sessions: cfg.Sessions, checkpoints: cfg.Checkpoints, gateway: cfg.Gateway}
 	capabilities := &mcp.ServerCapabilities{}
 	capabilities.AddExtension(tasksExtension, nil)
-	instructions := "Use Sessions for agent conversations through A2A. Use checkpoint tools to save and fork Session state."
-	if sandboxes != nil {
+	instructions := "Use list_agents to discover Agents, then invoke_agent with an agent reference to start a conversation or session_id to continue one. Use checkpoint tools to save and fork Session state."
+	if cfg.Sandboxes != nil {
 		instructions += "\n\n" + sandboxInstructions
 	}
 	server := mcp.NewServer(
@@ -82,21 +109,34 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 		&mcp.ServerOptions{Capabilities: capabilities, Instructions: instructions},
 	)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_agents",
+		Description: "List Agents visible to the caller, optionally filtered by namespace. Pass an entry from agents as the agent argument to invoke_agent to start a Session. Listing does not imply readiness or permission to invoke.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, h.listAgents)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        listToolName,
-		Description: "List ready Sessions visible to the caller",
+		Description: "List Sessions visible to the caller, ready ones unless all_states is set",
+		Annotations: readOnly(),
 	}, h.listSessions)
+	// No top-level oneOf: Gemini rejects it. invokeAgent enforces exactly one of session_id or agent.
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        invokeToolName,
-		Description: "Invoke a Session through the public A2A gateway",
-	}, h.invokeSession)
+		Description: "Send a message to an existing Session with session_id, or start a new Session by providing agent instead. Returns the Session and task IDs. Reuse message_id with identical inputs when retrying creation.",
+	}, h.invokeAgent)
+	h.registerSessionTools(server)
 	h.registerCheckpointTools(server)
-	registerSandboxTools(server, sandboxes, templates)
-	if sandboxes != nil {
+	registerSandboxTools(server, cfg.Sandboxes, cfg.SandboxTemplates)
+	if cfg.Sandboxes != nil {
 		registerSandboxPrompts(server)
 	}
 	server.AddReceivingMiddleware(h.taskAwareToolCall)
 	if err := h.registerTaskMethods(server); err != nil {
 		return nil, err
+	}
+	if cfg.Extensions != nil {
+		if err := cfg.Extensions(server); err != nil {
+			return nil, fmt.Errorf("extend /mcp: %w", err)
+		}
 	}
 	h.http = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true})
 	return h, nil
@@ -107,15 +147,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, input ListSessionsInput) (*mcp.CallToolResult, ListSessionsOutput, error) {
-	result, err := h.sessions.List(ctx, sessionsvc.ListRequest{
-		PageSize: input.PageSize, PageToken: input.PageToken,
-	})
+	request := sessionsvc.ListRequest{PageSize: input.PageSize, PageToken: input.PageToken}
+	if input.Agent != nil {
+		request.Agent = &apiv1.ResourceReference{Namespace: input.Agent.Namespace, Name: input.Agent.Name}
+	}
+	result, err := h.sessions.List(ctx, request)
 	if err != nil {
 		return toolError(err), ListSessionsOutput{}, nil
 	}
 	output := ListSessionsOutput{Sessions: []SessionSummary{}, NextPageToken: result.NextPageToken}
 	for _, session := range result.Sessions {
-		if session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY {
+		if !input.AllStates && session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY {
 			continue
 		}
 		output.Sessions = append(output.Sessions, sessionSummary(session))
@@ -126,37 +168,52 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 			text.WriteByte('\n')
 		}
 		fmt.Fprintf(&text, "%s (%s)", session.ID, session.Agent)
+		if input.AllStates {
+			fmt.Fprintf(&text, " %s", session.State)
+		}
 	}
-	if text.Len() == 0 {
+	if text.Len() == 0 && input.AllStates {
+		text.WriteString("No Sessions found.")
+	} else if text.Len() == 0 {
 		text.WriteString("No ready Sessions found.")
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text.String()}}}, output, nil
 }
 
-func (h *Handler) invokeSession(ctx context.Context, _ *mcp.CallToolRequest, input InvokeSessionInput) (*mcp.CallToolResult, InvokeSessionOutput, error) {
+func (h *Handler) invokeAgent(ctx context.Context, _ *mcp.CallToolRequest, input InvokeAgentInput) (*mcp.CallToolResult, InvokeAgentOutput, error) {
 	task, err := h.invoke(ctx, input, false)
 	if err != nil {
-		return toolError(err), InvokeSessionOutput{}, nil
+		return sessionToolError(err), InvokeAgentOutput{}, nil
 	}
-	result, output := invocationResult(input, task)
+	result, output := invocationResult(task)
 	return result, output, nil
 }
 
-func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bool) (*a2atype.Task, error) {
-	if input.SessionID == "" || strings.TrimSpace(input.Message) == "" {
-		return nil, fmt.Errorf("session_id and message are required")
+func (h *Handler) invoke(ctx context.Context, input InvokeAgentInput, async bool) (*a2atype.Task, error) {
+	if (input.SessionID != "") == (input.Agent != nil) {
+		return nil, fmt.Errorf("provide exactly one of session_id or agent")
+	}
+	if strings.TrimSpace(input.Message) == "" {
+		return nil, fmt.Errorf("message is required")
 	}
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(input.Message))
 	if input.MessageID != "" {
 		message.ID = input.MessageID
 	}
-	session, err := h.sessions.Get(ctx, input.SessionID)
-	if err != nil {
-		return nil, err
+	var tenant string
+	if input.Agent != nil {
+		// An unset context lets A2A own creation and initial-message retries.
+		tenant = input.Agent.Namespace + "/" + input.Agent.Name
+	} else {
+		session, err := h.sessions.Get(ctx, input.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		message.ContextID = session.GetId()
+		agent := session.GetAgent().GetRef()
+		tenant = agent.GetNamespace() + "/" + agent.GetName()
 	}
-	message.ContextID = session.GetId()
 	// Direct gateway calls carry the Agent tenant on the request, like A2A transports do.
-	tenant := session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName()
 	routed := interactionContext(ctx)
 	var taskID a2atype.TaskID
 	for event, err := range h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Tenant: tenant, Message: message}) {
@@ -185,45 +242,82 @@ func interactionContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func invocationResult(input InvokeSessionInput, task *a2atype.Task) (*mcp.CallToolResult, InvokeSessionOutput) {
+func invocationResult(task *a2atype.Task) (*mcp.CallToolResult, InvokeAgentOutput) {
 	text := taskText(task)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 		IsError: task.Status.State == a2atype.TaskStateFailed ||
 			task.Status.State == a2atype.TaskStateRejected ||
 			task.Status.State == a2atype.TaskStateAuthRequired,
-	}, InvokeSessionOutput{
-		SessionID: input.SessionID,
+	}, InvokeAgentOutput{
+		SessionID: task.ContextID,
 		TaskID:    string(task.ID), ContextID: task.ContextID,
 		State: task.Status.State.String(), Text: text,
 	}
 }
 
+// taskText is taskReply, or the task as JSON when the task has no reply yet:
+// an async invocation answers a submitted or working task, and a client that
+// reads only the text content still needs its ID and state. The session
+// tools use taskReply alone, since a task dump would fill their byte budget.
 func taskText(task *a2atype.Task) string {
-	var text strings.Builder
+	if reply := taskReply(task); reply != "" {
+		return reply
+	}
+	data, _ := json.Marshal(task)
+	return string(data)
+}
+
+// taskReply is the text a caller reads as the task's answer: the status
+// message and the artifacts, else the latest agent message of the history.
+// Tool activity is not part of the reply; a structured result is its JSON.
+func taskReply(task *a2atype.Task) string {
+	var texts []string
 	if task.Status.Message != nil {
-		text.WriteString(a2a.ExtractText(task.Status.Message))
+		texts = appendReplyText(texts, task.Status.Message.Parts)
 	}
 	for _, artifact := range task.Artifacts {
-		for _, part := range artifact.Parts {
-			if part != nil {
-				text.WriteString(part.Text())
-			}
+		if artifact != nil {
+			texts = appendReplyText(texts, artifact.Parts)
 		}
 	}
-	if text.Len() == 0 {
+	if len(texts) == 0 {
 		for _, message := range slices.Backward(task.History) {
-			if message.Role == a2atype.MessageRoleAgent {
-				text.WriteString(a2a.ExtractText(message))
+			if message != nil && message.Role == a2atype.MessageRoleAgent {
+				texts = appendReplyText(texts, message.Parts)
 				break
 			}
 		}
 	}
-	if text.Len() == 0 {
-		data, _ := json.Marshal(task)
-		return string(data)
+	return strings.Join(texts, "\n")
+}
+
+// appendReplyText appends one message's or artifact's text. Its text parts
+// are concatenated, since runtimes stream a reply as appended parts; a
+// structured result stands on its own.
+func appendReplyText(texts []string, parts a2atype.ContentParts) []string {
+	var text strings.Builder
+	flush := func() {
+		if text.Len() > 0 {
+			texts = append(texts, text.String())
+			text.Reset()
+		}
 	}
-	return text.String()
+	for _, part := range parts {
+		if part == nil {
+			continue
+		}
+		if apia2a.IsStructuredOutputPart(part) {
+			flush()
+			if encoded, err := apia2a.StructuredOutputJSON(part); err == nil {
+				texts = append(texts, encoded)
+			}
+			continue
+		}
+		text.WriteString(part.Text())
+	}
+	flush()
+	return texts
 }
 
 func toolError(err error) *mcp.CallToolResult {

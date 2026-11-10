@@ -26,6 +26,7 @@ import (
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -80,13 +81,13 @@ func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, session *apiv
 	return session, err
 }
 
-func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return w.finish(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 }
 
 func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1.Session) (*database.SessionTaskSnapshot, error) {
 	w.quiesces.Add(1)
-	return &database.SessionTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", ContentScope: "FULL"}, nil
+	return &database.SessionTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}, nil
 }
 
 func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1.Session) error {
@@ -97,9 +98,9 @@ type scheduledControllerAuth struct {
 	authimpl.InsecureAuthenticator
 }
 
-func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, target auth.Principal) error {
-	if _, ok := session.(auth.ControlPlaneSession); !ok || session.Principal().User.ID != "" || target.Agent.ID == "" {
-		return errors.New("expected control-plane session and target agent")
+func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, destinationSessionID string) error {
+	if _, ok := session.(auth.ControlPlaneSession); !ok || session.Principal().ID != "" || destinationSessionID == "" {
+		return errors.New("expected control-plane session and destination session")
 	}
 	req.Header.Set("Authorization", "Bearer controller-test-credential")
 	return nil
@@ -112,7 +113,7 @@ func (scheduledControllerAuthorizer) Check(ctx context.Context, principal auth.P
 	if !ok {
 		return errors.New("missing controller session")
 	}
-	if _, ok := session.(auth.ControlPlaneSession); !ok || principal.User.ID != "" {
+	if _, ok := session.(auth.ControlPlaneSession); !ok || principal.ID != "" {
 		return errors.New("controller impersonated owner")
 	}
 	return nil
@@ -335,7 +336,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			go func() { _ = server.Serve(listener) }()
 			t.Cleanup(server.Stop)
 			authenticator := &scheduledControllerAuth{}
-			dialer, err := a2agateway.NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
+			dialer, err := a2agateway.NewRuntimeDialer(&configv1.SubstrateConfig{RouterUrl: new("http://" + listener.Addr().String())}, authenticator)
 			require.NoError(t, err)
 			workflow := &scheduledControllerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
 			created, err := client.CreateScheduledRun(owner, &apiv1.CreateScheduledRunRequest{
@@ -441,7 +442,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 }
 
 func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kind apiv1.RuntimeOperation, authority string) (*apiv1.Session, error) {
-	operation, err := w.store.BeginSessionOperation(ctx, id, kind)
+	operation, err := w.store.BeginSessionOperation(ctx, id, kind, false)
 	if err != nil {
 		return nil, err
 	}

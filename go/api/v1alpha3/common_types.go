@@ -17,18 +17,34 @@ limitations under the License.
 package v1alpha3
 
 import (
-	"context"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/kagent-dev/kagent/go/api/utils"
 )
+
+// ObjectReference identifies a resource; an omitted namespace means the owner's namespace.
+type ObjectReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +required
+	Name string `json:"name"`
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// NamespacedName resolves the reference relative to its owner.
+func (r ObjectReference) NamespacedName(ownerNamespace string) types.NamespacedName {
+	if r.Namespace != "" {
+		ownerNamespace = r.Namespace
+	}
+	return types.NamespacedName{Namespace: ownerNamespace, Name: r.Name}
+}
 
 // ConfigMapKeyReference identifies a key in a same-namespace ConfigMap.
 type ConfigMapKeyReference struct {
@@ -77,15 +93,12 @@ type AllowedNamespaces struct {
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 }
 
-// AllowsNamespace checks if a reference from the given namespace is allowed.
-// The targetNamespace is the namespace where the resource being referenced lives.
-// The sourceNamespace is the namespace where the referencing resource lives.
-func (a *AllowedNamespaces) AllowsNamespace(ctx context.Context, c client.Client, sourceNamespace, targetNamespace string) (bool, error) {
-	// If AllowedNamespaces is nil, default to same namespace only
+// AllowsNamespaceMetadata evaluates policy without I/O. Selector policies require
+// observed source metadata, including when source and target namespaces are equal.
+func (a *AllowedNamespaces) AllowsNamespaceMetadata(sourceNamespace, targetNamespace string, namespace *corev1.Namespace) (bool, error) {
 	if a == nil {
 		return sourceNamespace == targetNamespace, nil
 	}
-
 	switch a.From {
 	case NamespacesFromAll:
 		return true, nil
@@ -95,22 +108,14 @@ func (a *AllowedNamespaces) AllowsNamespace(ctx context.Context, c client.Client
 		if a.Selector == nil {
 			return false, fmt.Errorf("selector must be specified when from is Selector")
 		}
-
-		// Get the source namespace to check its labels
-		ns := &corev1.Namespace{}
-		if err := c.Get(ctx, types.NamespacedName{Name: sourceNamespace}, ns); err != nil {
-			if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
-				return false, fmt.Errorf("allowedNamespaces.from=Selector requires namespace read access: %w", err)
-			}
-			return false, fmt.Errorf("failed to get namespace %s: %w", sourceNamespace, err)
+		if namespace == nil || namespace.Name != sourceNamespace {
+			return false, fmt.Errorf("allowedNamespaces.from=Selector requires observed namespace metadata for %q", sourceNamespace)
 		}
-
 		selector, err := metav1.LabelSelectorAsSelector(a.Selector)
 		if err != nil {
 			return false, fmt.Errorf("invalid label selector: %w", err)
 		}
-
-		return selector.Matches(labels.Set(ns.Labels)), nil
+		return selector.Matches(labels.Set(namespace.Labels)), nil
 	default:
 		return false, fmt.Errorf("unknown from value: %s", a.From)
 	}
@@ -138,21 +143,6 @@ type ValueSource struct {
 	Key string `json:"key"`
 }
 
-func (s *ValueSource) Resolve(ctx context.Context, client client.Client, namespace string) (string, error) {
-	if s == nil {
-		return "", fmt.Errorf("ValueSource cannot be nil")
-	}
-
-	switch s.Type {
-	case ConfigMapValueSource:
-		return utils.GetConfigMapValue(ctx, client, types.NamespacedName{Namespace: namespace, Name: s.Name}, s.Key)
-	case SecretValueSource:
-		return utils.GetSecretValue(ctx, client, types.NamespacedName{Namespace: namespace, Name: s.Name}, s.Key)
-	default:
-		return "", fmt.Errorf("unknown value source type: %s", s.Type)
-	}
-}
-
 // ValueRef represents a configuration value
 // +kubebuilder:validation:ExactlyOneOf=value;valueFrom
 type ValueRef struct {
@@ -163,24 +153,4 @@ type ValueRef struct {
 	Value string `json:"value,omitempty"`
 	// +optional
 	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
-}
-
-func (r *ValueRef) Resolve(ctx context.Context, client client.Client, namespace string) (string, string, error) {
-	if r == nil {
-		return "", "", fmt.Errorf("ValueRef cannot be nil")
-	}
-
-	switch {
-	case r.Value != "":
-		return r.Name, r.Value, nil
-	case r.ValueFrom != nil:
-		value, err := r.ValueFrom.Resolve(ctx, client, namespace)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to resolve value for ref %s: %v", r.Name, err)
-		}
-
-		return r.Name, value, nil
-	default:
-		return r.Name, "", nil
-	}
 }

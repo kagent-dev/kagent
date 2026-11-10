@@ -21,6 +21,8 @@ func TestTokenPassthroughRoundTripper(t *testing.T) {
 		wantErr  bool
 	}{
 		{name: "caller token replaces every other Authorization source", token: "caller-token", wantAuth: "Bearer caller-token"},
+		// The egress gateway replaces this placeholder with the caller's token.
+		{name: "gateway placeholder is forwarded unchanged", token: "kagent-credential-injected", wantAuth: "Bearer kagent-credential-injected"},
 		{name: "missing caller token fails without dialing", wantErr: true},
 	}
 	for _, tt := range tests {
@@ -85,11 +87,13 @@ func TestTokenPassthroughToolsetDiscoversWithCallerToken(t *testing.T) {
 	require.Empty(t, seen, "startup must not dial without a caller token")
 	mu.Unlock()
 
-	_, err = toolset.Tools(testReadonlyContext{Context: t.Context()})
-	require.Error(t, err)
+	// Given no caller token, when discovery runs, assert that no tools are exposed.
+	tools, err := toolset.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
+	require.NoError(t, err)
+	require.Empty(t, tools)
 
 	ctx := context.WithValue(t.Context(), models.BearerTokenKey, "alice")
-	tools, err := toolset.Tools(testReadonlyContext{Context: ctx})
+	tools, err = toolset.Tools(testReadonlyContext{Context: WithDiscoveryScope(ctx)})
 	require.NoError(t, err)
 	require.Len(t, tools, 1)
 	require.Equal(t, "whoami", tools[0].Name())

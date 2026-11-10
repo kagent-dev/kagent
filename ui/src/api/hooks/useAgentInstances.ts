@@ -1,15 +1,45 @@
+import { isApiError } from "../ApiError";
 import { apiClient } from "../client";
 import type { AgentInstance } from "../domain/agentInstances";
 import { type ApiResource, useApiResource } from "./useApiResource";
 
-/** All conversations visible to the caller. */
+interface VisibleConversations {
+  rows: AgentInstance[];
+  widerReadRefused?: string;
+}
+
+/** Retry an owned read only when the server refuses broader visibility. */
+async function visibleConversations(
+  scope: { agent?: { namespace: string; name: string } },
+  owned?: Promise<AgentInstance[]>,
+): Promise<VisibleConversations> {
+  try {
+    return { rows: await apiClient.agentInstances.list({ ...scope, allCreators: true }) };
+  } catch (cause) {
+    if (!isApiError(cause) || cause.status !== 403) throw cause;
+    return {
+      rows: await (owned ?? apiClient.agentInstances.list(scope)),
+      widerReadRefused: cause.message,
+    };
+  }
+}
+
+/** All visible metadata, with an explicit marker when only owned rows are available. */
 export function useAgentInstances(
   allCreators = false,
-): ApiResource<AgentInstance[]> {
-  return useApiResource(
+): ApiResource<AgentInstance[]> & { widerReadRefused?: string } {
+  const resource = useApiResource<VisibleConversations>(
     ["agentInstances.list", allCreators],
-    () => apiClient.agentInstances.list({ allCreators }),
+    async () => allCreators
+      ? visibleConversations({})
+      : { rows: await apiClient.agentInstances.list({ allCreators: false }) },
   );
+  return {
+    ...resource,
+    data: resource.data?.rows,
+    widerReadRefused: resource.data?.widerReadRefused,
+    isEmpty: !resource.isLoading && !resource.error && resource.data?.rows.length === 0,
+  };
 }
 
 export interface AgentConversations {
@@ -31,15 +61,9 @@ export interface AgentConversations {
 }
 
 /**
- * The conversations with one agent — a Agent definition.
- *
- * Narrowed by the server: `ListAgentInstances` takes `agent`
- * and resolves them through the prepared revision, so the filtering happens before
- * the page is cut. Filtering in the browser would search one page of a paged read
- * and report "no conversations" about a row further down.
- *
- * Held back until it has all three parts of the address, which `useApiResource`
- * reports as idle rather than as loading.
+ * Conversations with one Agent, filtered by the server before pagination.
+ * Browser filtering could miss matching conversations on later pages.
+ * The hook stays idle until the route supplies both namespace and Agent name.
  */
 export function useAgentConversations(
   namespace: string | undefined,
@@ -53,28 +77,17 @@ export function useAgentConversations(
       const scope = {
         agent: { namespace: namespace ?? "", name: agent ?? "" },
       };
-      /*
-       * The narrow read is the one that must succeed, so it is awaited on its own
-       * terms: it decides which rows open, and a failure there is a failure of the
-       * page. The wide one is allowed to be refused.
-       */
+      // Start both collections together; a denied broad read reuses the owned
+      // request. Broad metadata cannot establish ownership for actions.
+      const owned = apiClient.agentInstances.list(scope);
       const [wide, own] = await Promise.all([
-        apiClient.agentInstances
-          .list({ ...scope, allCreators: true })
-          .then(
-            (rows) => ({ rows, refused: undefined as string | undefined }),
-            (cause: unknown) => ({
-              rows: undefined,
-              refused: cause instanceof Error ? cause.message : String(cause),
-            }),
-          ),
-        apiClient.agentInstances.list(scope),
+        visibleConversations(scope, owned),
+        owned,
       ]);
-
       return {
-        all: wide.rows ?? own,
+        all: wide.rows,
         own,
-        widerReadRefused: wide.refused,
+        widerReadRefused: wide.widerReadRefused,
       };
     },
   );

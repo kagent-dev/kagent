@@ -101,9 +101,8 @@ export function AgentTemplateNewPage() {
                   value={effective}
                   loading={namespaces.isLoading}
                   onChange={(value: string) =>
-                    // The model configurations and harnesses on offer are all
-                    // same-namespace, so changing it changes what the form can select.
-                    setDraft({ ...draft, namespace: value, modelConfig: "" })
+                    // Clear the selection because local references resolve in the new namespace.
+                    setDraft({ ...draft, namespace: value, modelConfig: undefined })
                   }
                   options={(namespaces.data ?? []).map((entry) => ({
                     value: entry.name,

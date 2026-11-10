@@ -12,6 +12,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -41,10 +42,10 @@ func (c *Compiler) compileMCP(
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Claude MCP binding has no server")
 		}
-		if server.Spec.TokenPassthrough {
+		if ptr.Deref(server.Spec.TokenPassthrough, false) {
 			return mcpCompilation{}, translator.NewValidationError("Claude does not support RemoteMCPServer %q tokenPassthrough", server.Name)
 		}
-		name := strings.ReplaceAll(server.Name, ".", "_")
+		name := translator.MCPRuntimeName(namespace, server)
 		if previous, exists := identities[name]; exists {
 			return mcpCompilation{}, translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
 		}
@@ -67,10 +68,14 @@ func (c *Compiler) compileMCP(
 		if err != nil {
 			return mcpCompilation{}, err
 		}
-		headers, headerEnvironment, err := c.compileMCPHeaders(ctx, namespace, server.Spec.HeadersFrom)
+		headers, headerEnvironment, err := c.compileMCPHeaders(ctx, server.Namespace, server.Spec.HeadersFrom)
 		if err != nil {
 			return mcpCompilation{}, fmt.Errorf("compile RemoteMCPServer %q headers: %w", server.Name, err)
 		}
+		if server.Spec.ActorJWT != nil {
+			headers = translator.MCPActorJWTHeaders(headers)
+		}
+
 		result.servers[name] = claudeconfig.MCPServer{
 			Type: transport, URL: server.Spec.URL, Headers: headers,
 			RequireApproval: tool.Binding.RequireApproval,
@@ -184,6 +189,9 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 			}
 			headers[ref.Name] = value
 		case ref.ValueFrom.Type == v1alpha3.SecretValueSource:
+			if err := translator.ValidateSecretKey(c.ctx, c.collections, namespace, ref.ValueFrom.Name, ref.ValueFrom.Key); err != nil {
+				return nil, nil, err
+			}
 			sum := sha256.Sum256([]byte(namespace + "\x00" + ref.ValueFrom.Name + "\x00" + ref.ValueFrom.Key))
 			name := claudeconfig.MCPCredentialEnvPrefix + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
 			headers[ref.Name] = "${" + name + "}"

@@ -12,11 +12,13 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func setAllowlist(t *testing.T, allowlist string) {
 	t.Helper()
-	t.Setenv(traceContextKeysEnvVar, allowlist)
+	t.Setenv(env.KagentTraceContextKeys.Name(), allowlist)
 	resetAllowedContextMappings()
 	t.Cleanup(resetAllowedContextMappings)
 }
