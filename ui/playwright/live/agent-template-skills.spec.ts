@@ -149,21 +149,21 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await expect(builtin.locator(".ant-tag")).toHaveText("kagent");
     await expect(builtin).toContainText(BUILTIN);
 
-    await expect(page.getByTestId("template-form-skill-name-1")).toHaveValue("own-helm");
-    await expect(page.getByTestId("template-form-skill-oci-1")).toHaveValue(catalog!.image);
-    await expect(page.getByTestId("template-form-skill-path-1")).toHaveValue(helmPath);
+    await expect(page.getByTestId("template-form-skill-name-1")).toHaveText("own-helm");
+    await expect(page.getByTestId("template-form-skill-oci-1")).toHaveText(catalog!.image);
+    await expect(page.getByTestId("template-form-skill-path-1")).toHaveText(helmPath);
 
-    await expect(page.getByTestId("template-form-skill-name-2")).toHaveValue("own-git");
+    await expect(page.getByTestId("template-form-skill-name-2")).toHaveText("own-git");
     await expect(page.getByTestId("template-form-skill-kind-2")).toContainText("Git");
-    await expect(page.getByTestId("template-form-skill-git-url-2")).toHaveValue(GIT_URL);
-    await expect(page.getByTestId("template-form-skill-git-commit-2")).toHaveValue(GIT_COMMIT);
+    await expect(page.getByTestId("template-form-skill-git-url-2")).toHaveText(GIT_URL);
+    await expect(page.getByTestId("template-form-skill-git-commit-2")).toHaveText(GIT_COMMIT);
 
-    await expect(page.getByTestId("template-form-skill-name-3")).toHaveValue("own-s3");
+    await expect(page.getByTestId("template-form-skill-name-3")).toHaveText("own-s3");
     await expect(page.getByTestId("template-form-skill-kind-3")).toContainText("S3");
-    await expect(page.getByTestId("template-form-skill-s3-endpoint-3")).toHaveValue(S3.endpoint);
-    await expect(page.getByTestId("template-form-skill-s3-bucket-3")).toHaveValue(S3.bucket);
-    await expect(page.getByTestId("template-form-skill-s3-key-3")).toHaveValue(S3.key);
-    await expect(page.getByTestId("template-form-skill-s3-version-3")).toHaveValue(S3.versionId);
+    await expect(page.getByTestId("template-form-skill-s3-endpoint-3")).toHaveText(S3.endpoint);
+    await expect(page.getByTestId("template-form-skill-s3-bucket-3")).toHaveText(S3.bucket);
+    await expect(page.getByTestId("template-form-skill-s3-key-3")).toHaveText(S3.key);
+    await expect(page.getByTestId("template-form-skill-s3-version-3")).toHaveText(S3.versionId);
   });
 
   await test.step("5. an edit to the description keeps the skills", async () => {

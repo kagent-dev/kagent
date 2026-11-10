@@ -505,6 +505,22 @@ describe("skills", () => {
     ]);
   });
 
+  it("refuses an uppercase image path but not an uppercase registry host, as the controller does", () => {
+    const draft = draftWithSkills(
+      { name: "org", oci: `ghcr.io/MyOrg/skills@${DIGEST}` },
+      { name: "local", oci: `localhost:5001/Skills@${DIGEST}` },
+      { name: "hub", oci: `MyOrg/skills@${DIGEST}` },
+      { name: "host", oci: `GHCR.io/myorg/skills@${DIGEST}` },
+      { name: "lower", oci: `ghcr.io/myorg/skills@${DIGEST}` },
+    );
+
+    expect(draftProblems(draft, { isCreate: true })).toEqual([
+      'The skill "org" needs an image path in lowercase, like ghcr.io/org/skills.',
+      'The skill "local" needs an image path in lowercase, like ghcr.io/org/skills.',
+      'The skill "hub" needs an image path in lowercase, like ghcr.io/org/skills.',
+    ]);
+  });
+
   it("checks names against the skills the existing spec's plugins select", () => {
     const spec = {
       skills: [{ name: "review", source: { oci: `ghcr.io/org/skills@${DIGEST}` } }],

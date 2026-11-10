@@ -411,6 +411,13 @@ const OCI_DIGEST_REF = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 const HTTP_URL = /^https?:\/\/\S+$/;
 const GIT_COMMIT = /^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/;
 
+/** The repository part of an image reference, split from the host as go-containerregistry's `name.NewRepository` does. */
+function ociRepository(ref: string): string {
+  const name = ref.split("@")[0];
+  const [host, ...rest] = name.split("/");
+  return rest.length > 0 && (host === "localhost" || /[.:]/.test(host)) ? rest.join("/") : name;
+}
+
 function skillProblems(drafts: SkillDraft[], pluginSkills: string[]): string[] {
   const problems: string[] = [];
   if (drafts.filter((skill) => !isBlankSkill(skill)).length > MAX_SKILLS) {
@@ -434,6 +441,8 @@ function skillProblems(drafts: SkillDraft[], pluginSkills: string[]): string[] {
     const { source } = skill;
     if (draft.sourceKind === "oci" && !OCI_DIGEST_REF.test(source.oci ?? "")) {
       problems.push(`${label} needs an OCI image pinned by digest, like ghcr.io/org/skills@sha256:<64 hex characters>.`);
+    } else if (draft.sourceKind === "oci" && /[A-Z]/.test(ociRepository(source.oci ?? ""))) {
+      problems.push(`${label} needs an image path in lowercase, like ghcr.io/org/skills.`);
     }
     if (draft.sourceKind === "git") {
       if (!HTTP_URL.test(source.git?.url ?? "")) {

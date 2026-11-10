@@ -190,16 +190,23 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // one, so it was saved as the kagent-tools image and its directory.
     await expect(page.getByTestId("template-form-skill-0")).toContainText("kagent");
     await expect(page.getByTestId("template-form-skill-0")).toContainText("k8s-troubleshooting");
-    await expect(page.getByTestId("template-form-skill-name-1")).toHaveValue("incident-review");
+    await expect(page.getByTestId("template-form-skill-name-1")).toHaveText("incident-review");
     await expect(page.getByTestId("template-form-skill-kind-1")).toContainText("Git");
-    await expect(page.getByTestId("template-form-skill-git-url-1")).toHaveValue(GIT_URL);
-    await expect(page.getByTestId("template-form-skill-git-commit-1")).toHaveValue(GIT_COMMIT);
-    await expect(page.getByTestId("template-form-skill-path-1")).toHaveValue("skills/incident-review");
-    // Each read-only source box shows its whole value, not the start of it.
+    // The repository opens in a new tab.
+    const repo = page.getByTestId("template-form-skill-git-url-1");
+    await expect(repo).toHaveText(GIT_URL);
+    await expect(repo).toHaveAttribute("href", GIT_URL);
+    await expect(repo).toHaveAttribute("target", "_blank");
+    await expect(page.getByTestId("template-form-skill-git-commit-1")).toHaveText(GIT_COMMIT);
+    await expect(page.getByTestId("template-form-skill-path-1")).toHaveText("skills/incident-review");
+    // Each read-only source value shows in full, not cut off, even in a narrow window.
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 480, height: viewport.height });
     for (const testId of ["git-url", "git-commit", "path"]) {
-      const box = page.getByTestId(`template-form-skill-${testId}-1`);
-      expect(await box.evaluate((el) => el.scrollWidth <= el.clientWidth), testId).toBe(true);
+      const cell = page.getByTestId(`template-form-skill-${testId}-1`).locator("xpath=ancestor::dd");
+      await expect.poll(() => cell.evaluate((el) => el.scrollWidth <= el.clientWidth), { message: testId }).toBe(true);
     }
+    await page.setViewportSize(viewport);
 
     // Nor does it mark anything required. Read-only is not a form, so it asks for
     // nothing — an asterisk here would be demanding a reader supply something they are
@@ -266,7 +273,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
       "Edited by the suite.",
     );
     await expect(page.getByTestId("template-form-skill-0")).toContainText("k8s-troubleshooting");
-    await expect(page.getByTestId("template-form-skill-name-1")).toHaveValue("incident-review");
+    await expect(page.getByTestId("template-form-skill-name-1")).toHaveText("incident-review");
   });
 
   await test.step("11. deleting says what it costs, in the confirmation", async () => {
@@ -326,7 +333,8 @@ test("agent templates: a template is created, read, edited and deleted", async (
     );
 
     await expect(page.getByTestId("template-form-skill-0")).toContainText("k8s-troubleshooting");
-    await expect(page.getByTestId("template-form-skill-git-url-1")).toHaveValue(
+    await expect(page.getByTestId("template-form-skill-git-url-1")).toHaveAttribute(
+      "href",
       "https://github.com/example/runbooks.git",
     );
 

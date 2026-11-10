@@ -35,7 +35,7 @@ tests:
           any: true
       - equal:
           path: spec.harnessRef.name
-          value: kagent
+          value: kagent-builtin
         documentSelector:
           path: $[?(@.kind == "Agent" && @.metadata.name == "k8s-agent")]
       - equal:
@@ -275,7 +275,7 @@ tests:
           any: true
       - equal:
           path: spec.harnessRef.name
-          value: kagent
+          value: kagent-builtin
         documentSelector:
           path: $[?(@.kind == "Agent" && @.metadata.name == "platform-agent")]
       - equal:

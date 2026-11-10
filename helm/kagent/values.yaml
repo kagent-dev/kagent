@@ -830,7 +830,7 @@ builtins:
     # spec.harnessRef.
     enabled: true
     # -- Name of the Harness.
-    name: kagent
+    name: kagent-builtin
     # -- Where the Harness stores Agent snapshots. The default bucket comes
     # with the Substrate chart's built-in object store. If you turned that off,
     # set your own bucket.
