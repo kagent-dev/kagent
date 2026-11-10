@@ -20,23 +20,26 @@ import (
 // Substrate and database failures must not wrap it, so they stay retryable.
 var errRuntimeUnrecoverable = fmt.Errorf("runtime cannot be recovered: %w", database.ErrFailedPrecondition)
 
-func lifecycleIdle(session *apiv1.Session) bool {
-	return session.State == apiv1.RuntimeState_RUNTIME_STATE_READY && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
-}
-
 type crashObservation struct {
 	generation *database.SessionGeneration
 	actor      *ateapipb.Actor
-	// lost replaces actor with why the recorded Actor cannot be recovered.
-	lost string
 }
+
+// actorLostError reports why the recorded Actor cannot be recovered, and the
+// generation it was observed under.
+type actorLostError struct {
+	operationID uuid.UUID
+	reason      string
+}
+
+func (e *actorLostError) Error() string { return "runtime is lost because " + e.reason }
 
 func (o crashObservation) crashed() bool {
 	return o.actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED
 }
 
-// observeCrash reports a missing, replaced, or retemplated Actor as lost, never
-// as a crash: reverting it would restore the wrong runtime.
+// observeCrash reports a missing, replaced, or retemplated Actor as an
+// actorLostError, never as a crash: reverting it would restore the wrong runtime.
 //
 // The generation is read before the Actor. A concurrent revert keeps the Actor UID
 // and returns to READY, so only the generation shows that an observation predates
@@ -54,16 +57,16 @@ func (w *ActorWorkflow) observeCrash(ctx context.Context, session *apiv1.Session
 		TemplateAtespace: generation.TemplateAtespace, TemplateName: generation.TemplateName}
 	actor, err := w.actors.GetActor(ctx, binding.Atespace, binding.Name)
 	if status.Code(err) == codes.NotFound {
-		return crashObservation{generation: generation, lost: "its Actor is missing"}, nil
+		return crashObservation{}, &actorLostError{operationID: generation.OperationID, reason: "its Actor is missing"}
 	}
 	if err != nil {
 		return crashObservation{}, err
 	}
 	if !binding.Matches(actor) {
-		return crashObservation{generation: generation, lost: "its Actor identity or template changed"}, nil
+		return crashObservation{}, &actorLostError{operationID: generation.OperationID, reason: "its Actor identity or template changed"}
 	}
 	if actor.GetMetadata().GetUid() != generation.ActorUID {
-		return crashObservation{generation: generation, lost: "its Actor was replaced"}, nil
+		return crashObservation{}, &actorLostError{operationID: generation.OperationID, reason: "its Actor was replaced"}
 	}
 	return crashObservation{generation: generation, actor: actor}, nil
 }
@@ -101,18 +104,18 @@ func (w *ActorWorkflow) Revert(ctx context.Context, session *apiv1.Session) (*ap
 	if session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return nil, database.ErrConflict
 	}
-	if !lifecycleIdle(session) {
+	if !database.LifecycleIdle(session) {
 		return session, nil
 	}
 	// run bounds a joined attempt. Admission bounds its own reads and execution.
 	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancel()
 	observed, err := w.observeCrash(ctx, session)
+	if lost, ok := errors.AsType[*actorLostError](err); ok {
+		return nil, w.recordLost(ctx, session.Id, lost.operationID, lost.reason)
+	}
 	if err != nil {
 		return nil, err
-	}
-	if observed.lost != "" {
-		return nil, w.recordLost(ctx, session.Id, observed.generation.OperationID, observed.lost)
 	}
 	if !observed.crashed() {
 		return session, nil

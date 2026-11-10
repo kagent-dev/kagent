@@ -192,8 +192,10 @@ config:
     # Recovery scans for missed wake-ups and unbound registration cleanup.
     recoveryInterval: 60s
   sessions:
-    # Recover crashed runtimes when a client sends another message.
-    automaticRecovery: false
+    # Set automaticRecovery: true to recover crashed runtimes when a client sends
+    # another message. It is off by default and not rendered, so the default config
+    # stays readable by releases that predate the setting.
+    # automaticRecovery: false
     idleTtl: 604800s
     shareMaxTtl: 0s
   sandboxes:

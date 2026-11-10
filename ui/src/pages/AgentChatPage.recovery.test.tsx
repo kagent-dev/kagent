@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ThemeProvider } from "@emotion/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SWRConfig } from "swr";
@@ -8,14 +8,16 @@ import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
 import { CheckpointService, CheckpointState } from "@/generated/kagent/api/v1/checkpoints_pb";
 import { RuntimeOperation, RuntimeState } from "@/generated/kagent/api/v1/runtime_pb";
 import { setApiTransport } from "@/api/transport";
-import type { ChatController } from "@/api";
+import { ApiError, type ChatController } from "@/api";
+import { SEND_NOT_ACCEPTED } from "@/api/chat/a2aGrpcChatClient";
 import { themeFor } from "@/theme/theme";
 import { AgentChatPage } from "./AgentChatPage";
 
 /*
- * Crash recovery as the chat page shows it: read from the stored Session alone.
- * A send that finds a crashed runtime recovers it on the server; the page only says
- * what the stored state already records.
+ * Crash recovery as the chat page shows it: read from the stored Session, plus an
+ * explicit Recover for a recovery that does not finish and for sends the gateway
+ * keeps refusing. Recover calls RevertSession, so it works whether or not the
+ * controller recovers on send.
  */
 
 // Only the A2A chat controller is faked; Session reads go through the real hooks and client.
@@ -63,6 +65,9 @@ const LOST: Lifecycle = {
 let lifecycle: Lifecycle;
 let checkpointState: CheckpointState | undefined;
 let getSession: ReturnType<typeof vi.fn>;
+let revertSession: ReturnType<typeof vi.fn>;
+/** What a revert leaves stored; READY unless a test says otherwise. */
+let afterRevert: Lifecycle;
 
 function session() {
   return {
@@ -78,6 +83,10 @@ function renderPage() {
   setApiTransport(createRouterTransport(({ service }) => {
     service(SessionService, {
       getSession: (getSession = vi.fn(() => ({ session: session() }))),
+      revertSession: (revertSession = vi.fn(() => {
+        lifecycle = afterRevert;
+        return { session: session() };
+      })),
       listSessions: () => ({ sessions: [session()] }),
     });
     service(CheckpointService, {
@@ -114,6 +123,8 @@ beforeEach(() => {
   // transport keep their real timeouts and promises.
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   checkpointState = undefined;
+  afterRevert = READY;
+  (chat as { turnError?: Error }).turnError = undefined;
 });
 
 afterEach(() => {
@@ -137,6 +148,52 @@ describe("a crash recovery in progress", () => {
 
     await waitFor(() => expect(composer()).toBeEnabled());
     expect(screen.queryByTestId("chat-not-ready")).not.toBeInTheDocument();
+  });
+});
+
+describe("a crash recovery that does not finish", () => {
+  it("offers Recover, which reverts the Session and enables the composer", async () => {
+    lifecycle = RECOVERING;
+    renderPage();
+    const alert = await screen.findByTestId("chat-not-ready");
+    fireEvent.click(within(alert).getByRole("button", { name: "Recover" }));
+    await waitFor(() => expect(revertSession).toHaveBeenCalledTimes(1));
+    expect(revertSession.mock.calls[0][0]).toMatchObject({ sessionId: ID });
+    await waitFor(() => expect(composer()).toBeEnabled());
+  });
+});
+
+describe("a send the gateway never accepted", () => {
+  const refused = () => new ApiError("The agent's runtime did not accept the message. It may have crashed.", {
+    kind: "http", code: "FailedPrecondition", reason: SEND_NOT_ACCEPTED, url: "A2AService/SendStreamingMessage",
+  });
+
+  it("says the runtime may have crashed and offers Recover", async () => {
+    lifecycle = READY;
+    (chat as { turnError?: Error }).turnError = refused();
+    renderPage();
+    const alert = await screen.findByTestId("chat-turn-error");
+    expect(alert).toHaveTextContent("The agent's runtime may have crashed");
+    fireEvent.click(within(alert).getByRole("button", { name: "Recover" }));
+    await waitFor(() => expect(revertSession).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows the recorded loss when Recover finds the runtime gone", async () => {
+    lifecycle = READY;
+    afterRevert = LOST;
+    (chat as { turnError?: Error }).turnError = refused();
+    renderPage();
+    fireEvent.click(within(await screen.findByTestId("chat-turn-error")).getByRole("button", { name: "Recover" }));
+    expect(await screen.findByText("This conversation's runtime cannot be recovered")).toBeInTheDocument();
+  });
+
+  it("offers only Retry for any other failure", async () => {
+    lifecycle = READY;
+    (chat as { turnError?: Error }).turnError = new Error("model unavailable");
+    renderPage();
+    const alert = await screen.findByTestId("chat-turn-error");
+    expect(within(alert).queryByRole("button", { name: "Recover" })).not.toBeInTheDocument();
+    expect(within(alert).getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });
 

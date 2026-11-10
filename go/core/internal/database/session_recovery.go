@@ -29,6 +29,11 @@ func RuntimeLost(session *apiv1.Session) bool {
 		session.GetFailure().GetReason() == SessionRuntimeLost
 }
 
+// LifecycleIdle reports a READY Session that no lifecycle operation owns.
+func LifecycleIdle(session *apiv1.Session) bool {
+	return session.State == apiv1.RuntimeState_RUNTIME_STATE_READY && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
+}
+
 // CrashRecoveryAdmitted reports an admitted, unfinished crash recovery. Only
 // BeginCrashedSessionRecovery starts a REVERT, so the operation alone identifies it.
 func CrashRecoveryAdmitted(session *apiv1.Session) bool {
@@ -165,7 +170,7 @@ func (c *Client) RecordLostSessionRuntime(ctx context.Context, sessionID string,
 		if row.OperationID != nil {
 			current = *row.OperationID
 		}
-		if current != operationID || (!lifecycleIdle(session) && !CrashRecoveryAdmitted(session)) {
+		if current != operationID || (!LifecycleIdle(session) && !CrashRecoveryAdmitted(session)) {
 			return ErrConflict
 		}
 		row.State, row.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED.String(), apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()
@@ -191,10 +196,6 @@ func (c *Client) RecordLostSessionRuntime(ctx context.Context, sessionID string,
 		return nil, fmt.Errorf("record lost Session %s runtime: %w", sessionID, err)
 	}
 	return session, nil
-}
-
-func lifecycleIdle(session *apiv1.Session) bool {
-	return session.State == apiv1.RuntimeState_RUNTIME_STATE_READY && session.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
 }
 
 // settleCrashedSessionTasks publishes saved results, keeps waits the snapshot

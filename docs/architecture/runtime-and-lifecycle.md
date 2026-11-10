@@ -270,8 +270,8 @@ operation, and the client continues it by retrying RevertSession, as with Create
 and Delete. Nothing retries it in the background. While it is
 pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`.
 
-An A2A send also starts recovery, so chat and API clients recover with the
-retry they already make. Substrate cannot resume a crashed Actor, so a send to
+With `sessions.automaticRecovery` enabled in controller config, an A2A send also
+starts recovery, so chat and API clients recover with the retry they already make. Substrate cannot resume a crashed Actor, so a send to
 one fails before the runtime accepts it. When the gateway proves the input was
 not accepted, it runs the same Revert on that Session before answering
 `KAGENT_SEND_NOT_ACCEPTED`, and the client's retry reaches the restored runtime.
@@ -282,6 +282,15 @@ a busy healthy runtime refuses it as before. A send while recovery is pending
 joins it. Reverting needs Session update access, as `RevertSession` does; a
 caller who may only send gets the original refusal. The revert continues if the
 caller disconnects. No Session read calls Substrate.
+
+The setting is off by default. Sends then keep the refusals they had before
+recovery existed, and only an explicit `RevertSession` recovers. Chat retries a
+send refused as `KAGENT_SEND_NOT_ACCEPTED` with the same message ID, doubling
+the wait up to two seconds for 30 seconds, and then offers Recover, which calls
+`RevertSession`. Chat also offers Recover while a recovery is pending, because a
+recovery whose attempt failed stays FAILED/REVERT until a client retries it.
+Recover returns a healthy runtime unchanged and records a lost one, so it is
+safe to offer on a guess.
 
 A missing, replaced, or retemplated Actor is not this Session's runtime, and
 reverting it would restore the wrong one. Whichever Revert observes that,

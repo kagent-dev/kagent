@@ -125,6 +125,24 @@ const UNACCEPTED_SEND_WINDOW_MS = 30_000;
 /** The wait before re-sending when the gateway does not name one. */
 const UNACCEPTED_SEND_RETRY_MS = 100;
 
+/**
+ * The longest wait between re-sends. Each wait doubles from the gateway's, so a
+ * runtime that stays down costs a handful of sends per window rather than hundreds.
+ */
+const UNACCEPTED_SEND_MAX_RETRY_MS = 2_000;
+
+/**
+ * `ApiError.reason` of a send the gateway kept refusing as not accepted until the
+ * retry window ran out. The runtime may have crashed; `RevertSession` is safe to
+ * offer, because it returns a healthy Session unchanged.
+ */
+export const SEND_NOT_ACCEPTED = "KAGENT_SEND_NOT_ACCEPTED";
+
+/** Whether `error` is a send the gateway never accepted, after every retry. */
+export function isSendNotAccepted(error: unknown): boolean {
+  return error instanceof ApiError && error.reason === SEND_NOT_ACCEPTED;
+}
+
 /** `ErrorInfo.domain` of every error the A2A server writes (`a2a.ProtocolDomain`). */
 const A2A_PROTOCOL_DOMAIN = "a2a-protocol.org";
 
@@ -147,6 +165,15 @@ function unacceptedSendRetryMs(error: unknown): number | undefined {
   if (!info) return undefined;
   const wait = Number.parseInt(info.metadata.retryAfterMs ?? "", 10);
   return Number.isFinite(wait) && wait >= 0 ? wait : UNACCEPTED_SEND_RETRY_MS;
+}
+
+/** The refusal of a send the gateway never accepted, tagged for the page to offer a revert. */
+function sendNotAcceptedError(error: unknown): ApiError {
+  const failure = fromConnectError(error, "A2AService/SendStreamingMessage");
+  return new ApiError("The agent's runtime did not accept the message. It may have crashed.", {
+    kind: failure.kind, status: failure.status, code: failure.code,
+    reason: SEND_NOT_ACCEPTED, url: failure.url, cause: error,
+  });
 }
 
 /** Resolves after `ms`, or rejects with the abort as soon as `signal` fires. */
@@ -636,14 +663,16 @@ export class A2AGrpcChatClient implements ChatClient {
      * it, or a stream that stayed open long enough to have been cut for being quiet.
      *
      * Before any frame, a send the gateway proves it did not accept is sent again,
-     * identically. That is how a crashed runtime recovers: the send that finds it
-     * reverts it, and the same message ID can never be accepted twice. Once a frame
-     * has arrived, the message was accepted and is never re-sent.
+     * identically, after a wait that doubles up to `UNACCEPTED_SEND_MAX_RETRY_MS`.
+     * With automatic recovery enabled, that is how a crashed runtime recovers: the
+     * send that finds it reverts it, and the same message ID can never be accepted
+     * twice. Once a frame has arrived, the message was accepted and is never re-sent.
      */
     let taskId = "";
     let settled = false;
     const follow = async function* (): AsyncGenerator<StreamFrame> {
       const resendUntil = Date.now() + UNACCEPTED_SEND_WINDOW_MS;
+      let resendWait = 0;
       let received = false;
       let source = stream;
       for (let failures = 0; ; ) {
@@ -666,8 +695,10 @@ export class A2AGrpcChatClient implements ChatClient {
           return;
         } catch (error) {
           const resendAfter = received ? undefined : unacceptedSendRetryMs(error);
-          if (resendAfter !== undefined && !signal?.aborted && Date.now() + resendAfter <= resendUntil) {
-            await pause(resendAfter, signal);
+          if (resendAfter !== undefined && !signal?.aborted) {
+            resendWait = Math.max(resendAfter, Math.min(resendWait * 2, UNACCEPTED_SEND_MAX_RETRY_MS));
+            if (Date.now() + resendWait > resendUntil) throw sendNotAcceptedError(error);
+            await pause(resendWait, signal);
             source = client.sendStreamingMessage(request, options);
             continue;
           }

@@ -17,6 +17,7 @@ import { TaskPushNotificationsModal } from "@/components/chat/TaskPushNotificati
 import { isLifecycleBusy, isRuntimeLost } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
 import {
+  ApiError,
   apiClient,
   canForkFrom,
   useAgentInstance,
@@ -62,7 +63,7 @@ function notReadyCopy(
     return {
       title: "Recovering this conversation after a crash",
       description:
-        "The agent's runtime crashed and is being restored from its last snapshot. The agent accepts messages again once that finishes, and does not remember messages sent after that snapshot.",
+        "The agent's runtime crashed and is being restored from its last snapshot. The agent accepts messages again once that finishes, and does not remember messages sent after that snapshot. If recovery does not finish, select Recover to try again.",
     };
   }
   return {
@@ -489,6 +490,37 @@ export function AgentChatPage() {
     refreshInstance.current = instance.refresh;
   });
 
+  /*
+   * Reverts the runtime on the reader's request.
+   *
+   * Offered while a recovery is pending, since a failed one stays FAILED/REVERT until
+   * something retries it, and when sends keep being refused, since a crashed runtime
+   * looks READY until something observes it. Either way it is explicit, so it works
+   * whether or not the controller recovers on send. A healthy runtime is returned
+   * unchanged, and one that cannot be recovered is recorded as lost.
+   */
+  const [isRecovering, setRecovering] = useState(false);
+  const recover = useCallback(async () => {
+    if (!id) return;
+    setRecovering(true);
+    try {
+      const recovered = await apiClient.agentInstances.revert(id);
+      toast.success(recovered.state === "ready"
+        ? "The runtime is ready. Retry your message."
+        : "Recovery finished.");
+    } catch (cause: unknown) {
+      console.error("Could not recover the conversation:", cause);
+      toast.error(cause instanceof ApiError && cause.code === "Aborted"
+        ? "The runtime is busy with another operation. Try again shortly."
+        : `Could not recover: ${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setRecovering(false);
+      await refreshInstance.current().catch((cause: unknown) => {
+        console.error("Could not re-read the conversation:", cause);
+      });
+    }
+  }, [id]);
+
   useEffect(() => {
     if (!isBusy) return;
     let inFlight = false;
@@ -663,6 +695,11 @@ export function AgentChatPage() {
               showIcon
               data-testid="chat-not-ready"
               {...notReadyCopy(instance.data, (checkpoints.data ?? []).some(canForkFrom))}
+              action={instance.data.operation === "revert" ? (
+                <Button size="small" loading={isRecovering} onClick={() => void recover()}>
+                  Recover
+                </Button>
+              ) : undefined}
             />
           ) : null}
 
@@ -678,6 +715,8 @@ export function AgentChatPage() {
             onDeleteCheckpoint={deleteCheckpoint}
             // The mock chat client has no A2A push store; hide the control rather
             // than showing a backend error over an otherwise scripted transcript.
+            onRecover={() => void recover()}
+            isRecovering={isRecovering}
             onManageTaskPush={isMockMode ? undefined : (taskId) => {
               if (conversation) setPushTask({ conversationId: conversation.id, taskId });
             }}

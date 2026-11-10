@@ -291,6 +291,7 @@ export interface OperationMap {
     output: void;
   };
 
+  "agentInstances.revert": { input: AgentInstanceRef; output: AgentInstance };
 
   "harnesses.list": { input: { namespace?: string }; output: Harness[] };
   /** Creates a harness from a whole custom resource. */

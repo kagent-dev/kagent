@@ -9,6 +9,7 @@ import { ChatMessageItem } from "./ChatMessageItem";
 import { CheckpointDivider } from "./CheckpointDivider";
 import { groupByCheckpoint } from "./messageCheckpoints";
 import { scrollbarStyles } from "@/components/agent/controlStyles";
+import { isSendNotAccepted } from "@/api/chat/a2aGrpcChatClient";
 
 /** Stable, so a transcript with no boundaries does not regroup on every render. */
 const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
@@ -62,6 +63,8 @@ export function ChatTranscript({
   onFork,
   onDeleteCheckpoint,
   onManageTaskPush,
+  onRecover,
+  isRecovering = false,
   checkpointsById,
   checkpointByMessage,
 }: {
@@ -83,6 +86,13 @@ export function ChatTranscript({
   onDeleteCheckpoint?: (checkpointId: string) => void;
   /** Opens active callbacks for one A2A task. */
   onManageTaskPush?: (taskId: string) => void;
+  /**
+   * Reverts a runtime that may have crashed, offered when sends keep being refused
+   * as not accepted. Absent when read-only.
+   */
+  onRecover?: () => void;
+  /** A revert from `onRecover` is in flight. */
+  isRecovering?: boolean;
   /** The boundaries the controller has described, for the line to name itself by. */
   checkpointsById?: ReadonlyMap<string, Checkpoint>;
   /** Which boundary each message sits inside, for the messages that sit inside one. */
@@ -447,18 +457,38 @@ export function ChatTranscript({
       ) : null}
 
       {chat.turnError && !chat.pendingQuestion ? (
-        <Alert
-          type="error"
-          showIcon
-          data-testid="chat-turn-error"
-          title="The agent could not finish this turn"
-          description={chat.turnError.message}
-          action={!readOnly && (
-            <Button size="small" onClick={() => void chat.retry()}>
-              Retry
-            </Button>
-          )}
-        />
+        isSendNotAccepted(chat.turnError) && onRecover && !readOnly ? (
+          <Alert
+            type="error"
+            showIcon
+            data-testid="chat-turn-error"
+            title="The agent's runtime may have crashed"
+            description="The runtime kept refusing this message. Recover restores a crashed runtime from its last snapshot and leaves a running one alone. Then retry the message."
+            action={
+              <span css={{ display: "flex", gap: 8 }}>
+                <Button size="small" type="primary" loading={isRecovering} onClick={onRecover}>
+                  Recover
+                </Button>
+                <Button size="small" disabled={isRecovering} onClick={() => void chat.retry()}>
+                  Retry
+                </Button>
+              </span>
+            }
+          />
+        ) : (
+          <Alert
+            type="error"
+            showIcon
+            data-testid="chat-turn-error"
+            title="The agent could not finish this turn"
+            description={chat.turnError.message}
+            action={!readOnly && (
+              <Button size="small" onClick={() => void chat.retry()}>
+                Retry
+              </Button>
+            )}
+          />
+        )
       ) : null}
 
       {/*

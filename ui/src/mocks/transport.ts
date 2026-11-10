@@ -847,6 +847,11 @@ on(SessionService.method.getSession, (input, call) => ({
   ),
 }));
 
+// Fixture runtimes never crash, so a revert returns the Session unchanged.
+on(SessionService.method.revertSession, (input, call) => ({
+  session: agentInstanceMessage(instanceFor(requireInstanceId(input.sessionId), call)),
+}));
+
 on(SessionService.method.createSession, (input, call) => {
   const namespace = requireNamespace(input.agent?.namespace ?? "");
   if (!input.agent?.name.trim()) throw new ConnectError("an Agent is required", Code.InvalidArgument);

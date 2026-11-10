@@ -995,6 +995,21 @@ describe("agent instances", () => {
     expect(isNotFound(missing)).toBe(true);
   });
 
+  it("reverts through the existing Session RPC", async () => {
+    let received: string | undefined;
+    serve(({ service }) => {
+      service(SessionService, {
+        revertSession: (request) => {
+          received = request.sessionId;
+          return { session: instanceMessage({ state: RuntimeState.SUSPENDED }) };
+        },
+      });
+    });
+    const reverted = await apiClient.agentInstances.revert(INSTANCE_ID);
+    expect(received).toBe(INSTANCE_ID);
+    expect(reverted.state).toBe("suspended");
+  });
+
 });
 
 describe("session shares", () => {

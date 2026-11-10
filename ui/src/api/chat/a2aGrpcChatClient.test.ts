@@ -25,7 +25,7 @@ import {
 } from "@/generated/a2a_pb";
 import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
 import { setApiTransport } from "../transport";
-import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
+import { A2AGrpcChatClient, isSendNotAccepted, SEND_NOT_ACCEPTED } from "./a2aGrpcChatClient";
 import { LinkFile } from "./attachments";
 import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
@@ -2186,6 +2186,7 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
       throw notAccepted();
     });
     expect(error).toMatchObject({ code: "FailedPrecondition" });
+    expect(isSendNotAccepted(error)).toBe(false);
     expect(requests).toHaveLength(1);
   });
 
@@ -2200,18 +2201,31 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
       throw refusal;
     });
     expect(error).toBeDefined();
+    expect(isSendNotAccepted(error)).toBe(false);
     expect(requests).toHaveLength(1);
   });
 
-  it("surfaces the refusal once the retry window is spent", async () => {
+  it("doubles the wait between re-sends, up to two seconds", async () => {
+    const sentAt: number[] = [];
+    await run(async function* () {
+      sentAt.push(Date.now());
+      yield* [];
+      throw notAccepted();
+    });
+    const waits = sentAt.slice(1).map((at, i) => at - sentAt[i]);
+    expect(waits.slice(0, 6)).toEqual([100, 200, 400, 800, 1_600, 2_000]);
+    expect(Math.max(...waits)).toBe(2_000);
+  });
+
+  it("surfaces the refusal as not accepted once the retry window is spent", async () => {
     const { error, requests } = await run(async function* () {
       yield* [];
       throw notAccepted();
     });
-    expect(error).toMatchObject({ code: "FailedPrecondition" });
-    // One send every 100 ms for 30 s, and not one more.
-    expect(requests.length).toBeGreaterThan(250);
-    expect(requests.length).toBeLessThanOrEqual(301);
+    expect(error).toMatchObject({ code: "FailedPrecondition", reason: SEND_NOT_ACCEPTED });
+    expect(isSendNotAccepted(error)).toBe(true);
+    // 100 ms doubling to 2 s within 30 s: 19 sends, rather than one every 100 ms.
+    expect(requests).toHaveLength(19);
   });
 
   it("stops re-sending when the reader presses stop", async () => {
