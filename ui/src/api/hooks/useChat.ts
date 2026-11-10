@@ -431,7 +431,7 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         // Nothing was ever filed under this message, so it is taken back off screen
         // — see `refused`. `taskRef` is the test for "the server started a turn",
         // because the first status frame is what names the task.
-        if (refused && !taskRef.current && !cancelWhenNamed) {
+        if (refused && !taskRef.current) {
           setTranscript((current) =>
             withMessages(current, key, (messages) =>
               messages.filter((existing) => existing.id !== messageId),

@@ -116,4 +116,39 @@ describe("useChat cancel", () => {
     expect(cancel).not.toHaveBeenCalled();
     expect(hook.result.current.turnState).toBe("canceled");
   });
+
+  it("takes back a refused answer and restores the question when stop came first", async () => {
+    const parked = { kind: "unknown" as const, taskId: "parked-task" };
+    const cancel = vi.fn<ChatClient["cancel"]>(async () => {});
+    let refuse: (() => void) | undefined;
+    setChatClientFactory(() => ({
+      protocolVersion: "test",
+      history: async () => ({ messages: [], awaitingReply: parked }),
+      cancel,
+      send: () =>
+        (async function* (): AsyncIterable<ChatEvent> {
+          await new Promise<void>((resolve) => (refuse = resolve));
+          yield* [] as ChatEvent[];
+          throw new Error("a question is still waiting");
+        })(),
+    }));
+    const hook = renderHook(() => useChat(CONVERSATION));
+    await waitFor(() => expect(hook.result.current.pendingQuestion).toEqual(parked));
+
+    await act(async () => {
+      void hook.result.current.send("my answer");
+    });
+    await act(async () => {
+      await hook.result.current.cancel();
+    });
+    await act(async () => {
+      refuse?.();
+    });
+
+    expect(hook.result.current.messages.filter((m) => m.role === "user")).toEqual([]);
+    expect(hook.result.current.pendingQuestion).toEqual(parked);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(hook.result.current.turnPhase).not.toBe("working");
+    expect(hook.result.current.turnState).not.toBe("working");
+  });
 });
