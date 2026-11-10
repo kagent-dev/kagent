@@ -80,6 +80,19 @@ func (m Materialization) ClaudeFormatPluginRoots() []string {
 	return roots
 }
 
+// BinDirs lists each plugin's bin directory, in plugin order. Runtimes add them
+// to PATH; this is a kagent convention, not part of the Agent Plugins spec.
+func (m Materialization) BinDirs() []string {
+	var dirs []string
+	for _, plugin := range m.plugins {
+		dir := filepath.Join(plugin.root, "bin")
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
 // Materialize fetches Agent Plugin resources and copies explicitly selected
 // skills into their runtime directory; Claude-format plugins are kept whole.
 // It does not load runtime configuration.
@@ -207,14 +220,16 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		if !filepath.IsAbs(source.Directory) {
 			return "", fmt.Errorf("mounted artifact directory %q must be absolute", source.Directory)
 		}
-		root, err := validatedPackageRoot(source.Directory, source.Path)
+		// The size limits bound what kagent downloads and copies. A mounted
+		// image is already on the node and may hold a whole toolchain.
+		root, err := validatedPackageRoot(source.Directory, source.Path, false)
 		if err != nil {
 			return "", fmt.Errorf("validate mounted artifact: %w", err)
 		}
 		return root, nil
 	}
 	if _, err := os.Stat(destination); err == nil {
-		root, err := validatedPackageRoot(destination, source.Path)
+		root, err := validatedPackageRoot(destination, source.Path, true)
 		if err == nil {
 			for _, requiredFile := range requiredFiles {
 				if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(requiredFile))); err == nil && info.Mode().IsRegular() {
@@ -248,28 +263,28 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 	default:
 		return "", fmt.Errorf("artifact source is required")
 	}
-	return validatedPackageRoot(destination, source.Path)
+	return validatedPackageRoot(destination, source.Path, true)
 }
 
-func validatedPackageRoot(root, relative string) (string, error) {
+func validatedPackageRoot(root, relative string, enforceLimits bool) (string, error) {
 	selected, err := containedPath(root, relative)
 	if err != nil {
 		return "", err
 	}
-	if err := validatePackage(selected); err != nil {
+	if err := validatePackage(selected, enforceLimits); err != nil {
 		return "", err
 	}
 	return selected, nil
 }
 
-func validatePackage(root string) error {
+func validatePackage(root string, enforceLimits bool) error {
 	var entries, bytes int64
 	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		entries++
-		if entries > maxPackageEntries {
+		if enforceLimits && entries > maxPackageEntries {
 			return fmt.Errorf("artifact contains more than %d filesystem entries", maxPackageEntries)
 		}
 		info, err := entry.Info()
@@ -281,7 +296,7 @@ func validatePackage(root string) error {
 		}
 		if info.Mode().IsRegular() {
 			bytes += info.Size()
-			if bytes > maxPackageBytes {
+			if enforceLimits && bytes > maxPackageBytes {
 				return fmt.Errorf("artifact exceeds %d bytes", maxPackageBytes)
 			}
 		}
@@ -342,6 +357,9 @@ func copySkill(source, destination string) error {
 	info, err := os.Stat(filepath.Join(source, "SKILL.md"))
 	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("SKILL.md is required")
+	}
+	if err := validatePackage(source, true); err != nil {
+		return err
 	}
 	if err := os.RemoveAll(destination); err != nil {
 		return err

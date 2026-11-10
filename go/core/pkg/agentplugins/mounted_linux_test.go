@@ -32,7 +32,7 @@ func TestMaterializeMountedPackageRejectsNamedPipe(t *testing.T) {
 			require.NoError(t, unix.Mkfifo(pipe, 0o600))
 			// Check rejection before materializing so a regression fails without
 			// blocking the test on the FIFO in copySkill.
-			require.ErrorContains(t, validatePackage(root), "unsupported file")
+			require.ErrorContains(t, validatePackage(root, true), "unsupported file")
 			paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
 			_, err := Materialize(t.Context(), agentplugin.Resources{Skills: []agentplugin.Skill{{
 				Name: "review", Source: agentplugin.Source{Directory: root, Path: tt.skillPath},
