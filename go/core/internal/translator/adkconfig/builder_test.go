@@ -111,6 +111,25 @@ func TestBuildCompaction(t *testing.T) {
 		require.Len(t, result.Models, 1)
 	})
 
+	t.Run("interval without overlap defaults overlap to zero", func(t *testing.T) {
+		// The Harness CRD lets overlapSize be omitted, but the Python runtime's
+		// ADK requires compaction_interval and overlap_size together. Go ADK
+		// already treats an unset overlap as 0, so both runtimes agree.
+		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{CompactionInterval: new(5)}))
+		require.NoError(t, err)
+		require.Equal(t, &configv1.ADKContextConfig{Compaction: &configv1.ADKCompressionConfig{
+			CompactionInterval: new(int64(5)), OverlapSize: new(int64(0)),
+		}}, result.Config.ContextConfig)
+	})
+
+	t.Run("token threshold alone leaves overlap unset", func(t *testing.T) {
+		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{TokenThreshold: new(50000), EventRetentionSize: new(10)}))
+		require.NoError(t, err)
+		require.Equal(t, &configv1.ADKContextConfig{Compaction: &configv1.ADKCompressionConfig{
+			TokenThreshold: new(int64(50000)), EventRetentionSize: new(int64(10)),
+		}}, result.Config.ContextConfig)
+	})
+
 	t.Run("dedicated summarizer model", func(t *testing.T) {
 		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
 			CompactionInterval: new(2),

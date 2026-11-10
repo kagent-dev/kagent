@@ -85,7 +85,7 @@ jobs:
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
         with:
           cache-key: kagent-e2e
           platforms: linux/amd64
@@ -98,7 +98,7 @@ jobs:
 
       - name: Install Kind
         id: kind
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           version: v0.33.0
           install_only: true
@@ -514,6 +514,9 @@ jobs:
         # Validate packaged runtime defaults without accessing an image registry.
         run: bash scripts/package-release-charts_test.sh
 
+      - name: Test CLI install script
+        run: bash scripts/get-kagent_test.sh
+
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
@@ -599,7 +602,7 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
         with:
           cache-key: kagent-build-${{ matrix.image }}
           platforms: linux/amd64,linux/arm64

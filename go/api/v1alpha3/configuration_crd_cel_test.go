@@ -198,6 +198,22 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("Harness rejects empty workload command and args", func(t *testing.T) {
+		for _, field := range []string{"command", "args"} {
+			t.Run(field, func(t *testing.T) {
+				harness := validHarness(namespace, "empty-"+field, HarnessSpec{Kagent: &KagentHarness{}})
+				harness.SetGroupVersionKind(GroupVersion.WithKind("Harness"))
+				data, err := json.Marshal(harness)
+				require.NoError(t, err)
+				object := &unstructured.Unstructured{}
+				require.NoError(t, object.UnmarshalJSON(data))
+				require.NoError(t, unstructured.SetNestedStringSlice(object.Object, []string{}, "spec", "workload", field))
+				err = cl.Create(ctx, object)
+				require.ErrorContains(t, err, "spec.workload."+field+" in body should have at least 1 items")
+			})
+		}
+	})
+
 	t.Run("Harness image defaulting", func(t *testing.T) {
 		for _, variant := range []struct {
 			name string
@@ -296,6 +312,29 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				BYO: &BYOHarness{},
 			}),
 			wantReject: "BYO harnesses must specify workload.command",
+		},
+		{
+			name: "Claude Harness rejects workload command",
+			object: validHarness(namespace, "claude-command", HarnessSpec{
+				Claude:   &ClaudeHarness{},
+				Workload: HarnessWorkload{Command: []string{"/bin/sh"}},
+			}),
+			wantReject: "Claude harnesses do not support workload.command or workload.args",
+		},
+		{
+			name: "Codex Harness rejects workload args",
+			object: validHarness(namespace, "codex-args", HarnessSpec{
+				Codex:    &CodexHarness{},
+				Workload: HarnessWorkload{Args: []string{"--flag"}},
+			}),
+			wantReject: "Codex harnesses do not support workload.command or workload.args",
+		},
+		{
+			name: "valid kagent Harness with workload command",
+			object: validHarness(namespace, "kagent-command", HarnessSpec{
+				Kagent:   &KagentHarness{},
+				Workload: HarnessWorkload{Command: []string{"/agent"}, Args: []string{"serve"}},
+			}),
 		},
 		{
 			name:       "AgentTemplate tool requires one source",
