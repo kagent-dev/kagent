@@ -54,6 +54,14 @@ func (s *sessionAuthorizationStore) SetSessionNameIfEmpty(ctx context.Context, i
 	return &apiv1.Session{Id: session.Id, Creator: session.Creator, Agent: session.Agent, Name: name}, true, nil
 }
 
+func (s *sessionAuthorizationStore) SetSessionRecap(ctx context.Context, id, owner, text string, turnCount int32) (*apiv1.Session, error) {
+	session, err := s.GetSession(ctx, id, owner)
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1.Session{Id: session.Id, Creator: session.Creator, Agent: session.Agent, Recap: &apiv1.SessionRecap{Text: text, TurnCount: turnCount}}, nil
+}
+
 func (s *sessionAuthorizationStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
 	s.lists.Add(1)
 	var rows []*apiv1.Session

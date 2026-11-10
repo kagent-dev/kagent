@@ -48,3 +48,30 @@ func TestTitlerSkipsThoughts(t *testing.T) {
 		assert.Equal(t, "the answer", title)
 	})
 }
+
+func TestRecapperSkipsThoughts(t *testing.T) {
+	t.Run("Given a model that returns a thought part, when a recap is requested, assert that only the text part is returned", func(t *testing.T) {
+		recap, err := (&Recapper{llm: thoughtModel{}}).Recap(t.Context(), "User: hello")
+
+		require.NoError(t, err)
+		assert.Equal(t, "the answer", recap)
+	})
+}
+
+func TestRecapper(t *testing.T) {
+	t.Run("Given a model, when a recap is requested, assert that the prompt carries the transcript and the reply is returned", func(t *testing.T) {
+		model := &scriptedModel{}
+		recapper := &Recapper{llm: model}
+
+		recap, err := recapper.Recap(t.Context(), "User: my login page is broken")
+
+		require.NoError(t, err)
+		assert.Equal(t, "reply 1", recap)
+		prompt := model.request(0).Contents[0].Parts[0].Text
+		assert.Contains(t, prompt, recapPrompt)
+		assert.Contains(t, recapPrompt, "one or two short sentences")
+		assert.Contains(t, recapPrompt, `address the reader as "you"`)
+		assert.Contains(t, recapPrompt, `never call them "the user"`)
+		assert.Contains(t, prompt, "User: my login page is broken")
+	})
+}

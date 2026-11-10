@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import type { ChatController, ChatTurnPhase, Checkpoint } from "@/api";
+import type { ChatController, ChatTurnPhase, Checkpoint, ConversationRecap } from "@/api";
 import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
 import { CheckpointDivider } from "./CheckpointDivider";
 import { groupByCheckpoint } from "./messageCheckpoints";
+import { userTurnCount } from "./messageText";
+import { RecapCard } from "./RecapCard";
+import { useAwayRecap } from "./useAwayRecap";
 import { scrollbarStyles } from "@/components/agent/controlStyles";
 
 /** Stable, so a transcript with no boundaries does not regroup on every render. */
@@ -64,6 +67,9 @@ export function ChatTranscript({
   onManageTaskPush,
   checkpointsById,
   checkpointByMessage,
+  recap,
+  recapTarget,
+  onAway,
 }: {
   chat: ChatController;
   /** Suppresses replies, approvals, cancellation, and retry controls. */
@@ -87,6 +93,12 @@ export function ChatTranscript({
   checkpointsById?: ReadonlyMap<string, Checkpoint>;
   /** Which boundary each message sits inside, for the messages that sit inside one. */
   checkpointByMessage?: ReadonlyMap<string, string>;
+  /** The conversation's stored recap, shown after the last message when the reader returns. */
+  recap?: ConversationRecap;
+  /** Where activity counts as being in the chat; the page passes the pane holding the composer too. */
+  recapTarget?: RefObject<HTMLElement | null>;
+  /** Called when the reader comes back from an absence. */
+  onAway?: () => void;
   /**
    * An `ask_user` answer has just gone.
    *
@@ -120,6 +132,8 @@ export function ChatTranscript({
   const bottomRef = useRef<HTMLDivElement>(null);
   /** The box that scrolls, which is this component's own — see the observer below. */
   const scrollRef = useRef<HTMLDivElement>(null);
+  const turnCount = useMemo(() => userTurnCount(chat.messages), [chat.messages]);
+  const { show: showRecap, dismiss: dismissRecap } = useAwayRecap({ recap, turnCount, target: recapTarget ?? scrollRef, onAway });
   const [isAtBottom, setAtBottom] = useState(true);
   /** How far short of the end still counts as being at it. */
   const AT_BOTTOM_SLACK = 32;
@@ -406,6 +420,8 @@ export function ChatTranscript({
           return drawn;
         })
       )}
+
+      {showRecap && recap ? <RecapCard recap={recap} onDismiss={dismissRecap} /> : null}
 
       {statusLabel ? (
         <Tag

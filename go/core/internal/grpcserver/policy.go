@@ -87,6 +87,7 @@ func DefaultMethodPolicies() MethodPolicies {
 	// operation, and it must not inherit the read mode its neighbours carry.
 	policies[apiv1.SessionService_UpdateSessionName_FullMethodName] = auth.AccessUpdate
 	policies[apiv1.SessionService_SetSessionNameIfEmpty_FullMethodName] = auth.AccessUpdate
+	policies[apiv1.SessionService_SetSessionRecap_FullMethodName] = auth.AccessUpdate
 	policies[apiv1.SessionService_RevertSession_FullMethodName] = auth.AccessUpdate
 	policies[apiv1.SessionService_DeleteSession_FullMethodName] = auth.AccessDelete
 	policies[apiv1.SessionService_CreateSessionShare_FullMethodName] = auth.AccessCreate

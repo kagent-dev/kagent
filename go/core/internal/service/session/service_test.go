@@ -53,6 +53,11 @@ type serviceTestStore struct {
 	renameErr      error
 	setNameUserID  string
 	setNameCalls   int
+	recapCalls     int
+	recapUserID    string
+	recapText      string
+	recapTurnCount int32
+	recapResult    *apiv1.Session
 	setNameResult  *apiv1.Session
 	setNameApplied bool
 	getCreator     string
@@ -119,6 +124,15 @@ func (s *serviceTestStore) SetSessionNameIfEmpty(_ context.Context, _, userID, _
 		return nil, false, s.renameErr
 	}
 	return s.setNameResult, s.setNameApplied, nil
+}
+
+func (s *serviceTestStore) SetSessionRecap(_ context.Context, _, userID, text string, turnCount int32) (*apiv1.Session, error) {
+	s.recapCalls++
+	s.recapUserID, s.recapText, s.recapTurnCount = userID, text, turnCount
+	if s.renameErr != nil {
+		return nil, s.renameErr
+	}
+	return s.recapResult, nil
 }
 
 func (s *serviceTestStore) CreateSessionShare(_ context.Context, share *apiv1.SessionShare, tokenHash []byte, userID string) (*apiv1.SessionShare, error) {
@@ -509,6 +523,52 @@ func TestServiceSetNameIfEmptyAuthorizesAsAWriteAndScopesToTheOwner(t *testing.T
 		_, _, err := service.SetNameIfEmpty(serviceTestContext("alice"), "not-a-uuid", "Generated title")
 		if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
 			t.Fatalf("SetNameIfEmpty() error = %v, want code %s", err, serviceerrors.CodeInvalidArgument)
+		}
+	})
+}
+
+func TestServiceSetRecapAuthorizesAsAWriteAndScopesToTheOwner(t *testing.T) {
+	sessionID := "11111111-1111-4111-8111-111111111111"
+
+	t.Run("Given an unauthorized caller, when it sets a recap, assert that the store is not reached", func(t *testing.T) {
+		store := &serviceTestStore{}
+		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
+		_, err := service.SetRecap(serviceTestContext("alice"), sessionID, "Fixed the ingress.", 4)
+		if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+			t.Fatalf("SetRecap() error = %v, want code %s", err, serviceerrors.CodePermissionDenied)
+		}
+		if store.recapCalls != 0 {
+			t.Fatal("SetRecap() reached the store despite being unauthorized")
+		}
+	})
+
+	t.Run("Given an authorized owner, when it sets a recap, assert that the update verb is checked and the owner scopes the write", func(t *testing.T) {
+		authorizer := &recordingAuthorizer{}
+		store := &serviceTestStore{recapResult: &apiv1.Session{Id: sessionID, Recap: &apiv1.SessionRecap{Text: "Fixed the ingress.", TurnCount: 4}}}
+		service := NewService(store, authorizer, serviceTestWorkflow{})
+		session, err := service.SetRecap(serviceTestContext("alice"), sessionID, "Fixed the ingress.", 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if authorizer.verb != auth.VerbUpdate || store.recapUserID != "alice" || store.recapText != "Fixed the ingress." || store.recapTurnCount != 4 || session.GetRecap().GetText() != "Fixed the ingress." {
+			t.Fatalf("verb = %q, owner = %q, text = %q, turns = %d, session = %+v", authorizer.verb, store.recapUserID, store.recapText, store.recapTurnCount, session)
+		}
+	})
+
+	t.Run("Given a missing session, when a recap is set, assert that the error is not found", func(t *testing.T) {
+		store := &serviceTestStore{renameErr: database.ErrNotFound}
+		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+		_, err := service.SetRecap(serviceTestContext("alice"), sessionID, "Fixed the ingress.", 4)
+		if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
+			t.Fatalf("SetRecap() error = %v, want code %s", err, serviceerrors.CodeNotFound)
+		}
+	})
+
+	t.Run("Given a malformed id, when a recap is set, assert that the argument is rejected", func(t *testing.T) {
+		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{})
+		_, err := service.SetRecap(serviceTestContext("alice"), "not-a-uuid", "Fixed the ingress.", 4)
+		if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
+			t.Fatalf("SetRecap() error = %v, want code %s", err, serviceerrors.CodeInvalidArgument)
 		}
 	})
 }

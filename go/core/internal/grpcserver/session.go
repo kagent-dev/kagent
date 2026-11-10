@@ -59,6 +59,14 @@ func (s *sessionServer) SetSessionNameIfEmpty(ctx context.Context, request *apiv
 	return &apiv1.SetSessionNameIfEmptyResponse{Session: session, Applied: applied}, nil
 }
 
+func (s *sessionServer) SetSessionRecap(ctx context.Context, request *apiv1.SetSessionRecapRequest) (*apiv1.SetSessionRecapResponse, error) {
+	session, err := s.service.SetRecap(ctx, request.GetSessionId(), request.GetText(), request.GetTurnCount())
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1.SetSessionRecapResponse{Session: session}, nil
+}
+
 func (s *sessionServer) RevertSession(ctx context.Context, request *apiv1.RevertSessionRequest) (*apiv1.RevertSessionResponse, error) {
 	session, err := s.service.Revert(ctx, request.GetSessionId())
 	if err != nil {

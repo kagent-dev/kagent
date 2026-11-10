@@ -54,6 +54,8 @@ type KAgentExecutorConfig struct {
 	// ControllerClient and Titler together enable first-turn chat titles.
 	ControllerClient *controllerclient.Client
 	Titler           Titler
+	// Recapper, with ControllerClient, enables chat recaps after longer chats.
+	Recapper Recapper
 }
 
 // Titler generates a short chat title from the first user message.
@@ -75,6 +77,10 @@ type KAgentExecutor struct {
 	controllerClient        *controllerclient.Client
 	titler                  Titler
 	titleTimeout            time.Duration
+	recapper                Recapper
+	recapWait               time.Duration
+	recapMu                 sync.Mutex
+	recap                   *pendingRecap
 }
 
 type structuredOutput struct {
@@ -149,6 +155,8 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		controllerClient:        cfg.ControllerClient,
 		titler:                  cfg.Titler,
 		titleTimeout:            defaultTitleTimeout,
+		recapper:                cfg.Recapper,
+		recapWait:               recapCleanupWait,
 	}, nil
 }
 
@@ -326,6 +334,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			yield(nil, err)
 			return
 		}
+		e.cancelRecap()
 		finishTitle := e.startTitle(ctx, reqCtx.Message, sessionID, created)
 
 		hitlActivated := HitlActivated(ctx)
@@ -380,6 +389,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			if endsTurn(event, err) {
 				if turnCompleted(event, err) {
 					finishTitle(ctx)
+					e.startRecap(ctx, userID, sessionID)
 				}
 				e.flushTurnSpans(ctx)
 			}
@@ -510,7 +520,7 @@ func turnCompleted(event a2atype.Event, err error) bool {
 func cleanTitle(raw string) string {
 	// Keep only the first non-empty line, with whitespace collapsed.
 	var title string
-	for _, l := range strings.Split(raw, "\n") {
+	for l := range strings.SplitSeq(raw, "\n") {
 		if words := strings.Fields(l); len(words) > 0 {
 			title = strings.Join(words, " ")
 			break
@@ -604,6 +614,7 @@ func (e *KAgentExecutor) Cleanup(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 	if cleaner, ok := e.builtin.(a2asrv.AgentExecutionCleaner); ok {
 		cleaner.Cleanup(ctx, reqCtx, result, cause)
 	}
+	e.waitRecap(ctx, reqCtx.ContextID)
 }
 
 // extractSessionName extracts session name from the first text part of a message.

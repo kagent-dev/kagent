@@ -55,3 +55,51 @@ func (t *Titler) Title(ctx context.Context, userMessage string) (string, error) 
 	}
 	return title.String(), nil
 }
+
+const recapPrompt = "Write a recap of one or two short sentences for the person who is reading the chat below: " +
+	"where things stand, and what comes next. " +
+	`Always address the reader as "you" and refer to the assistant as "I"; never call them "the user". ` +
+	`For example: "You asked about X and I answered Y. Next, you could do Z." ` +
+	"Use the language of the conversation. " +
+	"Reply with plain text only: no markdown, no headings, no lists.\n\n" +
+	"Conversation:\n"
+
+// Recapper writes short chat recaps with the agent's own model.
+type Recapper struct {
+	llm    adkmodel.LLM
+	config *genai.GenerateContentConfig
+}
+
+// NewRecapper builds a Recapper on the agent's configured model.
+func NewRecapper(ctx context.Context, modelConfig *configv1.ADKModelConfig) (*Recapper, error) {
+	if modelConfig == nil {
+		return nil, errors.New("recap generation needs a model")
+	}
+	llm, err := CreateLLM(ctx, modelConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create recap model: %w", err)
+	}
+	return &Recapper{llm: llm, config: generateContentConfig(modelConfig)}, nil
+}
+
+// Recap returns the model's raw recap of the transcript.
+func (r *Recapper) Recap(ctx context.Context, transcript string) (string, error) {
+	req := &adkmodel.LLMRequest{
+		Contents: []*genai.Content{genai.NewContentFromText(recapPrompt+transcript, genai.RoleUser)},
+		Config:   r.config,
+	}
+	var recap strings.Builder
+	for resp, err := range r.llm.GenerateContent(ctx, req, false) {
+		if err != nil {
+			return "", fmt.Errorf("failed to generate recap: %w", err)
+		}
+		if resp != nil && resp.Content != nil {
+			for _, part := range resp.Content.Parts {
+				if part != nil && !part.Thought {
+					recap.WriteString(part.Text)
+				}
+			}
+		}
+	}
+	return recap.String(), nil
+}

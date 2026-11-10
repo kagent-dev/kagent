@@ -656,7 +656,20 @@ const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
       "seed-task-2",
     ),
   ],
+  "c71a5d3e-92b4-4f08-a6e1-5d0b83f2c917": () => seededTurns("recap-current", 3),
+  "e03f8b64-17c9-4d52-b8a0-6a94d1e7f25b": () => seededTurns("recap-stale", 4),
 };
+
+/** `count` question-and-answer turns, for conversations that need a history of a given length. */
+function seededTurns(prefix: string, count: number): ChatMessage[] {
+  return Array.from({ length: count }, (_, i) => {
+    const task = `${prefix}-task-${i + 1}`;
+    return [
+      message(`${prefix}-${i + 1}-user`, "user", `Question ${i + 1}`, task),
+      message(`${prefix}-${i + 1}-reply`, "agent", `Answer ${i + 1}`, task),
+    ];
+  }).flat();
+}
 
 function message(
   id: string,

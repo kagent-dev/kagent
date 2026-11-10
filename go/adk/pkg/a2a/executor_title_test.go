@@ -13,10 +13,9 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
-
-	adksession "google.golang.org/adk/v2/session"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"

@@ -92,6 +92,16 @@ func (s *sessionStore) SetSessionNameIfEmpty(_ context.Context, id, _, name stri
 	return session, true, nil
 }
 
+func (s *sessionStore) SetSessionRecap(_ context.Context, id, _, _ string, _ int32) (*apiv1.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.byID[id]
+	if !ok {
+		return nil, database.ErrNotFound
+	}
+	return session, nil
+}
+
 func (s *sessionStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

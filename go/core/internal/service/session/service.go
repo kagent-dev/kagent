@@ -33,6 +33,7 @@ type store interface {
 	ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error)
 	UpdateSessionName(context.Context, string, string, string) (*apiv1.Session, error)
 	SetSessionNameIfEmpty(context.Context, string, string, string) (*apiv1.Session, bool, error)
+	SetSessionRecap(context.Context, string, string, string, int32) (*apiv1.Session, error)
 	CreateSessionShare(context.Context, *apiv1.SessionShare, []byte, string) (*apiv1.SessionShare, error)
 	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1.SessionShare, error)
 	DeleteSessionShare(context.Context, string, string) error
@@ -216,6 +217,27 @@ func (s *Service) SetNameIfEmpty(ctx context.Context, id, name string) (*apiv1.S
 		return nil, false, serviceerrors.NewInternal("Failed to name Session", err)
 	}
 	return session, applied, nil
+}
+
+// SetRecap stores the latest recap of the conversation. It authorizes as a
+// write, like Rename.
+func (s *Service) SetRecap(ctx context.Context, id, text string, turnCount int32) (*apiv1.Session, error) {
+	id, err := validateIdentity(id)
+	if err != nil {
+		return nil, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
+	if err != nil {
+		return nil, err
+	}
+	session, err := s.store.SetSessionRecap(ctx, id, creator, text, turnCount)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Session not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to store recap", err)
+	}
+	return session, nil
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {

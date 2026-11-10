@@ -46,6 +46,16 @@ func (s *runtimeNameStore) SetSessionNameIfEmpty(_ context.Context, id, owner, n
 	return s.session, true, nil
 }
 
+func (s *runtimeNameStore) SetSessionRecap(_ context.Context, id, owner, text string, turnCount int32) (*apiv1.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id != s.session.Id || owner != s.session.Creator {
+		return nil, database.ErrNotFound
+	}
+	s.session.Recap = &apiv1.SessionRecap{Text: text, TurnCount: turnCount}
+	return s.session, nil
+}
+
 func TestRuntimeCallerNamesOnlyItsOwnSession(t *testing.T) {
 	const ownID = "11111111-1111-4111-8111-111111111111"
 	const otherID = "22222222-2222-4222-8222-222222222222"
@@ -100,5 +110,52 @@ func TestRuntimeCallerNamesOnlyItsOwnSession(t *testing.T) {
 		_, err := client.SetSessionNameIfEmpty(ctx, &apiv1.SetSessionNameIfEmptyRequest{SessionId: ownID, Name: "Forged"})
 		assertGRPCCode(t, err, codes.NotFound)
 		require.Empty(t, store.session.GetName())
+	})
+}
+
+func TestRuntimeCallerStoresRecapOnlyOnItsOwnSession(t *testing.T) {
+	const ownID = "11111111-1111-4111-8111-111111111111"
+	const otherID = "22222222-2222-4222-8222-222222222222"
+	newClient := func(t *testing.T) (apiv1.SessionServiceClient, *runtimeNameStore, *jwttest.Issuer) {
+		store := &runtimeNameStore{session: &apiv1.Session{
+			Id: ownID, Creator: "owner",
+			A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(ownID), ""),
+			Agent:        &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
+		}}
+		issuer := jwttest.New(t)
+		verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
+		require.NoError(t, err)
+		connection := newConfigurationConnection(t, nil, func(config *Config) {
+			config.Authenticator = runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL)
+			config.SessionService = sessionsvc.NewService(store, runtimeauth.NewAuthorizer(pkgauth.NoopAuthorizer{}, store), nil)
+		})
+		return apiv1.NewSessionServiceClient(connection), store, issuer
+	}
+	actor := func(t *testing.T, issuer *jwttest.Issuer) context.Context {
+		token := issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(ownID), "actor-uid"))
+		return metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+token)
+	}
+
+	t.Run("Given a session, when its runtime stores a recap, assert that the recap is returned and persisted", func(t *testing.T) {
+		client, store, issuer := newClient(t)
+		response, err := client.SetSessionRecap(actor(t, issuer), &apiv1.SetSessionRecapRequest{SessionId: ownID, Text: "Fixed the ingress.", TurnCount: 4})
+		require.NoError(t, err)
+		require.Equal(t, "Fixed the ingress.", response.GetSession().GetRecap().GetText())
+		require.Equal(t, int32(4), store.session.GetRecap().GetTurnCount())
+	})
+
+	t.Run("Given another session, when a runtime stores a recap on it, assert that the call is denied", func(t *testing.T) {
+		client, store, issuer := newClient(t)
+		_, err := client.SetSessionRecap(actor(t, issuer), &apiv1.SetSessionRecapRequest{SessionId: otherID, Text: "Forged.", TurnCount: 1})
+		assertGRPCCode(t, err, codes.PermissionDenied)
+		require.Nil(t, store.session.GetRecap())
+	})
+
+	t.Run("Given a session owned by someone else, when another user stores a recap, assert that it is not found", func(t *testing.T) {
+		client, store, _ := newClient(t)
+		ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "mallory"))
+		_, err := client.SetSessionRecap(ctx, &apiv1.SetSessionRecapRequest{SessionId: ownID, Text: "Forged.", TurnCount: 1})
+		assertGRPCCode(t, err, codes.NotFound)
+		require.Nil(t, store.session.GetRecap())
 	})
 }

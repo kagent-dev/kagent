@@ -180,12 +180,18 @@ func run(logLevel, host, port, configDir string) error {
 	}
 
 	var titler a2a.Titler
+	var recapper a2a.Recapper
 	if agentConfig.Model != nil {
 		agentTitler, err := agentpkg.NewTitler(ctx, agentConfig.Model)
 		if err != nil {
 			return fmt.Errorf("create titler: %w", err)
 		}
 		titler = agentTitler
+		agentRecapper, err := agentpkg.NewRecapper(ctx, agentConfig.Model)
+		if err != nil {
+			return fmt.Errorf("create recapper: %w", err)
+		}
+		recapper = agentRecapper
 	}
 
 	stream := agentConfig.GetStream()
@@ -201,6 +207,7 @@ func run(logLevel, host, port, configDir string) error {
 
 		ControllerClient: controllerClient,
 		Titler:           titler,
+		Recapper:         recapper,
 	})
 	if err != nil {
 		return fmt.Errorf("create A2A executor: %w", err)

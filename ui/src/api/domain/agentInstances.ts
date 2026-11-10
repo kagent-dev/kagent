@@ -73,6 +73,15 @@ export interface AgentInstanceFailure {
   message?: string;
 }
 
+/** A runtime-written summary of a conversation. */
+export interface ConversationRecap {
+  text: string;
+  /** How many turns the recap covers. */
+  turnCount: number;
+  /** RFC3339, or empty when the record carried no timestamp. */
+  generatedAt: string;
+}
+
 /**
  * One conversation with an agent. Mirrors the `AgentInstance` proto message.
  *
@@ -107,6 +116,8 @@ export interface AgentInstance {
   operation: AgentInstanceOperation;
   /** Set only when the controller recorded a failure. */
   failure?: AgentInstanceFailure;
+  /** Set once a runtime has written one. */
+  recap?: ConversationRecap;
   /** RFC3339, or empty when the record carried no timestamp. */
   createdAt: string;
   /** RFC3339, or empty when the record carried no timestamp. */
