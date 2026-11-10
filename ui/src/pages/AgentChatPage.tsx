@@ -259,6 +259,7 @@ export function AgentChatPage() {
     async (checkpointId: string) => {
       try {
         await apiClient.agentInstances.checkpoints.remove(checkpointId);
+        await checkpoints.forget(checkpointId);
         setSavedHere((current) => ({
           conversation: current.conversation,
           marks: new Map([...current.marks].filter(([, saved]) => saved !== checkpointId)),

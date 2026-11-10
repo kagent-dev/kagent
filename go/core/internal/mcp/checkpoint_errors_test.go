@@ -138,6 +138,9 @@ func (s *checkpointErrorStore) ClaimCheckpointOperation(context.Context, string,
 func (s *checkpointErrorStore) ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error {
 	return nil
 }
+func (s *checkpointErrorStore) ReleaseCheckpointReservation(context.Context, string, string, uuid.UUID) error {
+	return nil
+}
 func (s *checkpointErrorStore) ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error) {
 	s.failures++
 	return nil, errors.New("query private-db.internal user=controller database=kagent: connection refused")

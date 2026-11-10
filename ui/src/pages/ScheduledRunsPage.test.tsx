@@ -54,18 +54,24 @@ it("reuses a manual run request ID after a lost response, then gives the next fi
   })));
   renderSchedule();
   const run = await screen.findByRole("button", { name: "Run" });
+  // antd can clear disabled before its loading state stops ignoring clicks.
+  const waitForRun = () => waitFor(() => {
+    expect(run).toBeEnabled();
+    expect(run).not.toHaveClass("ant-btn-loading");
+  });
+  await waitForRun();
   fireEvent.click(run);
   await screen.findByText(/Response lost/);
-  await waitFor(() => expect(run).toBeEnabled());
+  await waitForRun();
   fireEvent.click(run);
   await screen.findByText(/Execution queued/);
-  await waitFor(() => expect(run).toBeEnabled());
+  await waitForRun();
   fireEvent.click(run);
   await waitFor(() => expect(requestIds).toHaveLength(3));
   expect(requestIds[0]).toBeTruthy();
   expect(requestIds[1]).toBe(requestIds[0]);
   expect(requestIds[2]).not.toBe(requestIds[0]);
-  await waitFor(() => expect(run).toBeEnabled());
+  await waitForRun();
 });
 
 it("keeps unsaved edits after a conflict and preserves the exact timeout on the wire", async () => {

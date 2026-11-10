@@ -972,6 +972,9 @@ on(CheckpointService.method.deleteCheckpoint, (input) => {
 
 on(CheckpointService.method.listCheckpoints, (input, call) => {
   const instance = instanceFor(requireInstanceId(input.sessionId), call);
+  if (new URLSearchParams(window.location.search).get("checkpointList") === "unavailable") {
+    throw new ConnectError("Snapshot list unavailable", Code.Unavailable);
+  }
   return { checkpoints: readCheckpoints(instance.id).map(checkpointMessage), page: {} };
 });
 

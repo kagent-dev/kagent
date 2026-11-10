@@ -22,6 +22,58 @@ async function deleteOutcome(page: import("@playwright/test").Page, outcome?: st
   }, outcome);
 }
 
+async function listUnavailable(page: import("@playwright/test").Page, unavailable: boolean) {
+  await page.evaluate((value) => {
+    const url = new URL(window.location.href);
+    if (value) url.searchParams.set("checkpointList", "unavailable");
+    else url.searchParams.delete("checkpointList");
+    window.history.replaceState({}, "", url);
+  }, unavailable);
+}
+
+test.describe("chat: snapshot refresh failures", () => {
+  test.use({ expectedNoise: [/Could not (?:checkpoint the conversation|re-read the saved boundaries):/] });
+
+  test("chat: a failed creation followed by a list outage offers a repaired retry", async ({ page }) => {
+    await page.goto(`${agentChat(instances.ready)}?checkpoint=failed`);
+    await expect(dividers(page)).toHaveCount(1);
+    await sendAndAwaitTurn(page, "A retained failure whose first discovery read fails.");
+    await listUnavailable(page, true);
+    await page.getByTestId("chat-checkpoint").click();
+    await expect(page.getByText("Could not load snapshots", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("chat-failed-snapshots")).toHaveCount(0);
+    await listUnavailable(page, false);
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(page.getByTestId("chat-failed-snapshots")).toBeVisible();
+    await expect(page.getByText("Could not load snapshots", { exact: true })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByTestId("chat-failed-snapshots")).toBeVisible();
+  });
+
+  test("chat: deletion removes a failed entry even when the following list read fails", async ({ page }) => {
+    await page.goto(`${agentChat(instances.ready)}?checkpoint=failed`);
+    await expect(dividers(page)).toHaveCount(1);
+    await sendAndAwaitTurn(page, "Delete committed before discovery becomes unavailable.");
+    await page.getByTestId("chat-checkpoint").click();
+    const notice = page.getByTestId("chat-failed-snapshots");
+    await expect(notice).toBeVisible();
+    await notice.locator('[data-testid^="chat-failed-snapshot-"]').click();
+    await listUnavailable(page, true);
+    await page.getByTestId("snapshot-details-delete").click();
+    await pressOnce(page.getByTestId("snapshot-details-delete-confirm"));
+    await expect(page.getByTestId("snapshot-details-body")).toHaveCount(0);
+    await expect(notice).toHaveCount(0);
+    await expect(page.getByText("Could not load snapshots", { exact: true })).toBeVisible();
+    await listUnavailable(page, false);
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(page.getByText("Could not load snapshots", { exact: true })).toHaveCount(0);
+    await expect(notice).toHaveCount(0);
+    await page.reload();
+    await expect(dividers(page)).toHaveCount(1);
+    await expect(notice).toHaveCount(0);
+  });
+});
+
 test.describe("chat: snapshot delete failures", () => {
   test.use({ expectedNoise: [/Could not (?:checkpoint the conversation|delete the checkpoint):/] });
 

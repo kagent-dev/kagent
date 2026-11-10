@@ -110,9 +110,17 @@ func (s *Service) currentOutcome(ctx context.Context, id, owner string) (*apiv1.
 }
 
 func (s *Service) release(ctx context.Context, id string, executor uuid.UUID) error {
+	return releaseClaim(ctx, id, func(releaseCtx context.Context) error {
+		return s.store.ReleaseCheckpointOperation(releaseCtx, id, executor)
+	})
+}
+
+// Release stays bounded after caller cancellation, and neither release path may
+// expose storage details when its error is joined to the public attempt result.
+func releaseClaim(ctx context.Context, id string, release func(context.Context) error) error {
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.store.ReleaseCheckpointOperation(releaseCtx, id, executor); err != nil {
+	if err := release(releaseCtx); err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "release checkpoint execution claim", "checkpoint_id", id, "error", err)
 		// This error is joined to the current attempt's public status. Keep
 		// database details in logs without replacing the original status code.

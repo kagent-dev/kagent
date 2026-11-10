@@ -32,6 +32,7 @@ type store interface {
 	ListPendingCheckpoints(context.Context, string, int) ([]*database.CheckpointOperation, error)
 	ClaimCheckpointOperation(context.Context, string, string, uuid.UUID) (*database.CheckpointOperation, error)
 	ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error
+	ReleaseCheckpointReservation(context.Context, string, string, uuid.UUID) error
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string, uuid.UUID) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeClaimedSessionCheckpoint(context.Context, *apiv1.Checkpoint, uuid.UUID, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
@@ -124,8 +125,11 @@ func (s *Service) reserveCreate(ctx context.Context, sessionID, requestID, expec
 	}
 	checkpoint, snapshot, err := s.store.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: id, SessionId: sessionID, HeadTaskId: expectedHeadTaskID}, userID, requestID, executor)
 	if err != nil {
-		// The INSERT may have committed before its reply was lost.
-		err = errors.Join(err, s.release(ctx, id, executor))
+		// The INSERT may still be committing after its reply was lost. Its
+		// source Session lock makes the new row visible before retiring the claim.
+		err = errors.Join(err, releaseClaim(ctx, id, func(releaseCtx context.Context) error {
+			return s.store.ReleaseCheckpointReservation(releaseCtx, sessionID, id, executor)
+		}))
 	}
 	if errors.Is(err, database.ErrCheckpointAdvanced) || errors.Is(err, database.ErrSnapshotPending) {
 		reason := "KAGENT_CHECKPOINT_CONVERSATION_ADVANCED"

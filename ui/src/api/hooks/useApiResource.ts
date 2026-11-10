@@ -7,7 +7,7 @@
  * empty state. This wraps it once so all four states are named.
  */
 
-import useSWR, { type SWRConfiguration } from "swr";
+import useSWR, { unstable_serialize, useSWRConfig, type SWRConfiguration } from "swr";
 import { ApiError } from "../ApiError";
 
 export interface ApiResource<T> {
@@ -34,7 +34,8 @@ export function useApiResource<T>(
   fetcher: () => Promise<T>,
   config?: SWRConfiguration<T, ApiError>,
 ): ApiResource<T> {
-  const { data, error, isLoading, isValidating, mutate } = useSWR<T, ApiError>(
+  const { cache, mutate } = useSWRConfig();
+  const { data, error, isLoading, isValidating } = useSWR<T, ApiError>(
     key,
     fetcher,
     config,
@@ -51,18 +52,15 @@ export function useApiResource<T>(
     /**
      * Refetches, and rejects when the refetch failed.
      *
-     * The bare `mutate()` this used to be does not reject: SWR captures a failed
-     * revalidation into `error` and resolves anyway, so a caller awaiting it cannot
-     * tell a refresh that worked from one that did not. That is fine for a
-     * background revalidation and wrong for a button someone pressed — it made the
-     * Refresh control report success over a page showing a load error.
-     *
-     * Handing `mutate` the promise instead makes it the new value: SWR records the
-     * rejection in `error` as before, so the page still shows what went wrong, and
-     * rethrows it here so the caller knows too.
+     * Revalidation updates SWR's shared error/loading state; mutating with a
+     * rejected fetch promise does not. SWR resolves even a failed revalidation,
+     * so read the completed result from this provider's cache and rethrow it.
+     * The render's `error` would still describe the previous read here.
      */
     refresh: async () => {
-      await mutate(fetcher(), { revalidate: false });
+      await mutate(key);
+      const failure = cache.get(unstable_serialize(key))?.error;
+      if (failure) throw failure;
     },
   };
 }

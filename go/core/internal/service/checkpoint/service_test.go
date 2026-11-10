@@ -890,3 +890,7 @@ func (s *testStore) ClaimCheckpointOperation(ctx context.Context, id, owner stri
 func (*testStore) ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error {
 	return nil
 }
+
+func (*testStore) ReleaseCheckpointReservation(context.Context, string, string, uuid.UUID) error {
+	return nil
+}

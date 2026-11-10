@@ -82,6 +82,11 @@ Create observers skip obsolete claim releases, so a release failure cannot mask
 READY or the translation of absence to `NotFound`. A definitive acquisition
 conflict also needs no release. Other acquisition errors may hide a committed
 claim; those attempts still release their specific executor before returning.
+An uncertain initial reservation also waits for its source Session transaction
+before looking for the inserted row: locking the checkpoint alone cannot see an
+uncommitted INSERT. This coordination is confined to reservation errors and keeps
+the normal two-write path unchanged. Retirement remains bounded by five seconds;
+if storage prevents it, claim expiry still permits later recovery.
 Backend errors describe the current attempt, without persisting an error that a
 later repaired request could accidentally replay. Public errors exclude backend
 configuration. A canceled or uncertain attempt retains `CREATING` and expires its
@@ -152,6 +157,9 @@ lists failed snapshots separately from saved transcript boundaries, refreshes
 after a failed creation reply, and reads subsequent list pages. Failed records
 can be inspected and deleted, but cannot be forked or renamed. A failed deletion
 keeps its details open for retry.
+Confirmed deletion removes the cached record before rereading the list, so a
+subsequent read outage cannot leave a deleted FAILED entry on screen. Failed
+refreshes retain the last data and expose an error with a retry action.
 
 ### Proposed initial upgrade boundary: pending maintainer acceptance
 

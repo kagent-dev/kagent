@@ -200,3 +200,8 @@ func (s *checkpointReleaseFailure) ReleaseCheckpointOperation(context.Context, s
 	s.calls++
 	return errors.New("private database release failure")
 }
+
+func (s *checkpointReleaseFailure) ReleaseCheckpointReservation(context.Context, string, string, uuid.UUID) error {
+	s.calls++
+	return errors.New("private database reservation release failure")
+}

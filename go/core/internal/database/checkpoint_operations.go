@@ -73,22 +73,39 @@ func (c *Client) ClaimCheckpointOperation(ctx context.Context, id, owner string,
 // Missing rows and other executors are successful no-ops.
 func (c *Client) ReleaseCheckpointOperation(ctx context.Context, id string, executor uuid.UUID) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
-		// Lock by ID before testing the executor: an acquisition's COMMIT can
-		// still be in flight, with the old committed executor invisible to a
-		// conditional UPDATE. Wait for that transaction before deciding to no-op.
-		_, err := lockCheckpoint(ctx, tx, id, true, "", nil)
+		return releaseCheckpointOperation(ctx, tx, id, executor)
+	})
+}
+
+// ReleaseCheckpointReservation retires an uncertain initial INSERT's executor.
+// Reservation locks its source Session before inserting; wait for that transaction
+// before looking for a row that may not yet be visible. Missing Sessions and
+// checkpoints are harmless; another executor is never released. The lock order
+// remains Session then checkpoint, and no lock survives this transaction.
+func (c *Client) ReleaseCheckpointReservation(ctx context.Context, sessionID, id string, executor uuid.UUID) error {
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		if _, err := lockSession(ctx, tx, sessionID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		return releaseCheckpointOperation(ctx, tx, id, executor)
+	})
+}
+
+// releaseCheckpointOperation waits behind an existing row's acquisition before
+// testing its executor. Initial INSERTs also need their source Session lock.
+// Missing rows and other executors are successful no-ops.
+func releaseCheckpointOperation(ctx context.Context, tx pgx.Tx, id string, executor uuid.UUID) error {
+	if _, err := lockCheckpoint(ctx, tx, id, true, "", nil); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(ctx, `
-			UPDATE session_checkpoint SET executor_expires_at = clock_timestamp()
-			WHERE id = $1 AND executor_id = $2
-		`, id, executor)
 		return err
-	})
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE session_checkpoint SET executor_expires_at = clock_timestamp()
+		WHERE id = $1 AND executor_id = $2
+	`, id, executor)
+	return err
 }
 
 // GetCheckpointOperation returns an owner's checkpoint in any lifecycle phase.
