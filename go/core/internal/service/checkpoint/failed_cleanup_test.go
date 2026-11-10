@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -125,6 +126,112 @@ func TestRecoveryRetainsPriorTagWhenSourceChanged(t *testing.T) {
 	retained, err := persistence.GetCheckpointOperation(owner, pending[0].Checkpoint.Id, "alice")
 	require.NoError(t, err)
 	require.Equal(t, "tag-uid", retained.TagUID)
+}
+
+func TestFailedCollectionSurvivesSourceDeletion(t *testing.T) {
+	f := newFailedCollectionFixture(t)
+	source := f.operation.Checkpoint.SessionId
+	work, err := f.persistence.BeginSessionOperation(f.owner, source, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(f.owner, time.Minute)
+	defer cancel()
+	executor := uuid.New()
+	acquired, err := f.persistence.ClaimSessionOperation(ctx, source, work.ID, executor)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	deleted, err := f.persistence.FinishSessionOperation(ctx, source, work.ID, executor, "", "", "")
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
+	f.tags.actorErr = status.Error(codes.NotFound, "source no longer exists")
+	require.NoError(t, NewRecoveryWorker(f.service).sweep(f.owner))
+	collected, err := f.persistence.GetCheckpointOperation(f.owner, f.operation.Checkpoint.Id, "alice")
+	require.NoError(t, err)
+	require.Empty(t, collected.TagUID)
+	require.Equal(t, f.operation.Checkpoint, collected.Checkpoint)
+	_, err = f.service.Create(f.owner, source, f.request, f.operation.Checkpoint.HeadTaskId)
+	assertFailedCheckpointOutcome(t, err)
+	require.Equal(t, 1, f.tags.createCalls, "replay after source deletion must not copy again")
+}
+
+func TestFailedCollectionObservesReplacementCompletion(t *testing.T) {
+	for _, outcome := range []string{"collected", "deleted"} {
+		t.Run("Given replacement "+outcome+", when stale cleanup finishes, assert that completed work is observed without an obsolete release", func(t *testing.T) {
+			f := newFailedCollectionFixture(t)
+			gate := &checkpointCompletionGate{Client: f.persistence}
+			gate.beforeFailedClear = func(ctx context.Context, id, owner, uid string, executor uuid.UUID) {
+				require.NoError(t, f.persistence.ReleaseCheckpointOperation(ctx, id, executor))
+				replacement := uuid.New()
+				if outcome == "deleted" {
+					_, err := f.persistence.BeginDeleteSessionCheckpoint(ctx, id, owner, replacement)
+					require.NoError(t, err)
+					require.NoError(t, f.persistence.DeleteClaimedSessionCheckpoint(ctx, id, owner, replacement))
+					return
+				}
+				_, err := f.persistence.ClaimCheckpointOperation(ctx, id, owner, replacement)
+				require.NoError(t, err)
+				require.NoError(t, f.persistence.ClearFailedCheckpointTag(ctx, id, owner, uid, replacement))
+			}
+			releases := &checkpointReleaseFailure{store: gate}
+			service := NewService(releases, testAuthorizer{}, f.tags, nil)
+			require.NoError(t, service.recoverOperation(f.owner, f.operation), "an obsolete release failure must not mask completed cleanup")
+			require.Equal(t, 1, gate.conflicts, "the real store must reject the original executor")
+			require.Zero(t, releases.calls)
+			require.Equal(t, 1, f.tags.createCalls)
+		})
+	}
+}
+
+func TestFailedCollectionPreservesReplacementClaim(t *testing.T) {
+	f := newFailedCollectionFixture(t)
+	replacement := uuid.New()
+	gate := &checkpointCompletionGate{Client: f.persistence}
+	gate.beforeFailedClear = func(ctx context.Context, id, owner, _ string, executor uuid.UUID) {
+		require.NoError(t, f.persistence.ReleaseCheckpointOperation(ctx, id, executor))
+		_, err := f.persistence.ClaimCheckpointOperation(ctx, id, owner, replacement)
+		require.NoError(t, err)
+	}
+	service := NewService(gate, testAuthorizer{}, f.tags, nil)
+	err := service.recoverOperation(f.owner, f.operation)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeAborted), "%v", err)
+	require.Equal(t, 1, gate.conflicts)
+	ctx, cancel := context.WithTimeout(f.owner, time.Minute)
+	defer cancel()
+	_, err = f.persistence.ClaimCheckpointOperation(ctx, f.operation.Checkpoint.Id, "alice", uuid.New())
+	require.ErrorIs(t, err, database.ErrConflict, "the stale executor's real release must preserve replacement ownership")
+	require.NoError(t, f.persistence.ReleaseCheckpointOperation(ctx, f.operation.Checkpoint.Id, replacement))
+	require.NoError(t, NewRecoveryWorker(f.service).sweep(f.owner))
+	collected, err := f.persistence.GetCheckpointOperation(f.owner, f.operation.Checkpoint.Id, "alice")
+	require.NoError(t, err)
+	require.Empty(t, collected.TagUID, "a subsequent sweep must finish after the replacement retires")
+	require.Equal(t, 1, f.tags.createCalls)
+}
+
+type failedCollectionFixture struct {
+	persistence *database.Client
+	owner       context.Context
+	service     *Service
+	tags        *testTags
+	operation   *database.CheckpointOperation
+	request     string
+}
+
+func newFailedCollectionFixture(t *testing.T) *failedCollectionFixture {
+	t.Helper()
+	persistence := recoveryStore(t)
+	owner := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	source, head := recoverySource(t, persistence)
+	tags := &testTags{snapshotURI: "s3://snapshots/source", mutateTag: func(tag *ateapipb.Tag) {
+		tag.Status.Snapshot.DurableSnapshot.State = ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING
+	}}
+	service := NewService(persistence, testAuthorizer{}, tags, nil)
+	request := uuid.NewString()
+	_, err := service.Create(owner, source.Id, request, head)
+	assertFailedCheckpointOutcome(t, err)
+	pending, err := persistence.ListPendingCheckpoints(owner, "", 100)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	return &failedCollectionFixture{persistence: persistence, owner: owner, service: service,
+		tags: tags, operation: pending[0], request: request}
 }
 
 func assertFailedCheckpointOutcome(t *testing.T, err error) {

@@ -157,6 +157,7 @@ type checkpointCompletionGate struct {
 	beforeClaim        func(context.Context)
 	beforeCreateFinish func(context.Context, *apiv1.Checkpoint, uuid.UUID, string, string)
 	beforeDeleteFinish func(context.Context, string, string, uuid.UUID)
+	beforeFailedClear  func(context.Context, string, string, string, uuid.UUID)
 	conflicts          int
 }
 
@@ -183,6 +184,15 @@ func (s *checkpointCompletionGate) FinalizeClaimedSessionCheckpoint(ctx context.
 func (s *checkpointCompletionGate) DeleteClaimedSessionCheckpoint(ctx context.Context, id, owner string, executor uuid.UUID) error {
 	s.beforeDeleteFinish(ctx, id, owner, executor)
 	err := s.Client.DeleteClaimedSessionCheckpoint(ctx, id, owner, executor)
+	if errors.Is(err, database.ErrConflict) {
+		s.conflicts++
+	}
+	return err
+}
+
+func (s *checkpointCompletionGate) ClearFailedCheckpointTag(ctx context.Context, id, owner, uid string, executor uuid.UUID) error {
+	s.beforeFailedClear(ctx, id, owner, uid, executor)
+	err := s.Client.ClearFailedCheckpointTag(ctx, id, owner, uid, executor)
 	if errors.Is(err, database.ErrConflict) {
 		s.conflicts++
 	}
