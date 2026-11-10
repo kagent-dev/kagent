@@ -21,7 +21,10 @@ export interface Harness {
    */
   runtime: string;
 
-  /** `spec.workload.image`. Digest-pinned — a tag is rejected by CEL on the CRD. */
+  /**
+   * `spec.workload.image`. Digest-pinned — a tag is rejected by the CRD. Empty when
+   * the harness runs this release's built-in image for its adapter.
+   */
   workloadImage: string;
 
   /**
@@ -82,7 +85,8 @@ export interface HarnessSpec {
   claude?: Record<string, never>;
   /** Bring your own: an image that serves kagent's A2A contract itself. */
   byo?: Record<string, never>;
-  workload: { image: string; command?: string[]; args?: string[] };
+  /** Optional for the built-in adapters, which default to this release's image; BYO needs an image and a command. */
+  workload?: { image?: string; command?: string[]; args?: string[] };
   substrate: {
     workerPoolRef: { name: string };
     snapshotPolicy: { location: string };
@@ -96,3 +100,7 @@ export type HarnessAdapter = (typeof HARNESS_ADAPTERS)[number];
 
 /** The digest pin `workload.image` must satisfy, from the CRD's own pattern. */
 export const HARNESS_IMAGE_PATTERN = /^[^\s@]+@sha256:[a-f0-9]{64}$/;
+
+/** The worker pool and snapshot location the chart's default harnesses use. */
+export const DEFAULT_HARNESS_WORKER_POOL = "kagent-default";
+export const DEFAULT_HARNESS_SNAPSHOT_LOCATION = "s3://ate-snapshots/kagent/";

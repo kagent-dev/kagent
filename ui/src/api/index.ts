@@ -96,6 +96,7 @@ export {
   useSubstrateActors,
   useSubstrateSummary,
   useSubstrateWorkers,
+  useWorkerPools,
 } from "./hooks/useSubstrate";
 export {
   useAgentTemplate,

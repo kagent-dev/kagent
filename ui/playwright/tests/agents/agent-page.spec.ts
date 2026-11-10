@@ -403,6 +403,31 @@ test("agents: a conversation is created by its first message, not by the click",
   });
 });
 
+test("agents: a failed edit says why on the agent's page, not only in a tooltip", async ({ page }) => {
+  /*
+   * A typo in a Harness image used to surface only as "Update failed" with the
+   * controller's message on hover. Nothing is blocked, because conversations keep the
+   * last good revision, so `agent-cannot-start` never appears; this alert is the
+   * only place on the page that says what went wrong.
+   */
+  await loadPage(page, agentPage(agents.updateFailed));
+  await expectSettled(page);
+
+  const failed = page.getByTestId("agent-update-failed");
+  await expect(failed).toBeVisible();
+  await expect(failed).toContainText("could not pull image ghcr.io/kagent-dev/kagent/claude-harnes:0.9.0");
+  await expect(failed).toContainText("last good revision");
+  await expect(page.getByTestId("agent-cannot-start")).toHaveCount(0);
+  await expect(page.getByTestId("agent-revision-state")).toHaveAttribute("data-revision-state", "updateFailed");
+});
+
+test("agents: a ready agent shows no failure alert", async ({ page }) => {
+  await loadPage(page, agentPage(agents.k8s));
+  await expectSettled(page);
+  await expect(page.getByTestId("agent-revision-state")).toHaveAttribute("data-revision-state", "ready");
+  await expect(page.getByTestId("agent-update-failed")).toHaveCount(0);
+});
+
 test("agents: deleting an Agent preserves shared resources and conversations", async ({ page }) => {
   await loadPage(page, agentPage(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });

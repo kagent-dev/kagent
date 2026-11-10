@@ -7,6 +7,11 @@ on:
         description: 'Release tag to create (v prefix required, e.g. v0.1.0)'
         required: true
         type: string
+      latest:
+        description: 'Mark as GitHub latest, the release the CLI install script installs. Clear for patches to an older line.'
+        required: true
+        type: boolean
+        default: true
 
 concurrency:
   group: release
@@ -168,11 +173,15 @@ jobs:
         name: release-charts
         path: dist
     - name: Release
-      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
       with:
         tag_name: ${{ needs.setup.outputs.tag }}
         target_commitish: ${{ github.sha }}
         generate_release_notes: true
+        # GitHub cannot mark a prerelease latest, so a suffixed tag (v1.0.0-rc.1)
+        # is a prerelease only when it is not released as latest.
+        prerelease: ${{ !inputs.latest && contains(inputs.version, '-') }}
+        make_latest: ${{ inputs.latest }}
         files: |
           go/core/bin/kagent-*
           dist/kagent-*.tgz

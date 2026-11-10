@@ -1,6 +1,8 @@
 import { useMemo } from "react";
+import { Link } from "react-router-dom";
+import { Pencil } from "lucide-react";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { Alert, Skeleton, Space, Table, Tag, Typography } from "antd";
+import { Alert, Button, Skeleton, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import {
@@ -14,6 +16,7 @@ import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { matchesQuery } from "@/components/table/listTable";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { buildPath, paths } from "@/router/routes";
 
 /** The filters this tab offers, which `useListView` keeps in the URL. */
 const FILTER_IDS = ["ns"] as const;
@@ -107,18 +110,27 @@ export function HarnessesTab() {
     {
       title: "",
       key: "actions",
-      width: 56,
+      width: 96,
       render: (_: unknown, row: Harness) => (
-
-        <DeleteResourceButton
-          kind="harness"
-          name={row.name}
-          onDelete={() => apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name)}
-          onDeleted={async () => {
-            await Promise.allSettled([harnesses.refresh(), invalidateTemplates()]);
-          }}
-          description={agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
-        />
+        <Space size={4}>
+          <Link to={buildPath(paths.harnessEdit, { namespace: row.namespace, name: row.name })}>
+            <Button
+              type="text"
+              icon={<Pencil size={16} />}
+              data-testid={`harness-edit-${row.ref}`}
+              aria-label={`Edit harness ${row.name}`}
+            />
+          </Link>
+          <DeleteResourceButton
+            kind="harness"
+            name={row.name}
+            onDelete={() => apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name)}
+            onDeleted={async () => {
+              await Promise.allSettled([harnesses.refresh(), invalidateTemplates()]);
+            }}
+            description={agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
+          />
+        </Space>
       ),
     },
   ];
