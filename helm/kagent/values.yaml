@@ -808,6 +808,10 @@ kagent-tools:
     loglevel: "debug"
     metrics:
       port: 8085 # Use a different port than the controller service port to avoid duplicate port definitions
+    prometheus:
+      # -- Prometheus URL for the tool server, with http:// or https://. Setting it
+      # also offers the Prometheus skill in the UI.
+      url: ""
 
 # ==============================================================================
 # BUILT-INS
@@ -833,16 +837,24 @@ builtins:
     snapshotLocation: s3://ate-snapshots/kagent/
   k8sAgent:
     # -- Create k8s-agent, an Agent that helps you troubleshoot workloads in
-    # this cluster. It runs on builtins.harness, uses the kagent-tools
-    # Kubernetes tools and the k8s-troubleshooting skill, and asks for your
-    # approval before it changes anything. Needs kagent-tools.enabled.
+    # this cluster, and the AgentTemplate it references. It runs on
+    # builtins.harness, uses the kagent-tools Kubernetes tools and the
+    # k8s-troubleshooting skill, and asks for your approval before it changes
+    # anything. Needs kagent-tools.enabled.
     enabled: true
-    # -- Name of the Agent.
+    # -- Name of the Agent and its AgentTemplate.
     name: k8s-agent
+  platformAgent:
+    # -- Create platform-agent, an example Agent for workloads, Helm releases,
+    # Istio traffic and Argo Rollouts. Same needs as k8s-agent; the Helm, Istio
+    # and Argo skills and their tools are added when the catalog has them.
+    enabled: true
+    # -- Name of the Agent and its AgentTemplate.
+    name: platform-agent
   skills:
     # -- Offer the built-in skills. A skill is a set of instructions an Agent
     # loads when a task needs it. The UI lists these skills when you build an
-    # Agent, and k8s-agent uses one of them.
+    # Agent, and k8s-agent and platform-agent use them.
     enabled: true
     # -- Leave empty to use the skills that ship in the kagent-tools image.
     # To offer skills from your own image instead, set its digest-pinned

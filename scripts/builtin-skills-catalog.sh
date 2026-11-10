@@ -8,9 +8,10 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repository="ghcr.io/kagent-dev/kagent/tools"
 skills_root="opt/kagent-tools-skills/skills"
-# The kagent-tools skills the UI offers. The others need tools or services
-# (Argo Rollouts, Cilium, Kubescape, Prometheus) that most clusters lack.
-skills=(helm-release-management istio-traffic-debugging k8s-troubleshooting)
+# The kagent-tools skills the UI offers. Cilium is left out; the chart offers
+# Prometheus only when kagent-tools.tools.prometheus.url is set.
+skills=(argo-rollouts-progressive-delivery helm-release-management istio-traffic-debugging
+  k8s-troubleshooting kubescape-security-posture prometheus-observability)
 
 version="$(awk '/- name: kagent-tools$/ { found = 1; next } found && /version:/ { print $2; exit }' \
   "$root/helm/kagent/Chart-template.yaml")"

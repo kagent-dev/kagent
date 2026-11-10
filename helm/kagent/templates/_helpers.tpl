@@ -31,6 +31,15 @@ replace the packaged catalog. Empty when turned off.
       {{- fail (printf "builtins.skills.list: each skill needs a name and a path, got %s" (mustToJson .)) -}}
     {{- end -}}
   {{- end -}}
+  {{/* The Prometheus skill needs a tool server URL it accepts (http:// or https://). */}}
+  {{- $prometheusURL := dig "kagent-tools" "tools" "prometheus" "url" "" .Values.AsMap -}}
+  {{- if not (regexMatch "^https?://" $prometheusURL) -}}
+    {{- $skills := list -}}
+    {{- range $catalog.skills -}}
+      {{- if ne .name "prometheus-observability" -}}{{- $skills = append $skills . -}}{{- end -}}
+    {{- end -}}
+    {{- $_ := set $catalog "skills" $skills -}}
+  {{- end -}}
   {{- $_ := set $catalog "image" (include "kagent.mirroredImage" (dict "root" $ "image" $catalog.image)) -}}
   {{- $catalog | mustToJson -}}
 {{- end -}}

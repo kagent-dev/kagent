@@ -724,6 +724,11 @@ export const mockBuiltinSkills: BuiltinSkillsCatalog = {
   image: "ghcr.io/kagent-dev/kagent/tools@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
   skills: [
     {
+      name: "argo-rollouts-progressive-delivery",
+      path: "opt/kagent-tools-skills/skills/argo-rollouts-progressive-delivery",
+      description: "Operate Argo Rollouts canary and blue-green releases.",
+    },
+    {
       name: "helm-release-management",
       path: "opt/kagent-tools-skills/skills/helm-release-management",
       description: "Inspect, upgrade and uninstall Helm releases.",
@@ -737,6 +742,16 @@ export const mockBuiltinSkills: BuiltinSkillsCatalog = {
       name: "k8s-troubleshooting",
       path: "opt/kagent-tools-skills/skills/k8s-troubleshooting",
       description: "Diagnose unhealthy Kubernetes workloads: CrashLoopBackOff, Pending, ImagePullBackOff.",
+    },
+    {
+      name: "kubescape-security-posture",
+      path: "opt/kagent-tools-skills/skills/kubescape-security-posture",
+      description: "Review cluster security posture with Kubescape scan results.",
+    },
+    {
+      name: "prometheus-observability",
+      path: "opt/kagent-tools-skills/skills/prometheus-observability",
+      description: "Answer questions about cluster and application metrics with Prometheus queries.",
     },
   ],
 };

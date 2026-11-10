@@ -1,6 +1,6 @@
 suite: test the default Harness
 templates:
-  - default-harness.yaml
+  - builtin-harness.yaml
 release:
   namespace: kagent
 set:

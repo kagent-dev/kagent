@@ -76,3 +76,37 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: 'builtins.skills.list: each skill needs a name and a path, got {"description":"Diagnose unhealthy workloads.","name":"k8s-troubleshooting"}'
+
+  - it: hides the Prometheus skill when no Prometheus URL is set
+    asserts:
+      - notMatchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: prometheus-observability
+
+  - it: offers the Prometheus skill when a Prometheus URL is set
+    set:
+      kagent-tools.tools.prometheus.url: http://prometheus-server.monitoring:9090
+    asserts:
+      - matchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: '"name":"prometheus-observability","path":"opt/kagent-tools-skills/skills/prometheus-observability"'
+
+  - it: hides the Prometheus skill of a configured image when no Prometheus URL is set
+    set:
+      builtins.skills.image: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      builtins.skills.list:
+        - name: prometheus-observability
+          description: Query metrics.
+          path: skills/prometheus-observability
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          value: '{"image":"registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","skills":[]}'
+
+  - it: hides the Prometheus skill when the Prometheus URL has no scheme
+    set:
+      kagent-tools.tools.prometheus.url: prometheus.kagent.svc.cluster.local:9090
+    asserts:
+      - notMatchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: prometheus-observability
