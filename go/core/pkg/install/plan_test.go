@@ -381,6 +381,92 @@ func TestModelCredentialValuesPreserveHelmPrecedence(t *testing.T) {
 	}
 }
 
+func TestPlanModelDefaultsPreserveHelmPrecedence(t *testing.T) {
+	scenarios := []struct {
+		name           string
+		operator       string
+		overrides      []string
+		wantModel      string
+		wantAPIFormat  string
+		wantAPIVersion string
+	}{
+		{
+			name:           "Given no operator model overrides, when planning an install, assert that the CLI selects the newer models and Responses API",
+			wantModel:      "gpt-5-mini",
+			wantAPIFormat:  "responses",
+			wantAPIVersion: "2024-10-21",
+		},
+		{
+			name: "Given operator model settings, when planning an install, assert that values files override the CLI defaults",
+			operator: `providers:
+  openAI:
+    model: gpt-4.1-mini
+    config:
+      apiFormat: chatCompletions
+  azureOpenAI:
+    model: gpt-4.1-mini
+    config:
+      apiVersion: "2023-05-15"
+`,
+			wantModel:      "gpt-4.1-mini",
+			wantAPIFormat:  "chatCompletions",
+			wantAPIVersion: "2023-05-15",
+		},
+		{
+			name: "Given operator values files and set overrides, when planning an install, assert that set overrides take precedence",
+			operator: `providers:
+  openAI:
+    model: gpt-4.1-mini
+    config:
+      apiFormat: chatCompletions
+  azureOpenAI:
+    model: gpt-4.1-mini
+    config:
+      apiVersion: "2023-05-15"
+`,
+			overrides: []string{
+				"providers.openAI.model=gpt-4.1,providers.openAI.config.apiFormat=responses",
+				"providers.azureOpenAI.model=gpt-4.1,providers.azureOpenAI.config.apiVersion=2024-06-01",
+			},
+			wantModel:      "gpt-4.1",
+			wantAPIFormat:  "responses",
+			wantAPIVersion: "2024-06-01",
+		},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			cfg := localInstallConfig(t)
+			if scenario.operator != "" {
+				operator := filepath.Join(t.TempDir(), "operator.yaml")
+				require.NoError(t, os.WriteFile(operator, []byte(scenario.operator), 0o600))
+				cfg.Kagent.ValuesFiles = []string{operator}
+			}
+			cfg.Kagent.Values = scenario.overrides
+
+			plan, err := NewClient(CommandRunner{}, nil).Plan(t.Context(), cfg)
+			require.NoError(t, err)
+			steps := plan.Steps()
+			release := steps[len(steps)-1].(ChartInstall)
+			values := renderedValues(t, release.Chart)
+
+			providers := values["providers"].(map[string]any)
+			require.Equal(t, map[string]any{
+				"apiKey": cfg.APIKey,
+				"model":  scenario.wantModel,
+				"config": map[string]any{
+					"apiFormat": scenario.wantAPIFormat,
+				},
+			}, providers["openAI"])
+			require.Equal(t, map[string]any{
+				"model": scenario.wantModel,
+				"config": map[string]any{
+					"apiVersion": scenario.wantAPIVersion,
+				},
+			}, providers["azureOpenAI"])
+		})
+	}
+}
+
 func TestPlanEnablesGRPCReflection(t *testing.T) {
 	scenarios := []struct {
 		name     string

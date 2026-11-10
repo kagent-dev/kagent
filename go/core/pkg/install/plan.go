@@ -120,6 +120,17 @@ config:
 # Ready-to-reference Harnesses on the WorkerPool created below.
 harnesses:
   enabled: true
+# CLI installs opt into newer models without changing Helm upgrade defaults.
+# OpenAI Responses supports both the Codex and kagent runtimes.
+providers:
+  openAI:
+    model: gpt-5-mini
+    config:
+      apiFormat: responses
+  azureOpenAI:
+    model: gpt-5-mini
+    config:
+      apiVersion: "2024-10-21"
 ` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
 	if !cfg.SkipDatabaseSetup {
 		kagent.Values = append(kagent.Values, "database.postgres.clientCertificate.enabled=true")

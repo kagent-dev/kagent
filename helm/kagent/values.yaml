@@ -696,13 +696,9 @@ providers:
   annotations: {}
   openAI:
     provider: OpenAI
-    model: "gpt-5-mini"
+    model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
-    # Provider options rendered into spec.openAI of the generated ModelConfig.
-    # The Codex runtime requires the Responses API; the kagent runtime supports both.
-    config:
-      apiFormat: responses
     # apiKey: ""
     # Optional TLS settings for the generated ModelConfig.
     # This same block can be used under any provider.
@@ -740,12 +736,12 @@ providers:
     #   cacheTTL: "5m" # or "1h" for calls spaced more than 5 minutes apart
   azureOpenAI:
     provider: AzureOpenAI
-    model: "gpt-5-mini"
+    model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-azure-openai
     apiKeySecretKey: AZUREOPENAI_API_KEY
     # apiKey: ""
     config:
-      apiVersion: "2024-10-21"
+      apiVersion: "2023-05-15"
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
