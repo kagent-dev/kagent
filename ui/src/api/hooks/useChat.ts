@@ -368,6 +368,8 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
               controller.abort();
               break;
             }
+            // The turn is already canceled, so a refusal is noted, not reported.
+            if (event.type === "error") refused = true;
             continue;
           }
 
@@ -446,7 +448,10 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
           // A refusal usually *is* a question still standing, and this turn may
           // have cleared the notice on its way in. Put back what the server says
           // rather than what this render assumed.
-          if (answering) setPending(answering);
+          if (answering)
+            setPending((current) =>
+              current && current.key !== key ? current : answering,
+            );
         }
         // A stream that ended without saying how it went has still ended. The
         // machine leaves an already-finished turn alone, so this cannot overwrite

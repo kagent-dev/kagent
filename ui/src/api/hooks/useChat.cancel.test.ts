@@ -152,6 +152,77 @@ describe("useChat cancel", () => {
     expect(hook.result.current.turnState).not.toBe("working");
   });
 
+  it("takes back a refused answer when the stream yields an error event after stop", async () => {
+    const parked = { kind: "unknown" as const, taskId: "parked-task" };
+    let refuse: (() => void) | undefined;
+    setChatClientFactory(() => ({
+      protocolVersion: "test",
+      history: async () => ({ messages: [], awaitingReply: parked }),
+      cancel: async () => {},
+      send: () =>
+        (async function* (): AsyncIterable<ChatEvent> {
+          await new Promise<void>((resolve) => (refuse = resolve));
+          yield { type: "error", error: new Error("a question is still waiting") };
+        })(),
+    }));
+    const hook = renderHook(() => useChat(CONVERSATION));
+    await waitFor(() => expect(hook.result.current.pendingQuestion).toEqual(parked));
+
+    await act(async () => {
+      void hook.result.current.send("my answer");
+    });
+    await act(async () => {
+      await hook.result.current.cancel();
+    });
+    await act(async () => {
+      refuse?.();
+    });
+
+    expect(hook.result.current.messages.filter((m) => m.role === "user")).toEqual([]);
+    expect(hook.result.current.pendingQuestion).toEqual(parked);
+    expect(hook.result.current.turnPhase).not.toBe("working");
+    expect(hook.result.current.turnState).not.toBe("working");
+  });
+
+  it("leaves another conversation's question alone when a refused answer is restored", async () => {
+    const other = { id: "instance-2", agent: "team-a/assistant" };
+    const q1 = { kind: "unknown" as const, taskId: "task-1" };
+    const q2 = { kind: "unknown" as const, taskId: "task-2" };
+    let refuse: (() => void) | undefined;
+    setChatClientFactory(() => ({
+      protocolVersion: "test",
+      history: async (conversation) => ({
+        messages: [],
+        awaitingReply: conversation.id === CONVERSATION.id ? q1 : q2,
+      }),
+      cancel: async () => {},
+      send: () =>
+        (async function* (): AsyncIterable<ChatEvent> {
+          await new Promise<void>((resolve) => (refuse = resolve));
+          yield* [] as ChatEvent[];
+          throw new Error("a question is still waiting");
+        })(),
+    }));
+    const hook = renderHook((conversation) => useChat(conversation), {
+      initialProps: CONVERSATION,
+    });
+    await waitFor(() => expect(hook.result.current.pendingQuestion).toEqual(q1));
+
+    await act(async () => {
+      void hook.result.current.send("my answer");
+    });
+    await act(async () => {
+      await hook.result.current.cancel();
+    });
+    hook.rerender(other);
+    await waitFor(() => expect(hook.result.current.pendingQuestion).toEqual(q2));
+    await act(async () => {
+      refuse?.();
+    });
+
+    expect(hook.result.current.pendingQuestion).toEqual(q2);
+  });
+
   it("keeps a new run going when the stream stopped early later throws", async () => {
     const second = controlledStream();
     let failFirst: (() => void) | undefined;
