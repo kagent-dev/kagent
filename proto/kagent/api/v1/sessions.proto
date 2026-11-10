@@ -20,6 +20,9 @@ service SessionService {
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc UpdateSessionName(UpdateSessionNameRequest) returns (UpdateSessionNameResponse);
+  // Names a conversation only while it has no name, so a generated title never
+  // replaces one a person chose.
+  rpc SetSessionNameIfEmpty(SetSessionNameIfEmptyRequest) returns (SetSessionNameIfEmptyResponse);
   // Restores a crashed runtime to its last snapshot without replaying its turn.
   rpc RevertSession(RevertSessionRequest) returns (RevertSessionResponse);
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
@@ -107,6 +110,21 @@ message UpdateSessionNameRequest {
 
 message UpdateSessionNameResponse {
   Session session = 1;
+}
+
+message SetSessionNameIfEmptyRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 200
+    pattern: "^[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?$"
+  }];
+}
+
+message SetSessionNameIfEmptyResponse {
+  Session session = 1;
+  // True when this call set the name; false when the Session already had one.
+  bool applied = 2;
 }
 
 message RevertSessionRequest {

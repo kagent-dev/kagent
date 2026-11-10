@@ -25,6 +25,7 @@ import {
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
+import { useRefreshConversationsOnTurnEnd } from "@/api/hooks/useRefreshConversationsOnTurnEnd";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
 import type { Checkpoint } from "@/api";
@@ -119,6 +120,9 @@ export function AgentChatPage() {
     enabled: Boolean(conversation),
     isBusy: chat.phase === "streaming",
   });
+
+  // Picks up the name the runtime wrote during the turn.
+  useRefreshConversationsOnTurnEnd(chat.phase);
 
   /**
    * What to call this conversation when nobody has named it.

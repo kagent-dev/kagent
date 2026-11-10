@@ -13,7 +13,7 @@
  */
 
 import { currentChatScenario } from "@/mocks/scenario";
-import { allAgentInstances, instanceShareForToken } from "@/mocks/state";
+import { allAgentInstances, instanceShareForToken, saveAgentInstance } from "@/mocks/state";
 import { ApiError } from "../ApiError";
 import { agentInstanceShareToken } from "../shareToken";
 import { HITL_EXTENSION_URI, type PendingRequest } from "./hitl";
@@ -29,6 +29,9 @@ import type {
 } from "./types";
 import { LinkFile, mediaTypeOf } from "./attachments";
 
+/** What the `names` scenario calls a session once its turn is done. */
+const GENERATED_NAME = "Pod count check";
+
 const TIMING = {
   ok: { step: 300, word: 45 },
   // Slow enough that a turn can be reliably cancelled mid-stream, which is the
@@ -37,6 +40,7 @@ const TIMING = {
   error: { step: 300, word: 45 },
   asks: { step: 300, word: 45 },
   "asks-text": { step: 300, word: 45 },
+  names: { step: 300, word: 45 },
 } as const;
 
 /**
@@ -406,6 +410,11 @@ export class MockChatClient implements ChatClient {
       // the metadata of the message this status carried.
       yield { type: "status", state: "input_required", taskId, awaiting: request };
       return;
+    }
+
+    // The runtime names an unnamed session during its first turn, before the final event.
+    if (scenario === "names" && instance && !instance.name.trim()) {
+      saveAgentInstance({ ...instance, name: GENERATED_NAME, updatedAt: new Date().toISOString() });
     }
 
     yield { type: "status", state: "completed", taskId };

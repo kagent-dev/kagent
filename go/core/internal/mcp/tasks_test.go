@@ -550,6 +550,10 @@ func (*fakeSessionStore) UpdateSessionName(context.Context, string, string, stri
 	return nil, database.ErrNotFound
 }
 
+func (*fakeSessionStore) SetSessionNameIfEmpty(context.Context, string, string, string) (*apiv1.Session, bool, error) {
+	return nil, false, database.ErrNotFound
+}
+
 func (*fakeSessionStore) CreateSessionShare(context.Context, *apiv1.SessionShare, []byte, string) (*apiv1.SessionShare, error) {
 	return nil, database.ErrNotFound
 }

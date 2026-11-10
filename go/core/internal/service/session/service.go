@@ -32,6 +32,7 @@ type store interface {
 	GetSessionByID(context.Context, string) (*apiv1.Session, error)
 	ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error)
 	UpdateSessionName(context.Context, string, string, string) (*apiv1.Session, error)
+	SetSessionNameIfEmpty(context.Context, string, string, string) (*apiv1.Session, bool, error)
 	CreateSessionShare(context.Context, *apiv1.SessionShare, []byte, string) (*apiv1.SessionShare, error)
 	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1.SessionShare, error)
 	DeleteSessionShare(context.Context, string, string) error
@@ -194,6 +195,27 @@ func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1.Session, 
 		return nil, serviceerrors.NewInternal("Failed to rename Session", err)
 	}
 	return session, nil
+}
+
+// SetNameIfEmpty names the conversation only while it has no name, and reports
+// whether it did. It authorizes as a write, like Rename.
+func (s *Service) SetNameIfEmpty(ctx context.Context, id, name string) (*apiv1.Session, bool, error) {
+	id, err := validateIdentity(id)
+	if err != nil {
+		return nil, false, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
+	if err != nil {
+		return nil, false, err
+	}
+	session, applied, err := s.store.SetSessionNameIfEmpty(ctx, id, creator, name)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, false, serviceerrors.NewNotFound("Session not found", err)
+	}
+	if err != nil {
+		return nil, false, serviceerrors.NewInternal("Failed to name Session", err)
+	}
+	return session, applied, nil
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {

@@ -92,8 +92,11 @@ function isScenario(value: string | null): value is MockScenario {
  * a scenario of its own because the shape decides the controls: `asks` offers choices,
  * `asks-text` offers one prose field — the only shape where the field can take the
  * caret on arrival and Enter can mean "send".
+ *
+ * `names` is a turn that ends like `ok`, after the runtime has named the session from
+ * it, as the Go runtime does during the first turn. Only a session with no name gets one.
  */
-export const CHAT_SCENARIOS = ["ok", "error", "slow", "asks", "asks-text"] as const;
+export const CHAT_SCENARIOS = ["ok", "error", "slow", "asks", "asks-text", "names"] as const;
 
 export type ChatScenario = (typeof CHAT_SCENARIOS)[number];
 

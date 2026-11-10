@@ -38,6 +38,7 @@ func TestSessionServicePoliciesMatchTheirEffect(t *testing.T) {
 		{name: "create", method: apiv1.SessionService_CreateSession_FullMethodName, want: pkgauth.AccessCreate},
 		{name: "get", method: apiv1.SessionService_GetSession_FullMethodName, want: pkgauth.AccessRead},
 		{name: "list", method: apiv1.SessionService_ListSessions_FullMethodName, want: pkgauth.AccessRead},
+		{name: "set name if empty is a write", method: apiv1.SessionService_SetSessionNameIfEmpty_FullMethodName, want: pkgauth.AccessUpdate},
 		{name: "rename is a write", method: apiv1.SessionService_UpdateSessionName_FullMethodName, want: pkgauth.AccessUpdate},
 		{name: "revert", method: apiv1.SessionService_RevertSession_FullMethodName, want: pkgauth.AccessUpdate},
 		{name: "delete", method: apiv1.SessionService_DeleteSession_FullMethodName, want: pkgauth.AccessDelete},
@@ -75,6 +76,10 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 		{
 			name:   "read-only share may not rename",
 			method: apiv1.SessionService_UpdateSessionName_FullMethodName, wantCode: codes.PermissionDenied,
+		},
+		{
+			name:   "read-only share may not set a name",
+			method: apiv1.SessionService_SetSessionNameIfEmpty_FullMethodName, wantCode: codes.PermissionDenied,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

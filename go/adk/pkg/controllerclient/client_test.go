@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
@@ -122,4 +123,44 @@ func TestCallContextRequestsActorJWTWithoutDuplicateCredentials(t *testing.T) {
 	require.Equal(t, []string{"Bearer placeholder"}, got.Get("authorization"))
 	require.Equal(t, []string{"trace"}, got.Get("x-trace-id"))
 	require.Equal(t, []string{"Bearer inherited"}, original.Get("authorization"))
+}
+
+type nameSessionServer struct {
+	apiv1.UnimplementedSessionServiceServer
+	requests []*apiv1.SetSessionNameIfEmptyRequest
+}
+
+func (server *nameSessionServer) SetSessionNameIfEmpty(_ context.Context, request *apiv1.SetSessionNameIfEmptyRequest) (*apiv1.SetSessionNameIfEmptyResponse, error) {
+	server.requests = append(server.requests, request)
+	return &apiv1.SetSessionNameIfEmptyResponse{}, nil
+}
+
+func TestSessionServiceReachesTheController(t *testing.T) {
+	listener := bufconn.Listen(1024 * 1024)
+	service := &nameSessionServer{}
+	grpcServer := grpc.NewServer()
+	apiv1.RegisterSessionServiceServer(grpcServer, service)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(func() {
+		grpcServer.Stop()
+		_ = listener.Close()
+	})
+	client, err := New(Config{
+		APIURL: "http://bufnet:80",
+		DialOptions: []grpc.DialOption{grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		})},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	sessions := client.SessionService()
+	require.NotNil(t, sessions)
+	ctx, cancel := client.CallContext(t.Context(), "user")
+	defer cancel()
+	_, err = sessions.SetSessionNameIfEmpty(ctx, &apiv1.SetSessionNameIfEmptyRequest{SessionId: "s1", Name: "Title"})
+	require.NoError(t, err)
+	require.Len(t, service.requests, 1)
+	assert.Equal(t, "s1", service.requests[0].GetSessionId())
+	assert.Equal(t, "Title", service.requests[0].GetName())
 }

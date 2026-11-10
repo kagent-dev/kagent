@@ -51,6 +51,10 @@ type serviceTestStore struct {
 	renameName     string
 	renameUserID   string
 	renameErr      error
+	setNameUserID  string
+	setNameCalls   int
+	setNameResult  *apiv1.Session
+	setNameApplied bool
 	getCreator     string
 	getID          string
 	unscoped       bool
@@ -106,6 +110,15 @@ func (s *serviceTestStore) UpdateSessionName(_ context.Context, id, userID, name
 	s.renameName, s.renameUserID = name, userID
 	s.renamed = &apiv1.Session{Id: id, Name: name}
 	return s.renamed, nil
+}
+
+func (s *serviceTestStore) SetSessionNameIfEmpty(_ context.Context, _, userID, _ string) (*apiv1.Session, bool, error) {
+	s.setNameCalls++
+	s.setNameUserID = userID
+	if s.renameErr != nil {
+		return nil, false, s.renameErr
+	}
+	return s.setNameResult, s.setNameApplied, nil
 }
 
 func (s *serviceTestStore) CreateSessionShare(_ context.Context, share *apiv1.SessionShare, tokenHash []byte, userID string) (*apiv1.SessionShare, error) {
@@ -441,6 +454,61 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 		_, err := service.Rename(serviceTestContext("alice"), sessionID, "New title")
 		if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
 			t.Fatalf("Rename() error = %v, want code %s", err, serviceerrors.CodeNotFound)
+		}
+	})
+}
+
+func TestServiceSetNameIfEmptyAuthorizesAsAWriteAndScopesToTheOwner(t *testing.T) {
+	sessionID := "11111111-1111-4111-8111-111111111111"
+
+	t.Run("Given an unauthorized caller, when it sets a name, assert that the store is not reached", func(t *testing.T) {
+		store := &serviceTestStore{}
+		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
+		_, _, err := service.SetNameIfEmpty(serviceTestContext("alice"), sessionID, "Generated title")
+		if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+			t.Fatalf("SetNameIfEmpty() error = %v, want code %s", err, serviceerrors.CodePermissionDenied)
+		}
+		if store.setNameCalls != 0 {
+			t.Fatal("SetNameIfEmpty() reached the store despite being unauthorized")
+		}
+	})
+
+	t.Run("Given an authorized owner, when it sets a name, assert that the update verb is checked and the result is returned", func(t *testing.T) {
+		authorizer := &recordingAuthorizer{}
+		store := &serviceTestStore{setNameResult: &apiv1.Session{Id: sessionID, Name: "Generated title"}, setNameApplied: true}
+		service := NewService(store, authorizer, serviceTestWorkflow{})
+		session, applied, err := service.SetNameIfEmpty(serviceTestContext("alice"), sessionID, "Generated title")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if authorizer.verb != auth.VerbUpdate || store.setNameUserID != "alice" || !applied || session.GetName() != "Generated title" {
+			t.Fatalf("verb = %q, owner = %q, applied = %t, session = %+v", authorizer.verb, store.setNameUserID, applied, session)
+		}
+	})
+
+	t.Run("Given a named session, when the name is set again, assert that applied is false", func(t *testing.T) {
+		store := &serviceTestStore{setNameResult: &apiv1.Session{Id: sessionID, Name: "Chosen by a person"}}
+		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+		session, applied, err := service.SetNameIfEmpty(serviceTestContext("alice"), sessionID, "Generated title")
+		if err != nil || applied || session.GetName() != "Chosen by a person" {
+			t.Fatalf("SetNameIfEmpty() = %+v, applied %t, error %v", session, applied, err)
+		}
+	})
+
+	t.Run("Given a missing session, when a name is set, assert that the error is not found", func(t *testing.T) {
+		store := &serviceTestStore{renameErr: database.ErrNotFound}
+		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+		_, _, err := service.SetNameIfEmpty(serviceTestContext("alice"), sessionID, "Generated title")
+		if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
+			t.Fatalf("SetNameIfEmpty() error = %v, want code %s", err, serviceerrors.CodeNotFound)
+		}
+	})
+
+	t.Run("Given a malformed id, when a name is set, assert that the argument is rejected", func(t *testing.T) {
+		service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{})
+		_, _, err := service.SetNameIfEmpty(serviceTestContext("alice"), "not-a-uuid", "Generated title")
+		if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
+			t.Fatalf("SetNameIfEmpty() error = %v, want code %s", err, serviceerrors.CodeInvalidArgument)
 		}
 	})
 }

@@ -780,6 +780,79 @@ func TestSessionNameRoundTripsAndRenames(t *testing.T) {
 	}
 }
 
+func TestSetSessionNameIfEmpty(t *testing.T) {
+	ctx := t.Context()
+	newClient := func(t *testing.T, name string) (*Client, string) {
+		client := NewClient(setupTestDB(t), "public")
+		sessionFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
+		id := uuid.NewString()
+		_, _, err := client.CreateSession(ctx, newSessionRequest(id, "assistant", "kagent", name), id)
+		require.NoError(t, err)
+		return client, id
+	}
+
+	t.Run("Given an unnamed session, when a name is set, assert that it is applied and persisted", func(t *testing.T) {
+		client, id := newClient(t, "")
+		session, applied, err := client.SetSessionNameIfEmpty(ctx, id, "alice", "Generated title")
+		require.NoError(t, err)
+		require.True(t, applied)
+		require.Equal(t, "Generated title", session.GetName())
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Generated title", read.GetName())
+	})
+
+	t.Run("Given a named session, when a name is set, assert that the existing name is kept", func(t *testing.T) {
+		client, id := newClient(t, "Chosen by a person")
+		session, applied, err := client.SetSessionNameIfEmpty(ctx, id, "alice", "Generated title")
+		require.NoError(t, err)
+		require.False(t, applied)
+		require.Equal(t, "Chosen by a person", session.GetName())
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Chosen by a person", read.GetName())
+	})
+
+	t.Run("Given a session renamed first, when a name is set afterwards, assert that the rename wins", func(t *testing.T) {
+		client, id := newClient(t, "")
+		_, err := client.UpdateSessionName(ctx, id, "alice", "Renamed by a person")
+		require.NoError(t, err)
+		_, applied, err := client.SetSessionNameIfEmpty(ctx, id, "alice", "Generated title")
+		require.NoError(t, err)
+		require.False(t, applied)
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Renamed by a person", read.GetName())
+	})
+
+	t.Run("Given a session owned by alice, when another user sets a name, assert that it is not found and unchanged", func(t *testing.T) {
+		client, id := newClient(t, "")
+		_, applied, err := client.SetSessionNameIfEmpty(ctx, id, "bob", "Stolen")
+		require.ErrorIs(t, err, ErrNotFound)
+		require.False(t, applied)
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Empty(t, read.GetName())
+	})
+
+	t.Run("Given no such session, when a name is set, assert that it is not found", func(t *testing.T) {
+		client, _ := newClient(t, "")
+		_, applied, err := client.SetSessionNameIfEmpty(ctx, uuid.NewString(), "alice", "Nothing")
+		require.ErrorIs(t, err, ErrNotFound)
+		require.False(t, applied)
+	})
+
+	t.Run("Given a deleted session, when a name is set, assert that it is not found", func(t *testing.T) {
+		client, id := newClient(t, "")
+		_, err := markSessionReady(ctx, client, id, "runtime.example")
+		require.NoError(t, err)
+		require.NoError(t, deleteSession(ctx, client, id))
+		_, applied, err := client.SetSessionNameIfEmpty(ctx, id, "alice", "Resurrect")
+		require.ErrorIs(t, err, ErrNotFound)
+		require.False(t, applied)
+	})
+}
+
 func TestListSessionsFiltersByAgent(t *testing.T) {
 	c := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()

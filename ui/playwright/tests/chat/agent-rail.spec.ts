@@ -11,7 +11,7 @@ import {
   loadPage,
   withScenario,
 } from "../../helpers/app";
-import { expectTurnFinished } from "../../helpers/chat";
+import { expectTurnFinished, sendMessage } from "../../helpers/chat";
 import { dialog, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
@@ -773,4 +773,23 @@ test("chat agent rail: a failed read says so, and is not an empty list", async (
       page.getByTestId(`chat-session-${instances.ready}`),
     ).toBeVisible();
   });
+});
+
+/**
+ * The runtime names a session during its first turn, so the rail should show that name
+ * when the turn ends — not the first-message title until a reload.
+ */
+test("chat agent rail: a name written during a turn replaces the first-message title without a reload", async ({
+  page,
+}) => {
+  await page.goto(`${agentChat(AUTO_TITLED)}?chat=names`);
+  const row = page.getByTestId(`chat-session-${AUTO_TITLED}`);
+  await expect(row).toContainText("Summarise last night's deploy", { timeout: 30_000 });
+  await expect(row).not.toContainText("Pod count check");
+
+  const turn = await sendMessage(page, "How many pods are running?");
+  await expectTurnFinished(page, turn);
+
+  await expect(row).toContainText("Pod count check");
+  await expect(row).not.toContainText("Summarise last night's deploy");
 });
