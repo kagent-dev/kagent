@@ -151,4 +151,49 @@ describe("useChat cancel", () => {
     expect(hook.result.current.turnPhase).not.toBe("working");
     expect(hook.result.current.turnState).not.toBe("working");
   });
+
+  it("keeps a new run going when the stream stopped early later throws", async () => {
+    const second = controlledStream();
+    let failFirst: (() => void) | undefined;
+    let sends = 0;
+    const cancel = vi.fn<ChatClient["cancel"]>(async () => {});
+    setChatClientFactory(() => ({
+      protocolVersion: "test",
+      history: async () => ({ messages: [] }),
+      cancel,
+      send: () =>
+        ++sends === 1
+          ? (async function* (): AsyncIterable<ChatEvent> {
+              await new Promise<void>((resolve) => (failFirst = resolve));
+              yield* [] as ChatEvent[];
+              throw new Error("the first stream broke");
+            })()
+          : second.iterable(),
+    }));
+    const hook = renderHook(() => useChat(CONVERSATION));
+
+    await act(async () => {
+      void hook.result.current.send("first");
+    });
+    await act(async () => {
+      await hook.result.current.cancel();
+    });
+    await act(async () => {
+      void hook.result.current.send("second");
+    });
+    await act(async () => {
+      failFirst?.();
+    });
+
+    expect(hook.result.current.turnState).not.toBe("failed");
+
+    await act(async () => {
+      second.push({ type: "status", state: "working", taskId: "task-2" });
+    });
+    expect(hook.result.current.turnState).toBe("working");
+    expect(hook.result.current.messages.filter((m) => m.role === "user")).toHaveLength(
+      1,
+    );
+    expect(cancel).not.toHaveBeenCalled();
+  });
 });

@@ -323,6 +323,8 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
        * *after* starting is a different thing and keeps its message: it happened.
        */
       let refused = false;
+      // Whether this run's stream named its task; `taskRef` is shared across runs.
+      let named = false;
 
       const { streamTimeoutMs } = runtimeConfig();
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -387,7 +389,10 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
               dispatch({ type: "content" });
               break;
             case "status":
-              if (event.taskId) taskRef.current = event.taskId;
+              if (event.taskId) {
+                taskRef.current = event.taskId;
+                named = true;
+              }
               // A turn that parks leaves a question behind it. Recorded here rather
               // than derived from the turn's phase, because the turn ends and the
               // question does not.
@@ -411,7 +416,8 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         // A transport that throws rather than yielding an error event is still
         // a failed turn, not a crashed page.
         if (!controller.signal.aborted) {
-          dispatch({ type: "error", error: asError(cause) });
+          // A run stopped early does not own the turn, so its failure stays quiet.
+          if (!cancelWhenNamed) dispatch({ type: "error", error: asError(cause) });
           refused = true;
         }
       } finally {
@@ -429,9 +435,9 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         }
         if (abortRef.current === controller) abortRef.current = null;
         // Nothing was ever filed under this message, so it is taken back off screen
-        // — see `refused`. `taskRef` is the test for "the server started a turn",
-        // because the first status frame is what names the task.
-        if (refused && !taskRef.current) {
+        // — see `refused`. A status frame naming the task is how we know the
+        // server started a turn.
+        if (refused && !named) {
           setTranscript((current) =>
             withMessages(current, key, (messages) =>
               messages.filter((existing) => existing.id !== messageId),
