@@ -7,7 +7,7 @@
  * empty state. This wraps it once so all four states are named.
  */
 
-import useSWR, { unstable_serialize, useSWRConfig, type SWRConfiguration } from "swr";
+import useSWR, { unstable_serialize, useSWRConfig, type Cache, type SWRConfiguration } from "swr";
 import { ApiError } from "../ApiError";
 
 export interface ApiResource<T> {
@@ -35,9 +35,10 @@ export function useApiResource<T>(
   config?: SWRConfiguration<T, ApiError>,
 ): ApiResource<T> {
   const { cache, mutate } = useSWRConfig();
+  const resourceKey = unstable_serialize(key);
   const { data, error, isLoading, isValidating } = useSWR<T, ApiError>(
     key,
-    fetcher,
+    () => readResource(cache, resourceKey, fetcher),
     config,
   );
 
@@ -59,10 +60,49 @@ export function useApiResource<T>(
      */
     refresh: async () => {
       await mutate(key);
-      const failure = cache.get(unstable_serialize(key))?.error;
+      const failure = cache.get(resourceKey)?.error;
       if (failure) throw failure;
     },
   };
+}
+
+interface ResourceReads {
+  latest: Promise<unknown>;
+  pending: number;
+}
+
+// Share ordering across readers and automatic revalidation on the same provider.
+// Entries exist only while reads are in flight, including superseded requests.
+const readsByCache = new WeakMap<object, Map<string, ResourceReads>>();
+
+function readResource<T>(cache: Cache<T>, key: string, fetcher: () => Promise<T>): Promise<T> {
+  let reads = readsByCache.get(cache);
+  if (!reads) {
+    reads = new Map();
+    readsByCache.set(cache, reads);
+  }
+  const active = reads;
+  const dataBefore = cache.get(key)?.data;
+  const request: Promise<T> = Promise.resolve().then(fetcher).catch((cause: unknown) => {
+    if (active.get(key)?.latest !== request || cache.get(key)?.data !== dataBefore) {
+      // SWR fences obsolete successes, but can still publish obsolete errors.
+      // Resolve through the cache so its request/mutation fence discards this
+      // result too. Only the current read may publish a failure or retry it.
+      return cache.get(key)?.data as T;
+    }
+    throw cause;
+  });
+  const previous = active.get(key);
+  active.set(key, { latest: request, pending: (previous?.pending ?? 0) + 1 });
+  const finish = () => {
+    const current = active.get(key);
+    if (current && --current.pending === 0) {
+      active.delete(key);
+      if (active.size === 0) readsByCache.delete(cache);
+    }
+  };
+  void request.then(finish, finish);
+  return request;
 }
 
 function isEmptyResult(data: unknown): boolean {

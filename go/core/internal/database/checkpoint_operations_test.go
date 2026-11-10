@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -98,12 +99,18 @@ func reserveRecoveryCheckpoint(t *testing.T, client *Client) (*apiv1.Checkpoint,
 }
 
 func TestCheckpointClaimsFenceCompletionAndDeletion(t *testing.T) {
-	client := NewClient(setupTestDB(t), "public")
+	pool := setupTestDB(t)
+	config := pool.Config().Copy()
+	config.ConnConfig.Tracer = &checkpointClaimTransit{}
+	claimPool, err := Connect(t.Context(), &PostgresConfig{Pool: config, Schema: "public"})
+	require.NoError(t, err)
+	t.Cleanup(claimPool.Close)
+	client := NewClient(claimPool, "public")
 	checkpoint, _ := reserveRecoveryCheckpoint(t, client)
 	first := uuid.New()
-	ctx, cancel := context.WithTimeout(t.Context(), 80*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
-	_, err := client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", first)
+	_, err = client.ClaimCheckpointOperation(ctx, checkpoint.Id, "alice", first)
 	require.NoError(t, err)
 	nextCtx, stop := context.WithTimeout(t.Context(), RuntimeOperationTimeout)
 	defer stop()
@@ -116,7 +123,13 @@ func TestCheckpointClaimsFenceCompletionAndDeletion(t *testing.T) {
 	require.Empty(t, page, "live claims are not sweep work")
 	<-ctx.Done()
 	second := uuid.New()
-	op, err := client.ClaimCheckpointOperation(nextCtx, checkpoint.Id, "alice", second)
+	// A client deadline does not include transit before PostgreSQL starts its
+	// lease clock. Observe actual takeover eligibility instead of guessing it.
+	var op *CheckpointOperation
+	require.Eventually(t, func() bool {
+		op, err = client.ClaimCheckpointOperation(nextCtx, checkpoint.Id, "alice", second)
+		return !errors.Is(err, ErrConflict)
+	}, 5*time.Second, 10*time.Millisecond, "expired claim must become eligible for takeover")
 	require.NoError(t, err)
 	require.NoError(t, client.ReleaseCheckpointOperation(t.Context(), checkpoint.Id, first))
 	_, err = client.FinalizeClaimedSessionCheckpoint(nextCtx, op.Checkpoint, first, "old", "s3://tags/old", "")
@@ -135,6 +148,19 @@ func TestCheckpointClaimsFenceCompletionAndDeletion(t *testing.T) {
 	require.ErrorIs(t, client.DeleteClaimedSessionCheckpoint(nextCtx, checkpoint.Id, "alice", second), ErrConflict)
 	require.NoError(t, client.DeleteClaimedSessionCheckpoint(nextCtx, checkpoint.Id, "alice", deletion))
 }
+
+// Delay the first claim after its duration was calculated, so the database lease
+// deterministically outlives the client timer. Stored timestamps stay untouched.
+type checkpointClaimTransit struct{ once sync.Once }
+
+func (g *checkpointClaimTransit) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if strings.Contains(data.SQL, "UPDATE session_checkpoint SET executor_id") {
+		g.once.Do(func() { time.Sleep(100 * time.Millisecond) })
+	}
+	return ctx
+}
+
+func (*checkpointClaimTransit) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
 func TestLegacyUnversionedCheckpointCannotBeClaimed(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")

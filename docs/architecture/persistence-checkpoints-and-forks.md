@@ -160,6 +160,8 @@ keeps its details open for retry.
 Confirmed deletion removes the cached record before rereading the list, so a
 subsequent read outage cannot leave a deleted FAILED entry on screen. Failed
 refreshes retain the last data and expose an error with a retry action.
+An older read failure cannot replace a newer read's outcome or undo a confirmed
+cache update; only the current read may publish an error or schedule its retry.
 
 ### Proposed initial upgrade boundary: pending maintainer acceptance
 

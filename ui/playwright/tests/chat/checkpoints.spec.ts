@@ -34,6 +34,49 @@ async function listUnavailable(page: import("@playwright/test").Page, unavailabl
 test.describe("chat: snapshot refresh failures", () => {
   test.use({ expectedNoise: [/Could not (?:checkpoint the conversation|re-read the saved boundaries):/] });
 
+  test("chat: a repaired snapshot list ignores an older failed refresh", async ({ page }) => {
+    await page.goto(`${agentChat(instances.ready)}?checkpoint=failed`);
+    await expect(dividers(page)).toHaveCount(1);
+    await sendAndAwaitTurn(page, "Overlapping discovery requests after storage repair.");
+    await listUnavailable(page, true);
+    await page.getByTestId("chat-checkpoint").click();
+    await expect(page.getByText("Could not load snapshots", { exact: true })).toBeVisible();
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("checkpointList");
+      url.searchParams.set("mock", "error");
+      window.history.replaceState({}, "", url);
+      // Delay just this next fixture RPC, whose error scenario is captured
+      // before sleeping. The repaired retry must finish ahead of its failure.
+      const original = window.setTimeout;
+      window.setTimeout = Object.assign((handler: TimerHandler, delay?: number, ...args: unknown[]): number => {
+        if (delay === 450 && typeof handler === "function") {
+          window.setTimeout = original;
+          document.body.dataset.delayedSnapshotRead = "started";
+          return original(() => {
+            handler(...args);
+            document.body.dataset.delayedSnapshotRead = "completed";
+          }, 1800);
+        }
+        return original(handler, delay, ...args);
+      }, original);
+    });
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(page.locator("body")).toHaveAttribute("data-delayed-snapshot-read", "started");
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("mock", "ok");
+      window.history.replaceState({}, "", url);
+    });
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(page.getByTestId("chat-failed-snapshots")).toBeVisible();
+    await expect(page.getByText("Could not load snapshots", { exact: true })).toHaveCount(0);
+    await expect(page.locator("body")).toHaveAttribute("data-delayed-snapshot-read", "completed");
+    // Let the old RPC rejection and React's error render reach the page.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page.getByText("Could not load snapshots", { exact: true })).toHaveCount(0);
+  });
+
   test("chat: a failed creation followed by a list outage offers a repaired retry", async ({ page }) => {
     await page.goto(`${agentChat(instances.ready)}?checkpoint=failed`);
     await expect(dividers(page)).toHaveCount(1);
