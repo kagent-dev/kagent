@@ -85,18 +85,22 @@ def read_file_content(file_path: Path, offset: int | None = None, limit: int | N
     start = max(offset or 1, 1)
     line_limit = limit if limit and limit > 0 else _DEFAULT_READ_LINES
     result = _FileOutput()
-    count = 0
+    count = lines = 0
     for line_num, line in _file_lines(file_path):
+        lines = line_num
         if line_num < start:
             continue
+        if count == line_limit:
+            # Only offer a continuation when a line actually follows the page.
+            if not limit or limit < 0:
+                result.append(f"[read limited to {line_limit} lines; continue with offset={line_num}]")
+            break
         count += 1
         if not result.append(f"{line_num:6d}|{_truncate_line(line)}"):
             break
-        if count == line_limit:
-            if not limit or limit < 0:
-                result.append(f"[read limited to {line_limit} lines; continue with offset={line_num + 1}]")
-            break
-    return result.text() or "File is empty."
+    if lines == 0:
+        return "File is empty."
+    return result.text() or f"Offset {start} is past the end of the file, which has {lines} lines."
 
 
 def write_file_content(file_path: Path, content: str) -> str:
