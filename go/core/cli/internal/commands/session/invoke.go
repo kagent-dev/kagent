@@ -31,6 +31,7 @@ type InvokeCfg struct {
 	Stream       bool
 	PushURL      string
 	PushID       string
+	Agent        string
 }
 
 func runInvoke(
@@ -39,6 +40,7 @@ func runInvoke(
 	cfg *InvokeCfg,
 	in io.Reader,
 	out io.Writer,
+	errOut io.Writer,
 ) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
@@ -47,10 +49,6 @@ func runInvoke(
 	task, err := readInvokeTask(cfg, in)
 	if err != nil {
 		return err
-	}
-	sessionID, err := uuid.Parse(cfg.Session)
-	if err != nil {
-		return fmt.Errorf("invalid Session ID %q: %w", cfg.Session, err)
 	}
 	if cfg.PushID != "" && cfg.PushURL == "" {
 		return errors.New("--push-id requires --push-url")
@@ -64,14 +62,14 @@ func runInvoke(
 		}
 	}
 
-	session, err := connection.OpenGateway(ctx, options)
+	session, sessionID, err := openInvokeSession(ctx, options, cfg, errOut)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	a2aClient, err := session.Gateway.A2A.ForSession(ctx, sessionID.String())
+	a2aClient, err := session.Gateway.A2A.ForSession(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("create Session A2A client: %w", err)
 	}
@@ -85,6 +83,47 @@ func runInvoke(
 		return invokeStreaming(ctx, a2aClient, request, format, out)
 	}
 	return invokeNonStreaming(ctx, a2aClient, request, format, out)
+}
+
+// openInvokeSession opens a connection and resolves the Session to invoke. When
+// cfg.Agent is set, it creates a new Session through the same API path as
+// "agent session create" and writes the ID to errOut so it can be reused.
+func openInvokeSession(
+	ctx context.Context,
+	options connection.Options,
+	cfg *InvokeCfg,
+	errOut io.Writer,
+) (*connection.Session, string, error) {
+	if cfg.Session != "" {
+		sessionID, err := uuid.Parse(cfg.Session)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid Session ID %q: %w", cfg.Session, err)
+		}
+		session, err := connection.OpenGateway(ctx, options)
+		if err != nil {
+			return nil, "", err
+		}
+		return session, sessionID.String(), nil
+	}
+	if cfg.Agent == "" {
+		return nil, "", errors.New("one of --session or --agent is required")
+	}
+
+	session, err := connection.Open(ctx, options)
+	if err != nil {
+		return nil, "", err
+	}
+	createCfg := &CreateCfg{Agent: cfg.Agent}
+	ensureRequestID(createCfg)
+	response, err := createSession(ctx, session.API.Session, session.Namespace, createCfg)
+	if err != nil {
+		return nil, "", errors.Join(err, session.Close())
+	}
+	sessionID := response.GetSession().GetId()
+	if _, err := fmt.Fprintf(errOut, "Session: %s\n", sessionID); err != nil {
+		return nil, "", errors.Join(fmt.Errorf("write Session ID: %w", err), session.Close())
+	}
+	return session, sessionID, nil
 }
 
 type pushInvokeClient interface {
@@ -418,15 +457,21 @@ func sendResultError(result a2atype.SendMessageResult) error {
 	}
 }
 
-// NewInvokeCmd constructs the Session invoke command.
+// NewInvokeCmd constructs the Session invoke command, which uses an existing
+// Session or creates a new one.
 func NewInvokeCmd() *cobra.Command {
 	cfg := &InvokeCfg{}
 	cmd := &cobra.Command{
-		Use:     "invoke",
-		Short:   "Invoke a Session",
-		Long:    `Invoke an existing Session through the A2A API.`,
-		Args:    cobra.NoArgs,
-		Example: `kagent agent invoke --session 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
+		Use:   "invoke",
+		Short: "Invoke a Session",
+		Long: `Invoke an existing Session through the A2A API.
+
+Pass --session to invoke an existing Session, or --agent to create a new
+Session for that Agent first. The new Session ID is printed to stderr so it
+can be reused for follow-up invocations.`,
+		Args: cobra.NoArgs,
+		Example: `kagent agent invoke --session 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"
+kagent agent invoke --agent k8s-101 --task "Get all the pods"`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
@@ -437,16 +482,20 @@ func NewInvokeCmd() *cobra.Command {
 				return err
 			}
 			cfg.OutputFormat = format
-			return runInvoke(cmd.Context(), options, cfg, cmd.InOrStdin(), cmd.OutOrStdout())
+			return runInvoke(cmd.Context(), options, cfg, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
-	cmd.Flags().StringVar(&cfg.Session, "session", "", "Session ID")
+	cmd.Flags().StringVar(&cfg.Session, "session", "", "Session ID; omit to create a new Session with --agent")
 	cmd.Flags().StringVarP(&cfg.Task, "task", "t", "", "Task text")
 	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	cmd.Flags().BoolVarP(&cfg.Stream, "stream", "S", false, "Stream the response")
 	cmd.Flags().StringVar(&cfg.PushURL, "push-url", "", "Register a callback before task dispatch; return the task immediately")
 	cmd.Flags().StringVar(&cfg.PushID, "push-id", "", "Callback ID (generated when omitted; requires --push-url)")
-	_ = cmd.MarkFlagRequired("session")
+	cmd.Flags().StringVar(&cfg.Agent, "agent", "", "Agent name; a new Session is created for it when --session is omitted")
+
+	cmd.MarkFlagsOneRequired("session", "agent")
+	cmd.MarkFlagsMutuallyExclusive("session", "agent")
+
 	cmd.MarkFlagsOneRequired("task", "file")
 	cmd.MarkFlagsMutuallyExclusive("task", "file")
 	return cmd

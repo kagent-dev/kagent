@@ -48,6 +48,36 @@ func TestReadInvokeTask(t *testing.T) {
 	}
 }
 
+func TestInvokeSessionOrAgentFlagGroup(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "neither", args: []string{"--task", "hello"}, wantErr: "at least one of the flags in the group [session agent] is required"},
+		{name: "both", args: []string{"--session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--agent", "k8s-101", "--task", "hello"}, wantErr: "none of the others can be"},
+		{name: "agent only", args: []string{"--agent", "k8s-101", "--task", "hello"}},
+		{name: "session only", args: []string{"--session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := NewInvokeCmd()
+			require.NoError(t, cmd.ParseFlags(tt.args))
+			err := cmd.ValidateFlagGroups()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestOpenInvokeSessionRequiresSessionOrAgent(t *testing.T) {
+	_, _, err := openInvokeSession(t.Context(), connection.DefaultOptions(), &InvokeCfg{}, &bytes.Buffer{})
+	require.ErrorContains(t, err, "one of --session or --agent is required")
+}
+
 func TestInvokePushFlagsRejectInvalidCombinationsBeforeConnecting(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -63,7 +93,7 @@ func TestInvokePushFlagsRejectInvalidCombinationsBeforeConnecting(t *testing.T) 
 			cfg.Task = "hello"
 			cfg.Session = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
 			cfg.OutputFormat = "table"
-			err := runInvoke(t.Context(), connection.DefaultOptions(), &cfg, strings.NewReader(""), &bytes.Buffer{})
+			err := runInvoke(t.Context(), connection.DefaultOptions(), &cfg, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 			require.ErrorContains(t, err, test.want)
 		})
 	}

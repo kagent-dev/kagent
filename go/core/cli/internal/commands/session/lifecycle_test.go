@@ -59,6 +59,35 @@ func TestCreateSessionExplicitReplayIDAndOutput(t *testing.T) {
 	}
 }
 
+func TestCreateSessionReturnsCreatedSession(t *testing.T) {
+	client := &lifecycleSessionClient{createSession: testSession()}
+	cfg := &CreateCfg{Agent: "smoke", RequestID: "replay-1"}
+
+	response, err := createSession(t.Context(), client, "kagent", cfg)
+	require.NoError(t, err)
+	assert.Equal(t, testSessionID, response.GetSession().GetId())
+	assert.Equal(t, &apiv1.CreateSessionRequest{
+		Agent: &apiv1.ResourceReference{Namespace: "kagent", Name: "smoke"}, RequestId: "replay-1",
+	}, client.createRequest)
+}
+
+func TestCreateSessionErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		client  *lifecycleSessionClient
+		wantErr string
+	}{
+		{name: "API error", client: &lifecycleSessionClient{createErr: status.Error(codes.Internal, "boom")}, wantErr: "create Session"},
+		{name: "no session", client: &lifecycleSessionClient{}, wantErr: "returned no Session"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := createSession(t.Context(), tt.client, "kagent", &CreateCfg{Agent: "smoke"})
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestDeleteSession(t *testing.T) {
 	client := &lifecycleSessionClient{deleteSession: &apiv1.Session{
 		Id: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_DELETED,
