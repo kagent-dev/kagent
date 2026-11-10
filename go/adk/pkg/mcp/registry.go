@@ -77,6 +77,7 @@ type mcpServerParams struct {
 	AllowedHeaders        []string              // header names to forward from incoming request
 	PropagateToken        bool                  // when true, Authorization is forwarded independently of AllowedHeaders
 	TokenPassthrough      bool                  // when true, Authorization is always the caller's bearer token
+	SessionIDHeader       string                // when set, the kagent session ID is sent under this header name
 	HeaderProvider        DynamicHeaderProvider // optional per-request headers derived from invocation context (e.g., STS exchanged access tokens)
 	ServerType            string                // "http" or "sse"
 	Command               string
@@ -132,6 +133,7 @@ func CreateToolsets(
 			AllowedHeaders:        httpTool.AllowedHeaders,
 			PropagateToken:        propagateToken,
 			TokenPassthrough:      httpTool.TokenPassthrough,
+			SessionIDHeader:       httpTool.SessionIdHeader,
 			HeaderProvider:        headerProvider,
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
@@ -155,6 +157,7 @@ func CreateToolsets(
 			AllowedHeaders:        sseTool.AllowedHeaders,
 			PropagateToken:        propagateToken,
 			TokenPassthrough:      sseTool.TokenPassthrough,
+			SessionIDHeader:       sseTool.SessionIdHeader,
 			HeaderProvider:        headerProvider,
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
@@ -265,7 +268,7 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	var httpTransport http.RoundTripper = baseTransport
-	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken || params.HeaderProvider != nil || params.TokenPassthrough {
+	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken || params.HeaderProvider != nil || params.TokenPassthrough || params.SessionIDHeader != "" {
 		httpTransport = &headerRoundTripper{
 			base:             baseTransport,
 			headers:          params.Headers,
@@ -273,6 +276,7 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 			propagateToken:   params.PropagateToken,
 			headerProvider:   params.HeaderProvider,
 			tokenPassthrough: params.TokenPassthrough,
+			sessionIDHeader:  params.SessionIDHeader,
 		}
 	}
 
@@ -310,6 +314,7 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 //  2. allowedHeaders: explicit per-header forwarding from the A2A CallContext.
 //  3. headerProvider: runtime headers derived from ADK context, such as STS tokens.
 //  4. headers: static key/value pairs configured on the MCP server spec.
+//  5. sessionIDHeader: the kagent session ID, when configured and available.
 //
 // When tokenPassthrough is set, Authorization is then replaced with the
 // caller's bearer token, and requests without one fail rather than falling
@@ -321,6 +326,7 @@ type headerRoundTripper struct {
 	propagateToken   bool     // when true, Authorization is forwarded independently
 	headerProvider   DynamicHeaderProvider
 	tokenPassthrough bool
+	sessionIDHeader  string
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -360,6 +366,12 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		req.Header.Set(key, value)
 	}
 
+	if rt.sessionIDHeader != "" {
+		if sessionID := sessionIDFromContext(req.Context()); sessionID != "" {
+			req.Header.Set(rt.sessionIDHeader, sessionID)
+		}
+	}
+
 	if rt.tokenPassthrough {
 		token, ok := models.PassthroughToken(req.Context(), true)
 		if !ok {
@@ -380,9 +392,10 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 	}
 
 	discovery := &mcpAppDiscovery{listedAppNames: make(map[string]bool), appToolNames: make(map[string]bool)}
+	client := newMCPAppClient(toolFilter, discovery)
 	cfg := mcptoolset.Config{
 		Transport: mcpTransport,
-		Client:    newMCPAppClient(toolFilter, discovery),
+		Client:    client,
 	}
 
 	toolset, err := mcptoolset.New(cfg)
@@ -391,4 +404,15 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 	}
 
 	return &mcpAppToolset{inner: toolset, discovery: discovery}, nil
+}
+
+type sessionIDKey struct{}
+
+func WithPublicContextID(ctx context.Context, contextID string) context.Context {
+	return context.WithValue(ctx, sessionIDKey{}, contextID)
+}
+
+func sessionIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(sessionIDKey{}).(string)
+	return id
 }

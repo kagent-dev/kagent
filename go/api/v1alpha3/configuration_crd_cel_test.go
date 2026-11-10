@@ -587,6 +587,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 
 	t.Run("egress policies", func(t *testing.T) { testEgressPolicyValidation(t, cl, namespace) })
 	t.Run("MCP credential headers", func(t *testing.T) { testMCPCredentialHeaderValidation(t, cl, namespace) })
+	t.Run("MCP session ID header", func(t *testing.T) { testMCPSessionIDHeaderValidation(t, cl, namespace) })
 
 	t.Run("literal runtime environment", func(t *testing.T) {
 		harness := validHarness(namespace, "env-harness", HarnessSpec{Kagent: &KagentHarness{}})

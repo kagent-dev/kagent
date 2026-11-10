@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -26,6 +27,12 @@ type toolNotExecutedError struct{ err error }
 
 func (e *toolNotExecutedError) Error() string { return e.err.Error() }
 func (e *toolNotExecutedError) Unwrap() error { return e.err }
+
+type sessionIDKey struct{}
+
+func withSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, sessionIDKey{}, sessionID)
+}
 
 type MCPCaller struct {
 	servers     map[string]config.MCPServer
@@ -59,6 +66,9 @@ func (c *MCPCaller) Call(ctx context.Context, server, tool string, args map[stri
 			variable := strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
 			var present bool
 			value, present = c.environment[variable]
+			if sessionID, _ := ctx.Value(sessionIDKey{}).(string); variable == runtime.SessionIDEnvVar && sessionID != "" {
+				value, present = sessionID, true
+			}
 			if !present || value == "" {
 				return nil, fmt.Errorf("deferred MCP header environment %q is unavailable", variable)
 			}

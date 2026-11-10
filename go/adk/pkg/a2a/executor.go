@@ -264,6 +264,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		sessionID := reqCtx.ContextID
 
 		ctx = context.WithValue(ctx, publicContextIDKey{}, reqCtx.ContextID)
+		ctx = mcp.WithPublicContextID(ctx, reqCtx.ContextID)
 		ctx = withBearerToken(ctx)
 		ctx = mcp.WithDiscoveryScope(ctx)
 		// The synthetic ADK user ID is only a native session lookup key. Memory

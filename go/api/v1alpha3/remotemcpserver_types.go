@@ -35,6 +35,7 @@ const (
 // +kubebuilder:validation:XValidation:message="headersFrom cannot set Authorization when tokenPassthrough is enabled",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == 'authorization')"
 // +kubebuilder:validation:AtMostOneOf=actorJwt;tokenPassthrough
 // +kubebuilder:validation:XValidation:message="headersFrom cannot set Authorization when actorJwt is enabled",rule="!has(self.actorJwt) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == 'authorization')"
+// +kubebuilder:validation:XValidation:message="sessionIdHeader must not match a name in headersFrom",rule="!has(self.sessionIdHeader) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == self.sessionIdHeader.lowerAscii())"
 type RemoteMCPServerSpec struct {
 	// ActorJWT authenticates as the executing Actor with Authorization: Bearer.
 	// Substrate injects the token; tool discovery runs inside the Actor.
@@ -57,6 +58,15 @@ type RemoteMCPServerSpec struct {
 	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || self.name.matches('^[!#$%&\\\\x27*+.^_`|~0-9A-Za-z-]+$')",message="Secret-backed headers require a valid HTTP header name",fieldPath=".name"
 	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || !(self.name.lowerAscii() in ['host', 'connection', 'content-length', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'keep-alive', 'proxy-authorization', 'proxy-authenticate', 'cookie'])",message="this header cannot carry an egress credential",fieldPath=".name"
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
+	// SessionIDHeader is the name of the HTTP header that carries the kagent session ID on requests to this server.
+	// When empty, no session ID is sent.
+	// Tool discovery has no session, so the header is left out there.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[!#$%&\\x27*+.^_`|~0-9A-Za-z-]+$')",message="sessionIdHeader must be a valid HTTP header name"
+	// +kubebuilder:validation:XValidation:rule="!(self.lowerAscii() in ['host', 'connection', 'content-length', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'keep-alive', 'proxy-authorization', 'proxy-authenticate', 'cookie', 'authorization'])",message="sessionIdHeader cannot use this header name"
+	SessionIDHeader string `json:"sessionIdHeader,omitempty"`
 	// TokenPassthrough forwards the bearer token from the incoming A2A request
 	// to this server as its Authorization header. Requests without a caller
 	// token fail. Controller tool discovery has no caller token, so servers that

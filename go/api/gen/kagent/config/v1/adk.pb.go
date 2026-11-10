@@ -1732,8 +1732,10 @@ type ADKHTTPMCPServerConfig struct {
 	RequireApproval bool                     `protobuf:"varint,4,opt,name=require_approval,json=requireApproval,proto3" json:"require_approval,omitempty"`
 	// Forward the incoming A2A bearer token as this server's Authorization header.
 	TokenPassthrough bool `protobuf:"varint,5,opt,name=token_passthrough,json=tokenPassthrough,proto3" json:"token_passthrough,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Name of the header that carries the kagent session ID on requests to this server.
+	SessionIdHeader string `protobuf:"bytes,6,opt,name=session_id_header,json=sessionIdHeader,proto3" json:"session_id_header,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ADKHTTPMCPServerConfig) Reset() {
@@ -1801,6 +1803,13 @@ func (x *ADKHTTPMCPServerConfig) GetTokenPassthrough() bool {
 	return false
 }
 
+func (x *ADKHTTPMCPServerConfig) GetSessionIdHeader() string {
+	if x != nil {
+		return x.SessionIdHeader
+	}
+	return ""
+}
+
 type ADKSSEMCPServerConfig struct {
 	state           protoimpl.MessageState  `protogen:"open.v1"`
 	Params          *ADKSSEConnectionParams `protobuf:"bytes,1,opt,name=params,proto3" json:"params,omitempty"`
@@ -1809,8 +1818,10 @@ type ADKSSEMCPServerConfig struct {
 	RequireApproval bool                    `protobuf:"varint,4,opt,name=require_approval,json=requireApproval,proto3" json:"require_approval,omitempty"`
 	// Forward the incoming A2A bearer token as this server's Authorization header.
 	TokenPassthrough bool `protobuf:"varint,5,opt,name=token_passthrough,json=tokenPassthrough,proto3" json:"token_passthrough,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Name of the header that carries the kagent session ID on requests to this server.
+	SessionIdHeader string `protobuf:"bytes,6,opt,name=session_id_header,json=sessionIdHeader,proto3" json:"session_id_header,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ADKSSEMCPServerConfig) Reset() {
@@ -1876,6 +1887,13 @@ func (x *ADKSSEMCPServerConfig) GetTokenPassthrough() bool {
 		return x.TokenPassthrough
 	}
 	return false
+}
+
+func (x *ADKSSEMCPServerConfig) GetSessionIdHeader() string {
+	if x != nil {
+		return x.SessionIdHeader
+	}
+	return ""
 }
 
 type ADKStdioMCPServerConfig struct {
@@ -3115,19 +3133,21 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
-	"\x17_tls_disable_system_cas\"\xfa\x01\n" +
+	"\x17_tls_disable_system_cas\"\xa6\x02\n" +
 	"\x16ADKHTTPMCPServerConfig\x12I\n" +
 	"\x06params\x18\x01 \x01(\v2).kagent.config.v1.ADKHTTPConnectionParamsB\x06\xbaH\x03\xc8\x01\x01R\x06params\x12\x14\n" +
 	"\x05tools\x18\x02 \x03(\tR\x05tools\x12'\n" +
 	"\x0fallowed_headers\x18\x03 \x03(\tR\x0eallowedHeaders\x12)\n" +
 	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\x12+\n" +
-	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\"\xf8\x01\n" +
+	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\x12*\n" +
+	"\x11session_id_header\x18\x06 \x01(\tR\x0fsessionIdHeader\"\xa4\x02\n" +
 	"\x15ADKSSEMCPServerConfig\x12H\n" +
 	"\x06params\x18\x01 \x01(\v2(.kagent.config.v1.ADKSSEConnectionParamsB\x06\xbaH\x03\xc8\x01\x01R\x06params\x12\x14\n" +
 	"\x05tools\x18\x02 \x03(\tR\x05tools\x12'\n" +
 	"\x0fallowed_headers\x18\x03 \x03(\tR\x0eallowedHeaders\x12)\n" +
 	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\x12+\n" +
-	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\"\xd7\x01\n" +
+	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\x12*\n" +
+	"\x11session_id_header\x18\x06 \x01(\tR\x0fsessionIdHeader\"\xd7\x01\n" +
 	"\x17ADKStdioMCPServerConfig\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12D\n" +

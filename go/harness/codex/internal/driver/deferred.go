@@ -345,7 +345,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 				if observed {
 					telemetry.ToolExecutionStarted(runtime.ToolCall{ID: r.Approval.CallID, Name: r.Approval.Name, Arguments: r.Approval.Args, MCPServer: r.Server, MCPTool: r.Tool})
 				}
-				r.Result, err = p.driver.config.Tools.Call(ctx, r.Server, r.Tool, r.Approval.Args)
+				r.Result, err = p.driver.config.Tools.Call(withSessionID(ctx, r.ContextID), r.Server, r.Tool, r.Approval.Args)
 				var notExecuted *toolNotExecutedError
 				didNotExecute := errors.As(err, &notExecuted)
 				if observed {

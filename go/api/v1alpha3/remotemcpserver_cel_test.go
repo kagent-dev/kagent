@@ -88,3 +88,75 @@ func testMCPCredentialHeaderValidation(t *testing.T, cl ctrlclient.Client, names
 		require.ErrorContains(t, cl.Update(t.Context(), server), "must have at most 64 items")
 	})
 }
+
+func testMCPSessionIDHeaderValidation(t *testing.T, cl ctrlclient.Client, namespace string) {
+	t.Helper()
+	for _, tc := range []struct {
+		name        string
+		header      string
+		headersFrom []ValueRef
+		reject      string
+	}{
+		{name: "valid", header: "X-Kagent-Session-Id"},
+		{name: "token-characters", header: "X-!#$%&'*+-.^_`|~0123456789"},
+		{name: "max-length", header: strings.Repeat("x", 256)},
+		{name: "different-from-headers-from", header: "X-Session", headersFrom: []ValueRef{{Name: "X-Other", Value: "v"}}},
+		{name: "too-long", header: strings.Repeat("x", 257), reject: "may not be more than 256"},
+		{name: "whitespace", header: "X Key", reject: "valid HTTP header name"},
+		{name: "colon", header: "X:Key", reject: "valid HTTP header name"},
+		{name: "newline", header: "X-Key\r\nInjected", reject: "valid HTTP header name"},
+		{name: "unicode", header: "X-名", reject: "valid HTTP header name"},
+		{name: "authorization", header: "Authorization", reject: "sessionIdHeader cannot use this header name"},
+		{name: "host", header: "Host", reject: "sessionIdHeader cannot use this header name"},
+		{name: "connection", header: "cOnNeCtIoN", reject: "sessionIdHeader cannot use this header name"},
+		{name: "content-length", header: "Content-Length", reject: "sessionIdHeader cannot use this header name"},
+		{name: "transfer-encoding", header: "Transfer-Encoding", reject: "sessionIdHeader cannot use this header name"},
+		{name: "te", header: "TE", reject: "sessionIdHeader cannot use this header name"},
+		{name: "trailer", header: "Trailer", reject: "sessionIdHeader cannot use this header name"},
+		{name: "upgrade", header: "Upgrade", reject: "sessionIdHeader cannot use this header name"},
+		{name: "keep-alive", header: "Keep-Alive", reject: "sessionIdHeader cannot use this header name"},
+		{name: "proxy-authorization", header: "Proxy-Authorization", reject: "sessionIdHeader cannot use this header name"},
+		{name: "proxy-authenticate", header: "Proxy-Authenticate", reject: "sessionIdHeader cannot use this header name"},
+		{name: "cookie", header: "Cookie", reject: "sessionIdHeader cannot use this header name"},
+		{name: "collides-same-case", header: "X-Session", headersFrom: []ValueRef{{Name: "X-Session", Value: "v"}}, reject: "must not match a name in headersFrom"},
+		{name: "collides-other-case", header: "x-session", headersFrom: []ValueRef{{Name: "X-SESSION", Value: "v"}}, reject: "must not match a name in headersFrom"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := &RemoteMCPServer{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "mcp-session-header-" + tc.name},
+				Spec: RemoteMCPServerSpec{
+					Description:     "MCP session ID header validation",
+					URL:             "https://mcp.example.com/mcp",
+					HeadersFrom:     tc.headersFrom,
+					SessionIDHeader: tc.header,
+				},
+			}
+			err := cl.Create(t.Context(), server)
+			if tc.reject != "" {
+				require.ErrorContains(t, err, tc.reject)
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, cl.Get(t.Context(), ctrlclient.ObjectKeyFromObject(server), server))
+			require.Equal(t, tc.header, server.Spec.SessionIDHeader)
+		})
+	}
+	t.Run("unset is accepted", func(t *testing.T) {
+		server := &RemoteMCPServer{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "mcp-session-header-unset"},
+			Spec:       RemoteMCPServerSpec{Description: "No session header", URL: "https://mcp.example.com/mcp"},
+		}
+		require.NoError(t, cl.Create(t.Context(), server))
+		require.NoError(t, cl.Get(t.Context(), ctrlclient.ObjectKeyFromObject(server), server))
+		require.Empty(t, server.Spec.SessionIDHeader)
+	})
+	t.Run("update to reserved name is rejected", func(t *testing.T) {
+		server := &RemoteMCPServer{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "mcp-session-header-update"},
+			Spec:       RemoteMCPServerSpec{Description: "Update", URL: "https://mcp.example.com/mcp", SessionIDHeader: "X-Session"},
+		}
+		require.NoError(t, cl.Create(t.Context(), server))
+		server.Spec.SessionIDHeader = "Authorization"
+		require.ErrorContains(t, cl.Update(t.Context(), server), "sessionIdHeader cannot use this header name")
+	})
+}

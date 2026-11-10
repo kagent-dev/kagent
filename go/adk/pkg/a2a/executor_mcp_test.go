@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -116,3 +117,57 @@ type executionDiscoveryContext struct {
 
 func (*executionDiscoveryContext) InvocationID() string { return "reused-invocation" }
 func (*executionDiscoveryContext) SessionID() string    { return "reused-session" }
+
+func TestKAgentExecutorSendsPublicContextIDToMCP(t *testing.T) {
+	// Given a native ADK session ID that differs from the public context ID,
+	// when a tool call reaches an MCP server, assert the public ID is sent.
+	const header = "X-Kagent-Session-Id"
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "session-header", Version: "1"}, &mcpsdk.ServerOptions{
+		SupportedProtocolVersions: []string{"2025-11-25"},
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "echo"}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"result": "ok"}, nil
+	})
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return server }, &mcpsdk.StreamableHTTPOptions{Stateless: true})
+	var mu sync.Mutex
+	var seen []string
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Get(header))
+		mu.Unlock()
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(httpServer.Close)
+	toolsets := mcp.CreateToolsets(t.Context(), []*configv1.ADKHTTPMCPServerConfig{{
+		Params:          &configv1.ADKHTTPConnectionParams{Url: httpServer.URL},
+		SessionIdHeader: header,
+	}}, nil, nil, false, nil)
+	require.Len(t, toolsets, 1)
+
+	builtin := &recordingExecutor{onExecute: func(ctx context.Context) {
+		readonly := &forkedNativeSessionContext{StrictContextMock: adkagent.NewStrictContextMock(ctx)}
+		tools, err := toolsets[0].Tools(readonly)
+		require.NoError(t, err)
+		require.Len(t, tools, 1)
+	}}
+	executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
+	request := &a2asrv.ExecutorContext{
+		TaskID: "task", ContextID: "public-context",
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("go")),
+	}
+	for _, err := range executor.Execute(t.Context(), request) {
+		require.NoError(t, err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Contains(t, seen, "public-context")
+	require.NotContains(t, seen, "native-session")
+}
+
+type forkedNativeSessionContext struct {
+	adkagent.StrictContextMock
+}
+
+func (*forkedNativeSessionContext) InvocationID() string { return "invocation" }
+func (*forkedNativeSessionContext) SessionID() string    { return "native-session" }
