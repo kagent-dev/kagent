@@ -314,7 +314,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer actors.Close()
-	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), cfg.GetSubstrate().GetCaFile(), substrate.RuntimeJWTAudience)
+	actorJWKSRoots, err := substrate.ActorJWKSRoots(cfg.GetSubstrate().GetCaFile(), cfg.GetSubstrate().GetActorJwksCaFile())
+	if err != nil {
+		return fmt.Errorf("configure runtime authentication: %w", err)
+	}
+	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), actorJWKSRoots, substrate.RuntimeJWTAudience)
 	if err != nil {
 		return fmt.Errorf("configure runtime authentication: %w", err)
 	}

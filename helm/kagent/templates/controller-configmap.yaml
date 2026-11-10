@@ -32,6 +32,9 @@
 {{- $_ := set $config.substrate "caFile" "/run/substrate-servicedns/trust-bundle.pem" -}}
 {{- $_ := set $config.substrate "clientCertFile" "/run/substrate-podidentity/credential-bundle.pem" -}}
 {{- end -}}
+{{- if .Values.controller.actorJwksCA.configMap.name -}}
+{{- $_ := set $config.substrate "actorJwksCaFile" "/run/kagent-actor-jwks-ca/ca.pem" -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:

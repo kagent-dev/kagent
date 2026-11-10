@@ -16,6 +16,57 @@ tests:
           path: data["controller.yaml"]
           pattern: 'caFile: /run/substrate-servicedns/trust-bundle.pem'
 
+  - it: adds the Actor JWKS CA bundle alongside the Substrate trust bundle
+    template: controller-configmap.yaml
+    set:
+      controller.substrateClientCertificate.enabled: true
+      controller.actorJwksCA.configMap.name: issuer-ca
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'actorJwksCaFile: /run/kagent-actor-jwks-ca/ca.pem'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'caFile: /run/substrate-servicedns/trust-bundle.pem'
+
+  - it: omits the Actor JWKS CA bundle by default
+    template: controller-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["controller.yaml"]
+          pattern: 'actorJwksCaFile'
+
+  - it: mounts the Actor JWKS CA bundle from the configured ConfigMap key
+    template: controller-deployment.yaml
+    set:
+      controller.actorJwksCA.configMap.name: issuer-ca
+      controller.actorJwksCA.configMap.key: bundle.pem
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: actor-jwks-ca
+            configMap:
+              name: issuer-ca
+              items:
+              - key: bundle.pem
+                path: ca.pem
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: actor-jwks-ca
+            mountPath: /run/kagent-actor-jwks-ca
+            readOnly: true
+
+  - it: does not mount an Actor JWKS CA bundle by default
+    template: controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: actor-jwks-ca
+          any: true
+
   - it: forwards the built-in bash setting to runtime defaults
     template: controller-configmap.yaml
     set:

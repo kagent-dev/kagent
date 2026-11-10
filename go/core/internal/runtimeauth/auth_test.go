@@ -13,7 +13,7 @@ import (
 
 func TestRuntimeJWTAuthentication(t *testing.T) {
 	i := jwttest.New(t)
-	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile, substrate.RuntimeJWTAudience)
+	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.RootCAs, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 	a := NewAuthenticator(v)
 	id := uuid.NewString()

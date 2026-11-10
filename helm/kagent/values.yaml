@@ -199,7 +199,8 @@ config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
     routerUrl: https://atenet-router.ate-system.svc:443
-    # Must match Substrate's ateApi.actorJWTIssuer; discovery uses substrate.caFile.
+    # Must match Substrate's ateApi.actorJWTIssuer; discovery uses
+    # substrate.caFile and controller.actorJwksCA.
     actorJwtIssuer: https://idp.ate-system.svc
   logging:
     level: info
@@ -235,6 +236,13 @@ controller:
   # Mount rotating Substrate PodIdentity/ServiceDNS credentials.
   substrateClientCertificate:
     enabled: false
+  # CA bundle trusted, in addition to config.substrate.caFile, only for TLS
+  # when fetching discovery and JWKS from config.substrate.actorJwtIssuer.
+  # Never used for ate-api or router connections. Empty name disables it.
+  actorJwksCA:
+    configMap:
+      name: ""
+      key: ca.crt
   push:
     signing:
       # Optional operator-managed Secret with an unencrypted PKCS#8 Ed25519 key
