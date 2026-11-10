@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha3
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -133,6 +134,22 @@ type HarnessWorkload struct {
 	Args []string `json:"args,omitempty"`
 }
 
+// HarnessResources sets the compute limits of each runtime started from a
+// Harness. Substrate requires both limits; an omitted limit uses the
+// controller's runtimeDefaults value.
+type HarnessResources struct {
+	// CPU limits the CPU of each runtime. Omitted uses runtimeDefaults.cpu.
+	// +kubebuilder:validation:XValidation:rule="quantity(string(self)).isGreaterThan(quantity('0'))",message="cpu must be positive"
+	// +optional
+	CPU *resource.Quantity `json:"cpu,omitempty"`
+
+	// Memory limits the memory of each runtime. Omitted uses
+	// runtimeDefaults.memory.
+	// +kubebuilder:validation:XValidation:rule="quantity(string(self)).isGreaterThan(quantity('0'))",message="memory must be positive"
+	// +optional
+	Memory *resource.Quantity `json:"memory,omitempty"`
+}
+
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
 // Workload fields that only some adapters support are enforced here, one rule
@@ -165,6 +182,11 @@ type HarnessSpec struct {
 	// +listType=map
 	// +listMapKey=name
 	Env []RuntimeEnvVar `json:"env,omitempty"`
+
+	// Resources overrides the controller's runtimeDefaults CPU and memory limits
+	// for runtimes started from this Harness.
+	// +optional
+	Resources *HarnessResources `json:"resources,omitempty"`
 
 	// +required
 	Substrate RuntimeSubstratePolicy `json:"substrate"`

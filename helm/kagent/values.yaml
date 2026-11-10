@@ -208,7 +208,8 @@ config:
     secure: true
   telemetry: {}
   runtimeDefaults:
-    # Limits for each agent runtime; Substrate requires both.
+    # Default limits for each agent runtime; a Harness overrides them with
+    # spec.resources. Substrate requires both.
     cpu: "1"
     memory: 1Gi
     builtinTools:
