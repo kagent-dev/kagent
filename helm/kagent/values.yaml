@@ -205,6 +205,11 @@ config:
     routerUrl: https://atenet-router.ate-system.svc:443
     # Must match Substrate's ateApi.actorJWTIssuer; discovery uses substrate.caFile.
     actorJwtIssuer: https://idp.ate-system.svc
+    # Deadline for one metadata call to ate-api.
+    callTimeout: 30s
+    # Deadline for suspending a session, which returns once the Actor's snapshot
+    # has been uploaded. Raise it for agents that write a lot to /data.
+    snapshotTimeout: 120s
   logging:
     level: info
   metrics:

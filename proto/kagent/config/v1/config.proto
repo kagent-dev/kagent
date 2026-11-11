@@ -234,6 +234,19 @@ message SubstrateConfig {
     uri: true
     pattern: "^https://[^/?#]+"
   }];
+  // Deadline for one ate-api call that exchanges metadata, such as reading an
+  // Actor. Zero means no deadline beyond the caller's own.
+  google.protobuf.Duration call_timeout = 6 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 9223372036}
+  }];
+  // Deadline for one ate-api call that moves a snapshot, such as suspending an
+  // Actor, which returns only once the snapshot has been uploaded. Sized for
+  // the agent's data rather than for metadata. Zero means call_timeout.
+  google.protobuf.Duration snapshot_timeout = 7 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message SessionsConfig {
