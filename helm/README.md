@@ -287,9 +287,9 @@ When the connection string names TLS certificate files, Kagent rereads them befo
 
 #### A database that pauses or restarts
 
-When the controller can't log in to PostgreSQL, for example while a serverless database resumes from a pause, a database call retries the login with backoff for `config.database.pool.connectRetryTimeout` (default `90s`, `0s` turns it off). No SQL has run before a login, so a retry repeats no work. The call returns `Unavailable` once the retry window ends.
+When the controller can't log in to PostgreSQL, for example while a serverless database resumes from a pause, a database call retries the login with backoff for `config.database.pool.connectRetryTimeout` (default `90s`, `0s` turns it off). No SQL has run before a login, so a retry repeats no work. A new attempt starts only inside the retry window, but an attempt already running can finish after it. By default, one attempt can take up to 2 minutes. To shorten that limit, set `connect_timeout` in the connection string to a number of seconds. The call returns `Unavailable` when the last attempt fails.
 
-The retry also stops when the client stops waiting. The web UI waits 30 seconds for a request, so a resume longer than that fails the first request in the UI even though the controller would have waited longer. Set the retry window above your database's longest resume, and expect clients with shorter timeouts to retry.
+The retry also stops when the client stops waiting. The web UI waits 100 seconds for a request, which covers the default retry window. If you raise the retry window above 100 seconds, a resume longer than 100 seconds still fails the first request in the UI. Set the retry window above your database's longest resume, and expect clients with shorter timeouts to retry.
 
 #### OIDC authentication
 
