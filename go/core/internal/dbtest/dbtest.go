@@ -5,6 +5,7 @@ package dbtest
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 	testcontainers "github.com/testcontainers/testcontainers-go"
@@ -136,6 +138,36 @@ func PoolConfig(connStr string) *pgxpool.Config {
 		panic(err)
 	}
 	return config
+}
+
+// RefuseConnections returns a local address with no listener, so a dial to it
+// is refused.
+func RefuseConnections(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return address
+}
+
+// LoginError logs in to address and returns the *pgconn.ConnectError it fails with.
+func LoginError(t *testing.T, ctx context.Context, address string) error {
+	t.Helper()
+	conn, err := pgconn.Connect(ctx, "postgres://kagent@"+address+"/kagent?sslmode=disable")
+	if err == nil {
+		_ = conn.Close(ctx)
+		t.Fatal("login succeeded")
+	}
+	var connectErr *pgconn.ConnectError
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("got %T, want *pgconn.ConnectError", err)
+	}
+	return err
 }
 
 // RejectLogins starts a server that answers every login with a FATAL error

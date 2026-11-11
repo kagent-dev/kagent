@@ -15,7 +15,6 @@ import (
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -236,7 +235,7 @@ func TestCallerWithoutRuntimeBindingCannotAccessRuntimeStorage(t *testing.T) {
 
 func TestRuntimeAuthenticationReportsDatabaseConnectFailure(t *testing.T) {
 	ctx, logs := contextWithCapturedLogs(t)
-	provider := &testAuthenticator{err: fmt.Errorf("resolve actor session: %w", connectErrorFromRefusedDial(t))}
+	provider := &testAuthenticator{err: fmt.Errorf("resolve actor session: %w", dbtest.LoginError(t, t.Context(), dbtest.RefuseConnections(t)))}
 
 	_, err := authenticate(ctx, runtimev1.TaskStoreService_GetTask_FullMethodName, provider, nil, DefaultMethodPolicies(), nil, nil)
 
@@ -253,7 +252,7 @@ func TestRuntimeAuthenticationReportsDatabaseConnectFailure(t *testing.T) {
 
 func TestRuntimeAuthenticationReportsRejectedDatabaseLogin(t *testing.T) {
 	ctx, logs := contextWithCapturedLogs(t)
-	rejected := connectError(t, t.Context(), dbtest.RejectLogins(t, "28P01"))
+	rejected := dbtest.LoginError(t, t.Context(), dbtest.RejectLogins(t, "28P01"))
 	provider := &testAuthenticator{err: fmt.Errorf("resolve actor session: %w", rejected)}
 
 	_, err := authenticate(ctx, runtimev1.TaskStoreService_GetTask_FullMethodName, provider, nil, DefaultMethodPolicies(), nil, nil)
@@ -326,7 +325,7 @@ func TestRecoverUnaryInterceptor(t *testing.T) {
 }
 
 func TestErrorMappingReportsDatabaseConnectFailure(t *testing.T) {
-	refused := connectErrorFromRefusedDial(t)
+	refused := dbtest.LoginError(t, t.Context(), dbtest.RefuseConnections(t))
 	timedOut := connectErrorFromUnansweredLogin(t)
 	scenarios := []struct {
 		name string
@@ -376,7 +375,7 @@ func TestErrorMappingReportsDatabaseConnectFailure(t *testing.T) {
 
 	t.Run("Given PostgreSQL rejects the login password, when a handler returns the connect error, assert that the RPC is Internal and the cause is logged", func(t *testing.T) {
 		ctx, logs := contextWithCapturedLogs(t)
-		rejected := connectError(t, t.Context(), dbtest.RejectLogins(t, "28P01"))
+		rejected := dbtest.LoginError(t, t.Context(), dbtest.RejectLogins(t, "28P01"))
 
 		_, err := errorMappingUnaryInterceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod}, func(context.Context, any) (any, error) {
 			return nil, serviceerrors.NewInternal("Failed to reserve Session", rejected)
@@ -422,19 +421,6 @@ func refusedOrTimedOutCause(err error) string {
 	return "connection refused"
 }
 
-func connectErrorFromRefusedDial(t *testing.T) error {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return connectError(t, t.Context(), address)
-}
-
 func connectErrorFromUnansweredLogin(t *testing.T) error {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -456,23 +442,9 @@ func connectErrorFromUnansweredLogin(t *testing.T) error {
 	}()
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
-	err = connectError(t, ctx, listener.Addr().String())
+	err = dbtest.LoginError(t, ctx, listener.Addr().String())
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("connect error does not wrap DeadlineExceeded: %v", err)
-	}
-	return err
-}
-
-func connectError(t *testing.T, ctx context.Context, address string) error {
-	t.Helper()
-	conn, err := pgconn.Connect(ctx, "postgres://kagent@"+address+"/kagent?sslmode=disable")
-	if err == nil {
-		_ = conn.Close(ctx)
-		t.Fatal("connect succeeded")
-	}
-	var connectErr *pgconn.ConnectError
-	if !errors.As(err, &connectErr) {
-		t.Fatalf("got %T, want *pgconn.ConnectError", err)
 	}
 	return err
 }
