@@ -407,6 +407,14 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to start claude replay; input remains waiting", "error", err)
 		return runtime.Outcome{Pending: p}, nil
 	}
+	// run returns the bare context.Canceled only when the replay settled its
+	// call before cancellation stopped the rest of the turn.
+	if err == context.Canceled {
+		if err := p.recordSettledCancellation(); err != nil {
+			return runtime.Outcome{}, &runtime.CancellationError{Err: err}
+		}
+		return runtime.Outcome{}, context.Canceled
+	}
 	if err != nil || outcome.Pending != nil {
 		return outcome, err
 	}
@@ -463,6 +471,10 @@ func (p *deferredTurn) Cancel(ctx context.Context, sink runtime.ModelCallSink) (
 			returnErr = p.abandon(returnErr)
 		}
 	}()
+	if err == context.Canceled {
+		// The stop decision settled before this request's own context ended.
+		return p.recordSettledCancellation()
+	}
 	if err != nil {
 		return err
 	}
@@ -479,6 +491,24 @@ func (p *deferredTurn) Cancel(ctx context.Context, sink runtime.ModelCallSink) (
 		return fmt.Errorf("Claude did not consume its cancellation")
 	}
 	current.Phase = phaseCanceled
+	return saveDeferred(b.directory, p.driver.config.MaxEventBytes, current)
+}
+
+// recordSettledCancellation tombstones a replay whose call consumed its
+// decision before cancellation stopped the process, so a restored harness
+// does not read the consumed call as an unfinished replay.
+func (p *deferredTurn) recordSettledCancellation() error {
+	b := p.driver.config.ApprovalBroker
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	current, err := p.current()
+	if err != nil {
+		return err
+	}
+	if current.Phase != phaseExecuting && current.Phase != phaseReleased {
+		return fmt.Errorf("Claude did not consume its deferred decision")
+	}
+	current.Phase, current.Canceling = phaseCanceled, true
 	return saveDeferred(b.directory, p.driver.config.MaxEventBytes, current)
 }
 
