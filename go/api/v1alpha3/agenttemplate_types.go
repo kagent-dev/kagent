@@ -23,6 +23,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// PromptLibraryLabel marks a same-namespace ConfigMap as a prompt library
+// managed through the PromptTemplate API when set to "true". Any other value,
+// or no label, leaves the ConfigMap outside the API. Prompt template data
+// sources may include any same-namespace ConfigMap, labeled or not.
+const PromptLibraryLabel = "kagent.dev/prompt-library"
+
 // AgentTemplatePromptTemplateSpec enables Go template rendering and ConfigMap includes.
 type AgentTemplatePromptTemplateSpec struct {
 	// DataSources are same-namespace ConfigMaps available to include("source/key").
