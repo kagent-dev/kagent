@@ -55,7 +55,6 @@ func workClaimValues(t *testing.T, reader *sdkmetric.ManualReader, metricName st
 		if scope.Scope.Name != "github.com/kagent-dev/kagent/go/core/internal/service/session" {
 			continue // Integration fixtures can also emit upstream HTTP metrics.
 		}
-		require.Equal(t, version.Version, scope.Scope.Version)
 		for _, sample := range scope.Metrics {
 			switch sample.Name {
 			case "kagent.session.quiescence.claimed":
@@ -65,8 +64,9 @@ func workClaimValues(t *testing.T, reader *sdkmetric.ManualReader, metricName st
 				require.Equal(t, "{attempt}", sample.Unit)
 				require.Equal(t, "Number of push delivery attempts claimed.", sample.Description)
 			default:
-				t.Fatalf("unexpected metric %q: no shared, optional scan, or success metric", sample.Name)
+				continue
 			}
+			require.Equal(t, version.Version, scope.Scope.Version)
 			sum, ok := sample.Data.(metricdata.Sum[int64])
 			require.True(t, ok)
 			require.True(t, sum.IsMonotonic)
@@ -83,6 +83,7 @@ func workClaimValues(t *testing.T, reader *sdkmetric.ManualReader, metricName st
 			}
 		}
 	}
+	require.NotEmpty(t, values, "requested metric %q is missing", metricName)
 	return values
 }
 
@@ -434,6 +435,10 @@ func TestPushCompletionClaimsCountAsBacklog(t *testing.T) {
 func TestWorkerClaimMetricsRemainSeparate(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, provider, reader, logs := captureWorkTelemetry(t)
+		// Unrelated metrics in the same scope must not affect claim assertions.
+		expired, err := provider.Meter("github.com/kagent-dev/kagent/go/core/internal/service/session").Int64Counter("kagent.session.expired")
+		require.NoError(t, err)
+		expired.Add(ctx, 1)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		quiescence := &telemetryQuiescenceStore{idleQuiescenceStore: &idleQuiescenceStore{}}

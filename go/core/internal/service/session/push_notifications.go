@@ -133,11 +133,9 @@ func (p *PushWorker) Start(ctx context.Context) error {
 	cleanup()
 	completed := make(chan struct{}, p.config.MaxConcurrency)
 	active := 0
-	claimed := 0
 	var sends sync.WaitGroup
 	defer sends.Wait()
 	dispatch := func(delivery database.PushDelivery) {
-		claimed++
 		recordWorkClaim(ctx, counter, trigger)
 		trigger.logRecoveryClaim(ctx, operationPushDelivery, p.config.RecoveryInterval, slog.String("registration_id", delivery.ID.String()))
 		trigger = workBacklog
@@ -167,8 +165,7 @@ func (p *PushWorker) Start(ctx context.Context) error {
 		}
 		// Claim only for available slots: queued claims would consume their leases
 		// while waiting for a slow receiver. Completion immediately frees a slot.
-		claimed = 0
-		empty, err := p.poll(ctx, p.config.MaxConcurrency-active, dispatch)
+		claimed, empty, err := p.poll(ctx, p.config.MaxConcurrency-active, dispatch)
 		if empty || err != nil {
 			trigger = workRetry
 		}
@@ -221,24 +218,25 @@ func (p *PushWorker) Start(ctx context.Context) error {
 
 const pushClaimBatchSize = 100
 
-// poll reports whether a claim actually found no work. Exhausting capacity or
-// the maintenance batch limit does not end backlog processing.
-func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(database.PushDelivery)) (bool, error) {
+// poll reports the number of claims and whether a claim found no work.
+// Exhausting capacity or the batch limit does not end backlog processing.
+func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(database.PushDelivery)) (claimed int, empty bool, err error) {
 	// Bound each pass so an always-due backlog cannot starve registration cleanup.
 	for range min(pushClaimBatchSize, available) {
 		if err := ctx.Err(); err != nil {
-			return false, err
+			return claimed, false, err
 		}
 		delivery, err := p.store.ClaimDuePushDelivery(ctx, p.config.SendTimeout)
 		if err != nil {
-			return false, err
+			return claimed, false, err
 		}
 		if delivery == nil {
-			return true, nil
+			return claimed, true, nil
 		}
+		claimed++
 		dispatch(*delivery)
 	}
-	return false, nil
+	return claimed, false, nil
 }
 
 func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) error {
