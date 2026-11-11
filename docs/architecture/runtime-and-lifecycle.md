@@ -271,31 +271,40 @@ and Delete. Nothing retries it in the background. While it is
 pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`.
 
 With `sessions.automaticRecovery` enabled in controller config, an A2A send also
-starts recovery, so chat and API clients recover with the retry they already make. Substrate cannot resume a crashed Actor, so a send to
-one fails before the runtime accepts it. When the gateway proves the input was
-not accepted, it runs the same Revert on that Session before answering
-`KAGENT_SEND_NOT_ACCEPTED`, and the client's retry reaches the restored runtime.
-A crash during a turn leaves that turn active, and active work refuses every
-send, so a send refused for active work also runs Revert once and then tries
-its reservation again: a crashed runtime is restored and the send proceeds, and
-a busy healthy runtime refuses it as before. A send while recovery is pending
-joins it. Reverting needs Session update access, as `RevertSession` does; a
-caller who may only send gets the original refusal. The revert continues if the
-caller disconnects. No Session read calls Substrate.
+starts recovery, so chat and API clients recover with the retry they already
+make. Substrate cannot resume a crashed Actor, so a send to one fails before the
+runtime accepts it. When the gateway proves the input was not accepted, it runs
+the same Revert on that Session before answering `KAGENT_SEND_NOT_ACCEPTED`, and
+the client's retry reaches the restored runtime. A crash during a turn leaves
+that turn open, and an open turn refuses every send, so a send refused for an
+open turn also runs Revert once and then tries its reservation again: a crashed
+runtime is restored and the send proceeds, and a busy healthy runtime refuses it
+as before. Other conflicts, such as a checkpoint in progress, do not start
+recovery. A send while recovery is pending joins it.
+
+A send waits at most 10 seconds on the recovery it starts. A recovery still
+running then stays admitted: the attempt releases its claim, the send is
+answered `KAGENT_SEND_NOT_ACCEPTED` with `state: RECOVERING` and a one-second
+`retryAfterMs`, and the client's retry continues it. The reason is unchanged so
+existing clients keep retrying. Reverting needs Session update access, as
+`RevertSession` does. When the revert cannot run, whether for missing access,
+contention, or an outage, the send keeps the answer it would give without
+recovery, unless a recovery is already admitted, which answers RECOVERING. No
+Session read calls Substrate.
 
 The setting is off by default. Sends then keep the refusals they had before
 recovery existed, and only an explicit `RevertSession` recovers. Chat retries a
 send refused as `KAGENT_SEND_NOT_ACCEPTED` with the same message ID, doubling
-the wait up to two seconds for 30 seconds, and then offers Recover, which calls
-`RevertSession`. A crash during a turn leaves that turn active, so with the
-setting off the next send is refused outright as a conflict while the Session
-still reads READY. The gateway names that refusal `KAGENT_SESSION_BUSY` in its
-ErrorInfo metadata, and chat offers Recover for it too, because nothing else
-observes the crash. Other refusals keep a plain error. Chat also offers Recover while a recovery is pending,
-because a recovery whose attempt failed stays FAILED/REVERT until a client
-retries it.
-Recover returns a healthy runtime unchanged and records a lost one, so it is
-safe to offer on a guess.
+the wait from the gateway's `retryAfterMs` up to two seconds for 30 seconds,
+and then offers Recover, which calls `RevertSession`. A crash during a turn
+leaves that turn open, so with the setting off the next send is refused
+outright while the Session still reads READY. The gateway names that refusal
+`KAGENT_TURN_ACTIVE` in its ErrorInfo metadata, and chat offers Recover for it
+too, because nothing else observes the crash. Other refusals keep a plain error.
+Chat also offers Recover while a recovery is pending, because a recovery whose
+attempt failed stays FAILED/REVERT until a client retries it. Recover returns a
+healthy runtime unchanged and records a lost one, so it is safe to offer on a
+guess.
 
 A missing, replaced, or retemplated Actor is not this Session's runtime, and
 reverting it would restore the wrong one. Whichever Revert observes that,

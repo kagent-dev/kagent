@@ -26,7 +26,7 @@ import {
 import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
 import { setApiTransport } from "../transport";
 import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
-import { isSendNotAccepted, mayNeedRecovery, SEND_NOT_ACCEPTED, SESSION_BUSY } from "../ApiError";
+import { isSendNotAccepted, mayNeedRecovery, SEND_NOT_ACCEPTED, TURN_ACTIVE } from "../ApiError";
 import { LinkFile } from "./attachments";
 import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
@@ -2192,7 +2192,7 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
   });
 
   it.each([
-    ["an open turn or checkpoint holding the Session", notAccepted({ reason: SESSION_BUSY }), SESSION_BUSY],
+    ["an earlier turn that is still open", notAccepted({ reason: TURN_ACTIVE }), TURN_ACTIVE],
     ["another metadata reason", notAccepted({ reason: "SOMETHING_ELSE" }), undefined],
     ["no metadata, as for a runtime that cannot be recovered", notAccepted({}), undefined],
     ["another gRPC code", notAccepted(undefined, Code.Unavailable), undefined],
@@ -2213,10 +2213,10 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
     const { error } = await run(async function* () {
       yield* [];
       throw new ConnectError("resource conflict", Code.FailedPrecondition, undefined, [
-        { desc: ErrorInfoSchema, value: { reason: "UNSUPPORTED_OPERATION", domain: "a2a-protocol.org", metadata: { reason: SESSION_BUSY } } },
+        { desc: ErrorInfoSchema, value: { reason: "UNSUPPORTED_OPERATION", domain: "a2a-protocol.org", metadata: { reason: TURN_ACTIVE } } },
       ]);
     });
-    expect(error).toMatchObject({ message: "resource conflict", code: "FailedPrecondition", reason: SESSION_BUSY });
+    expect(error).toMatchObject({ message: "resource conflict", code: "FailedPrecondition", reason: TURN_ACTIVE });
   });
 
   it("doubles the wait between re-sends, up to two seconds", async () => {
@@ -2240,6 +2240,19 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
     expect(isSendNotAccepted(error)).toBe(true);
     // 100 ms doubling to 2 s within 30 s: 19 sends, rather than one every 100 ms.
     expect(requests).toHaveLength(19);
+  });
+
+  it("keeps re-sending while the runtime recovers, and says so when the window is spent", async () => {
+    const sentAt: number[] = [];
+    const { error } = await run(async function* () {
+      sentAt.push(Date.now());
+      yield* [];
+      throw notAccepted({ reason: "KAGENT_SEND_NOT_ACCEPTED", state: "RECOVERING", retryAfterMs: "1000" });
+    });
+    expect(error).toMatchObject({ reason: SEND_NOT_ACCEPTED, message: "The agent's runtime is still recovering from a crash." });
+    expect(mayNeedRecovery(error)).toBe(true);
+    // The gateway's longer delay is the floor, so a recovery costs a few sends.
+    expect(sentAt[1] - sentAt[0]).toBeGreaterThanOrEqual(1_000);
   });
 
   it("stops re-sending when the reader presses stop", async () => {

@@ -591,25 +591,33 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 }
 
 func TestSendRecoveryAnswersTheSend(t *testing.T) {
+	unavailable := status.Error(codes.Unavailable, "control plane unavailable")
+	denied := serviceerrors.NewPermissionDenied("denied", nil)
 	for _, test := range []struct {
-		name    string
-		err     error
-		authErr error
-		want    error
+		name     string
+		err      error
+		authErr  error
+		admitted bool
+		want     error
 	}{
-		{name: "healthy or reverted"},
-		{name: "contention", err: database.ErrConflict, want: ErrSendNotAccepted},
-		{name: "substrate unavailable", err: status.Error(codes.Unavailable, "control plane unavailable"), want: ErrSendNotAccepted},
-		{name: "unrecoverable", err: fmt.Errorf("runtime Actor is missing: %w", errRuntimeUnrecoverable), want: ErrRuntimeUnrecoverable},
+		{name: "the runtime is healthy or restored"},
+		{name: "the runtime is lost", err: fmt.Errorf("runtime Actor is missing: %w", errRuntimeUnrecoverable), want: ErrRuntimeUnrecoverable},
+		{name: "another operation holds the Session", err: database.ErrConflict, want: errRecoveryUnavailable},
+		{name: "Substrate is unavailable before admission", err: unavailable, want: errRecoveryUnavailable},
+		{name: "Substrate is unavailable after admission", err: unavailable, admitted: true, want: ErrRuntimeRecovering},
 		// Sending needs only create access; reverting needs RevertSession's update access.
-		{name: "no update access", authErr: serviceerrors.NewPermissionDenied("denied", nil), want: a2a.ErrUnauthorized},
+		{name: "the caller cannot revert", authErr: denied, want: errRecoveryUnavailable},
+		{name: "the caller cannot revert an admitted recovery", authErr: denied, admitted: true, want: ErrRuntimeRecovering},
 	} {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run("Given "+test.name+", when a send recovers, assert that it answers accordingly", func(t *testing.T) {
 			session := &apiv1.Session{Id: uuid.NewString(), State: apiv1.RuntimeState_RUNTIME_STATE_READY}
+			if test.admitted {
+				session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
+			}
 			authorizer := &verbAuthorizer{denied: auth.VerbUpdate, err: test.authErr}
 			sessions := NewService(&serviceTestStore{getResult: session}, authorizer, serviceTestWorkflow{err: test.err})
 			interactions := NewInteractionService(nil, nil, sessions, false, true)
-			err := interactions.recoverRuntime(serviceTestContext("alice"), session.Id)
+			err := interactions.recoverForSend(serviceTestContext("alice"), session.Id)
 			if test.want == nil {
 				require.NoError(t, err)
 			} else {
@@ -618,6 +626,34 @@ func TestSendRecoveryAnswersTheSend(t *testing.T) {
 			require.Equal(t, []auth.Verb{auth.VerbUpdate}, authorizer.checked, "recovery is authorized as RevertSession")
 		})
 	}
+}
+
+// A revert that outlasts the send's wait is cut off and answered as recovering;
+// the admitted operation stays for the client's retry to continue.
+func TestSendRecoveryIsBounded(t *testing.T) {
+	session := &apiv1.Session{Id: uuid.NewString(), State: apiv1.RuntimeState_RUNTIME_STATE_FAILED,
+		Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT}
+	workflow := &blockingRevertWorkflow{stopped: make(chan error, 1)}
+	interactions := NewInteractionService(nil, nil, NewService(&serviceTestStore{getResult: session}, serviceTestAuthorizer{}, workflow), false, true)
+	interactions.recoveryWait = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(serviceTestContext("alice"))
+	defer cancel()
+	started := time.Now()
+	err := interactions.recoverForSend(ctx, session.Id)
+	require.ErrorIs(t, err, ErrRuntimeRecovering)
+	require.Less(t, time.Since(started), 5*time.Second, "the send answers within its wait")
+	require.ErrorIs(t, <-workflow.stopped, context.DeadlineExceeded, "the attempt is cut off by the wait, not the caller")
+}
+
+type blockingRevertWorkflow struct {
+	serviceTestWorkflow
+	stopped chan error
+}
+
+func (w *blockingRevertWorkflow) Revert(ctx context.Context, _ *apiv1.Session) (*apiv1.Session, error) {
+	<-ctx.Done()
+	w.stopped <- ctx.Err()
+	return nil, fmt.Errorf("revert attempt stopped: %w", ctx.Err())
 }
 
 // verbAuthorizer denies one verb with err, so a test can grant send but not revert.

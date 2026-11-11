@@ -95,11 +95,11 @@ export function isNotFound(error: unknown): boolean {
 export const SEND_NOT_ACCEPTED = "KAGENT_SEND_NOT_ACCEPTED";
 
 /**
- * `ApiError.reason` of a send refused because an open turn or a checkpoint holds the
- * Session. A runtime that crashed mid-turn leaves its turn open, so unless the
- * controller recovers on send, this refusal is the only sign of the crash.
+ * `ApiError.reason` of a send refused because an earlier turn is still open. A
+ * runtime that crashed mid-turn leaves its turn open, so unless the controller
+ * recovers on send, this refusal is the only sign of the crash.
  */
-export const SESSION_BUSY = "KAGENT_SESSION_BUSY";
+export const TURN_ACTIVE = "KAGENT_TURN_ACTIVE";
 
 /** Whether `error` is a send the gateway never accepted, after every retry. */
 export function isSendNotAccepted(error: unknown): boolean {
@@ -111,7 +111,7 @@ export function isSendNotAccepted(error: unknown): boolean {
  * healthy runtime unchanged, so a refusal that only might mean a crash is enough.
  */
 export function mayNeedRecovery(error: unknown): boolean {
-  return isApiError(error) && (error.reason === SEND_NOT_ACCEPTED || error.reason === SESSION_BUSY);
+  return isApiError(error) && (error.reason === SEND_NOT_ACCEPTED || error.reason === TURN_ACTIVE);
 }
 
 /**

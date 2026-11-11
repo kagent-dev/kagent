@@ -51,6 +51,9 @@ type gatewayTestWorkflow struct {
 
 func (w gatewayTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	w.store.reverts++
+	if w.store.revertErr != nil {
+		return nil, w.store.revertErr
+	}
 	if w.store.onRevert != nil {
 		w.store.onRevert()
 	}
@@ -146,13 +149,15 @@ func TestListWithoutContextRestrictsShareToOneConversation(t *testing.T) {
 
 func TestSendRecoveryDisabled(t *testing.T) {
 	for _, scenario := range []struct {
-		name                   string
-		pending, busy, refused bool
-		want                   error
-		reason                 string
+		name             string
+		pending, refused bool
+		reserveErr       error
+		want             error
+		reason           string
 	}{
 		{name: "an admitted recovery", pending: true, want: a2a.ErrUnsupportedOperation},
-		{name: "an active turn", busy: true, want: a2a.ErrUnsupportedOperation, reason: "KAGENT_SESSION_BUSY"},
+		{name: "an open turn", reserveErr: database.ErrActiveTurn, want: a2a.ErrUnsupportedOperation, reason: "KAGENT_TURN_ACTIVE"},
+		{name: "a checkpoint in progress", reserveErr: database.ErrConflict, want: a2a.ErrUnsupportedOperation},
 		{name: "a runtime refusal", refused: true, want: sessionsvc.ErrSendNotAccepted, reason: "KAGENT_SEND_NOT_ACCEPTED"},
 	} {
 		t.Run("Given automatic recovery is disabled, when a send encounters "+scenario.name+", assert that it refuses without reverting", func(t *testing.T) {
@@ -160,10 +165,7 @@ func TestSendRecoveryDisabled(t *testing.T) {
 			if scenario.pending {
 				session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
 			}
-			store := &gatewayTestStore{session: session, revoked: scenario.refused, taskErr: database.ErrNotFound}
-			if scenario.busy {
-				store.reserveErr = database.ErrConflict
-			}
+			store := &gatewayTestStore{session: session, revoked: scenario.refused, taskErr: database.ErrNotFound, reserveErr: scenario.reserveErr}
 			runtime := &gatewayTestRuntime{}
 			if scenario.refused {
 				runtime.onSend = func() error { return a2a.ErrInternalError }
@@ -175,7 +177,7 @@ func TestSendRecoveryDisabled(t *testing.T) {
 			require.ErrorIs(t, err, scenario.want)
 			require.Equal(t, scenario.reason, errorInfoReason(err))
 			require.Zero(t, store.reverts)
-			if scenario.busy {
+			if scenario.reserveErr != nil {
 				require.Equal(t, 1, store.reserveCalls)
 			}
 		})

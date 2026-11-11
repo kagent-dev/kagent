@@ -14,7 +14,7 @@ export {
   isSendNotAccepted,
   mayNeedRecovery,
   SEND_NOT_ACCEPTED,
-  SESSION_BUSY,
+  TURN_ACTIVE,
 } from "./ApiError";
 export type { ApiErrorKind } from "./ApiError";
 

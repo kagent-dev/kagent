@@ -60,7 +60,7 @@ import {
   type TaskStatus,
 } from "@/generated/a2a_pb";
 import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
-import { ApiError, fromConnectError, rethrowIfAborted, SEND_NOT_ACCEPTED, SESSION_BUSY } from "../ApiError";
+import { ApiError, fromConnectError, rethrowIfAborted, SEND_NOT_ACCEPTED, TURN_ACTIVE } from "../ApiError";
 import { A2A_METADATA, metadataString } from "./a2aMetadata";
 import {
   HITL_EXTENSION_HEADER,
@@ -692,14 +692,17 @@ export class A2AGrpcChatClient implements ChatClient {
           if (resendAfter !== undefined && !signal?.aborted) {
             resendWait = Math.max(resendAfter, Math.min(resendWait * 2, UNACCEPTED_SEND_MAX_RETRY_MS));
             if (Date.now() + resendWait > resendUntil) {
-              throw refusedSendError(error, SEND_NOT_ACCEPTED, "The agent's runtime did not accept the message. It may have crashed.");
+              const recovering = a2aRefusal(error)?.metadata.state === "RECOVERING";
+              throw refusedSendError(error, SEND_NOT_ACCEPTED, recovering
+                ? "The agent's runtime is still recovering from a crash."
+                : "The agent's runtime did not accept the message. It may have crashed.");
             }
             await pause(resendWait, signal);
             source = client.sendStreamingMessage(request, options);
             continue;
           }
-          if (!received && !signal?.aborted && a2aRefusal(error)?.metadata.reason === SESSION_BUSY) {
-            throw refusedSendError(error, SESSION_BUSY);
+          if (!received && !signal?.aborted && a2aRefusal(error)?.metadata.reason === TURN_ACTIVE) {
+            throw refusedSendError(error, TURN_ACTIVE);
           }
           if (progressed || Date.now() - opened >= REATTACH_HEALTHY_MS) failures = 0;
           failures += 1;

@@ -50,15 +50,23 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
 			return ErrConflict
 		}
-		blocked, err := queryOne(ctx, tx, `
+		activeTurn, err := queryOne(ctx, tx, `
 			SELECT EXISTS (SELECT 1 FROM session_task WHERE history_id = $1
 			    AND state IN ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING'))
-			    OR EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $2 AND state = 'CREATING')
-		`, pgx.RowTo[bool], session.HistoryID, session.ID)
+		`, pgx.RowTo[bool], session.HistoryID)
 		if err != nil {
 			return err
 		}
-		if blocked {
+		if activeTurn {
+			return ErrActiveTurn
+		}
+		checkpointing, err := queryOne(ctx, tx, `
+			SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
+		`, pgx.RowTo[bool], session.ID)
+		if err != nil {
+			return err
+		}
+		if checkpointing {
 			return ErrConflict
 		}
 		if err := requireSettledRuntime(ctx, tx, session.HistoryID, ""); err != nil {

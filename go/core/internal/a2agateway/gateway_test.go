@@ -19,8 +19,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 
@@ -57,6 +59,7 @@ type gatewayTestStore struct {
 	revoked          bool
 	reverts          int
 	onRevert         func()
+	revertErr        error
 	session          *apiv1.Session
 	revision         *database.RuntimeRevision
 	err              error
@@ -832,32 +835,39 @@ func TestGatewaySendJoinsAnAdmittedCrashRecovery(t *testing.T) {
 	}
 }
 
-// A crash during a turn leaves it active, so a busy send probes the runtime once.
+// A crash during a turn leaves it open, so a send refused for an open turn probes
+// the runtime once. Other conflicts, and a probe that cannot run, keep the refusal.
 func TestGatewayBusySendRecoversACrashedTurn(t *testing.T) {
-	for _, crashed := range []bool{false, true} {
-		store := &gatewayTestStore{session: gatewayTestSession(), reserveErr: database.ErrConflict, taskErr: database.ErrNotFound}
-		if crashed {
-			store.onRevert = func() { store.reserveErr = nil }
-		}
-		runtime := &gatewayTestRuntime{}
-		gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
-		_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
-		if store.reverts != 1 || store.reserveCalls != 2 {
-			t.Fatalf("crashed = %t: reverts = %d, reservations = %d", crashed, store.reverts, store.reserveCalls)
-		}
-		if crashed {
-			if runtime.sendCalls != 1 {
-				t.Fatalf("a restored runtime must receive the send: %d sends, err = %v", runtime.sendCalls, err)
+	for _, test := range []struct {
+		name          string
+		reserveErr    error
+		crashed       bool
+		revertErr     error
+		reverts, sent int
+		reason        string
+	}{
+		{name: "a busy healthy runtime", reserveErr: database.ErrActiveTurn, reverts: 1, reason: "KAGENT_TURN_ACTIVE"},
+		{name: "a crashed turn", reserveErr: database.ErrActiveTurn, crashed: true, reverts: 1, sent: 1},
+		{name: "a revert that Substrate cannot run", reserveErr: database.ErrActiveTurn,
+			revertErr: status.Error(codes.Unavailable, "control plane unavailable"), reverts: 1, reason: "KAGENT_TURN_ACTIVE"},
+		{name: "a checkpoint in progress", reserveErr: database.ErrConflict},
+	} {
+		t.Run("Given "+test.name+", when a send is refused, assert that recovery runs only for an open turn", func(t *testing.T) {
+			store := &gatewayTestStore{session: gatewayTestSession(), reserveErr: test.reserveErr, taskErr: database.ErrNotFound, revertErr: test.revertErr}
+			if test.crashed {
+				store.onRevert = func() { store.reserveErr = nil }
 			}
-			continue
-		}
-		var protocolError *a2atype.Error
-		if !errors.As(err, &protocolError) || !errors.Is(err, a2atype.ErrUnsupportedOperation) || runtime.sendCalls != 0 {
-			t.Fatalf("a busy healthy runtime must refuse the send as before: %v, %d sends", err, runtime.sendCalls)
-		}
-		if meta, _ := protocolError.ErrorInfo().Value["metadata"].(map[string]string); meta["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
-			t.Fatalf("a busy healthy runtime must not invite a retry loop: %v", err)
-		}
+			runtime := &gatewayTestRuntime{}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			require.Equal(t, test.reverts, store.reverts)
+			require.Equal(t, test.sent, runtime.sendCalls)
+			if test.sent == 1 {
+				return
+			}
+			require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+			require.Equal(t, test.reason, errorInfoReason(err), "a refusal that is not a crash must not invite a retry loop")
+		})
 	}
 }
 
