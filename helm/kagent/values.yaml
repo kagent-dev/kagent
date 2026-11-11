@@ -746,7 +746,6 @@ providers:
     # apiKey: ""
     config:
       apiVersion: "2024-10-21"
-      azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
   gemini:

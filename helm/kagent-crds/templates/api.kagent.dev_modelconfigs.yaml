@@ -274,9 +274,6 @@ spec:
                     description: API version for the Azure OpenAI API. Required unless
                       apiFormat is responses.
                     type: string
-                  azureAdToken:
-                    description: Azure AD token for authentication
-                    type: string
                   azureDeployment:
                     description: Deployment name for the Azure OpenAI API
                     type: string

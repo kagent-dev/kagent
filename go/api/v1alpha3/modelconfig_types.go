@@ -311,15 +311,6 @@ type AzureOpenAIConfig struct {
 	// +optional
 	DeploymentName string `json:"azureDeployment,omitempty"`
 
-	// Azure AD token for authentication
-	// +optional
-	AzureADToken string `json:"azureAdToken,omitempty"`
-
-	// Azure AD token provider
-	// +optional
-	// TODO (peterj): We need to figure out how to implement this
-	// AzureADTokenProvider interface{} `json:"azureAdTokenProvider,omitempty"`
-
 	// Temperature for sampling
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
