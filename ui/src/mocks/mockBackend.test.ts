@@ -147,12 +147,24 @@ const INPUTS = {
       metadata: { name: "made-up", namespace: "kagent" },
       spec: {
         kagent: {},
-        workload: {
-          image: `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`,
-        },
         substrate: {
           workerPoolRef: { name: "kagent-default" },
-          snapshotPolicy: { location: "gs://snapshots/kagent/" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
+        },
+      },
+    },
+  },
+  // A harness nothing else here touches, so the concurrent sweep cannot race it.
+  "harnesses.update": {
+    namespace: "analytics",
+    name: "reporting",
+    resource: {
+      metadata: { name: "reporting", namespace: "analytics" },
+      spec: {
+        kagent: {},
+        substrate: {
+          workerPoolRef: { name: "kagent-default" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
         },
       },
     },
@@ -249,6 +261,7 @@ const INPUTS = {
 
   "namespaces.list": {},
   "substrate.summary": {},
+  "substrate.workerPools": { namespace: "kagent" },
   "substrate.actors": {},
   "substrate.workers": {},
 } satisfies { [K in OperationId]: OperationInput<K> };
@@ -403,5 +416,50 @@ describe("the fixture backend", () => {
         }),
       ).rejects.toBeInstanceOf(ApiError);
     });
+  });
+});
+
+describe("harness writes follow the CRD", () => {
+  const substrate = {
+    workerPoolRef: { name: "kagent-default" },
+    snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
+  };
+  const write = (name: string, spec: Record<string, unknown>, resourceVersion?: string) => ({
+    namespace: "kagent",
+    name,
+    resource: { metadata: { name, namespace: "kagent", resourceVersion }, spec } as never,
+  });
+
+  it("accepts a built-in adapter with no image, as the release default", async () => {
+    const created = await invoke("harnesses.create", write("rules-default", { codex: {}, substrate }));
+    expect(created).toMatchObject({ runtime: "codex", workloadImage: "" });
+  });
+
+  it("refuses a bring-your-own harness with no image", async () => {
+    await expect(
+      invoke("harnesses.create", write("rules-byo", { byo: {}, workload: { command: ["/app"] }, substrate })),
+    ).rejects.toMatchObject({ code: "InvalidArgument" });
+  });
+
+  it("refuses a missing snapshot location", async () => {
+    await expect(
+      invoke("harnesses.create", write("rules-snapshot", { kagent: {}, substrate: { workerPoolRef: { name: "p" } } })),
+    ).rejects.toMatchObject({ code: "InvalidArgument" });
+  });
+
+  it("updates the spec and refuses a stale resourceVersion", async () => {
+    const created = await invoke("harnesses.create", write("rules-update", { kagent: {}, substrate }));
+    const version = created.resource.metadata.resourceVersion;
+    const updated = await invoke("harnesses.update", write("rules-update", { claude: {}, substrate }, version));
+    expect(updated.runtime).toBe("claude");
+
+    await expect(
+      invoke("harnesses.update", write("rules-update", { kagent: {}, substrate }, version)),
+    ).rejects.toMatchObject({ code: "Aborted" });
+  });
+
+  it("lists the worker pools in one namespace", async () => {
+    const pools = await invoke("substrate.workerPools", { namespace: "kagent" });
+    expect(pools.map((pool) => pool.name)).toEqual(["kagent-default"]);
   });
 });

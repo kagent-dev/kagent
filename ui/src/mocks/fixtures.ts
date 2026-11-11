@@ -121,6 +121,7 @@ export const mockProviders: Provider[] = [
       "n",
       "timeout",
       "reasoningEffort",
+      "apiFormat",
     ],
   },
   {
@@ -606,6 +607,24 @@ export const mockAgentInstances: AgentInstance[] = [
  * exactly the class of failure this file's fixtures have caused before.
  */
 export const mockHarnesses: Harness[] = [
+  // The three the chart installs: no workload, so each runs the release's image.
+  ...(["kagent", "codex", "claude"] as const).map((runtime) => ({
+    ref: `kagent/${runtime}-default`,
+    namespace: "kagent",
+    name: `${runtime}-default`,
+    runtime,
+    workloadImage: "",
+    resource: {
+      metadata: { name: `${runtime}-default`, namespace: "kagent" },
+      spec: {
+        [runtime]: {},
+        substrate: {
+          workerPoolRef: { name: "kagent-default" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
+        },
+      },
+    },
+  })),
   {
     ref: "kagent/k8s-agent",
     namespace: "kagent",
@@ -866,7 +885,22 @@ export const mockAgents: Agent[] = [
     harnessRef: { name: "k8s-agent" },
     egressPolicyRefs: [{ name: "github-api" }],
   }, withEgressApplied(readyStatus("rev-release-notes"))),
-  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }),
+  // Ran once, then an edit pointed it at a Harness image nobody can pull. The message is
+  // what `controller/golden_retry.go` writes while it waits to rebuild the golden snapshot.
+  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }, {
+    observedGeneration: 2,
+    desiredRevision: "rev-triage-on-claude-2",
+    latestSuccessfulRevision: "rev-triage-on-claude",
+    conditions: [
+      { type: "Accepted", status: "True", reason: "Accepted", message: "Agent explicitly selects its template and harness" },
+      { type: "ResolvedRefs", status: "True", reason: "Resolved", message: "All runtime references resolved" },
+      { type: "Compatible", status: "True", reason: "Compatible", message: "Resolved configuration is compatible with the Harness" },
+      {
+        type: "Ready", status: "False", reason: "ActorTemplateRetrying",
+        message: "golden build failed (GoldenActorCrashed): could not pull image ghcr.io/kagent-dev/kagent/claude-harnes:0.9.0, retry 2 at 2026-11-07T10:01:12Z",
+      },
+    ],
+  }),
   agent("kagent", "scratchpad", {
     template: { inline: {
       modelConfig: { name: "default-model-config" },

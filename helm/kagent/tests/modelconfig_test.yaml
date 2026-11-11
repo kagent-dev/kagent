@@ -30,6 +30,24 @@ tests:
       - equal:
           path: spec.apiKeySecretKey
           value: OPENAI_API_KEY
+      - notExists:
+          path: spec.openAI.apiFormat
+
+  - it: should preserve a chat completions gateway without adding an API format
+    set:
+      providers.openAI.config.baseUrl: https://gateway.example.com/v1
+    asserts:
+      - equal:
+          path: spec.openAI
+          value:
+            baseUrl: https://gateway.example.com/v1
+
+  - it: should leave an empty openai configuration unset
+    set:
+      providers.openAI.config: {}
+    asserts:
+      - notExists:
+          path: spec.openAI
 
   - it: should use anthropic when set as default provider
     set:
@@ -66,6 +84,11 @@ tests:
       - equal:
           path: spec.apiKeySecretKey
           value: AZUREOPENAI_API_KEY
+      - equal:
+          path: spec.azureOpenAI.apiVersion
+          value: "2023-05-15"
+      - notExists:
+          path: spec.azureOpenAI.apiFormat
 
   - it: should configure ollama provider
     set:

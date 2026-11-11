@@ -325,6 +325,47 @@ release namespace.
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 
+#### Default Harnesses
+
+`kagent install` creates the WorkerPool and three Harnesses in the release
+namespace, so an Agent there can reference one without writing its own:
+
+| Harness | Runtime |
+| --- | --- |
+| `kagent-default` | kagent |
+| `codex-default` | Codex |
+| `claude-default` | Claude |
+
+Direct Helm installations opt in with `harnesses.enabled=true`:
+
+```yaml
+substrateWorkerPool:
+  create: true
+  workerImage: <worker-image>
+harnesses:
+  enabled: true
+  # Substrate snapshot storage. The default uses the bucket of Substrate's bundled RustFS.
+  snapshotLocation: s3://ate-snapshots/kagent/
+  # Skip an individual runtime:
+  claude:
+    enabled: false
+```
+
+Each default Harness references `substrateWorkerPool.name` and omits
+`workload`, so it runs the release's built-in image for its runtime
+(`config.harnessImages`). Agent `spec.harnessRef` is namespace-local; Agents in
+other namespaces need their own Harness.
+
+`kagent install` selects `gpt-5-mini` with `apiFormat: responses` for OpenAI,
+which the Codex runtime requires and the kagent runtime supports. It selects
+`gpt-5-mini` with API version `2024-10-21` for Azure OpenAI. Operator values
+files and `--set` overrides take precedence over these CLI defaults.
+
+Direct Helm installations keep `gpt-4.1-mini` for both providers, leave the
+OpenAI API format unset (Chat Completions), and use Azure OpenAI API version
+`2023-05-15`. To use Codex with OpenAI through a direct Helm installation, set
+`providers.openAI.config.apiFormat=responses` and choose a compatible model.
+
 ### Using Make
 
 ```bash
@@ -343,10 +384,16 @@ Use `kagent install --dry-run --output-dir ./kagent-install` to export the Helm 
 
 ```bash
 export OPENAI_API_KEY=your-openai-api-key
-# openAI is the default; other choices include anthropic, azureOpenAI, gemini, and ollama
+# OpenAI is the default; --provider Anthropic (with ANTHROPIC_API_KEY) overrides
+# install.defaultModelProvider for one install.
 # config.yaml: install: {defaultModelProvider: OpenAI}
 kagent --config config.yaml install
 ```
+
+To install the CLI first, run `curl -sL https://kagent.dev/install | bash`. It
+installs the newest final release that publishes a binary for your platform;
+pass `--prerelease` to include release candidates or `--version vX.Y.Z` to pin
+one.
 
 ## Application configuration
 
