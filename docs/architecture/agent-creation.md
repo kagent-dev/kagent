@@ -55,8 +55,8 @@ They are associated as follows:
   one new Sessions use. The second only changes when the desired revision
   becomes ready.
 - An Agent revision extends exactly one runtime revision.
-- Each Session is pinned to one revision, so editing the Agent never changes a
-  running Session.
+- Each Session is pinned to one revision, so editing the Agent changes a
+  running Session only through its egress grants.
 
 ## Why it works this way
 
@@ -121,12 +121,17 @@ stored with the runtime revision, so it survives controller restarts.
 
 These are not retried until the Agent or its inputs change:
 
-- Compilation fails with `RevisionInvalid`, `WorkerPoolNotFound`, or
-  `ActorTemplateInvalid`. This also clears `desiredRevision`.
+- Compilation fails with `ReferenceResolutionFailed` (such as a missing
+  Harness), `UnsupportedConfiguration`, `WorkerPoolNotFound`,
+  `RevisionInvalid`, or `ActorTemplateInvalid`. This also clears
+  `desiredRevision`.
 - Substrate rejects the template (`ActorTemplateRejected`).
 - An existing immutable template differs (`ActorTemplateConflict`).
 
-Grant errors set `EgressPoliciesApplied=False` but never block `Ready`. See
+A missing or invalid EgressPolicy, or a conflicting grant, sets
+`EgressPoliciesApplied=False` but does not block `Ready`. Failing to apply
+grants to running actors is a retryable error and reports
+`RuntimePreparationFailed`. See
 [Configuration and compilation](configuration-and-compilation.md#prepared-revision-pipeline)
 and [Egress policies](egress-policies.md#preparation-and-lifecycle) for details.
 
