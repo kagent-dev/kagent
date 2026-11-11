@@ -116,7 +116,10 @@ func (d *ProcessDriver) RestorePending() (string, string, runtime.PendingTurn, e
 		return "", "", nil, nil
 	}
 	if r.Phase == phaseAbandoned || r.Phase == phaseExecuting || r.Phase == phaseContinuing {
-		return "", "", nil, runtime.ErrSessionAbandoned
+		// The outcome of the call this record holds cannot be established from
+		// here, so it is never replayed. Cancellation still gets a handle, so
+		// the task it belongs to can be ended.
+		return r.TaskID, r.ContextID, &abandonedTurn{deferredTurn{driver: d, record: *r}}, nil
 	}
 	return r.TaskID, r.ContextID, &deferredTurn{driver: d, record: *r}, nil
 }
@@ -462,6 +465,31 @@ func (p *deferredTurn) Cancel(_ context.Context, _ runtime.ModelCallSink) error 
 }
 
 var _ runtime.PendingTurn = (*deferredTurn)(nil)
+
+// abandonedTurn is a restored continuation whose call was in flight, or whose
+// replay had already started, when the process behind it went away. It is
+// never replayed; cancelling it records the tombstone so the task can end.
+type abandonedTurn struct{ deferredTurn }
+
+func (*abandonedTurn) Abandoned() {}
+
+func (p *abandonedTurn) Resume(context.Context, runtime.InputResponse, runtime.EventSink) (runtime.Outcome, error) {
+	return runtime.Outcome{}, runtime.ErrSessionAbandoned
+}
+
+func (p *abandonedTurn) Cancel(_ context.Context, _ runtime.ModelCallSink) error {
+	r, err := p.current()
+	if err != nil {
+		return err
+	}
+	if r.Phase == phaseComplete || r.Phase == phaseCanceled {
+		return nil
+	}
+	r.Phase = phaseCanceled
+	return p.driver.savePending(r)
+}
+
+var _ runtime.AbandonedTurn = (*abandonedTurn)(nil)
 
 func validateInputResponse(request runtime.InputRequest, response runtime.InputResponse) error {
 	switch request := request.(type) {

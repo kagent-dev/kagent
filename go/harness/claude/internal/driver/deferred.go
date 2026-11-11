@@ -238,7 +238,11 @@ func (d *ProcessDriver) RestorePending() (string, string, runtime.PendingTurn, e
 		return "", "", nil, nil
 	}
 	if r.Phase == phaseAbandoned || r.Phase == phaseResuming || r.Phase == phaseExecuting || r.Phase == phaseReleased {
-		return "", "", nil, runtime.ErrSessionAbandoned
+		// The process that owned this replay is gone, and its call is either in
+		// flight or already consumed, so nothing here can replay it. Resuming
+		// still fails; cancellation now has a handle to end the task with.
+		request, _ := r.request()
+		return r.TaskID, r.ContextID, &abandonedTurn{deferredTurn{driver: d, record: *r, request: request}}, nil
 	}
 	if !b.protects(r.Tool.Name) {
 		return "", "", nil, fmt.Errorf("Claude deferred tool is no longer protected")
@@ -481,6 +485,36 @@ func (p *deferredTurn) Cancel(ctx context.Context, sink runtime.ModelCallSink) (
 	current.Phase = phaseCanceled
 	return saveDeferred(b.directory, p.driver.config.MaxEventBytes, current)
 }
+
+// abandonedTurn is a restored replay the driver cannot continue. Claude is no
+// longer running, so there is no process to stop and no decision to deliver:
+// cancellation is a journal write, and resuming is refused as it always was.
+type abandonedTurn struct{ deferredTurn }
+
+func (*abandonedTurn) Abandoned() {}
+
+func (p *abandonedTurn) Resume(context.Context, runtime.InputResponse, runtime.EventSink) (runtime.Outcome, error) {
+	return runtime.Outcome{}, runtime.ErrSessionAbandoned
+}
+
+// Cancel tombstones the record so the task ends and a later restore reads the
+// replay as resolved rather than abandoned.
+func (p *abandonedTurn) Cancel(context.Context, runtime.ModelCallSink) error {
+	b := p.driver.config.ApprovalBroker
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	current, err := p.current()
+	if err != nil {
+		return err
+	}
+	if current.Phase == phaseComplete || current.Phase == phaseCanceled {
+		return nil
+	}
+	current.Phase, current.Canceling = phaseCanceled, true
+	return saveDeferred(b.directory, p.driver.config.MaxEventBytes, current)
+}
+
+var _ runtime.AbandonedTurn = (*abandonedTurn)(nil)
 
 // abandon prevents a failed task from being restored as pending input.
 func (p *deferredTurn) abandon(cause error) error {

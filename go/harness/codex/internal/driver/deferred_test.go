@@ -97,10 +97,13 @@ func TestDeferredTurnRejectsUncertainAndChangedResponses(t *testing.T) {
 			}
 			if phase == phaseExecuting || phase == phaseContinuing || phase == phaseAbandoned {
 				taskID, contextID, restored, err := driver.RestorePending()
+				require.NoError(t, err)
+				require.Equal(t, r.TaskID, taskID)
+				require.Equal(t, r.ContextID, contextID)
+				require.Implements(t, (*runtime.AbandonedTurn)(nil), restored)
+				_, err = restored.Resume(t.Context(), decision, &recordingSink{})
 				require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
-				require.Empty(t, taskID)
-				require.Empty(t, contextID)
-				require.Nil(t, restored)
+				require.Equal(t, 0, calls, "a refused replay never reaches the tool")
 			}
 			pending := &deferredTurn{driver: driver, record: r}
 			response := decision
@@ -114,12 +117,55 @@ func TestDeferredTurnRejectsUncertainAndChangedResponses(t *testing.T) {
 				t.Fatalf("unsafe replay: calls=%d err=%v", calls, err)
 			}
 			_, _, restored, err := driver.RestorePending()
+			require.NoError(t, err)
 			if phase == phaseComplete || phase == phaseCanceled {
-				require.NoError(t, err)
+				require.Nil(t, restored, "a resolved record restores nothing")
 			} else {
-				require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+				require.Implements(t, (*runtime.AbandonedTurn)(nil), restored, "terminal failure must never restore a replayable task")
 			}
-			require.Nil(t, restored, "terminal failure must never restore a pending task")
+		})
+	}
+}
+
+// A record the driver refuses to replay still has to be cancelable. These are
+// the phases a replaced actor can leave behind, and before the restored handle
+// existed, the task they belong to could not be ended at all.
+func TestRestoredUncertainContinuationCancelsWithoutReplay(t *testing.T) {
+	for _, phase := range []pendingPhase{phaseExecuting, phaseContinuing, phaseAbandoned} {
+		t.Run(string(phase), func(t *testing.T) {
+			r := waitingRecord()
+			r.Phase = phase
+			r.Decision = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}
+			if phase != phaseExecuting {
+				r.Result = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "already executed"}}}
+			}
+			calls := 0
+			d := NewProcessDriver(ProcessConfig{PendingDir: t.TempDir(), Workspace: t.TempDir(), Executable: "must-not-run", MaxFrameBytes: 4096,
+				Tools: fakeToolCaller{call: func(context.Context, string, string, map[string]any) (*mcp.CallToolResult, error) {
+					calls++
+					return nil, errors.New("unexpected replay")
+				}}})
+			require.NoError(t, d.savePending(&r))
+
+			taskID, contextID, restored, err := d.RestorePending()
+			require.NoError(t, err)
+			require.Equal(t, r.TaskID, taskID)
+			require.Equal(t, r.ContextID, contextID)
+			require.Implements(t, (*runtime.AbandonedTurn)(nil), restored)
+
+			require.NoError(t, restored.Cancel(t.Context(), &recordingSink{}))
+			saved, err := d.loadPending()
+			require.NoError(t, err)
+			require.Equal(t, phaseCanceled, saved.Phase)
+			require.Equal(t, 0, calls, "cancelling a restored record never calls the tool")
+
+			// The task is over, so a later restore has nothing to hand back.
+			fresh := NewProcessDriver(d.config)
+			taskID, contextID, restored, err = fresh.RestorePending()
+			require.NoError(t, err)
+			require.Empty(t, taskID)
+			require.Empty(t, contextID)
+			require.Nil(t, restored)
 		})
 	}
 }
@@ -151,11 +197,17 @@ func TestDeferredTurnPersistsExecutingBeforeToolAndDoesNotRetry(t *testing.T) {
 	require.Equal(t, phaseAbandoned, saved.Phase)
 	restored := NewProcessDriver(ProcessConfig{PendingDir: driver.config.PendingDir, MaxFrameBytes: 4096})
 	taskID, contextID, pendingTurn, err := restored.RestorePending()
-	require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
-	require.Empty(t, taskID)
-	require.Empty(t, contextID)
-	require.Nil(t, pendingTurn)
+	require.NoError(t, err)
+	require.Equal(t, r.TaskID, taskID)
+	require.Equal(t, r.ContextID, contextID)
+	require.Implements(t, (*runtime.AbandonedTurn)(nil), pendingTurn)
+	// The handle that abandoned the record still refuses to cancel it. The
+	// restored one ends the task, which is the only way out of this state.
 	require.ErrorIs(t, pending.Cancel(t.Context(), &recordingSink{}), runtime.ErrSessionAbandoned)
+	require.NoError(t, pendingTurn.Cancel(t.Context(), &recordingSink{}))
+	saved, err = driver.loadPending()
+	require.NoError(t, err)
+	require.Equal(t, phaseCanceled, saved.Phase)
 	require.Equal(t, 1, calls)
 }
 
@@ -332,8 +384,10 @@ func TestDeferredTurnAbandonsChangedCachedAnswerAfterStartupFailure(t *testing.T
 			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
 			fresh := NewProcessDriver(d.config)
 			_, _, restored, err := fresh.RestorePending()
+			require.NoError(t, err)
+			require.Implements(t, (*runtime.AbandonedTurn)(nil), restored)
+			_, err = restored.Resume(t.Context(), response, &recordingSink{})
 			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
-			require.Nil(t, restored)
 		})
 	}
 }
