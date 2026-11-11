@@ -110,8 +110,26 @@ func TestDeferredTurnRejectsUncertainAndChangedResponses(t *testing.T) {
 			if phase == phaseResult {
 				response = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: false}
 			}
-			if _, err := pending.Resume(t.Context(), response, &recordingSink{}); err == nil || calls != 0 {
-				t.Fatalf("unsafe replay: calls=%d err=%v", calls, err)
+			resumeErr := func() error {
+				_, err := pending.Resume(t.Context(), response, &recordingSink{})
+				return err
+			}()
+			if resumeErr == nil || calls != 0 {
+				t.Fatalf("unsafe replay: calls=%d err=%v", calls, resumeErr)
+			}
+			if phase == phaseWaiting {
+				// A response for another request is refused before any of it is
+				// used, so the waiting continuation is untouched and the real
+				// request can still be answered.
+				require.ErrorIs(t, resumeErr, runtime.ErrInvalidInputResponse)
+				require.NotErrorIs(t, resumeErr, runtime.ErrSessionAbandoned)
+				saved, err := driver.loadPending()
+				require.NoError(t, err)
+				require.Equal(t, phaseWaiting, saved.Phase)
+				_, _, restored, err := driver.RestorePending()
+				require.NoError(t, err)
+				require.NotNil(t, restored)
+				return
 			}
 			_, _, restored, err := driver.RestorePending()
 			if phase == phaseComplete || phase == phaseCanceled {
@@ -120,6 +138,43 @@ func TestDeferredTurnRejectsUncertainAndChangedResponses(t *testing.T) {
 				require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
 			}
 			require.Nil(t, restored, "terminal failure must never restore a pending task")
+		})
+	}
+}
+
+// An answer is replayed into Codex's own conversation, so an empty selection,
+// or several selections for a question that takes one, is a different shape
+// than the agent asked for. The Claude harness has always refused both; this
+// one accepted them and passed them to the model.
+func TestResumeRefusesAnAnswerTheQuestionDidNotAskFor(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		answers [][]string
+		wantErr string
+	}{
+		{name: "no answer at all", answers: [][]string{{}}, wantErr: "has no answer"},
+		{name: "two answers to a single choice", answers: [][]string{{"PostgreSQL", "MySQL"}}, wantErr: "takes one answer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := waitingRecord()
+			r.Server, r.Tool, r.Approval = "", "", nil
+			r.Question = &runtime.AskUserRequest{ID: "question", Questions: []runtime.AskUserQuestion{
+				{ID: "database", Question: "Which database?", Choices: []string{"PostgreSQL", "MySQL"}},
+			}}
+			d := NewProcessDriver(ProcessConfig{PendingDir: t.TempDir(), Workspace: t.TempDir(), Executable: "must-not-run", MaxFrameBytes: 4096})
+			require.NoError(t, d.savePending(&r))
+			_, _, pending, err := d.RestorePending()
+			require.NoError(t, err)
+
+			_, err = pending.Resume(t.Context(), &runtime.AskUserResponse{ID: "question", Answers: test.answers}, &recordingSink{})
+			require.ErrorContains(t, err, test.wantErr)
+
+			// Refused before anything was committed, so the question is still
+			// the one the agent asked and a correct answer still resumes it.
+			saved, err := d.loadPending()
+			require.NoError(t, err)
+			require.Equal(t, phaseWaiting, saved.Phase)
+			require.Nil(t, saved.Answer)
 		})
 	}
 }

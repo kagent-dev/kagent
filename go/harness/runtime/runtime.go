@@ -5,6 +5,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -196,6 +197,37 @@ type AskUserQuestion struct {
 	Question string
 	Choices  []string
 	Multiple bool
+}
+
+// ErrInvalidInputResponse means a response did not answer the request it was
+// sent for, and was refused before any of it was used. The parked turn is
+// untouched, so the request it refused can still be answered.
+var ErrInvalidInputResponse = errors.New("input response does not answer the pending request")
+
+// ValidateAskUserAnswers checks a set of answers against the questions it
+// responds to. A harness replays answers into a native conversation, where an
+// empty selection or several selections for a question that takes one is not a
+// smaller answer but a different shape than the agent asked for, so both are
+// refused here rather than by whichever runtime happens to look.
+func ValidateAskUserAnswers(request *AskUserRequest, response *AskUserResponse) error {
+	if request == nil || response == nil {
+		return errors.New("ask-user response requires its request")
+	}
+	if response.ID != request.ID {
+		return fmt.Errorf("ask-user response ID %q does not match pending ID %q", response.ID, request.ID)
+	}
+	if len(response.Answers) != len(request.Questions) {
+		return errors.New("ask-user response must answer every pending question")
+	}
+	for i, answer := range response.Answers {
+		if len(answer) == 0 {
+			return fmt.Errorf("ask-user question %d has no answer", i+1)
+		}
+		if !request.Questions[i].Multiple && len(answer) != 1 {
+			return fmt.Errorf("ask-user question %d takes one answer, not %d", i+1, len(answer))
+		}
+	}
+	return nil
 }
 
 // Failure contains only runtime-vetted information safe to expose publicly.
