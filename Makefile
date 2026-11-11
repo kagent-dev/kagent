@@ -442,6 +442,7 @@ helm-test: helm-version
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup
+	rm -rf "$(HELM_SOURCE_DIR)/kagent/charts" "$(HELM_SOURCE_DIR)/kagent-crds/charts"
 	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent-crds/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent-crds/Chart.yaml"
 	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent/Chart.yaml"
 	helm dependency update "$(HELM_SOURCE_DIR)/kagent"
