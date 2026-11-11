@@ -86,7 +86,7 @@ const (
 	KagentMcpServerNameKey = attribute.Key("kagent.mcp.server.name")
 	// KagentRuntimeKey is "kagent.runtime". The framework or harness that runs an agent.
 	KagentRuntimeKey = attribute.Key("kagent.runtime")
-	// KagentWorkerTriggerKey is "kagent.worker.trigger". What started the drain that acquired a work claim.
+	// KagentWorkerTriggerKey is "kagent.worker.trigger". What prompted a work claim, either initial discovery or continued backlog processing.
 	KagentWorkerTriggerKey = attribute.Key("kagent.worker.trigger")
 )
 
@@ -274,6 +274,8 @@ const (
 	KagentWorkerTriggerStartup = "startup"
 	// KagentWorkerTriggerRetry: A scheduled recheck for pending work or an earlier error.
 	KagentWorkerTriggerRetry = "retry"
+	// KagentWorkerTriggerBacklog: A follow-on claim, including worker handoffs and freed delivery capacity.
+	KagentWorkerTriggerBacklog = "backlog"
 )
 
 // GenAIClientInferenceDuration: The duration of one model call of a harness turn.

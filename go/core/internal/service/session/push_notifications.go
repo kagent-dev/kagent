@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
@@ -12,7 +13,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -82,11 +83,12 @@ type pushSender interface {
 // PushWorker sends current published status updates on every API replica. PostgreSQL
 // claims coordinate workers; lease expiry permits recovery after a crash.
 type PushWorker struct {
-	store  pushStore
-	sender pushSender
-	signer *PushJWTSigner
-	wake   <-chan struct{}
-	config PushWorkerConfig
+	store         pushStore
+	sender        pushSender
+	signer        *PushJWTSigner
+	wake          <-chan struct{}
+	config        PushWorkerConfig
+	meterProvider metric.MeterProvider
 }
 
 // PushWorkerConfig contains resolved, positive controller delivery settings.
@@ -101,8 +103,8 @@ var _ manager.Runnable = (*PushWorker)(nil)
 var _ pushStore = (*database.Client)(nil)
 
 // NewPushWorker sends unsigned notifications when signer is nil.
-func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner, wake <-chan struct{}, config PushWorkerConfig) *PushWorker {
-	return &PushWorker{store: store, sender: sender, signer: signer, wake: wake, config: config}
+func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner, wake <-chan struct{}, config PushWorkerConfig, provider metric.MeterProvider) *PushWorker {
+	return &PushWorker{store: store, sender: sender, signer: signer, wake: wake, config: config, meterProvider: provider}
 }
 
 func (p *PushWorker) NeedLeaderElection() bool { return false }
@@ -110,12 +112,12 @@ func (p *PushWorker) NeedLeaderElection() bool { return false }
 // Start drains work at startup and after local settlement hints. Recovery scans
 // find missed hints; outstanding retries and leases retain the five-second scan.
 func (p *PushWorker) Start(ctx context.Context) error {
-	counter, err := newWorkClaimCounter(ctx, otel.GetMeterProvider(),
+	counter, err := newWorkClaimCounter(ctx, p.meterProvider,
 		conv.KagentPushDeliveryClaimed, conv.KagentPushDeliveryClaimedUnit, conv.KagentPushDeliveryClaimedDescription)
 	if err != nil {
 		return err
 	}
-	drain := &workDrain{trigger: workStartup}
+	trigger := workStartup
 	timer := time.NewTimer(p.config.RecoveryInterval)
 	defer timer.Stop()
 	cleanupTimer := time.NewTimer(p.config.RecoveryInterval)
@@ -136,8 +138,9 @@ func (p *PushWorker) Start(ctx context.Context) error {
 	defer sends.Wait()
 	dispatch := func(delivery database.PushDelivery) {
 		claimed++
-		recordWorkClaim(ctx, counter, drain.trigger)
-		drain.logRecoveryClaims(ctx, operationPushDelivery, p.config.RecoveryInterval, 1)
+		recordWorkClaim(ctx, counter, trigger)
+		trigger.logRecoveryClaim(ctx, operationPushDelivery, p.config.RecoveryInterval, slog.String("registration_id", delivery.ID.String()))
+		trigger = workBacklog
 		active++
 		sends.Go(func() {
 			if err := p.send(ctx, delivery); err != nil {
@@ -167,7 +170,7 @@ func (p *PushWorker) Start(ctx context.Context) error {
 		claimed = 0
 		empty, err := p.poll(ctx, p.config.MaxConcurrency-active, dispatch)
 		if empty || err != nil {
-			drain = nil
+			trigger = workRetry
 		}
 		if claimed == pushClaimBatchSize && err == nil {
 			continue
@@ -203,18 +206,13 @@ func (p *PushWorker) Start(ctx context.Context) error {
 				cleanup()
 				continue
 			case <-scan:
-				drain = &workDrain{trigger: nextTrigger}
+				trigger = nextTrigger
 			case <-p.wake:
-				if drain == nil {
-					drain = &workDrain{trigger: workSignal}
+				if trigger != workBacklog {
+					trigger = workSignal
 				}
 			case <-completed:
 				active--
-				if drain == nil {
-					// The prior drain ended. A late completion rechecks pending
-					// work as a retry without reviving that origin.
-					drain = &workDrain{trigger: workRetry}
-				}
 			}
 			break
 		}
@@ -224,7 +222,7 @@ func (p *PushWorker) Start(ctx context.Context) error {
 const pushClaimBatchSize = 100
 
 // poll reports whether a claim actually found no work. Exhausting capacity or
-// the maintenance batch limit does not end a drain or change its origin.
+// the maintenance batch limit does not end backlog processing.
 func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(database.PushDelivery)) (bool, error) {
 	// Bound each pass so an always-due backlog cannot starve registration cleanup.
 	for range min(pushClaimBatchSize, available) {

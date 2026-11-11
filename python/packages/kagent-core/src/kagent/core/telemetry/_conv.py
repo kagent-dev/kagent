@@ -119,7 +119,7 @@ KAGENT_RUNTIME: Final = "kagent.runtime"
 """The framework or harness that runs an agent."""
 
 KAGENT_WORKER_TRIGGER: Final = "kagent.worker.trigger"
-"""What started the drain that acquired a work claim."""
+"""What prompted a work claim, either initial discovery or continued backlog processing."""
 
 GEN_AI_CLIENT_INFERENCE_DURATION: Final = "gen_ai.client.inference.duration"
 GEN_AI_CLIENT_INFERENCE_DURATION_UNIT: Final = "s"
@@ -383,3 +383,5 @@ class KagentWorkerTriggerValues(StrEnum):
     """The initial processing pass after worker startup."""
     RETRY = "retry"
     """A scheduled recheck for pending work or an earlier error."""
+    BACKLOG = "backlog"
+    """A follow-on claim, including worker handoffs and freed delivery capacity."""

@@ -3,7 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
-	"sync"
+	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
@@ -23,6 +23,7 @@ const (
 	workRecovery workTrigger = conv.KagentWorkerTriggerRecovery
 	workStartup  workTrigger = conv.KagentWorkerTriggerStartup
 	workRetry    workTrigger = conv.KagentWorkerTriggerRetry
+	workBacklog  workTrigger = conv.KagentWorkerTriggerBacklog
 )
 
 func newWorkClaimCounter(ctx context.Context, provider metric.MeterProvider, name, unit, description string) (metric.Int64Counter, error) {
@@ -33,7 +34,7 @@ func newWorkClaimCounter(ctx context.Context, provider metric.MeterProvider, nam
 	if err != nil {
 		return nil, fmt.Errorf("failed to create %s counter: %w", name, err)
 	}
-	for _, trigger := range [...]workTrigger{workSignal, workRecovery, workStartup, workRetry} {
+	for _, trigger := range [...]workTrigger{workSignal, workRecovery, workStartup, workRetry, workBacklog} {
 		counter.Add(ctx, 0, metric.WithAttributes(conv.KagentWorkerTriggerKey.String(string(trigger))))
 	}
 	return counter, nil
@@ -43,20 +44,11 @@ func recordWorkClaim(ctx context.Context, counter metric.Int64Counter, trigger w
 	counter.Add(ctx, 1, metric.WithAttributes(conv.KagentWorkerTriggerKey.String(string(trigger))))
 }
 
-// workDrain carries attribution through concurrent handoffs. Its discovery log
-// is shared by all workers in the drain, while every claim is counted separately.
-type workDrain struct {
-	trigger   workTrigger
-	discovery sync.Once
-}
-
-func (w *workDrain) logRecoveryClaims(ctx context.Context, operation string, interval time.Duration, claimed int) {
-	if w.trigger != workRecovery || claimed == 0 {
+// logRecoveryClaim reports a timer-driven discovery before processing starts.
+func (t workTrigger) logRecoveryClaim(ctx context.Context, operation string, interval time.Duration, claimID slog.Attr) {
+	if t != workRecovery {
 		return
 	}
-	w.discovery.Do(func() {
-		logging.FromContext(ctx).InfoContext(ctx, "recovery scan found work",
-			"operation", operation, "trigger", string(w.trigger),
-			"recovery_interval_seconds", interval.Seconds(), "claimed_count", claimed)
-	})
+	logging.FromContext(ctx).LogAttrs(ctx, slog.LevelInfo, "recovery scan found work",
+		slog.String("operation", operation), slog.Float64("recovery_interval_seconds", interval.Seconds()), claimID)
 }

@@ -361,7 +361,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	memory := memoryservice.NewService(store, authorizer)
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
-	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval, otel.GetMeterProvider())
 	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
@@ -396,7 +396,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		RecoveryInterval: cfg.GetPush().GetRecoveryInterval().AsDuration(),
 		MaxConcurrency:   int(cfg.GetPush().GetMaxConcurrency()),
 		SendTimeout:      cfg.GetPush().GetSendTimeout().AsDuration(),
-	})); err != nil {
+	}, otel.GetMeterProvider())); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())

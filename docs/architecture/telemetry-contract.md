@@ -24,7 +24,7 @@ This page lists what the [registry](../../telemetry/registry) defines.
 | `kagent.invocation.segment` | enum | `initial`, `resumed` | Whether an execution starts a task or continues it. A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans. |
 | `kagent.mcp.server.name` | string |  | The name of the MCP server that serves a tool call. The value is the server name in the runtime's MCP configuration. A `.` in a RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds the tool name without the server, so the same tool groups together in all runtimes. |
 | `kagent.runtime` | enum | `adk-go`, `adk-python`, `claude`, `codex`, `langgraph`, `crewai`, `openai-agents`, `byo` | The framework or harness that runs an agent. Every runtime declares it on its resource. The name of a Harness object is not its runtime. |
-| `kagent.worker.trigger` | enum | `signal`, `recovery`, `startup`, `retry` | What started the drain that acquired a work claim. |
+| `kagent.worker.trigger` | enum | `signal`, `recovery`, `startup`, `retry`, `backlog` | What prompted a work claim, either initial discovery or continued backlog processing. |
 
 ## Metrics
 
@@ -177,7 +177,7 @@ Refines `gen_ai.invoke_agent.tool_calls` as `kagent.invoke_agent.tool_calls`. In
 
 ### `kagent.push.delivery.claimed`
 
-Instrument: counter. Unit: `{attempt}`. Number of push delivery attempts claimed. A synchronous integer counter incremented before delivery I/O. Each returned claim adds one, even if processing later fails. Push retries count as separate attempts. Every trigger series is initialized to zero at worker startup. Empty scans and failed claim requests add nothing. The trigger describes discovery, not proof of a lost signal or the exact fraction of unique work delayed by recovery. Continued backlog draining and freed delivery capacity retain the originating trigger until a claim finds no work or fails. New work arriving during a drain may inherit its origin. An unchanged counter does not establish that recovery scans ran successfully. Task, registration, destination, and error identities are excluded.
+Instrument: counter. Unit: `{attempt}`. Number of push delivery attempts claimed. A synchronous integer counter incremented before delivery I/O. Each returned claim adds one, even if processing later fails. Push retries count as separate attempts. Every trigger series is initialized to zero at worker startup. Empty scans and failed claim requests add nothing. Only the first claim after startup, a settlement signal, a recovery timer, or a retry recheck uses that trigger. Continued claims, including capacity refills, use backlog until a claim finds no work or fails. Recovery therefore counts timer-driven discoveries of work, not all items processed afterward or items proven to have missed a signal. An unchanged counter does not establish that scans ran successfully. Task, registration, destination, and error identities are excluded.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -201,7 +201,7 @@ Instrument: gauge. Unit: `{revision}`. Number of cleanup-eligible runtime revisi
 
 ### `kagent.session.quiescence.claimed`
 
-Instrument: counter. Unit: `{session}`. Number of session quiescence claims acquired. A synchronous integer counter incremented before runtime I/O. Each returned claim adds one, even if processing later fails. Every trigger series is initialized to zero at worker startup. Repeated quiescence of the same session counts separately; this is not a count of unique sessions or successful suspensions. Empty scans and failed claim requests add nothing. The trigger describes discovery, not proof of a lost signal or the exact fraction of unique work delayed by recovery. Worker handoffs and continued draining retain the originating trigger until a claim finds no work or fails. New work arriving during a drain may inherit its origin. An unchanged counter does not establish that recovery scans ran successfully. Session, task, and error identities are excluded.
+Instrument: counter. Unit: `{session}`. Number of session quiescence claims acquired. A synchronous integer counter incremented before runtime I/O. Each returned claim adds one, even if processing later fails. Every trigger series is initialized to zero at worker startup. Repeated quiescence of the same session counts separately; this is not a count of unique sessions or successful suspensions. Empty scans and failed claim requests add nothing. Only the first claim after startup, a settlement signal, a recovery timer, or a retry recheck uses that trigger. Continued claims and worker handoffs use backlog. Recovery therefore counts timer-driven discoveries of work, not all items processed afterward or items proven to have missed a signal. An unchanged counter does not establish that scans ran successfully. Session, task, and error identities are excluded.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |

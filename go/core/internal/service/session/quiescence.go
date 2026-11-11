@@ -3,10 +3,10 @@ package session
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -24,30 +24,31 @@ func (*ActorWorkflow) NeedLeaderElection() bool { return false }
 // Startup and periodic recovery scans discover work missed by local signals.
 // Workers drain claims with bounded concurrency; task reads never wait for them.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
-	counter, err := newWorkClaimCounter(ctx, otel.GetMeterProvider(),
+	counter, err := newWorkClaimCounter(ctx, w.meterProvider,
 		conv.KagentSessionQuiescenceClaimed, conv.KagentSessionQuiescenceClaimedUnit, conv.KagentSessionQuiescenceClaimedDescription)
 	if err != nil {
 		return err
 	}
 	// Keep worker handoffs distinct from settlement hints for attribution.
-	handoff := make(chan *workDrain, 1)
+	handoff := make(chan struct{}, 1)
 	var workers sync.WaitGroup
 	for range 4 {
 		workers.Go(func() {
 			timer := time.NewTimer(w.recoveryInterval)
 			defer timer.Stop()
-			drain := &workDrain{trigger: workStartup}
+			trigger := workStartup
 			for ctx.Err() == nil {
 				work, err := w.store.ClaimSessionQuiescence(ctx)
 				if err == nil {
 					// Hand off a hint before runtime I/O so a single settlement
 					// burst can enlist all workers, even if this actor is slow.
 					select {
-					case handoff <- drain:
+					case handoff <- struct{}{}:
 					default:
 					}
-					recordWorkClaim(ctx, counter, drain.trigger)
-					drain.logRecoveryClaims(ctx, operationSessionQuiescence, w.recoveryInterval, 1)
+					recordWorkClaim(ctx, counter, trigger)
+					trigger.logRecoveryClaim(ctx, operationSessionQuiescence, w.recoveryInterval, slog.String("session_id", work.Session.GetId()))
+					trigger = workBacklog
 					w.quiesceIdleSession(ctx, work)
 					continue
 				}
@@ -70,10 +71,11 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 				case <-ctx.Done():
 					return
 				case <-timer.C:
-					drain = &workDrain{trigger: nextTrigger}
+					trigger = nextTrigger
 				case <-w.quiescenceWake:
-					drain = &workDrain{trigger: workSignal}
-				case drain = <-handoff:
+					trigger = workSignal
+				case <-handoff:
+					trigger = workBacklog
 				}
 			}
 		})

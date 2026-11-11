@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -25,24 +25,21 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/telemetrytest"
 )
 
-func captureWorkTelemetry(t *testing.T) (context.Context, *sdkmetric.ManualReader, *bytes.Buffer) {
+func captureWorkTelemetry(t *testing.T) (context.Context, *sdkmetric.MeterProvider, *sdkmetric.ManualReader, *bytes.Buffer) {
 	t.Helper()
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	previous := otel.GetMeterProvider()
-	otel.SetMeterProvider(provider)
 	t.Cleanup(func() {
-		otel.SetMeterProvider(previous)
 		require.NoError(t, provider.Shutdown(context.Background()))
 	})
 	logs := &bytes.Buffer{}
 	logger, err := logging.New(logs, "debug")
 	require.NoError(t, err)
-	return logging.IntoContext(t.Context(), logger), reader, logs
+	return logging.IntoContext(t.Context(), logger), provider, reader, logs
 }
 
 func wantWorkClaims(trigger string, count int64) map[string]int64 {
-	values := map[string]int64{"signal": 0, "recovery": 0, "startup": 0, "retry": 0}
+	values := map[string]int64{"signal": 0, "recovery": 0, "startup": 0, "retry": 0, "backlog": 0}
 	if trigger != "" {
 		values[trigger] = count
 	}
@@ -74,12 +71,12 @@ func workClaimValues(t *testing.T, reader *sdkmetric.ManualReader, metricName st
 			require.True(t, ok)
 			require.True(t, sum.IsMonotonic)
 			require.Equal(t, metricdata.CumulativeTemporality, sum.Temporality)
-			require.Len(t, sum.DataPoints, 4, "all trigger series must be present, including zero values")
+			require.Len(t, sum.DataPoints, 5, "all trigger series must be present, including zero values")
 			for _, point := range sum.DataPoints {
 				require.Equal(t, 1, point.Attributes.Len(), "only the trigger; no worker kind, identities, or raw errors")
 				trigger, found := point.Attributes.Value(attribute.Key("kagent.worker.trigger"))
 				require.True(t, found)
-				require.Contains(t, []string{"signal", "recovery", "startup", "retry"}, trigger.AsString())
+				require.Contains(t, []string{"signal", "recovery", "startup", "retry", "backlog"}, trigger.AsString())
 				if sample.Name == metricName {
 					values[trigger.AsString()] += point.Value
 				}
@@ -89,15 +86,17 @@ func workClaimValues(t *testing.T, reader *sdkmetric.ManualReader, metricName st
 	return values
 }
 
-func requireRecoveryLog(t *testing.T, logs *bytes.Buffer, operation string, count int, interval time.Duration) {
+func requireRecoveryLog(t *testing.T, logs *bytes.Buffer, operation string, id string, interval time.Duration) {
 	t.Helper()
 	type logRecord struct {
-		Level        string  `json:"level"`
-		Message      string  `json:"msg"`
-		Operation    string  `json:"operation"`
-		Interval     float64 `json:"recovery_interval_seconds"`
-		Trigger      string  `json:"trigger"`
-		ClaimedCount int     `json:"claimed_count"`
+		Level          string  `json:"level"`
+		Message        string  `json:"msg"`
+		Operation      string  `json:"operation"`
+		Interval       float64 `json:"recovery_interval_seconds"`
+		Trigger        *string `json:"trigger"`
+		ClaimedCount   *int    `json:"claimed_count"`
+		SessionID      string  `json:"session_id"`
+		RegistrationID string  `json:"registration_id"`
 	}
 	var info []logRecord
 	for line := range bytes.SplitSeq(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
@@ -110,7 +109,7 @@ func requireRecoveryLog(t *testing.T, logs *bytes.Buffer, operation string, coun
 			info = append(info, record)
 		}
 	}
-	if count == 0 {
+	if id == "" {
 		require.Empty(t, info, "empty and non-recovery passes must be silent")
 		return
 	}
@@ -118,8 +117,15 @@ func requireRecoveryLog(t *testing.T, logs *bytes.Buffer, operation string, coun
 	require.Equal(t, "recovery scan found work", info[0].Message)
 	require.Equal(t, operation, info[0].Operation)
 	require.Equal(t, interval.Seconds(), info[0].Interval)
-	require.Equal(t, "recovery", info[0].Trigger)
-	require.Equal(t, count, info[0].ClaimedCount)
+	require.Nil(t, info[0].Trigger)
+	require.Nil(t, info[0].ClaimedCount)
+	if operation == "session_quiescence" {
+		require.Equal(t, id, info[0].SessionID)
+		require.Empty(t, info[0].RegistrationID)
+	} else {
+		require.Equal(t, id, info[0].RegistrationID)
+		require.Empty(t, info[0].SessionID)
+	}
 }
 
 type telemetryQuiescenceStore struct {
@@ -156,7 +162,7 @@ func TestQuiescenceWorkClaimTriggers(t *testing.T) {
 	for _, trigger := range []string{"startup", "signal", "recovery", "retry"} {
 		t.Run(trigger, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				ctx, reader, logs := captureWorkTelemetry(t)
+				ctx, provider, reader, logs := captureWorkTelemetry(t)
 				ctx, cancel := context.WithCancel(ctx)
 				defer cancel()
 				store := &telemetryQuiescenceStore{idleQuiescenceStore: &idleQuiescenceStore{}}
@@ -166,13 +172,13 @@ func TestQuiescenceWorkClaimTriggers(t *testing.T) {
 				}
 				wake := make(chan struct{}, 1)
 				// Equal recovery and retry delays must still have distinct labels.
-				workflow := NewActorWorkflow(store, nil, wake, time.Second)
+				workflow := NewActorWorkflow(store, nil, wake, time.Second, provider)
 				done := make(chan error, 1)
 				go func() { done <- workflow.Start(ctx) }()
 				synctest.Wait()
 				if trigger != "startup" {
 					require.Equal(t, wantWorkClaims("", 0), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
-					requireRecoveryLog(t, logs, "session_quiescence", 0, time.Second)
+					requireRecoveryLog(t, logs, "session_quiescence", "", time.Second)
 					store.remaining.Store(1)
 					if trigger == "signal" {
 						wake <- struct{}{}
@@ -182,15 +188,15 @@ func TestQuiescenceWorkClaimTriggers(t *testing.T) {
 					synctest.Wait()
 				}
 				require.Equal(t, wantWorkClaims(trigger, 1), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
-				count := 0
+				id := ""
 				if trigger == "recovery" {
-					count = 1
+					id = "private-session"
 				}
-				requireRecoveryLog(t, logs, "session_quiescence", count, time.Second)
+				requireRecoveryLog(t, logs, "session_quiescence", id, time.Second)
 				time.Sleep(time.Second)
 				synctest.Wait()
 				require.Equal(t, wantWorkClaims(trigger, 1), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
-				requireRecoveryLog(t, logs, "session_quiescence", count, time.Second)
+				requireRecoveryLog(t, logs, "session_quiescence", id, time.Second)
 				cancel()
 				require.NoError(t, <-done)
 			})
@@ -198,11 +204,11 @@ func TestQuiescenceWorkClaimTriggers(t *testing.T) {
 	}
 }
 
-func TestQuiescenceHandoffsRetainOrigin(t *testing.T) {
+func TestQuiescenceHandoffsCountAsBacklog(t *testing.T) {
 	for _, trigger := range []string{"signal", "recovery"} {
 		t.Run(trigger, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				ctx, reader, logs := captureWorkTelemetry(t)
+				ctx, provider, reader, logs := captureWorkTelemetry(t)
 				ctx, cancel := context.WithCancel(ctx)
 				defer cancel()
 				release := make(chan struct{})
@@ -211,7 +217,7 @@ func TestQuiescenceHandoffsRetainOrigin(t *testing.T) {
 				}
 				wake := make(chan struct{}, 1)
 				done := make(chan error, 1)
-				go func() { done <- NewActorWorkflow(store, nil, wake, time.Second).Start(ctx) }()
+				go func() { done <- NewActorWorkflow(store, nil, wake, time.Second, provider).Start(ctx) }()
 				synctest.Wait()
 				require.Equal(t, wantWorkClaims("", 0), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
 				store.remaining.Store(12)
@@ -222,25 +228,30 @@ func TestQuiescenceHandoffsRetainOrigin(t *testing.T) {
 				}
 				synctest.Wait()
 				require.EqualValues(t, 4, store.runtimeCalls.Load(), "handoffs enlist idle workers before runtime I/O finishes")
-				require.Equal(t, wantWorkClaims(trigger, 4), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
+				initial := workClaimValues(t, reader, "kagent.session.quiescence.claimed")
+				discoveryClaims := initial[trigger]
+				require.GreaterOrEqual(t, discoveryClaims, int64(1))
+				require.LessOrEqual(t, discoveryClaims, int64(4))
+				want := wantWorkClaims(trigger, discoveryClaims)
+				want["backlog"] = 4 - discoveryClaims
+				require.Equal(t, want, initial)
 				discoveries := bytes.Count(logs.Bytes(), []byte("recovery scan found work"))
 				if trigger == "recovery" {
-					// Four independent timers can start distinct drains. Each drain
-					// logs once, even when its work is handed to other workers.
-					require.GreaterOrEqual(t, discoveries, 1)
-					require.LessOrEqual(t, discoveries, 4)
+					// Independent timers can each discover work; handoffs cannot.
+					require.EqualValues(t, discoveryClaims, discoveries)
 				} else {
 					require.Zero(t, discoveries)
+					require.EqualValues(t, 1, discoveryClaims)
 				}
 				close(release)
 				synctest.Wait()
-				require.Equal(t, wantWorkClaims(trigger, 12), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
+				want["backlog"] = 12 - discoveryClaims
+				require.Equal(t, want, workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
 				require.Equal(t, discoveries, bytes.Count(logs.Bytes(), []byte("recovery scan found work")), "continued claims must not log per item")
-				// An empty claim ends the origin; a fresh signal starts a new drain.
+				// Once empty, a fresh signal can discover new work.
 				store.remaining.Store(1)
 				wake <- struct{}{}
 				synctest.Wait()
-				want := wantWorkClaims(trigger, 12)
 				want["signal"]++
 				require.Equal(t, want, workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
 				cancel()
@@ -253,18 +264,20 @@ func TestQuiescenceHandoffsRetainOrigin(t *testing.T) {
 func TestPushRecoveryLogsBeforeNextClaimCompletes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		// Given an idle worker and a store that can block after its first claim.
-		ctx, reader, logs := captureWorkTelemetry(t)
+		ctx, provider, reader, logs := captureWorkTelemetry(t)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		claims := make(chan struct{}, 1)
 		claims <- struct{}{} // Allow the empty startup scan.
 		store := &pushWakeStore{claimGate: claims}
-		worker := NewPushWorker(store, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Minute))
+		worker := NewPushWorker(store, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Minute), provider)
 		done := make(chan error, 1)
 		go func() { done <- worker.Start(ctx) }()
 		synctest.Wait()
 		store.mu.Lock()
-		store.deliveries = []database.PushDelivery{pushTestDelivery(t, "first"), pushTestDelivery(t, "second")}
+		first, second := pushTestDelivery(t, "first"), pushTestDelivery(t, "second")
+		first.ID, second.ID = uuid.New(), uuid.New()
+		store.deliveries = []database.PushDelivery{first, second}
 		store.mu.Unlock()
 
 		// When recovery acquires work and its next claim blocks.
@@ -274,11 +287,13 @@ func TestPushRecoveryLogsBeforeNextClaimCompletes(t *testing.T) {
 
 		// Assert that discovery is already visible before the batch completes.
 		require.Equal(t, wantWorkClaims("recovery", 1), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-		requireRecoveryLog(t, logs, "push_delivery", 1, time.Minute)
+		requireRecoveryLog(t, logs, "push_delivery", first.ID.String(), time.Minute)
 		close(claims)
 		synctest.Wait()
-		require.Equal(t, wantWorkClaims("recovery", 2), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-		requireRecoveryLog(t, logs, "push_delivery", 1, time.Minute)
+		want := wantWorkClaims("recovery", 1)
+		want["backlog"] = 1
+		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
+		requireRecoveryLog(t, logs, "push_delivery", first.ID.String(), time.Minute)
 		cancel()
 		require.NoError(t, <-done)
 	})
@@ -288,7 +303,7 @@ func TestPushWorkClaimTriggers(t *testing.T) {
 	for _, trigger := range []string{"startup", "signal", "recovery", "retry"} {
 		t.Run(trigger, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				ctx, reader, logs := captureWorkTelemetry(t)
+				ctx, provider, reader, logs := captureWorkTelemetry(t)
 				ctx, cancel := context.WithCancel(ctx)
 				defer cancel()
 				store := &pushWakeStore{pending: trigger == "retry"}
@@ -296,13 +311,13 @@ func TestPushWorkClaimTriggers(t *testing.T) {
 					store.deliveries = make([]database.PushDelivery, 5)
 				}
 				wake := make(chan struct{}, 1)
-				worker := NewPushWorker(store, &pushTestSender{}, nil, wake, testPushWorkerConfig(time.Second))
+				worker := NewPushWorker(store, &pushTestSender{}, nil, wake, testPushWorkerConfig(time.Second), provider)
 				done := make(chan error, 1)
 				go func() { done <- worker.Start(ctx) }()
 				synctest.Wait()
 				if trigger != "startup" {
 					require.Equal(t, wantWorkClaims("", 0), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-					requireRecoveryLog(t, logs, "push_delivery", 0, time.Second)
+					requireRecoveryLog(t, logs, "push_delivery", "", time.Second)
 					store.mu.Lock()
 					store.deliveries = make([]database.PushDelivery, 5)
 					store.mu.Unlock()
@@ -313,16 +328,18 @@ func TestPushWorkClaimTriggers(t *testing.T) {
 					}
 					synctest.Wait()
 				}
-				require.Equal(t, wantWorkClaims(trigger, 5), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-				count := 0
+				want := wantWorkClaims(trigger, 1)
+				want["backlog"] = 4
+				require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
+				id := ""
 				if trigger == "recovery" {
-					count = 1
+					id = uuid.Nil.String()
 				}
-				requireRecoveryLog(t, logs, "push_delivery", count, time.Second)
+				requireRecoveryLog(t, logs, "push_delivery", id, time.Second)
 				time.Sleep(time.Second)
 				synctest.Wait()
-				require.Equal(t, wantWorkClaims(trigger, 5), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-				requireRecoveryLog(t, logs, "push_delivery", count, time.Second)
+				require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
+				requireRecoveryLog(t, logs, "push_delivery", id, time.Second)
 				cancel()
 				require.NoError(t, <-done)
 			})
@@ -350,7 +367,7 @@ func (p *partialPushClaimStore) ClaimDuePushDelivery(ctx context.Context, timeou
 
 func TestPushRecoveryRetainsClaimsBeforeScanError(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ctx, reader, logs := captureWorkTelemetry(t)
+		ctx, provider, reader, logs := captureWorkTelemetry(t)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		store := &partialPushClaimStore{}
@@ -363,7 +380,7 @@ func TestPushRecoveryRetainsClaimsBeforeScanError(t *testing.T) {
 				return ctx.Err()
 			}
 		})
-		worker := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(time.Minute))
+		worker := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(time.Minute), provider)
 		done := make(chan error, 1)
 		go func() { done <- worker.Start(ctx) }()
 		synctest.Wait()
@@ -374,7 +391,7 @@ func TestPushRecoveryRetainsClaimsBeforeScanError(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		require.Equal(t, wantWorkClaims("recovery", 1), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-		requireRecoveryLog(t, logs, "push_delivery", 1, time.Minute)
+		requireRecoveryLog(t, logs, "push_delivery", uuid.Nil.String(), time.Minute)
 		require.Contains(t, logs.String(), "failed to process push notifications")
 		store.mu.Lock()
 		store.deliveries = []database.PushDelivery{pushTestDelivery(t, "retry")}
@@ -384,7 +401,7 @@ func TestPushRecoveryRetainsClaimsBeforeScanError(t *testing.T) {
 		want := wantWorkClaims("recovery", 1)
 		want["retry"] = 1
 		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"), "an error recheck starts a retry drain")
-		requireRecoveryLog(t, logs, "push_delivery", 1, time.Minute)
+		requireRecoveryLog(t, logs, "push_delivery", uuid.Nil.String(), time.Minute)
 		close(release)
 		synctest.Wait()
 		cancel()
@@ -392,21 +409,23 @@ func TestPushRecoveryRetainsClaimsBeforeScanError(t *testing.T) {
 	})
 }
 
-func TestPushCompletionClaimsRetainOrigin(t *testing.T) {
+func TestPushCompletionClaimsCountAsBacklog(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ctx, reader, logs := captureWorkTelemetry(t)
+		ctx, provider, reader, logs := captureWorkTelemetry(t)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		store := &pushWakeStore{}
 		store.deliveries = make([]database.PushDelivery, 3)
 		config := testPushWorkerConfig(time.Hour)
 		config.MaxConcurrency = 1
-		worker := NewPushWorker(store, &pushTestSender{}, nil, nil, config)
+		worker := NewPushWorker(store, &pushTestSender{}, nil, nil, config, provider)
 		done := make(chan error, 1)
 		go func() { done <- worker.Start(ctx) }()
 		synctest.Wait()
-		require.Equal(t, wantWorkClaims("startup", 3), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-		requireRecoveryLog(t, logs, "push_delivery", 0, time.Second)
+		want := wantWorkClaims("startup", 1)
+		want["backlog"] = 2
+		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
+		requireRecoveryLog(t, logs, "push_delivery", "", time.Second)
 		cancel()
 		require.NoError(t, <-done)
 	})
@@ -414,7 +433,7 @@ func TestPushCompletionClaimsRetainOrigin(t *testing.T) {
 
 func TestWorkerClaimMetricsRemainSeparate(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ctx, reader, logs := captureWorkTelemetry(t)
+		ctx, provider, reader, logs := captureWorkTelemetry(t)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		quiescence := &telemetryQuiescenceStore{idleQuiescenceStore: &idleQuiescenceStore{}}
@@ -423,24 +442,26 @@ func TestWorkerClaimMetricsRemainSeparate(t *testing.T) {
 		push.deliveries = make([]database.PushDelivery, 2)
 		quiescenceDone, pushDone := make(chan error, 1), make(chan error, 1)
 		go func() {
-			quiescenceDone <- NewActorWorkflow(quiescence, nil, make(chan struct{}, 1), time.Hour).Start(ctx)
+			quiescenceDone <- NewActorWorkflow(quiescence, nil, make(chan struct{}, 1), time.Hour, provider).Start(ctx)
 		}()
 		go func() {
-			pushDone <- NewPushWorker(push, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Hour)).Start(ctx)
+			pushDone <- NewPushWorker(push, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Hour), provider).Start(ctx)
 		}()
 		synctest.Wait()
 		require.Equal(t, wantWorkClaims("startup", 1), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
-		require.Equal(t, wantWorkClaims("startup", 2), workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-		requireRecoveryLog(t, logs, "", 0, time.Second)
+		want := wantWorkClaims("startup", 1)
+		want["backlog"] = 1
+		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
+		requireRecoveryLog(t, logs, "", "", time.Second)
 		cancel()
 		require.NoError(t, <-quiescenceDone)
 		require.NoError(t, <-pushDone)
 	})
 }
 
-func TestPushRecoveryOriginSurvivesHintsAndOldCompletions(t *testing.T) {
+func TestPushRecoveryDiscoveryExcludesBacklog(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ctx, reader, logs := captureWorkTelemetry(t)
+		ctx, provider, reader, logs := captureWorkTelemetry(t)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		oldGate, recoveryGate := make(chan struct{}), make(chan struct{})
@@ -459,7 +480,7 @@ func TestPushRecoveryOriginSurvivesHintsAndOldCompletions(t *testing.T) {
 		store := &pushWakeStore{}
 		store.deliveries = []database.PushDelivery{pushTestDelivery(t, "old")}
 		wake := make(chan struct{}, 1)
-		worker := NewPushWorker(store, sender, nil, wake, testPushWorkerConfig(time.Second))
+		worker := NewPushWorker(store, sender, nil, wake, testPushWorkerConfig(time.Second), provider)
 		done := make(chan error, 1)
 		go func() { done <- worker.Start(ctx) }()
 		synctest.Wait()
@@ -475,20 +496,26 @@ func TestPushRecoveryOriginSurvivesHintsAndOldCompletions(t *testing.T) {
 		want := wantWorkClaims("startup", 1)
 		want["recovery"] = 1
 		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-		requireRecoveryLog(t, logs, "push_delivery", 1, time.Second)
+		requireRecoveryLog(t, logs, "push_delivery", uuid.Nil.String(), time.Second)
 		claims := store.claimCalls.Load()
+		// New signalled work arriving during the drain must not inflate recovery.
+		store.mu.Lock()
+		for range 2 {
+			store.deliveries = append(store.deliveries, pushTestDelivery(t, "arrived"))
+		}
+		store.mu.Unlock()
 		wake <- struct{}{}
 		synctest.Wait()
 		require.Equal(t, claims, store.claimCalls.Load(), "a saturated wake must not query or relabel the drain")
 		close(oldGate)
 		synctest.Wait()
-		want["recovery"] = 2
-		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"), "an old send's completion must preserve the active recovery origin")
+		want["backlog"] = 1
+		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"), "an old send's completion must count continued claims as backlog")
 		close(recoveryGate)
 		synctest.Wait()
-		want["recovery"] = 3
+		want["backlog"] = 4
 		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-		requireRecoveryLog(t, logs, "push_delivery", 1, time.Second)
+		requireRecoveryLog(t, logs, "push_delivery", uuid.Nil.String(), time.Second)
 		// Once empty, a new settlement is a signal drain.
 		store.mu.Lock()
 		store.deliveries = []database.PushDelivery{pushTestDelivery(t, "fresh")}
@@ -497,7 +524,16 @@ func TestPushRecoveryOriginSurvivesHintsAndOldCompletions(t *testing.T) {
 		synctest.Wait()
 		want["signal"] = 1
 		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
-		requireRecoveryLog(t, logs, "push_delivery", 1, time.Second)
+		requireRecoveryLog(t, logs, "push_delivery", uuid.Nil.String(), time.Second)
+		// A later recovery wake is a new discovery, not continuation of this one.
+		store.mu.Lock()
+		store.deliveries = []database.PushDelivery{pushTestDelivery(t, "later")}
+		store.mu.Unlock()
+		time.Sleep(time.Second)
+		synctest.Wait()
+		want["recovery"]++
+		require.Equal(t, want, workClaimValues(t, reader, "kagent.push.delivery.claimed"))
+		require.Equal(t, 2, bytes.Count(logs.Bytes(), []byte("recovery scan found work")))
 		cancel()
 		require.NoError(t, <-done)
 	})

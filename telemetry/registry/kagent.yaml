@@ -1,7 +1,7 @@
 file_format: definition/2
 attributes:
   - key: kagent.worker.trigger
-    brief: What started the drain that acquired a work claim.
+    brief: What prompted a work claim, either initial discovery or continued backlog processing.
     stability: development
     type:
       members:
@@ -20,6 +20,10 @@ attributes:
         - id: retry
           value: retry
           brief: A scheduled recheck for pending work or an earlier error.
+          stability: development
+        - id: backlog
+          value: backlog
+          brief: A follow-on claim, including worker handoffs and freed delivery capacity.
           stability: development
 
   - key: kagent.gc.stage

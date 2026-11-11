@@ -30,53 +30,31 @@ The registry describes the contract the runtimes are moving to. [Who emits what]
 
 ## Session and push recovery
 
-The controller records two integer Counters:
-
 | Metric | Unit | Counts |
 | --- | --- | --- |
-| `kagent.session.quiescence.claimed` | `{session}` | Session quiescence claims, including repeated quiescence of the same session |
+| `kagent.session.quiescence.claimed` | `{session}` | Session quiescence claims |
 | `kagent.push.delivery.claimed` | `{attempt}` | Push delivery attempts, including retries |
 
-Each acquired claim adds one before runtime or delivery I/O, including attempts
-whose processing later fails. All four trigger series are initialized to zero
-when the worker starts. Empty scans and failed claim requests add nothing, and
-recording the metrics performs no additional database queries. These count
-claims rather than successful suspensions or deliveries. Both are defined in the
-Weaver registry and carry only the required trigger attribute.
+The first claim after a wake uses `kagent.worker.trigger` = `signal`, `recovery`,
+`startup`, or `retry`. Follow-on claims, including worker handoffs and capacity
+refills, use `backlog`. All five series start at zero; claims count even if
+processing later fails.
 
-`kagent.worker.trigger` separates settlement signals (`signal`), idle recovery
-timers (`recovery`), initial drains (`startup`), scheduled pending-work and error
-rechecks (`retry`). Workers keep the originating trigger while draining, including
-across quiescence handoffs and push capacity refills. An empty or failed claim ends that
-drain; a later completion prompts a retry recheck if no drain remains active.
-A settlement hint does not relabel an active drain. Timer purpose determines the
-trigger even when recovery and retry delays match.
-Filter by `recovery` to monitor fallback discoveries and compare with `signal`
-to assess reliance on recovery. Controller resource metadata identifies the
-producer; request identity and destinations are excluded from metric attributes.
+To inspect recovery activity in Prometheus, with the usual name translation:
 
-Each recovery-started drain logs `recovery scan found work` once when it first
-acquires work, without waiting for runtime or delivery completion. Quiescence
-handoffs share the discovery log, avoiding per-session info logs. Fields are
-`operation` (`session_quiescence` or `push_delivery`), `trigger`,
-`recovery_interval_seconds`, and `claimed_count`. The logged count covers the
-initial discovery, while the metric includes subsequent claims in the drain.
-The interval is configured, not a measurement of waiting time. Empty passes
-produce no new logs, and existing errors remain logged.
+```promql
+increase(kagent_session_quiescence_claimed_total{kagent_worker_trigger="recovery"}[1h])
+```
 
-The trigger describes the origin of a drain rather than proving a lost signal
-or measuring the exact fraction of unique work delayed by recovery. New work
-arriving during a drain may inherit that origin. An unchanged counter does not
-establish that scans ran successfully or that a 900-second interval is safe.
-With healthy workers and telemetry, no recovery increases during representative
-traffic support retaining the interval. A positive increase shows reliance on
-recovery, without measuring the delay.
+A recovery increase of 20 means 20 timer-driven discoveries of work, not 20
+delayed items. Repeated discoveries warrant investigating whether the interval
+is acceptable; the counter does not measure waiting time or prove lost signals,
+including when another replica is already processing work. Zero discoveries
+support retaining the interval only with healthy workers and telemetry.
 
-The controller resource already carries `k8s.namespace.name`. In a deployment
-with one controller per tenant namespace, this supplies tenant grouping when the
-backend preserves and exposes the resource attribute. Scan counters and per-item
-success logs remain deferred; any future scan counters should be named per
-operation.
+Each recovery discovery logs `recovery scan found work` at info level with
+`operation`, `recovery_interval_seconds`, and the first `session_id` or
+`registration_id` for investigation. Empty scans remain silent.
 
 ## Who emits what
 
