@@ -118,6 +118,15 @@ KAGENT_MCP_SERVER_NAME: Final = "kagent.mcp.server.name"
 KAGENT_RUNTIME: Final = "kagent.runtime"
 """The framework or harness that runs an agent."""
 
+KAGENT_RUNTIME_LIFECYCLE_JOB_EVENT: Final = "kagent.runtime_lifecycle.job.event"
+"""The observed runtime lifecycle job event."""
+
+KAGENT_RUNTIME_LIFECYCLE_JOB_KIND: Final = "kagent.runtime_lifecycle.job.kind"
+"""The runtime lifecycle operation being processed."""
+
+KAGENT_RUNTIME_LIFECYCLE_JOB_PHASE: Final = "kagent.runtime_lifecycle.job.phase"
+"""The last persisted phase of runtime lifecycle work."""
+
 KAGENT_WORKER_TRIGGER: Final = "kagent.worker.trigger"
 """What prompted a work claim, either initial discovery or continued backlog processing."""
 
@@ -184,6 +193,10 @@ GEN_AI_INVOKE_AGENT_TOOL_CALLS_DESCRIPTION: Final = "The tool calls of one execu
 KAGENT_PUSH_DELIVERY_CLAIMED: Final = "kagent.push.delivery.claimed"
 KAGENT_PUSH_DELIVERY_CLAIMED_UNIT: Final = "{attempt}"
 KAGENT_PUSH_DELIVERY_CLAIMED_DESCRIPTION: Final = "Number of push delivery attempts claimed."
+
+KAGENT_RUNTIME_LIFECYCLE_JOB_EVENTS: Final = "kagent.runtime_lifecycle.job.events"
+KAGENT_RUNTIME_LIFECYCLE_JOB_EVENTS_UNIT: Final = "{event}"
+KAGENT_RUNTIME_LIFECYCLE_JOB_EVENTS_DESCRIPTION: Final = "Runtime lifecycle job transitions and retries."
 
 KAGENT_RUNTIME_REVISION_GC_DURATION: Final = "kagent.runtime_revision.gc.duration"
 KAGENT_RUNTIME_REVISION_GC_DURATION_UNIT: Final = "s"
@@ -370,6 +383,41 @@ class KagentRuntimeValues(StrEnum):
     """The OpenAI Agents SDK runtime."""
     BYO = "byo"
     """A bring-your-own image built on kagent-core."""
+
+
+class KagentRuntimeLifecycleJobEventValues(StrEnum):
+    """Values of KAGENT_RUNTIME_LIFECYCLE_JOB_EVENT."""
+
+    CLAIMED = "claimed"
+    """A worker acquired ownership."""
+    RETRY = "retry"
+    """A failed attempt was scheduled for retry."""
+    PARKED = "parked"
+    """An earlier suspension was observed and rechecking was scheduled."""
+    SUSPENDING = "suspending"
+    """Suspension intent was persisted."""
+    COMPLETED = "completed"
+    """The snapshot was committed and matching work was retired."""
+    RELEASED = "released"
+    """A confirmed actor crash released the job."""
+    STOPPED = "stopped"
+    """The attempt lost authority or encountered conflicting work."""
+
+
+class KagentRuntimeLifecycleJobKindValues(StrEnum):
+    """Values of KAGENT_RUNTIME_LIFECYCLE_JOB_KIND."""
+
+    RECOVER_ABANDONED_DISPATCH = "RECOVER_ABANDONED_DISPATCH"
+    """Recover and suspend an actor after abandoned delivery."""
+
+
+class KagentRuntimeLifecycleJobPhaseValues(StrEnum):
+    """Values of KAGENT_RUNTIME_LIFECYCLE_JOB_PHASE."""
+
+    RECOVERING = "RECOVERING"
+    """Recover an interrupted resume before suspension."""
+    SUSPENDING = "SUSPENDING"
+    """Complete authorized suspension and persist its snapshot."""
 
 
 class KagentWorkerTriggerValues(StrEnum):

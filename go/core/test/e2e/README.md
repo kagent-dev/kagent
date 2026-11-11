@@ -60,8 +60,33 @@ parking budget to 5 seconds and request timeout to 10 seconds. For local runs,
 include this file in `install.substrate.valuesFiles` when installing the test
 cluster. These overrides keep the test independent of the chart's defaults.
 The test requires the actor to remain `RESUMING` before ordinary Session deletion,
-then verifies Session and Actor absence through kagent APIs. Backend cleanup
-retries are allowed only after the actor reaches `DELETING` or is absent.
+then verifies Session and Actor absence through kagent APIs. Deletion supersedes
+automatic dispatch cleanup, which stops before its next runtime step. Backend
+deletion retries require `DELETING` or an absent actor.
+
+`TestSessionSuspendsAfterCanceledDispatch` clones the `byo-e2e` Harness with the
+test runtime's `--block-first-restored-send` flag. Its first restored activation
+blocks before accepting a task. The test cancels after the Actor reaches
+`RUNNING`, then requires suspension, released worker capacity, and empty task
+history. A later invocation must complete and suspend normally. A marker in the
+runtime's durable directory releases the gate on that later restore, so the
+successful invocation also verifies that cleanup saved the runtime state. The
+test requires the same Actor UID, a newer snapshot generation, and a logically
+READY Session with no explicit lifecycle operation after recovery.
+Build the BYO fixture with `make build-byo-a2a` and install its digest in
+`byo-e2e` before running this test; the gate is disabled for other tests.
+
+`TestSessionSuspendsAfterCanceledResume` clones `byo-e2e` with a startup wrapper
+that holds readiness at an HTTP gate on its first restore. It waits for the
+guest's request to that gate before canceling while the actor is `RESUMING`:
+worker assignment alone can precede microVM initialization. It then releases
+readiness and requires automatic resume and suspension with no tasks, the same
+Actor UID, a fresh snapshot, and no worker assignment. A subsequent message must
+complete normally. The gate and its egress grant belong only to this test.
+
+Both cancellation tests exercise lifecycle jobs through public APIs. PostgreSQL
+and worker tests cover expired-dispatch discovery after controller loss, competing
+owners, takeover, persistent parked schedules, and older-controller writes.
 
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness

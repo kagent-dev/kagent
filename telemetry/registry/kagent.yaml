@@ -1,5 +1,63 @@
 file_format: definition/2
 attributes:
+  - key: kagent.runtime_lifecycle.job.kind
+    brief: The runtime lifecycle operation being processed.
+    stability: development
+    type:
+      members:
+        - id: recover_abandoned_dispatch
+          value: RECOVER_ABANDONED_DISPATCH
+          brief: Recover and suspend an actor after abandoned delivery.
+          stability: development
+
+  - key: kagent.runtime_lifecycle.job.phase
+    brief: The last persisted phase of runtime lifecycle work.
+    stability: development
+    type:
+      members:
+        - id: recovering
+          value: RECOVERING
+          brief: Recover an interrupted resume before suspension.
+          stability: development
+        - id: suspending
+          value: SUSPENDING
+          brief: Complete authorized suspension and persist its snapshot.
+          stability: development
+
+  - key: kagent.runtime_lifecycle.job.event
+    brief: The observed runtime lifecycle job event.
+    stability: development
+    type:
+      members:
+        - id: claimed
+          value: claimed
+          brief: A worker acquired ownership.
+          stability: development
+        - id: retry
+          value: retry
+          brief: A failed attempt was scheduled for retry.
+          stability: development
+        - id: parked
+          value: parked
+          brief: An earlier suspension was observed and rechecking was scheduled.
+          stability: development
+        - id: suspending
+          value: suspending
+          brief: Suspension intent was persisted.
+          stability: development
+        - id: completed
+          value: completed
+          brief: The snapshot was committed and matching work was retired.
+          stability: development
+        - id: released
+          value: released
+          brief: A confirmed actor crash released the job.
+          stability: development
+        - id: stopped
+          value: stopped
+          brief: The attempt lost authority or encountered conflicting work.
+          stability: development
+
   - key: kagent.worker.trigger
     brief: What prompted a work claim, either initial discovery or continued backlog processing.
     stability: development

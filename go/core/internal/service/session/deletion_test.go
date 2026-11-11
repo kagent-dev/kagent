@@ -36,6 +36,40 @@ func TestDeleteSessionWithInterruptedResume(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code(err))
 }
 
+func TestDeletionRetriesWhileCleanupResumeHoldsLease(t *testing.T) {
+	// Given an abandoned dispatch whose cleanup resume still owns the actor lease.
+	store, base, session := dispatchCleanupFixture(t)
+	setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+	abandonDispatch(t, store, session)
+	cleanup, err := store.ClaimSessionDispatchCleanup(t.Context(), "")
+	require.NoError(t, err)
+	leaseErr := status.Error(codes.Aborted, "another operation is in progress for this actor")
+	actors := &deletionTestActors{lifecycleTestActors: base, deleteErr: leaseErr}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
+
+	// When Substrate rejects deletion temporarily, assert that admission is
+	// durable even though the actor has not yet entered DELETING.
+	_, err = workflow.Delete(t.Context(), session, false)
+	require.ErrorIs(t, err, leaseErr)
+	pending, err := store.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, pending.State)
+	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, pending.Operation)
+	actor, err := actors.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+	require.NoError(t, err)
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RESUMING, actor.Status.State)
+	require.ErrorIs(t, store.ContinueSessionDispatchCleanup(t.Context(), cleanup, false), database.ErrConflict,
+		"deletion must prevent further dispatch cleanup attempts")
+
+	// After the lease is released, an ordinary retry completes without suspension.
+	deleted, err := workflow.Delete(t.Context(), pending, false)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
+	require.Zero(t, actors.suspends)
+	_, err = actors.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
 func TestForceDeletionRetriesWithoutForceAfterInterruption(t *testing.T) {
 	scenarios := []struct {
 		name            string
@@ -131,6 +165,7 @@ type deletionTestActors struct {
 	deletedUID      string
 	failDelete      bool
 	failAfterDelete bool
+	deleteErr       error
 }
 
 func (a *deletionTestActors) SuspendActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -140,6 +175,11 @@ func (a *deletionTestActors) SuspendActor(context.Context, string, string) (*ate
 
 func (a *deletionTestActors) DeleteActor(ctx context.Context, atespace, name, uid string) error {
 	a.deletedUID = uid
+	if a.deleteErr != nil {
+		err := a.deleteErr
+		a.deleteErr = nil
+		return err
+	}
 	fail := a.failDelete
 	a.failDelete = false
 	if fail && !a.failAfterDelete {

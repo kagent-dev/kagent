@@ -53,6 +53,7 @@ type InteractionService struct {
 	sessions          *Service
 	allowPushHTTP     bool
 	automaticRecovery bool
+	quiescenceWake    chan<- struct{}
 	// recoveryWait bounds how long a send waits on the recovery it starts.
 	recoveryWait time.Duration
 	// dispatchWait bounds how long a send waits for a busy Session.
@@ -64,9 +65,9 @@ type InteractionService struct {
 // client's retry continues it.
 const sendRecoveryWait = 10 * time.Second
 
-func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP, automaticRecovery bool) *InteractionService {
+func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP, automaticRecovery bool, quiescenceWake chan<- struct{}) *InteractionService {
 	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP, automaticRecovery: automaticRecovery,
-		recoveryWait: sendRecoveryWait, dispatchWait: 10 * time.Second}
+		recoveryWait: sendRecoveryWait, dispatchWait: 10 * time.Second, quiescenceWake: quiescenceWake}
 }
 
 // PreparedSend either grants a new dispatch or returns an already accepted task.
@@ -328,6 +329,12 @@ func (s *InteractionService) RevokeSend(ctx context.Context, agent types.Namespa
 	revoked, err := s.store.RevokeSessionDispatch(ctx, session.Id, id, message.ID)
 	if err != nil {
 		return false, interactionStoreError(ctx, err)
+	}
+	// Revocation can leave cleanup even when a continuation saved its input
+	// without starting execution. The durable work, not the hint, owns recovery.
+	select {
+	case s.quiescenceWake <- struct{}{}:
+	default:
 	}
 	return revoked, nil
 }

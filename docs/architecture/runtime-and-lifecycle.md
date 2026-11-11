@@ -116,10 +116,10 @@ outcomes and marks remaining active tasks canceled. These changes and the Sessio
 tombstone commit atomically. Once deletion is admitted, client retries continue
 without repeating `force`; new turns remain blocked.
 
-The unreleased schema requires a clean database. Do not overlap older binaries that
-can issue lifecycle calls without session-local execution claims. PostgreSQL tests with controlled
-Actor responses verify claim ordering, delayed callers, and lost responses; live
-Substrate settlement and the complete multi-replica rollout remain acceptance work.
+The Goose baseline requires a clean database. Supported upgrades apply schema
+changes before controller rollout; rollbacks replace all newer controllers before
+any database downgrade. New schemas preserve older controllers' reads and writes,
+including dispatch changes that leave job metadata stale.
 
 ## Idle expiration
 
@@ -209,6 +209,64 @@ leave an actor running until a surviving replica's next recovery scan; increasin
 the interval increases that delay and the time until its snapshot is available.
 Ordinary committed settlements do not wait for the recovery interval.
 
+Canceled or timed-out delivery can leave an Actor RUNNING or RESUMING before a
+turn starts. Revocation atomically expires dispatch authorization and enqueues
+recovery, then wakes the existing workers. Scans also discover expired dispatches
+without jobs, covering controller loss and older writers. Successful sends do not
+write jobs. Execution clears the dispatch; saving input for a still-waiting task
+retains it. Expired dispatches cannot authorize late task admission.
+
+`runtime_lifecycle_job` stores one job per `(runtime_id, kind)`. The initial kind,
+`RECOVER_ABANDONED_DISPATCH`, uses the dispatch UUID as `generation` and phases
+`RECOVERING` and `SUSPENDING`. With no `executor_id`, `available_at` schedules the
+next claim; with an owner, it is the takeover deadline. Workers handle supported
+kinds and phases and serialize conflicting jobs under the runtime lock. New kinds
+or phases require a DB-first constraint migration. Explicit lifecycle operations
+continue to use `runtime_instance`.
+
+A claim requires the current expired dispatch, no active tasks, and no conflicting
+work, checked under the Session lock before Actor I/O. It takes over unclaimed
+task suspension markers so older controllers cannot claim them during recovery.
+Ordinary task suspension skips retained dispatches.
+
+Cleanup first brings RESUMING Actors to RUNNING, then records the `SUSPENDING`
+job phase before suspension. Replacement workers retain that phase and retry
+suspension without resuming. Snapshot persistence, matching dispatch retirement,
+and job deletion commit together, conditional on generation and owner. The Session
+stays READY; existing history receives the snapshot without a new task or event.
+Known snapshot writes retry without repeating Actor calls.
+
+A newer message replaces the dispatch and proceeds normally. Cleanup revalidates
+before every runtime step and retry, stopping when superseded. Scans prune stale
+jobs, including those left by older writers or deleted runtimes. An already-issued
+Substrate call may finish after supersession; the message uses normal runtime
+retry behavior, and stale cleanup cannot overwrite its dispatch or snapshot.
+
+Workers return to the shared pool between retries; backoff is capped at 15 seconds.
+Ownership expires after the smaller of two minutes or the attempt's remaining time, using
+database time after locking. Claims and renewals need at least one second left.
+Another replica can take over expired ownership without resetting progress.
+
+An Actor already SUSPENDING or SUSPENDED without recorded cleanup intent may still
+receive a delayed ingress resume. Cleanup releases ownership and persists the
+next observation time: one minute apart for the first five minutes, then five
+minutes apart. Age starts at cancellation if earlier, otherwise at dispatch expiry.
+Restarts and repeated revocation preserve this schedule. Time alone never retires
+this work; recovery, newer activity, or an explicit lifecycle outcome must do so.
+
+The [lifecycle-job counter](telemetry-contract.md#kagentruntime_lifecyclejobevents)
+tracks progress and retries. Structured logs include generation, owner, schedule,
+and errors. Inspect jobs alongside their current dispatch and runtime state:
+
+```sql
+SELECT j.*, s.dispatch_id AS current_dispatch_id, s.dispatch_expires_at,
+       r.state, r.operation
+FROM runtime_lifecycle_job j
+JOIN session s ON s.id = j.runtime_id
+JOIN runtime_instance r ON r.id = j.runtime_id
+WHERE j.kind = 'RECOVER_ABANDONED_DISPATCH';
+```
+
 An empty claim is followed by a check for unclaimed work on ready sessions. If
 dispatch, checkpoint creation, a lifecycle operation, or a row lock blocks that
 work, workers retry within one second until it becomes eligible or is superseded.
@@ -218,11 +276,15 @@ one pending-work check per recovery interval, rather than querying every second.
 Other background workers and connection-pool idle settings still affect whether
 PostgreSQL can become idle.
 
-Unclaimed idle work survives API restarts. A claim for possibly issued runtime work
-never expires: losing the worker does not prove that the suspend stopped. Uncertain
-claims still block new work, but completed results remain readable. The recorded
-actor UID is checked before lifecycle calls; a same-name replacement cannot be
-adopted implicitly.
+Task-boundary suspension claims survive restarts without expiry and block new
+work until their outcome is recorded. Dispatch cleanup claims expire and can be
+superseded by new messages. Both validate Actor UID before runtime calls; a
+same-name replacement is never adopted.
+
+Admitted deletion atomically enters DELETING and retires dispatch cleanup,
+closing task admission. Cleanup stops; already-issued calls cannot recreate a
+deleted Actor. Force deletion still respects checkpoint and claimed task-boundary
+work.
 
 `SessionService.RevertSession` lets an authorized caller restore a confirmed
 crashed runtime. It accepts active and idle Sessions, but verifies Substrate's
@@ -232,8 +294,8 @@ replacements cannot authorize a revert. A runtime that is not crashed, including
 a Session at rest outside READY, has nothing to recover, so RevertSession
 returns the Session unchanged. That is also what a retry sees after a revert
 whose response was lost. A missing or replaced Actor returns
-`FAILED_PRECONDITION`, because no retry restores it. A transport failure returns `UNAVAILABLE`. Only an active
-lifecycle operation returns `ABORTED`.
+`FAILED_PRECONDITION`, because no retry restores it. A transport failure returns
+`UNAVAILABLE`; conflicting lifecycle work returns `ABORTED`.
 
 Admission records FAILED/REVERT with a RuntimeCrashed failure under the Session
 lock. REVERT is its own `RuntimeOperation`: only a confirmed crash starts one, and
@@ -259,9 +321,10 @@ Actor UID and returns the Session to READY, so only the generation exposes a
 stale observation. The recorded UID changes only through a lifecycle operation,
 which also replaces the generation.
 
-An issued idle suspension does not exclude recovery. It cannot finish against the
-crashed Actor, and its worker keeps the claim when suspension fails. Admission
-retires the claim in its transaction, so a late finish records nothing.
+An issued task-boundary suspension cannot finish against a crashed Actor and
+does not exclude recovery. Recovery admission atomically retires its claim and
+any dispatch cleanup; stale results cannot change the newer lifecycle or history.
+A cleanup attempt observing CRASHED stops without another resume or suspend.
 
 Execution reverts the same Actor to its last durable snapshot without replaying
 input. A runtime without a durable snapshot returns to its initial state.

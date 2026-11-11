@@ -169,12 +169,13 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	require.NoError(t, err)
 	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}}, uuid.NewString())
 	require.NoError(t, err)
-	return &lifecycleTestStore{Client: client, revision: revision}, session
+	return &lifecycleTestStore{Client: client, revision: revision, pool: pool}, session
 }
 
 type lifecycleTestStore struct {
 	*database.Client
 	revision *database.RuntimeRevision
+	pool     *pgxpool.Pool
 }
 
 func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {

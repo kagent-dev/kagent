@@ -43,12 +43,12 @@ func beginSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow, reason
 			return nil, err
 		}
 	}
-	// Record deletion and revoke dispatch together so late input cannot start a turn.
+	// Deletion supersedes abandoned dispatch cleanup in the same transaction.
 	operation, err := startSessionOperation(ctx, tx, row, kind)
 	if err != nil {
 		return nil, err
 	}
-	if err := execSQL(ctx, tx, `UPDATE session SET dispatch_id = NULL, dispatch_expires_at = NULL WHERE id = $1`, row.ID); err != nil {
+	if err := retireSessionDispatchCleanup(ctx, tx, row.ID); err != nil {
 		return nil, err
 	}
 	if err := execSQL(ctx, tx, `UPDATE session SET deletion_reason = COALESCE(deletion_reason, $2) WHERE id = $1`, row.ID, string(reason)); err != nil {
@@ -58,8 +58,8 @@ func beginSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow, reason
 }
 
 // admitForcedSessionDeletion checks work that force must not interrupt:
-// checkpoint snapshot copying and idle suspension already claimed by a worker.
-// It skips turn, dispatch, and runtime-cleanup checks. These are kagent work
+// checkpoint snapshot copying and claimed task-boundary suspension.
+// It skips turn and dispatch checks. These are kagent work
 // records, not the Substrate actor state; RESUMING alone does not block deletion.
 // The caller holds the session lock. runtimeOperationNeeded checks other
 // lifecycle conflicts before this helper runs.

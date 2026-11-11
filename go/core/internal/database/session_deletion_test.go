@@ -178,6 +178,68 @@ func TestForceDeletionRetainsIdleLifecycleOwnership(t *testing.T) {
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
 }
 
+func TestDeletionSupersedesDispatchCleanup(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		name := "Given a cleanup owner for an abandoned dispatch, when normal deletion starts, assert that stale cleanup cannot change the session"
+		if force {
+			name = "Given a cleanup owner for an abandoned dispatch, when force deletion starts, assert that stale cleanup cannot change the session"
+		}
+		t.Run(name, func(t *testing.T) {
+			// Given a waiting task whose abandoned dispatch has an issued cleanup claim.
+			client, session, task, version := deletionTaskFixture(t, a2a.TaskStateInputRequired)
+			ctx := t.Context()
+			require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+			abandonedDispatchFixture(t, client, session)
+			work, err := client.ClaimSessionDispatchCleanup(ctx, "")
+			require.NoError(t, err)
+			// When deletion is admitted, it retires cleanup while permanently
+			// closing admission. A stalled cleanup owner cannot keep deletion blocked.
+			operation, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, force)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, operation.Instance.State)
+			_, err = client.ClaimSessionDispatchCleanup(ctx, "")
+			require.ErrorIs(t, err, ErrNotFound)
+			require.ErrorIs(t, client.ContinueSessionDispatchCleanup(ctx, work, true), ErrConflict)
+			require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, work), ErrConflict)
+			require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, dispatchCleanupSnapshot()), "retired cleanup completion must do nothing")
+			require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "late-input"), ErrConflict)
+			for _, token := range []string{work.DispatchID.String(), ""} {
+				_, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("late update"), task, task, token)
+				require.ErrorIs(t, err, ErrConflict)
+			}
+			row, err := readSession(ctx, client.db, session.Id)
+			require.NoError(t, err)
+			stored, err := readSessionTask(ctx, client.db, row.HistoryID, string(task.ID))
+			require.NoError(t, err)
+			require.Nil(t, stored.SnapshotURI, "late cleanup must not record a snapshot after deletion took ownership")
+			current, err := client.GetSessionOperation(ctx, session.Id, operation.ID)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, current.Instance.Operation)
+
+			// A failed preparation keeps DELETING and a new deletion generation. Late
+			// cleanup callbacks cannot release its fence or replace that operation.
+			_, err = client.FinishSessionOperation(ctx, session.Id, operation.ID, uuid.Nil, "", "", "preparation failed")
+			require.NoError(t, err)
+			retry, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+			require.NoError(t, err)
+			require.NotEqual(t, operation.ID, retry.ID)
+			require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, work), ErrConflict)
+			require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, dispatchCleanupSnapshot()))
+			current, err = client.GetSessionOperation(ctx, session.Id, retry.ID)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, current.Instance.State)
+			require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "late-input"), ErrConflict)
+			finishAdmittedDeletion(t, client, retry)
+			require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, work), ErrConflict)
+			require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, dispatchCleanupSnapshot()))
+			deleted, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.Instance.State)
+			require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "late-input"), ErrConflict)
+		})
+	}
+}
+
 func TestDeletionSerializesWithMessageAdmission(t *testing.T) {
 	client, session := deletionSessionFixture(t)
 	start := make(chan struct{})

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -22,6 +23,11 @@ type workflowStore interface {
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
+	ClaimSessionDispatchCleanup(context.Context, string) (*database.SessionDispatchCleanup, error)
+	ContinueSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup, bool) error
+	ParkSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup) error
+	ReleaseSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup) error
+	FinishSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup, *database.SessionTaskSnapshot) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
@@ -44,31 +50,72 @@ type ActorWorkflow struct {
 	actors           actorClient
 	recoveryInterval time.Duration
 	quiescenceWake   chan struct{}
+	lifecycleEvents  metric.Int64Counter
 	meterProvider    metric.MeterProvider
+	quiescenceClaims metric.Int64Counter
 }
 
-// quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
+// NewActorWorkflow wires explicit lifecycle operations and automatic suspension.
+// quiescenceWake is a shared, single-slot hint channel that callers must not close;
 // the workflow stops through context cancellation.
 func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, provider metric.MeterProvider) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, meterProvider: provider}
+	return &ActorWorkflow{
+		store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake,
+		lifecycleEvents: noop.Int64Counter{}, quiescenceClaims: noop.Int64Counter{}, meterProvider: provider,
+	}
 }
 
 // Quiesce durably suspends the runtime without changing the Session's
 // logical READY state and records its external snapshot URI. Only a checkpoint
 // retains a copy after the Actor advances.
 func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*database.SessionTaskSnapshot, error) {
+	revision, current, err := w.prepareQuiescence(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	return w.suspendQuiescentActor(ctx, session, revision, current)
+}
+
+// prepareQuiescence loads the Session's runtime configuration and verifies its
+// actor's identity without changing the actor or blocking new sends.
+func (w *ActorWorkflow) prepareQuiescence(ctx context.Context, session *apiv1.Session) (*database.RuntimeRevision, *ateapipb.Actor, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
-		return nil, fmt.Errorf("load prepared revision: %w", err)
+		return nil, nil, fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
 	current, err := w.actors.GetActor(ctx, atespace, name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := w.verifyActor(ctx, session, revision, current); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	return revision, current, nil
+}
+
+// resumeQuiescentActor completes an interrupted restore under the cleanup claim.
+// It verifies the returned actor before the caller proceeds to suspension.
+func (w *ActorWorkflow) resumeQuiescentActor(ctx context.Context, session *apiv1.Session, revision *database.RuntimeRevision, current *ateapipb.Actor) error {
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
+	actor, err := w.actors.ResumeActor(ctx, atespace, name)
+	if err != nil {
+		return fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+		return fmt.Errorf("resume Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
+	}
+	if !validActorIdentity(actor, revision, name) || actor.GetMetadata().GetUid() != current.GetMetadata().GetUid() {
+		return fmt.Errorf("resume actor %s/%s returned invalid identity", atespace, name)
+	}
+	return nil
+}
+
+// suspendQuiescentActor suspends the verified actor and returns its durable volume
+// snapshot. Callers must validate their authority before issuing the call and
+// condition snapshot persistence on the same task or dispatch still being current.
+func (w *ActorWorkflow) suspendQuiescentActor(ctx context.Context, session *apiv1.Session, revision *database.RuntimeRevision, current *ateapipb.Actor) (*database.SessionTaskSnapshot, error) {
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
 	actor, err := w.actors.SuspendActor(ctx, atespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("suspend Actor %s/%s: %w", atespace, name, err)
@@ -109,8 +156,8 @@ func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*a
 }
 
 // Delete closes admission before stopping and deleting compute. It can supersede
-// unissued work and any crash recovery, but never deletes a session while another
-// issued call is uncertain.
+// unissued work, crash recovery, and dispatch cleanup. Deletion prevents new
+// execution even if an old resume or suspend is uncertain.
 func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session, force bool) (*apiv1.Session, error) {
 	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, force)
 }

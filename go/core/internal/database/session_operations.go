@@ -150,6 +150,15 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 			return err
 		}
 		if failure == "" {
+			// Successful lifecycle work supersedes abandoned delivery from the
+			// prior runtime state. Retire its dispatch and cleanup attempt in
+			// this transaction so stale workers stop before their next step.
+			// Creation has no prior dispatch; failures leave cleanup intact.
+			if result.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+				if err := retireSessionDispatchCleanup(ctx, tx, row.ID); err != nil {
+					return err
+				}
+			}
 			switch result.Operation {
 			case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
 				if authority == "" || actorUID == "" {
