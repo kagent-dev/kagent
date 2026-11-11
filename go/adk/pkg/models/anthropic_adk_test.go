@@ -326,7 +326,7 @@ func TestAnthropicStreamingToolCallsKeepBlockOrder(t *testing.T) {
 		`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":4,"output_tokens":1}}}`,
 	}
 	var wantIDs []string
-	for i := 0; i < n; i++ {
+	for i := range n {
 		id := "call-" + string(rune('a'+i))
 		wantIDs = append(wantIDs, id)
 		events = append(events,
