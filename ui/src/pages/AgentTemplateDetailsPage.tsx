@@ -29,6 +29,7 @@ import {
   type AgentTemplateDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { agentTemplatesTab } from "@/router/routes";
+import { useBackLink } from "@/router/backLink";
 import {
   apiClient,
   useAgentConversations,
@@ -50,6 +51,9 @@ export function AgentTemplateDetailsPage() {
   const theme = useTheme();
   const { namespace, name } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  // Back to wherever the reader came from — a conversation's context panel, say — and
+  // to the list when they opened this page directly.
+  const back = useBackLink({ to: agentTemplatesTab, label: "Back to templates" });
 
   const template = useAgentTemplate(namespace, name);
   const invalidateTemplates = useInvalidateAgentTemplates();
@@ -335,7 +339,9 @@ export function AgentTemplateDetailsPage() {
             description="Agents referencing this template cannot prepare new configuration until it is restored or replaced. Existing conversations and last successful revisions are retained."
             />
           ) : null}
-          <Button onClick={() => navigate(agentTemplatesTab)}>Back to templates</Button>
+          <Button onClick={() => navigate(back.to)} data-testid="template-back">
+            {back.label}
+          </Button>
         </Space>
       }
     >

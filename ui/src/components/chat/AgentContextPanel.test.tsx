@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { ThemeProvider } from "@emotion/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { themeFor } from "@/theme/theme";
 import { AgentContextPanel } from "./AgentContextPanel";
@@ -8,6 +9,11 @@ import { AgentContextPanel } from "./AgentContextPanel";
 const {useAgentTemplate, useAgent} = vi.hoisted(() => ({useAgentTemplate: vi.fn(), useAgent: vi.fn()}));
 
 vi.mock("@/api", () => ({ useAgentTemplate, useAgent }));
+
+function LocationState() {
+  const location = useLocation();
+  return <pre data-testid="location-state">{JSON.stringify(location.state)}</pre>;
+}
 
 function renderPanel(tools: unknown[], modelNamespace?: string) {
   useAgent.mockReturnValue({data: {resource: {spec: {template: {ref: {name: "assistant"}}, harnessRef: {name: "runner"}}}}});
@@ -26,16 +32,29 @@ function renderPanel(tools: unknown[], modelNamespace?: string) {
 
   render(
     <ThemeProvider theme={themeFor("dark")}>
-      <MemoryRouter>
-        <AgentContextPanel
-          agentRef={{ namespace: "kagent", name: "assistant" }}
-        />
+      <MemoryRouter initialEntries={["/agents/abc/chat?mock=ok"]}>
+        <Routes>
+          <Route
+            path="/agents/:id/chat"
+            element={<AgentContextPanel agentRef={{ namespace: "kagent", name: "assistant" }} />}
+          />
+          <Route path="/agent-templates/:namespace/:name" element={<LocationState />} />
+        </Routes>
       </MemoryRouter>
     </ThemeProvider>,
   );
 }
 
 describe("AgentContextPanel", () => {
+  it("opens the template with a way back to this conversation", async () => {
+    renderPanel([]);
+    await userEvent.click(screen.getByTestId("chat-agent-context-template"));
+    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toEqual({
+      from: "/agents/abc/chat?mock=ok",
+      fromLabel: "Back to conversation",
+    });
+  });
+
   it("renders an MCP binding whose optional tools list is omitted", () => {
     renderPanel([
       {

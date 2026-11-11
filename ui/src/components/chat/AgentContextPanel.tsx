@@ -1,9 +1,10 @@
 import { referenceLabel } from "@/api/domain/agentTemplates";
-import { Alert, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useAgent, useAgentTemplate, bareName, type AgentInstance } from "@/api";
 import { buildPath, paths } from "@/router/routes";
+import { backLinkState } from "@/router/backLink";
 
 const { Text, Paragraph } = Typography;
 
@@ -48,6 +49,7 @@ export function AgentContextPanel({
   agentRef?: { namespace: string; name?: string };
 }) {
   const theme = useTheme();
+  const location = useLocation();
 
   const namespace = instance?.agent?.split("/")[0] ?? agentRef?.namespace ?? "";
   const name = instance?.agent ? bareName(instance.agent) : agentRef?.name;
@@ -65,17 +67,27 @@ export function AgentContextPanel({
     <div data-testid="chat-agent-context" css={{ display: "grid", gap: theme.space(4) }}>
       <Field label="Template">
         {templateRef && templateNamespace && templateName ? (
-          <Link
-            to={buildPath(paths.agentTemplateDetail, {
-              namespace: templateNamespace,
-              name: templateName,
-            })}
-            data-testid="chat-agent-context-template"
-          >
-            <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
+          <Tooltip title="Open the AgentTemplate this agent is built from">
+            <Link
+              to={buildPath(paths.agentTemplateDetail, {
+                namespace: templateNamespace,
+                name: templateName,
+              })}
+              // So the template page can lead back to this conversation rather than
+              // only to the template list.
+              state={backLinkState(location, "Back to conversation")}
+              data-testid="chat-agent-context-template"
+              css={{
+                justifySelf: "start",
+                fontFamily: theme.font.mono,
+                fontSize: 12,
+                color: theme.color.primaryText,
+                "&:hover, &:focus-visible": { textDecoration: "underline" },
+              }}
+            >
               {templateRef}
-            </Text>
-          </Link>
+            </Link>
+          </Tooltip>
         ) : (
           <Text css={{ color: theme.color.textMuted }}>{definition.data?.resource.spec.template.inline ? "Inline" : "Not reported"}</Text>
         )}
