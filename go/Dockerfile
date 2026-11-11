@@ -1,5 +1,6 @@
 ### STAGE 1: base image
 ARG BASE_IMAGE_REGISTRY=cgr.dev
+ARG ALPINE_VERSION=3.24
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS builder
 ARG TARGETARCH
@@ -27,7 +28,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
 ### STAGE 2: final image
-FROM alpine:3.24
+FROM alpine:${ALPINE_VERSION}
 ARG TARGETPLATFORM
 
 # The runtime user gets a passwd entry and a home it owns: commands an agent

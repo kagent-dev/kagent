@@ -110,6 +110,9 @@ LDFLAGS := -X github.com/kagent-dev/kagent/go/core/internal/version.Version=$(VE
 TOOLS_UV_VERSION ?= 0.10.4
 TOOLS_NODE_VERSION ?= 24
 TOOLS_PYTHON_VERSION ?= 3.13
+# Alpine release for the runtime stage of every Go image (go/Dockerfile, the
+# Claude and Codex harnesses, and the sandbox guest).
+ALPINE_VERSION ?= 3.24
 BUF_VERSION ?= v1.72.0
 BUF := go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 
@@ -123,6 +126,7 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg ALPINE_VERSION=$(ALPINE_VERSION)
 
 
 ##@ General

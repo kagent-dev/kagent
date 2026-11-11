@@ -1,4 +1,5 @@
 ARG BASE_IMAGE_REGISTRY=cgr.dev
+ARG ALPINE_VERSION=3.24
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS builder
 ARG TARGETARCH
@@ -15,7 +16,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
     go build -mod=readonly -trimpath -o /kagent-sandbox-guest ./sandbox/guest/cmd
 
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS anthropic-cli
+FROM --platform=$BUILDPLATFORM alpine:${ALPINE_VERSION} AS anthropic-cli
 ARG TARGETARCH
 ARG ANT_VERSION=2.5.0
 
@@ -31,7 +32,7 @@ RUN set -eux; \
     tar -xzf "$archive" -C /out ant; \
     chmod 755 /out/ant
 
-FROM alpine:3.22
+FROM alpine:${ALPINE_VERSION}
 
 RUN apk add --no-cache bash ca-certificates git && \
     mkdir -p /data/workspace /data/guest-logs /home/nonroot && \
