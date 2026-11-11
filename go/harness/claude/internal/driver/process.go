@@ -76,6 +76,12 @@ type processSession struct {
 	seedSettled bool
 }
 
+// errSettledReplayCanceled reports that cancellation stopped a replay whose
+// deferred call already had its result, so the journal can be tombstoned. Only
+// consume raises it, and only after observing that result, so no other
+// cancellation can be mistaken for a settled one.
+var errSettledReplayCanceled = errors.New("claude replay canceled after its deferred call settled")
+
 // processStartError proves that no native process ran for this attempt.
 type processStartError struct{ err error }
 
@@ -160,9 +166,9 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	defer func() {
 		if !started && returnErr != nil {
 			returnErr = &processStartError{err: returnErr}
-		} else if seed != nil && ctx.Err() != nil && returnErr != nil && !errors.Is(returnErr, context.Canceled) {
-			// context.Canceled means a settled replay stopped as an ordinary
-			// turn; Resume records that cancellation itself.
+		} else if seed != nil && ctx.Err() != nil && returnErr != nil && !errors.Is(returnErr, errSettledReplayCanceled) {
+			// A settled replay stopped as an ordinary turn; Resume and Cancel
+			// record that cancellation themselves.
 			var cancellationErr *runtime.CancellationError
 			if !errors.As(returnErr, &cancellationErr) {
 				returnErr = &runtime.CancellationError{Err: returnErr}
@@ -352,10 +358,8 @@ func sendPrompt(ctx context.Context, stdin io.WriteCloser, message []byte, gate 
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (outcome runtime.Outcome, returnErr error) {
 	cleaning := false
-	// canceledErr is the caller's cancellation, kept while cleanup replaces ctx.
-	var canceledErr error
 	defer func() {
-		if cleaning && returnErr != nil && returnErr != canceledErr {
+		if cleaning && returnErr != nil && !errors.Is(returnErr, errSettledReplayCanceled) {
 			returnErr = &runtime.CancellationError{Err: returnErr}
 		}
 	}()
@@ -391,7 +395,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 						if cleaning {
 							// Cancellation arrived before the result did; stop now,
 							// as a settled replay would have.
-							return runtime.Outcome{}, canceledErr
+							return runtime.Outcome{}, errSettledReplayCanceled
 						}
 					}
 					if outcome != nil {
@@ -426,13 +430,16 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			// Once the replayed call has its result, the process stops like any
 			// other turn. Waiting for a hook could take as long as the model call
 			// or tool now running, which is longer than cleanup allows.
-			if session.seed == nil || cleaning || session.seedSettled {
+			if session.seedSettled {
+				return runtime.Outcome{}, errSettledReplayCanceled
+			}
+			if session.seed == nil || cleaning {
 				return runtime.Outcome{}, ctx.Err()
 			}
 			// A deferred replay must settle its transcript before cancellation is
 			// published. Deny subsequent tools and drain this process; killing it
 			// here would leave its journal reserved forever.
-			cleaning, canceledErr = true, ctx.Err()
+			cleaning = true
 			if err := d.cancelReplay(session.seed); err != nil {
 				return runtime.Outcome{}, err
 			}
