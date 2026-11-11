@@ -1,0 +1,29 @@
+title: Review a kagent pull request
+description: Build a pull request of kagent into a kind cluster and try it, on a snapshot that already holds the toolchain, the cluster and warm build caches.
+# The kagent project's own tools: docker with buildx, kind, helm, Go, and a clone of main with its caches warm.
+# The cluster is stopped in the snapshot and starts at boot. Kagent and Substrate are NOT installed in it:
+# Substrate's pod certificates last 24 hours and are not renewed after a resume, so the lesson installs them per pull request.
+time_limit: 90m
+# A first guess, to be measured. kagent builds six images.
+memory_mib: 16384
+vcpus: 8
+disk_gib: 64
+# Two rows: the pull request is read in the top pane while the build runs in the bottom one. Both start in the clone.
+layout: two-rows
+workdir: kagent
+snapshots:
+- ready
+# The model is OpenAI. The key comes from the host's environment when the session starts.
+env:
+  OPENAI_API_KEY: $OPENAI_API_KEY
+  # gh in the guest checks out and diffs the pull request, and it needs a token even for a public repository.
+  # The lab runs the pull request's code, so use a fine-grained token with no permissions beyond reading public
+  # repositories, never your own login's token: export GH_TOKEN=<that token>
+  GH_TOKEN: $GH_TOKEN
+  # A literal, not a host variable: kagent's install reads it. Change the line to try another provider.
+  MODEL_PROVIDER: openAI
+services:
+- name: kagent
+  type: http
+  port: 80
+  path: /
