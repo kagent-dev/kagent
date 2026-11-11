@@ -74,12 +74,8 @@ export const apiBaseUrl: string = stripTrailingSlash(
   apiMode === "live" ? withBasePath(env("API_BASE_URL")) : MOCK_API_BASE_URL,
 );
 
-/**
- * How long a unary request may run before the client aborts it. Above the controller's
- * default 90s database login retry, so a resuming database doesn't fail the request.
- * Streams use the idle timeout in `useChat` instead.
- */
-export const REQUEST_TIMEOUT_MS = 100_000;
+/** How long a unary request may run before the client aborts it. Streams use the idle timeout in `useChat` instead. */
+export const REQUEST_TIMEOUT_MS = 30_000;
 
 function stripTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
