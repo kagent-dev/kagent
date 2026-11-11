@@ -31,6 +31,7 @@ func (c *Compiler) compileMCP(
 	ctx context.Context,
 	namespace string,
 	tools []translator.ResolvedMCPTool,
+	selectTools bool,
 ) (mcpCompilation, error) {
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
@@ -54,7 +55,7 @@ func (c *Compiler) compileMCP(
 			return mcpCompilation{}, translator.NewValidationError("RemoteMCPServer %q is bound more than once", server.Name)
 		}
 
-		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
+		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" && !selectTools {
 			result.warnings = append(result.warnings, warning)
 		}
 		transport, compatibilityWarning, err := claudeMCPTransport(server)
@@ -201,4 +202,33 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 		}
 	}
 	return headers, environment, nil
+}
+
+// localAgentToolExclusions narrows inline MCP tools without restricting built-in
+// tools. Unavailable or stale discovery uses the root's whole-server warning.
+func localAgentToolExclusions(namespace string, bindings []translator.ResolvedMCPTool) ([]string, []string, error) {
+	var disallowed, warnings []string
+	for _, binding := range bindings {
+		if len(binding.Binding.Tools) == 0 {
+			continue
+		}
+		discovered, current := currentDiscoveredToolNames(binding.Server)
+		if !current {
+			warnings = append(warnings, mcpSelectionWarning(binding.Binding.Tools, binding.Server))
+			continue
+		}
+		for _, selected := range binding.Binding.Tools {
+			if !slices.Contains(discovered, selected) {
+				return nil, nil, translator.NewValidationError("Claude selects unknown RemoteMCPServer %q tool %q", binding.Server.Name, selected)
+			}
+		}
+		prefix := "mcp__" + translator.MCPRuntimeName(namespace, binding.Server) + "__"
+		for _, candidate := range discovered {
+			if !slices.Contains(binding.Binding.Tools, candidate) {
+				disallowed = append(disallowed, prefix+candidate)
+			}
+		}
+	}
+	slices.Sort(disallowed)
+	return disallowed, warnings, nil
 }
