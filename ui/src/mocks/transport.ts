@@ -2,6 +2,7 @@ import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtim
 import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import { ActorState, SnapshotStorageState, type WorkerSchema, type ActorSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
@@ -345,7 +346,7 @@ function headerRecord(header: HeadersInit | undefined): Record<string, string> {
 // ---------------------------------------------------------------------------
 
 /** A resource in the envelope the controller wraps custom resources in. */
-function structured(kind: string, value: object, apiVersion = "api.kagent.dev/v1alpha3") {
+function structured(kind: string, value: object, apiVersion = KAGENT_API_VERSION) {
   // `google.protobuf.Struct` is a `JsonObject` in the generated types, so a
   // fixture goes in exactly as it is written.
   return { apiVersion, kind, value: value as JsonObject };
@@ -397,7 +398,7 @@ function modelMessage(model: ModelConfig) {
   return {
     ref,
     resource: structured("ModelConfig", {
-      apiVersion: "api.kagent.dev/v1alpha3",
+      apiVersion: KAGENT_API_VERSION,
       kind: "ModelConfig",
       metadata: { name: ref.name, namespace: ref.namespace },
       spec: model.spec,
@@ -1792,7 +1793,7 @@ function admittedEgressPolicy(
     namespace,
     name,
     resource: {
-      apiVersion: "api.kagent.dev/v1alpha3",
+      apiVersion: KAGENT_API_VERSION,
       kind: "EgressPolicy",
       metadata: { ...resource?.metadata, name, namespace },
       spec,
