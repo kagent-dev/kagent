@@ -1,0 +1,8 @@
+layout {
+  pane split_direction="horizontal" {
+    pane name="view" size="70%"
+    pane name="build" size="30%" {
+      focus true
+    }
+  }
+}
