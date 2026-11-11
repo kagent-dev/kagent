@@ -244,7 +244,8 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer db.Close()
-	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema())
+	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema(),
+		database.WithConnectRetry(cfg.GetDatabase().GetPool().GetConnectRetryTimeout().AsDuration()))
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{},

@@ -178,6 +178,10 @@ config:
     # Skip applying migrations at controller startup; verify they are already applied.
     # Apply migrations out-of-band before installing or upgrading when true.
     skipMigrations: false
+    # pool:
+    #   # How long a database call retries a failed login, e.g. while a paused
+    #   # database resumes. 0s turns the retry off. Default 90s.
+    #   connectRetryTimeout: 90s
   push:
     allowHttp: false
     allowPrivateNetworks: false
