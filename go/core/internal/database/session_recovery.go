@@ -65,7 +65,8 @@ func (c *Client) GetSessionGeneration(ctx context.Context, id string) (*SessionG
 // BeginCrashedSessionRecovery admits recovery of a confirmed crash and preserves
 // durable results. generation must be read before the crash was observed: a
 // concurrent revert keeps the Actor UID and returns to READY, so only a newer
-// lifecycle operation shows that the observation is stale.
+// lifecycle operation shows that the observation is stale. An issued dispatch
+// cleanup blocks recovery until its owner completes or conclusively stops.
 func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *SessionGeneration, snapshot SessionTaskSnapshot) (*SessionOperation, error) {
 	var operation *SessionOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -91,12 +92,12 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if current != generation.OperationID {
 			return ErrConflict
 		}
-		// An issued idle suspension does not block recovery. It cannot finish against
-		// the crashed Actor and its worker keeps the claim when suspension fails, so
-		// waiting would block forever. Settlement below retires the claim; a late
-		// finish changes nothing.
+		// Task-boundary suspension keeps its existing recovery semantics. Dispatch
+		// cleanup may still resume and then suspend the Actor, so its owner must
+		// finish or conclusively stop before recovery can retire the reservation.
 		busy, err := queryOne(ctx, tx, `
 			SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
+			    OR EXISTS (SELECT 1 FROM session WHERE id = $1 AND dispatch_cleanup_executor_id IS NOT NULL)
 		`, pgx.RowTo[bool], row.ID)
 		if err != nil {
 			return err

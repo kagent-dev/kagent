@@ -13,7 +13,8 @@ import (
 
 // SessionDispatchCleanup identifies an abandoned delivery's runtime cleanup.
 // An unclaimed candidate grants no execution authority. Claim returns a new
-// value whose executor fences runtime work until its known outcome is stored.
+// value whose executor fences runtime work until the owner records completion
+// or conclusively stops and releases it.
 type SessionDispatchCleanup struct {
 	Session    *apiv1.Session
 	DispatchID uuid.UUID
@@ -129,6 +130,35 @@ func (c *Client) ClaimSessionDispatchCleanup(ctx context.Context, candidate *Ses
 		return nil
 	})
 	return result, err
+}
+
+// ReleaseSessionDispatchCleanup releases only the exact claiming owner and
+// preserves the expired dispatch for retry or crash recovery. The caller must
+// permanently stop runtime mutations with conclusive outcomes before releasing;
+// a timeout or transport error does not establish that remote work has ended.
+// Missing Sessions return ErrNotFound. Stale, mismatched, or already released
+// claims return ErrConflict without changing the current owner's authority.
+func (c *Client) ReleaseSessionDispatchCleanup(ctx context.Context, work *SessionDispatchCleanup) error {
+	if work == nil || work.Session == nil || work.DispatchID == uuid.Nil || work.ExecutorID == uuid.Nil || work.ActorUID == "" {
+		return ErrFailedPrecondition
+	}
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		session, err := lockSession(ctx, tx, work.Session.Id)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		tag, err := tx.Exec(ctx, `
+			UPDATE session SET dispatch_cleanup_executor_id = NULL
+			WHERE id = $1 AND dispatch_id = $2 AND dispatch_cleanup_executor_id = $3 AND actor_uid = $4
+		`, session.ID, work.DispatchID, work.ExecutorID, work.ActorUID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrConflict
+		}
+		return nil
+	})
 }
 
 // FinishSessionDispatchCleanup records the claimed snapshot without inventing

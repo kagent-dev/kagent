@@ -318,30 +318,577 @@ func TestAbandonedDispatchWakesLifecycleWorker(t *testing.T) {
 }
 
 func TestAbandonedDispatchWaitsForRestore(t *testing.T) {
-	for _, state := range []ateapipb.ActorState{ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_RESUMING} {
-		t.Run("Given an actor in "+state.String()+", when restore finishes, assert that cleanup suspends it", func(t *testing.T) {
+	t.Run("Given a suspended actor, when restore finishes, assert that cleanup suspends it", func(t *testing.T) {
+		store, base, session := dispatchCleanupFixture(t)
+		setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
+		abandonDispatch(t, store, session)
+		actors := &dispatchCleanupTestActors{lifecycleTestActors: base}
+		writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+		startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), 20*time.Millisecond))
+		require.Eventually(t, func() bool { return actors.readCalls.Load() > 0 }, 5*time.Second, time.Millisecond)
+		require.Zero(t, actors.suspendCalls.Load())
+		// Observing an unfinished restore must not leave an issued claim that
+		// prevents a replacement delivery from acquiring the Session.
+		dispatchID := uuid.New()
+		require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, "replacement"))
+		_, err := store.RevokeSessionDispatch(t.Context(), session.Id, dispatchID, "replacement")
+		require.NoError(t, err)
+		_, err = base.ResumeActor(t.Context(), session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool { return writes.finishedCleanup.Load() == 1 }, 5*time.Second, time.Millisecond)
+		require.EqualValues(t, 1, actors.suspendCalls.Load())
+	})
+}
+
+func TestAbandonedDispatchCompletesInterruptedResume(t *testing.T) {
+	// Given a canceled delivery with an actor stuck RESUMING and no task.
+	store, base, session := dispatchCleanupFixture(t)
+	setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+	work := abandonDispatch(t, store, session)
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, resumeAttempt: func(context.Context, int32) error {
+		require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "racing-message"), database.ErrDispatchBusy,
+			"cleanup must claim admission before retrying resume")
+		return nil
+	}}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+
+	// When cleanup retries the interrupted resume, it must then suspend under
+	// the same claim instead of waiting for another client to drive restoration.
+	require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(t.Context(), work))
+
+	// Assert that no turn was invented and the next delivery can be accepted.
+	require.EqualValues(t, 1, actors.resumeCalls.Load())
+	require.EqualValues(t, 1, actors.suspendCalls.Load())
+	require.EqualValues(t, 1, writes.finishedCleanup.Load())
+	actor, err := base.GetActor(t.Context(), session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
+	require.NoError(t, err)
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.Status.State)
+	stored, err := store.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, stored.State)
+	tasks, total, err := store.ListSessionTasks(t.Context(), session.Id, "", "", nil, 10, nil)
+	require.NoError(t, err)
+	require.Empty(t, tasks)
+	require.Zero(t, total)
+	dispatchID := uuid.New()
+	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("next"))
+	message.ContextID = session.ContextId
+	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, message.ID))
+	task := a2a.NewSubmittedTask(message, message)
+	hash := sha256.Sum256([]byte(task.ID))
+	_, err = store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, dispatchID.String())
+	require.NoError(t, err)
+}
+
+func TestAbandonedDispatchUsesOwnedActorState(t *testing.T) {
+	// Given an actor observed RUNNING before cleanup owns admission, whose
+	// state changes to RESUMING before the owner's first read.
+	store, base, session := dispatchCleanupFixture(t)
+	work := abandonDispatch(t, store, session)
+	var changeState sync.Once
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, afterRead: func() {
+		changeState.Do(func() {
+			setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+		})
+	}}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	// When cleanup owns the actor, assert that the fresh state selects resume
+	// before suspension, instead of trusting the pre-claim observation.
+	require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work))
+	require.EqualValues(t, 1, actors.resumeCalls.Load())
+	require.EqualValues(t, 1, actors.suspendCalls.Load())
+	require.EqualValues(t, 1, writes.cleanupClaims.Load())
+	require.EqualValues(t, 1, writes.finishedCleanup.Load())
+	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"))
+}
+
+func TestAbandonedDispatchPreservesCleanupAfterConcurrentSuspension(t *testing.T) {
+	for _, state := range []ateapipb.ActorState{ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_SUSPENDING} {
+		t.Run(state.String(), func(t *testing.T) {
+			// Given an actor observed RUNNING before cleanup owns admission, whose
+			// state changes to a concurrent suspension before the owner's first read.
 			store, base, session := dispatchCleanupFixture(t)
-			base.mu.Lock()
-			base.actors[actorKey(session.Agent.Ref.Namespace, substrate.ActorName(session.Id))].Status.State = state
-			base.mu.Unlock()
-			abandonDispatch(t, store, session)
-			actors := &dispatchCleanupTestActors{lifecycleTestActors: base}
+			work := abandonDispatch(t, store, session)
+			var changeState sync.Once
+			actors := &dispatchCleanupTestActors{lifecycleTestActors: base, afterRead: func() {
+				changeState.Do(func() {
+					setDispatchCleanupActorState(base, session, state)
+				})
+			}}
 			writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
-			startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), 20*time.Millisecond))
-			require.Eventually(t, func() bool { return actors.readCalls.Load() > 0 }, 5*time.Second, time.Millisecond)
+			workflow := NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute)
+
+			// When cleanup sees the concurrent suspension, assert that it releases its
+			// unissued claim while retaining the same abandoned delivery for another scan.
+			require.NoError(t, workflow.quiesceAbandonedDispatch(t.Context(), work))
+			require.Zero(t, actors.resumeCalls.Load())
 			require.Zero(t, actors.suspendCalls.Load())
-			// Observing an unfinished restore must not leave an issued claim that
-			// prevents a replacement delivery from acquiring the Session.
-			dispatchID := uuid.New()
-			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, "replacement"))
-			_, err := store.RevokeSessionDispatch(t.Context(), session.Id, dispatchID, "replacement")
+			require.Zero(t, writes.finishedCleanup.Load())
+			require.EqualValues(t, 1, writes.cleanupClaims.Load())
+			pending, err := store.GetPendingSessionDispatchCleanup(t.Context(), "")
 			require.NoError(t, err)
+			require.Equal(t, work.DispatchID, pending.DispatchID)
+			require.Equal(t, work.Session.Id, pending.Session.Id)
+
+			// When concurrent suspension finishes and the original ingress resumes,
+			// assert that the preserved delivery is rediscovered and suspended.
+			setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
 			_, err = base.ResumeActor(t.Context(), session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
 			require.NoError(t, err)
-			require.Eventually(t, func() bool { return writes.finishedCleanup.Load() == 1 }, 5*time.Second, time.Millisecond)
+			require.NoError(t, workflow.quiesceAbandonedDispatch(t.Context(), pending))
+			require.Zero(t, actors.resumeCalls.Load())
 			require.EqualValues(t, 1, actors.suspendCalls.Load())
+			require.EqualValues(t, 2, writes.cleanupClaims.Load())
+			require.EqualValues(t, 1, writes.finishedCleanup.Load())
+			_, err = store.GetPendingSessionDispatchCleanup(t.Context(), "")
+			require.ErrorIs(t, err, database.ErrNotFound)
+			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"))
 		})
 	}
+}
+
+func TestAbandonedDispatchRejectsChangedResumeIdentity(t *testing.T) {
+	// Given a cleanup whose resume response belongs to a different actor UID.
+	store, base, session := dispatchCleanupFixture(t)
+	setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+	work := abandonDispatch(t, store, session)
+	const replacementActorUID = "replacement-actor-uid"
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, resumedActorUID: replacementActorUID}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+
+	// When resume returns that identity, assert that cleanup neither suspends
+	// the actor nor releases the claim after the uncertain runtime outcome.
+	require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(t.Context(), work))
+	require.EqualValues(t, 1, actors.resumeCalls.Load())
+	require.Zero(t, actors.suspendCalls.Load())
+	require.Zero(t, writes.finishedCleanup.Load())
+	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"), database.ErrDispatchBusy)
+}
+
+func TestAbandonedDispatchRetriesInterruptedResume(t *testing.T) {
+	for _, code := range []codes.Code{codes.Aborted, codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Internal, codes.ResourceExhausted, codes.FailedPrecondition} {
+		t.Run("Given a resume returning "+code.String()+", when cleanup retries, assert that the actor suspends under one claim", func(t *testing.T) {
+			store, base, session := dispatchCleanupFixture(t)
+			setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+			work := abandonDispatch(t, store, session)
+			var firstDeadline time.Time
+			actors := &dispatchCleanupTestActors{lifecycleTestActors: base, resumeAttempt: func(ctx context.Context, call int32) error {
+				require.NoError(t, ctx.Err())
+				deadline, bounded := ctx.Deadline()
+				require.True(t, bounded, "each runtime attempt must be bounded")
+				require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "racing-message"), database.ErrDispatchBusy)
+				if call == 1 {
+					firstDeadline = deadline
+					return status.Error(code, "temporary resume failure")
+				}
+				require.True(t, deadline.After(firstDeadline), "a retry needs a fresh attempt deadline")
+				return nil
+			}}
+			writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			stop := time.AfterFunc(5*time.Second, cancel)
+			defer stop.Stop()
+			require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work))
+
+			require.EqualValues(t, 2, actors.resumeCalls.Load())
+			require.EqualValues(t, 1, actors.suspendCalls.Load())
+			require.EqualValues(t, 1, writes.cleanupClaims.Load())
+			require.EqualValues(t, 1, writes.finishedCleanup.Load())
+			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"))
+		})
+	}
+}
+
+func TestAbandonedDispatchSuspendRetryDoesNotResumeAgain(t *testing.T) {
+	for _, code := range []codes.Code{codes.Aborted, codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Internal, codes.ResourceExhausted, codes.FailedPrecondition} {
+		t.Run("Given a successful resume and suspend returning "+code.String()+", when cleanup retries, assert that it only retries suspension", func(t *testing.T) {
+			store, base, session := dispatchCleanupFixture(t)
+			setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+			work := abandonDispatch(t, store, session)
+			actors := &dispatchCleanupTestActors{lifecycleTestActors: base, suspendAttempt: func(_ context.Context, call int32) error {
+				require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "racing-message"), database.ErrDispatchBusy)
+				if call == 1 {
+					setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_SUSPENDING)
+					return status.Error(code, "temporary suspension failure")
+				}
+				return nil
+			}}
+			writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work))
+
+			require.EqualValues(t, 1, actors.resumeCalls.Load())
+			require.EqualValues(t, 2, actors.suspendCalls.Load())
+			require.EqualValues(t, 1, writes.cleanupClaims.Load())
+			require.EqualValues(t, 1, writes.finishedCleanup.Load())
+			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"))
+		})
+	}
+}
+
+func TestAbandonedDispatchRetriesLostSuspensionResponse(t *testing.T) {
+	// Given an interrupted resume whose cleanup suspends the actor but loses
+	// the response, leaving a valid snapshot behind an uncertain call outcome.
+	store, base, session := dispatchCleanupFixture(t)
+	setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+	work := abandonDispatch(t, store, session)
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, suspendAttempt: func(ctx context.Context, call int32) error {
+		require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "racing-message"), database.ErrDispatchBusy)
+		if call == 1 {
+			_, err := base.SuspendActor(ctx, session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
+			require.NoError(t, err)
+			return status.Error(codes.Unavailable, "suspension response lost")
+		}
+		return nil
+	}}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	// When cleanup retries against SUSPENDED, assert that the same owner
+	// records completion and admits the next message without resuming again.
+	require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work))
+	require.EqualValues(t, 1, actors.resumeCalls.Load())
+	require.EqualValues(t, 2, actors.suspendCalls.Load())
+	require.EqualValues(t, 1, writes.cleanupClaims.Load())
+	require.EqualValues(t, 1, writes.finishedCleanup.Load())
+	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"))
+}
+
+func TestAbandonedDispatchRetriesDoNotStarveSettledTasks(t *testing.T) {
+	// Given four interrupted restores that fail indefinitely, filling every
+	// lifecycle worker, and a later completed turn on another Session.
+	const failedRestores = 4
+	const abandonedMessage = "abandoned-message"
+	store, first := lifecycleFixture(t)
+	base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	creator := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour)
+	var sessions []*apiv1.Session
+	for i := range failedRestores {
+		session := first
+		if i != 0 {
+			var err error
+			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.GetAgent()}, uuid.NewString())
+			require.NoError(t, err)
+		}
+		session, err := creator.Create(t.Context(), session)
+		require.NoError(t, err)
+		setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+		dispatchID := uuid.New()
+		require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, abandonedMessage))
+		revoked, err := store.RevokeSessionDispatch(t.Context(), session.Id, dispatchID, abandonedMessage)
+		require.NoError(t, err)
+		require.True(t, revoked)
+		sessions = append(sessions, session)
+	}
+	var failResume atomic.Bool
+	failResume.Store(true)
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, resumeAttempt: func(context.Context, int32) error {
+		if failResume.Load() {
+			return status.Error(codes.Unavailable, "restore is temporarily unavailable")
+		}
+		return nil
+	}}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+	workflow := NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Hour)
+	startQuiescenceWorker(t, workflow)
+	require.Eventually(t, func() bool { return writes.cleanupClaims.Load() == failedRestores }, 5*time.Second, time.Millisecond)
+
+	healthy, _, err := store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.GetAgent()}, uuid.NewString())
+	require.NoError(t, err)
+	healthy, err = creator.Create(t.Context(), healthy)
+	require.NoError(t, err)
+	_, err = base.ResumeActor(t.Context(), healthy.Agent.Ref.Namespace, substrate.ActorName(healthy.Id))
+	require.NoError(t, err)
+	request := stageQuiescenceTask(t, store.Client, healthy, a2a.TaskStateCompleted)
+	require.NoError(t, store.SettleSessionTask(t.Context(), healthy.Id, request.TaskId, request.Version))
+
+	// When the completed turn wakes the workers, assert that its suspension
+	// finishes while each failing restore retains its original admission claim.
+	workflow.wakeQuiescence()
+	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 3*time.Second, time.Millisecond,
+		"retrying restores must yield workers to another Session's completed turn")
+	require.Zero(t, writes.finishedCleanup.Load())
+	require.EqualValues(t, failedRestores, writes.cleanupClaims.Load())
+	for _, session := range sessions {
+		require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "racing-message"), database.ErrDispatchBusy)
+	}
+	actor, err := base.GetActor(t.Context(), healthy.Agent.Ref.Namespace, substrate.ActorName(healthy.Id))
+	require.NoError(t, err)
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
+
+	// When restoration becomes available, assert that the retained owners
+	// finish cleanup without releasing and reacquiring the claims between tries.
+	failResume.Store(false)
+	workflow.wakeQuiescence()
+	require.Eventually(t, func() bool { return writes.finishedCleanup.Load() == failedRestores }, 10*time.Second, time.Millisecond)
+	require.EqualValues(t, failedRestores, writes.cleanupClaims.Load())
+	for _, session := range sessions {
+		actor, err := base.GetActor(t.Context(), session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
+		require.NoError(t, err)
+		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
+		require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"))
+	}
+}
+
+func TestAbandonedDispatchRejectsReplacementBeforeRetry(t *testing.T) {
+	// Given a failed resume followed by an externally replaced actor.
+	store, base, session := dispatchCleanupFixture(t)
+	setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+	work := abandonDispatch(t, store, session)
+	const replacementActorUID = "replacement-actor-uid"
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, resumeAttempt: func(context.Context, int32) error {
+		base.mu.Lock()
+		base.actors[actorKey(session.Agent.Ref.Namespace, substrate.ActorName(session.Id))].Metadata.Uid = replacementActorUID
+		base.mu.Unlock()
+		return status.Error(codes.Unavailable, "resume response lost")
+	}}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	// When cleanup rereads before retrying, assert that it rejects the changed
+	// identity without mutating the replacement or releasing the uncertain claim.
+	require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work))
+	require.EqualValues(t, 1, actors.resumeCalls.Load())
+	require.Zero(t, actors.suspendCalls.Load())
+	require.Zero(t, writes.finishedCleanup.Load())
+	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"), database.ErrDispatchBusy)
+}
+
+func TestAbandonedDispatchCrashRecoveryWaitsForConclusiveCleanup(t *testing.T) {
+	// Given a resume whose server confirms a crash, but has not returned yet.
+	store, base, session := dispatchCleanupFixture(t)
+	_, err := base.SuspendActor(t.Context(), session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
+	require.NoError(t, err)
+	setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+	work := abandonDispatch(t, store, session)
+	entered, release := make(chan struct{}), make(chan struct{})
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, resumeAttempt: func(ctx context.Context, _ int32) error {
+		setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_CRASHED)
+		close(entered)
+		select {
+		case <-release:
+			return status.Error(codes.FailedPrecondition, "actor crashed during resume")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+	workflow := NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- workflow.quiesceAbandonedDispatch(ctx, work) }()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("cleanup did not start resume")
+	}
+
+	// When recovery races an issued call, assert that it cannot retire the
+	// cleanup claim. Only the owner may release it after a conclusive result.
+	_, err = workflow.Revert(t.Context(), session)
+	require.ErrorIs(t, err, database.ErrConflict)
+	close(release)
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("cleanup did not finish after the conclusive crash")
+	}
+	require.EqualValues(t, 1, actors.resumeCalls.Load())
+	require.Zero(t, actors.suspendCalls.Load())
+	require.Zero(t, writes.finishedCleanup.Load(), "a crash is not a successful cleanup snapshot")
+	recovered, err := workflow.Revert(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, recovered.State)
+	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"))
+}
+
+func TestAbandonedDispatchUncertainCrashAllowsForceDeletion(t *testing.T) {
+	// Given an interrupted restore whose Internal reply leaves a crashed
+	// actor and an uncertain cleanup owner, ordinary recovery must stay fenced.
+	store, base, session := dispatchCleanupFixture(t)
+	_, err := base.SuspendActor(t.Context(), session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
+	require.NoError(t, err)
+	setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+	candidate := abandonDispatch(t, store, session)
+	deleteEntered, releaseDelete := make(chan struct{}), make(chan struct{})
+	actors := &gatedDispatchDeletionActors{
+		dispatchCleanupTestActors: &dispatchCleanupTestActors{lifecycleTestActors: base, resumeAttempt: func(context.Context, int32) error {
+			setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_CRASHED)
+			return status.Error(codes.Internal, "restore failed after the actor crashed")
+		}},
+		deleteEntered: deleteEntered,
+		releaseDelete: releaseDelete,
+	}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+	workflow := NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute)
+	cleanup, err := workflow.claimAbandonedDispatch(t.Context(), candidate)
+	require.NoError(t, err)
+	require.NotNil(t, cleanup)
+	done, delay, err := workflow.retryDispatchCleanup(t.Context(), cleanup)
+	require.NoError(t, err)
+	require.False(t, done, "an Internal reply must retain ownership for retry")
+	require.Positive(t, delay, "failed restore must wait before retrying")
+	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"), database.ErrDispatchBusy)
+	_, err = workflow.Revert(t.Context(), session)
+	require.ErrorIs(t, err, database.ErrConflict)
+	_, err = workflow.Delete(t.Context(), session, false)
+	require.ErrorIs(t, err, database.ErrFailedPrecondition)
+
+	// When force deletion takes ownership, gate its backend call so a queued
+	// cleanup retry observes DELETING before the actor has been removed.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	deleted := make(chan *apiv1.Session, 1)
+	deleteErrors := make(chan error, 1)
+	deleteFinished := make(chan struct{})
+	go func() {
+		defer close(deleteFinished)
+		result, err := workflow.Delete(ctx, session, true)
+		deleted <- result
+		deleteErrors <- err
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-deleteFinished
+	})
+	select {
+	case <-deleteEntered:
+	case err := <-deleteErrors:
+		t.Fatalf("force deletion did not reach the actor: %v", err)
+	case <-ctx.Done():
+		t.Fatal("force deletion did not start")
+	}
+	current, err := store.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, current.State)
+	reads := actors.readCalls.Load()
+	done, _, err = workflow.retryDispatchCleanup(t.Context(), cleanup)
+	require.NoError(t, err)
+	require.True(t, done, "queued cleanup must stop after deletion takes ownership")
+	require.Equal(t, reads, actors.readCalls.Load(), "cleanup must not contact the runtime after observing deletion")
+	require.EqualValues(t, 1, actors.resumeCalls.Load())
+	require.Zero(t, actors.suspendCalls.Load())
+
+	// Assert that force deletion finishes while the obsolete cleanup owner
+	// neither releases admission nor records a successful suspension.
+	close(releaseDelete)
+	select {
+	case err := <-deleteErrors:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("force deletion did not finish")
+	}
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, (<-deleted).State)
+	_, err = base.GetActor(t.Context(), session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
+	require.Equal(t, codes.NotFound, status.Code(err))
+	_, err = store.GetSessionByID(t.Context(), session.Id)
+	require.ErrorIs(t, err, database.ErrNotFound)
+	require.Zero(t, writes.finishedCleanup.Load())
+}
+
+func TestAbandonedDispatchStopsAfterExternalDeletionStarts(t *testing.T) {
+	// Given an interrupted resume whose next observation is an externally
+	// deleting actor, cleanup no longer has a supported transition to retry.
+	store, base, session := dispatchCleanupFixture(t)
+	setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+	work := abandonDispatch(t, store, session)
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, resumeAttempt: func(context.Context, int32) error {
+		setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_DELETING)
+		return status.Error(codes.Unavailable, "resume response lost")
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	// When cleanup rereads that state, assert that it stops without issuing
+	// another mutation or releasing the uncertain claim.
+	require.NoError(t, NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work))
+	require.NoError(t, ctx.Err(), "unsupported actor state must stop retries before the context expires")
+	require.EqualValues(t, 1, actors.resumeCalls.Load())
+	require.Zero(t, actors.suspendCalls.Load())
+	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"), database.ErrDispatchBusy)
+}
+
+func TestAbandonedDispatchCrashKeepsPriorAmbiguity(t *testing.T) {
+	for _, phase := range []string{"resume", "suspend after a successful resume"} {
+		t.Run("Given a lost resume response, when the actor crashes during "+phase+", assert that its uncertain claim remains", func(t *testing.T) {
+			store, base, session := dispatchCleanupFixture(t)
+			setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+			work := abandonDispatch(t, store, session)
+			actors := &dispatchCleanupTestActors{lifecycleTestActors: base, resumeAttempt: func(_ context.Context, call int32) error {
+				if call == 1 {
+					if phase == "resume" {
+						setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_CRASHED)
+					}
+					return status.Error(codes.Unavailable, "resume response lost")
+				}
+				return nil
+			}, suspendAttempt: func(context.Context, int32) error {
+				setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_CRASHED)
+				return status.Error(codes.FailedPrecondition, "actor crashed before suspension")
+			}}
+			writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+			workflow := NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			require.NoError(t, workflow.quiesceAbandonedDispatch(ctx, work))
+
+			require.Zero(t, writes.finishedCleanup.Load())
+			require.EqualValues(t, 1, writes.cleanupClaims.Load())
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"), database.ErrDispatchBusy)
+			_, err := workflow.Revert(t.Context(), session)
+			require.ErrorIs(t, err, database.ErrConflict, "a later successful call must not erase the earlier uncertain outcome")
+			_, err = store.GetPendingSessionDispatchCleanup(t.Context(), "")
+			require.ErrorIs(t, err, database.ErrNotFound)
+		})
+	}
+}
+
+func TestAbandonedDispatchRecordsSuspensionDuringShutdown(t *testing.T) {
+	// Given a cleanup whose successful suspension races worker shutdown.
+	store, base, session := dispatchCleanupFixture(t)
+	work := abandonDispatch(t, store, session)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, afterSuspend: func(*ateapipb.Actor) {
+		cancel()
+	}}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+
+	// When shutdown occurs as the successful runtime response arrives, assert
+	// that the known snapshot is recorded and admission opens for the next turn.
+	require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work))
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
+	require.EqualValues(t, 1, actors.suspendCalls.Load())
+	require.EqualValues(t, 1, writes.finishedCleanup.Load())
+	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"))
+}
+
+func TestAbandonedDispatchRejectsMissingSnapshot(t *testing.T) {
+	// Given a suspension response without the durable snapshot it promised.
+	store, base, session := dispatchCleanupFixture(t)
+	work := abandonDispatch(t, store, session)
+	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, afterSuspend: func(actor *ateapipb.Actor) {
+		actor.Status.Snapshots = nil
+	}}
+	writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	// When cleanup validates the result, assert that it retains admission and
+	// stops retrying an invalid runtime response.
+	require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work))
+	require.EqualValues(t, 1, actors.suspendCalls.Load())
+	require.Zero(t, writes.finishedCleanup.Load())
+	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"), database.ErrDispatchBusy)
 }
 
 func TestSavedWaitingInputStillWakesDispatchCleanup(t *testing.T) {
@@ -422,27 +969,33 @@ func TestAbandonedDispatchCancellationBeforeClaimKeepsAdmissionOpen(t *testing.T
 }
 
 func TestAbandonedDispatchCannotSuspendNewDelivery(t *testing.T) {
-	store, base, session := dispatchCleanupFixture(t)
-	work := abandonDispatch(t, store, session)
-	dispatchID := uuid.New()
-	var once sync.Once
-	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, afterRead: func() {
-		// A new delivery wins after the worker reads RUNNING but before it
-		// claims permission to suspend that actor.
-		once.Do(func() {
-			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, "next-message"))
-		})
-	}}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
-	require.NoError(t, workflow.quiesceAbandonedDispatch(t.Context(), work))
+	for _, state := range []ateapipb.ActorState{ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING} {
+		t.Run("Given an actor in "+state.String()+", when a newer send wins before cleanup claims, assert that cleanup issues no runtime mutations", func(t *testing.T) {
+			store, base, session := dispatchCleanupFixture(t)
+			setDispatchCleanupActorState(base, session, state)
+			work := abandonDispatch(t, store, session)
+			dispatchID := uuid.New()
+			var once sync.Once
+			actors := &dispatchCleanupTestActors{lifecycleTestActors: base, afterRead: func() {
+				// A new delivery wins after the worker reads the actor but before it
+				// claims permission to resume or suspend that actor.
+				once.Do(func() {
+					require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, "next-message"))
+				})
+			}}
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+			require.NoError(t, workflow.quiesceAbandonedDispatch(t.Context(), work))
 
-	require.Zero(t, actors.suspendCalls.Load())
-	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("next"))
-	message.ID, message.ContextID = "next-message", session.ContextId
-	task := a2a.NewSubmittedTask(message, message)
-	hash := sha256.Sum256([]byte(task.ID))
-	_, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, dispatchID.String())
-	require.NoError(t, err, "the winning delivery must still be able to accept its task")
+			require.Zero(t, actors.resumeCalls.Load())
+			require.Zero(t, actors.suspendCalls.Load())
+			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("next"))
+			message.ID, message.ContextID = "next-message", session.ContextId
+			task := a2a.NewSubmittedTask(message, message)
+			hash := sha256.Sum256([]byte(task.ID))
+			_, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, dispatchID.String())
+			require.NoError(t, err, "the winning delivery must still be able to accept its task")
+		})
+	}
 }
 
 func TestAbandonedDispatchRetriesKnownFailures(t *testing.T) {
@@ -457,7 +1010,12 @@ func TestAbandonedDispatchRetriesKnownFailures(t *testing.T) {
 		t.Run("Given "+scenario.name+", when cleanup runs, assert that one suspension completes", func(t *testing.T) {
 			store, base, session := dispatchCleanupFixture(t)
 			work := abandonDispatch(t, store, session)
-			actors := &dispatchCleanupTestActors{lifecycleTestActors: base, abortedCalls: scenario.abortedCalls}
+			actors := &dispatchCleanupTestActors{lifecycleTestActors: base, suspendAttempt: func(_ context.Context, call int32) error {
+				if call <= scenario.abortedCalls {
+					return status.Error(codes.Aborted, "actor lease is held")
+				}
+				return nil
+			}}
 			writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}, finishFailures: scenario.finishFailures}
 			require.NoError(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(t.Context(), work))
 
@@ -470,18 +1028,57 @@ func TestAbandonedDispatchRetriesKnownFailures(t *testing.T) {
 }
 
 func TestAbandonedDispatchRetainsUncertainSuspension(t *testing.T) {
-	// Given a suspension whose result is lost after it changes the actor.
-	store, base, session := dispatchCleanupFixture(t)
-	work := abandonDispatch(t, store, session)
-	actors := &dispatchCleanupTestActors{lifecycleTestActors: base, mutationErr: status.Error(codes.Unavailable, "suspend response lost")}
-	require.NoError(t, NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(t.Context(), work))
+	for _, phase := range []string{"resume", "suspend"} {
+		t.Run("Given an uncertain "+phase+" call, when the worker shuts down, assert that its claim stays fenced", func(t *testing.T) {
+			store, base, session := dispatchCleanupFixture(t)
+			setDispatchCleanupActorState(base, session, ateapipb.ActorState_ACTOR_STATE_RESUMING)
+			work := abandonDispatch(t, store, session)
+			actors := &dispatchCleanupTestActors{lifecycleTestActors: base}
+			entered := make(chan struct{})
+			mutation := base.SuspendActor
+			if phase == "resume" {
+				mutation = base.ResumeActor
+			}
+			interrupted := func(ctx context.Context, _ int32) error {
+				if _, err := mutation(ctx, session.Agent.Ref.Namespace, substrate.ActorName(session.Id)); err != nil {
+					return err
+				}
+				close(entered)
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			if phase == "resume" {
+				actors.resumeAttempt = interrupted
+			} else {
+				actors.suspendAttempt = interrupted
+			}
+			writes := &observedDispatchCleanupStore{observedQuiescenceStore: &observedQuiescenceStore{lifecycleTestStore: store}}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				done <- NewActorWorkflow(writes, actors, make(chan struct{}, 1), time.Minute).quiesceAbandonedDispatch(ctx, work)
+			}()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("cleanup did not reach the runtime mutation")
+			}
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("shutdown did not stop cleanup")
+			}
 
-	// Assert that neither a new delivery nor another cleanup worker can race
-	// the potentially issued call by taking over its permission.
-	require.EqualValues(t, 1, actors.suspendCalls.Load())
-	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"), database.ErrDispatchBusy)
-	_, err := store.GetPendingSessionDispatchCleanup(t.Context(), "")
-	require.ErrorIs(t, err, database.ErrNotFound)
+			require.EqualValues(t, 1, writes.cleanupClaims.Load())
+			require.Zero(t, writes.finishedCleanup.Load())
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next-message"), database.ErrDispatchBusy)
+			_, err := store.GetPendingSessionDispatchCleanup(t.Context(), "")
+			require.ErrorIs(t, err, database.ErrNotFound)
+		})
+	}
 }
 
 func dispatchCleanupFixture(t *testing.T) (*lifecycleTestStore, *lifecycleTestActors, *apiv1.Session) {
@@ -493,6 +1090,12 @@ func dispatchCleanupFixture(t *testing.T) (*lifecycleTestStore, *lifecycleTestAc
 	_, err = actors.ResumeActor(t.Context(), session.Agent.Ref.Namespace, substrate.ActorName(session.Id))
 	require.NoError(t, err)
 	return store, actors, session
+}
+
+func setDispatchCleanupActorState(actors *lifecycleTestActors, session *apiv1.Session, state ateapipb.ActorState) {
+	actors.mu.Lock()
+	defer actors.mu.Unlock()
+	actors.actors[actorKey(session.Agent.Ref.Namespace, substrate.ActorName(session.Id))].Status.State = state
 }
 
 func abandonDispatch(t *testing.T, store *lifecycleTestStore, session *apiv1.Session) *database.SessionDispatchCleanup {
@@ -509,12 +1112,21 @@ func abandonDispatch(t *testing.T, store *lifecycleTestStore, session *apiv1.Ses
 
 type observedDispatchCleanupStore struct {
 	*observedQuiescenceStore
+	cleanupClaims   atomic.Int32
 	finishedCleanup atomic.Int32
 	finishAttempts  atomic.Int32
 	finishFailures  int32
 }
 
 var _ workflowStore = (*observedDispatchCleanupStore)(nil)
+
+func (s *observedDispatchCleanupStore) ClaimSessionDispatchCleanup(ctx context.Context, candidate *database.SessionDispatchCleanup) (*database.SessionDispatchCleanup, error) {
+	work, err := s.Client.ClaimSessionDispatchCleanup(ctx, candidate)
+	if err == nil {
+		s.cleanupClaims.Add(1)
+	}
+	return work, err
+}
 
 func (s *observedDispatchCleanupStore) FinishSessionDispatchCleanup(ctx context.Context, work *database.SessionDispatchCleanup, snapshot *database.SessionTaskSnapshot) error {
 	if s.finishAttempts.Add(1) <= s.finishFailures {
@@ -527,14 +1139,33 @@ func (s *observedDispatchCleanupStore) FinishSessionDispatchCleanup(ctx context.
 	return err
 }
 
+type gatedDispatchDeletionActors struct {
+	*dispatchCleanupTestActors
+	deleteEntered chan struct{}
+	releaseDelete <-chan struct{}
+}
+
+func (a *gatedDispatchDeletionActors) DeleteActor(ctx context.Context, space, name, uid string) error {
+	close(a.deleteEntered)
+	select {
+	case <-a.releaseDelete:
+		return a.lifecycleTestActors.DeleteActor(ctx, space, name, uid)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 type dispatchCleanupTestActors struct {
 	*lifecycleTestActors
-	afterRead    func()
-	readErr      error
-	mutationErr  error
-	abortedCalls int32
-	readCalls    atomic.Int32
-	suspendCalls atomic.Int32
+	afterRead       func()
+	resumeAttempt   func(context.Context, int32) error
+	suspendAttempt  func(context.Context, int32) error
+	afterSuspend    func(*ateapipb.Actor)
+	resumedActorUID string
+	readErr         error
+	readCalls       atomic.Int32
+	resumeCalls     atomic.Int32
+	suspendCalls    atomic.Int32
 }
 
 var _ actorClient = (*dispatchCleanupTestActors)(nil)
@@ -552,12 +1183,29 @@ func (a *dispatchCleanupTestActors) GetActor(ctx context.Context, space, name st
 }
 
 func (a *dispatchCleanupTestActors) SuspendActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
-	if a.suspendCalls.Add(1) <= a.abortedCalls {
-		return nil, status.Error(codes.Aborted, "actor lease is held")
+	call := a.suspendCalls.Add(1)
+	if a.suspendAttempt != nil {
+		if err := a.suspendAttempt(ctx, call); err != nil {
+			return nil, err
+		}
 	}
 	actor, err := a.lifecycleTestActors.SuspendActor(ctx, space, name)
-	if a.mutationErr != nil {
-		return nil, a.mutationErr
+	if err == nil && a.afterSuspend != nil {
+		a.afterSuspend(actor)
+	}
+	return actor, err
+}
+
+func (a *dispatchCleanupTestActors) ResumeActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	call := a.resumeCalls.Add(1)
+	if a.resumeAttempt != nil {
+		if err := a.resumeAttempt(ctx, call); err != nil {
+			return nil, err
+		}
+	}
+	actor, err := a.lifecycleTestActors.ResumeActor(ctx, space, name)
+	if err == nil && a.resumedActorUID != "" {
+		actor.Metadata.Uid = a.resumedActorUID
 	}
 	return actor, err
 }

@@ -43,7 +43,9 @@ func beginSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow, reason
 			return nil, err
 		}
 	}
-	// Record deletion and revoke dispatch together so late input cannot start a turn.
+	// DELETING closes admission permanently, so force can retire dispatch cleanup
+	// without exposing a newer turn to its in-flight calls. Actor deletion fences
+	// those calls; the Session tombstone prevents this runtime from being reused.
 	operation, err := startSessionOperation(ctx, tx, row, kind)
 	if err != nil {
 		return nil, err
@@ -58,8 +60,8 @@ func beginSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow, reason
 }
 
 // admitForcedSessionDeletion checks work that force must not interrupt:
-// checkpoint snapshot copying and idle suspension already claimed by a worker.
-// It skips turn, dispatch, and runtime-cleanup checks. These are kagent work
+// checkpoint snapshot copying and claimed task-boundary suspension.
+// It skips turn, dispatch, and dispatch-cleanup checks. These are kagent work
 // records, not the Substrate actor state; RESUMING alone does not block deletion.
 // The caller holds the session lock. runtimeOperationNeeded checks other
 // lifecycle conflicts before this helper runs.
@@ -68,7 +70,6 @@ func admitForcedSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow) 
 		SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
 		    OR EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $2
 		        AND quiescence_pending AND quiescence_executor_id IS NOT NULL)
-		    OR EXISTS (SELECT 1 FROM session WHERE id = $1 AND dispatch_cleanup_executor_id IS NOT NULL)
 	`, pgx.RowTo[bool], row.ID, row.HistoryID)
 	if err != nil {
 		return err

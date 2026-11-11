@@ -19,6 +19,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type idleQuiescenceStore struct {
@@ -29,6 +30,31 @@ type idleQuiescenceStore struct {
 	claimErr      error
 	pendingErr    error
 	beforeIdle    func()
+}
+
+// quiesceAbandonedDispatch drives the same queued steps synchronously for tests
+// focused on a single cleanup. Worker scheduling is tested through Start.
+func (w *ActorWorkflow) quiesceAbandonedDispatch(ctx context.Context, candidate *database.SessionDispatchCleanup) error {
+	cleanup, err := w.claimAbandonedDispatch(ctx, candidate)
+	if err != nil || cleanup == nil {
+		return err
+	}
+	for {
+		done, delay, err := w.retryDispatchCleanup(ctx, cleanup)
+		if err != nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "test cleanup stopped", "error", err)
+		}
+		if done {
+			return nil
+		}
+		if delay > 0 {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(delay):
+			}
+		}
+	}
 }
 
 var _ workflowStore = (*idleQuiescenceStore)(nil)
@@ -82,7 +108,7 @@ func TestDispatchCleanupScanSkipsActorsUntilRecovery(t *testing.T) {
 			revision:            &database.RuntimeRevision{Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant"},
 		}
 		base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-		for i, state := range []ateapipb.ActorState{ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED} {
+		for i, state := range []ateapipb.ActorState{ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_SUSPENDED} {
 			id := uuid.UUID{15: byte(i + 1)}.String()
 			session := &apiv1.Session{Id: id, PreparedRevision: store.revision.Revision}
 			actor, err := base.CreateActor(t.Context(), store.revision.ActorTemplateAtespace, substrate.ActorName(id), store.revision.ActorTemplateAtespace, store.revision.ActorTemplateName)
@@ -172,14 +198,15 @@ func TestQuiescenceWakeRacesIdleScan(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- workflow.Start(ctx) }()
 		synctest.Wait()
-		require.EqualValues(t, 5, store.claims.Load(), "a signal during an empty scan must trigger another claim")
+		claimsAfterWake := store.claims.Load()
+		require.Greater(t, claimsAfterWake, int32(4), "a signal during an empty scan must trigger another claim")
 		var senders sync.WaitGroup
 		for range 100 {
 			senders.Go(workflow.wakeQuiescence)
 		}
 		senders.Wait()
 		synctest.Wait()
-		require.Greater(t, store.claims.Load(), int32(5))
+		require.Greater(t, store.claims.Load(), claimsAfterWake)
 		cancel()
 		require.NoError(t, <-done)
 		for range 100 {

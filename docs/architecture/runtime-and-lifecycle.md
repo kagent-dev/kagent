@@ -217,15 +217,25 @@ reservation; saving continuation input without leaving a waiting state retains
 it. An expired reservation cannot authorize a late first task write.
 
 For abandoned dispatches, the worker first reads and verifies the actor without
-blocking new messages. Only a RUNNING actor can be claimed for suspension. The
+blocking new messages. RUNNING and RESUMING actors can be claimed for cleanup. The
 claim atomically rechecks the dispatch generation, absence of active tasks, and
 other lifecycle work. A newer message supersedes unclaimed cleanup; a claimed
-suspension blocks new execution until its snapshot is recorded and the dispatch
+cleanup blocks new execution until its snapshot is recorded and the dispatch
 reservation and claim are cleared. Cleanup preserves
 the existing history and logical READY state. When history exists, its captured
 head receives the snapshot without adding a task event.
 
-RESUMING or SUSPENDED actors and failed preparation reads remain unclaimed. Each
+After claiming, the worker reads the actor again. If it is RESUMING, the worker
+retries resume before using the existing suspension path. Once resume succeeds
+or suspension starts, that owner only attempts suspension and snapshot recording.
+If another suspension completed before this owner began, it releases its claim
+but retains the expired dispatch so a later ingress resume is still discovered.
+Transient failures use fresh bounded calls and backoff capped at 15 seconds. Claimed retries
+and recovery scans share a queue with four workers, so repeatedly failing actors
+yield to other Sessions. The same owner and completed phases survive requeueing;
+database retries never repeat a completed runtime operation.
+
+SUSPENDED actors and failed preparation reads remain unclaimed. Each
 worker visits candidates in Session ID order once per scan, then revisits them on
 the existing worker wakeups and recovery scans. A SUSPENDED observation alone
 cannot prove that canceled ingress will not finish restoring later. Such cleanup
@@ -248,6 +258,13 @@ claims still block new work, but completed results remain readable. The recorded
 actor UID is checked before lifecycle calls; a same-name replacement cannot be
 adopted implicitly.
 
+Explicit force deletion may supersede dispatch cleanup, including an uncertain
+claim. It atomically enters DELETING and revokes the dispatch, permanently closing
+execution admission. Queued cleanup stops when it observes deletion; an already
+issued resume or suspend cannot recreate the deleted Actor. Ordinary deletion
+waits for cleanup. Checkpoint and claimed task-boundary work still block force
+deletion.
+
 `SessionService.RevertSession` lets an authorized caller restore a confirmed
 crashed runtime. It accepts active and idle Sessions, but verifies Substrate's
 CRASHED state for the recorded Actor UID and pinned template before admitting
@@ -256,8 +273,9 @@ replacements cannot authorize a revert. A runtime that is not crashed, including
 a Session at rest outside READY, has nothing to recover, so RevertSession
 returns the Session unchanged. That is also what a retry sees after a revert
 whose response was lost. A missing or replaced Actor returns
-`FAILED_PRECONDITION`, because no retry restores it. A transport failure returns `UNAVAILABLE`. Only an active
-lifecycle operation returns `ABORTED`.
+`FAILED_PRECONDITION`, because no retry restores it. A transport failure returns
+`UNAVAILABLE`; conflicting lifecycle work or claimed dispatch cleanup returns
+`ABORTED`.
 
 Admission records FAILED/REVERT with a RuntimeCrashed failure under the Session
 lock. REVERT is its own `RuntimeOperation`: only a confirmed crash starts one, and
@@ -283,9 +301,16 @@ Actor UID and returns the Session to READY, so only the generation exposes a
 stale observation. The recorded UID changes only through a lifecycle operation,
 which also replaces the generation.
 
-An issued idle suspension does not exclude recovery. It cannot finish against the
+An issued task-boundary suspension does not exclude recovery. It cannot finish against the
 crashed Actor, and its worker keeps the claim when suspension fails. Admission
 retires the claim in its transaction, so a late finish records nothing.
+
+Claimed dispatch cleanup does exclude recovery because its owner may still retry
+resume and suspension against the same Actor UID. Its owner can release the claim
+after a fresh CRASHED observation only if all mutation outcomes were conclusive
+and it stops issuing calls. A later successful resume does not erase uncertainty
+from an earlier timeout or lost response. Such claims remain fenced; explicit
+force deletion is available when the Session cannot safely be recovered.
 
 Execution reverts the same Actor to its last durable snapshot without replaying
 input. A runtime without a durable snapshot returns to its initial state.

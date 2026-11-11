@@ -581,8 +581,8 @@ func TestDispatchCleanupFencesTasklessSession(t *testing.T) {
 		}
 		_, err = client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 		require.ErrorIs(t, err, ErrFailedPrecondition)
-		_, err = client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
-		require.ErrorIs(t, err, ErrConflict)
+		_, err = client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+		require.ErrorIs(t, err, ErrFailedPrecondition)
 		require.ErrorIs(t, client.FinishSessionDispatchCleanup(ctx, work, nil), ErrFailedPrecondition)
 		require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, dispatchCleanupSnapshot()))
 		require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, dispatchCleanupSnapshot()))
@@ -885,12 +885,23 @@ func TestDispatchCleanupCapturesForkedHistory(t *testing.T) {
 }
 
 func TestDispatchCleanupRetiresAfterRuntimeRecovery(t *testing.T) {
-	t.Run("Given issued dispatch cleanup, when the same actor is reverted after a confirmed crash, assert that stale cleanup cannot claim the recovered runtime", func(t *testing.T) {
+	t.Run("Given issued dispatch cleanup, when crash recovery is requested, assert that only owner release permits recovery", func(t *testing.T) {
 		client, session := dispatchCleanupFixture(t)
 		ctx := t.Context()
 		candidate := abandonedDispatchFixture(t, client, session)
 		work, err := client.ClaimSessionDispatchCleanup(ctx, candidate)
 		require.NoError(t, err)
+		_, err = client.BeginCrashedSessionRecovery(ctx, observedGeneration(t, client, session.Id, candidate.ActorUID), SessionTaskSnapshot{})
+		require.ErrorIs(t, err, ErrConflict)
+		current, err := client.GetSessionByID(ctx, session.Id)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
+		require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
+		require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "next-message"), ErrDispatchBusy)
+		require.NoError(t, client.ReleaseSessionDispatchCleanup(ctx, work))
+		pending, err := client.GetPendingSessionDispatchCleanup(ctx, "")
+		require.NoError(t, err)
+		require.Equal(t, work.DispatchID, pending.DispatchID, "release must retain the expired cleanup obligation")
 		completeCrashedRecovery(t, client, session.Id, candidate.ActorUID)
 		_, err = client.GetPendingSessionDispatchCleanup(ctx, "")
 		require.ErrorIs(t, err, ErrNotFound)
@@ -901,6 +912,17 @@ func TestDispatchCleanupRetiresAfterRuntimeRecovery(t *testing.T) {
 		claimed, err := client.ClaimSessionDispatchCleanup(ctx, next)
 		require.NoError(t, err)
 		require.NoError(t, client.FinishSessionDispatchCleanup(ctx, claimed, dispatchCleanupSnapshot()))
+	})
+	t.Run("Given unclaimed dispatch cleanup, when crash recovery completes, assert that the obligation is retired", func(t *testing.T) {
+		client, session := dispatchCleanupFixture(t)
+		ctx := t.Context()
+		candidate := abandonedDispatchFixture(t, client, session)
+		completeCrashedRecovery(t, client, session.Id, candidate.ActorUID)
+		_, err := client.GetPendingSessionDispatchCleanup(ctx, "")
+		require.ErrorIs(t, err, ErrNotFound)
+		_, err = client.ClaimSessionDispatchCleanup(ctx, candidate)
+		require.ErrorIs(t, err, ErrNotFound)
+		require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "next-message"))
 	})
 	t.Run("Given pending cleanup, when explicit suspension and resume complete, assert that the old obligation is retired", func(t *testing.T) {
 		client, session := dispatchCleanupFixture(t)
@@ -914,6 +936,82 @@ func TestDispatchCleanupRetiresAfterRuntimeRecovery(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 		_, err = client.ClaimSessionDispatchCleanup(ctx, candidate)
 		require.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
+func TestDispatchCleanupReleaseRequiresOwner(t *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		change func(*SessionDispatchCleanup)
+	}{
+		{name: "another dispatch", change: func(work *SessionDispatchCleanup) { work.DispatchID = uuid.New() }},
+		{name: "another executor", change: func(work *SessionDispatchCleanup) { work.ExecutorID = uuid.New() }},
+		{name: "another actor", change: func(work *SessionDispatchCleanup) { work.ActorUID = uuid.NewString() }},
+	} {
+		t.Run("Given claimed cleanup, when "+scenario.name+" releases it, assert that the original owner retains admission", func(t *testing.T) {
+			client, session := dispatchCleanupFixture(t)
+			ctx := t.Context()
+			candidate := abandonedDispatchFixture(t, client, session)
+			work, err := client.ClaimSessionDispatchCleanup(ctx, candidate)
+			require.NoError(t, err)
+			mismatch := *work
+			scenario.change(&mismatch)
+			require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, &mismatch), ErrConflict)
+			require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, candidate), ErrFailedPrecondition, "an unclaimed candidate cannot release ownership")
+			require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "next-message"), ErrDispatchBusy)
+			require.NoError(t, client.ReleaseSessionDispatchCleanup(ctx, work))
+			pending, err := client.GetPendingSessionDispatchCleanup(ctx, "")
+			require.NoError(t, err)
+			require.Equal(t, work.DispatchID, pending.DispatchID)
+			task := newSessionTask(uuid.NewString(), "late-input")
+			task.ContextID = session.ContextId
+			_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("late-input"), task, work.DispatchID.String())
+			require.ErrorIs(t, err, ErrFailedPrecondition, "release must not restore the expired dispatch's execution permission")
+		})
+	}
+	t.Run("Given claimed cleanup, when release names another Session, assert that the original owner retains admission", func(t *testing.T) {
+		client, session := dispatchCleanupFixture(t)
+		ctx := t.Context()
+		candidate := abandonedDispatchFixture(t, client, session)
+		work, err := client.ClaimSessionDispatchCleanup(ctx, candidate)
+		require.NoError(t, err)
+		other, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+		require.NoError(t, err)
+		other, err = markSessionReady(ctx, client, other.Id, "other-runtime.example")
+		require.NoError(t, err)
+		mismatch := *work
+		mismatch.Session = other
+		require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, &mismatch), ErrConflict)
+		require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "next-message"), ErrDispatchBusy)
+		require.NoError(t, client.ReleaseSessionDispatchCleanup(ctx, work))
+		pending, err := client.GetPendingSessionDispatchCleanup(ctx, "")
+		require.NoError(t, err)
+		require.Equal(t, work.DispatchID, pending.DispatchID)
+	})
+}
+
+func TestDispatchCleanupReleaseRejectsStaleOwner(t *testing.T) {
+	t.Run("Given cleanup reclaimed after release, when the old owner releases again, assert that the replacement owner stays fenced", func(t *testing.T) {
+		client, session := dispatchCleanupFixture(t)
+		ctx := t.Context()
+		candidate := abandonedDispatchFixture(t, client, session)
+		first, err := client.ClaimSessionDispatchCleanup(ctx, candidate)
+		require.NoError(t, err)
+		require.NoError(t, client.ReleaseSessionDispatchCleanup(ctx, first))
+		require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, first), ErrConflict, "released owners no longer have authority")
+		second, err := client.ClaimSessionDispatchCleanup(ctx, candidate)
+		require.NoError(t, err)
+		require.NotEqual(t, first.ExecutorID, second.ExecutorID)
+		require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, first), ErrConflict)
+		require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "next-message"), ErrDispatchBusy)
+		require.ErrorIs(t, client.FinishSessionDispatchCleanup(ctx, first, dispatchCleanupSnapshot()), ErrConflict)
+		require.NoError(t, client.FinishSessionDispatchCleanup(ctx, second, dispatchCleanupSnapshot()))
+		latest := abandonedDispatchFixture(t, client, session)
+		third, err := client.ClaimSessionDispatchCleanup(ctx, latest)
+		require.NoError(t, err)
+		require.ErrorIs(t, client.ReleaseSessionDispatchCleanup(ctx, second), ErrConflict, "an old generation cannot release newer cleanup")
+		require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "next-message"), ErrDispatchBusy)
+		require.NoError(t, client.FinishSessionDispatchCleanup(ctx, third, dispatchCleanupSnapshot()))
 	})
 }
 
