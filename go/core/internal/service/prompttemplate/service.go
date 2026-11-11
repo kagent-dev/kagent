@@ -26,7 +26,7 @@ const (
 )
 
 type Service struct {
-	kubeClient client.Client
+	kubeClient client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	authorizer auth.CollectionAuthorizer
 }
 
@@ -49,7 +49,7 @@ type CreateRequest struct {
 	Data      map[string]string
 }
 
-func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer) *Service {
+func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer) *Service { //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	return &Service{kubeClient: kubeClient, authorizer: authorizer}
 }
 

@@ -58,12 +58,12 @@ type ToolDiscoverer interface {
 
 // Reconciler publishes RemoteMCPServer discovery results to its status.
 type Reconciler struct {
-	client     client.Client
+	client     client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	discoverer ToolDiscoverer
 	catalog    *toolcatalog.Publisher
 }
 
-func New(client client.Client, discoverer ToolDiscoverer, catalog toolcatalog.Store) *Reconciler {
+func New(client client.Client, discoverer ToolDiscoverer, catalog toolcatalog.Store) *Reconciler { //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	return &Reconciler{client: client, discoverer: discoverer, catalog: toolcatalog.NewPublisher(catalog)}
 }
 

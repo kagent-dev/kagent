@@ -28,10 +28,10 @@ const (
 )
 
 type RuntimeMCPClient struct {
-	kubeClient client.Client
+	kubeClient client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 }
 
-func NewRuntimeMCPClient(kubeClient client.Client) *RuntimeMCPClient {
+func NewRuntimeMCPClient(kubeClient client.Client) *RuntimeMCPClient { //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	return &RuntimeMCPClient{kubeClient: kubeClient}
 }
 
