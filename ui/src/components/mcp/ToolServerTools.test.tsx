@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "@emotion/react";
 import { describe, expect, it } from "vitest";
 import { themeFor } from "@/theme/theme";
@@ -25,5 +25,11 @@ describe("ToolServerTools", () => {
       "tool_2",
       "tool_10",
     ]);
+  });
+
+  it("gives names that differ only in case one fixed order", () => {
+    const first = renderedNames(["get_pods", "Get_pods"]);
+    cleanup();
+    expect(renderedNames(["Get_pods", "get_pods"])).toEqual(first);
   });
 });

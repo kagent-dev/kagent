@@ -67,15 +67,21 @@ export function AgentContextPanel({
     <div data-testid="chat-agent-context" css={{ display: "grid", gap: theme.space(4) }}>
       <Field label="Template">
         {templateRef && templateNamespace && templateName ? (
-          <Tooltip title="Open the AgentTemplate this agent is built from">
+          <Tooltip
+            title="Open the AgentTemplate this agent is built from"
+            trigger={["hover", "focus"]}
+          >
             <Link
               to={buildPath(paths.agentTemplateDetail, {
                 namespace: templateNamespace,
                 name: templateName,
               })}
-              // So the template page can lead back to this conversation rather than
-              // only to the template list.
-              state={backLinkState(location, "Back to conversation")}
+              // So the template page can lead back here rather than only to the
+              // template list. Without a conversation open, "here" is the agent's page.
+              state={backLinkState(
+                location,
+                instance ? "Back to conversation" : "Back to agent",
+              )}
               data-testid="chat-agent-context-template"
               css={{
                 justifySelf: "start",

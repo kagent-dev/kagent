@@ -43,7 +43,11 @@ function isBackLinkState(value: unknown): value is BackLinkState {
 export function useBackLink(fallback: { to: string; label: string }): {
   to: string;
   label: string;
+  /** True when `to` is the page this one was opened from, rather than the fallback. */
+  isReturn: boolean;
 } {
   const { state } = useLocation();
-  return isBackLinkState(state) ? { to: state.from, label: state.fromLabel } : fallback;
+  return isBackLinkState(state)
+    ? { to: state.from, label: state.fromLabel, isReturn: true }
+    : { ...fallback, isReturn: false };
 }

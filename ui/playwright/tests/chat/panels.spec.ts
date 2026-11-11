@@ -108,3 +108,38 @@ test("chat: a conversation that cannot be read gives the column back", async ({
   await expect(page.getByTestId("chat-context-collapse")).toBeHidden();
   await expect(page.getByTestId("chat-context-expand")).toBeHidden();
 });
+
+/**
+ * The context panel's template link, and the way back from the template page.
+ *
+ * The template page is shared by every conversation with an agent, so reaching it from a
+ * chat must not strand the reader on a page whose only exit is the template list.
+ */
+test("chat: the template opened from a conversation leads back to it", async ({ page }) => {
+  // Wide enough for the context panel, as above.
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(AGENT_CHAT);
+  const link = page.getByTestId("chat-agent-context-template");
+  await expect(link).toBeVisible({ timeout: 30_000 });
+  const chatUrl = page.url();
+
+  await test.step("1. the link says where it goes", async () => {
+    await link.hover();
+    await expect(page.getByRole("tooltip")).toContainText("AgentTemplate");
+  });
+
+  await test.step("2. the template page offers the way back, across its tabs", async () => {
+    await link.click();
+    const back = page.getByTestId("template-back");
+    await expect(back).toHaveText("Back to conversation", { timeout: 30_000 });
+
+    await page.getByRole("tab", { name: /Agents/ }).click();
+    await expect(back).toHaveText("Back to conversation");
+  });
+
+  await test.step("3. and it returns to the same conversation", async () => {
+    await page.getByTestId("template-back").click();
+    await expect(page).toHaveURL(chatUrl);
+    await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
+  });
+});

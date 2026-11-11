@@ -90,8 +90,11 @@ export function ToolServerTools({ tools, highlight }: ToolServerToolsProps) {
  * scanning a long list for one tool. Numeric-aware, so `tool_2` sorts before `tool_10`.
  */
 function sortToolsByName(tools: DiscoveredTool[]): DiscoveredTool[] {
-  return [...tools].sort((a, b) =>
-    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
+  return [...tools].sort(
+    (a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) ||
+      // Names that differ only in case still get one fixed order.
+      a.name.localeCompare(b.name, undefined, { numeric: true }),
   );
 }
 

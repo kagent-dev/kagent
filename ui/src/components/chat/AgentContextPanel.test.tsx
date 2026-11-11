@@ -4,18 +4,23 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { themeFor } from "@/theme/theme";
+import type { AgentInstance } from "@/api";
 import { AgentContextPanel } from "./AgentContextPanel";
 
 const {useAgentTemplate, useAgent} = vi.hoisted(() => ({useAgentTemplate: vi.fn(), useAgent: vi.fn()}));
 
-vi.mock("@/api", () => ({ useAgentTemplate, useAgent }));
+vi.mock("@/api", () => ({
+  useAgentTemplate,
+  useAgent,
+  bareName: (ref: string) => ref.split("/").pop(),
+}));
 
 function LocationState() {
   const location = useLocation();
   return <pre data-testid="location-state">{JSON.stringify(location.state)}</pre>;
 }
 
-function renderPanel(tools: unknown[], modelNamespace?: string) {
+function renderPanel(tools: unknown[], modelNamespace?: string, instance?: AgentInstance) {
   useAgent.mockReturnValue({data: {resource: {spec: {template: {ref: {name: "assistant"}}, harnessRef: {name: "runner"}}}}});
   useAgentTemplate.mockReturnValue({
     data: {
@@ -36,7 +41,12 @@ function renderPanel(tools: unknown[], modelNamespace?: string) {
         <Routes>
           <Route
             path="/agents/:id/chat"
-            element={<AgentContextPanel agentRef={{ namespace: "kagent", name: "assistant" }} />}
+            element={
+              <AgentContextPanel
+                instance={instance}
+                agentRef={{ namespace: "kagent", name: "assistant" }}
+              />
+            }
           />
           <Route path="/agent-templates/:namespace/:name" element={<LocationState />} />
         </Routes>
@@ -47,11 +57,19 @@ function renderPanel(tools: unknown[], modelNamespace?: string) {
 
 describe("AgentContextPanel", () => {
   it("opens the template with a way back to this conversation", async () => {
-    renderPanel([]);
+    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
     await userEvent.click(screen.getByTestId("chat-agent-context-template"));
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toEqual({
       from: "/agents/abc/chat?mock=ok",
       fromLabel: "Back to conversation",
+    });
+  });
+
+  it("says the way back leads to the agent when no conversation is open", async () => {
+    renderPanel([]);
+    await userEvent.click(screen.getByTestId("chat-agent-context-template"));
+    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
+      fromLabel: "Back to agent",
     });
   });
 

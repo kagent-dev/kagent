@@ -13,7 +13,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import toast from "react-hot-toast";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTheme } from "@emotion/react";
 import { Pencil } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -48,6 +48,7 @@ const TAB_PARAM = "tab";
 
 export function AgentTemplateDetailsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
   const { namespace, name } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -110,7 +111,8 @@ export function AgentTemplateDetailsPage() {
     const next = new URLSearchParams(searchParams);
     if (tab === "details") next.delete(TAB_PARAM);
     else next.set(TAB_PARAM, tab);
-    setSearchParams(next, { replace: true });
+    // Carry the router state across, or switching tabs drops the way back.
+    setSearchParams(next, { replace: true, state: location.state });
   };
 
   const missing = template.error !== undefined && isNotFound(template.error);
@@ -339,7 +341,12 @@ export function AgentTemplateDetailsPage() {
             description="Agents referencing this template cannot prepare new configuration until it is restored or replaced. Existing conversations and last successful revisions are retained."
             />
           ) : null}
-          <Button onClick={() => navigate(back.to)} data-testid="template-back">
+          <Button
+            // Returning replaces this entry, so the browser's Back button does not
+            // lead straight back here from the page the reader just returned to.
+            onClick={() => navigate(back.to, { replace: back.isReturn })}
+            data-testid="template-back"
+          >
             {back.label}
           </Button>
         </Space>
