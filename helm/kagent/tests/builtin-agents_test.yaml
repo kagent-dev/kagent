@@ -4,8 +4,7 @@ templates:
 release:
   namespace: kagent
 set:
-  substrateWorkerPool.create: true
-  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v1
+  harnesses.enabled: true
 tests:
   - it: k8s-agent renders an AgentTemplate and an Agent that references it
     asserts:
@@ -35,7 +34,7 @@ tests:
           any: true
       - equal:
           path: spec.harnessRef.name
-          value: kagent-builtin
+          value: kagent-default
         documentSelector:
           path: $[?(@.kind == "Agent" && @.metadata.name == "k8s-agent")]
       - equal:
@@ -148,10 +147,9 @@ tests:
       - failedTemplate:
           errorMessage: 'builtins.skills.image must be pinned by sha256 digest: "registry.example/team/skills:v1"'
 
-  - it: k8s-agent uses the configured Agent and Harness names
+  - it: k8s-agent uses the configured Agent name
     set:
       builtins.k8sAgent.name: ops
-      builtins.harness.name: team
     asserts:
       - containsDocument:
           apiVersion: api.kagent.dev/v1alpha3
@@ -166,11 +164,6 @@ tests:
       - equal:
           path: spec.template.ref.name
           value: ops
-        documentSelector:
-          path: $[?(@.kind == "Agent" && @.metadata.name == "ops")]
-      - equal:
-          path: spec.harnessRef.name
-          value: team
         documentSelector:
           path: $[?(@.kind == "Agent" && @.metadata.name == "ops")]
 
@@ -205,9 +198,16 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: k8s-agent is skipped without the default Harness
+  - it: k8s-agent is skipped without the default Harnesses
     set:
-      builtins.harness.enabled: false
+      harnesses.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: k8s-agent is skipped when the kagent-default Harness is turned off
+    set:
+      harnesses.kagent.enabled: false
     asserts:
       - hasDocuments:
           count: 0
@@ -215,13 +215,6 @@ tests:
   - it: k8s-agent is skipped without kagent-tools
     set:
       kagent-tools.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: k8s-agent is skipped without the chart's worker pool
-    set:
-      substrateWorkerPool.create: false
     asserts:
       - hasDocuments:
           count: 0
@@ -275,7 +268,7 @@ tests:
           any: true
       - equal:
           path: spec.harnessRef.name
-          value: kagent-builtin
+          value: kagent-default
         documentSelector:
           path: $[?(@.kind == "Agent" && @.metadata.name == "platform-agent")]
       - equal:
@@ -429,10 +422,9 @@ tests:
           path: spec.tools[1].mcp.tools
           content: argo_promote_rollout
 
-  - it: platform-agent uses the configured Agent and Harness names
+  - it: platform-agent uses the configured Agent name
     set:
       builtins.platformAgent.name: platform
-      builtins.harness.name: team
     asserts:
       - containsDocument:
           apiVersion: api.kagent.dev/v1alpha3
@@ -442,11 +434,6 @@ tests:
       - equal:
           path: spec.template.ref.name
           value: platform
-        documentSelector:
-          path: $[?(@.kind == "Agent" && @.metadata.name == "platform")]
-      - equal:
-          path: spec.harnessRef.name
-          value: team
         documentSelector:
           path: $[?(@.kind == "Agent" && @.metadata.name == "platform")]
 
@@ -498,9 +485,9 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: platform-agent is skipped without the default Harness
+  - it: platform-agent is skipped without the default Harnesses
     set:
-      builtins.harness.enabled: false
+      harnesses.enabled: false
     asserts:
       - hasDocuments:
           count: 0
@@ -508,13 +495,6 @@ tests:
   - it: platform-agent is skipped without kagent-tools
     set:
       kagent-tools.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: platform-agent is skipped without the chart's worker pool
-    set:
-      substrateWorkerPool.create: false
     asserts:
       - hasDocuments:
           count: 0

@@ -816,29 +816,18 @@ kagent-tools:
 # ==============================================================================
 # BUILT-INS
 # ==============================================================================
-# A starting point for a new install: a Harness to run Agents on, a ready-made
-# Kubernetes Agent to chat with, and skills you can add to your own Agents.
-# The Harness and the Agent run on the chart's worker pool, so they need
-# substrateWorkerPool.create (kagent install sets it).
+# A starting point for a new install: ready-made Agents to chat with, and
+# skills you can add to your own Agents. The Agents run on the kagent-default
+# Harness, so they need harnesses.enabled (kagent install sets it).
 
 builtins:
   # -- Set to false to skip every built-in below, for example when you manage
-  # your own Harnesses and Agents.
+  # your own Agents.
   enabled: true
-  harness:
-    # -- Create a Harness, the runtime your Agents run on. Agents name it in
-    # spec.harnessRef.
-    enabled: true
-    # -- Name of the Harness.
-    name: kagent-builtin
-    # -- Where the Harness stores Agent snapshots. The default bucket comes
-    # with the Substrate chart's built-in object store. If you turned that off,
-    # set your own bucket.
-    snapshotLocation: s3://ate-snapshots/kagent/
   k8sAgent:
     # -- Create k8s-agent, an Agent that helps you troubleshoot workloads in
     # this cluster, and the AgentTemplate it references. It runs on
-    # builtins.harness, uses the kagent-tools Kubernetes tools and the
+    # kagent-default, uses the kagent-tools Kubernetes tools and the
     # k8s-troubleshooting skill, and asks for your approval before it changes
     # anything. Needs kagent-tools.enabled.
     enabled: true

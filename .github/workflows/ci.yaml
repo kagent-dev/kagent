@@ -176,10 +176,6 @@ jobs:
             replicas: 0
           kagent-tools:
             enabled: false
-          # The lifecycle suite applies its own Harness named kagent.
-          builtins:
-            harness:
-              enabled: false
           substrateWorkerPool:
             create: true
             replicas: 4

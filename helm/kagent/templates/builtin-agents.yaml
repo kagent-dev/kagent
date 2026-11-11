@@ -4,8 +4,8 @@
 {{- $_ := set $byName .name . }}
 {{- end }}
 {{- $toolServer := printf "%s-tool-server" (include "kagent.fullname" .) }}
-{{- /* Both agents need the built-in Harness, the worker pool, kagent-tools and the k8s-troubleshooting skill. */}}
-{{- $ready := and (dig "builtins" "enabled" false .Values.AsMap) (dig "builtins" "harness" "enabled" false .Values.AsMap) .Values.substrateWorkerPool.create (index .Values "kagent-tools" "enabled") (hasKey $byName "k8s-troubleshooting") }}
+{{- /* Both agents need the kagent-default Harness, kagent-tools and the k8s-troubleshooting skill. */}}
+{{- $ready := and (dig "builtins" "enabled" false .Values.AsMap) (dig "harnesses" "enabled" false .Values.AsMap) (dig "harnesses" "kagent" "enabled" false .Values.AsMap) (index .Values "kagent-tools" "enabled") (hasKey $byName "k8s-troubleshooting") }}
 {{- if and $ready (dig "builtins" "k8sAgent" "enabled" false .Values.AsMap) }}
 {{- $skill := get $byName "k8s-troubleshooting" }}
 apiVersion: api.kagent.dev/v1alpha3
@@ -86,7 +86,7 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   harnessRef:
-    name: {{ .Values.builtins.harness.name | quote }}
+    name: kagent-default
   template:
     ref:
       name: {{ .Values.builtins.k8sAgent.name | quote }}
@@ -222,7 +222,7 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   harnessRef:
-    name: {{ .Values.builtins.harness.name | quote }}
+    name: kagent-default
   template:
     ref:
       name: {{ .Values.builtins.platformAgent.name | quote }}
