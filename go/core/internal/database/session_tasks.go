@@ -23,6 +23,18 @@ import (
 // or idle lifecycle operation currently owns the session.
 var ErrDispatchBusy = errors.New("session temporarily unavailable for dispatch")
 
+// ErrDispatchSuspending is ErrDispatchBusy because a post-turn suspension holds its
+// claim. The suspension is running, or its worker was lost and its outcome is
+// unknown: the idle worker keeps the claim rather than guess, and nothing takes it
+// over on a timeout. Only a crash recovery or Delete retires it, so the send path
+// needs to tell this cause apart from an ordinary busy dispatch.
+var ErrDispatchSuspending = fmt.Errorf("runtime suspension has not settled: %w", ErrDispatchBusy)
+
+// errSuspensionUnsettled is requireSettledRuntime's failure when a claimed
+// suspension is what keeps the runtime unsettled. It still matches
+// ErrFailedPrecondition for every other caller.
+var errSuspensionUnsettled = fmt.Errorf("runtime suspension has not settled: %w", ErrFailedPrecondition)
+
 // ErrMessageAccepted means an earlier dispatch already persisted this initial input.
 var ErrMessageAccepted = errors.New("message already accepted")
 
@@ -70,6 +82,9 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 			return ErrConflict
 		}
 		if err := requireSettledRuntime(ctx, tx, session.HistoryID, ""); err != nil {
+			if errors.Is(err, errSuspensionUnsettled) {
+				return ErrDispatchSuspending
+			}
 			if errors.Is(err, ErrFailedPrecondition) {
 				return ErrDispatchBusy
 			}
@@ -829,16 +844,23 @@ func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, t
 // another unexpired dispatch. A writer may pass its own dispatch ID.
 // Callers hold the session lock so new execution and lifecycle claims cannot race.
 func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UUID, dispatchID string) error {
-	pending, err := queryOne(ctx, db, `
+	type unsettled struct {
+		Suspending, Pending bool
+	}
+	state, err := queryOne(ctx, db, `
 		SELECT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1
-		    AND (NOT published OR (quiescence_pending AND quiescence_executor_id IS NOT NULL)))
+		        AND quiescence_pending AND quiescence_executor_id IS NOT NULL) AS suspending,
+		    EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1 AND NOT published)
 		    OR EXISTS (SELECT 1 FROM session WHERE history_id = $1 AND dispatch_expires_at > clock_timestamp()
-		        AND ($2::text = '' OR dispatch_id::text <> $2))
-	`, pgx.RowTo[bool], historyID, dispatchID)
+		        AND ($2::text = '' OR dispatch_id::text <> $2)) AS pending
+	`, pgx.RowToStructByName[unsettled], historyID, dispatchID)
 	if err != nil {
 		return err
 	}
-	if pending {
+	if state.Suspending {
+		return errSuspensionUnsettled
+	}
+	if state.Pending {
 		return fmt.Errorf("runtime cleanup or lifecycle work is not yet settled: %w", ErrFailedPrecondition)
 	}
 	return nil

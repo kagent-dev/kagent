@@ -55,6 +55,8 @@ type InteractionService struct {
 	automaticRecovery bool
 	// recoveryWait bounds how long a send waits on the recovery it starts.
 	recoveryWait time.Duration
+	// dispatchWait bounds how long a send waits for a busy Session.
+	dispatchWait time.Duration
 }
 
 // sendRecoveryWait bounds a send's wait for crash recovery. A recovery still
@@ -63,7 +65,8 @@ type InteractionService struct {
 const sendRecoveryWait = 10 * time.Second
 
 func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP, automaticRecovery bool) *InteractionService {
-	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP, automaticRecovery: automaticRecovery, recoveryWait: sendRecoveryWait}
+	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP, automaticRecovery: automaticRecovery,
+		recoveryWait: sendRecoveryWait, dispatchWait: 10 * time.Second}
 }
 
 // PreparedSend either grants a new dispatch or returns an already accepted task.
@@ -170,7 +173,25 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		config.PushConfig = nil
 		req.Config = &config
 	}
-	id, err := s.reserveDispatch(ctx, session.Id, initialID)
+	id, err := s.reserveDispatch(ctx, session.Id, initialID, s.dispatchWait)
+	if s.automaticRecovery && errors.Is(err, errSuspensionUnsettled) {
+		// Why: a worker lost while the Actor suspends after a turn leaves the
+		// Actor CRASHED, the Session READY, and the suspension's claim held, since
+		// its outcome is unknown and nothing takes the claim over on a timeout.
+		// Every later send then waits out the busy period and is told to retry,
+		// so the conversation never recovers on its own. A crash recovery is the
+		// only thing that retires that claim. Reaching here means the claim
+		// outlasted the whole wait, which a healthy suspension does not, so the
+		// send tries the bounded recovery once. Revert leaves a still-running
+		// suspension alone, and one more reservation, without another wait,
+		// proceeds or answers retry as before.
+		switch recoverErr := s.recoverForSend(ctx, session.Id); {
+		case recoverErr == nil:
+			id, err = s.reserveDispatch(ctx, session.Id, initialID, 0)
+		case !errors.Is(recoverErr, errRecoveryUnavailable):
+			return nil, recoverErr
+		}
+	}
 	if s.automaticRecovery && errors.Is(err, database.ErrActiveTurn) {
 		// A crash during a turn leaves that turn open, and an open turn refuses
 		// every send, so no send would reach the crashed Actor to recover it.
@@ -178,10 +199,13 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		// reservation either proceeds or is refused as before.
 		switch recoverErr := s.recoverForSend(ctx, session.Id); {
 		case recoverErr == nil:
-			id, err = s.reserveDispatch(ctx, session.Id, initialID)
+			id, err = s.reserveDispatch(ctx, session.Id, initialID, s.dispatchWait)
 		case !errors.Is(recoverErr, errRecoveryUnavailable):
 			return nil, recoverErr
 		}
+	}
+	if errors.Is(err, errSuspensionUnsettled) {
+		err = ErrSendNotAccepted
 	}
 	switch {
 	case errors.Is(err, database.ErrActiveTurn):
@@ -239,10 +263,11 @@ func (s *InteractionService) prepareTask(ctx context.Context, agent types.Namesp
 
 // reserveDispatch waits only before forwarding input. No runtime send is retried
 // on an ambiguous transport error, and no SQL lock is held during dispatch.
-func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, initialID string) (uuid.UUID, error) {
+// It waits at most wait for a busy Session, answering ErrSendNotAccepted after
+// it, or errSuspensionUnsettled when a claimed suspension was still the cause.
+func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, initialID string, wait time.Duration) (uuid.UUID, error) {
 	id := uuid.New()
-	deadline := time.NewTimer(10 * time.Second)
-	defer deadline.Stop()
+	deadline := time.Now().Add(wait)
 	for {
 		err := s.store.ReserveSessionDispatch(ctx, sessionID, id, initialID)
 		if err == nil {
@@ -254,18 +279,26 @@ func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, ini
 		if !errors.Is(err, database.ErrDispatchBusy) {
 			return uuid.Nil, interactionStoreError(ctx, err)
 		}
-		timer := time.NewTimer(100 * time.Millisecond)
+		if !time.Now().Before(deadline) {
+			if errors.Is(err, database.ErrDispatchSuspending) {
+				return uuid.Nil, errSuspensionUnsettled
+			}
+			return uuid.Nil, ErrSendNotAccepted
+		}
+		timer := time.NewTimer(min(100*time.Millisecond, time.Until(deadline)))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return uuid.Nil, ctx.Err()
-		case <-deadline.C:
-			timer.Stop()
-			return uuid.Nil, ErrSendNotAccepted
 		case <-timer.C:
 		}
 	}
 }
+
+// errSuspensionUnsettled is reserveDispatch's answer when a claimed post-turn
+// suspension still held the Session at the end of the wait. PrepareSend recovers
+// it or answers ErrSendNotAccepted, so it never reaches a client.
+var errSuspensionUnsettled = errors.New("runtime suspension has not settled")
 
 // errTurnActive refuses a send while an earlier turn is still open. A runtime
 // that crashed mid-turn leaves its turn open, so unless the send recovers it,

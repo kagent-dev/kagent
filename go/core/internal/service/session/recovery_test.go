@@ -692,3 +692,83 @@ func TestRecoverRejectedSendReturnsSessionErrors(t *testing.T) {
 		})
 	}
 }
+
+// suspensionTestStore answers reservations with reserveErr until a revert clears it.
+type suspensionTestStore struct {
+	*database.Client
+	reserveErr error
+	reserves   int
+}
+
+func (s *suspensionTestStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
+	s.reserves++
+	return s.reserveErr
+}
+
+// suspensionTestWorkflow reverts a crashed runtime by retiring the held claim.
+type suspensionTestWorkflow struct {
+	serviceTestWorkflow
+	store   *suspensionTestStore
+	crashed bool
+	reverts int
+}
+
+func (w *suspensionTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	w.reverts++
+	if w.err != nil {
+		return nil, w.err
+	}
+	if w.crashed {
+		w.store.reserveErr = nil
+	}
+	return session, nil
+}
+
+// A worker lost during the post-turn suspension leaves the Actor CRASHED and the
+// suspension's claim held, so every send waits and is told to retry. Only a send
+// that outlasted the wait on that claim, with automatic recovery on, recovers it.
+func TestSendRecoversACrashDuringSuspension(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		disabled   bool
+		reserveErr error
+		crashed    bool
+		revertErr  error
+		reverts    int
+		dispatched bool
+	}{
+		{name: "a crash during suspension", reserveErr: database.ErrDispatchSuspending, crashed: true, reverts: 1, dispatched: true},
+		{name: "a suspension still running", reserveErr: database.ErrDispatchSuspending, reverts: 1},
+		{name: "a revert that cannot run", reserveErr: database.ErrDispatchSuspending, crashed: true,
+			revertErr: status.Error(codes.Unavailable, "control plane unavailable"), reverts: 1},
+		{name: "automatic recovery off", disabled: true, reserveErr: database.ErrDispatchSuspending, crashed: true},
+		{name: "an ordinary dispatch in flight", reserveErr: database.ErrDispatchBusy, crashed: true},
+	} {
+		t.Run("Given "+test.name+", when a send outlasts the busy wait, assert that it recovers only a crashed suspension", func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
+			store := &suspensionTestStore{reserveErr: test.reserveErr}
+			workflow := &suspensionTestWorkflow{serviceTestWorkflow: serviceTestWorkflow{err: test.revertErr}, store: store, crashed: test.crashed}
+			interactions := NewInteractionService(store, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, workflow), false, !test.disabled)
+			const wait = 200 * time.Millisecond
+			interactions.dispatchWait = wait
+			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("What is 2+2?"))
+			message.ContextID = id
+			started := time.Now()
+			prepared, err := interactions.PrepareSend(serviceTestContext("alice"), agent, &a2a.SendMessageRequest{Message: message})
+			elapsed := time.Since(started)
+			require.Equal(t, test.reverts, workflow.reverts)
+			if test.dispatched {
+				require.NoError(t, err)
+				require.NotEqual(t, uuid.Nil, prepared.DispatchID)
+				return
+			}
+			require.ErrorIs(t, err, ErrSendNotAccepted, "the client still sees an ordinary retryable refusal")
+			require.GreaterOrEqual(t, elapsed, wait, "a send first waits out the busy period")
+			require.Less(t, elapsed, 2*wait, "the reservation after a recovery attempt does not wait again")
+		})
+	}
+}

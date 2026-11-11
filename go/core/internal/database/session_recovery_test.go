@@ -142,6 +142,42 @@ func TestCrashedRecoveryAdmissionRespectsFences(t *testing.T) {
 // A crash during post-turn suspension leaves the worker's claim issued, because
 // the worker cannot tell whether its suspension took effect. The confirmed crash
 // settles that: admission retires the claim instead of waiting for it.
+// A suspension whose worker was lost keeps its claim. Reservation names that
+// cause so a send can recover the Session; a crash recovery retires the claim.
+func TestDispatchReportsUnsettledSuspension(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, task := waitingTaskFixture(t, client)
+	_, version, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
+	require.NoError(t, err)
+	dispatch := uuid.New()
+	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, dispatch, ""))
+	busy := client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "")
+	require.ErrorIs(t, busy, ErrDispatchBusy)
+	require.NotErrorIs(t, busy, ErrDispatchSuspending, "an ordinary dispatch in flight is not a suspension")
+	revoked, err := client.RevokeSessionDispatch(t.Context(), session.Id, dispatch, "unused")
+	require.NoError(t, err)
+	require.True(t, revoked)
+
+	for _, state := range []a2a.TaskState{a2a.TaskStateWorking, a2a.TaskStateInputRequired} {
+		task.Status.State = state
+		version, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash(string(state)), task, task, "")
+		require.NoError(t, err)
+	}
+	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = client.ClaimSessionQuiescence(t.Context())
+	require.NoError(t, err)
+	suspending := client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "")
+	require.ErrorIs(t, suspending, ErrDispatchSuspending)
+	require.ErrorIs(t, suspending, ErrDispatchBusy, "callers that only wait keep treating it as busy")
+
+	uid := "actor-" + session.Id
+	operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, uid), SessionTaskSnapshot{})
+	require.NoError(t, err)
+	finishCrashedRecovery(t, client, session.Id, operation, uid)
+	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), ""), "recovery retires the claim")
+}
+
 func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")

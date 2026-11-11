@@ -282,6 +282,18 @@ runtime is restored and the send proceeds, and a busy healthy runtime refuses it
 as before. Other conflicts, such as a checkpoint in progress, do not start
 recovery. A send while recovery is pending joins it.
 
+A worker can also be lost while the Actor suspends after a turn, for example
+during a node drain or scale-down. The Actor is then CRASHED, the Session still
+reads READY, and the idle worker keeps the suspension's claim because the outcome
+is unknown; nothing takes the claim over on a timeout. Every later send waits out
+the 10-second busy period and is told to retry, so the conversation would never
+recover on its own. Reservation reports a held suspension claim as
+`ErrDispatchSuspending`, a kind of `ErrDispatchBusy`. When that claim outlasts
+the whole wait, which a healthy suspension does not, the send attempts the same
+bounded recovery once. Admitting the recovery retires the claim. Revert leaves a
+suspension that is still running alone, and one more reservation, without
+another wait, proceeds or answers retry as before.
+
 A send waits at most 10 seconds on the recovery it starts. A recovery still
 running then stays admitted: the attempt releases its claim, the send is
 answered `KAGENT_SEND_NOT_ACCEPTED` with `state: RECOVERING` and a one-second
