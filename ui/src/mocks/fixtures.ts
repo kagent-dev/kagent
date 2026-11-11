@@ -135,7 +135,7 @@ export const mockProviders: Provider[] = [
     name: "AzureOpenAI",
     type: "AzureOpenAI",
     requiredParams: ["azureEndpoint"],
-    optionalParams: ["apiVersion", "azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"],
+    optionalParams: ["apiVersion", "azureDeployment", "temperature", "maxTokens", "topP", "apiFormat"],
   },
   {
     name: "Ollama",
