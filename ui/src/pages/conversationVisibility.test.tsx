@@ -8,6 +8,7 @@ import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
 import { SystemService } from "@/generated/kagent/api/v1/system_pb";
 import { setApiTransport } from "@/api/transport";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import { themeFor } from "@/theme/theme";
 import { AgentsTab } from "./AgentsPage";
 import { UnmappedConversationsPage } from "./UnmappedConversationsPage";
@@ -17,7 +18,7 @@ function renderPage(page: "agents" | "unmapped", empty = false) {
     service(SystemService, { listNamespaces: () => ({ namespaces: [{ name: "team-a" }] }) });
     service(AgentService, { listAgents: () => ({ agents: [{
       ref: { namespace: "team-a", name: "assistant" },
-      resource: { apiVersion: "api.kagent.dev/v1alpha3", kind: "Agent", value: {
+      resource: { apiVersion: KAGENT_API_VERSION, kind: "Agent", value: {
         metadata: { namespace: "team-a", name: "assistant" },
         spec: { template: { inline: {} }, harnessRef: { name: "runner" } },
       } },

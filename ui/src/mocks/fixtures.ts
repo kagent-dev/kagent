@@ -7,6 +7,7 @@
  */
 
 import type { AgentInstance } from "@/api/domain/agentInstances";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import type { ToolServerResponse, ToolsResponse } from "@/api/domain/mcpServers";
 import type {
   ModelConfig,
@@ -935,7 +936,7 @@ function egressPolicy(namespace: string, name: string, spec: EgressPolicySpec): 
     namespace,
     name,
     resource: {
-      apiVersion: "api.kagent.dev/v1alpha3",
+      apiVersion: KAGENT_API_VERSION,
       kind: "EgressPolicy",
       metadata: { name, namespace, resourceVersion: "1", generation: 1, creationTimestamp: "2026-10-01T09:00:00Z" },
       spec,
