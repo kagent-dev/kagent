@@ -458,6 +458,37 @@ class TestHITLResume:
             p.stop()
         return result, sent
 
+    async def test_second_pause_in_one_run_is_reported_not_repeated(self):
+        """A subagent that pauses again after its decision was forwarded.
+
+        The parent's call is already confirmed, so no new prompt can be raised.
+        Returning a pending result told the model to call the subagent again,
+        which started a separate run and left the paused task waiting for an
+        approval nobody was asked for. See kagent-dev/kagent#3244.
+        """
+        tool = _make_tool()
+        again = _make_hitl_task(tool_name="search_dashboards", tool_call_id="call_2")
+        sent: list[SendMessageRequest] = []
+
+        async def capture(*, request: SendMessageRequest, **kw):
+            sent.append(request)
+            yield (again, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            ctx = _approval_ctx(confirmed=True, payload=_RESUME_PAYLOAD)
+            result = await tool.run_async(args={}, tool_context=ctx.as_tool_context())
+        finally:
+            p.stop()
+
+        assert result["status"] == "failed"
+        assert "waiting_for" not in result, "a second pause must not read as pending work"
+        assert again.id in result["error"]
+        assert tool.name in result["error"]
+        # No second prompt was requested: the framework would drop it, and the
+        # human would never see it.
+        assert ctx.function_call_id not in ctx._confirmations
+
     async def test_approve_sends_approve_decision(self):
         tool = _make_tool()
         result, sent = await self._resume(
@@ -583,22 +614,6 @@ class TestHITLResume:
         tool = _make_tool()
         result, _ = await self._resume(tool, confirmed=True, payload=_RESUME_PAYLOAD)
         assert result["subagent_session_id"] == "ctx-1"
-
-    async def test_resume_input_required_chains(self):
-        """If the subagent returns input_required again after resume, it chains."""
-        tool = _make_tool()
-        chained_task = _make_hitl_task(tool_name="restart_pod")
-        p, _ = _patch_client(tool, _async_yield((chained_task, None)))
-        try:
-            ctx = _approval_ctx(confirmed=True, payload=_RESUME_PAYLOAD)
-            result = await tool.run_async(args={}, tool_context=ctx.as_tool_context())
-        finally:
-            p.stop()
-
-        assert result["waiting_for"] == "subagent_approval"
-        assert ctx.function_call_id in ctx._confirmations
-        assert "restart_pod" in ctx._confirmations[ctx.function_call_id].hint
-
 
 # ---------------------------------------------------------------------------
 # Toolset lifecycle tests
