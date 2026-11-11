@@ -56,7 +56,7 @@ A follow-up message uses the same components. Only three phases differ:
 
 | Record | Holds | Why |
 | --- | --- | --- |
-| Runtime revision (`runtime_revision`) | The configuration a Session runs | A Session is pinned to one revision, so editing the Agent never changes a running conversation. |
+| Runtime revision (`runtime_revision`) | The configuration a Session runs | A Session is pinned to one revision, so editing the Agent changes a running conversation only through its egress grants. |
 | Session (`runtime_instance`, `session`) | One row per conversation: its revision, its Actor, and the open reservation | The A2A `contextId` is the Session ID, so a follow-up message finds the same Actor. The reservation is stored with the Session so the suspend check sees it. |
 | Task (`session_task`) | One row per A2A task: its current state and the latest snapshot | The next message resumes from a snapshot that matches the saved task. |
 | Task events (`session_task_event`) | The ordered history of each task | Streams and history are read from here. Each save is versioned, so a retried save is not applied twice. |
