@@ -160,14 +160,21 @@ func (c *Client) ListPendingCheckpoints(ctx context.Context, afterID string, lim
 // ClearFailedCheckpointTag records successful UID-conditional cleanup without
 // discarding the owner's terminal request result. Only the current executor can
 // clear the retained UID and claim atomically; stale completions return ErrConflict.
+// The statement locks the candidate before checking whether its claim is still live.
 func (c *Client) ClearFailedCheckpointTag(ctx context.Context, id, owner, tagUID string, executor uuid.UUID) error {
 	if tagUID == "" || executor == uuid.Nil {
 		return ErrFailedPrecondition
 	}
 	tag, err := c.db.Exec(ctx, `
+		WITH locked AS MATERIALIZED (
+		    SELECT id, executor_expires_at FROM session_checkpoint
+		    WHERE id = $1 AND user_id = $2 AND state = 'FAILED' AND tag_uid = $3 AND executor_id = $4
+		    FOR UPDATE
+		)
 		UPDATE session_checkpoint SET tag_uid = '', executor_id = NULL, executor_expires_at = NULL
-		WHERE id = $1 AND user_id = $2 AND state = 'FAILED' AND tag_uid = $3
-		    AND executor_id = $4 AND executor_expires_at > clock_timestamp()
+		FROM locked
+		WHERE session_checkpoint.id = locked.id
+		    AND locked.executor_expires_at > clock_timestamp()
 	`, id, owner, tagUID, executor)
 	if err != nil {
 		return fmt.Errorf("clear failed checkpoint tag: %w", err)

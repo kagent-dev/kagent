@@ -355,13 +355,21 @@ func (c *Client) FinalizeClaimedSessionCheckpoint(ctx context.Context, checkpoin
 	if err != nil {
 		return nil, fmt.Errorf("encode checkpoint: %w", err)
 	}
+	// Check expiry after taking the row lock. A blocker that leaves the row
+	// unchanged does not trigger PostgreSQL's predicate recheck.
 	tag, err := c.db.Exec(ctx, `
+        WITH locked AS MATERIALIZED (
+            SELECT id, executor_expires_at FROM session_checkpoint
+            WHERE id = $1 AND state = 'CREATING' AND executor_id = $6
+            FOR UPDATE
+        )
         UPDATE session_checkpoint
         SET state = $2, tag_uid = $3,
             snapshot_uri = CASE WHEN $4::text <> '' THEN $4::text ELSE snapshot_uri END,
             data = $5, executor_id = NULL, executor_expires_at = NULL
-        WHERE id = $1 AND state = 'CREATING'
-            AND executor_id = $6 AND executor_expires_at > clock_timestamp()
+        FROM locked
+        WHERE session_checkpoint.id = locked.id
+            AND locked.executor_expires_at > clock_timestamp()
     `, checkpoint.Id, state, tagUID, snapshotURI, data, executor)
 	if err != nil {
 		return nil, fmt.Errorf("finalize Session checkpoint: %w", err)
@@ -530,14 +538,20 @@ func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID st
 // DeleteClaimedSessionCheckpoint removes an owned DELETING checkpoint after
 // external cleanup. Only its current, unexpired executor can remove the row;
 // a missing or superseded operation returns ErrConflict for the caller to reread.
+// Expiry is checked after acquiring the row lock, even if the wait changed no data.
 func (c *Client) DeleteClaimedSessionCheckpoint(ctx context.Context, id, userID string, executor uuid.UUID) error {
 	if executor == uuid.Nil {
 		return ErrFailedPrecondition
 	}
 	tag, err := c.db.Exec(ctx, `
-        DELETE FROM session_checkpoint
-        WHERE id = $1 AND user_id = $2 AND state = 'DELETING'
-            AND executor_id = $3 AND executor_expires_at > clock_timestamp()
+        WITH locked AS MATERIALIZED (
+            SELECT id, executor_expires_at FROM session_checkpoint
+            WHERE id = $1 AND user_id = $2 AND state = 'DELETING' AND executor_id = $3
+            FOR UPDATE
+        )
+        DELETE FROM session_checkpoint USING locked
+        WHERE session_checkpoint.id = locked.id
+            AND locked.executor_expires_at > clock_timestamp()
     `, id, userID, executor)
 	if err != nil {
 		return fmt.Errorf("delete Session checkpoint: %w", err)
