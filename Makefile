@@ -604,6 +604,15 @@ helm-publish: helm-release
 
 ##@ Dev
 
+.PHONY: setup
+setup: create-kind-cluster ## Create the kind cluster if it does not exist
+
+.PHONY: deploy
+deploy: build kagent-cli-deploy ## Build images from this checkout and install them into the kind cluster
+
+.PHONY: run
+run: setup deploy ## Bootstrap a local dev environment
+
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
 kagent-cli-install: kagent-cli-deploy
