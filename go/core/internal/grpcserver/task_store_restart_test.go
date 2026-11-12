@@ -31,6 +31,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 // A save made while the controller restarts must keep trying on the same
@@ -70,7 +71,7 @@ func saveThroughControllerRestart(t *testing.T, store *database.Client, issuer *
 		server, err := New(Config{
 			Listener: serving, SystemService: testSystemService(),
 			Authenticator:    runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL),
-			TaskStoreService: taskstore.NewService(store, nil, make(chan struct{}, 1)),
+			TaskStoreService: taskstore.NewService(store, runtimeauth.NewAuthorizer(auth.NoopAuthorizer{}, store), nil, make(chan struct{}, 1)),
 		})
 		require.NoError(t, err)
 		ctx, cancel := context.WithCancel(t.Context())

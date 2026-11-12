@@ -27,10 +27,14 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
-type memoryRPCPolicy struct{ denied atomic.Bool }
+type memoryRPCPolicy struct {
+	denied       atomic.Bool
+	actorsDenied atomic.Bool
+}
 
 func (p *memoryRPCPolicy) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	if p.denied.Load() || principal.ID == auth.PrincipalID("trusted-proxy:", "blocked") || resource.Type != "Memory" || resource.Namespace != "" {
+	if principal.RuntimeBinding != nil && p.actorsDenied.Load() || principal.RuntimeBinding == nil && p.denied.Load() ||
+		principal.ID == auth.PrincipalID("trusted-proxy:", "blocked") || resource.Type != "Memory" || resource.Namespace != "" {
 		return errors.New("denied")
 	}
 	if principal.ID == auth.PrincipalID("trusted-proxy:", "viewer") && verb != auth.VerbGet && verb != auth.VerbList {
@@ -226,6 +230,15 @@ func TestRuntimeMemoryUsesAcceptedActorBindingInsteadOfHumanClaims(t *testing.T)
 	require.Len(t, store.rows["team/assistant/victim"], 1, "actor deletion must preserve other users")
 	require.Len(t, store.rows["forged/agent/owner"], 1, "actor deletion must preserve other Agents")
 	before := store.callCount()
+	policy.actorsDenied.Store(true)
+	_, err = client.Search(ctx, &runtimev1.MemoryServiceSearchRequest{Vector: memoryVector()})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = client.List(ctx, &runtimev1.MemoryServiceListRequest{})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = client.Delete(ctx, &runtimev1.MemoryServiceDeleteRequest{})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	require.Equal(t, before, store.callCount(), "revoked Actor policy must fail before storage")
+	policy.actorsDenied.Store(false)
 	_, err = client.AddSessionBatch(ctx, &runtimev1.MemoryServiceAddSessionBatchRequest{Items: []*runtimev1.SessionMemoryInput{{Content: "valid", Vector: memoryVector()}, {Content: "invalid", Vector: []float32{1}}}})
 	assertGRPCCode(t, err, codes.InvalidArgument)
 	_, err = client.AddSession(ctx, &runtimev1.MemoryServiceAddSessionRequest{})

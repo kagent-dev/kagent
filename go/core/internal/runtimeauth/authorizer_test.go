@@ -36,7 +36,7 @@ func TestActorPolicyDoesNotInheritOwnerPermissions(t *testing.T) {
 	identity, err := provider.Authenticate(t.Context(), http.Header{"Authorization": {"Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(store.session.Id), store.actorUID))}}, nil)
 	require.NoError(t, err)
 	ctx := auth.AuthSessionTo(t.Context(), identity)
-	for _, users := range []auth.CollectionAuthorizer{auth.NoopAuthorizer{}, denyUsers{}} {
+	for _, users := range []auth.CollectionAuthorizer{auth.NoopAuthorizer{}, &actorPolicy{scope: authorization.AuthorizationScope{Kind: authorization.ScopeAll}}} {
 		policy := runtimeauth.NewAuthorizer(users, store)
 		for _, test := range []struct {
 			name     string
@@ -62,6 +62,9 @@ func TestActorPolicyDoesNotInheritOwnerPermissions(t *testing.T) {
 			{"delete session", auth.VerbDelete, auth.Resource{Type: "Session", Name: store.session.Id}, false},
 			{"share", auth.VerbCreate, auth.Resource{Type: "SessionShare", Name: store.session.Id}, false},
 			{"own memory", auth.VerbList, auth.Resource{Type: "Memory", Name: "team-a/agent"}, true},
+			{"own task store", auth.VerbCreate, auth.Resource{Type: "TaskStore", Namespace: "team-a", Name: store.session.Id}, true},
+			{"foreign task store", auth.VerbGet, auth.Resource{Type: "TaskStore", Namespace: "team-a", Name: uuid.NewString()}, false},
+			{"foreign task store namespace", auth.VerbGet, auth.Resource{Type: "TaskStore", Namespace: "other", Name: store.session.Id}, false},
 			{"other memory", auth.VerbDelete, auth.Resource{Type: "Memory", Name: "team-a/other"}, false},
 			{"sandbox", auth.VerbGet, auth.Resource{Type: "Sandbox", Name: store.session.Id}, false},
 			{"namespaces", auth.VerbGet, auth.Resource{Type: "SystemNamespaces"}, false},
