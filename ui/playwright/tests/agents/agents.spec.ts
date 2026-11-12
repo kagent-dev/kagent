@@ -230,9 +230,16 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
 
   await test.step("4. the header creates each of the three resources", async () => {
     await page.getByRole("tab", { name: "Agents" }).click();
+    await page.getByTestId("agents-create").click();
     await expect(page.getByTestId("agents-new")).toBeVisible();
     await expect(page.getByTestId("agents-new-template")).toBeVisible();
     await expect(page.getByTestId("agents-new-harness")).toBeVisible();
+    // Closed again: the modal's mask would make the diagram's "+" inert.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("agents-new")).toBeHidden();
+    for (const k of ["Agent", "AgentTemplate", "Harness"]) {
+      await expect(page.getByTestId(`concept-create-${k}`)).toBeVisible();
+    }
   });
 });
 

@@ -14,6 +14,8 @@ export const EXTENSION_POINT_IDS = [
   "app_shell_appLayout_contentArea_globalOverlay",
   "app_shell_appLayout_appSidebar_footer",
   "app_agents_agentsList_pageHeader_actions",
+  "app_agents_agentsList_overview_createActions",
+  "app_agents_agentsList_createModal_options",
   "app_agents_agentsList_agentListItem_badge",
   "app_agents_agentChat_agentChatMessage_additionalActionsButton",
   "app_agents_agentChat_snapshotDetails_footer",
@@ -23,6 +25,9 @@ export const EXTENSION_POINT_IDS = [
   "app_agents_agentRail_gutter_actions",
   "app_dashboard_dashboardOverview_summaryGrid_leadingCard",
 ] as const;
+
+/** The resources the Agents page can create. The page's create options are keyed by this. */
+export type CreatableKind = "Agent" | "AgentTemplate" | "Harness";
 
 /** Union of valid point IDs. A typo anywhere is a compile error. */
 export type ExtensionPointId = (typeof EXTENSION_POINT_IDS)[number];
@@ -39,6 +44,8 @@ type PropsFor<T extends Partial<Record<ExtensionPointId, object>>> = T;
  * take no context — their components render from the extension's own state.
  */
 type ExtensionPointPropsMap = PropsFor<{
+  /** One per create-able box in the overview diagram, told which kind it sits on. */
+  app_agents_agentsList_overview_createActions: { kind: CreatableKind };
   app_agents_agentsList_agentListItem_badge: {
     agentName: string;
     namespace: string;
@@ -166,6 +173,8 @@ export const EXTENSION_POINT_RENDER_MODE: Record<
   app_shell_appLayout_contentArea_globalOverlay: "portal",
   app_shell_appLayout_appSidebar_footer: "inline",
   app_agents_agentsList_pageHeader_actions: "inline",
+  app_agents_agentsList_overview_createActions: "inline",
+  app_agents_agentsList_createModal_options: "inline",
   app_agents_agentsList_agentListItem_badge: "inline",
   app_agents_agentChat_agentChatMessage_additionalActionsButton: "inline",
   app_agents_agentChat_snapshotDetails_footer: "inline",

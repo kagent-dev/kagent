@@ -10,6 +10,10 @@ export { AppExtensionContext, NO_APP_EXTENSIONS } from "./context";
 export { AppExtensionsProvider } from "./AppExtensionsProvider";
 export { ExtensionProviders } from "./ExtensionProviders";
 export { ExtensionSlot } from "./ExtensionSlot";
+// The one UI component re-exported here, so an extension building a Create-modal row
+// matches the built-in rows without copying their styling. It stays safe from import
+// cycles only while it imports nothing from this barrel: keep it that way.
+export { CreateOptionRow } from "@/components/CreateOptionRow";
 export type { ExtensionSlotProps } from "./ExtensionSlot";
 
 export {
