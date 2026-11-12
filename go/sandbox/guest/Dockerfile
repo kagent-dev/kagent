@@ -34,7 +34,7 @@ RUN set -eux; \
 
 FROM alpine:${ALPINE_VERSION}
 
-RUN apk add --no-cache bash ca-certificates git && \
+RUN apk add --no-cache bash "ca-certificates>=20261020-r0" git && \
     mkdir -p /data/workspace /data/guest-logs /home/nonroot && \
     chown -R 65532:65532 /data /home/nonroot
 

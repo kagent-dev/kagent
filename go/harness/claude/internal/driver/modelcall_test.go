@@ -157,7 +157,8 @@ func TestModelCallsFromCaptures(t *testing.T) {
 	}
 }
 
-func TestCapturesUseThePinnedClaudeVersion(t *testing.T) {
+func TestCapturesUseRecordedClaudeVersion(t *testing.T) {
+	const recordedVersion = "2.1.285"
 	files, err := filepath.Glob("testdata/modelcall/*.jsonl")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("captures = %v, %v", files, err)
@@ -171,8 +172,8 @@ func TestCapturesUseThePinnedClaudeVersion(t *testing.T) {
 			Version string `json:"claude_code_version"`
 		}
 		line, _, _ := bytes.Cut(raw, []byte("\n"))
-		if err := json.Unmarshal(line, &init); err != nil || init.Version != config.PinnedClaudeVersion {
-			t.Errorf("%s claude_code_version = %q (%v), want %s", file, init.Version, err, config.PinnedClaudeVersion)
+		if err := json.Unmarshal(line, &init); err != nil || init.Version != recordedVersion {
+			t.Errorf("%s claude_code_version = %q (%v), want %s", file, init.Version, err, recordedVersion)
 		}
 	}
 }
