@@ -816,13 +816,13 @@ kagent-tools:
 # ==============================================================================
 # BUILT-INS
 # ==============================================================================
-# Ready-made Agents and skills for a new install. The Agents run on the
-# kagent-default Harness and kagent-tools.
+# Ready-made Agents and skills for a new install. Off in the chart; `kagent install`
+# turns them on.
 
 builtins:
   # -- Create the built-in Agent and offer the kagent-tools skills in the UI.
   # The Agent needs `harnesses.enabled`, `harnesses.kagent.enabled` and `kagent-tools.enabled`.
-  enabled: true
+  enabled: false
   platformAgent:
     # -- Create platform-agent, which hands each task to a specialist subagent
     # (Kubernetes, Helm, Istio, Argo Rollouts, Kubescape, Prometheus).

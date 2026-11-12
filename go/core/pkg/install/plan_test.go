@@ -428,26 +428,29 @@ func TestPlanEnablesGRPCReflection(t *testing.T) {
 
 func TestPlanEnablesDefaultHarnesses(t *testing.T) {
 	scenarios := []struct {
-		name        string
-		operator    string
-		wantHarness string
+		name         string
+		operator     string
+		wantHarness  string
+		wantBuiltins string
 	}{
 		{
-			name:        "Given chart defaults that disable default Harnesses, when planning an install, assert that the WorkerPool and default Harnesses are enabled",
-			wantHarness: "true",
+			name:         "Given chart defaults that disable default Harnesses and built-ins, when planning an install, assert that the WorkerPool, default Harnesses and built-ins are enabled",
+			wantHarness:  "true",
+			wantBuiltins: "true",
 		},
 		{
-			name:        "Given an operator values file that disables default Harnesses, when planning an install, assert that the operator choice wins",
-			operator:    "harnesses: {enabled: false}\n",
-			wantHarness: "false",
+			name:         "Given an operator values file that disables default Harnesses and built-ins, when planning an install, assert that the operator choice wins",
+			operator:     "harnesses: {enabled: false}\nbuiltins: {enabled: false}\n",
+			wantHarness:  "false",
+			wantBuiltins: "false",
 		},
 	}
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			cfg := localInstallConfig(t)
 			chart := filepath.Join(cfg.Kagent.Repository, cfg.Kagent.Name)
-			require.NoError(t, os.WriteFile(filepath.Join(chart, "values.yaml"), []byte("harnesses: {enabled: false}\nsubstrateWorkerPool: {create: false}\n"), 0o600))
-			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates", "harnesses.yaml"), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: harnesses}\ndata:\n  harnesses: {{ .Values.harnesses.enabled | quote }}\n  pool: {{ .Values.substrateWorkerPool.create | quote }}\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "values.yaml"), []byte("harnesses: {enabled: false}\nbuiltins: {enabled: false}\nsubstrateWorkerPool: {create: false}\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(chart, "templates", "harnesses.yaml"), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: harnesses}\ndata:\n  harnesses: {{ .Values.harnesses.enabled | quote }}\n  pool: {{ .Values.substrateWorkerPool.create | quote }}\n  builtins: {{ .Values.builtins.enabled | quote }}\n"), 0o600))
 			if scenario.operator != "" {
 				operator := filepath.Join(t.TempDir(), "operator.yaml")
 				require.NoError(t, os.WriteFile(operator, []byte(scenario.operator), 0o600))
@@ -467,6 +470,7 @@ func TestPlanEnablesDefaultHarnesses(t *testing.T) {
 			var rendered struct{ Data map[string]string }
 			require.NoError(t, yaml.Unmarshal([]byte(out), &rendered))
 			require.Equal(t, scenario.wantHarness, rendered.Data["harnesses"])
+			require.Equal(t, scenario.wantBuiltins, rendered.Data["builtins"])
 			require.Equal(t, "true", rendered.Data["pool"])
 		})
 	}

@@ -120,6 +120,9 @@ config:
 # Ready-to-reference Harnesses on the WorkerPool created below.
 harnesses:
   enabled: true
+# The built-in Agent and skills, which run on those Harnesses.
+builtins:
+  enabled: true
 ` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
 	if !cfg.SkipDatabaseSetup {
 		kagent.Values = append(kagent.Values, "database.postgres.clientCertificate.enabled=true")
