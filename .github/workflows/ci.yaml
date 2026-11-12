@@ -176,6 +176,9 @@ jobs:
             replicas: 0
           kagent-tools:
             enabled: false
+          # The built-in Agent needs kagent-tools, and the e2e suites do not use it.
+          builtins:
+            enabled: false
           substrateWorkerPool:
             create: true
             replicas: 4
