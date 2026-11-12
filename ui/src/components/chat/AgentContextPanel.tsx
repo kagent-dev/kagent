@@ -84,7 +84,11 @@ export function AgentContextPanel({
 
       <Field
         label="Template"
-        hint="The AgentTemplate that sets the model, tools and instructions below. Every agent built from it shares them."
+        hint={
+          definition.data?.resource.spec.template.inline
+            ? "This agent has no AgentTemplate: the model, tools and instructions below are written into the agent itself."
+            : "The AgentTemplate that sets the model, tools and instructions below. Every agent built from it shares them."
+        }
       >
         {templateRef && templateNamespace && templateName ? (
           <RefLink
@@ -216,7 +220,7 @@ export function AgentContextPanel({
       {instance?.preparedRevision ? (
         <Field
           label="Prepared revision"
-          hint="The revision this conversation runs. Edits to the template after it started don't apply here."
+          hint="The configuration this conversation was prepared with. Later edits to the agent or its template don't apply to it."
         >
           {/* What this conversation actually runs. The template above can be edited
               after an instance is cut from it, and the instance keeps its revision —
@@ -264,6 +268,7 @@ function Field({
           <Tooltip title={hint} trigger={["hover", "focus"]}>
             <Info
               size={12}
+              role="img"
               aria-label={hint}
               tabIndex={0}
               data-testid={`chat-agent-context-hint-${label.toLowerCase().replace(/\s+/g, "-")}`}

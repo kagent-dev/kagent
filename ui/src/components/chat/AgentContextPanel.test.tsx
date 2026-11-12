@@ -20,8 +20,13 @@ function LocationState() {
   return <pre data-testid="location-state">{JSON.stringify(location.state)}</pre>;
 }
 
-function renderPanel(tools: unknown[], modelNamespace?: string, instance?: AgentInstance) {
-  useAgent.mockReturnValue({data: {resource: {spec: {template: {ref: {name: "helper-template"}}, harnessRef: {name: "runner"}}}}});
+function renderPanel(
+  tools: unknown[],
+  modelNamespace?: string,
+  instance?: AgentInstance,
+  template: unknown = { ref: { name: "helper-template" } },
+) {
+  useAgent.mockReturnValue({data: {resource: {spec: {template, harnessRef: {name: "runner"}}}}});
   useAgentTemplate.mockReturnValue({
     data: {
       resource: {
@@ -70,6 +75,16 @@ describe("AgentContextPanel", () => {
     renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
     await userEvent.click(screen.getByTestId("chat-agent-context-agent"));
     expect(screen.getByTestId("agent-page")).toBeTruthy();
+  });
+
+  it("says an inline agent has no template, and why", async () => {
+    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance, {
+      inline: { modelConfig: { name: "gpt" }, tools: [] },
+    });
+    expect(screen.queryByTestId("chat-agent-context-template")).toBeNull();
+    expect(screen.getByText(/None\. The agent defines its own/)).toBeTruthy();
+    await userEvent.hover(screen.getByTestId("chat-agent-context-hint-template"));
+    expect(await screen.findByText(/This agent has no AgentTemplate/)).toBeTruthy();
   });
 
   it("leaves the agent out on the agent's own page", () => {

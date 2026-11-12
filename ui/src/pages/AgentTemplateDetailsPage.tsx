@@ -342,9 +342,10 @@ export function AgentTemplateDetailsPage() {
             />
           ) : null}
           <Button
-            // Returning replaces this entry, so the browser's Back button does not
-            // lead straight back here from the page the reader just returned to.
-            onClick={() => navigate(back.to, { replace: back.isReturn })}
+            // A return steps back through history rather than pushing the origin again,
+            // so it leaves no duplicate entry for the browser's Back button to land on.
+            // Tab switches replace their entry, so the one before is still the origin.
+            onClick={() => (back.isReturn ? navigate(-1) : navigate(back.to))}
             data-testid="template-back"
           >
             {back.label}
