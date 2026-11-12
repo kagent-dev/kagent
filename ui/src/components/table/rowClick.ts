@@ -7,11 +7,11 @@ import type { MouseEvent } from "react";
  * One rule rather than a `stopPropagation` per control, so a control added to a row
  * later cannot silently inherit the row's navigation or expansion.
  *
- * Content portalled out of the row (popovers, dropdowns, modals, tooltips) is not listed
- * here: it is caught by `rowClickHandler`, which ignores any click whose target is
- * outside the row's own markup, however React bubbles it.
+ * Popover and dropdown are here because their content is portalled outside the row's
+ * markup in the tree but still inside it for event bubbling. Anything else portalled
+ * (a modal's mask) is caught by `rowClickHandler`'s check that the target is in the row.
  */
-const INTERACTIVE = "a, button, input, [role='button']";
+const INTERACTIVE = "a, button, input, [role='button'], .ant-popover, .ant-dropdown";
 
 /**
  * Runs `activate` on a click that did not land on something interactive.

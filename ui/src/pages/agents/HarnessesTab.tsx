@@ -102,7 +102,7 @@ export function HarnessesTab() {
     {
       title: "",
       key: "actions",
-      width: 96,
+      width: 56,
       render: (_: unknown, row: Harness) => (
         <RowActionsMenu
           kind="harness"

@@ -24,7 +24,8 @@ import {
   type Agent,
   type AgentSpec,
 } from "@/api";
-import { copySource } from "@/components/table/RowActionsMenu";
+import { copyName, copySource, useMountedBlank } from "@/components/table/RowActionsMenu";
+import { CopyNotice } from "@/components/table/CopyNotice";
 import { paths } from "@/router/routes";
 import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
@@ -45,6 +46,11 @@ export function AgentFormPage() {
   const copying = !editing && Boolean(from);
   const source = useAgent(copying ? from?.namespace : undefined, copying ? from?.name : undefined);
   const namespaces = useNamespaces();
+  const mountedBlank = useMountedBlank(
+    from && `${from.namespace}/${from.name}`,
+    !editing && Boolean(namespaces.data) && (!copying || Boolean(source.data || source.error)),
+    Boolean(source.data),
+  );
 
   return (
     <PageFrame
@@ -63,18 +69,14 @@ export function AgentFormPage() {
         // Mounted once namespaces arrive, so the ref lists never read an empty namespace.
         // A copy source that could not be had leaves a blank form, with the reason above it.
         <>
-          {copying && source.error && !source.data ? (
-            <Alert
-              type="error"
-              showIcon
-              title="Could not load the agent to copy"
-              description={`${source.error.message} Starting from a blank form.`}
-              data-testid="agent-copy-error"
-              css={{ maxWidth: 860, marginBottom: 16 }}
-            />
+          {copying ? (
+            <div css={{ maxWidth: 860 }}>
+              <CopyNotice kind="agent" from={from} error={source.error?.message} loaded={Boolean(source.data)} mountedBlank={mountedBlank} testId="agent-copy-error" />
+            </div>
           ) : null}
           <AgentForm
-            key={source.data ? `${source.data.namespace}/${source.data.name}` : "new"}
+            // Keyed on the requested source, so a late-arriving one never remounts an edited form.
+            key={from ? `${from.namespace}/${from.name}` : "new"}
             copyOf={source.data}
           />
         </>
@@ -111,7 +113,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
 
   const [chosenNamespace, setNamespace] = useState((agent ?? copyOf)?.namespace);
   const namespace = chosenNamespace ?? fallbackNamespace;
-  const [name, setName] = useState(agent?.name ?? (copyOf ? `${copyOf.name}-copy` : ""));
+  const [name, setName] = useState(agent?.name ?? (copyOf ? copyName(copyOf.name) : ""));
 
   const [templateSource, setTemplateSource] = useState<Source>(spec?.template.inline ? "inline" : "reference");
   const [templateRef, setTemplateRef] = useState(spec?.template.ref?.name);

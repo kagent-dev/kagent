@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { RowActionsMenu, copyPath, copySource } from "./RowActionsMenu";
+import { RowActionsMenu, copyName, copyPath, copySource } from "./RowActionsMenu";
 
 function Where() {
   const { pathname, search } = useLocation();
@@ -34,6 +34,18 @@ function renderMenu(onDelete = vi.fn().mockResolvedValue(undefined)) {
 describe("copyPath", () => {
   it("encodes the source as namespace/name", () => {
     expect(copyPath("/agents/new", { namespace: "ns", name: "web" })).toBe("/agents/new?from=ns%2Fweb");
+  });
+});
+
+describe("copyName", () => {
+  it("appends -copy, within 63 characters", () => {
+    expect(copyName("web")).toBe("web-copy");
+    expect(copyName("a".repeat(63))).toBe(`${"a".repeat(58)}-copy`);
+  });
+
+  it("does not leave a trailing `.` or `-` before the suffix", () => {
+    expect(copyName(`${"a".repeat(57)}.${"b".repeat(5)}`)).toBe(`${"a".repeat(57)}-copy`);
+    expect(copyName(`${"a".repeat(57)}-${"b".repeat(5)}`)).toBe(`${"a".repeat(57)}-copy`);
   });
 });
 
@@ -84,7 +96,7 @@ describe("RowActionsMenu", () => {
 });
 
 describe("RowActionsMenu with delete unavailable", () => {
-  it("disables Delete and says why on hover", async () => {
+  it("disables Delete and says why beside it", async () => {
     render(
       <ConfigProvider theme={{ token: { motion: false } }}>
         <MemoryRouter>
@@ -103,7 +115,6 @@ describe("RowActionsMenu with delete unavailable", () => {
     fireEvent.click(screen.getByTestId("row-actions-ns/web"));
     const item = await screen.findByTestId("row-delete-ns/web");
     expect(item).toHaveAttribute("aria-disabled", "true");
-    fireEvent.mouseEnter(screen.getByText("Delete agent"));
-    expect(await screen.findByText("Still in use")).toBeInTheDocument();
+    expect(within(item).getByText("Still in use")).toBeInTheDocument();
   });
 });

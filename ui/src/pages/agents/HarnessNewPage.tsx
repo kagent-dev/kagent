@@ -5,7 +5,8 @@ import { PageFrame } from "@/components/Structure/PageFrame";
 import { useHarnesses } from "@/api";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { HarnessIntro } from "@/components/harness-form/HarnessFields";
-import { copySource } from "@/components/table/RowActionsMenu";
+import { copySource, useMountedBlank } from "@/components/table/RowActionsMenu";
+import { CopyNotice } from "@/components/table/CopyNotice";
 import { paths } from "@/router/routes";
 
 const harnessesTab = `${paths.agents}?tab=harnesses`;
@@ -18,6 +19,7 @@ export function HarnessNewPage() {
   const source = useHarnesses(namespace, Boolean(from));
   const copyOf = source.data?.find((row) => row.namespace === namespace && row.name === name);
   const waiting = Boolean(from) && !source.error && !source.data;
+  const mountedBlank = useMountedBlank(from && `${from.namespace}/${from.name}`, !waiting, Boolean(copyOf));
   return (
     <PageFrame
       title="New harness"
@@ -26,8 +28,8 @@ export function HarnessNewPage() {
       <Card size="small" css={{ maxWidth: 720 }}>
         <HarnessIntro />
         {/* A source that cannot be had still leaves a form to fill in: the alert says why it is blank. */}
-        {namespace && source.error && !source.data ? (
-          <Alert type="error" showIcon title="Could not load the harness to copy" description={`${source.error.message} Starting from a blank form.`} data-testid="harness-copy-error" css={{ marginBottom: 16 }} />
+        {namespace && (copyOf ? mountedBlank : source.error && !source.data) ? (
+          <CopyNotice kind="harness" from={from} error={source.error?.message} loaded={Boolean(copyOf)} mountedBlank={mountedBlank} testId="harness-copy-error" />
         ) : namespace && source.data && !copyOf ? (
           <Alert type="warning" showIcon title="Harness not found" description={`No harness ${namespace}/${name} to copy. Starting from a blank form.`} data-testid="harness-copy-not-found" css={{ marginBottom: 16 }} />
         ) : null}
@@ -35,7 +37,8 @@ export function HarnessNewPage() {
           <Skeleton active paragraph={{ rows: 8 }} />
         ) : (
         <HarnessForm
-          key={copyOf ? `${copyOf.ref}` : "new"}
+          // Keyed on the requested source, so a late-arriving one never remounts an edited form.
+          key={from ? `${from.namespace}/${from.name}` : "new"}
           copyOf={copyOf}
           onSaved={(saved) => {
             toast.success(`Harness ${saved.name} created`);

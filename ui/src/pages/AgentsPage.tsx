@@ -208,7 +208,7 @@ export function AgentsTab() {
       {
         title: "",
         key: "actions",
-        width: 96,
+        width: 56,
         render: (_, row) => (
           <RowActionsMenu
             kind="agent"

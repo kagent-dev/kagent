@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, Button, Form, Input, Select, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import { apiClient, useInvalidateHarnesses, useNamespaces, type Harness, type HarnessSpec } from "@/api";
+import { copyName } from "@/components/table/RowActionsMenu";
 import { HarnessFields } from "./HarnessFields";
 import {
   emptyHarnessDraft,
@@ -38,7 +39,7 @@ export function HarnessForm({
 
   const [chosenNamespace, setNamespace] = useState(harness?.namespace ?? fixedNamespace ?? copyOf?.namespace);
   const namespace = harness?.namespace ?? fixedNamespace ?? chosenNamespace;
-  const [name, setName] = useState(harness?.name ?? (copyOf ? `${copyOf.name}-copy` : ""));
+  const [name, setName] = useState(harness?.name ?? (copyOf ? copyName(copyOf.name) : ""));
   const [draft, setDraft] = useState(() => (existing ? harnessDraftFromSpec(existing) : emptyHarnessDraft()));
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string>();
