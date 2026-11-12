@@ -323,6 +323,18 @@ func (f *recapFixture) recappingMarkers() (positions []int) {
 	return positions
 }
 
+func TestRecapsDisabled(t *testing.T) {
+	t.Run("Given no recapper, when the third turn completes and cleanup runs, assert that no marker is sent and nothing is stored", func(t *testing.T) {
+		f := newRecapFixture(t)
+		f.executor.recapper = nil
+		f.whenTurnsRun("q1", "q2", "q3").whenCleanupRuns()
+		assert.Len(t, f.events, 2)
+		assert.Empty(t, f.recappingMarkers())
+		assert.Empty(t, f.recapper.calls())
+		assert.Empty(t, f.server.snapshot())
+	})
+}
+
 func TestRecappingMarker(t *testing.T) {
 	t.Run("Given a chat on its third turn, when the turn completes, assert that one non-terminal marker precedes the completed event", func(t *testing.T) {
 		f := newRecapFixture(t).whenTurnsRun("q1", "q2", "q3")

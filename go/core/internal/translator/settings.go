@@ -40,5 +40,6 @@ func RuntimeConfig(cfg *configv1.RuntimeDefaultsConfig, name, namespace string) 
 		BuiltinTools:     proto.CloneOf(cfg.GetBuiltinTools()),
 		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
 		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
+		DisableRecaps:    cfg.GetDisableRecaps(),
 	}
 }

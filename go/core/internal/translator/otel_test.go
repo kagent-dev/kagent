@@ -108,3 +108,11 @@ func TestCompilerPreservesSharedRuntimeTelemetry(t *testing.T) {
 	actual := compiled.RuntimeTelemetry(tracing.RuntimeADKGo, "assistant", "team", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4"})
 	require.Equal(t, want, actual)
 }
+
+func TestRuntimeConfigCarriesDisableRecaps(t *testing.T) {
+	cfg := &configv1.ControllerConfig{}
+	config.DefaultController(cfg)
+	require.False(t, translator.RuntimeConfig(cfg.GetRuntimeDefaults(), "assistant", "team").GetDisableRecaps())
+	cfg.RuntimeDefaults.DisableRecaps = true
+	require.True(t, translator.RuntimeConfig(cfg.GetRuntimeDefaults(), "assistant", "team").GetDisableRecaps())
+}

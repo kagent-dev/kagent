@@ -255,6 +255,11 @@ defaults to `false`; for controller-managed runtimes, use
 See [Configuring built-in questions](human-in-the-loop.md#configuring-built-in-questions)
 for scope and limitations.
 
+Set `runtime.disable_recaps` to `true` to stop the Go ADK writing chat recaps,
+which cost one extra model call from a chat's third turn. It defaults to `false`;
+for controller-managed runtimes, use `config.runtimeDefaults.disableRecaps: true`
+in Helm values.
+
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
 `parse_config()` and constructs the SDK agent with `create_agent()`.

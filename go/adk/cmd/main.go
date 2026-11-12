@@ -187,11 +187,13 @@ func run(logLevel, host, port, configDir string) error {
 			return fmt.Errorf("create titler: %w", err)
 		}
 		titler = agentTitler
-		agentRecapper, err := agentpkg.NewRecapper(ctx, agentConfig.Model)
-		if err != nil {
-			return fmt.Errorf("create recapper: %w", err)
+		if !runtime.GetDisableRecaps() {
+			agentRecapper, err := agentpkg.NewRecapper(ctx, agentConfig.Model)
+			if err != nil {
+				return fmt.Errorf("create recapper: %w", err)
+			}
+			recapper = agentRecapper
 		}
-		recapper = agentRecapper
 	}
 
 	stream := agentConfig.GetStream()

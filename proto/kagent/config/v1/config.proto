@@ -384,6 +384,8 @@ message RuntimeDefaultsConfig {
   // Per-agent runtime limits, in Kubernetes quantity notation.
   optional string cpu = 8 [(buf.validate.field).string.min_len = 1];
   optional string memory = 9 [(buf.validate.field).string.min_len = 1];
+  // Omitted or false keeps chat recaps enabled.
+  bool disable_recaps = 10;
 }
 
 // BuiltinToolsConfig configures built-in tools independently of skills.

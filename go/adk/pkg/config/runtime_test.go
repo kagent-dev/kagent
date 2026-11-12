@@ -39,6 +39,7 @@ func TestRuntimeDefaultsAndValidation(t *testing.T) {
 	require.False(t, cfg.GetBuiltinTools().GetDisableFileSearch())
 	require.False(t, cfg.GetBuiltinTools().GetDisableBash())
 	require.False(t, cfg.GetBuiltinTools().GetDisableAskUser())
+	require.False(t, cfg.GetDisableRecaps())
 	for _, data := range []string{
 		`{"port":"0"}`, `{"max_content_length":-1}`, `{"control_plane_url":"file:///private"}`,
 		`{"token_propagation":{"resources":[""]}}`, `{"telemetry":{"max_capture_bytes":-1}}`,
