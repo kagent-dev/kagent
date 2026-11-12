@@ -68,6 +68,7 @@ export function ChatTranscript({
   checkpointsById,
   checkpointByMessage,
   recap,
+  startedAt,
   recapTarget,
   onAway,
 }: {
@@ -95,6 +96,8 @@ export function ChatTranscript({
   checkpointByMessage?: ReadonlyMap<string, string>;
   /** The conversation's stored recap, shown after the last message when the reader returns. */
   recap?: ConversationRecap;
+  /** When the conversation began; the recap header says how much it covers. */
+  startedAt?: string;
   /** Where activity counts as being in the chat; the page passes the pane holding the composer too. */
   recapTarget?: RefObject<HTMLElement | null>;
   /** Called when the reader comes back from an absence. */
@@ -133,7 +136,7 @@ export function ChatTranscript({
   /** The box that scrolls, which is this component's own — see the observer below. */
   const scrollRef = useRef<HTMLDivElement>(null);
   const turnCount = useMemo(() => userTurnCount(chat.messages), [chat.messages]);
-  const { show: showRecap, dismiss: dismissRecap } = useAwayRecap({ recap, turnCount, target: recapTarget ?? scrollRef, onAway });
+  const { show: showRecap, collapsed: recapCollapsed, toggle: toggleRecap } = useAwayRecap({ recap, turnCount, target: recapTarget ?? scrollRef, onAway });
   const [isAtBottom, setAtBottom] = useState(true);
   /** How far short of the end still counts as being at it. */
   const AT_BOTTOM_SLACK = 32;
@@ -421,7 +424,7 @@ export function ChatTranscript({
         })
       )}
 
-      {showRecap && recap ? <RecapCard recap={recap} onDismiss={dismissRecap} /> : null}
+      {showRecap && recap ? <RecapCard recap={recap} startedAt={startedAt} collapsed={recapCollapsed} onToggle={toggleRecap} /> : null}
 
       {statusLabel ? (
         <Tag

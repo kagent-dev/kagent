@@ -10,11 +10,14 @@ const RECAP: ConversationRecap = {
   turnCount: 3,
   generatedAt: "2026-08-21T10:30:00Z",
 };
+const STARTED_AT = "2026-08-21T10:00:00Z";
 
-function renderCard(onDismiss = vi.fn()) {
+function renderCard(options: { collapsed?: boolean; onToggle?: () => void; startedAt?: string } = {}) {
+  const { collapsed = false, onToggle = vi.fn() } = options;
+  const startedAt = "startedAt" in options ? options.startedAt : STARTED_AT;
   return render(
     <ThemeProvider theme={themeFor("dark")}>
-      <RecapCard recap={RECAP} onDismiss={onDismiss} />
+      <RecapCard recap={RECAP} startedAt={startedAt} collapsed={collapsed} onToggle={onToggle} />
     </ThemeProvider>,
   );
 }
@@ -25,11 +28,16 @@ describe("RecapCard", () => {
     expect(within(screen.getByTestId("chat-recap")).getByText(RECAP.text)).toBeInTheDocument();
   });
 
-  it("says when it was made on its top line, in a machine-readable time", () => {
+  it("says how much of the conversation it covers on its top line, in a machine-readable time", () => {
     renderCard();
     const card = screen.getByTestId("chat-recap");
-    expect(within(card).getByText(/^Recap from/)).toBeInTheDocument();
+    expect(within(card).getByText("Recap of the last 30 minutes")).toBeInTheDocument();
     expect(card.querySelector("time")).toHaveAttribute("datetime", RECAP.generatedAt);
+  });
+
+  it("says only 'Recap' when it does not know when the conversation began", () => {
+    renderCard({ startedAt: undefined });
+    expect(screen.getByText("Recap")).toBeInTheDocument();
   });
 
   it("is not an agent reply", () => {
@@ -38,16 +46,28 @@ describe("RecapCard", () => {
     expect(screen.getByTestId("chat-recap")).not.toHaveAttribute("data-role");
   });
 
-  it("has no separate dismiss button", () => {
+  it("is one button with no separate dismiss control", () => {
     renderCard();
     expect(screen.getAllByRole("button")).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Dismiss recap" })).not.toBeInTheDocument();
   });
 
-  it("collapses when clicked anywhere on it", () => {
-    const onDismiss = vi.fn();
-    renderCard(onDismiss);
+  it("shows its text and reports itself expanded", () => {
+    renderCard();
+    expect(screen.getByTestId("chat-recap")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(RECAP.text)).toBeInTheDocument();
+  });
+
+  it("keeps only its header when collapsed, and reports itself collapsed", () => {
+    renderCard({ collapsed: true });
+    expect(screen.getByTestId("chat-recap")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(RECAP.text)).not.toBeInTheDocument();
+    expect(screen.getByText("Recap of the last 30 minutes")).toBeInTheDocument();
+  });
+
+  it("toggles when clicked anywhere on it", () => {
+    const onToggle = vi.fn();
+    renderCard({ onToggle });
     fireEvent.click(screen.getByText(RECAP.text));
-    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 });

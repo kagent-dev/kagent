@@ -659,6 +659,7 @@ export function AgentChatPage() {
             checkpointsById={checkpointsById}
             checkpointByMessage={checkpointByMessage}
             recap={instance.data?.recap}
+            startedAt={instance.data?.createdAt}
             recapTarget={chatPaneRef}
             // The question is answered in a field inside the transcript, and once it
             // has been, the next thing typed is an ordinary message. The transcript

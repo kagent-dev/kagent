@@ -1,22 +1,35 @@
 import { Typography } from "antd";
-import { Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import type { ConversationRecap } from "@/api";
-import { relativeAge } from "@/components/agent-instances/instanceLabels";
+import { recapSpan } from "./recapSpan";
 
 const { Text } = Typography;
 
-/** The stored recap of a conversation, set apart from the replies around it. Clicking it collapses it. */
-export function RecapCard({ recap, onDismiss }: { recap: ConversationRecap; onDismiss: () => void }) {
+/** The stored recap of a conversation: a quiet line that collapses to its header when clicked. */
+export function RecapCard({
+  recap,
+  startedAt,
+  collapsed,
+  onToggle,
+}: {
+  recap: ConversationRecap;
+  /** When the conversation began, so the header can say how much the recap covers. */
+  startedAt?: string;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   const theme = useTheme();
   // A purple wash over the elevated surface, so it sits apart from the page and the replies in both themes.
   const wash = (percent: number) => `color-mix(in srgb, ${theme.color.primary} ${percent}%, ${theme.color.bgElevated})`;
+  const span = recapSpan(startedAt, recap.generatedAt);
+  const Chevron = collapsed ? ChevronRight : ChevronDown;
   return (
     <button
       type="button"
-      aria-expanded
+      aria-expanded={!collapsed}
       data-testid="chat-recap"
-      onClick={onDismiss}
+      onClick={onToggle}
       css={{
         display: "grid",
         gap: theme.space(2),
@@ -44,21 +57,22 @@ export function RecapCard({ recap, onDismiss }: { recap: ConversationRecap; onDi
         }}
       >
         <Sparkles size={12} aria-hidden />
-        <span>
-          Recap from <time dateTime={recap.generatedAt}>{relativeAge(recap.generatedAt)}</time>
-        </span>
+        <time dateTime={recap.generatedAt}>{span ? `Recap of ${span}` : "Recap"}</time>
+        <Chevron size={14} aria-hidden css={{ marginInlineStart: "auto" }} />
       </Text>
-      <Text
-        css={{
-          // Softer than the replies, still well above 4.5:1 in both themes.
-          color: `color-mix(in srgb, ${theme.color.text} 80%, transparent)`,
-          overflowWrap: "anywhere",
-          whiteSpace: "pre-wrap",
-          fontStyle: "italic",
-        }}
-      >
-        {recap.text}
-      </Text>
+      {collapsed ? null : (
+        <Text
+          css={{
+            // Softer than the replies, still well above 4.5:1 in both themes.
+            color: `color-mix(in srgb, ${theme.color.text} 80%, transparent)`,
+            overflowWrap: "anywhere",
+            whiteSpace: "pre-wrap",
+            fontStyle: "italic",
+          }}
+        >
+          {recap.text}
+        </Text>
+      )}
     </button>
   );
 }

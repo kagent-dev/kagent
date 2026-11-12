@@ -55,12 +55,22 @@ test("chat recap: shows once the reader returns, and not otherwise", async ({ pa
     expect(followsLastMessage, "the recap should sit after the last message").toBe(true);
   });
 
-  await test.step("3. clicking it collapses it", async () => {
-    await recap.click();
-    await expect(recap).toHaveCount(0);
+  await test.step("3. its header says how much of the conversation it covers", async () => {
+    await expect(recap).toContainText("Recap of the last 30 minutes");
+    await expect(recap).toHaveAttribute("aria-expanded", "true");
   });
 
-  await test.step("4. it returns after another absence, and sending a message dismisses it", async () => {
+  await test.step("4. clicking it collapses it to its header, and clicking again expands it", async () => {
+    await recap.click();
+    await expect(recap).toHaveAttribute("aria-expanded", "false");
+    await expect(recap).not.toContainText("liveness probe");
+    await expect(recap).toContainText("Recap of the last 30 minutes");
+    await recap.click();
+    await expect(recap).toHaveAttribute("aria-expanded", "true");
+    await expect(recap).toContainText("liveness probe");
+  });
+
+  await test.step("5. it opens again after another absence, and sending a message dismisses it", async () => {
     await goAwayAndReturn(page);
     await expect(recap).toBeVisible();
     await sendMessage(page, "One more question");
@@ -68,7 +78,7 @@ test("chat recap: shows once the reader returns, and not otherwise", async ({ pa
     await expect(recap).toHaveCount(0);
   });
 
-  await test.step("5. it is absent when it no longer covers every turn", async () => {
+  await test.step("6. it is absent when it no longer covers every turn", async () => {
     await openChat(page, instances.recapStale);
     await expect(page.getByTestId("chat-message")).toHaveCount(8);
     await goAwayAndReturn(page);

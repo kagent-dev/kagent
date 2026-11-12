@@ -23,9 +23,11 @@ export function useAwayRecap({
   now?: () => number;
   /** Called when the reader comes back from an absence, so the caller can fetch the latest recap. */
   onAway?: () => void;
-}): { show: boolean; dismiss: () => void } {
+}): { show: boolean; collapsed: boolean; toggle: () => void } {
   // The turn count when the reader came back. A later send moves past it, which dismisses.
   const [shownAtTurns, setShownAtTurns] = useState<number | null>(null);
+  // The recap the reader folded to its header; a newer recap, or the next absence, opens it again.
+  const [collapsedRecap, setCollapsedRecap] = useState<string | null>(null);
   const turnsRef = useRef(turnCount);
   const nowRef = useRef(now);
   const onAwayRef = useRef(onAway);
@@ -50,6 +52,7 @@ export function useAwayRecap({
       const time = nowRef.current();
       if (time - lastInteraction >= RECAP_IDLE_MS) {
         setShownAtTurns(turnsRef.current);
+        setCollapsedRecap(null);
         onAwayRef.current?.();
       }
       lastInteraction = time;
@@ -69,6 +72,7 @@ export function useAwayRecap({
 
   return {
     show: shownAtTurns === turnCount && recap !== undefined && recap.turnCount >= turnCount,
-    dismiss: () => setShownAtTurns(null),
+    collapsed: recap !== undefined && collapsedRecap === recap.generatedAt,
+    toggle: () => setCollapsedRecap((current) => (recap === undefined || current === recap.generatedAt ? null : recap.generatedAt)),
   };
 }

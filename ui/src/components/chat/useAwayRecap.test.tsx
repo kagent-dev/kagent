@@ -193,29 +193,43 @@ describe("useAwayRecap", () => {
     expect(result.current.show).toBe(true);
   });
 
-  it("hides the recap when it is dismissed", () => {
+  it("folds to its header when toggled, and opens again when toggled back", () => {
     const { result } = mount({ recap: RECAP, turnCount: 3 });
     wait(RECAP_IDLE_MS);
     interact();
-    expect(result.current.show).toBe(true);
+    expect(result.current).toMatchObject({ show: true, collapsed: false });
 
-    act(() => result.current.dismiss());
-    expect(result.current.show).toBe(false);
+    act(() => result.current.toggle());
+    expect(result.current).toMatchObject({ show: true, collapsed: true });
+
+    act(() => result.current.toggle());
+    expect(result.current).toMatchObject({ show: true, collapsed: false });
   });
 
-  it("stays dismissed through quick interaction, and shows again after a later absence", () => {
+  it("stays folded through quick interaction, and opens again after a later absence", () => {
     const { result } = mount({ recap: RECAP, turnCount: 3 });
     wait(RECAP_IDLE_MS);
     interact();
-    act(() => result.current.dismiss());
+    act(() => result.current.toggle());
 
     wait(RECAP_IDLE_MS - 1000);
     interact();
-    expect(result.current.show).toBe(false);
+    expect(result.current).toMatchObject({ show: true, collapsed: true });
 
     wait(RECAP_IDLE_MS);
     interact();
-    expect(result.current.show).toBe(true);
+    expect(result.current).toMatchObject({ show: true, collapsed: false });
+  });
+
+  it("opens a newer recap even when the one before it was folded", () => {
+    const { result, rerender } = mount({ recap: RECAP, turnCount: 3 });
+    wait(RECAP_IDLE_MS);
+    interact();
+    act(() => result.current.toggle());
+    expect(result.current.collapsed).toBe(true);
+
+    rerender({ recap: { ...RECAP, generatedAt: "2026-08-21T10:40:00Z" }, turnCount: 3 });
+    expect(result.current).toMatchObject({ show: true, collapsed: false });
   });
 });
 
