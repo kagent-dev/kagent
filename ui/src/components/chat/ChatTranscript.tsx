@@ -311,7 +311,7 @@ export function ChatTranscript({
     );
   }
 
-  const statusLabel = PHASE_LABEL[chat.turnPhase];
+  const statusLabel = chat.recapping ? "Recapping…" : PHASE_LABEL[chat.turnPhase];
 
   return (
     <div

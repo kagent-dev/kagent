@@ -1,67 +1,64 @@
 import { Typography } from "antd";
-import { Sparkles, X } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import type { ConversationRecap } from "@/api";
 import { relativeAge } from "@/components/agent-instances/instanceLabels";
 
 const { Text } = Typography;
 
-/** The stored recap of a conversation, set apart from the replies around it. */
+/** The stored recap of a conversation, set apart from the replies around it. Clicking it collapses it. */
 export function RecapCard({ recap, onDismiss }: { recap: ConversationRecap; onDismiss: () => void }) {
   const theme = useTheme();
+  // A purple wash over the elevated surface, so it sits apart from the page and the replies in both themes.
+  const wash = (percent: number) => `color-mix(in srgb, ${theme.color.primary} ${percent}%, ${theme.color.bgElevated})`;
   return (
-    <section
-      aria-label="Recap"
+    <button
+      type="button"
+      aria-expanded
       data-testid="chat-recap"
+      onClick={onDismiss}
       css={{
         display: "grid",
         gap: theme.space(2),
-        // Tinted with a readable edge, so it reads as a note beside the chat, not a reply.
-        background: theme.color.accentBg,
-        border: `1px solid ${theme.color.borderStrong}`,
+        width: "100%",
+        minWidth: 0,
+        textAlign: "start",
+        font: "inherit",
+        cursor: "pointer",
+        background: wash(10),
+        border: `1px solid ${theme.color.accentBorder}`,
         borderRadius: theme.radius.md,
         padding: theme.space(3),
-        minWidth: 0,
+        "&:hover": { background: wash(16) },
+        "&:active": { background: wash(22) },
       }}
     >
-      <div css={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <Text
-          css={{
-            display: "flex",
-            alignItems: "center",
-            gap: theme.space(2),
-            color: theme.color.accentText,
-            fontSize: 12,
-            fontWeight: 600,
-          }}
-        >
-          <Sparkles size={12} aria-hidden />
-          Recap
-        </Text>
-        <button
-          type="button"
-          aria-label="Dismiss recap"
-          onClick={onDismiss}
-          css={{
-            display: "inline-grid",
-            placeItems: "center",
-            padding: 2,
-            border: 0,
-            borderRadius: theme.radius.sm,
-            background: "transparent",
-            color: theme.color.textMuted,
-            cursor: "pointer",
-            "&:hover": { color: theme.color.text, background: theme.color.accentBg },
-            "&:active": { transform: "scale(0.92)" },
-          }}
-        >
-          <X size={14} aria-hidden />
-        </button>
-      </div>
-      <Text css={{ color: theme.color.text, overflowWrap: "anywhere", whiteSpace: "pre-wrap", fontStyle: "italic" }}>{recap.text}</Text>
-      <time dateTime={recap.generatedAt} css={{ color: theme.color.textMuted, fontSize: 12 }}>
-        Written {relativeAge(recap.generatedAt)}
-      </time>
-    </section>
+      <Text
+        css={{
+          display: "flex",
+          alignItems: "center",
+          gap: theme.space(2),
+          color: theme.color.accentText,
+          fontSize: 12,
+          fontWeight: 600,
+        }}
+      >
+        <Sparkles size={12} aria-hidden />
+        <span>
+          Recap from <time dateTime={recap.generatedAt}>{relativeAge(recap.generatedAt)}</time>
+        </span>
+      </Text>
+      <Text
+        css={{
+          // Softer than the replies, still well above 4.5:1 in both themes.
+          color: `color-mix(in srgb, ${theme.color.text} 80%, transparent)`,
+          overflowWrap: "anywhere",
+          whiteSpace: "pre-wrap",
+          fontStyle: "italic",
+        }}
+      >
+        {recap.text}
+      </Text>
+    </button>
   );
 }

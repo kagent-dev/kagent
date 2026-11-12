@@ -387,11 +387,21 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			stampStatusMessageTimeline(event)
 			canonicalizeADKEvent(event)
 			if endsTurn(event, err) {
+				recapStarted := false
 				if turnCompleted(event, err) {
 					finishTitle(ctx)
-					e.startRecap(ctx, userID, sessionID)
+					recapStarted = e.startRecap(ctx, userID, sessionID)
 				}
 				e.flushTurnSpans(ctx)
+				// Cleanup holds the terminal event while the recap generates, so tell the client why.
+				if recapStarted {
+					done := event.(*a2atype.TaskStatusUpdateEvent)
+					marker := a2atype.NewStatusUpdateEvent(done, a2atype.TaskStateWorking, nil)
+					marker.SetMeta(apia2a.RecappingMetadataKey, true)
+					if !yield(marker, nil) {
+						return
+					}
+				}
 			}
 			if !yield(event, err) {
 				return

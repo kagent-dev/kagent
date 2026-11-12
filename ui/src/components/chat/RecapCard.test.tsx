@@ -20,16 +20,15 @@ function renderCard(onDismiss = vi.fn()) {
 }
 
 describe("RecapCard", () => {
-  it("is a labelled region carrying the recap text", () => {
+  it("carries the recap text", () => {
     renderCard();
-    const card = screen.getByRole("region", { name: "Recap" });
-    expect(within(card).getByText(RECAP.text)).toBeInTheDocument();
+    expect(within(screen.getByTestId("chat-recap")).getByText(RECAP.text)).toBeInTheDocument();
   });
 
-  it("says when it was made, in a machine-readable time", () => {
+  it("says when it was made on its top line, in a machine-readable time", () => {
     renderCard();
-    const card = screen.getByRole("region", { name: "Recap" });
-    expect(within(card).getByText(/^Written /)).toBeInTheDocument();
+    const card = screen.getByTestId("chat-recap");
+    expect(within(card).getByText(/^Recap from/)).toBeInTheDocument();
     expect(card.querySelector("time")).toHaveAttribute("datetime", RECAP.generatedAt);
   });
 
@@ -39,10 +38,16 @@ describe("RecapCard", () => {
     expect(screen.getByTestId("chat-recap")).not.toHaveAttribute("data-role");
   });
 
-  it("calls onDismiss when the dismiss button is clicked", () => {
+  it("has no separate dismiss button", () => {
+    renderCard();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Dismiss recap" })).not.toBeInTheDocument();
+  });
+
+  it("collapses when clicked anywhere on it", () => {
     const onDismiss = vi.fn();
     renderCard(onDismiss);
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss recap" }));
+    fireEvent.click(screen.getByText(RECAP.text));
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

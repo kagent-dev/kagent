@@ -145,6 +145,18 @@ describe("nextTurn", () => {
     expect(retried.phase).toBe("sending");
   });
 
+  it("marks an active turn as recapping without ending it, and starts the next one clean", () => {
+    const recapping = play([started, { type: "content" }, { type: "recapping" }]);
+    expect(recapping.recapping).toBe(true);
+    expect(isActive(recapping.phase)).toBe(true);
+    expect(nextTurn(recapping, started).recapping).toBeUndefined();
+  });
+
+  it("ignores a recapping marker once the turn has ended", () => {
+    const done = play([started, { type: "status", state: "completed" }]);
+    expect(nextTurn(done, { type: "recapping" })).toBe(done);
+  });
+
   it("carries the task id forward once the transport has named it", () => {
     // It is what `cancel` addresses the RPC with, and it arrives on one frame and
     // not the rest.

@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
@@ -307,6 +308,41 @@ func TestChatRecap(t *testing.T) {
 		f.executor.controllerClient = nil
 		f.whenTurnsRun("q1", "q2", "q3").whenCleanupRuns()
 		assert.Empty(t, f.recapper.calls())
+	})
+}
+
+func (f *recapFixture) recappingMarkers() (positions []int) {
+	for i, event := range f.events {
+		if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Metadata[apia2a.RecappingMetadataKey] == true {
+			assert.Equal(f.t, a2atype.TaskStateWorking, update.Status.State)
+			assert.Equal(f.t, "task-1", string(update.TaskID))
+			assert.Equal(f.t, "context-1", update.ContextID)
+			positions = append(positions, i)
+		}
+	}
+	return positions
+}
+
+func TestRecappingMarker(t *testing.T) {
+	t.Run("Given a chat on its third turn, when the turn completes, assert that one non-terminal marker precedes the completed event", func(t *testing.T) {
+		f := newRecapFixture(t).whenTurnsRun("q1", "q2", "q3")
+		require.Len(t, f.events, 3)
+		assert.Equal(t, []int{1}, f.recappingMarkers())
+		last, ok := f.events[2].(*a2atype.TaskStatusUpdateEvent)
+		require.True(t, ok)
+		assert.Equal(t, a2atype.TaskStateCompleted, last.Status.State)
+		assert.Nil(t, last.Metadata[apia2a.RecappingMetadataKey])
+	})
+
+	t.Run("Given a chat on its first turn, when the turn completes, assert that no marker is sent", func(t *testing.T) {
+		f := newRecapFixture(t).whenTurnsRun("q1")
+		assert.Len(t, f.events, 2)
+		assert.Empty(t, f.recappingMarkers())
+	})
+
+	t.Run("Given a chat with two turns, when the third turn fails, assert that no marker is sent", func(t *testing.T) {
+		f := newRecapFixture(t).whenTurnsRun("q1", "q2").givenTurnEndsIn(a2atype.TaskStateFailed).whenTurnsRun("q3")
+		assert.Empty(t, f.recappingMarkers())
 	})
 }
 

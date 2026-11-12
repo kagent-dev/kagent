@@ -30,11 +30,11 @@ test("chat recap: a key press in the composer counts as returning", async ({ pag
   await page.clock.fastForward(AWAY_MS);
   await page.getByRole("textbox").last().focus();
   await page.keyboard.press("a");
-  await expect(page.getByRole("region", { name: "Recap" })).toBeVisible();
+  await expect(page.getByTestId("chat-recap")).toBeVisible();
 });
 
 test("chat recap: shows once the reader returns, and not otherwise", async ({ page }) => {
-  const recap = page.getByRole("region", { name: "Recap" });
+  const recap = page.getByTestId("chat-recap");
 
   await test.step("1. it is absent while the reader has not been away", async () => {
     await openChat(page, instances.recapCurrent);
@@ -55,13 +55,20 @@ test("chat recap: shows once the reader returns, and not otherwise", async ({ pa
     expect(followsLastMessage, "the recap should sit after the last message").toBe(true);
   });
 
-  await test.step("3. sending a message dismisses it", async () => {
+  await test.step("3. clicking it collapses it", async () => {
+    await recap.click();
+    await expect(recap).toHaveCount(0);
+  });
+
+  await test.step("4. it returns after another absence, and sending a message dismisses it", async () => {
+    await goAwayAndReturn(page);
+    await expect(recap).toBeVisible();
     await sendMessage(page, "One more question");
     await expect(page.getByTestId("chat-message").filter({ hasText: "One more question" })).toBeVisible();
     await expect(recap).toHaveCount(0);
   });
 
-  await test.step("4. it is absent when it no longer covers every turn", async () => {
+  await test.step("5. it is absent when it no longer covers every turn", async () => {
     await openChat(page, instances.recapStale);
     await expect(page.getByTestId("chat-message")).toHaveCount(8);
     await goAwayAndReturn(page);

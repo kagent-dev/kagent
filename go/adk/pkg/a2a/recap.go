@@ -87,20 +87,20 @@ type pendingRecap struct {
 	text string
 }
 
-// startRecap begins a recap when the chat has enough turns.
-func (e *KAgentExecutor) startRecap(ctx context.Context, userID, sessionID string) {
+// startRecap begins a recap when the chat has enough turns and reports whether it did.
+func (e *KAgentExecutor) startRecap(ctx context.Context, userID, sessionID string) bool {
 	if e.recapper == nil || e.controllerClient == nil {
-		return
+		return false
 	}
 	resp, err := e.sessionService.Get(ctx, &adksession.GetRequest{AppName: e.appName, UserID: userID, SessionID: sessionID})
 	if err != nil || resp == nil || resp.Session == nil {
 		e.logger.DebugContext(ctx, "recap skipped: session unavailable", "error", err, "session_id", sessionID)
-		return
+		return false
 	}
 	events := slices.Collect(resp.Session.Events().All())
 	turns := countUserTurns(events)
 	if turns < recapMinTurns {
-		return
+		return false
 	}
 	transcript := buildTranscript(events, recapTranscriptMaxLength)
 
@@ -121,6 +121,7 @@ func (e *KAgentExecutor) startRecap(ctx context.Context, userID, sessionID strin
 		}
 		recap.text = truncateRunes(strings.TrimSpace(text), recapMaxLength)
 	}()
+	return true
 }
 
 // truncateRunes cuts text to at most max characters.
