@@ -29,6 +29,7 @@
 - apiGroups:
   - api.kagent.dev
   resources:
+  - egresspolicies/status
   - agents/status
   - modelconfigs/status
   - modelproviderconfigs/status
