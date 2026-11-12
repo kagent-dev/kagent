@@ -1,8 +1,7 @@
-import { useState } from "react";
 import { Button, Dropdown } from "antd";
 import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { DeleteConfirmModal, type DeleteConfirmProps } from "./DeleteConfirmModal";
+import { DeleteConfirmModal, useModalState, type DeleteConfirmProps } from "./DeleteConfirmModal";
 
 /**
  * The ellipsis menu on a list row: open or edit it, create a copy of it, delete it.
@@ -30,7 +29,7 @@ export function RowActionsMenu({
   remove: Pick<DeleteConfirmProps, "onDelete" | "onDeleted" | "description">;
 }) {
   const navigate = useNavigate();
-  const [deleting, setDeleting] = useState(false);
+  const modal = useModalState();
   // Namespaced, so same-named resources in two namespaces stay distinguishable, and
   // prefixed, so these never collide with another list's `edit-<name>`.
   const id = `${namespace}/${name}`;
@@ -48,13 +47,13 @@ export function RowActionsMenu({
           onClick: ({ key }) => {
             if (key === "edit") void navigate(editTo);
             else if (key === "copy") void navigate(copyTo);
-            else setDeleting(true);
+            else modal.show();
           },
         }}
       >
         <Button type="text" icon={<MoreHorizontal size={16} />} data-testid={`row-actions-${id}`} aria-label={`Actions for ${kind} ${name}`} />
       </Dropdown>
-      {deleting && <DeleteConfirmModal kind={kind} name={name} {...remove} onClose={() => setDeleting(false)} />}
+      {modal.mounted && <DeleteConfirmModal kind={kind} name={name} {...remove} open={modal.open} onClose={modal.hide} afterClose={modal.afterClose} />}
     </>
   );
 }

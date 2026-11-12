@@ -59,3 +59,26 @@ describe.each(["modal", "popover"] as const)("%s deletion confirmation", (confir
     expect(await screen.findByRole("checkbox", { name: "Stop active turns and delete" })).not.toBeChecked();
   });
 });
+
+it("keeps the modal mounted while it closes, then unmounts it and reopens with force unticked", async () => {
+  // Motion left on: the exit animation is what keeps the modal in the DOM after cancel.
+  // jsdom runs no animations, so the test ends it by hand.
+  render(
+    <DeleteResourceButton kind="conversation" name="test" confirmation="modal"
+      forceLabel="Stop active turns and delete" onDelete={vi.fn()} onDeleted={() => {}} />,
+  );
+
+  fireEvent.click(screen.getByTestId("delete-test"));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Stop active turns and delete" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Keep" }));
+  const dialog = screen.getByRole("dialog");
+  expect(dialog).toBeInTheDocument();
+  await waitFor(() => {
+    fireEvent.animationEnd(dialog);
+    fireEvent.transitionEnd(dialog);
+    expect(screen.queryByRole("dialog", { hidden: true })).not.toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByTestId("delete-test"));
+  expect(await screen.findByRole("checkbox", { name: "Stop active turns and delete" })).not.toBeChecked();
+});

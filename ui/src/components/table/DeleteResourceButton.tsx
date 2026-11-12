@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { Button, Popconfirm } from "antd";
 import { Trash2 } from "lucide-react";
-import { DeleteModal, useDeleteConfirm, type DeleteConfirmProps } from "./DeleteConfirmModal";
+import { DeleteModal, useDeleteConfirm, useModalState, type DeleteConfirmProps } from "./DeleteConfirmModal";
 
 /**
  * Deletes one row's resource, having asked first.
@@ -43,7 +42,7 @@ export function DeleteResourceButton({
   confirmation?: "popover" | "modal";
   disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const modal = useModalState();
   const { kind, name } = target;
   const deletion = useDeleteConfirm(target);
   const { isDeleting, setForce, confirm, title, message } = deletion;
@@ -57,7 +56,7 @@ export function DeleteResourceButton({
       // was a smaller target than anything else on the row, and it is the control with
       // the worst consequence for a near miss.
       icon={<Trash2 size={16} />}
-      onClick={confirmation === "modal" ? () => { setForce(false); setOpen(true); } : undefined}
+      onClick={confirmation === "modal" ? () => { setForce(false); modal.show(); } : undefined}
       loading={isDeleting}
       disabled={disabled}
       data-testid={`delete-${name}`}
@@ -70,7 +69,7 @@ export function DeleteResourceButton({
   );
   return confirmation === "modal" ? <>
     {button}
-    {open && <DeleteModal confirmation={deletion} onClose={() => setOpen(false)} />}
+    {modal.mounted && <DeleteModal confirmation={deletion} open={modal.open} onClose={modal.hide} afterClose={modal.afterClose} />}
   </> : (
     <Popconfirm title={title} description={message} okText="Delete"
       onOpenChange={(value) => { if (value) setForce(false); }}

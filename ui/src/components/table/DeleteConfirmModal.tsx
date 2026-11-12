@@ -62,13 +62,31 @@ export function useDeleteConfirm({ kind, name, description, forceLabel, onDelete
   return { isDeleting, setForce, confirm, title, message };
 }
 
+/**
+ * Visibility split from mounting, so antd can play the exit animation: `open` flips
+ * at once, `mounted` only once the modal has finished closing (`afterClose`).
+ */
+export function useModalState() {
+  const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  return {
+    open,
+    mounted,
+    show: () => { setMounted(true); setOpen(true); },
+    hide: () => setOpen(false),
+    afterClose: () => setMounted(false),
+  };
+}
+
 /** The modal itself, over a `useDeleteConfirm` the caller owns so its trigger can share the state. */
-export function DeleteModal({ confirmation: { isDeleting, confirm, title, message }, onClose }: {
+export function DeleteModal({ confirmation: { isDeleting, confirm, title, message }, open, onClose, afterClose }: {
   confirmation: ReturnType<typeof useDeleteConfirm>;
+  open: boolean;
   onClose: () => void;
+  afterClose: () => void;
 }) {
   return (
-    <Modal open title={title} onOk={() => void confirm(onClose)} onCancel={onClose}
+    <Modal open={open} afterClose={afterClose} title={title} onOk={() => void confirm(onClose)} onCancel={onClose}
       okText="Delete" okButtonProps={{ danger: true }} confirmLoading={isDeleting}
       cancelText="Keep" cancelButtonProps={{ disabled: isDeleting }} closable={!isDeleting}
       mask={{ closable: !isDeleting }} keyboard={!isDeleting}>
@@ -78,9 +96,14 @@ export function DeleteModal({ confirmation: { isDeleting, confirm, title, messag
 }
 
 /**
- * The delete confirmation as a modal. Mount it while it should be showing: it starts
- * from fresh state each time, so a ticked force option never carries over to the next.
+ * The delete confirmation as a modal. Keep it mounted until `afterClose` (so it can
+ * animate out), then unmount: it starts from fresh state each time, so a ticked force
+ * option never carries over to the next.
  */
-export function DeleteConfirmModal({ onClose, ...props }: DeleteConfirmProps & { onClose: () => void }) {
-  return <DeleteModal confirmation={useDeleteConfirm(props)} onClose={onClose} />;
+export function DeleteConfirmModal({ open, onClose, afterClose, ...props }: DeleteConfirmProps & {
+  open: boolean;
+  onClose: () => void;
+  afterClose: () => void;
+}) {
+  return <DeleteModal confirmation={useDeleteConfirm(props)} open={open} onClose={onClose} afterClose={afterClose} />;
 }
