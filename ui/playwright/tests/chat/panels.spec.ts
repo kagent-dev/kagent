@@ -142,4 +142,9 @@ test("chat: the template opened from a conversation leads back to it", async ({ 
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
   });
+
+  await test.step("4. without leaving a second copy of it in history", async () => {
+    await page.goBack();
+    await expect(page).not.toHaveURL(chatUrl);
+  });
 });

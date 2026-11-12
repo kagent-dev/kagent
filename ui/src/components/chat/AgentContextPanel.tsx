@@ -70,7 +70,7 @@ export function AgentContextPanel({
       {instance && namespace && name ? (
         <Field
           label="Agent"
-          hint="The Agent resource this conversation talks to. It pairs a template with a harness."
+          hint="The Agent resource this conversation talks to. It pairs a model, tools and instructions with a harness."
         >
           <RefLink
             to={buildPath(paths.agent, { namespace, name })}

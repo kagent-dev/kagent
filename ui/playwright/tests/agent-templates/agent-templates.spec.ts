@@ -208,6 +208,17 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("template-form-description")).toHaveValue(
       "Edited by the suite.",
     );
+
+    // The way back off the page asks the same question rather than dropping the draft.
+    const templateUrl = page.url();
+    await page.getByTestId("template-back").click();
+    await expect(page.getByTestId("template-discard-body")).toBeVisible();
+    await pressOnce(page.getByRole("button", { name: "Keep editing" }));
+    await expect(page.getByTestId("template-discard-body")).toBeHidden();
+    await expect(page).toHaveURL(templateUrl);
+    await expect(page.getByTestId("template-form-description")).toHaveValue(
+      "Edited by the suite.",
+    );
   });
 
   await test.step("10. saving returns to reading, showing what was saved", async () => {

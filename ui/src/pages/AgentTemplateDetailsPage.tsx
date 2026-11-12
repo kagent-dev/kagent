@@ -105,6 +105,8 @@ export function AgentTemplateDetailsPage() {
     JSON.stringify(draft) !== JSON.stringify(loaded);
 
   const [isConfirmingDiscard, setConfirmingDiscard] = useState(false);
+  /** Set when the back button opened the discard prompt, so confirming it also leaves. */
+  const [isLeavingAfterDiscard, setLeavingAfterDiscard] = useState(false);
 
   const activeTab = searchParams.get(TAB_PARAM) === "agents" ? "agents" : "details";
   const setTab = (tab: string) => {
@@ -135,6 +137,30 @@ export function AgentTemplateDetailsPage() {
     setEdited(undefined);
     setError(undefined);
     setConfirmingDiscard(false);
+    if (isLeavingAfterDiscard) {
+      setLeavingAfterDiscard(false);
+      goBack();
+    }
+  }
+
+  /*
+   * Follows the back button. A return steps back through history rather than pushing
+   * the origin again, so it leaves no duplicate entry for the browser's Back button to
+   * land on; tab switches replace their entry, so the one before is still the origin.
+   */
+  function goBack() {
+    if (back.isReturn) navigate(-1);
+    else navigate(back.to);
+  }
+
+  /** Leaves the page by its back button, asking first when an unsaved draft would be lost. */
+  function leave() {
+    if (isDirty) {
+      setLeavingAfterDiscard(true);
+      setConfirmingDiscard(true);
+      return;
+    }
+    goBack();
   }
 
   async function save(): Promise<void> {
@@ -342,10 +368,7 @@ export function AgentTemplateDetailsPage() {
             />
           ) : null}
           <Button
-            // A return steps back through history rather than pushing the origin again,
-            // so it leaves no duplicate entry for the browser's Back button to land on.
-            // Tab switches replace their entry, so the one before is still the origin.
-            onClick={() => (back.isReturn ? navigate(-1) : navigate(back.to))}
+            onClick={leave}
             data-testid="template-back"
           >
             {back.label}
@@ -496,7 +519,10 @@ export function AgentTemplateDetailsPage() {
         okButtonProps={{ danger: true }}
         cancelText="Keep editing"
         onOk={discardEdit}
-        onCancel={() => setConfirmingDiscard(false)}
+        onCancel={() => {
+          setConfirmingDiscard(false);
+          setLeavingAfterDiscard(false);
+        }}
         data-testid="template-discard-modal"
       >
         <Paragraph css={{ margin: 0 }} data-testid="template-discard-body">
