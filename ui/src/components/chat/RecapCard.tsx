@@ -20,8 +20,8 @@ export function RecapCard({
   onToggle: () => void;
 }) {
   const theme = useTheme();
-  // A purple wash over the elevated surface, so it sits apart from the page and the replies in both themes.
-  const wash = (percent: number) => `color-mix(in srgb, ${theme.color.primary} ${percent}%, ${theme.color.bgElevated})`;
+  // The text colour over the page at a few percent, so hover and press read on either theme.
+  const wash = (percent: number) => `color-mix(in srgb, ${theme.color.text} ${percent}%, transparent)`;
   const span = recapSpan(startedAt, recap.generatedAt);
   const Chevron = collapsed ? ChevronRight : ChevronDown;
   return (
@@ -32,18 +32,18 @@ export function RecapCard({
       onClick={onToggle}
       css={{
         display: "grid",
-        gap: theme.space(2),
+        gap: theme.space(1),
         width: "100%",
         minWidth: 0,
         textAlign: "start",
         font: "inherit",
         cursor: "pointer",
-        background: wash(10),
-        border: `1px solid ${theme.color.accentBorder}`,
+        background: "transparent",
+        border: `1px solid ${theme.color.border}`,
         borderRadius: theme.radius.md,
-        padding: theme.space(3),
-        "&:hover": { background: wash(16) },
-        "&:active": { background: wash(22) },
+        padding: `${theme.space(2)}px ${theme.space(3)}px`,
+        "&:hover": { background: wash(3) },
+        "&:active": { background: wash(5) },
       }}
     >
       <Text
@@ -51,7 +51,7 @@ export function RecapCard({
           display: "flex",
           alignItems: "center",
           gap: theme.space(2),
-          color: theme.color.accentText,
+          color: theme.color.textMuted,
           fontSize: 12,
           fontWeight: 600,
         }}
@@ -63,8 +63,8 @@ export function RecapCard({
       {collapsed ? null : (
         <Text
           css={{
-            // Softer than the replies, still well above 4.5:1 in both themes.
-            color: `color-mix(in srgb, ${theme.color.text} 80%, transparent)`,
+            // Softer than the replies, still above 4.5:1 in both themes.
+            color: wash(70),
             overflowWrap: "anywhere",
             whiteSpace: "pre-wrap",
             fontStyle: "italic",

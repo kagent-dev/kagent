@@ -71,3 +71,28 @@ describe("RecapCard", () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 });
+
+/** WCAG relative luminance of an sRGB colour. */
+function luminance([r, g, b]: number[]): number {
+  const [lr, lg, lb] = [r, g, b].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+}
+const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const blend = (top: number[], bottom: number[], share: number) => top.map((v, i) => v * share + bottom[i] * (1 - share));
+const contrast = (a: number[], b: number[]) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+describe("RecapCard contrast", () => {
+  it.each(["light", "dark"] as const)("keeps the header and text above 4.5:1 on the %s theme, even pressed", (mode) => {
+    const { color } = themeFor(mode);
+    const text = rgb(color.text);
+    const pressed = blend(text, rgb(color.bg), 0.05);
+    expect(contrast(rgb(color.textMuted), pressed)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(blend(text, pressed, 0.7), pressed)).toBeGreaterThanOrEqual(4.5);
+  });
+});
