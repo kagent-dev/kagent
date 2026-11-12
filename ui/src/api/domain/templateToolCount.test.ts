@@ -11,6 +11,7 @@ const server = (ref: string, names: string[]): ToolServerResponse => ({
 const servers = indexToolServers([
   server("team/docs", ["a", "b", "c"]),
   server("ops/k8s", ["x", "y"]),
+  server("team/quiet", []),
   { ...server("team/docs", ["s1", "s2", "s3", "s4", "s5"]), groupKind: "Service" },
 ]);
 
@@ -52,5 +53,10 @@ describe("countTemplateTools", () => {
     expect(countTemplateTools(noGroup, servers, "team").unknownServers).toEqual(["team/docs"]);
     const other: ToolBinding[] = [{ mcp: { server: { group: "example.com", kind: "Foo", name: "docs" } } }];
     expect(countTemplateTools(other, servers, "team")).toEqual({ total: 0, unknownServers: ["team/docs"] });
+  });
+
+  it("treats a server with no discovered tools as uncountable, not as zero", () => {
+    const bindings: ToolBinding[] = [{ mcp: { server: { name: "quiet" } } }];
+    expect(countTemplateTools(bindings, servers, "team")).toEqual({ total: 0, unknownServers: ["team/quiet"] });
   });
 });

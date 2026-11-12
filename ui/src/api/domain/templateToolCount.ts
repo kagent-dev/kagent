@@ -42,7 +42,8 @@ export function countTemplateTools(
       let names = binding.mcp.tools;
       if (!names?.length) {
         const server = servers.get(key);
-        if (!server) {
+        // A server kept in the catalog with discovery off or failed has no tools on record either.
+        if (!server?.discoveredTools.length) {
           unknownServers.add(ref);
           continue;
         }
