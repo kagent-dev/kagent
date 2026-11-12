@@ -314,20 +314,54 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 	return name, endpoint, header, prefix
 }
 
+// OllamaHostURL returns the absolute URL for a ModelConfig Ollama host. The
+// field accepts a bare host[:port] as well as a URL, but net/url reads a bare
+// host:port as a scheme, so the compiled model, the egress allowlist, and the
+// credential checks all normalize through this one function.
+//
+// An explicit http or https scheme is kept, matched case-insensitively and
+// lowercased; the host and path are returned unchanged. A bare host defaults
+// to http, which suits a daemon on a private address, except for ollama.com's
+// API: it serves HTTPS only, and an http request is redirected and replayed
+// as a GET, so the chat POST fails with 405 Method Not Allowed.
+func OllamaHostURL(host string) string {
+	for _, scheme := range []string{"http://", "https://"} {
+		if len(host) >= len(scheme) && strings.EqualFold(host[:len(scheme)], scheme) {
+			return scheme + host[len(scheme):]
+		}
+	}
+	if models.IsOllamaCloudEndpoint(host) {
+		return "https://" + host
+	}
+	return "http://" + host
+}
+
 // modelEndpoints returns every endpoint a model client calls, keyed or not.
 func modelEndpoints(resolved *ResolvedModelConfig, environment []corev1.EnvVar) []string {
 	spec := resolved.Config.Spec
 	if spec.Provider == v1alpha3.ModelProviderOllama {
-		// Go ADK Ollama clients share one host and key across models.
+		// Each compiled Ollama model carries its own host. Without one, both
+		// runtimes fall back to OLLAMA_API_BASE (for example a Harness env
+		// entry), so the environment is consulted only then.
+		//
+		// OLLAMA_API_KEY is still one variable per runtime, shared by every
+		// keyed cloud model; per-model keys are a separate concern.
 		var host string
+		if spec.Ollama != nil && spec.Ollama.Host != "" {
+			host = OllamaHostURL(spec.Ollama.Host)
+		}
+		var envHost string
 		var hasCredential bool
 		for _, variable := range environment {
 			switch variable.Name {
 			case env.OllamaAPIBase.Name():
-				host = variable.Value
+				envHost = variable.Value
 			case env.OllamaAPIKey.Name():
 				hasCredential = variable.Value != "" || variable.ValueFrom != nil
 			}
+		}
+		if host == "" {
+			host = envHost
 		}
 		if host != "" {
 			return []string{host}

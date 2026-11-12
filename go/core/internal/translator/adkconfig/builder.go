@@ -332,13 +332,13 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 			destinations = append(destinations, models.BedrockRuntimeOrigin(bedrock.Region)+":443")
 		}
 	case v1alpha3.ModelProviderOllama:
-		// Ollama's endpoint is the provider's own field and is not part of the
-		// serialized model, so the walk above never sees it. Unlike the
-		// providers above there is no default to fall back on: the host is the
-		// operator's, so it has to be read from the spec.
+		// The compiled model carries the host, so the walk above already sees
+		// it; reading the spec as well keeps the allowlist independent of the
+		// serialized form. Unlike the providers above there is no default to
+		// fall back on: the host is the operator's.
 		if ollama := modelConfig.Spec.Ollama; ollama != nil {
 			if ollama.Host != "" {
-				destinations = appendURLOrigin(destinations, withDefaultScheme(ollama.Host))
+				destinations = appendURLOrigin(destinations, translator.OllamaHostURL(ollama.Host))
 			}
 			// A cloud model with a key and no explicit host reaches
 			// api.ollama.com, so the agent needs that host allowed or the call
@@ -357,27 +357,6 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 	}
 	slices.Sort(destinations)
 	return slices.Compact(destinations)
-}
-
-// withDefaultScheme makes a bare host:port an absolute URL. The Ollama host
-// field accepts either form, but net/url reads the bare one as a scheme, so a
-// caller that wants a hostname from it has to normalize first.
-//
-// A bare host defaults to http, which is right for a daemon (host:port on a
-// private address). It is wrong for ollama.com's API, which serves HTTPS only:
-// Cloudflare answers the http form with a redirect, and Go turns a 301 into a
-// GET, so the POST /api/chat that should carry the request comes back 405
-// Method Not Allowed. The cloud endpoint therefore has to be normalized to
-// https here, which is what the runtime's own copy of this does — the two
-// disagreed, and the actor was pinned to http://api.ollama.com.
-func withDefaultScheme(host string) string {
-	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
-		return host
-	}
-	if models.IsOllamaCloudEndpoint(host) {
-		return "https://" + host
-	}
-	return "http://" + host
 }
 
 // appendURLValues walks serialized provider config because endpoint fields are

@@ -368,11 +368,13 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 		return models.NewMistralModel(ctx, cfg)
 
 	case *configv1.ADKModelConfig_Ollama:
-		// Leave the host empty when the controller did not set one: NewOllamaModel
-		// then applies the cloud/local routing. Defaulting it to localhost here
+		// Each compiled model carries its own host, so models in one runtime
+		// can use different servers. Leave the host empty when the controller
+		// did not set one: NewOllamaModel then falls back to OLLAMA_API_BASE
+		// and applies the cloud/local routing. Defaulting it to localhost here
 		// would look like an operator-chosen endpoint and pin every cloud model
 		// to the local daemon.
-		baseURL := env.OllamaAPIBase.Get()
+		baseURL := p.Ollama.Host
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultOllamaModel

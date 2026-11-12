@@ -41,6 +41,8 @@ func ModelToEmbeddingConfig(m *configv1.ADKModelConfig) *configv1.ADKEmbeddingCo
 		e.BaseUrl = p.Mistral.BaseUrl
 	case *configv1.ADKModelConfig_SapAiCore:
 		e.BaseUrl = p.SapAiCore.BaseUrl
+	case *configv1.ADKModelConfig_Ollama:
+		e.BaseUrl = p.Ollama.Host
 	case *configv1.ADKModelConfig_Foundry:
 		e.Endpoint = p.Foundry.Endpoint
 		e.Deployment = p.Foundry.Deployment
