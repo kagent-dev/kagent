@@ -17,6 +17,7 @@ import {
   apiClient,
   useAgentTemplatesAcrossNamespaces,
   countTemplateTools,
+  indexToolServers,
   useInvalidateAgentTemplates,
   useMcpServers,
   useNamespaces,
@@ -62,7 +63,7 @@ export function AgentTemplatesTab() {
 
   const mcpServers = useMcpServers();
   const serversByRef = useMemo(
-    () => new Map((mcpServers.data ?? []).map((server) => [server.ref, server])),
+    () => indexToolServers(mcpServers.data ?? []),
     [mcpServers.data],
   );
 
@@ -139,7 +140,9 @@ export function AgentTemplatesTab() {
           if (bindings.length === 0) return 0;
           const { total, unknownServers } = countTemplateTools(bindings, serversByRef, row.namespace);
           // Until the servers load, or when one has no discovered tools on record, a total would be a guess.
-          if (mcpServers.isLoading) return <Text css={{ color: theme.color.textMuted }}>…</Text>;
+          if (unknownServers.length > 0 && mcpServers.isLoading) {
+            return <Text css={{ color: theme.color.textMuted }}>…</Text>;
+          }
           return unknownServers.length === 0 ? (
             total
           ) : (
@@ -193,7 +196,10 @@ export function AgentTemplatesTab() {
     [invalidateTemplates, mcpServers.isLoading, serversByRef, theme.color.textMuted, theme.font.mono],
   );
 
-  const refreshThisTab = templates.refresh;
+  // The tool counts come from the server list, so refreshing the tab reloads it too.
+  const refreshThisTab = async () => {
+    await Promise.allSettled([templates.refresh(), mcpServers.refresh()]);
+  };
 
   return (
     <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
