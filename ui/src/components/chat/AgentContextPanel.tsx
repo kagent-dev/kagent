@@ -83,7 +83,7 @@ export function AgentContextPanel({
       ) : null}
 
       <Field
-        label="Template"
+        label="Agent template"
         hint={
           definition.data?.resource.spec.template.inline
             ? "This agent has no AgentTemplate: the model, tools and instructions below are written into the agent itself."

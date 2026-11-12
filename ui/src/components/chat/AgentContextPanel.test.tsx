@@ -67,6 +67,7 @@ describe("AgentContextPanel", () => {
     expect(screen.getByTestId("chat-agent-context-agent").textContent).toBe("kagent/assistant");
     expect(screen.getByTestId("chat-agent-context-template").textContent).toBe("kagent/helper-template");
     expect(screen.getByTestId("chat-agent-context-harness").textContent).toBe("kagent/runner");
+    expect(screen.getByText("Agent template")).toBeTruthy();
     expect(screen.getByText("Harness")).toBeTruthy();
     expect(screen.queryByText("Runs on")).toBeNull();
   });
@@ -83,7 +84,7 @@ describe("AgentContextPanel", () => {
     });
     expect(screen.queryByTestId("chat-agent-context-template")).toBeNull();
     expect(screen.getByText(/None\. The agent defines its own/)).toBeTruthy();
-    await userEvent.hover(screen.getByTestId("chat-agent-context-hint-template"));
+    await userEvent.hover(screen.getByTestId("chat-agent-context-hint-agent-template"));
     expect(await screen.findByText(/This agent has no AgentTemplate/)).toBeTruthy();
   });
 
