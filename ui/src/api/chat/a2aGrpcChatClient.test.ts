@@ -2121,7 +2121,7 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  async function run(attempt: (n: number) => AsyncGenerator<unknown>, signal?: AbortSignal) {
+  async function run(attempt: (n: number) => AsyncGenerator<unknown>, signal?: AbortSignal, stopResending?: AbortSignal) {
     const requests: SendMessageRequest[] = [];
     serve(({ service }) => {
       service(A2AService, {
@@ -2141,6 +2141,7 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
           text: "why is checkout crashlooping?",
           messageId: "msg-local-1",
           signal,
+          stopResending,
         })) {
           events.push(event);
         }
@@ -2253,6 +2254,30 @@ describe("A2AGrpcChatClient.send, when the gateway did not accept the message", 
     expect(mayNeedRecovery(error)).toBe(true);
     // The gateway's longer delay is the floor, so a recovery costs a few sends.
     expect(sentAt[1] - sentAt[0]).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it("stops re-sending once the reader stops before the task is named, mid-wait", async () => {
+    const stop = new AbortController();
+    const { error, requests } = await run(async function* () {
+      // Stop arrives while the client waits to send again.
+      setTimeout(() => stop.abort(), 50);
+      yield* [];
+      throw notAccepted({ reason: "KAGENT_SEND_NOT_ACCEPTED", retryAfterMs: "1000" });
+    }, undefined, stop.signal);
+    expect(requests).toHaveLength(1);
+    // The turn is not aborted: the last refusal ends it, and nothing is running.
+    expect(error).toMatchObject({ code: "FailedPrecondition" });
+  });
+
+  it("never re-sends a refusal that arrives after the reader stopped", async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const { error, requests } = await run(async function* () {
+      yield* [];
+      throw notAccepted();
+    }, undefined, stop.signal);
+    expect(requests).toHaveLength(1);
+    expect(error).toMatchObject({ code: "FailedPrecondition" });
   });
 
   it("stops re-sending when the reader presses stop", async () => {

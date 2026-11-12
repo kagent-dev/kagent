@@ -170,22 +170,39 @@ function refusedSendError(error: unknown, reason: string, message?: string): Api
   });
 }
 
-/** Resolves after `ms`, or rejects with the abort as soon as `signal` fires. */
-function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+/**
+ * Resolves after `ms`, or early once `wake` fires; rejects with the abort as soon as
+ * `signal` fires.
+ */
+function pause(ms: number, signal: AbortSignal | undefined, wake?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason);
       return;
     }
-    const onAbort = () => {
+    if (wake?.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      wake?.removeEventListener("abort", onWake);
+    };
+    const onAbort = () => {
+      done();
       reject(signal?.reason);
     };
+    const onWake = () => {
+      done();
+      resolve();
+    };
     const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
+      done();
       resolve();
     }, ms);
     signal?.addEventListener("abort", onAbort, { once: true });
+    wake?.addEventListener("abort", onWake, { once: true });
   });
 }
 
@@ -553,7 +570,7 @@ export class A2AGrpcChatClient implements ChatClient {
   }
 
   async *send(input: SendMessageInput): AsyncIterable<ChatEvent> {
-    const { conversation, text, signal } = input;
+    const { conversation, text, signal, stopResending } = input;
     const client = serviceClient(A2AService);
     const fileParts = await Promise.all(
       (input.files ?? []).map(async (file) => ({
@@ -689,7 +706,9 @@ export class A2AGrpcChatClient implements ChatClient {
           return;
         } catch (error) {
           const resendAfter = received ? undefined : unacceptedSendRetryMs(error);
-          if (resendAfter !== undefined && !signal?.aborted) {
+          // A stopped message is never sent again: each refusal proved the last
+          // attempt was not accepted, so ending here leaves nothing running.
+          if (resendAfter !== undefined && !signal?.aborted && !stopResending?.aborted) {
             resendWait = Math.max(resendAfter, Math.min(resendWait * 2, UNACCEPTED_SEND_MAX_RETRY_MS));
             if (Date.now() + resendWait > resendUntil) {
               const recovering = a2aRefusal(error)?.metadata.state === "RECOVERING";
@@ -697,7 +716,8 @@ export class A2AGrpcChatClient implements ChatClient {
                 ? "The agent's runtime is still recovering from a crash."
                 : "The agent's runtime did not accept the message. It may have crashed.");
             }
-            await pause(resendWait, signal);
+            await pause(resendWait, signal, stopResending);
+            if (stopResending?.aborted) throw error;
             source = client.sendStreamingMessage(request, options);
             continue;
           }
