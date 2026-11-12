@@ -119,70 +119,34 @@ tests:
           path: spec.skills[0].source.oci
           pattern: ^mirror\.example/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}$
 
-  - it: k8s-agent attaches the skill from a configured catalog
-    documentSelector:
-      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "k8s-agent")]
-    set:
-      builtins.skills.image: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      builtins.skills.list:
-        - name: helm-release-management
-          description: Inspect, upgrade and uninstall Helm releases.
-          path: skills/helm-release-management
-        - name: k8s-troubleshooting
-          description: Diagnose unhealthy workloads.
-          path: catalog/k8s-troubleshooting
-    asserts:
-      - equal:
-          path: spec.skills
-          value:
-            - name: k8s-troubleshooting
-              source:
-                oci: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-                path: catalog/k8s-troubleshooting
-
-  - it: k8s-agent rejects a skills image without a digest
-    set:
-      builtins.skills.image: registry.example/team/skills:v1
-    asserts:
-      - failedTemplate:
-          errorMessage: 'builtins.skills.image must be pinned by sha256 digest: "registry.example/team/skills:v1"'
-
-  - it: k8s-agent uses the configured Agent name
-    set:
-      builtins.k8sAgent.name: ops
-    asserts:
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: ops
-          any: true
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: Agent
-          name: ops
-          any: true
-      - equal:
-          path: spec.template.ref.name
-          value: ops
-        documentSelector:
-          path: $[?(@.kind == "Agent" && @.metadata.name == "ops")]
-
-  - it: k8s-agent is skipped when turned off
+  - it: k8s-agent is skipped when turned off, but platform-agent keeps its AgentTemplate
     set:
       builtins.k8sAgent.enabled: false
     asserts:
       - not: true
         containsDocument:
           apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: k8s-agent
-          any: true
-      - not: true
-        containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
           kind: Agent
           name: k8s-agent
           any: true
+      - containsDocument:
+          apiVersion: api.kagent.dev/v1alpha3
+          kind: AgentTemplate
+          name: k8s-agent
+          any: true
+      - containsDocument:
+          apiVersion: api.kagent.dev/v1alpha3
+          kind: Agent
+          name: platform-agent
+          any: true
+
+  - it: k8s-agent and its AgentTemplate are skipped when both Agents are turned off
+    set:
+      builtins.k8sAgent.enabled: false
+      builtins.platformAgent.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: k8s-agent is skipped when all built-ins are turned off
     set:
@@ -219,256 +183,134 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: k8s-agent is skipped when built-in skills are turned off
-    set:
-      builtins.skills.enabled: false
+  - it: platform-agent routes to one specialist per skill and reuses k8s-agent for Kubernetes
+    documentSelector:
+      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
     asserts:
-      - hasDocuments:
-          count: 0
+      - notExists:
+          path: spec.skills
+      - equal:
+          path: spec.tools
+          value:
+            - subAgent:
+                name: kubernetes
+                description: "Kubernetes specialist: diagnoses and fixes unhealthy pods, deployments and services."
+                templateRef:
+                  name: k8s-agent
+            - subAgent:
+                name: helm
+                description: "Helm specialist: lists, inspects, upgrades and uninstalls Helm releases and manages chart repositories."
+                templateRef:
+                  name: platform-helm
+            - subAgent:
+                name: istio
+                description: "Istio specialist: debugs service mesh traffic, mTLS, routing, sidecars, ztunnel and waypoints."
+                templateRef:
+                  name: platform-istio
+            - subAgent:
+                name: argo-rollouts
+                description: "Argo Rollouts specialist: checks, promotes, pauses and updates canary and blue-green Rollouts."
+                templateRef:
+                  name: platform-argo-rollouts
+            - subAgent:
+                name: kubescape
+                description: "Security specialist: reviews Kubescape configuration scans, image vulnerabilities and workload behavior."
+                templateRef:
+                  name: platform-kubescape
 
-  - it: k8s-agent is skipped when the catalog lacks k8s-troubleshooting
-    set:
-      builtins.skills.image: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      builtins.skills.list:
-        - name: helm-release-management
-          description: Inspect, upgrade and uninstall Helm releases.
-          path: skills/helm-release-management
+  - it: platform-agent runs on kagent-default and references its AgentTemplate
+    documentSelector:
+      path: $[?(@.kind == "Agent" && @.metadata.name == "platform-agent")]
     asserts:
-      - hasDocuments:
-          count: 0
-  - it: platform-agent renders an AgentTemplate and an Agent that references it
-    asserts:
-      - hasDocuments:
-          count: 2
-          filterAware: true
-        documentSelector:
-          path: metadata.name
-          value: platform-agent
-          matchMany: true
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: platform-agent
-          any: true
-      - equal:
-          path: spec.description
-          value: "Platform assistant: runs and troubleshoots workloads, Helm releases, Istio traffic and Argo Rollouts in the cluster where kagent runs."
-        documentSelector:
-          path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
-      - equal:
-          path: spec.modelConfig.name
-          value: default-model-config
-        documentSelector:
-          path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: Agent
-          name: platform-agent
-          namespace: kagent
-          any: true
       - equal:
           path: spec.harnessRef.name
           value: kagent-default
-        documentSelector:
-          path: $[?(@.kind == "Agent" && @.metadata.name == "platform-agent")]
       - equal:
-          path: spec.template
-          value:
-            ref:
-              name: platform-agent
-        documentSelector:
-          path: $[?(@.kind == "Agent" && @.metadata.name == "platform-agent")]
+          path: spec.template.ref.name
+          value: platform-agent
 
-  - it: platform-agent attaches the four skills from the packaged kagent-tools image
+  - it: a specialist gets its own skill, its read-only tools, and approval on tools that change things
     documentSelector:
-      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
+      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-helm")]
     asserts:
-      - lengthEqual:
-          path: spec.skills
-          count: 4
       - equal:
           path: spec.skills[0].name
-          value: k8s-troubleshooting
-      - equal:
-          path: spec.skills[1].name
           value: helm-release-management
-      - equal:
-          path: spec.skills[2].name
-          value: istio-traffic-debugging
-      - equal:
-          path: spec.skills[3].name
-          value: argo-rollouts-progressive-delivery
       - matchRegex:
-          path: spec.skills[3].source.oci
+          path: spec.skills[0].source.oci
           pattern: ^ghcr\.io/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}$
       - equal:
-          path: spec.skills[3].source.path
-          value: opt/kagent-tools-skills/skills/argo-rollouts-progressive-delivery
+          path: spec.skills[0].source.path
+          value: opt/kagent-tools-skills/skills/helm-release-management
+      - equal:
+          path: spec.tools[0].mcp
+          value:
+            server:
+              kind: RemoteMCPServer
+              name: RELEASE-NAME-tool-server
+            tools:
+              - helm_get_release
+              - helm_list_releases
+      - equal:
+          path: spec.tools[1].mcp
+          value:
+            server:
+              kind: RemoteMCPServer
+              name: RELEASE-NAME-tool-server
+            requireApproval: true
+            tools:
+              - helm_repo_add
+              - helm_repo_update
+              - helm_uninstall
+              - helm_upgrade
 
-  - it: platform-agent binds read-only tools freely and tools that change things behind approval
+  - it: a read-only specialist has no approval binding
     documentSelector:
-      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
+      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-kubescape")]
     asserts:
       - lengthEqual:
           path: spec.tools
-          count: 2
-      - equal:
-          path: spec.tools[0].mcp.server
-          value:
-            kind: RemoteMCPServer
-            name: RELEASE-NAME-tool-server
+          count: 1
       - notExists:
           path: spec.tools[0].mcp.requireApproval
-      - equal:
-          path: spec.tools[0].mcp.tools
-          value:
-            - k8s_describe_resource
-            - k8s_generate_resource
-            - k8s_get_available_api_resources
-            - k8s_get_cluster_configuration
-            - k8s_get_events
-            - k8s_get_pod_logs
-            - k8s_get_resource_yaml
-            - k8s_get_resources
-            - k8s_wait
-            - helm_get_release
-            - helm_list_releases
-            - istio_analyze_cluster_configuration
-            - istio_generate_waypoint
-            - istio_list_waypoints
-            - istio_proxy_config
-            - istio_proxy_status
-            - istio_version
-            - istio_waypoint_status
-            - istio_ztunnel_config
-            - argo_check_plugin_logs
-            - argo_rollouts_list
-            - argo_verify_argo_rollouts_controller_install
-            - argo_verify_kubectl_plugin_install
-      - equal:
-          path: spec.tools[1].mcp.requireApproval
-          value: true
-      - equal:
-          path: spec.tools[1].mcp.tools
-          value:
-            - k8s_annotate_resource
-            - k8s_apply_manifest
-            - k8s_check_service_connectivity
-            - k8s_create_resource
-            - k8s_create_resource_from_url
-            - k8s_delete_resource
-            - k8s_execute_command
-            - k8s_label_resource
-            - k8s_patch_resource
-            - k8s_patch_status
-            - k8s_remove_annotation
-            - k8s_remove_label
-            - k8s_rollout
-            - k8s_scale
-            - helm_repo_add
-            - helm_repo_update
-            - helm_uninstall
-            - helm_upgrade
-            - istio_apply_waypoint
-            - istio_delete_waypoint
-            - argo_pause_rollout
-            - argo_promote_rollout
-            - argo_set_rollout_image
-            - argo_verify_gateway_plugin
 
-  - it: platform-agent adds only the skills and tools the catalog has
-    documentSelector:
-      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
+  - it: platform-agent adds the Prometheus specialist when a Prometheus URL is set
     set:
-      builtins.skills.image: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      builtins.skills.list:
-        - name: k8s-troubleshooting
-          description: Diagnose unhealthy workloads.
-          path: catalog/k8s-troubleshooting
-        - name: istio-traffic-debugging
-          description: Debug mesh traffic.
-          path: catalog/istio-traffic-debugging
+      kagent-tools.tools.prometheus.url: http://prometheus-server.monitoring:9090
     asserts:
       - equal:
-          path: spec.skills
-          value:
-            - name: k8s-troubleshooting
-              source:
-                oci: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-                path: catalog/k8s-troubleshooting
-            - name: istio-traffic-debugging
-              source:
-                oci: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-                path: catalog/istio-traffic-debugging
-      - equal:
-          path: spec.description
-          value: "Platform assistant: runs and troubleshoots workloads and Istio traffic in the cluster where kagent runs."
-      - contains:
-          path: spec.tools[0].mcp.tools
-          content: istio_proxy_status
-      - contains:
-          path: spec.tools[1].mcp.tools
-          content: istio_apply_waypoint
-      - notContains:
-          path: spec.tools[0].mcp.tools
-          content: helm_list_releases
-      - notContains:
-          path: spec.tools[0].mcp.tools
-          content: argo_rollouts_list
-      - notContains:
-          path: spec.tools[1].mcp.tools
-          content: helm_upgrade
-      - notContains:
-          path: spec.tools[1].mcp.tools
-          content: argo_promote_rollout
-
-  - it: platform-agent uses the configured Agent name
-    set:
-      builtins.platformAgent.name: platform
-    asserts:
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: platform
-          any: true
-      - equal:
-          path: spec.template.ref.name
-          value: platform
+          path: spec.skills[0].name
+          value: prometheus-observability
         documentSelector:
-          path: $[?(@.kind == "Agent" && @.metadata.name == "platform")]
+          path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-prometheus")]
+      - contains:
+          path: spec.tools
+          content:
+            subAgent:
+              name: prometheus
+              description: "Observability specialist: writes and runs PromQL queries about cluster and application metrics."
+              templateRef:
+                name: platform-prometheus
+        documentSelector:
+          path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
 
-  - it: platform-agent is skipped when turned off
+  - it: platform-agent and its specialists are skipped when turned off
     set:
       builtins.platformAgent.enabled: false
     asserts:
-      - not: true
-        containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: platform-agent
-          any: true
-      - not: true
-        containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: Agent
-          name: platform-agent
-          any: true
-
-  - it: platform-agent stays on when k8s-agent is turned off
-    set:
-      builtins.k8sAgent.enabled: false
-    asserts:
       - hasDocuments:
           count: 2
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: platform-agent
-          any: true
-      - containsDocument:
+      - not: true
+        containsDocument:
           apiVersion: api.kagent.dev/v1alpha3
           kind: Agent
           name: platform-agent
+          any: true
+      - not: true
+        containsDocument:
+          apiVersion: api.kagent.dev/v1alpha3
+          kind: AgentTemplate
+          name: platform-helm
           any: true
 
   - it: platform-agent is skipped when all built-ins are turned off
@@ -478,41 +320,9 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: platform-agent is skipped when the built-ins values are missing
-    set:
-      builtins: null
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: platform-agent is skipped without the default Harnesses
-    set:
-      harnesses.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
   - it: platform-agent is skipped without kagent-tools
     set:
       kagent-tools.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: platform-agent is skipped when built-in skills are turned off
-    set:
-      builtins.skills.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: platform-agent is skipped when the catalog lacks k8s-troubleshooting
-    set:
-      builtins.skills.image: registry.example/team/skills@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      builtins.skills.list:
-        - name: helm-release-management
-          description: Inspect, upgrade and uninstall Helm releases.
-          path: skills/helm-release-management
     asserts:
       - hasDocuments:
           count: 0

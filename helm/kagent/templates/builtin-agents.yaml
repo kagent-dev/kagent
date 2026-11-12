@@ -4,14 +4,17 @@
 {{- $_ := set $byName .name . }}
 {{- end }}
 {{- $toolServer := printf "%s-tool-server" (include "kagent.fullname" .) }}
-{{- /* Both agents need the kagent-default Harness, kagent-tools and the k8s-troubleshooting skill. */}}
-{{- $ready := and (dig "builtins" "enabled" false .Values.AsMap) (dig "harnesses" "enabled" false .Values.AsMap) (dig "harnesses" "kagent" "enabled" false .Values.AsMap) (index .Values "kagent-tools" "enabled") (hasKey $byName "k8s-troubleshooting") }}
-{{- if and $ready (dig "builtins" "k8sAgent" "enabled" false .Values.AsMap) }}
+{{- /* Both agents need the kagent-default Harness and kagent-tools. */}}
+{{- $ready := and (dig "builtins" "enabled" false .Values.AsMap) (dig "harnesses" "enabled" false .Values.AsMap) (dig "harnesses" "kagent" "enabled" false .Values.AsMap) (index .Values "kagent-tools" "enabled") }}
+{{- $k8sAgent := and $ready (dig "builtins" "k8sAgent" "enabled" false .Values.AsMap) }}
+{{- $platformAgent := and $ready (dig "builtins" "platformAgent" "enabled" false .Values.AsMap) }}
+{{- /* platform-agent also uses the k8s-agent AgentTemplate as its Kubernetes specialist. */}}
+{{- if or $k8sAgent $platformAgent }}
 {{- $skill := get $byName "k8s-troubleshooting" }}
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
-  name: {{ .Values.builtins.k8sAgent.name | quote }}
+  name: k8s-agent
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
@@ -76,11 +79,13 @@ spec:
       source:
         oci: {{ $catalog.image | quote }}
         path: {{ $skill.path | quote }}
+{{- end }}
+{{- if $k8sAgent }}
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
-  name: {{ .Values.builtins.k8sAgent.name | quote }}
+  name: k8s-agent
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
@@ -89,43 +94,62 @@ spec:
     name: kagent-default
   template:
     ref:
-      name: {{ .Values.builtins.k8sAgent.name | quote }}
+      name: k8s-agent
 {{- end }}
-{{- if and $ready (dig "builtins" "platformAgent" "enabled" false .Values.AsMap) }}
-{{- /* The Helm, Istio and Argo skills and their tools are added when the catalog has them. */}}
-{{- $helm := hasKey $byName "helm-release-management" }}
-{{- $istio := hasKey $byName "istio-traffic-debugging" }}
-{{- $argo := hasKey $byName "argo-rollouts-progressive-delivery" }}
-{{- $topics := list "workloads" }}
-{{- if $helm }}{{ $topics = append $topics "Helm releases" }}{{ end }}
-{{- if $istio }}{{ $topics = append $topics "Istio traffic" }}{{ end }}
-{{- if $argo }}{{ $topics = append $topics "Argo Rollouts" }}{{ end }}
-{{- $covers := $topics | first }}
-{{- if gt (len $topics) 1 }}{{ $covers = printf "%s and %s" (initial $topics | join ", ") (last $topics) }}{{ end }}
+{{- if $platformAgent }}
+{{- /* One specialist per skill. Read-only tools run freely; tools that change things need approval. */}}
+{{- $specialists := list
+  (dict "name" "helm" "skill" "helm-release-management"
+    "description" "Helm specialist: lists, inspects, upgrades and uninstalls Helm releases and manages chart repositories."
+    "prompt" "You are a Helm specialist. You help users inspect, troubleshoot, upgrade and uninstall Helm releases."
+    "read" (list "helm_get_release" "helm_list_releases")
+    "write" (list "helm_repo_add" "helm_repo_update" "helm_uninstall" "helm_upgrade"))
+  (dict "name" "istio" "skill" "istio-traffic-debugging"
+    "description" "Istio specialist: debugs service mesh traffic, mTLS, routing, sidecars, ztunnel and waypoints."
+    "prompt" "You are an Istio specialist. You diagnose and fix service mesh traffic, security and waypoint problems."
+    "read" (list "istio_analyze_cluster_configuration" "istio_generate_waypoint" "istio_list_waypoints" "istio_proxy_config" "istio_proxy_status" "istio_version" "istio_waypoint_status" "istio_ztunnel_config")
+    "write" (list "istio_apply_waypoint" "istio_delete_waypoint"))
+  (dict "name" "argo-rollouts" "skill" "argo-rollouts-progressive-delivery"
+    "description" "Argo Rollouts specialist: checks, promotes, pauses and updates canary and blue-green Rollouts."
+    "prompt" "You are an Argo Rollouts specialist. You help users run canary and blue-green releases with Argo Rollouts."
+    "read" (list "argo_check_plugin_logs" "argo_rollouts_list" "argo_verify_argo_rollouts_controller_install" "argo_verify_kubectl_plugin_install")
+    "write" (list "argo_pause_rollout" "argo_promote_rollout" "argo_set_rollout_image" "argo_verify_gateway_plugin"))
+  (dict "name" "kubescape" "skill" "kubescape-security-posture"
+    "description" "Security specialist: reviews Kubescape configuration scans, image vulnerabilities and workload behavior."
+    "prompt" "You are a Kubernetes security specialist. You review Kubescape results and recommend hardening steps."
+    "read" (list "kubescape_check_health" "kubescape_get_application_profile" "kubescape_get_configuration_scan" "kubescape_get_network_neighborhood" "kubescape_get_vulnerability_details" "kubescape_list_application_profiles" "kubescape_list_configuration_scans" "kubescape_list_network_neighborhoods" "kubescape_list_vulnerabilities" "kubescape_list_vulnerability_manifests")
+    "write" (list))
+  (dict "name" "prometheus" "skill" "prometheus-observability"
+    "description" "Observability specialist: writes and runs PromQL queries about cluster and application metrics."
+    "prompt" "You are an observability specialist. You turn questions about metrics into PromQL, run them and explain the results."
+    "read" (list "prometheus_label_names_tool" "prometheus_promql_tool" "prometheus_query_range_tool" "prometheus_query_tool" "prometheus_targets_tool")
+    "write" (list))
+}}
+{{- /* The catalog has the Prometheus skill only when kagent-tools has a Prometheus URL. */}}
+{{- $active := list }}
+{{- range $specialists }}{{ if hasKey $byName .skill }}{{ $active = append $active . }}{{ end }}{{ end }}
+{{- range $active }}
+{{- $skill := get $byName .skill }}
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
-  name: {{ .Values.builtins.platformAgent.name | quote }}
-  namespace: {{ include "kagent.namespace" . }}
+  name: {{ printf "platform-%s" .name | quote }}
+  namespace: {{ include "kagent.namespace" $ }}
   labels:
-    {{- include "kagent.labels" . | nindent 4 }}
+    {{- include "kagent.labels" $ | nindent 4 }}
 spec:
-  description: {{ printf "Platform assistant: runs and troubleshoots %s in the cluster where kagent runs." $covers | quote }}
+  description: {{ .description | quote }}
   modelConfig:
-    name: {{ include "kagent.defaultModelConfigName" . }}
+    name: {{ include "kagent.defaultModelConfigName" $ }}
   promptTemplate:
     dataSources:
       - name: kagent-builtin-prompts
         alias: builtin
   systemPrompt: |
-    You help users run and troubleshoot {{ $covers }}
-    in the Kubernetes cluster where kagent runs. When a question matches one
-    of your skills, load that skill and follow it.
+    {{ .prompt }} Load your skill and follow it.
 
     {{`{{include "builtin/skills-usage"}}`}}
-
-    {{`{{include "builtin/kubernetes-context"}}`}}
 
     {{`{{include "builtin/tool-usage-best-practices"}}`}}
 
@@ -136,87 +160,57 @@ spec:
           kind: RemoteMCPServer
           name: {{ $toolServer }}
         tools:
-          - k8s_describe_resource
-          - k8s_generate_resource
-          - k8s_get_available_api_resources
-          - k8s_get_cluster_configuration
-          - k8s_get_events
-          - k8s_get_pod_logs
-          - k8s_get_resource_yaml
-          - k8s_get_resources
-          - k8s_wait
-          {{- if $helm }}
-          - helm_get_release
-          - helm_list_releases
-          {{- end }}
-          {{- if $istio }}
-          - istio_analyze_cluster_configuration
-          - istio_generate_waypoint
-          - istio_list_waypoints
-          - istio_proxy_config
-          - istio_proxy_status
-          - istio_version
-          - istio_waypoint_status
-          - istio_ztunnel_config
-          {{- end }}
-          {{- if $argo }}
-          - argo_check_plugin_logs
-          - argo_rollouts_list
-          - argo_verify_argo_rollouts_controller_install
-          - argo_verify_kubectl_plugin_install
-          {{- end }}
-    # These tools change the cluster or the tool server, so each call waits for the user's approval.
-    # argo_verify_gateway_plugin installs the Gateway API plugin when it is missing.
+          {{- toYaml .read | nindent 10 }}
+    {{- with .write }}
     - mcp:
         server:
           kind: RemoteMCPServer
           name: {{ $toolServer }}
         requireApproval: true
         tools:
-          - k8s_annotate_resource
-          - k8s_apply_manifest
-          - k8s_check_service_connectivity
-          - k8s_create_resource
-          - k8s_create_resource_from_url
-          - k8s_delete_resource
-          - k8s_execute_command
-          - k8s_label_resource
-          - k8s_patch_resource
-          - k8s_patch_status
-          - k8s_remove_annotation
-          - k8s_remove_label
-          - k8s_rollout
-          - k8s_scale
-          {{- if $helm }}
-          - helm_repo_add
-          - helm_repo_update
-          - helm_uninstall
-          - helm_upgrade
-          {{- end }}
-          {{- if $istio }}
-          - istio_apply_waypoint
-          - istio_delete_waypoint
-          {{- end }}
-          {{- if $argo }}
-          - argo_pause_rollout
-          - argo_promote_rollout
-          - argo_set_rollout_image
-          - argo_verify_gateway_plugin
-          {{- end }}
+          {{- toYaml . | nindent 10 }}
+    {{- end }}
   skills:
-    {{- range $name := list "k8s-troubleshooting" "helm-release-management" "istio-traffic-debugging" "argo-rollouts-progressive-delivery" }}
-    {{- with get $byName $name }}
-    - name: {{ .name | quote }}
+    - name: {{ $skill.name | quote }}
       source:
         oci: {{ $catalog.image | quote }}
-        path: {{ .path | quote }}
-    {{- end }}
+        path: {{ $skill.path | quote }}
+{{- end }}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: platform-agent
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  description: "Platform assistant: routes questions about workloads, Helm, Istio, Argo Rollouts, security and metrics to a specialist."
+  modelConfig:
+    name: {{ include "kagent.defaultModelConfigName" . }}
+  systemPrompt: |
+    You help users run and troubleshoot the Kubernetes cluster where kagent
+    runs. You do not call cluster tools yourself. Send each task to the
+    specialist that owns it, and pass along what the user asked. If a task
+    spans several areas, call each specialist in turn and combine the answers.
+  tools:
+    - subAgent:
+        name: kubernetes
+        description: "Kubernetes specialist: diagnoses and fixes unhealthy pods, deployments and services."
+        templateRef:
+          name: k8s-agent
+    {{- range $active }}
+    - subAgent:
+        name: {{ .name | quote }}
+        description: {{ .description | quote }}
+        templateRef:
+          name: {{ printf "platform-%s" .name | quote }}
     {{- end }}
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
-  name: {{ .Values.builtins.platformAgent.name | quote }}
+  name: platform-agent
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
@@ -225,5 +219,5 @@ spec:
     name: kagent-default
   template:
     ref:
-      name: {{ .Values.builtins.platformAgent.name | quote }}
+      name: platform-agent
 {{- end }}

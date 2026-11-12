@@ -14,23 +14,11 @@
 {{- end -}}
 
 {{/*
-The built-in skills catalog as JSON. builtins.skills.image and builtins.skills.list
-replace the packaged catalog. Empty when turned off.
+The built-in skills catalog from the kagent-tools image, as JSON. Empty when builtins.enabled is false.
 */}}
 {{- define "kagent.builtinSkillsCatalog" -}}
-{{- if and (dig "builtins" "enabled" false .Values.AsMap) (dig "builtins" "skills" "enabled" false .Values.AsMap) -}}
+{{- if dig "builtins" "enabled" false .Values.AsMap -}}
   {{- $catalog := .Files.Get "files/builtin-skills.json" | mustFromJson -}}
-  {{- with .Values.builtins.skills.image -}}
-    {{- $catalog = dict "image" . "skills" ($.Values.builtins.skills.list | default (list)) -}}
-  {{- end -}}
-  {{- if not (regexMatch "^[^[:space:]@]+@sha256:[0-9a-f]{64}$" $catalog.image) -}}
-    {{- fail (printf "builtins.skills.image must be pinned by sha256 digest: %q" $catalog.image) -}}
-  {{- end -}}
-  {{- range $catalog.skills -}}
-    {{- if not (and .name .path) -}}
-      {{- fail (printf "builtins.skills.list: each skill needs a name and a path, got %s" (mustToJson .)) -}}
-    {{- end -}}
-  {{- end -}}
   {{/* The Prometheus skill needs a tool server URL it accepts (http:// or https://). */}}
   {{- $prometheusURL := dig "kagent-tools" "tools" "prometheus" "url" "" .Values.AsMap -}}
   {{- if not (regexMatch "^https?://" $prometheusURL) -}}
