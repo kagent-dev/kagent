@@ -820,12 +820,9 @@ kagent-tools:
 # kagent-default Harness and kagent-tools.
 
 builtins:
-  # -- Create the built-in Agents and offer the kagent-tools skills in the UI.
-  # The Agents need `harnesses.enabled`, `harnesses.kagent.enabled` and `kagent-tools.enabled`.
+  # -- Create the built-in Agent and offer the kagent-tools skills in the UI.
+  # The Agent needs `harnesses.enabled`, `harnesses.kagent.enabled` and `kagent-tools.enabled`.
   enabled: true
-  k8sAgent:
-    # -- Create k8s-agent, which troubleshoots workloads in this cluster.
-    enabled: true
   platformAgent:
     # -- Create platform-agent, which hands each task to a specialist subagent
     # (Kubernetes, Helm, Istio, Argo Rollouts, Kubescape, Prometheus).

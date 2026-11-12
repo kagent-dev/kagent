@@ -6,48 +6,35 @@ release:
 set:
   harnesses.enabled: true
 tests:
-  - it: k8s-agent renders an AgentTemplate and an Agent that references it
+  - it: platform-agent is the only built-in Agent, and the Kubernetes specialist is an AgentTemplate
     asserts:
-      - hasDocuments:
-          count: 2
-          filterAware: true
-        documentSelector:
-          path: metadata.name
-          value: k8s-agent
-          matchMany: true
       - containsDocument:
           apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: k8s-agent
+          kind: Agent
+          name: platform-agent
           namespace: kagent
           any: true
+      - hasDocuments:
+          count: 1
+          filterAware: true
+        documentSelector:
+          path: kind
+          value: Agent
+          matchMany: true
       - equal:
           path: spec.modelConfig.name
           value: default-model-config
         documentSelector:
-          path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "k8s-agent")]
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: Agent
-          name: k8s-agent
-          namespace: kagent
-          any: true
+          path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-kubernetes")]
       - equal:
-          path: spec.harnessRef.name
-          value: kagent-default
+          path: spec.description
+          value: "Platform assistant: sends Kubernetes, Helm, Istio, Argo Rollouts, security and metrics questions to a specialist."
         documentSelector:
-          path: $[?(@.kind == "Agent" && @.metadata.name == "k8s-agent")]
-      - equal:
-          path: spec.template
-          value:
-            ref:
-              name: k8s-agent
-        documentSelector:
-          path: $[?(@.kind == "Agent" && @.metadata.name == "k8s-agent")]
+          path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
 
-  - it: k8s-agent binds only the kagent-tools Kubernetes tools, and cluster changes need approval
+  - it: the Kubernetes specialist binds only the kagent-tools Kubernetes tools, and cluster changes need approval
     documentSelector:
-      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "k8s-agent")]
+      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-kubernetes")]
     asserts:
       - lengthEqual:
           path: spec.tools
@@ -92,9 +79,9 @@ tests:
             - k8s_rollout
             - k8s_scale
 
-  - it: k8s-agent attaches k8s-troubleshooting from the packaged kagent-tools image
+  - it: the Kubernetes specialist attaches k8s-troubleshooting from the packaged kagent-tools image
     documentSelector:
-      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "k8s-agent")]
+      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-kubernetes")]
     asserts:
       - lengthEqual:
           path: spec.skills
@@ -109,9 +96,9 @@ tests:
           path: spec.skills[0].source.path
           value: opt/kagent-tools-skills/skills/k8s-troubleshooting
 
-  - it: k8s-agent mirrors the packaged image through global.imageRegistry
+  - it: the Kubernetes specialist mirrors the packaged image through global.imageRegistry
     documentSelector:
-      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "k8s-agent")]
+      path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-kubernetes")]
     set:
       global.imageRegistry: mirror.example
     asserts:
@@ -119,71 +106,42 @@ tests:
           path: spec.skills[0].source.oci
           pattern: ^mirror\.example/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}$
 
-  - it: k8s-agent is skipped when turned off, but platform-agent keeps its AgentTemplate
-    set:
-      builtins.k8sAgent.enabled: false
-    asserts:
-      - not: true
-        containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: Agent
-          name: k8s-agent
-          any: true
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: k8s-agent
-          any: true
-      - containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: Agent
-          name: platform-agent
-          any: true
-
-  - it: k8s-agent and its AgentTemplate are skipped when both Agents are turned off
-    set:
-      builtins.k8sAgent.enabled: false
-      builtins.platformAgent.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: k8s-agent is skipped when all built-ins are turned off
+  - it: platform-agent is skipped when all built-ins are turned off
     set:
       builtins.enabled: false
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: k8s-agent is skipped when the built-ins values are missing
+  - it: platform-agent is skipped when the built-ins values are missing
     set:
       builtins: null
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: k8s-agent is skipped without the default Harnesses
+  - it: platform-agent is skipped without the default Harnesses
     set:
       harnesses.enabled: false
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: k8s-agent is skipped when the kagent-default Harness is turned off
+  - it: platform-agent is skipped when the kagent-default Harness is turned off
     set:
       harnesses.kagent.enabled: false
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: k8s-agent is skipped without kagent-tools
+  - it: platform-agent is skipped without kagent-tools
     set:
       kagent-tools.enabled: false
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: platform-agent routes to one specialist per skill and reuses k8s-agent for Kubernetes
+  - it: platform-agent routes to one specialist per skill
     documentSelector:
       path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
     asserts:
@@ -196,7 +154,7 @@ tests:
                 name: kubernetes
                 description: "Kubernetes specialist: diagnoses and fixes unhealthy pods, deployments and services."
                 templateRef:
-                  name: k8s-agent
+                  name: platform-kubernetes
             - subAgent:
                 name: helm
                 description: "Helm specialist: lists, inspects, upgrades and uninstalls Helm releases and manages chart repositories."
@@ -297,32 +255,6 @@ tests:
   - it: platform-agent and its specialists are skipped when turned off
     set:
       builtins.platformAgent.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 2
-      - not: true
-        containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: Agent
-          name: platform-agent
-          any: true
-      - not: true
-        containsDocument:
-          apiVersion: api.kagent.dev/v1alpha3
-          kind: AgentTemplate
-          name: platform-helm
-          any: true
-
-  - it: platform-agent is skipped when all built-ins are turned off
-    set:
-      builtins.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: platform-agent is skipped without kagent-tools
-    set:
-      kagent-tools.enabled: false
     asserts:
       - hasDocuments:
           count: 0

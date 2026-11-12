@@ -4,22 +4,20 @@
 {{- $_ := set $byName .name . }}
 {{- end }}
 {{- $toolServer := printf "%s-tool-server" (include "kagent.fullname" .) }}
-{{- /* Both agents need the kagent-default Harness and kagent-tools. */}}
+{{- /* platform-agent needs the kagent-default Harness and kagent-tools. */}}
 {{- $ready := and (dig "builtins" "enabled" false .Values.AsMap) (dig "harnesses" "enabled" false .Values.AsMap) (dig "harnesses" "kagent" "enabled" false .Values.AsMap) (index .Values "kagent-tools" "enabled") }}
-{{- $k8sAgent := and $ready (dig "builtins" "k8sAgent" "enabled" false .Values.AsMap) }}
-{{- $platformAgent := and $ready (dig "builtins" "platformAgent" "enabled" false .Values.AsMap) }}
-{{- /* platform-agent also uses the k8s-agent AgentTemplate as its Kubernetes specialist. */}}
-{{- if or $k8sAgent $platformAgent }}
+{{- if and $ready (dig "builtins" "platformAgent" "enabled" false .Values.AsMap) }}
+{{- $kubernetesDescription := "Kubernetes specialist: diagnoses and fixes unhealthy pods, deployments and services." }}
 {{- $skill := get $byName "k8s-troubleshooting" }}
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
-  name: k8s-agent
+  name: platform-kubernetes
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  description: "Kubernetes assistant: finds and fixes problems with workloads in the cluster where kagent runs."
+  description: {{ $kubernetesDescription | quote }}
   modelConfig:
     name: {{ include "kagent.defaultModelConfigName" . }}
   promptTemplate:
@@ -27,9 +25,9 @@ spec:
       - name: kagent-builtin-prompts
         alias: builtin
   systemPrompt: |
-    You help users run and troubleshoot workloads in the Kubernetes cluster
-    where kagent runs. When a question matches one of your skills, load that
-    skill and follow it.
+    You are a Kubernetes specialist. You help users run and troubleshoot
+    workloads in the cluster where kagent runs. When a question matches one of
+    your skills, load that skill and follow it.
 
     {{`{{include "builtin/skills-usage"}}`}}
 
@@ -79,24 +77,6 @@ spec:
       source:
         oci: {{ $catalog.image | quote }}
         path: {{ $skill.path | quote }}
-{{- end }}
-{{- if $k8sAgent }}
----
-apiVersion: api.kagent.dev/v1alpha3
-kind: Agent
-metadata:
-  name: k8s-agent
-  namespace: {{ include "kagent.namespace" . }}
-  labels:
-    {{- include "kagent.labels" . | nindent 4 }}
-spec:
-  harnessRef:
-    name: kagent-default
-  template:
-    ref:
-      name: k8s-agent
-{{- end }}
-{{- if $platformAgent }}
 {{- /* One specialist per skill. Read-only tools run freely; tools that change things need approval. */}}
 {{- $specialists := list
   (dict "name" "helm" "skill" "helm-release-management"
@@ -185,7 +165,7 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  description: "Platform assistant: routes questions about workloads, Helm, Istio, Argo Rollouts, security and metrics to a specialist."
+  description: "Platform assistant: sends Kubernetes, Helm, Istio, Argo Rollouts, security and metrics questions to a specialist."
   modelConfig:
     name: {{ include "kagent.defaultModelConfigName" . }}
   systemPrompt: |
@@ -196,9 +176,9 @@ spec:
   tools:
     - subAgent:
         name: kubernetes
-        description: "Kubernetes specialist: diagnoses and fixes unhealthy pods, deployments and services."
+        description: {{ $kubernetesDescription | quote }}
         templateRef:
-          name: k8s-agent
+          name: platform-kubernetes
     {{- range $active }}
     - subAgent:
         name: {{ .name | quote }}
