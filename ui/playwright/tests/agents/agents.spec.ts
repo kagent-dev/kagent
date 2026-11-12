@@ -298,8 +298,7 @@ test("agents: the list is ordered by name", async ({ page }) => {
  * and that it does not quietly report "there are no agents" when the truth is that
  * it could not find out.
  *
- * AgentService lists one namespace at a time. A failed namespace discovery must
- * report its error because the Agent read cannot run without those namespaces.
+ * A transient namespace discovery failure is surfaced so the reader can retry it.
  */
 
 test("agents: a failed load is reported, not disguised as an empty list", async ({

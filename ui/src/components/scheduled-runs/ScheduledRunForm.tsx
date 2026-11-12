@@ -3,6 +3,7 @@ import { Alert, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Select
 import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
 import { newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
+import { isPermissionDenied } from "@/api/ApiError";
 import { invoke } from "@/api/operations";
 import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
@@ -40,7 +41,9 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   // Retain the key after a failed response: retrying must not create another schedule.
   const [requestId] = useState(() => randomId());
   const namespaces = useNamespaces();
-  const definitions = useAgentsAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
+  const namespaceDenied = isPermissionDenied(namespaces.error);
+  const agentNamespaces = namespaceDenied ? null : namespaces.data?.map((row) => row.name);
+  const definitions = useAgentsAcrossNamespaces(schedule ? undefined : agentNamespaces);
   const agents = definitions.data?.agents ?? [];
   const config = schedule?.config;
   const initialTiming = parseSchedule(config?.schedule ?? "0 9 * * *");
@@ -48,7 +51,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   const timing = { ...initialTiming, ...watched };
   const initialTimeout = config?.executionTimeout
     ? Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9 : 900;
-  const loadError = namespaces.error ?? definitions.error;
+  const loadError = (namespaceDenied ? undefined : namespaces.error) ?? definitions.error;
 
   async function save(values: FormValues) {
     setSaving(true);

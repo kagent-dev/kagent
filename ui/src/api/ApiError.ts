@@ -79,6 +79,10 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
+export function isPermissionDenied(error: unknown): boolean {
+  return isApiError(error) && error.status === 403;
+}
+
 /** True when `error` is a 404 — worth distinguishing from a real failure. */
 export function isNotFound(error: unknown): boolean {
   return isApiError(error) && error.status === 404;
