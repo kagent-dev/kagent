@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 var _ manager.Runnable = (*ActorWorkflow)(nil)
@@ -18,41 +20,47 @@ var _ manager.LeaderElectionRunnable = (*ActorWorkflow)(nil)
 // Every API replica can process idle work; PostgreSQL grants each claim once.
 func (*ActorWorkflow) NeedLeaderElection() bool { return false }
 
-// wakeQuiescence is a bounded, nonblocking hint. A buffered signal survives a
-// settlement racing with a worker's empty scan or a burst while all workers are
-// busy. PostgreSQL, rather than the channel, holds the work to drain.
-func (w *ActorWorkflow) wakeQuiescence() {
-	select {
-	case w.quiescenceWake <- struct{}{}:
-	default:
-	}
-}
-
 // Start suspends idle sessions to VOLUMES independently of task publication.
 // Startup and periodic recovery scans discover work missed by local signals.
 // Workers drain claims with bounded concurrency; task reads never wait for them.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
+	counter, err := newWorkClaimCounter(ctx, w.meterProvider,
+		conv.KagentSessionQuiescenceClaimed, conv.KagentSessionQuiescenceClaimedUnit, conv.KagentSessionQuiescenceClaimedDescription)
+	if err != nil {
+		return err
+	}
+	// Keep worker handoffs distinct from settlement hints for attribution.
+	handoff := make(chan struct{}, 1)
 	var workers sync.WaitGroup
 	for range 4 {
 		workers.Go(func() {
 			timer := time.NewTimer(w.recoveryInterval)
 			defer timer.Stop()
+			trigger := workStartup
 			for ctx.Err() == nil {
 				work, err := w.store.ClaimSessionQuiescence(ctx)
 				if err == nil {
 					// Hand off a hint before runtime I/O so a single settlement
 					// burst can enlist all workers, even if this actor is slow.
-					w.wakeQuiescence()
+					select {
+					case handoff <- struct{}{}:
+					default:
+					}
+					recordWorkClaim(ctx, counter, trigger)
+					trigger.logRecoveryClaim(ctx, operationSessionQuiescence, w.recoveryInterval, slog.String("session_id", work.Session.GetId()))
+					trigger = workBacklog
 					w.quiesceIdleSession(ctx, work)
 					continue
 				}
 				delay := min(time.Second, w.recoveryInterval)
+				nextTrigger := workRetry
 				if errors.Is(err, database.ErrNotFound) {
 					pending, pendingErr := w.store.HasPendingSessionQuiescence(ctx)
 					if pendingErr != nil {
 						err = pendingErr
 					} else if !pending {
 						delay = w.recoveryInterval
+						nextTrigger = workRecovery
 					}
 				}
 				if !errors.Is(err, database.ErrNotFound) && ctx.Err() == nil {
@@ -63,7 +71,11 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 				case <-ctx.Done():
 					return
 				case <-timer.C:
+					trigger = nextTrigger
 				case <-w.quiescenceWake:
+					trigger = workSignal
+				case <-handoff:
+					trigger = workBacklog
 				}
 			}
 		})

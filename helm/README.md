@@ -48,6 +48,62 @@ The Kagent chart does not deploy or initialize PostgreSQL, and it does not insta
 
 `kagent install` does all of this for development: it installs Substrate in `ate-system`, deploys a PostgreSQL instance in the Kagent namespace, creates the identities and schemas below, writes the connection Secrets, and then installs Kagent. Kagent, Substrate, and PostgreSQL authenticate with Pod Certificates rather than passwords. The development database has no pgvector extension and is not intended for production. It pulls `postgres:18-alpine` from Docker Hub; set `install.bundledPostgresImage` in the CLI config to use a mirror.
 
+The CLI installs `substrate-atelet` in `ate-system` and waits for it before
+installing the main `substrate` release with `atelet.enabled=false`. Both charts
+use the version and repository from `install.substrate` by default;
+`install.atelet` can override these and supply its own `valuesFiles`. Move node
+settings there when they should apply only to Atelet. Existing
+`install.substrate.valuesFiles` and `values` are inherited by Atelet, including
+`atelet.extraArgs`, resources, credential provider paths, image registry,
+`imagePullSecrets`, `global`, `preview`, and telemetry. Atelet-specific files and
+then Atelet-specific `values` override the shared settings, including shared
+`--set` values. Exported installations use the same precedence.
+
+The development install prepares the `kagent-rustfs-credentials` Secret before
+Atelet starts, using `rustfs.accessKey` and `rustfs.secretKey` from the selected
+Substrate chart's defaults plus your overrides. It preserves an existing Secret
+and stops if its credentials differ from the configured values. With
+`rustfs.enabled=false`, it skips this Secret and the RustFS endpoint defaults.
+The shared `atelet.storageBackend` becomes `objectStore.backend` for Atelet.
+For a different store, configure the main chart's storage settings and the
+Atelet chart's `objectStore` settings. Point `objectStore.credentialsSecret` at
+your existing Secret, or set it to `""` to use the SDK credential chain. See the
+[Atelet chart values](https://github.com/kagent-dev/substrate/blob/v1.0.0/charts/substrate-atelet/README.md#values).
+
+Existing installations can move Atelet to the separate release in place. Use
+Helm 3.17 or later and follow [Moving atelet to substrate-atelet in the rc4
+release notes](https://github.com/kagent-dev/substrate/releases/tag/v1.0.0-rc4#moving-atelet-to-substrate-atelet)
+before running `kagent install` again, with these Kagent-specific adjustments:
+
+1. Name the RustFS credentials Secret `kagent-rustfs-credentials` and set
+   `objectStore.credentialsSecret` to that name in `atelet-values.yaml`. Use the
+   existing Substrate release's effective RustFS keys, including any overrides.
+2. Keep the upstream `helm.sh/resource-policy=keep` annotations during adoption.
+   `--take-ownership` alone does not prevent the base upgrade from deleting
+   Atelet. After step 3, wait for the full DaemonSet rollout before continuing:
+
+   ```sh
+   kubectl rollout status daemonset/atelet -n ate-system --timeout=5m
+   ```
+
+3. In step 4, update the WorkerPool through the Kagent release. Set
+   `KAGENT_CHART_VERSION` to the currently installed Kagent chart version so this
+   step changes only the worker image. Adjust the release and namespace if needed:
+
+   ```sh
+   helm upgrade kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+     --version "${KAGENT_CHART_VERSION:?Set the installed Kagent chart version}" \
+     -n kagent --reuse-values \
+     --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateworker-gvisor:v1.0.0 \
+     --wait
+   ```
+
+   For microVM WorkerPools, use `ateworker-microvm:v1.0.0` instead. Update any
+   other WorkerPools through their owning configuration as well.
+4. In step 5, pass `-n ate-system` when upgrading `substrate-crds` installed by
+   the CLI. Upgrade the base chart with `atelet.enabled=false`, then remove the
+   keep annotations as described in step 6.
+
 Runtime TaskStore calls require Actor JWTs injected by Substrate egress. Set
 `config.substrate.actorJwtIssuer` to Substrate's `ateApi.actorJWTIssuer` (both
 default to `https://idp.ate-system.svc`). The controller uses
@@ -57,7 +113,7 @@ trust bundle. Discovery and signing keys must be reachable at controller startup
 Upgrade controller and runtime images together and recreate snapshots of older
 runtime images that sent unsigned identity headers.
 
-Substrate v1.0.0-rc1 restricts API ingress to namespaces labeled
+Substrate v1.0.0 restricts API ingress to namespaces labeled
 `ate.dev/api-access=true`. The CLI installer applies this label to the Kagent
 namespace. For direct Helm installations, label the controller namespace before
 starting Kagent:
@@ -67,10 +123,10 @@ kubectl label namespace kagent ate.dev/api-access=true --overwrite
 ```
 
 Upgrade Kagent and the Substrate CRDs, control plane, and workers together:
-v1.0.0-rc1 uses `ate.dev/v1` Kubernetes resources and the
+v1.0.0 uses `ate.dev/v1` Kubernetes resources and the
 `substrate.ateapi.v1` gRPC API.
 
-Substrate v1.0.0-rc1 requires mTLS and an explicit allowlist for actor ingress.
+Substrate v1.0.0 requires mTLS and an explicit allowlist for actor ingress.
 `kagent install` adds the rendered controller ServiceAccount's SPIFFE identity to
 `atenetRouter.ingressAllowedSPIFFEIDs`. For direct Helm installations, set this
 Substrate value to the controller identity, normally
@@ -80,21 +136,22 @@ when overriding its ServiceAccount or certificate trust domain.
 
 Rc1 also changes Substrate's node-local image cache format. Stop actors on each
 node before deleting its old image cache (`/var/lib/ate/image-cache` by default);
-Atelet recreates it. See the [Substrate chart upgrade notes](https://github.com/kagent-dev/substrate/blob/v1.0.0-rc1/charts/substrate/README.md)
+Atelet recreates it. See the [Substrate chart upgrade notes](https://github.com/kagent-dev/substrate/blob/v1.0.0/charts/substrate/README.md)
 before upgrading an existing installation.
 
 Substrate v0.7.0-alpha2 squashed its PostgreSQL migrations. Databases created by
 earlier releases, including v0.7.0-alpha1, cannot be upgraded in place and must be
-recreated. See Substrate's [schema evolution guide](https://github.com/kagent-dev/substrate/blob/v1.0.0-rc1/docs/dev/postgresql-schema-evolution.md).
+recreated. See Substrate's [schema evolution guide](https://github.com/kagent-dev/substrate/blob/v1.0.0/docs/dev/postgresql-schema-evolution.md).
 
 The v0.6.0 snapshot-format transition requires a fresh development database and
 recreated Actors, Tags, and WorkerPools; Substrate does not migrate the older
 snapshot metadata. WorkerPools use
 `spec.sandboxClasses[]`, with an existing `configRef` of the same runtime class.
 
-Kagent configures snapshot storage per Harness or SandboxTemplate. Substrate
-v1.0.0-rc1 requires `preview: [PerTemplateSnapshotLocation]` in its Helm values to
-honor those locations. `kagent install` enables this gate by default; retain it
+Kagent configures snapshot storage per Harness or SandboxTemplate, and runtime
+bootstrap requires golden egress policies. Substrate v1.0.0 requires
+`preview: [PerTemplateSnapshotLocation, GoldenEgressPolicy]` in its Helm values
+for these features. `kagent install` enables both gates by default; retain them
 when supplying your own `preview` list or installing Substrate directly.
 
 Runtime-facing URLs must use full DNS names because Substrate only permits DNS
@@ -216,7 +273,7 @@ Each run sets each login's password to its variable. An empty value removes the 
 
 Set `config.database.owner.role`, `config.database.readWrite.role` and `config.database.schema` to the values you used, and put a connection string for each login in the Secrets that `database.postgres.ownerConnectionStringSecretRef` and `database.postgres.readWriteConnectionStringSecretRef` name. Leave role settings out of the connection strings: Kagent assumes each role after it connects. With `config.database.skipMigrations: true`, only the read/write Secret and role are needed.
 
-Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v1.0.0-rc1/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
+Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v1.0.0/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
 
 When vectors are enabled, install pgvector into `config.database.vectorSchema` before Kagent starts, and grant both Kagent roles `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
 
@@ -227,6 +284,12 @@ The Substrate chart reads its own connection Secrets. See that chart's `postgres
 Kagent reads the connection strings from their Secrets once, at startup. After a Secret changes, restart the controller.
 
 When the connection string names TLS certificate files, Kagent rereads them before each new physical connection. Rotated client certificates, such as Pod Certificates, take effect without a restart. `config.database.pool.maxConnLifetime` limits how long a connection opened with an older certificate stays in use.
+
+#### A database that pauses or restarts
+
+When the controller can't log in to PostgreSQL, for example while a serverless database resumes from a pause, a database call retries the login with backoff for `config.database.pool.connectRetryTimeout` (default `90s`, `0s` turns it off). No SQL has run before a login, so a retry repeats no work. A new attempt starts only inside the retry window, but an attempt already running can finish after it. By default, one attempt can take up to 2 minutes. To shorten that limit, set `connect_timeout` in the connection string to a number of seconds. The call returns `Unavailable` when the last attempt fails.
+
+The retry also stops when the client stops waiting. The web UI waits 30 seconds for a request, so a resume longer than that fails the first request in the UI even though the controller would have waited longer. Set the retry window above your database's longest resume, and expect clients with shorter timeouts to retry.
 
 #### OIDC authentication
 
@@ -268,6 +331,40 @@ release namespace.
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 
+#### Default Harnesses
+
+`kagent install` creates the WorkerPool and three Harnesses in the release
+namespace, so an Agent there can reference one without writing its own:
+
+| Harness | Runtime |
+| --- | --- |
+| `kagent-default` | kagent |
+| `codex-default` | Codex |
+| `claude-default` | Claude |
+
+Direct Helm installations opt in with `harnesses.enabled=true`:
+
+```yaml
+substrateWorkerPool:
+  create: true
+  workerImage: <worker-image>
+harnesses:
+  enabled: true
+  # Substrate snapshot storage. The default uses the bucket of Substrate's bundled RustFS.
+  snapshotLocation: s3://ate-snapshots/kagent/
+  # Skip an individual runtime:
+  claude:
+    enabled: false
+```
+
+Each default Harness references `substrateWorkerPool.name` and omits
+`workload`, so it runs the release's built-in image for its runtime
+(`config.harnessImages`). Agent `spec.harnessRef` is namespace-local; Agents in
+other namespaces need their own Harness.
+
+The default OpenAI ModelConfig sets `apiFormat: responses`, which the Codex
+runtime requires and the kagent runtime supports.
+
 ### Using Make
 
 ```bash
@@ -286,10 +383,16 @@ Use `kagent install --dry-run --output-dir ./kagent-install` to export the Helm 
 
 ```bash
 export OPENAI_API_KEY=your-openai-api-key
-# openAI is the default; other choices include anthropic, azureOpenAI, gemini, and ollama
+# OpenAI is the default; --provider Anthropic (with ANTHROPIC_API_KEY) overrides
+# install.defaultModelProvider for one install.
 # config.yaml: install: {defaultModelProvider: OpenAI}
 kagent --config config.yaml install
 ```
+
+To install the CLI first, run `curl -sL https://kagent.dev/install | bash`. It
+installs the newest final release that publishes a binary for your platform;
+pass `--prerelease` to include release candidates or `--version vX.Y.Z` to pin
+one.
 
 ## Application configuration
 

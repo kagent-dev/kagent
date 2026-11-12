@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Alert, Button, Card, Form, Input, Radio, Select, Skeleton, Space, Typography } from "antd";
+import { Alert, Button, Card, Form, Input, Modal, Radio, Select, Skeleton, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
@@ -16,13 +16,19 @@ import {
   apiClient,
   useAgent,
   useAgentTemplates,
+  useNamespaceEgressPolicies,
   useHarnesses,
   useInvalidateAgents,
+  useModel,
   useNamespaces,
   type Agent,
   type AgentSpec,
 } from "@/api";
 import { paths } from "@/router/routes";
+import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
+import { HarnessForm } from "@/components/harness-form/HarnessForm";
+import { HarnessIntro } from "@/components/harness-form/HarnessFields";
+import { harnessModelConflict, preferredHarness } from "@/components/harness-form/harnessChoice";
 
 const { Text } = Typography;
 
@@ -92,15 +98,30 @@ function AgentForm({ agent }: { agent?: Agent }) {
     spec?.template.inline ? draftFromSpec(spec.template.inline, agent!.namespace) : emptyDraft(namespace),
   );
 
-  const [harnessRef, setHarnessRef] = useState(spec?.harnessRef.name);
+  const [chosenHarness, setHarnessRef] = useState(spec?.harnessRef.name);
+  const [creatingHarness, setCreatingHarness] = useState(false);
+  const [egressRefs, setEgressRefs] = useState<string[]>(
+    () => (spec?.egressPolicyRefs ?? []).map((ref) => ref.name),
+  );
 
   const templates = useAgentTemplates(namespace || undefined);
   const harnesses = useHarnesses(namespace || undefined);
+  const egressPolicies = useNamespaceEgressPolicies(namespace || undefined);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string>();
 
   const inlineTemplate = { ...templateDraft, namespace };
+  const harnessNames = (harnesses.data ?? []).map((row) => row.name);
+  // A new agent starts on the obvious harness until one is chosen; an edit keeps its own.
+  const harnessRef = chosenHarness ?? (agent ? undefined : preferredHarness(harnessNames));
   const adapter = harnesses.data?.find((row) => row.name === harnessRef)?.runtime;
+  const modelRef = templateSource === "reference"
+    ? splitRef(templates.data?.find((row) => row.name === templateRef)?.modelConfigRef)
+    : inlineTemplate.modelConfig?.name.trim()
+      ? { namespace: inlineTemplate.modelConfig.namespace || namespace, name: inlineTemplate.modelConfig.name.trim() }
+      : undefined;
+  const model = useModel(modelRef?.namespace, modelRef?.name);
+  const conflict = harnessModelConflict(adapter, model.data?.spec);
   const problems = [
     ...(namespace ? [] : ["A namespace is required."]),
     ...(name.trim() ? [] : ["A name is required."]),
@@ -117,7 +138,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
     setSaving(true);
     setFailure(undefined);
     const agentSpec = {
-      ...(spec?.egressPolicyRefs ? { egressPolicyRefs: spec.egressPolicyRefs } : {}),
+      ...(egressRefs.length > 0 ? { egressPolicyRefs: egressRefs.map((ref) => ({ name: ref })) } : {}),
       template: templateSource === "reference"
         ? { ref: { name: templateRef! } }
         : { inline: specFromDraft(inlineTemplate, spec?.template.inline) },
@@ -169,6 +190,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
                 setNamespace(value);
                 setTemplateRef(undefined);
                 setHarnessRef(undefined);
+                setEgressRefs([]);
                 setTemplateDraft({ ...templateDraft, modelConfig: undefined, mcpTools: [], subAgentTools: [] });
               }}
               options={(namespaces.data ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
@@ -176,6 +198,79 @@ function AgentForm({ agent }: { agent?: Agent }) {
           </Form.Item>
         </Form>
       </Card>
+
+      <Card
+        size="small"
+        data-testid="agent-form-harness"
+        title={
+          <div css={{ padding: `${theme.space(2)} 0` }}>
+            <div>Harness</div>
+            <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
+              Where the agent runs: the runtime adapter, its image and the Substrate worker pool.
+            </Text>
+          </div>
+        }
+        extra={
+          <Button
+            data-testid="agent-form-harness-create"
+            disabled={!namespace}
+            onClick={() => setCreatingHarness(true)}
+          >
+            New harness
+          </Button>
+        }
+      >
+        <RefSelect
+          kind="harness"
+          value={harnessRef}
+          onChange={setHarnessRef}
+          loading={harnesses.isLoading}
+          error={harnesses.error?.message}
+          names={harnessNames}
+          empty={
+            <span>
+              No harnesses in this namespace.{" "}
+              <Button type="link" size="small" css={{ padding: 0 }} onClick={() => setCreatingHarness(true)}>
+                Create a harness
+              </Button>
+            </span>
+          }
+        />
+        {conflict ? (
+          <Alert
+            type="warning"
+            showIcon
+            data-testid="agent-form-harness-conflict"
+            title="This harness may not run the template's model"
+            description={conflict}
+          />
+        ) : null}
+      </Card>
+
+      {/*
+        A controlled modal rather than `Modal.confirm`: antd 6's static methods cannot
+        read context, and the warning they log is a failure in the browser suite.
+      */}
+      <Modal
+        open={creatingHarness}
+        title="New harness"
+        footer={null}
+        width={640}
+        destroyOnHidden
+        onCancel={() => setCreatingHarness(false)}
+        data-testid="agent-form-harness-modal"
+      >
+        <HarnessIntro />
+        <HarnessForm
+          namespace={namespace}
+          onSaved={(saved) => {
+            setHarnessRef(saved.name);
+            setCreatingHarness(false);
+            toast.success(`Harness ${saved.name} created`);
+          }}
+          onCancel={() => setCreatingHarness(false)}
+        />
+      </Modal>
 
       <SourceSection
         kind="template"
@@ -207,29 +302,38 @@ function AgentForm({ agent }: { agent?: Agent }) {
 
       <Card
         size="small"
-        data-testid="agent-form-harness"
+        data-testid="agent-form-egress"
         title={
           <div css={{ padding: `${theme.space(2)} 0` }}>
-            <div>Harness</div>
+            <div>{egressCopy.agent.field}</div>
             <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
-              Platform-managed runtime, image and worker pool.
+              {egressCopy.agent.help}
             </Text>
           </div>
         }
       >
-        <RefSelect
-          kind="harness"
-          value={harnessRef}
-          onChange={setHarnessRef}
-          loading={harnesses.isLoading}
-          error={harnesses.error?.message}
-          names={(harnesses.data ?? []).map((row) => row.name)}
-          empty={
-            <span>
-              No harnesses in this namespace. <Link to={paths.harnessNew}>Create a harness</Link>
-            </span>
-          }
-        />
+        <Form layout="vertical">
+          <Form.Item
+            label={egressCopy.agent.field}
+            htmlFor="agent-form-egress-refs"
+            validateStatus={egressPolicies.error ? "error" : undefined}
+            help={egressPolicies.error?.message}
+          >
+            <Select
+              id="agent-form-egress-refs"
+              mode="multiple"
+              allowClear
+              data-testid="agent-form-egress-refs"
+              placeholder={egressCopy.agent.placeholder}
+              value={egressRefs}
+              onChange={setEgressRefs}
+              loading={egressPolicies.isLoading}
+              maxCount={16}
+              options={(egressPolicies.data ?? []).map((policy) => ({ value: policy.name, label: policy.name }))}
+              notFoundContent={egressPolicies.isLoading ? undefined : egressCopy.agent.empty}
+            />
+          </Form.Item>
+        </Form>
       </Card>
 
       {failure ? (
@@ -263,13 +367,24 @@ function AgentForm({ agent }: { agent?: Agent }) {
         </Button>
         <Button onClick={() => navigate(`${paths.agents}?tab=agents`)}>Cancel</Button>
         {problems.length > 0 ? (
-          <Text data-testid="agent-form-problems" css={{ color: theme.color.textMuted, fontSize: 12 }}>
-            {problems[0]}
-          </Text>
+          <ul
+            data-testid="agent-form-problems"
+            css={{ color: theme.color.textMuted, fontSize: 12, margin: 0, paddingLeft: theme.space(4) }}
+          >
+            {problems.map((problem) => (
+              <li key={problem}>{problem}</li>
+            ))}
+          </ul>
         ) : null}
       </div>
     </Space>
   );
+}
+
+/** `namespace/name` as its parts; undefined for an empty ref. */
+function splitRef(ref: string | undefined): { namespace: string; name: string } | undefined {
+  const [namespace, name] = ref?.split("/") ?? [];
+  return namespace && name ? { namespace, name } : undefined;
 }
 
 function SourceSection({

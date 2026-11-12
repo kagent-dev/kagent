@@ -18,6 +18,7 @@ import {
 } from "@/appExtensions";
 import {
   apiClient,
+  agentUpdateFailedReason,
   isNotFound,
   newConversationBlockedReason,
   useAgentConversations,
@@ -123,6 +124,7 @@ export function AgentPage() {
   };
 
   const blockedReason = agent ? newConversationBlockedReason(agent) : undefined;
+  const updateFailedReason = agent ? agentUpdateFailedReason(agent) : undefined;
 
   /*
    * Goes to the new-conversation page rather than creating one here.
@@ -152,12 +154,12 @@ export function AgentPage() {
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [isBulkDeleting, setBulkDeleting] = useState(false);
 
-  async function deleteSelected(): Promise<void> {
+  async function deleteSelected(force = false): Promise<void> {
     setBulkDeleting(true);
     try {
       const targets = rows.filter((row) => selectedIds.includes(row.id));
       await Promise.all(
-        targets.map((row) => apiClient.agentInstances.remove(row.id)),
+        targets.map((row) => apiClient.agentInstances.remove(row.id, { force })),
       );
       await conversations.refresh();
       setSelectedIds([]);
@@ -283,7 +285,8 @@ export function AgentPage() {
                 kind="conversation"
                 name={conversationTitle(row)}
                 disabled={!mine}
-                onDelete={() => apiClient.agentInstances.remove(row.id)}
+                forceLabel="Stop active turns and delete"
+                onDelete={(force) => apiClient.agentInstances.remove(row.id, { force })}
                 onDeleted={conversations.refresh}
               />
             </Space>
@@ -412,6 +415,20 @@ export function AgentPage() {
           />
         ) : null}
 
+        {updateFailedReason ? (
+          <Alert
+            type="warning"
+            showIcon
+            data-testid="agent-update-failed"
+            data-update-failed-reason={updateFailedReason}
+            title="The latest change to this agent failed. Conversations still use the last good revision."
+            // Nothing is blocked here, because conversations keep the last good revision, so
+            // the status tag's tooltip was the only place this showed up. The message is
+            // the controller's Ready condition, which is already redacted for status.
+            description={updateFailedReason}
+          />
+        ) : null}
+
         {conversations.error ? (
           <Alert
             type="error"
@@ -507,6 +524,7 @@ export function AgentPage() {
               label="Delete selected"
               outlined
               disabled={isBulkDeleting}
+              forceLabel="Stop active turns and delete"
               onDelete={deleteSelected}
               onDeleted={() => undefined}
               description="Everything said in them goes too, and none of it can be recovered. The workers they hold are released."

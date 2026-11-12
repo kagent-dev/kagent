@@ -203,6 +203,16 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
+func (c *Client) RevertActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	resp, err := c.ControlClient.RevertActor(ctx, &ateapipb.RevertActorRequest{Actor: actorRef(atespace, actorID)})
+	if err != nil {
+		return nil, fmt.Errorf("failed to revert Actor %s/%s: %w", atespace, actorID, err)
+	}
+	return resp.GetActor(), nil
+}
+
 // SuspendActor waits for durable storage, including an upload left by an earlier
 // attempt. Substrate's synchronous mode returns already-suspended Actors as-is.
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
@@ -273,10 +283,12 @@ func (c *Client) DeleteTag(ctx context.Context, atespace, name, uid string) erro
 // ActorName is the stable private Actor identity for a Session.
 func ActorName(sessionID string) string { return "session-" + strings.ToLower(sessionID) }
 
-func (c *Client) DeleteActor(ctx context.Context, atespace, actorID string) error {
+func (c *Client) DeleteActor(ctx context.Context, atespace, actorID, uid string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: actorRef(atespace, actorID)})
+	_, err := c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{
+		Actor: actorRef(atespace, actorID), Options: &ateapipb.DeleteOptions{Uid: uid},
+	})
 	return err
 }
 

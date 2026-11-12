@@ -45,8 +45,8 @@ App Server elicitation, while other MCP servers remain automatically approved.
 Account login, ModelConfig `tokenPassthrough`, custom TLS, legacy SSE MCP, Dedicated agents,
 checkpoint/fork guarantees, and configurable native policy are not advertised.
 
-Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
-`KAGENT_AGENT_CARD_JSON`. Private A2A is served on port 80 and readiness on
+Runtime configuration and the Agent Card are loaded through the immutable
+bootstrap bundle identified by `KAGENT_BOOTSTRAP_JSON`. Private A2A is served on port 80 and readiness on
 `/readyz` at port 8081.
 
 The adapter disables Codex's default `unbounded_connection_retries` feature.
@@ -151,7 +151,7 @@ spec:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:
-      location: gs://ate-snapshots/kagent/
+      location: s3://ate-snapshots/kagent/
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent

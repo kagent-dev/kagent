@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // UninstallResult records releases that were already absent.
@@ -57,6 +59,58 @@ func (c *Client) deleteServed(ctx context.Context, resource string, args ...stri
 	return nil
 }
 
+// SelfManagedWorkerPoolsError stops an uninstall before anything is deleted.
+// Pools lists the WorkerPools outside the kagent release. DeleteWorkerPools
+// removes them so a rerun can proceed.
+type SelfManagedWorkerPoolsError struct{ Pools []types.NamespacedName }
+
+func (e *SelfManagedWorkerPoolsError) Error() string {
+	names := make([]string, 0, len(e.Pools))
+	for _, pool := range e.Pools {
+		names = append(names, pool.String())
+	}
+	return fmt.Sprintf("self-managed WorkerPools %s run on the Substrate that uninstall removes; delete them first", strings.Join(names, ", "))
+}
+
+// selfManagedWorkerPools lists WorkerPools outside the kagent release. A
+// cluster that no longer serves WorkerPools has none.
+func (c *Client) selfManagedWorkerPools(ctx context.Context) ([]types.NamespacedName, error) {
+	out, err := c.kubectl(ctx, "", "get", "workerpools.ate.dev", "--all-namespaces", "-l", "app.kubernetes.io/instance!="+kagentRelease, "-o", "json")
+	if err != nil {
+		if strings.Contains(out+err.Error(), "doesn't have a resource type") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list Substrate worker pools: %w", err)
+	}
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Namespace string `json:"namespace"`
+				Name      string `json:"name"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		return nil, fmt.Errorf("decode Substrate worker pools: %w", err)
+	}
+	pools := make([]types.NamespacedName, 0, len(list.Items))
+	for _, item := range list.Items {
+		pools = append(pools, types.NamespacedName{Namespace: item.Metadata.Namespace, Name: item.Metadata.Name})
+	}
+	return pools, nil
+}
+
+// DeleteWorkerPools deletes WorkerPools and waits for atecontroller to
+// finalize them.
+func (c *Client) DeleteWorkerPools(ctx context.Context, pools []types.NamespacedName) error {
+	for _, pool := range pools {
+		if err := c.deleteServed(ctx, "workerpools.ate.dev", "--namespace", pool.Namespace, pool.Name); err != nil {
+			return fmt.Errorf("delete worker pool %s: %w", pool, err)
+		}
+	}
+	return nil
+}
+
 // substrateTrustBundles are the cluster-scoped ClusterTrustBundles Substrate's
 // controllers publish. Kubernetes requires a bundle whose name has a signer
 // prefix to carry that signer, so the names alone identify them.
@@ -84,6 +138,16 @@ func (c *Client) Uninstall(ctx context.Context, namespace, postgresImage string,
 	}
 	if len(releaseNamespaces) > 0 && !slices.Contains(releaseNamespaces, namespace) {
 		return result, fmt.Errorf("kagent is installed in namespace %s, not %s; rerun with --namespace %s", strings.Join(releaseNamespaces, ", "), namespace, releaseNamespaces[0])
+	}
+	// atecontroller keeps a SandboxConfig while any WorkerPool uses it, so a
+	// WorkerPool outside the kagent release would stall the uninstall halfway.
+	// Those pools belong to the user, so they stop it before anything is deleted.
+	pools, err := c.selfManagedWorkerPools(ctx)
+	if err != nil {
+		return result, err
+	}
+	if len(pools) > 0 {
+		return result, &SelfManagedWorkerPoolsError{Pools: pools}
 	}
 
 	release := func(name, releaseNamespace string) error {
@@ -113,6 +177,9 @@ func (c *Client) Uninstall(ctx context.Context, namespace, postgresImage string,
 		return result, fmt.Errorf("delete Substrate sandbox configs: %w", err)
 	}
 	if err := release(substrateRelease, substrateNamespace); err != nil {
+		return result, err
+	}
+	if err := release(ateletRelease, substrateNamespace); err != nil {
 		return result, err
 	}
 	bundled, err := c.bundledPostgresExists(ctx, namespace)

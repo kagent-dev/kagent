@@ -4,6 +4,7 @@ import type {
   SubstrateActorPage,
   SubstrateSummary,
   SubstrateWorkerPage,
+  SubstrateWorkerPoolEntry,
 } from "../domain/substrate";
 import type {
   SubstrateActorPageInput,
@@ -19,6 +20,16 @@ import { type ApiResource, useApiResource } from "./useApiResource";
 export function useSubstrateSummary(scope: SubstrateScopeInput = {}): ApiResource<SubstrateSummary> {
   return useApiResource(["substrate.summary", scope.namespace ?? "", scope.atespace ?? ""], () =>
     apiClient.substrate.summary(scope),
+  );
+}
+
+/**
+ * The worker pools a harness in `namespace` may name. A form that offers them still
+ * accepts a typed name, so a caller who may not list pools is not blocked.
+ */
+export function useWorkerPools(namespace?: string): ApiResource<SubstrateWorkerPoolEntry[]> {
+  return useApiResource(namespace ? ["substrate.workerPools", namespace] : null, () =>
+    apiClient.substrate.workerPools(namespace),
   );
 }
 

@@ -38,12 +38,15 @@ import type {
   SubstrateActorPage,
   SubstrateSummary,
   SubstrateWorkerPage,
+  SubstrateWorkerPoolEntry,
 } from "./domain/substrate";
 import type { Harness, HarnessResource } from "./domain/harnesses";
 import type {
   AgentTemplate,
   AgentTemplateResource,
 } from "./domain/agentTemplates";
+import type { EgressPolicy, EgressPolicyResource } from "./domain/egressPolicies";
+import type { SandboxTemplate } from "./domain/sandboxTemplates";
 import type {
   SubstrateActorPageInput,
   SubstrateWorkerPageInput,
@@ -109,6 +112,11 @@ export interface NamespacesApi {
 export interface SubstrateApi {
   /** Counts and the two small lists. The only honest source of a total. */
   summary(scope?: SubstrateScopeInput, options?: ReadOptions): Promise<SubstrateSummary>;
+  /**
+   * The worker pools a harness may name, in one namespace or every watched one.
+   * Reads Kubernetes only, so it works for a caller who may not see the inventory.
+   */
+  workerPools(namespace?: string, options?: ReadOptions): Promise<SubstrateWorkerPoolEntry[]>;
   /** One page of actors, ordered and narrowed server-side across the whole inventory. */
   actors(
     input: SubstrateActorPageInput,
@@ -135,14 +143,14 @@ export interface AgentBuildingBlocksApi {
    * Served by `HarnessService`; a Harness is the reusable runtime half of an agent.
    */
   harnesses(namespace?: string, options?: ReadOptions): Promise<Harness[]>;
-  /**
-   * Creates a harness.
-   *
-   * `HarnessService` implements create, update and delete. A note in this codebase said
-   * it was read-only, which described what this client exposed rather than what the
-   * service does — the RPCs were there and implemented the whole time.
-   */
+  /** Creates a harness. `HarnessService` serves list, create, update and delete. */
   createHarness(input: {
+    namespace: string;
+    name: string;
+    resource: HarnessResource;
+  }): Promise<Harness>;
+  /** Replaces a harness's spec and labels; its name and namespace are fixed. */
+  updateHarness(input: {
     namespace: string;
     name: string;
     resource: HarnessResource;
@@ -180,6 +188,18 @@ export interface AgentBuildingBlocksApi {
     resource: AgentTemplateResource;
   }): Promise<AgentTemplate>;
   removeAgentTemplate(namespace: string, name: string): Promise<void>;
+}
+
+/** EgressPolicy CRUD, plus the SandboxTemplates read to find a policy's users. */
+export interface EgressPoliciesApi {
+  /** Every namespace the caller may read when `namespace` is omitted. */
+  list(namespace?: string, options?: ReadOptions): Promise<EgressPolicy[]>;
+  get(namespace: string, name: string, options?: ReadOptions): Promise<EgressPolicy>;
+  create(input: { namespace: string; name: string; resource: EgressPolicyResource }): Promise<EgressPolicy>;
+  /** Send the loaded `metadata.resourceVersion`; a stale one is rejected as `Aborted`. */
+  update(input: { namespace: string; name: string; resource: EgressPolicyResource }): Promise<EgressPolicy>;
+  remove(namespace: string, name: string): Promise<void>;
+  sandboxTemplates(namespace?: string, options?: ReadOptions): Promise<SandboxTemplate[]>;
 }
 
 export interface AgentInstancesApi {
@@ -251,7 +271,7 @@ export interface AgentInstancesApi {
    * The instance *is* the conversation, so this is not a tidy-up — it removes what
    * was said. Every caller confirms first.
    */
-  remove(id: string): Promise<void>;
+  remove(id: string, options?: { force?: boolean }): Promise<void>;
 
   shares: {
     list(id: string, options?: ReadOptions): Promise<AgentInstanceShare[]>;
@@ -270,6 +290,7 @@ export interface KagentApiClient {
   substrate: SubstrateApi;
   agentInstances: AgentInstancesApi;
   agentBuildingBlocks: AgentBuildingBlocksApi;
+  egressPolicies: EgressPoliciesApi;
 }
 
 export function createApiClient(): KagentApiClient {
@@ -313,6 +334,8 @@ export function createApiClient(): KagentApiClient {
     substrate: {
       summary: (scope = {}, options) =>
         invoke("substrate.summary", scope, options),
+      workerPools: (namespace, options) =>
+        invoke("substrate.workerPools", { namespace }, options),
       // Not sorted here, unlike every other list: the server orders these pages across
       // the whole inventory, and re-sorting a page would order it within itself while
       // leaving it in the wrong place in the whole.
@@ -329,6 +352,7 @@ export function createApiClient(): KagentApiClient {
       harnesses: (namespace, options) =>
         invoke("harnesses.list", { namespace }, options).then(sortedByRef),
       createHarness: (input) => invoke("harnesses.create", input),
+      updateHarness: (input) => invoke("harnesses.update", input),
       removeHarness: (namespace, name) => invoke("harnesses.delete", { namespace, name }),
       agentTemplates: (namespace, options) =>
         invoke("agentTemplates.list", { namespace }, options).then(sortedByRef),
@@ -338,6 +362,17 @@ export function createApiClient(): KagentApiClient {
       updateAgentTemplate: (input) => invoke("agentTemplates.update", input),
       removeAgentTemplate: (namespace, name) =>
         invoke("agentTemplates.delete", { namespace, name }),
+    },
+
+    egressPolicies: {
+      list: (namespace, options) =>
+        invoke("egressPolicies.list", { namespace }, options).then(sortedByRef),
+      get: (namespace, name, options) => invoke("egressPolicies.get", { namespace, name }, options),
+      create: (input) => invoke("egressPolicies.create", input),
+      update: (input) => invoke("egressPolicies.update", input),
+      remove: (namespace, name) => invoke("egressPolicies.delete", { namespace, name }),
+      sandboxTemplates: (namespace, options) =>
+        invoke("sandboxTemplates.list", { namespace }, options).then(sortedByRef),
     },
 
     agentInstances: {
@@ -356,7 +391,7 @@ export function createApiClient(): KagentApiClient {
       get: (id, options) =>
         invoke("agentInstances.get", { id }, options),
       create: (input) => invoke("agentInstances.create", input),
-      remove: (id) => invoke("agentInstances.delete", { id }),
+      remove: (id, options) => invoke("agentInstances.delete", { id, ...options }),
       fork: (id, name) =>
         invoke("agentInstances.fork", { id, requestId: randomId(), name }),
       checkpoints: {

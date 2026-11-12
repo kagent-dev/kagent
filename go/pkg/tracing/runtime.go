@@ -54,7 +54,7 @@ const (
 	AttributeTaskID = string(conv.A2ATaskIDKey)
 	// AttributeUserID is the gateway-established user, absent when no trusted
 	// identity reached the runtime.
-	AttributeUserID = string(semconv.EnduserIDKey)
+	AttributeUserID = string(semconv.UserIDKey)
 	// AttributeMethod is the A2A method that started the invocation.
 	AttributeMethod = string(conv.A2AMethodKey)
 	// AttributeTaskState is the A2A state execution actually reported.
@@ -138,13 +138,12 @@ func (r Runtime) NativeHarness() bool {
 	return r == RuntimeClaude || r == RuntimeCodex
 }
 
-// Values the controller renders for OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT.
+// SDK modes for OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT.
 // The ADK runtimes read the variable as a mode and treat a plain true as log records
-// only, so the span form is spelled out; false is what every runtime,
-// including kagent's own ADK payload capture, reads as off.
+// only, so the span form is spelled out.
 const (
 	CaptureContentSpanOnly = "SPAN_ONLY"
-	CaptureContentDisabled = "false"
+	CaptureContentDisabled = "NO_CONTENT"
 )
 
 // DefaultCaptureBytes bounds captured input and output when a configuration

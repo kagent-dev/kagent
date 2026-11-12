@@ -813,8 +813,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cleanupCancel()
-		// DeleteSession returns only after its Substrate Actor has been
-		// suspended and deleted, so this cleanup covers both resources.
+		// DeleteSession waits for Substrate deletion before completing the Session.
 		if cleanupErr := deleteIdleSession(cleanupCtx, sessions, session.GetId()); cleanupErr != nil {
 			t.Errorf("delete Session: %v", cleanupErr)
 		}
@@ -1111,7 +1110,7 @@ func createInteractionTemplate(t *testing.T, harness testHarness, modelURL strin
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: model.Name},
 			Description:  "Agent interaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
 		},
@@ -1145,12 +1144,12 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:        &v1alpha3.ObjectReference{Name: model.Name},
+			ModelConfig:        &v1alpha3.ModelConfigReference{Name: model.Name},
 			SystemPrompt:       "Use available tools when needed, then return the arithmetic answer and a short explanation.",
 			OutputSchema:       &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
 			OutputSchemaStrict: true,
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: server.Name},
 				Tools:  []string{"add_numbers"},
 			}}},
 		},
@@ -1211,11 +1210,11 @@ func createMCPReferenceTemplate(t *testing.T, harness testHarness, server *v1alp
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: model.Name},
 			Description:  "MCP interaction E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server:          corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name, Namespace: new(server.Namespace)},
+				Server:          v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: server.Name, Namespace: server.Namespace},
 				RequireApproval: requireApproval,
 			}}},
 		},
@@ -1235,7 +1234,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: childModel.Name},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: childModel.Name},
 			Description:  "Shared specialist",
 			SystemPrompt: "Answer as the shared specialist.",
 		},
@@ -1247,7 +1246,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: rootModel.Name},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: rootModel.Name},
 			Description:  "Shared agent interaction E2E fixture",
 			SystemPrompt: "Delegate every request to the specialist.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{

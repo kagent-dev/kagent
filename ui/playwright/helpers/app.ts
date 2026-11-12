@@ -18,6 +18,8 @@ export const routes = {
   modelNew: "/models/new",
   mcpServers: "/mcp",
   mcpServerNew: "/mcp/new",
+  policies: "/policies",
+  egressPolicyNew: "/policies/egress/new",
   prompts: "/prompts",
   promptNew: "/prompts/new",
   snapshots: "/snapshots",
@@ -57,6 +59,8 @@ export const agents = {
   sharedOnFastLane: { name: "shared-brain-fast", template: "shared-brain", harness: "fast-lane" },
   /** Defined, but with no successful revision — so no conversation can start. */
   preparing: { name: "support-triage-2b91d0e", template: "support-triage-2b91d0e", harness: "support-triage" },
+  /** Ran once; its latest edit names a Harness image that cannot be pulled. */
+  updateFailed: { name: "triage-on-claude", template: "support-triage-2b91d0e", harness: "support-triage" },
 } as const;
 
 /** Where one agent lives: its namespace and name. */

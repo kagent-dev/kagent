@@ -24,10 +24,12 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import type { Agent } from "@/api/domain/agents";
+import type { EgressPolicy } from "@/api/domain/egressPolicies";
 import {
   mockAgentInstances,
   mockAgentTemplates,
   mockAgents,
+  mockEgressPolicies,
   mockHarnesses,
   mockMcpServers,
   mockModels,
@@ -44,6 +46,7 @@ const created = {
   agentInstances: [] as AgentInstance[],
   agentTemplates: [] as AgentTemplate[],
   harnesses: [] as Harness[],
+  egressPolicies: [] as EgressPolicy[],
 };
 
 /** Refs deleted during this browsing session, so a delete is visible too. */
@@ -487,4 +490,35 @@ export function deleteCheckpoint(id: string): boolean {
   if (kept.length === rows.length) return false;
   writeAll(kept);
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Egress policies
+// ---------------------------------------------------------------------------
+
+const egressKey = (row: { ref: string }) => `EgressPolicy:${row.ref}`;
+
+export function allEgressPolicies(): EgressPolicy[] {
+  return dedupeByRef([...mockEgressPolicies, ...created.egressPolicies], (row) => row.ref).filter((row) =>
+    isLive(egressKey(row)),
+  );
+}
+
+/** Records a write, bumping `resourceVersion` the way the API server does. */
+export function saveEgressPolicy(row: EgressPolicy): EgressPolicy {
+  deleted.delete(egressKey(row));
+  const previous = Number(allEgressPolicies().find((existing) => existing.ref === row.ref)?.resource.metadata.resourceVersion ?? 0);
+  const saved = {
+    ...row,
+    resource: { ...row.resource, metadata: { ...row.resource.metadata, resourceVersion: String(previous + 1) } },
+  };
+  const at = created.egressPolicies.findIndex((existing) => existing.ref === row.ref);
+  if (at === -1) created.egressPolicies.push(saved);
+  else created.egressPolicies[at] = saved;
+  return saved;
+}
+
+export function deleteEgressPolicy(row: EgressPolicy): void {
+  created.egressPolicies = created.egressPolicies.filter((existing) => existing.ref !== row.ref);
+  markDeleted(egressKey(row));
 }

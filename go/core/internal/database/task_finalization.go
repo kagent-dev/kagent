@@ -23,52 +23,89 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		if session.State == "RUNTIME_STATE_DELETED" {
 			return ErrNotFound
 		}
-		type boundary struct {
-			Data            []byte
-			ExpectedVersion int64
-			Published       bool
-		}
-		row, err := queryOne(ctx, tx, `
-			SELECT data, expected_version, published FROM session_task_event
-			WHERE history_id = $1 AND task_id = $2 AND sequence = $3
-			  AND expected_version IS NOT NULL AND quiescence_pending IS NOT NULL
-		`, pgx.RowToStructByName[boundary], session.HistoryID, taskID, version)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrConflict
-		}
-		if err != nil {
-			return err
-		}
-		if row.Published {
-			return nil
-		}
-		stored, err := readSessionTask(ctx, tx, session.HistoryID, taskID)
-		if err != nil {
-			return err
-		}
-		wire, err := applyStoredBoundary(stored.Data, row.Data)
-		if err != nil {
-			return err
-		}
-		task, err := pbconv.FromProtoTask(wire)
-		if err != nil {
-			return err
-		}
-		data, err := proto.Marshal(wire)
-		if err != nil {
-			return err
-		}
-		if _, err := saveTaskProjection(ctx, tx, session.HistoryID, taskID, string(task.Status.State), task.Status.Timestamp, data); err != nil {
-			return err
-		}
-		if err := execSQL(ctx, tx, `
-			UPDATE session_task_event SET published = TRUE
-			WHERE history_id = $1 AND task_id = $2 AND sequence > $3 AND sequence <= $4
-		`, session.HistoryID, taskID, row.ExpectedVersion, version); err != nil {
-			return err
-		}
-		return publishPushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
+		return settleSessionTask(ctx, tx, session, taskID, version)
 	})
+}
+
+// publishSavedSessionResults publishes every result the runtime saved whose
+// cleanup acknowledgement was lost, so ending the runtime preserves them.
+func publishSavedSessionResults(ctx context.Context, tx pgx.Tx, session sessionRow) error {
+	type boundary struct {
+		TaskID   string
+		Sequence int64
+	}
+	boundaries, err := queryMany(ctx, tx, `
+		SELECT task_id, sequence FROM session_task_event
+		WHERE history_id = $1 AND NOT published
+		    AND expected_version IS NOT NULL AND quiescence_pending IS NOT NULL
+		ORDER BY sequence
+	`, pgx.RowToStructByName[boundary], session.HistoryID)
+	if err != nil {
+		return err
+	}
+	for _, saved := range boundaries {
+		if err := settleSessionTask(ctx, tx, session, saved.TaskID, saved.Sequence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// retireSessionQuiescence drops idle-work markers for a runtime that no longer
+// needs a later suspension.
+func retireSessionQuiescence(ctx context.Context, tx pgx.Tx, session sessionRow) error {
+	return execSQL(ctx, tx, `UPDATE session_task_event SET quiescence_pending = FALSE WHERE history_id = $1 AND quiescence_pending`, session.HistoryID)
+}
+
+// settleSessionTask publishes one saved boundary under the session lock. Runtime
+// acknowledgement, confirmed actor deletion, or a confirmed crash must establish
+// cleanup first.
+func settleSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, taskID string, version int64) error {
+	type boundary struct {
+		Data            []byte
+		ExpectedVersion int64
+		Published       bool
+	}
+	row, err := queryOne(ctx, tx, `
+		SELECT data, expected_version, published FROM session_task_event
+		WHERE history_id = $1 AND task_id = $2 AND sequence = $3
+		  AND expected_version IS NOT NULL AND quiescence_pending IS NOT NULL
+	`, pgx.RowToStructByName[boundary], session.HistoryID, taskID, version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	if row.Published {
+		return nil
+	}
+	stored, err := readSessionTask(ctx, tx, session.HistoryID, taskID)
+	if err != nil {
+		return err
+	}
+	wire, err := applyStoredBoundary(stored.Data, row.Data)
+	if err != nil {
+		return err
+	}
+	task, err := pbconv.FromProtoTask(wire)
+	if err != nil {
+		return err
+	}
+	data, err := proto.Marshal(wire)
+	if err != nil {
+		return err
+	}
+	if _, err := saveTaskProjection(ctx, tx, session.HistoryID, taskID, string(task.Status.State), task.Status.Timestamp, data); err != nil {
+		return err
+	}
+	if err := execSQL(ctx, tx, `
+		UPDATE session_task_event SET published = TRUE
+		WHERE history_id = $1 AND task_id = $2 AND sequence > $3 AND sequence <= $4
+	`, session.HistoryID, taskID, row.ExpectedVersion, version); err != nil {
+		return err
+	}
+	return publishPushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
 }
 
 func applyStoredBoundary(data, eventData []byte) (*a2apb.Task, error) {

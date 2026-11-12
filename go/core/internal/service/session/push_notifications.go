@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
@@ -12,12 +13,14 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 // validatePushConfig checks the fields supported by the OSS callback sender.
@@ -80,11 +83,12 @@ type pushSender interface {
 // PushWorker sends current published status updates on every API replica. PostgreSQL
 // claims coordinate workers; lease expiry permits recovery after a crash.
 type PushWorker struct {
-	store  pushStore
-	sender pushSender
-	signer *PushJWTSigner
-	wake   <-chan struct{}
-	config PushWorkerConfig
+	store         pushStore
+	sender        pushSender
+	signer        *PushJWTSigner
+	wake          <-chan struct{}
+	config        PushWorkerConfig
+	meterProvider metric.MeterProvider
 }
 
 // PushWorkerConfig contains resolved, positive controller delivery settings.
@@ -99,8 +103,8 @@ var _ manager.Runnable = (*PushWorker)(nil)
 var _ pushStore = (*database.Client)(nil)
 
 // NewPushWorker sends unsigned notifications when signer is nil.
-func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner, wake <-chan struct{}, config PushWorkerConfig) *PushWorker {
-	return &PushWorker{store: store, sender: sender, signer: signer, wake: wake, config: config}
+func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner, wake <-chan struct{}, config PushWorkerConfig, provider metric.MeterProvider) *PushWorker {
+	return &PushWorker{store: store, sender: sender, signer: signer, wake: wake, config: config, meterProvider: provider}
 }
 
 func (p *PushWorker) NeedLeaderElection() bool { return false }
@@ -108,6 +112,12 @@ func (p *PushWorker) NeedLeaderElection() bool { return false }
 // Start drains work at startup and after local settlement hints. Recovery scans
 // find missed hints; outstanding retries and leases retain the five-second scan.
 func (p *PushWorker) Start(ctx context.Context) error {
+	counter, err := newWorkClaimCounter(ctx, p.meterProvider,
+		conv.KagentPushDeliveryClaimed, conv.KagentPushDeliveryClaimedUnit, conv.KagentPushDeliveryClaimedDescription)
+	if err != nil {
+		return err
+	}
+	trigger := workStartup
 	timer := time.NewTimer(p.config.RecoveryInterval)
 	defer timer.Stop()
 	cleanupTimer := time.NewTimer(p.config.RecoveryInterval)
@@ -126,6 +136,9 @@ func (p *PushWorker) Start(ctx context.Context) error {
 	var sends sync.WaitGroup
 	defer sends.Wait()
 	dispatch := func(delivery database.PushDelivery) {
+		recordWorkClaim(ctx, counter, trigger)
+		trigger.logRecoveryClaim(ctx, operationPushDelivery, p.config.RecoveryInterval, slog.String("registration_id", delivery.ID.String()))
+		trigger = workBacklog
 		active++
 		sends.Go(func() {
 			if err := p.send(ctx, delivery); err != nil {
@@ -152,22 +165,28 @@ func (p *PushWorker) Start(ctx context.Context) error {
 		}
 		// Claim only for available slots: queued claims would consume their leases
 		// while waiting for a slow receiver. Completion immediately frees a slot.
-		fullBatch, err := p.poll(ctx, p.config.MaxConcurrency-active, dispatch)
-		if fullBatch && err == nil {
+		claimed, empty, err := p.poll(ctx, p.config.MaxConcurrency-active, dispatch)
+		if empty || err != nil {
+			trigger = workRetry
+		}
+		if claimed == pushClaimBatchSize && err == nil {
 			continue
 		}
 		delay := p.config.RecoveryInterval
+		nextTrigger := workRecovery
 		if err == nil && active < p.config.MaxConcurrency {
 			var pending bool
 			pending, err = p.store.HasPendingPushDelivery(ctx)
 			// If there are pending deliveries, we want to poll more frequently to avoid delays in processing.
 			if pending {
 				delay = min(5*time.Second, p.config.RecoveryInterval)
+				nextTrigger = workRetry
 			}
 		}
 		if err != nil && ctx.Err() == nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to process push notifications", "error", err)
 			delay = min(time.Second, p.config.RecoveryInterval)
+			nextTrigger = workRetry
 		}
 		// Saturated workers need no pending-work queries or recovery scans until
 		// capacity is freed. Registration cleanup has its own timer.
@@ -184,7 +203,11 @@ func (p *PushWorker) Start(ctx context.Context) error {
 				cleanup()
 				continue
 			case <-scan:
+				trigger = nextTrigger
 			case <-p.wake:
+				if trigger != workBacklog {
+					trigger = workSignal
+				}
 			case <-completed:
 				active--
 			}
@@ -193,26 +216,27 @@ func (p *PushWorker) Start(ctx context.Context) error {
 	}
 }
 
-// poll reports whether it filled the batch, so a backlog can drain without
-// waiting for the idle polling interval.
-func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(database.PushDelivery)) (bool, error) {
+const pushClaimBatchSize = 100
+
+// poll reports the number of claims and whether a claim found no work.
+// Exhausting capacity or the batch limit does not end backlog processing.
+func (p *PushWorker) poll(ctx context.Context, available int, dispatch func(database.PushDelivery)) (claimed int, empty bool, err error) {
 	// Bound each pass so an always-due backlog cannot starve registration cleanup.
-	claimed := 0
-	for range min(100, available) {
+	for range min(pushClaimBatchSize, available) {
 		if err := ctx.Err(); err != nil {
-			return false, err
+			return claimed, false, err
 		}
 		delivery, err := p.store.ClaimDuePushDelivery(ctx, p.config.SendTimeout)
 		if err != nil {
-			return false, err
+			return claimed, false, err
 		}
 		if delivery == nil {
-			break
+			return claimed, true, nil
 		}
 		claimed++
 		dispatch(*delivery)
 	}
-	return claimed == 100, nil
+	return claimed, false, nil
 }
 
 func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) error {

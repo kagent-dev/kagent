@@ -1,4 +1,4 @@
-// Copyright 2026 Google LLC
+// Copyright 2026 The Agent Substrate Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -368,8 +368,7 @@ export type ExternalVolumeStatus = Message<"substrate.ateapi.v1.ExternalVolumeSt
    * +k8s:required
    * +k8s:format=k8s-short-name
    * +k8s:update=NoModify
-   * +k8s:update=NoUnset # set-once; immutable would reject the create
-   * ratchet's nil->set when the final object is validated as an update
+   * +k8s:update=NoUnset # set-once; immutable would reject the create ratchet's nil->set when the final object is validated as an update
    *
    * @generated from field: string name = 1;
    */
@@ -444,7 +443,11 @@ export type Actor = Message<"substrate.ateapi.v1.Actor"> & {
   metadata?: ResourceMetadata | undefined;
 
   /**
-   * TODO: replace with full actor_template spec if we decide to make each Actor self-contained.
+   * actor_template references the ActorTemplate this Actor is based on.
+   *
+   * (-- TODO: replace with full actor_template spec if we decide to make each
+   * Actor self-contained. --)
+   *
    * +k8s:required
    * +k8s:subfield(atespace)=+k8s:required
    * +k8s:mutable
@@ -896,7 +899,7 @@ export const HttpRuleEffectsSchema: GenMessage<HttpRuleEffects> = /*@__PURE__*/
 /**
  * CredentialHeader replaces the value of an HTTP request header with a
  * credential. The Actor sends the header with a placeholder value, such as
- * "Authorization: <something>"; the gateway discards that value and forwards
+ * `Authorization: <something>`; the gateway discards that value and forwards
  * the header with the credential instead. The placeholder itself is not
  * inspected, so any value works. A request without the header is not
  * modified.
@@ -927,7 +930,7 @@ export type CredentialHeader = Message<"substrate.ateapi.v1.CredentialHeader"> &
 
   /**
    * Source-agnostic reference interpreted by a registered credential provider:
-   * ate-secret://<provider-class>/<provider-name>/<provider-specific-tail>
+   * `ate-secret://<provider-class>/<provider-name>/<provider-specific-tail>`
    *
    * Exactly one of credential_uri and actor_jwt must be set.
    *
@@ -1626,7 +1629,7 @@ export type GoldenSnapshotStatus = Message<"substrate.ateapi.v1.GoldenSnapshotSt
 
   /**
    * error_message is set when the golden snapshot build fails and will not be
-   * retried, formatted as "<Reason>: <detail>". A nonempty value is terminal.
+   * retried, formatted as `<Reason>: <detail>`. A nonempty value is terminal.
    *
    * +k8s:optional
    * +k8s:maxLength=4096
@@ -1673,7 +1676,10 @@ export type SnapshotConfig = Message<"substrate.ateapi.v1.SnapshotConfig"> & {
    * storage_location is the base object-storage URI snapshots of actors on
    * this version are stored under. If unset, ate-api-server's
    * --snapshot-location is used. Requires the PerTemplateSnapshotLocation preview
-   * gate.
+   * gate. Each path segment may contain only ASCII letters, digits, '_' and
+   * '-'. Each owner's snapshots are stored under
+   * <storage_location>/atespaces/..., so no segment may be "atespaces" in any
+   * letter case.
    *
    * +ate:preview=PerTemplateSnapshotLocation
    * +k8s:ifDisabled(PerTemplateSnapshotLocation)=+k8s:forbidden
@@ -1900,13 +1906,14 @@ export const SecurityContextSchema: GenMessage<SecurityContext> = /*@__PURE__*/
  */
 export type Capabilities = Message<"substrate.ateapi.v1.Capabilities"> & {
   /**
-   * add lists capabilities to grant on top of the default set. "ALL" is
-   * rejected: name the individual capabilities the container needs.
+   * add lists capabilities to grant on top of the default set. Only
+   * AUDIT_WRITE, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, KILL, NET_BIND_SERVICE,
+   * SETFCAP, SETGID, SETPCAP, SETUID and SYS_CHROOT are accepted.
    *
    * +k8s:optional
    * +k8s:maxItems=64
    * +k8s:listType=set
-   * +k8s:customValidation # capability grammar; "ALL" not accepted
+   * +k8s:customValidation # one of resources.AllowedAddCapabilities
    *
    * @generated from field: repeated string add = 1;
    */
@@ -1919,7 +1926,7 @@ export type Capabilities = Message<"substrate.ateapi.v1.Capabilities"> & {
    * +k8s:optional
    * +k8s:maxItems=64
    * +k8s:listType=set
-   * +k8s:customValidation # capability grammar
+   * +k8s:customValidation # a Linux capability name or "ALL"
    *
    * @generated from field: repeated string drop = 2;
    */
@@ -2409,11 +2416,12 @@ export type VolumeMount = Message<"substrate.ateapi.v1.VolumeMount"> & {
   /**
    * mount_path within the container. Must be a clean absolute Unix path:
    * must start with '/', not be '/', and contain no ':', '..', '.', '//',
-   * trailing '/', or control characters.
+   * trailing '/', or control characters. Must not be /dev, and must not be
+   * /dev/pts, /proc, /sys, or a path under them.
    *
    * +k8s:required
    * +k8s:maxLength=4096
-   * +k8s:customValidation # clean-absolute-path shape; no regex/pattern tag exists
+   * +k8s:customValidation # clean absolute path, not /dev, outside /dev/pts, /proc and /sys
    *
    * @generated from field: string mount_path = 2;
    */
@@ -4142,8 +4150,9 @@ export type WorkerSandboxRuntime = Message<"substrate.ateapi.v1.WorkerSandboxRun
    * Compatibility version stamped onto an actor's snapshot when a checkpoint
    * is taken on this runtime. Snapshots matching it can warm-boot on this
    * runtime.
-   * TODO: Add the additional compatibility versions this runtime can also
-   * restore snapshots from.
+   *
+   * (-- TODO: Add the additional compatibility versions this runtime can also
+   * restore snapshots from. --)
    *
    * +k8s:required
    *
@@ -4800,9 +4809,12 @@ export const MintWorkerActorJwtResponseSchema: GenMessage<MintWorkerActorJwtResp
   messageDesc(file_api_ateapi_v1_ateapi, 120);
 
 /**
- * TODO: add a durability mode, carried through atelet's
+ * RequestActorSuspendRequest asks to suspend an Actor the calling Worker hosts.
+ * The suspend uses SuspendActor's default mode.
+ *
+ * (-- TODO: add a durability mode, carried through atelet's
  * RequestActorSuspendRequest, so the Worker can choose how the snapshot is
- * made durable. Until then the suspend uses SuspendActor's default mode.
+ * made durable. --)
  *
  * @generated from message substrate.ateapi.v1.RequestActorSuspendRequest
  */

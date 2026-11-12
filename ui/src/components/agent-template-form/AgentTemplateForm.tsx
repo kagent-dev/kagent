@@ -24,6 +24,7 @@ import {
 } from "./agentTemplateDraft";
 
 import { referenceLabel, type ObjectReference } from "@/api/domain/agentTemplates";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 
 const { Text, Paragraph } = Typography;
 
@@ -697,7 +698,7 @@ export function AgentTemplateForm({
 
       {embedded ? null : (
         <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
-          <Tag>AgentTemplate</Tag> is a <code>api.kagent.dev/v1alpha3</code> custom resource.
+          <Tag>AgentTemplate</Tag> is a <code>{KAGENT_API_VERSION}</code> custom resource.
           Everything on this form writes one field of its <code>spec</code>, except the
           labels, which are <code>metadata</code>.
         </Paragraph>

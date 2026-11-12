@@ -61,9 +61,9 @@ export function UnmappedConversationsPage() {
    * whole action and re-reads the list — so what could not be deleted stays visible
    * rather than appearing to have gone.
    */
-  async function removeAll(): Promise<void> {
+  async function removeAll(force = false): Promise<void> {
     await Promise.all(
-      orphans.map((row) => apiClient.agentInstances.remove(row.id)),
+      orphans.map((row) => apiClient.agentInstances.remove(row.id, { force })),
     );
   }
 
@@ -108,7 +108,8 @@ export function UnmappedConversationsPage() {
         <DeleteResourceButton
           kind="conversation"
           name={conversationTitle(row)}
-          onDelete={() => apiClient.agentInstances.remove(row.id)}
+          forceLabel="Stop active turns and delete"
+          onDelete={(force) => apiClient.agentInstances.remove(row.id, { force })}
           onDeleted={conversations.refresh}
           description="This conversation cannot be reached from any agent, and deleting it releases the worker it holds."
         />
@@ -136,6 +137,7 @@ export function UnmappedConversationsPage() {
               name={`all ${orphans.length} visible unmapped`}
               label="Delete all"
               outlined
+              forceLabel="Stop active turns and delete"
               onDelete={removeAll}
               onDeleted={conversations.refresh}
               description={

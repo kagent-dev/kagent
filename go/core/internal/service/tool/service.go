@@ -45,7 +45,7 @@ type MCPClient interface {
 }
 
 type Service struct {
-	kubeClient       client.Client
+	kubeClient       client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	namespaceReader  client.Reader
 	discoveryStore   DiscoveryStore
 	authorizer       auth.CollectionAuthorizer
@@ -79,7 +79,7 @@ type MCPAppTool struct {
 }
 
 func NewService(
-	kubeClient client.Client,
+	kubeClient client.Client, //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	namespaceReader client.Reader,
 	discoveryStore DiscoveryStore,
 	authorizer auth.CollectionAuthorizer,

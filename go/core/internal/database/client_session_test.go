@@ -292,7 +292,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	} else {
 		require.ErrorContains(t, err, "checkpoint being created")
 	}
-	_, err = client.BeginSessionOperation(ctx, sessionID, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	_, err = client.BeginSessionOperation(ctx, sessionID, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.ErrorIs(t, err, ErrConflict)
 	replayed, replayedSnapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
 	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *snapshot {
@@ -618,9 +618,9 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	suspend, err := client.BeginSessionOperation(ctx, ready.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	suspend, err := client.BeginSessionOperation(ctx, ready.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, false)
 	require.NoError(t, err)
-	_, err = client.BeginSessionOperation(ctx, ready.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+	_, err = client.BeginSessionOperation(ctx, ready.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, false)
 	require.ErrorIs(t, err, ErrConflict)
 	executor := uuid.New()
 	claimed, err := client.ClaimSessionOperation(ctx, ready.Id, suspend.ID, executor)

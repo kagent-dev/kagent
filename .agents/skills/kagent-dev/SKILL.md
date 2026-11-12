@@ -68,6 +68,9 @@ For SQL and store changes, follow [database guidance](../../../go/core/internal/
 - Follow [Kubernetes API conventions](../../../docs/kubernetes-api.md) for field presence, validation markers, and unions.
 - Modify only the intended v1alpha3 type and its validation.
 - Use explicit typed fields; avoid extension maps and speculative options.
+- Prefer a typed field over a label or annotation for user-facing behavior. When a
+  user-facing label or annotation key is unavoidable, define it in `go/api` beside
+  the types it configures; keep keys that only kagent writes next to their owner.
 - Regenerate deepcopy code, Helm-packaged CRDs, and RBAC when affected.
 - Verify generated schemas contain the intended fields and omit forbidden runtime infrastructure fields.
 

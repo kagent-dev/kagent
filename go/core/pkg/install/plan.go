@@ -21,6 +21,7 @@ type Config struct {
 	KagentCRDs        Chart
 	Substrate         Chart
 	SubstrateCRDs     Chart
+	Atelet            Chart
 	PodCertificate    Chart
 	ModelProvider     string
 	APIKey            string
@@ -39,6 +40,7 @@ type Step interface {
 // configuration, preserving existing private keys. Keys are generated only by Apply.
 type SubstratePrerequisites struct {
 	Namespace string
+	rustFS    rustFSValues
 }
 
 var _ Step = SubstratePrerequisites{}
@@ -80,7 +82,7 @@ func validateInstallConfig(cfg Config) error {
 	if problems := validation.IsDNS1123Label(cfg.Namespace); len(problems) != 0 {
 		return fmt.Errorf("invalid namespace %q: %s", cfg.Namespace, strings.Join(problems, ", "))
 	}
-	for _, chart := range []Chart{cfg.Kagent, cfg.KagentCRDs, cfg.Substrate, cfg.SubstrateCRDs, cfg.PodCertificate} {
+	for _, chart := range []Chart{cfg.Kagent, cfg.KagentCRDs, cfg.Substrate, cfg.SubstrateCRDs, cfg.PodCertificate, cfg.Atelet} {
 		if chart.Name == "" || chart.Repository == "" || chart.Version == "" {
 			return fmt.Errorf("chart name, repository and version are required")
 		}
@@ -111,6 +113,13 @@ config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
     routerUrl: https://atenet-router.ate-system.svc:443
+  # Getting-started installs answer grpcurl without local proto files.
+  # Reflection still requires whatever authentication the operator configures.
+  server:
+    grpcReflection: true
+# Ready-to-reference Harnesses on the WorkerPool created below.
+harnesses:
+  enabled: true
 ` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
 	if !cfg.SkipDatabaseSetup {
 		kagent.Values = append(kagent.Values, "database.postgres.clientCertificate.enabled=true")
@@ -128,6 +137,12 @@ config:
 	}
 	substrate := cloneChart(cfg.Substrate)
 	substrate.inlineValues = substrateInstallValues(cfg.Namespace, serviceAccount)
+	atelet, rustFS, err := resolveAteletValues(ctx, runner, substrate, cfg.Atelet)
+	if err != nil {
+		return Plan{}, err
+	}
+	// Atelet belongs to its own release and must finish rolling out first.
+	substrate.Values = append(substrate.Values, "atelet.enabled=false")
 	podcert := cloneChart(cfg.PodCertificate)
 	podcert.Values = append(postgresClientValues(cfg.Namespace, serviceAccount, !cfg.SkipDatabaseSetup), podcert.Values...)
 	if !cfg.SkipDatabaseSetup {
@@ -136,13 +151,14 @@ config:
 	steps := []Step{
 		ChartInstall{Release: kagentCRDsRelease, Namespace: cfg.Namespace, Chart: cloneChart(cfg.KagentCRDs)},
 		ChartInstall{Release: substrateCRDsRelease, Namespace: substrateNamespace, Chart: cloneChart(cfg.SubstrateCRDs)},
-		SubstratePrerequisites{Namespace: cfg.Namespace},
+		SubstratePrerequisites{Namespace: cfg.Namespace, rustFS: rustFS},
 		ChartInstall{Release: podCertificateRelease, Namespace: podCertificateNamespace, Chart: podcert},
 	}
 	if !cfg.SkipDatabaseSetup {
 		steps = append(steps, database)
 	}
 	steps = append(steps,
+		ChartInstall{Release: ateletRelease, Namespace: substrateNamespace, Chart: atelet},
 		ChartInstall{Release: substrateRelease, Namespace: substrateNamespace, Chart: substrate},
 		ChartInstall{Release: kagentRelease, Namespace: cfg.Namespace, Chart: kagent})
 	return Plan{steps: steps}, nil
@@ -177,9 +193,17 @@ func (c *Client) Apply(ctx context.Context, plan Plan, progress func(string)) er
 				}
 				return fmt.Errorf("failed to install %s: %w: %s", s.Release, err, strings.TrimSpace(out))
 			}
+			if s.Release == ateletRelease {
+				if out, err := c.runner.Run(ctx, ateletRolloutCommand()); err != nil {
+					return fmt.Errorf("failed to wait for Atelet rollout: %w: %s", err, strings.TrimSpace(out))
+				}
+			}
 		case SubstratePrerequisites:
 			if err := c.PrepareSubstrate(ctx, s.Namespace); err != nil {
 				return fmt.Errorf("failed to prepare Substrate prerequisites: %w", err)
+			}
+			if err := c.prepareRustFSCredentials(ctx, s.rustFS); err != nil {
+				return err
 			}
 		case Postgres:
 			if err := c.PreparePostgres(ctx, s); err != nil {
@@ -204,6 +228,7 @@ func substrateInstallValues(namespace, serviceAccount string) string {
 	controllerIdentity := strconv.Quote("spiffe://cluster.local/ns/" + namespace + "/sa/" + serviceAccount)
 	return fmt.Sprintf(`preview:
   - PerTemplateSnapshotLocation
+  - GoldenEgressPolicy
 ateApi:
   authorization:
     bootstrapOwners:

@@ -26,6 +26,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv/push"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -345,7 +346,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	workerDone := make(chan error, 1)
 	pushSigner, err := sessionsvc.NewPushJWTSigner("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n", "https://kagent.example")
 	require.NoError(t, err)
-	worker := sessionsvc.NewPushWorker(database.NewClient(db, "public"), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner, pushWake, sessionsvc.PushWorkerConfig{RecoveryInterval: time.Minute, MaxConcurrency: 10, SendTimeout: time.Second})
+	worker := sessionsvc.NewPushWorker(database.NewClient(db, "public"), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner, pushWake, sessionsvc.PushWorkerConfig{RecoveryInterval: time.Minute, MaxConcurrency: 10, SendTimeout: time.Second}, noop.NewMeterProvider())
 	go func() { workerDone <- worker.Start(workerCtx) }()
 	t.Cleanup(func() { stopWorker(); require.NoError(t, <-workerDone) })
 	stream, err := a2apb.NewA2AServiceClient(gateways[0]).SendStreamingMessage(observer, input)
@@ -686,6 +687,9 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		})
 		require.NoError(t, err)
 	})
+	t.Run("runtime failures settle after cleanup", func(t *testing.T) {
+		testRuntimeFailuresSettle(t, store.Client, runtimeStore, id)
+	})
 }
 
 // Create through the lifecycle store so the fixture exercises the same resource
@@ -705,7 +709,7 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 	}, uuid.NewString())
 	require.NoError(t, err)
-	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, false)
 	require.NoError(t, err)
 	executor := uuid.New()
 	claimed, err := store.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)

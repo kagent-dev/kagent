@@ -311,3 +311,9 @@ navigation had just reset. What actually removes the coupling is a second `test`
 same file — one recording for the lifecycle, one for the states, neither able to abort
 the other. That costs `conventions.test.ts` its "one spec, one test" rule, so it is an
 amendment to the convention rather than a reshuffle, and belongs in its own change.
+
+## Egress policies: gaps in `egress-policies/egress-policies.spec.ts`
+
+- **Stale save (`Aborted`).** The form shows a reload prompt when the server reports a stale `resourceVersion`. The mock refuses one, but the spec cannot write behind the form's back without a second page, which starts with fresh mock state.
+- **Server-side rejection text.** The mock applies the same rules as the form, so an `InvalidArgument` never reaches the form in mock mode. Covered against a cluster only.
+- **Actor JWT authoring.** Audiences and token lifetime are covered by unit tests, not by the spec.

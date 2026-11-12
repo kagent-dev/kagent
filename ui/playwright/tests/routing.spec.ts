@@ -73,6 +73,7 @@ test("routing: in-app navigation, deep links, 404, and standalone routes", async
     // And somewhere to go that is not just "back to the dashboard", which is the right
     // destination only if that is where they were headed.
     await expect(page.getByTestId("not-found-link-agents")).toBeVisible();
+    await expect(page.getByTestId("not-found-link-policies")).toHaveAttribute("href", "/policies?tab=egress");
     // Still inside the app: a wrong URL should not strand the user with no
     // way back.
     await expectShell(page);

@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/kagent-dev/kagent/go/api/bootstrap"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
@@ -97,8 +99,11 @@ func (c *Client) ListAgentEgressSources(ctx context.Context) ([]RuntimeEgressSou
  `, pgx.RowToStructByName[RuntimeEgressSource])
 }
 
-// RecordRevisionOptions reports the state of the recorded ActorTemplate's golden build.
+// RecordRevisionOptions carries bootstrap publication and golden-build observations.
 type RecordRevisionOptions struct {
+	// Bootstrap publishes the immutable bundle with the observed template binding.
+	// Omit it for status-only observations of an already published revision.
+	Bootstrap *runtimev1.BootstrapBundle
 	// Ready promotes the revision only while its source is active and still
 	// desires it, and clears its golden retry state.
 	Ready bool
@@ -112,6 +117,8 @@ type RecordRevisionOptions struct {
 // source if still desired. Existing inputs are preserved; actor UID, spec digest
 // and update time refresh. Stale reports cannot replace the last successful
 // revision. Deleting revisions return ErrObjectDeleting.
+// A supplied bootstrap bundle is published in the same transaction; conflicting
+// bytes reject the entire observation, including UID and readiness updates.
 func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, options RecordRevisionOptions) (GoldenRetry, error) {
 	if revision.AgentCard == nil {
 		return GoldenRetry{}, fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
@@ -119,6 +126,22 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 	card, err := proto.Marshal(revision.AgentCard)
 	if err != nil {
 		return GoldenRetry{}, fmt.Errorf("encode runtime revision Agent Card: %w", err)
+	}
+	var bundle []byte
+	if options.Bootstrap != nil {
+		if err := bootstrap.ValidateBundle(options.Bootstrap); err != nil {
+			return GoldenRetry{}, err
+		}
+		if options.Bootstrap.Revision != revision.Revision {
+			return GoldenRetry{}, fmt.Errorf("bootstrap revision mismatch: %w", ErrConflict)
+		}
+		if revision.ActorTemplateUID == "" {
+			return GoldenRetry{}, fmt.Errorf("bootstrap publication requires an observed template UID")
+		}
+		bundle, err = proto.MarshalOptions{Deterministic: true}.Marshal(options.Bootstrap)
+		if err != nil {
+			return GoldenRetry{}, fmt.Errorf("encode bootstrap bundle: %w", err)
+		}
 	}
 	var retry GoldenRetry
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
@@ -138,13 +161,20 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		}); err != nil {
 			return err
 		}
-		if err := execSQL(ctx, tx, `
-			INSERT INTO agent_revision (revision, agent_name, agent_uid, agent_card)
-			VALUES ($1, $2, $3, $4) ON CONFLICT (revision) DO NOTHING
-		`, revision.Revision, revision.AgentName, revision.AgentUID, card); err != nil {
-			return err
+		result, err := tx.Exec(ctx, `
+			INSERT INTO agent_revision (revision, agent_name, agent_uid, agent_card, bootstrap_bundle)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (revision) DO UPDATE SET
+			    bootstrap_bundle = COALESCE(agent_revision.bootstrap_bundle, EXCLUDED.bootstrap_bundle)
+			WHERE EXCLUDED.bootstrap_bundle IS NULL OR agent_revision.bootstrap_bundle IS NULL
+			    OR agent_revision.bootstrap_bundle = EXCLUDED.bootstrap_bundle
+		`, revision.Revision, revision.AgentName, revision.AgentUID, card, bundle)
+		if err != nil {
+			return fmt.Errorf("record agent revision: %w", err)
 		}
-		var err error
+		if result.RowsAffected() != 1 {
+			return fmt.Errorf("bootstrap bundle is immutable: %w", ErrConflict)
+		}
 		if retry, err = recordGoldenRetry(ctx, tx, revision.Revision, revision.ActorTemplateUID, options); err != nil || !options.Ready {
 			return err
 		}
@@ -175,6 +205,46 @@ func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*Runt
 		return nil, fmt.Errorf("get runtime revision %s: %w", revision, notFoundOr(err))
 	}
 	return toRuntimeRevision(row)
+}
+
+// BootstrapBinding binds an immutable bundle to its observed template incarnation.
+type BootstrapBinding struct {
+	ActorTemplateUID        string
+	ActorTemplateSpecDigest string
+	Bundle                  *runtimev1.BootstrapBundle
+}
+
+// GetBootstrapBinding reads the binding and bundle from one database snapshot.
+// Missing, unpublished, or deleting revisions return ErrNotFound. Callers must
+// verify the binding against the authenticated actor's live template before
+// exposing the bundle. Malformed persisted bundles return an error.
+func (c *Client) GetBootstrapBinding(ctx context.Context, atespace, name string) (*BootstrapBinding, error) {
+	type bootstrapRow struct {
+		Revision                string
+		ActorTemplateUID        string
+		ActorTemplateSpecDigest string
+		BootstrapBundle         []byte
+	}
+	row, err := queryOne(ctx, c.db, `
+  SELECT r.revision, r.actor_template_uid, r.actor_template_spec_digest, a.bootstrap_bundle
+  FROM runtime_revision r JOIN agent_revision a USING (revision)
+  WHERE r.actor_template_atespace = $1 AND r.actor_template_name = $2
+    AND r.deleted_at IS NULL AND a.bootstrap_bundle IS NOT NULL
+ `, pgx.RowToStructByName[bootstrapRow], atespace, name)
+	if err != nil {
+		return nil, fmt.Errorf("get bootstrap binding: %w", notFoundOr(err))
+	}
+	bundle := &runtimev1.BootstrapBundle{}
+	if err := proto.Unmarshal(row.BootstrapBundle, bundle); err != nil {
+		return nil, fmt.Errorf("decode bootstrap bundle: %w", err)
+	}
+	if err := bootstrap.ValidateBundle(bundle); err != nil {
+		return nil, fmt.Errorf("validate persisted bootstrap bundle: %w", err)
+	}
+	if bundle.Revision != row.Revision {
+		return nil, fmt.Errorf("persisted bootstrap revision mismatch")
+	}
+	return &BootstrapBinding{ActorTemplateUID: row.ActorTemplateUID, ActorTemplateSpecDigest: row.ActorTemplateSpecDigest, Bundle: bundle}, nil
 }
 
 // toRuntimeRevision decodes the agent card and canonicalizes credential bindings,
@@ -228,7 +298,7 @@ func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, 
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeArtifact, error) {
 	return queryMany(ctx, c.db, `
 		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, actor_template_spec_digest, golden_failure_uid, deleted_at
-		FROM runtime_revision WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
+		FROM runtime_revision r WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
 	`, pgx.RowToStructByName[RuntimeArtifact])
 }
 

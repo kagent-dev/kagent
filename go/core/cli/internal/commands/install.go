@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,13 +12,16 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/common/prompt"
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
@@ -36,6 +40,8 @@ type InstallCfg struct {
 	SkipDatabaseSetup bool
 	DryRun            bool
 	OutputDir         string
+	// Provider overrides install.defaultModelProvider when set.
+	Provider string
 }
 
 func newInstallClient() (*installer.Client, error) {
@@ -64,7 +70,10 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		return errors.New("installation requires a released version of kagent")
 	}
 	settings := cliconfig.FromContext(cmd.Context()).GetInstall()
-	modelProvider := v1alpha3.ModelProvider(settings.GetDefaultModelProvider())
+	modelProvider, err := installModelProvider(settings.GetDefaultModelProvider(), cfg.Provider)
+	if err != nil {
+		return err
+	}
 	apiKeyValue := ""
 	apiKeyEnvironment := ""
 	if apiKey, ok := providerAPIKey(modelProvider); ok {
@@ -73,7 +82,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		} else {
 			apiKeyValue = apiKey.Get()
 			if apiKeyValue == "" {
-				return fmt.Errorf("%s is not set; set it, or choose another provider with install.defaultModelProvider in the CLI config", apiKey.Name())
+				return fmt.Errorf("%s is not set; set it, or choose another provider with --provider or install.defaultModelProvider in the CLI config", apiKey.Name())
 			}
 		}
 	}
@@ -103,6 +112,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		KagentCRDs:     chartConfig(settings.GetKagent(), kagentChartName+"-crds"),
 		Substrate:      chartConfig(settings.GetSubstrate(), "substrate"),
 		SubstrateCRDs:  chartConfig(settings.GetSubstrate(), "substrate-crds"),
+		Atelet:         chartConfig(settings.GetAtelet(), "substrate-atelet"),
 		PodCertificate: chartConfig(settings.GetPodCertificate(), "substrate-podcert"),
 		ModelProvider:  string(modelProvider), APIKey: apiKeyValue,
 		WorkerImage:       "ghcr.io/kagent-dev/substrate/ateworker-gvisor:v" + strings.TrimPrefix(settings.GetSubstrate().GetVersion(), "v"),
@@ -147,20 +157,66 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		return fmt.Errorf("start port-forward: %w", err)
 	}
 	pf.Stop()
-	return nil
+	return printInstallNextSteps(cmd.OutOrStdout(), options.Namespace)
 }
 
-func runUninstall(cmd *cobra.Command, namespace, postgresImage string) error {
+// printInstallNextSteps tells a new user how to reach kagent after install.
+func printInstallNextSteps(out io.Writer, namespace string) error {
+	_, err := fmt.Fprintf(out, `
+Next steps:
+  Open the UI:       kagent dashboard
+  Create an agent:   in the UI, or with kagent apply -f agent.yaml
+  The kagent-default, codex-default and claude-default Harnesses are ready
+  to use in the %s namespace.
+`, namespace)
+	return err
+}
+
+// installModelProviders lists the providers install.defaultModelProvider
+// accepts, read from its protobuf validation rule so the two cannot diverge.
+func installModelProviders() []string {
+	field := (&configv1.InstallConfig{}).ProtoReflect().Descriptor().Fields().ByName("default_model_provider")
+	rules, _ := proto.GetExtension(field.Options(), validate.E_Field).(*validate.FieldRules)
+	return rules.GetString().GetIn()
+}
+
+// installModelProvider selects the --provider flag over the configured default.
+func installModelProvider(configured, flag string) (v1alpha3.ModelProvider, error) {
+	if flag == "" {
+		return v1alpha3.ModelProvider(configured), nil
+	}
+	if allowed := installModelProviders(); !slices.Contains(allowed, flag) {
+		return "", fmt.Errorf("invalid --provider %q: must be one of %s", flag, strings.Join(allowed, ", "))
+	}
+	return v1alpha3.ModelProvider(flag), nil
+}
+
+func runUninstall(cmd *cobra.Command, namespace, postgresImage string, deleteWorkerPools bool) error {
 	client, err := newInstallClient()
 	if err != nil {
 		return err
 	}
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 	s.Writer = cmd.OutOrStdout()
-	s.Start()
 	defer s.Stop()
-	result, err := client.Uninstall(cmd.Context(), namespace, postgresImage, func(message string) { s.Suffix = " " + message })
+	progress := func(message string) { s.Suffix = " " + message }
+	s.Start()
+	result, err := client.Uninstall(cmd.Context(), namespace, postgresImage, progress)
 	s.Stop()
+	// Uninstall stops before deleting anything when self-managed WorkerPools
+	// exist, so a rerun after deleting them starts from the beginning.
+	if pools := (*installer.SelfManagedWorkerPoolsError)(nil); errors.As(err, &pools) {
+		if err := confirmWorkerPoolDeletion(cmd, pools, deleteWorkerPools); err != nil {
+			return err
+		}
+		s.Start()
+		progress("Deleting self-managed worker pools")
+		err = client.DeleteWorkerPools(cmd.Context(), pools.Pools)
+		if err == nil {
+			result, err = client.Uninstall(cmd.Context(), namespace, postgresImage, progress)
+		}
+		s.Stop()
+	}
 	for _, release := range result.MissingReleases {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s release not found, skipping uninstallation\n", release)
 	}
@@ -172,13 +228,38 @@ func runUninstall(cmd *cobra.Command, namespace, postgresImage string) error {
 	return nil
 }
 
+// confirmWorkerPoolDeletion returns nil when the self-managed WorkerPools may
+// be deleted: --delete-worker-pools is set, or the user agrees at a terminal.
+func confirmWorkerPoolDeletion(cmd *cobra.Command, pools *installer.SelfManagedWorkerPoolsError, deleteWorkerPools bool) error {
+	if deleteWorkerPools {
+		return nil
+	}
+	if !prompt.IsTerminal(cmd.InOrStdin()) || !prompt.IsTerminal(cmd.OutOrStdout()) {
+		return fmt.Errorf("%w, or rerun with --delete-worker-pools", pools)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "These self-managed WorkerPools run on the Substrate that uninstall removes:")
+	for _, pool := range pools.Pools {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", pool)
+	}
+	ok, err := prompt.Confirm(cmd.InOrStdin(), cmd.OutOrStdout(), "Delete them and continue?")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("uninstall cancelled; nothing was deleted")
+	}
+	return nil
+}
+
 // NewInstallCmd constructs the kagent install command.
 func NewInstallCmd() *cobra.Command {
 	cfg := &InstallCfg{}
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install kagent",
-		Long:  `Install kagent. With --dry-run, write Helm commands and merged values to a directory without changing the cluster. Complete the documented prerequisites before running the exported commands.`,
+		Long: `Install kagent. --provider selects the default model provider, overriding install.defaultModelProvider in the CLI config; its API key is read from the provider's environment variable.
+
+With --dry-run, write Helm commands and merged values to a directory without changing the cluster. Complete the documented prerequisites before running the exported commands.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if cmd.Flags().Changed("output-dir") && !cfg.DryRun {
 				return fmt.Errorf("--output-dir requires --dry-run")
@@ -194,6 +275,10 @@ func NewInstallCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.SkipDatabaseSetup, "skip-database-setup", false, "Skip bundled PostgreSQL deployment and initialization")
 	cmd.Flags().BoolVar(&cfg.DryRun, "dry-run", false, "Export Helm commands and values without changing the cluster")
 	cmd.Flags().StringVar(&cfg.OutputDir, "output-dir", "kagent-install", "Directory for --dry-run output (must not exist)")
+	cmd.Flags().StringVar(&cfg.Provider, "provider", "", "Default model provider, overriding install.defaultModelProvider ("+strings.Join(installModelProviders(), ", ")+")")
+	_ = cmd.RegisterFlagCompletionFunc("provider", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return installModelProviders(), cobra.ShellCompDirectiveNoFileComp
+	})
 	_ = cmd.RegisterFlagCompletionFunc("profile", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})
@@ -202,7 +287,8 @@ func NewInstallCmd() *cobra.Command {
 
 // NewUninstallCmd constructs the kagent uninstall command.
 func NewUninstallCmd() *cobra.Command {
-	return &cobra.Command{
+	var deleteWorkerPools bool
+	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Uninstall kagent",
 		Long: `Uninstall kagent: the kagent and Substrate Helm releases, their CRDs, the
@@ -211,15 +297,22 @@ podcertificate-controller-system namespaces. Removing the CRDs deletes every
 resource created from them, such as agents and model configs.
 
 A database that kagent install did not deploy, such as one used with
---skip-database-setup, stays. The kagent namespace stays.`,
+--skip-database-setup, stays. The kagent namespace stays.
+
+Self-managed Substrate WorkerPools, ones kagent install did not create, run on
+the Substrate that uninstall removes. Uninstall lists them and asks before
+deleting them. Without a terminal it stops before deleting anything unless
+--delete-worker-pools is set.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
 				return err
 			}
-			return runUninstall(cmd, options.Namespace, cliconfig.FromContext(cmd.Context()).GetInstall().GetBundledPostgresImage())
+			return runUninstall(cmd, options.Namespace, cliconfig.FromContext(cmd.Context()).GetInstall().GetBundledPostgresImage(), deleteWorkerPools)
 		},
 	}
+	cmd.Flags().BoolVar(&deleteWorkerPools, "delete-worker-pools", false, "Delete self-managed Substrate WorkerPools without asking")
+	return cmd
 }
 
 // providerAPIKey selects the first explicitly set credential, or the fallback

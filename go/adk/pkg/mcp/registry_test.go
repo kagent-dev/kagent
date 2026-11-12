@@ -1,11 +1,18 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"iter"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,13 +20,208 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
+	adkplugin "google.golang.org/adk/v2/plugin"
+	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	kagentsession "github.com/kagent-dev/kagent/go/adk/pkg/session"
+	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
+
+func TestSTSDelegatedTokenReachesMCP(t *testing.T) {
+	for _, transport := range []string{"http", "sse"} {
+		t.Run("Given STS over "+transport+", when callers share MCP tools, assert that each request carries its delegated identity", func(t *testing.T) {
+			checkSTSDelegatedTokenReachesMCP(t, transport)
+		})
+	}
+}
+
+func checkSTSDelegatedTokenReachesMCP(t *testing.T, transport string) {
+	t.Helper()
+	// Given an STS exchange and an actor-local session whose native ID differs
+	// from the public ID, when the runner lists and invokes MCP tools, assert
+	// that HTTP requests carry the delegated identity through transport wrappers.
+	const caller = "caller-token"
+	const delegated = "delegated-token"
+	const otherCaller = "other-caller-token"
+	const otherDelegated = "other-delegated-token"
+	const appName = "sts-test"
+	const toolName = "identity"
+	const discoverMethod = "server/discover"
+	const initializeMethod = "initialize"
+	const listMethod = "tools/list"
+	const callMethod = "tools/call"
+	delegatedTokens := map[string]string{caller: delegated, otherCaller: otherDelegated}
+	var tokenServer *httptest.Server
+	tokenServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/token" {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "invalid exchange", http.StatusBadRequest)
+				return
+			}
+			token, ok := delegatedTokens[r.Form.Get("subject_token")]
+			if !ok {
+				http.Error(w, "unexpected subject", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": token, "issued_token_type": string(sts.TokenTypeJWT), "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"issuer": tokenServer.URL, "token_endpoint": tokenServer.URL + "/token"})
+	}))
+	t.Cleanup(tokenServer.Close)
+	integration, err := sts.NewSTSIntegration(tokenServer.URL, "", func(context.Context) (string, error) { return "actor-token", nil }, nil, 5, true, false)
+	require.NoError(t, err)
+	plugin := sts.NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+	adkPlugin, err := plugin.ADKPlugin()
+	require.NoError(t, err)
+
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: appName}, &mcpsdk.ServerOptions{SupportedProtocolVersions: []string{"2025-11-25"}})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: toolName}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"identity": "delegated"}, nil
+	})
+	var handler http.Handler = mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return server }, nil)
+	if transport == "sse" {
+		handler = mcpsdk.NewSSEHandler(func(*http.Request) *mcpsdk.Server { return server }, nil)
+	}
+	type observedRequest struct {
+		method        string
+		authorization string
+		caller        string
+	}
+	var mu sync.Mutex
+	var requests []observedRequest
+	streamOpened := make(chan struct{}, 1)
+	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		request := observedRequest{method: r.Method, authorization: r.Header.Get(constants.AuthorizationHeader)}
+		if r.Method == http.MethodPost {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			var rpc struct {
+				Method string
+				Params struct{ Arguments struct{ Caller string } }
+			}
+			if err := json.Unmarshal(body, &rpc); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			request.method, request.caller = rpc.Method, rpc.Params.Arguments.Caller
+		}
+		mu.Lock()
+		requests = append(requests, request)
+		mu.Unlock()
+		if r.Method == http.MethodGet {
+			select {
+			case streamOpened <- struct{}{}:
+			default:
+			}
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(mcpServer.Close)
+	// Make the HTTP client's deadline earlier than the run's deadline, ensuring
+	// net/http itself wraps the context before header injection.
+	var httpTools []*configv1.ADKHTTPMCPServerConfig
+	var sseTools []*configv1.ADKSSEMCPServerConfig
+	if transport == "sse" {
+		sseTools = []*configv1.ADKSSEMCPServerConfig{{Params: &configv1.ADKSSEConnectionParams{Url: mcpServer.URL, Timeout: durationpb.New(5 * time.Second)}}}
+	} else {
+		httpTools = []*configv1.ADKHTTPMCPServerConfig{{Params: &configv1.ADKHTTPConnectionParams{Url: mcpServer.URL, Timeout: durationpb.New(5 * time.Second)}}}
+	}
+	toolsets := CreateToolsets(t.Context(), httpTools, sseTools, nil, false, plugin.HeaderProvider)
+	require.Len(t, toolsets, 1)
+	inner := toolsets[0].(*mcpAppToolset).inner.(*scopedToolset).Toolset
+	closer := inner.(io.Closer)
+	t.Cleanup(func() { require.NoError(t, closer.Close()) })
+	var called bool
+	agent, err := adkagent.New(adkagent.Config{Name: appName, Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			toolCtx := adkagent.NewToolContext(ctx, "call-1", nil, nil)
+			tools, err := toolsets[0].Tools(toolCtx)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if len(tools) != 1 {
+				yield(nil, fmt.Errorf("discovered %d tools, want one", len(tools)))
+				return
+			}
+			_, err = tools[0].(functionTool).Run(toolCtx, map[string]any{"caller": models.BearerTokenFromContext(ctx)})
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			called = true
+		}
+	}})
+	require.NoError(t, err)
+	sessions := &kagentsession.LocalSessionService{Service: session.InMemoryService()}
+	_, err = sessions.Create(t.Context(), &session.CreateRequest{AppName: appName, UserID: "user", SessionID: "public-session"})
+	require.NoError(t, err)
+	run, err := runner.New(runner.Config{AppName: appName, Agent: agent, SessionService: sessions, PluginConfig: runner.PluginConfig{Plugins: []*adkplugin.Plugin{adkPlugin}}})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	invoke := func(bearer string) {
+		t.Helper()
+		called = false
+		callCtx := context.WithValue(ctx, models.BearerTokenKey, bearer)
+		for _, err := range run.Run(callCtx, "user", "public-session", genai.NewContentFromText("invoke", genai.RoleUser), adkagent.RunConfig{}) {
+			require.NoError(t, err)
+		}
+		require.True(t, called, "the MCP tool must be invoked")
+	}
+	invoke(caller)
+	select {
+	case <-streamOpened:
+	case <-ctx.Done():
+		t.Fatal("MCP event stream did not open")
+	}
+	mu.Lock()
+	firstRequests := append([]observedRequest(nil), requests...)
+	mu.Unlock()
+	methods := make(map[string]bool)
+	for _, request := range firstRequests {
+		methods[request.method] = true
+		require.Equal(t, "Bearer "+delegated, request.authorization, "method %s", request.method)
+	}
+	for _, method := range []string{discoverMethod, initializeMethod, listMethod, callMethod, http.MethodGet} {
+		require.True(t, methods[method], "must exercise %s", method)
+	}
+	// A reused connection must resolve the current call's credential. A call
+	// without a bearer must not inherit either of the cached delegated tokens.
+	invoke(otherCaller)
+	invoke("")
+	invoke(caller)
+	// Close the SDK session before the test servers, including its detached SSE stream.
+	require.NoError(t, closer.Close())
+	mu.Lock()
+	defer mu.Unlock()
+	var calls []observedRequest
+	for _, request := range requests {
+		if request.method == callMethod {
+			calls = append(calls, request)
+		}
+	}
+	require.Equal(t, []observedRequest{
+		{method: callMethod, authorization: "Bearer " + delegated, caller: caller},
+		{method: callMethod, authorization: "Bearer " + otherDelegated, caller: otherCaller},
+		{method: callMethod},
+		{method: callMethod, authorization: "Bearer " + delegated, caller: caller},
+	}, calls)
+}
 
 func TestCreateTransportBuildsStdioCommand(t *testing.T) {
 	dir := t.TempDir()
@@ -218,12 +420,12 @@ func TestMCPAppToolNamesFromToolsets(t *testing.T) {
 
 	inner := &stubToolset{name: "mcp-server"}
 	toolsets := []tool.Toolset{
-		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"show_board": true}},
-		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"refresh": true}},
+		&mcpAppToolset{inner: inner, discovery: &mcpAppDiscovery{appToolNames: map[string]bool{"show_board": true}}},
+		&mcpAppToolset{inner: inner, discovery: &mcpAppDiscovery{appToolNames: map[string]bool{"refresh": true}}},
 		inner,
 	}
 
-	got := MCPAppToolNamesFromToolsets(toolsets)
+	got := MCPAppToolNamesFromToolsets(t.Context(), toolsets)
 	if len(got) != 2 || !got["show_board"] || !got["refresh"] {
 		t.Fatalf("MCPAppToolNamesFromToolsets() = %#v, want show_board and refresh", got)
 	}

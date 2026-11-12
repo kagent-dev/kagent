@@ -90,6 +90,7 @@ message InstallConfig {
   ChartConfig substrate = 3;
   ChartConfig pod_certificate = 4;
   optional string bundled_postgres_image = 5 [(buf.validate.field).string.min_len = 1];
+  ChartConfig atelet = 6;
 }
 
 message ChartConfig {
@@ -211,6 +212,12 @@ message PostgresPoolConfig {
   google.protobuf.Duration max_conn_lifetime = 4 [(buf.validate.field).duration = {
     gt: {}
     lte: {seconds: 9223372036}
+  }];
+  // connect_retry_timeout is how long a database call retries a failed login,
+  // such as while a paused database resumes. 0s turns the retry off. Default 90s.
+  google.protobuf.Duration connect_retry_timeout = 5 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 600}
   }];
 }
 

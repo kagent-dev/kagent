@@ -28,7 +28,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig:  &kagentv1alpha3.ObjectReference{Name: "model"},
+			ModelConfig:  &kagentv1alpha3.ModelConfigReference{Name: "model"},
 			SystemPrompt: "help",
 		},
 	}
@@ -139,7 +139,7 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 			runtimeHarness.Spec.Substrate.SnapshotPolicy.Location = "snapshots"
 			if harnessType == translator.HarnessTypeKagent {
 				runtimeHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
-				template.Spec.ModelConfig = &kagentv1alpha3.ObjectReference{Name: "model"}
+				template.Spec.ModelConfig = &kagentv1alpha3.ModelConfigReference{Name: "model"}
 			} else {
 				runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
 				runtimeHarness.Spec.Workload.Command = []string{"/agent"}
@@ -173,6 +173,39 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 	}
 }
 
+func TestReconciliationReportsUnsupportedReferenceKind(t *testing.T) {
+	t.Run("Given a ModelConfig named model, when the template references kind ModelProviderConfig, assert that ResolvedRefs fails with InvalidKind", func(t *testing.T) {
+		stop := make(chan struct{})
+		t.Cleanup(func() { close(stop) })
+		opts := krt.NewOptionsBuilder(stop, "reference-kind", nil)
+		template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant"}, Spec: kagentv1alpha3.AgentTemplateSpec{
+			SystemPrompt: "help", ModelConfig: &kagentv1alpha3.ModelConfigReference{Kind: new("ModelProviderConfig"), Name: "model"},
+		}}
+		runtimeHarness := harness("team-a", "kagent", nil)
+		runtimeHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
+		mock := krttest.NewMock(t, []any{template, runtimeHarness, &kagentv1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5"},
+		}})
+		configMaps, secrets := krttest.GetMockCollection[*corev1.ConfigMap](mock), krttest.GetMockCollection[*corev1.Secret](mock)
+		_, resolvedModels := newModelConfigReconciliations(krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock), configMaps, secrets, opts)
+		states := newAgentReconciliations(
+			krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, runtimeHarness)}, opts.WithName("Agents")...),
+			translator.Collections{
+				Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+				ResolvedModelConfigs: resolvedModels, ConfigMaps: configMaps, Secrets: secrets,
+				RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock), WorkerPools: krttest.GetMockCollection[*atev1.WorkerPool](mock),
+			}, krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("Observations")...), opts, testRuntimeDefaults(), nil,
+		)
+		waitFor(t, func() bool { return states.GetKey("team-a/assistant") != nil })
+		state := states.GetKey("team-a/assistant")
+		require.Nil(t, state.Target)
+		require.Equal(t, &ReconciliationFailure{
+			Condition: kagentv1alpha3.AgentConditionResolvedRefs, Reason: "InvalidKind",
+			Message: `resolve model "team-a/model": unsupported kind ModelProviderConfig.api.kagent.dev`,
+		}, state.CompilationFailure)
+	})
+}
+
 func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 	for _, harnessType := range []translator.HarnessType{
 		translator.HarnessTypeKagent, translator.HarnessTypeCodex, translator.HarnessTypeClaude, translator.HarnessTypeBYO,
@@ -183,7 +216,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			opts := krt.NewOptionsBuilder(stop, "test-sandbox", nil)
 			template := &kagentv1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"},
-				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
+				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ModelConfigReference{Name: "model"}, SystemPrompt: "help"},
 			}
 			runtimeHarness := harness("team-a", string(harnessType), nil)
 			runtimeHarness.UID = "harness-uid"
@@ -307,6 +340,13 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					expected.Metadata.Name = state.Target.ActorTemplate.GetMetadata().GetName()
 					// Changing the sandbox also changes the revision reported by telemetry.
 					for _, variable := range expected.Containers[0].Env {
+						if variable.Name == "KAGENT_BOOTSTRAP_JSON" {
+							for _, actual := range state.Target.ActorTemplate.Containers[0].Env {
+								if actual.Name == variable.Name {
+									variable.Value = actual.Value
+								}
+							}
+						}
 						if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
 							variable.Value = strings.Replace(variable.Value, "service.version="+gvisorRevision.Short(), "service.version="+state.Target.RevisionID.Short(), 1)
 						}
@@ -334,7 +374,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "claude"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ModelConfigReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	claudeHarness := harness("team-a", "claude", map[string]string{"runtime": "claude"})
 	claudeHarness.UID = "harness-uid"
@@ -389,7 +429,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	responses := kagentv1alpha3.OpenAIAPIFormatResponses
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "codex"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ModelConfigReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	codexHarness := harness("team-a", "codex", map[string]string{"runtime": "codex"})
 	codexHarness.UID = "harness-uid"
@@ -444,12 +484,12 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	child := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "child", Labels: map[string]string{"runtime": "python"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"}, SystemPrompt: "before"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ModelConfigReference{Name: "model"}, SystemPrompt: "before"},
 	}
 	root := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "root", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig: &kagentv1alpha3.ObjectReference{Name: "model"},
+			ModelConfig: &kagentv1alpha3.ModelConfigReference{Name: "model"},
 			Tools: []kagentv1alpha3.ToolBinding{{SubAgent: &kagentv1alpha3.SubAgentToolBinding{
 				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},

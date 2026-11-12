@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -26,10 +28,32 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
+var (
+	lifecycleCleanup func()
+	// Start PostgreSQL only when a lifecycle fixture is requested, so focused
+	// tests of pure logic still run without Docker. Migrate the template once.
+	lifecycleDatabase = sync.OnceValues(func() (string, error) {
+		conn, cleanup, err := dbtest.Start(context.Background())
+		if err != nil {
+			return "", err
+		}
+		lifecycleCleanup = cleanup
+		return conn, dbtest.Migrate(conn, false)
+	})
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if lifecycleCleanup != nil {
+		lifecycleCleanup()
+	}
+	os.Exit(code)
+}
+
 func TestActorWorkflowLifecycle(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 
 	created, err := workflow.Create(context.Background(), session)
 	if err != nil {
@@ -65,7 +89,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, suspended.Operation)
 
-	deleted, err := workflow.Delete(context.Background(), suspended)
+	deleted, err := workflow.Delete(context.Background(), suspended, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +105,7 @@ func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			session, err := workflow.Create(t.Context(), session)
 			require.NoError(t, err)
 			actor := actors.actors[actorKey("team-a", substrate.ActorName(session.Id))]
@@ -93,7 +117,7 @@ func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
 			case "suspend":
 				_, err = workflow.Suspend(t.Context(), session)
 			case "delete":
-				_, err = workflow.Delete(t.Context(), session)
+				_, err = workflow.Delete(t.Context(), session, false)
 			}
 			require.ErrorContains(t, err, "verify runtime actor UID")
 			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.Status.State)
@@ -106,7 +130,7 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	session, checkpointID := lifecycleForkFixture(t, store, actors, session)
-	fork, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+	fork, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +141,7 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 		t.Fatalf("fork = %+v, actor = %+v", fork, actor)
 	}
 	actor.Status.Snapshots[0].DurableSnapshot.Object.SnapshotUri = "s3://snapshots/later-turn"
-	replayed, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+	replayed, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(fork, replayed), "a retry returns the current session without revalidating later Actor state")
 }
@@ -126,12 +150,9 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 // calls are faked, so concurrency assertions exercise PostgreSQL admission.
 func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
-	t.Cleanup(cancel)
-	conn, cleanup, err := dbtest.Start(ctx)
+	template, err := lifecycleDatabase()
 	require.NoError(t, err)
-	t.Cleanup(cleanup)
-	require.NoError(t, dbtest.Migrate(conn, false))
+	conn := dbtest.CloneT(t, template)
 	pool, err := pgxpool.New(t.Context(), conn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
@@ -227,9 +248,16 @@ func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name str
 	return proto.CloneOf(actor), nil
 }
 
-func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {
+func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name, uid string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	actor := a.actors[actorKey(atespace, name)]
+	if actor == nil {
+		return status.Error(codes.NotFound, "missing")
+	}
+	if uid != "" && actor.GetMetadata().GetUid() != uid {
+		return status.Error(codes.FailedPrecondition, "actor UID changed")
+	}
 	delete(a.actors, actorKey(atespace, name))
 	return nil
 }
@@ -243,7 +271,7 @@ func TestQuiesceRejectsWrongActorIdentity(t *testing.T) {
 			Status:   &ateapipb.ActorStatus{},
 		},
 	}}
-	if _, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Quiesce(t.Context(), session); err == nil {
+	if _, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Quiesce(t.Context(), session); err == nil {
 		t.Fatal("Quiesce() accepted the wrong Actor")
 	}
 }
@@ -264,7 +292,7 @@ func (a *snapshotTestActors) SuspendActor(ctx context.Context, atespace, name st
 func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	actors := &snapshotTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 	created, err := workflow.Create(t.Context(), session)
 	require.NoError(t, err)
 
@@ -303,7 +331,7 @@ func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
 // lifecycleForkFixture retains a real checkpoint and its independent fork history.
 func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifecycleTestActors, source *apiv1.Session) (*apiv1.Session, string) {
 	t.Helper()
-	source, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Create(t.Context(), source)
+	source, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), source)
 	require.NoError(t, err)
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
 	message.ContextID = source.ContextId
@@ -357,7 +385,7 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 				session, _ = lifecycleForkFixture(t, store, base, session)
 			}
 			actors := &retryTestActors{lifecycleTestActors: base}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			callsBefore := base.policyCalls
 			base.policyErr = context.DeadlineExceeded
 			_, err := workflow.Create(t.Context(), session)
@@ -384,7 +412,7 @@ func TestActorCreationFailsBeforeIssueWhenEgressPolicyCannotCompile(t *testing.T
 	store, session := lifecycleFixture(t)
 	base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}, checkErr: errors.New("target not bound")}
 	actors := &retryTestActors{lifecycleTestActors: base}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 
 	_, err := workflow.Create(t.Context(), session)
 	require.ErrorContains(t, err, "target not bound")
@@ -393,7 +421,7 @@ func TestActorCreationFailsBeforeIssueWhenEgressPolicyCannotCompile(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, "PreparationFailed", current.GetFailure().GetReason())
 
-	deleted, err := workflow.Delete(t.Context(), current)
+	deleted, err := workflow.Delete(t.Context(), current, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 }
@@ -446,7 +474,7 @@ func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) {
 	store, fixture := lifecycleFixture(t)
 	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
-	service := NewService(store, serviceTestAuthorizer{}, NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second))
+	service := NewService(store, serviceTestAuthorizer{}, NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()))
 	ctx := serviceTestContext("alice")
 	session, err := service.Create(ctx, fixture.Agent.Ref, "retry-request", "conversation")
 	require.NoError(t, err)
@@ -459,7 +487,7 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.Equal(t, renamed.Name, retried.Name)
 	require.Equal(t, renamed.State, retried.State)
 	require.Equal(t, mutations, actors.mutations.Load(), "creation retry cannot reissue runtime work")
-	deleted, err := service.Delete(ctx, session.Id)
+	deleted, err := service.Delete(ctx, session.Id, false)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
@@ -468,7 +496,7 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
 	_, err = service.Get(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
-	_, err = service.Delete(ctx, session.Id)
+	_, err = service.Delete(ctx, session.Id, false)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
 }
