@@ -106,15 +106,18 @@ test("agent templates: a template is created, read, edited and deleted", async (
       await page.keyboard.press("Escape");
 
       await page.getByTestId("template-form-add-skill").click();
-      await page.getByTestId("template-form-skill-name-1").fill("incident-review");
+      // Each skill is its own card, with a visible label on every field and a named remove.
+      const own = page.getByTestId("template-form-skill-1");
+      await own.getByLabel("Skill name").fill("incident-review");
+      await expect(own.getByRole("button", { name: "Remove skill incident-review" })).toBeVisible();
       await selectOption(page, "template-form-skill-kind-1", "Git");
-      await page.getByTestId("template-form-skill-git-url-1").fill(GIT_URL);
-      await page.getByTestId("template-form-skill-git-commit-1").fill("main");
+      await own.getByLabel("Repository").fill(GIT_URL);
+      await own.getByLabel("Commit").fill("main");
       await expect(page.getByTestId("template-form-problems")).toContainText(
         'The skill "incident-review" needs a full Git commit ID',
       );
       await page.getByTestId("template-form-skill-git-commit-1").fill(GIT_COMMIT);
-      await page.getByTestId("template-form-skill-path-1").fill("skills/incident-review");
+      await own.getByLabel("Path").fill("skills/incident-review");
       await expect(page.getByTestId("template-form-problems")).not.toContainText("skill");
     });
 

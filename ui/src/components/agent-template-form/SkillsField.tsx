@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { Button, Form, Input, Select, Space, Tag, Tooltip, Typography } from "antd";
+import { Button, Card, Form, Input, Select, Space, Tag, Tooltip, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { ExternalLink, Plus, Trash } from "lucide-react";
 import { runtimeConfig } from "@/api/runtimeConfig";
@@ -41,13 +41,12 @@ export function SkillsField({
   const muted = { color: theme.color.textMuted, fontSize: 12 };
   const mono = { fontFamily: theme.font.mono, fontSize: 12, wordBreak: "break-all" as const };
 
-  // A line between skills, so each remove button reads as belonging to its own skill.
-  const row = {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: 6,
-    "& + &": { paddingTop: 12, borderTop: `1px solid ${theme.color.border}` },
-  };
+  // Each skill is its own card, so its remove button reads as belonging to it.
+  const card = (index: number, children: ReactNode) => (
+    <Card key={index} size="small" css={{ borderColor: theme.color.border }} data-testid={`template-form-skill-${index}`}>
+      <div css={{ display: "flex", flexDirection: "column", gap: 6 }}>{children}</div>
+    </Card>
+  );
 
   const header = (children: ReactNode, index: number, name: string) => (
     <div css={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minHeight: 24 }}>
@@ -56,8 +55,15 @@ export function SkillsField({
         <Tooltip title={name.trim() ? `Remove ${name.trim()}` : "Remove this skill"}>
           <Button
             type="text"
+            danger
             size="small"
-            css={{ marginLeft: "auto" }}
+            // Theme reds, so the icon keeps 3:1 against its hover and pressed fills too.
+            css={{
+              marginLeft: "auto",
+              "&&": { color: theme.color.danger },
+              "&&:hover:not(:disabled), &&:focus-visible": { color: theme.color.dangerText, background: theme.color.dangerBg },
+              "&&:active:not(:disabled)": { color: theme.color.dangerText, background: theme.color.dangerBg, transform: "scale(0.9)" },
+            }}
             aria-label={name.trim() ? `Remove skill ${name.trim()}` : `Remove skill ${index + 1}`}
             data-testid={`template-form-skill-remove-${index}`}
             icon={<Trash size={14} />}
@@ -150,8 +156,9 @@ export function SkillsField({
         {skills.map((skill, index) => {
           const builtin = matchBuiltinSkill(skill, catalog);
           if (builtin && catalog) {
-            return (
-              <div key={index} css={row} data-testid={`template-form-skill-${index}`}>
+            return card(
+              index,
+              <>
                 {header(
                   <>
                     <Tag css={{ marginInlineEnd: 0 }}>kagent</Tag>
@@ -180,13 +187,14 @@ export function SkillsField({
                   skill.name,
                 )}
                 <Text css={muted}>{builtin.skill.description}</Text>
-              </div>
+              </>,
             );
           }
 
           if (readOnly) {
-            return (
-              <div key={index} css={row} data-testid={`template-form-skill-${index}`}>
+            return card(
+              index,
+              <>
                 {header(
                   <>
                     <Tag css={{ marginInlineEnd: 0 }} data-testid={`template-form-skill-kind-${index}`}>
@@ -200,60 +208,89 @@ export function SkillsField({
                   skill.name,
                 )}
                 {details(readOnlySource(skill, index))}
-              </div>
+              </>,
             );
           }
 
-          const input = (field: Exclude<keyof SkillDraft, "sourceKind">, testId: string, example: string, width: number) => (
-            <Input
-              css={{ width, maxWidth: "100%" }}
-              data-testid={`template-form-skill-${testId}-${index}`}
-              value={skill[field]}
-              placeholder={example}
-              onChange={(event) => setSkill(index, { [field]: event.target.value })}
-            />
+          // Ids keep each visible label tied to its input for screen readers.
+          const fieldId = (testId: string) => `template-form-skill-${index}-${testId}-input`;
+          // `required` marks the fields the form refuses to save without.
+          const field = (label: string, testId: string, width: number, control: ReactNode, required = true) => (
+            <Form.Item
+              label={label}
+              required={required}
+              htmlFor={fieldId(testId)}
+              css={{ flex: `1 1 ${width}px`, minWidth: Math.min(width, 160), maxWidth: "100%", margin: 0 }}
+            >
+              {control}
+            </Form.Item>
           );
-          return (
-            <div key={index} css={row} data-testid={`template-form-skill-${index}`}>
-              {header(
-                <>
-                  {input("name", "name", "Skill name", 200)}
-                  <div data-testid={`template-form-skill-kind-${index}`}>
-                    <Select
-                      css={{ width: 120 }}
-                      value={skill.sourceKind}
-                      onChange={(value: SkillSourceKind) => setSkill(index, { sourceKind: value })}
-                      options={(Object.keys(SOURCE_LABEL) as SkillSourceKind[]).map((value) => ({
-                        value,
-                        title: SOURCE_LABEL[value],
-                        label: SOURCE_LABEL[value],
-                      }))}
-                    />
-                  </div>
-                </>,
-                index,
-                skill.name,
-              )}
-              <Space size={8} wrap>
-                {skill.sourceKind === "oci" ? input("oci", "oci", "ghcr.io/org/skills@sha256:…", 360) : null}
-                {skill.sourceKind === "git" ? (
-                  <>
-                    {input("gitUrl", "git-url", "https://github.com/org/skills.git", 320)}
-                    {input("gitCommit", "git-commit", "Full commit ID", 340)}
-                  </>
-                ) : null}
-                {skill.sourceKind === "s3" ? (
-                  <>
-                    {input("s3Endpoint", "s3-endpoint", "https://s3.amazonaws.com", 220)}
-                    {input("s3Bucket", "s3-bucket", "Bucket", 140)}
-                    {input("s3Key", "s3-key", "Key", 180)}
-                    {input("s3VersionId", "s3-version", "Version ID", 160)}
-                    {input("s3Region", "s3-region", "Region (optional)", 140)}
-                  </>
-                ) : null}
-                {input("path", "path", "Path (optional)", 180)}
-              </Space>
-            </div>
+          const input = (
+            name: Exclude<keyof SkillDraft, "sourceKind">,
+            label: string,
+            testId: string,
+            example: string,
+            width: number,
+            required = true,
+          ) =>
+            field(
+              label,
+              testId,
+              width,
+              <Input
+                id={fieldId(testId)}
+                data-testid={`template-form-skill-${testId}-${index}`}
+                value={skill[name]}
+                placeholder={example}
+                onChange={(event) => setSkill(index, { [name]: event.target.value })}
+              />,
+              required,
+            );
+          return card(
+            index,
+            <>
+              {header(<Text strong>{skill.name.trim() || "New skill"}</Text>, index, skill.name)}
+              <Form layout="vertical" component="div">
+                <div css={{ display: "flex", flexWrap: "wrap", gap: "8px 12px" }}>
+                  {input("name", "Skill name", "name", "", 200)}
+                  {field(
+                    "Source",
+                    "kind",
+                    120,
+                    <div data-testid={`template-form-skill-kind-${index}`}>
+                      <Select
+                        id={fieldId("kind")}
+                        css={{ width: "100%" }}
+                        value={skill.sourceKind}
+                        onChange={(value: SkillSourceKind) => setSkill(index, { sourceKind: value })}
+                        options={(Object.keys(SOURCE_LABEL) as SkillSourceKind[]).map((value) => ({
+                          value,
+                          title: SOURCE_LABEL[value],
+                          label: SOURCE_LABEL[value],
+                        }))}
+                      />
+                    </div>,
+                  )}
+                  {skill.sourceKind === "oci" ? input("oci", "Image", "oci", "ghcr.io/org/skills@sha256:…", 360) : null}
+                  {skill.sourceKind === "git" ? (
+                    <>
+                      {input("gitUrl", "Repository", "git-url", "https://github.com/org/skills.git", 320)}
+                      {input("gitCommit", "Commit", "git-commit", "Full commit ID", 340)}
+                    </>
+                  ) : null}
+                  {skill.sourceKind === "s3" ? (
+                    <>
+                      {input("s3Endpoint", "Endpoint", "s3-endpoint", "https://s3.amazonaws.com", 220)}
+                      {input("s3Bucket", "Bucket", "s3-bucket", "Bucket name", 140)}
+                      {input("s3Key", "Key", "s3-key", "Object key", 180)}
+                      {input("s3VersionId", "Version ID", "s3-version", "Object version ID", 160)}
+                      {input("s3Region", "Region", "s3-region", "Optional", 140, false)}
+                    </>
+                  ) : null}
+                  {input("path", "Path", "path", "Optional", 180, false)}
+                </div>
+              </Form>
+            </>,
           );
         })}
 
