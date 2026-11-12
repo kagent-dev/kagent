@@ -67,6 +67,7 @@ type HarnessInput struct {
 	Harness      *HarnessConfiguration
 	Root         *AgentInput
 	OutputSchema *ResolvedOutputSchema
+	Workspace    *configv1.GitWorkspaceConfig
 }
 
 // AgentInput contains resolved Kubernetes inputs for one agent.
@@ -158,6 +159,15 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 		return nil, err
 	}
 	input.AgentName = agent.Name
+	selectedWorkspace := agent.Spec.Workspace
+	if selectedWorkspace != nil && selectedWorkspace.Git != nil && harnessType(harness) == HarnessTypeBYO {
+		return nil, NewValidationError("BYO Harnesses do not support workspace sources")
+	}
+	workspace, goldenAccess, err := CompileWorkspace(c.ctx, c.collections.Secrets, agent.Namespace, selectedWorkspace)
+	if err != nil {
+		return nil, err
+	}
+	input.Workspace = workspace
 	image, err := harnessImage(harness, c.images)
 	if err != nil {
 		return nil, err
@@ -172,6 +182,9 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
 	result.AgentName = agent.Name
+	if workspace != nil {
+		result.GoldenAccess = &goldenAccess
+	}
 	result.Image = image
 	result.CPU = c.settings.GetCpu()
 	result.Memory = c.settings.GetMemory()

@@ -170,6 +170,8 @@ func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name, uid st
 }
 
 func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
+	// Substrate freezes the template's current golden snapshot at creation
+	// when SourceTag is omitted. Checkpoint forks supply an explicit tag below.
 	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, nil)
 }
 
