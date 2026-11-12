@@ -46,11 +46,9 @@ export function AgentFormPage() {
   const copying = !editing && Boolean(from);
   const source = useAgent(copying ? from?.namespace : undefined, copying ? from?.name : undefined);
   const namespaces = useNamespaces();
-  const mountedBlank = useMountedBlank(
-    from && `${from.namespace}/${from.name}`,
-    !editing && Boolean(namespaces.data) && (!copying || Boolean(source.data || source.error)),
-    Boolean(source.data),
-  );
+  // The form mounts once namespaces arrive and, for a copy, once its source has answered.
+  const formReady = !editing && Boolean(namespaces.data) && (!copying || Boolean(source.data || source.error));
+  const mountedBlank = useMountedBlank(from && `${from.namespace}/${from.name}`, formReady, Boolean(source.data));
 
   return (
     <PageFrame
@@ -65,7 +63,7 @@ export function AgentFormPage() {
           description={namespaces.error.message}
           data-testid="agent-form-load-error"
         />
-      ) : !editing && namespaces.data && (!copying || source.data || source.error) ? (
+      ) : formReady ? (
         // Mounted once namespaces arrive, so the ref lists never read an empty namespace.
         // A copy source that could not be had leaves a blank form, with the reason above it.
         <>

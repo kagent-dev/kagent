@@ -47,7 +47,7 @@ export function RowActionsMenu({
           onClick: ({ key }) => {
             if (key === "edit") void navigate(editTo);
             else if (key === "copy") void navigate(copyTo);
-            else modal.show();
+            else if (key === "delete") modal.show();
           },
         }}
       >
