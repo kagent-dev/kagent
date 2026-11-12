@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Alert, Button, Card, Form, Input, Modal, Radio, Select, Skeleton, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
@@ -24,6 +24,7 @@ import {
   type Agent,
   type AgentSpec,
 } from "@/api";
+import { copySource } from "@/components/table/RowActionsMenu";
 import { paths } from "@/router/routes";
 import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
@@ -39,6 +40,10 @@ export function AgentFormPage() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const editing = Boolean(namespace && name);
   const existing = useAgent(namespace, name);
+  // `?from=namespace/name` opens a create prefilled as a copy of that agent.
+  const from = copySource(useSearchParams()[0]);
+  const copying = !editing && Boolean(from);
+  const source = useAgent(copying ? from?.namespace : undefined, copying ? from?.name : undefined);
   const namespaces = useNamespaces();
 
   return (
@@ -54,9 +59,25 @@ export function AgentFormPage() {
           description={namespaces.error.message}
           data-testid="agent-form-load-error"
         />
-      ) : !editing && namespaces.data ? (
+      ) : !editing && namespaces.data && (!copying || source.data || source.error) ? (
         // Mounted once namespaces arrive, so the ref lists never read an empty namespace.
-        <AgentForm />
+        // A copy source that could not be had leaves a blank form, with the reason above it.
+        <>
+          {copying && source.error && !source.data ? (
+            <Alert
+              type="error"
+              showIcon
+              title="Could not load the agent to copy"
+              description={`${source.error.message} Starting from a blank form.`}
+              data-testid="agent-copy-error"
+              css={{ maxWidth: 860, marginBottom: 16 }}
+            />
+          ) : null}
+          <AgentForm
+            key={source.data ? `${source.data.namespace}/${source.data.name}` : "new"}
+            copyOf={source.data}
+          />
+        </>
       ) : editing && existing.error ? (
         <Alert
           type="error"
@@ -76,26 +97,26 @@ export function AgentFormPage() {
   );
 }
 
-function AgentForm({ agent }: { agent?: Agent }) {
+function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   const theme = useTheme();
   const navigate = useNavigate();
   const namespaces = useNamespaces();
   const invalidateAgents = useInvalidateAgents();
-  const spec = agent?.resource.spec;
+  const spec = (agent ?? copyOf)?.resource.spec;
 
   const fallbackNamespace = useMemo(() => {
     const names = (namespaces.data ?? []).map((entry) => entry.name);
     return names.includes("kagent") ? "kagent" : (names[0] ?? "");
   }, [namespaces.data]);
 
-  const [chosenNamespace, setNamespace] = useState(agent?.namespace);
+  const [chosenNamespace, setNamespace] = useState((agent ?? copyOf)?.namespace);
   const namespace = chosenNamespace ?? fallbackNamespace;
-  const [name, setName] = useState(agent?.name ?? "");
+  const [name, setName] = useState(agent?.name ?? (copyOf ? `${copyOf.name}-copy` : ""));
 
   const [templateSource, setTemplateSource] = useState<Source>(spec?.template.inline ? "inline" : "reference");
   const [templateRef, setTemplateRef] = useState(spec?.template.ref?.name);
   const [templateDraft, setTemplateDraft] = useState(() =>
-    spec?.template.inline ? draftFromSpec(spec.template.inline, agent!.namespace) : emptyDraft(namespace),
+    spec?.template.inline ? draftFromSpec(spec.template.inline, (agent ?? copyOf)!.namespace) : emptyDraft(namespace),
   );
 
   const [chosenHarness, setHarnessRef] = useState(spec?.harnessRef.name);

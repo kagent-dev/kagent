@@ -1,10 +1,8 @@
 import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
-import { Pencil } from "lucide-react";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { Button, Skeleton, Space, Table, Tag, Typography } from "antd";
+import { Skeleton, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import {
@@ -17,7 +15,7 @@ import { apiClient, useAgentsAcrossNamespaces } from "@/api";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { matchesQuery } from "@/components/table/listTable";
-import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { RowActionsMenu, copyPath } from "@/components/table/RowActionsMenu";
 import { buildPath, paths } from "@/router/routes";
 
 /** The filters this tab offers, which `useListView` keeps in the URL. */
@@ -106,25 +104,20 @@ export function HarnessesTab() {
       key: "actions",
       width: 96,
       render: (_: unknown, row: Harness) => (
-        <Space size={4}>
-          <Link to={buildPath(paths.harnessEdit, { namespace: row.namespace, name: row.name })}>
-            <Button
-              type="text"
-              icon={<Pencil size={16} />}
-              data-testid={`harness-edit-${row.ref}`}
-              aria-label={`Edit harness ${row.name}`}
-            />
-          </Link>
-          <DeleteResourceButton
-            kind="harness"
-            name={row.name}
-            onDelete={() => apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name)}
-            onDeleted={async () => {
+        <RowActionsMenu
+          kind="harness"
+          namespace={row.namespace}
+          name={row.name}
+          editTo={buildPath(paths.harnessEdit, { namespace: row.namespace, name: row.name })}
+          copyTo={copyPath(paths.harnessNew, row)}
+          remove={{
+            onDelete: () => apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name),
+            onDeleted: async () => {
               await Promise.allSettled([harnesses.refresh(), invalidateTemplates()]);
-            }}
-            description={agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
-          />
-        </Space>
+            },
+            description: agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length),
+          }}
+        />
       ),
     },
   ];

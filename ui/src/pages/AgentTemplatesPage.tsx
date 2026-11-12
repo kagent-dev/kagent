@@ -2,15 +2,14 @@ import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert, Button, Space, Table, Typography } from "antd";
+import { Alert, Space, Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { useTheme } from "@emotion/react";
-import { ChevronRight } from "lucide-react";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { listTableChange, matchesQuery, paginationFor } from "@/components/table/listTable";
-import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { RowActionsMenu, copyPath } from "@/components/table/RowActionsMenu";
 import { clickableRow } from "@/components/table/rowClick";
 import { buildPath, paths } from "@/router/routes";
 import {
@@ -133,39 +132,20 @@ export function AgentTemplatesTab() {
         key: "actions",
         width: 96,
         render: (_, row) => (
-          <Space size={4}>
-            {/*
-              Opens the details page, where editing is a mode rather than the
-              landing state. Labelled for what it does now: a pencil that lands on
-              a read-only page would be promising an input that is not there.
-            */}
-            <Link
-              to={buildPath(paths.agentTemplateDetail, {
-                namespace: row.namespace,
-                name: row.name,
-              })}
-            >
-              <Button
-                type="text"
-                icon={<ChevronRight size={16} />}
-                data-testid={`open-${row.name}`}
-                aria-label={`Open agent template ${row.name}`}
-              />
-            </Link>
-            <DeleteResourceButton
-              kind="agent template"
-              name={row.name}
-              onDelete={() =>
-                apiClient.agentBuildingBlocks.removeAgentTemplate(
-                  row.namespace,
-                  row.name,
-                )
-              }
+          <RowActionsMenu
+            kind="agent template"
+            namespace={row.namespace}
+            name={row.name}
+            editLabel="Open"
+            editTo={buildPath(paths.agentTemplateDetail, { namespace: row.namespace, name: row.name })}
+            copyTo={copyPath(paths.agentTemplateNew, row)}
+            remove={{
+              onDelete: () => apiClient.agentBuildingBlocks.removeAgentTemplate(row.namespace, row.name),
               /* The agents list reads templates under a key of its own, so refreshing
                  this list alone leaves an agent there that nothing runs. */
-              onDeleted={invalidateTemplates}
-            />
-          </Space>
+              onDeleted: invalidateTemplates,
+            }}
+          />
         ),
       },
     ],

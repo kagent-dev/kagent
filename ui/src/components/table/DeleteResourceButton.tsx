@@ -26,6 +26,8 @@ export function DeleteResourceButton({
   outlined = false,
   confirmation = "popover",
   forceLabel,
+  open: controlledOpen,
+  onClose,
 }: {
   /** What this is, in words a reader would use: "agent", "model configuration". */
   kind: string;
@@ -68,8 +70,19 @@ export function DeleteResourceButton({
   /** Called after a successful delete, to refresh whatever listed it. */
   onDeleted: () => void | Promise<void>;
   disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
+} & (
+  | { open?: undefined; onClose?: undefined }
+  /**
+   * Driven from outside, by a menu item that stands in for the button. Renders only
+   * the confirmation, as a modal: a popover has no button to hang from. The two props
+   * come together, so a caller cannot open a modal it has no way to close.
+   */
+  | { open: boolean; onClose: () => void }
+)) {
+  const [ownOpen, setOwnOpen] = useState(false);
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : ownOpen;
+  const setOpen = (value: boolean) => (controlled ? !value && onClose?.() : setOwnOpen(value));
   const [isDeleting, setDeleting] = useState(false);
   const [force, setForce] = useState(false);
 
@@ -99,7 +112,7 @@ export function DeleteResourceButton({
     }
   }
 
-  const button = (
+  const button = controlled ? null : (
     <Button
       // `default` gives it the border; `danger` keeps it red either way, so the
       // extra prominence does not read as encouragement.
@@ -127,7 +140,7 @@ export function DeleteResourceButton({
       onChange={(event) => setForce(event.target.checked)}>{forceLabel}</Checkbox></div>}
   </>;
 
-  return confirmation === "modal" ? <>
+  return confirmation === "modal" || controlled ? <>
     {button}
     <Modal open={open} title={title} onOk={confirm} onCancel={() => setOpen(false)}
       okText="Delete" okButtonProps={{ danger: true }} confirmLoading={isDeleting}

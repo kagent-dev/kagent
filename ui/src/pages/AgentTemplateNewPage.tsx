@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Form, Select, Space } from "antd";
+import { Alert, Button, Form, Select, Skeleton, Space } from "antd";
 import toast from "react-hot-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
 import {
+  draftFromTemplate,
   emptyDraft,
+  type AgentTemplateDraft,
   draftProblems,
   labelsFromDraft,
   specFromDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
+import { copySource } from "@/components/table/RowActionsMenu";
 import { agentTemplatesTab } from "@/router/routes";
-import { apiClient, useInvalidateAgentTemplates, useNamespaces } from "@/api";
+import { apiClient, useAgentTemplate, useInvalidateAgentTemplates, useNamespaces } from "@/api";
 
 
 /**
@@ -24,6 +27,29 @@ import { apiClient, useInvalidateAgentTemplates, useNamespaces } from "@/api";
  * belongs to the surface, not the fields.
  */
 export function AgentTemplateNewPage() {
+  // `?from=namespace/name` opens the form prefilled as a copy of that template.
+  const from = copySource(useSearchParams()[0]);
+  const source = useAgentTemplate(from?.namespace, from?.name);
+  // Only while there is nothing to show: a failed revalidation must not replace a form being edited.
+  const copyFailed = Boolean(from && source.error && !source.data);
+  if (from && !source.data && !copyFailed)
+    return (
+      <PageFrame title="New agent template">
+        <Skeleton active paragraph={{ rows: 8 }} />
+      </PageFrame>
+    );
+  return (
+    <TemplateCreateForm
+      // Remounts for another source, never for a revalidation of the same one: that would discard edits.
+      key={source.data ? `${source.data.namespace}/${source.data.name}` : "new"}
+      initial={source.data && { ...draftFromTemplate(source.data), name: `${source.data.name}-copy` }}
+      copyError={copyFailed ? source.error?.message : undefined}
+    />
+  );
+}
+
+/** `copyError` is why the copy source could not be had; the form is then a blank one, with that said above it. */
+function TemplateCreateForm({ initial, copyError }: { initial?: AgentTemplateDraft; copyError?: string }) {
   const navigate = useNavigate();
   const theme = useTheme();
   const [searchParams] = useSearchParams();
@@ -36,7 +62,7 @@ export function AgentTemplateNewPage() {
 
   const namespace = searchParams.get("namespace") ?? fallbackNamespace;
   const invalidateTemplates = useInvalidateAgentTemplates();
-  const [draft, setDraft] = useState(() => emptyDraft(namespace));
+  const [draft, setDraft] = useState(() => initial ?? emptyDraft(namespace));
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   const errorRef = useRef<HTMLDivElement>(null);
@@ -89,6 +115,15 @@ export function AgentTemplateNewPage() {
       description="What an agent does. A harness supplies the runtime; an agent is one of each."
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 860 }}>
+        {copyError ? (
+          <Alert
+            type="error"
+            showIcon
+            title="Could not load the agent template to copy"
+            description={`${copyError} Starting from a blank form.`}
+            data-testid="template-copy-error"
+          />
+        ) : null}
         <AgentTemplateForm
           draft={{ ...draft, namespace: effective }}
           onChange={setDraft}

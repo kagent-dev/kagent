@@ -5,6 +5,7 @@ import {
   confirmDelete,
   expectRequired,
   selectOption,
+  rowAction,
 } from "../../helpers/resource";
 
 /**
@@ -29,7 +30,6 @@ import {
 
 /** The one this journey makes, reads back and removes. */
 const CREATED = "made-here";
-const CREATED_REF = `kagent/${CREATED}`;
 const PINNED = `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`;
 
 /** Its rows, which is the surface that can say whether any of this happened. */
@@ -117,7 +117,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
   });
 
   await test.step("8. it is edited in place, and the change reads back", async () => {
-    await page.getByTestId(`harness-edit-${CREATED_REF}`).click();
+    await rowAction(page, `kagent/${CREATED}`, "edit");
     await page.waitForURL(new RegExp(`/harnesses/kagent/${CREATED}/edit`));
 
     await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
@@ -137,7 +137,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
       window.history.replaceState({}, "", url);
     });
 
-    await confirmDelete(page, CREATED);
+    await confirmDelete(page, `kagent/${CREATED}`, { fromMenu: true });
 
     await expect(page.getByText(`Could not delete harness ${CREATED}:`)).toBeVisible();
     await expect(page.getByText(`Deleted harness ${CREATED}`)).toHaveCount(0);
@@ -154,7 +154,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     const rows = page.getByTestId(table).locator("tbody tr");
     const before = await rows.count();
 
-    await confirmDelete(page, CREATED);
+    await confirmDelete(page, `kagent/${CREATED}`, { fromMenu: true });
 
     await expect(page.getByTestId(table)).not.toContainText(CREATED, {
       timeout: 30_000,

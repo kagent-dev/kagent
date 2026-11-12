@@ -1,16 +1,23 @@
 import { Alert, Card, Skeleton } from "antd";
 import toast from "react-hot-toast";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { useHarnesses } from "@/api";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { HarnessIntro } from "@/components/harness-form/HarnessFields";
+import { copySource } from "@/components/table/RowActionsMenu";
 import { paths } from "@/router/routes";
 
 const harnessesTab = `${paths.agents}?tab=harnesses`;
 
 export function HarnessNewPage() {
   const navigate = useNavigate();
+  const from = copySource(useSearchParams()[0]);
+  const { namespace, name } = from ?? {};
+  // No source, no read: a plain new harness has nothing to fetch.
+  const source = useHarnesses(namespace, Boolean(from));
+  const copyOf = source.data?.find((row) => row.namespace === namespace && row.name === name);
+  const waiting = Boolean(from) && !source.error && !source.data;
   return (
     <PageFrame
       title="New harness"
@@ -18,13 +25,25 @@ export function HarnessNewPage() {
     >
       <Card size="small" css={{ maxWidth: 720 }}>
         <HarnessIntro />
+        {/* A source that cannot be had still leaves a form to fill in: the alert says why it is blank. */}
+        {namespace && source.error && !source.data ? (
+          <Alert type="error" showIcon title="Could not load the harness to copy" description={`${source.error.message} Starting from a blank form.`} data-testid="harness-copy-error" css={{ marginBottom: 16 }} />
+        ) : namespace && source.data && !copyOf ? (
+          <Alert type="warning" showIcon title="Harness not found" description={`No harness ${namespace}/${name} to copy. Starting from a blank form.`} data-testid="harness-copy-not-found" css={{ marginBottom: 16 }} />
+        ) : null}
+        {waiting ? (
+          <Skeleton active paragraph={{ rows: 8 }} />
+        ) : (
         <HarnessForm
+          key={copyOf ? `${copyOf.ref}` : "new"}
+          copyOf={copyOf}
           onSaved={(saved) => {
             toast.success(`Harness ${saved.name} created`);
             void navigate(harnessesTab);
           }}
           onCancel={() => void navigate(harnessesTab)}
         />
+        )}
       </Card>
     </PageFrame>
   );
