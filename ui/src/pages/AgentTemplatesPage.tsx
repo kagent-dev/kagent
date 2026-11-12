@@ -198,7 +198,9 @@ export function AgentTemplatesTab() {
 
   // The tool counts come from the server list, so refreshing the tab reloads it too.
   const refreshThisTab = async () => {
-    await Promise.allSettled([templates.refresh(), mcpServers.refresh()]);
+    const results = await Promise.allSettled([templates.refresh(), mcpServers.refresh()]);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
   };
 
   return (

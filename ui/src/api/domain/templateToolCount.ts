@@ -7,12 +7,11 @@ export interface TemplateToolCount {
   unknownServers: string[];
 }
 
-const REMOTE_MCP_GROUP_KIND = "RemoteMCPServer.api.kagent.dev";
-
-/** The `groupKind` the controller reports for a binding's server; an omitted kind is a RemoteMCPServer. */
+/** The `groupKind` the controller reports for a binding's server. Group and kind each default on their own. */
 function bindingGroupKind({ group, kind }: ObjectReference): string {
-  if (!kind || kind === "RemoteMCPServer") return REMOTE_MCP_GROUP_KIND;
-  return group ? `${kind}.${group}` : kind;
+  const resolvedKind = kind || "RemoteMCPServer";
+  const resolvedGroup = group ?? "api.kagent.dev";
+  return resolvedGroup ? `${resolvedKind}.${resolvedGroup}` : resolvedKind;
 }
 
 const serverKey = (groupKind: string, ref: string) => `${groupKind}|${ref}`;

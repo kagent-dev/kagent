@@ -46,8 +46,10 @@ describe("countTemplateTools", () => {
   });
 
   it("matches a server by kind as well as name", () => {
-    const service: ToolBinding[] = [{ mcp: { server: { kind: "Service", name: "docs" } } }];
+    const service: ToolBinding[] = [{ mcp: { server: { group: "", kind: "Service", name: "docs" } } }];
     expect(countTemplateTools(service, servers, "team").total).toBe(5);
+    const noGroup: ToolBinding[] = [{ mcp: { server: { kind: "Service", name: "docs" } } }];
+    expect(countTemplateTools(noGroup, servers, "team").unknownServers).toEqual(["team/docs"]);
     const other: ToolBinding[] = [{ mcp: { server: { group: "example.com", kind: "Foo", name: "docs" } } }];
     expect(countTemplateTools(other, servers, "team")).toEqual({ total: 0, unknownServers: ["team/docs"] });
   });
