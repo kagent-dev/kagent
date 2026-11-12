@@ -282,3 +282,19 @@ This API intentionally does not expose Substrate rule effects, raw TCP/SSH,
 TLS passthrough, OAuth exchange, request signing, cross-namespace references,
 or unrestricted public-internet access. Substrate remains the enforcement
 backend; kagent exposes task-oriented reusable grants and static authentication.
+
+## Credential reference status
+
+`EgressPolicy.status.conditions` reports `ResolvedRefs` for credential Secret
+references. Missing Secrets and missing keys have distinct reasons. The condition
+updates when Secrets change and carries the policy generation it describes.
+Policies without Secret references report `ResolvedRefs=True`.
+
+Resolution confirms object and key existence, including keys with empty values.
+It does not validate credentials, grant admission or remote connectivity. Request
+time credential resolution and the workload's `EgressPoliciesApplied` condition
+remain independent.
+
+`RemoteMCPServer` reports the same condition for Secret and ConfigMap header
+references, including when discovery is disabled or `actorJwt` is configured.
+Its `Accepted` condition continues to report discovery results independently.

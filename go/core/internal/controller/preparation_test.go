@@ -548,6 +548,7 @@ func newPreparationTestCollectionsFor(t *testing.T, workerPool string, template 
 		Secrets:                  krttest.GetMockCollection[*corev1.Secret](mock),
 		WorkerPools:              krttest.GetMockCollection[*atev1.WorkerPool](mock),
 		AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
+		EgressPolicyStatuses:     krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.EgressPolicy, kagentv1alpha3.EgressPolicyStatus]](mock),
 		ModelConfigStatuses:      krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
 	}
 	collections.Agents = krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, runtimeHarness)}, opts.WithName("Agents")...)

@@ -89,6 +89,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{}, r.catalog.Delete(ctx, request.String(), remoteGroupKind)
 	}
 
+	if err := r.updateReferenceStatus(ctx, server); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	if message := discoveryDisabledMessage(server); message != "" {
 		// Keep the server in the catalog without a global tool list. Its runtime
 		// discovers tools with the credentials available to that Actor.

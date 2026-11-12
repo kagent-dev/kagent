@@ -30,6 +30,7 @@ type Collections struct {
 	WorkerPools              krt.Collection[*atev1.WorkerPool]
 	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
 	Reconciliations          krt.Collection[AgentReconciliation]
+	EgressPolicyStatuses     krt.StatusCollection[*kagentv1alpha3.EgressPolicy, kagentv1alpha3.EgressPolicyStatus]
 	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
 	ResolvedModelConfigs     krt.Collection[translator.ResolvedModelConfig]
 	AgentStatuses            krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]
@@ -63,6 +64,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
 	workerPools := typedCollection[*atev1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	agentRuntimeObservations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
+	egressPolicyStatuses := newEgressPolicyStatuses(egressPolicies, secrets, opts)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := translator.Collections{
 		EgressPolicies: egressPolicies,
@@ -87,6 +89,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		WorkerPools:              workerPools,
 		AgentRuntimeObservations: agentRuntimeObservations,
 		Reconciliations:          reconciliations,
+		EgressPolicyStatuses:     egressPolicyStatuses,
 		ModelConfigStatuses:      modelConfigStatuses,
 		ResolvedModelConfigs:     resolvedModelConfigs,
 		AgentStatuses:            statuses,
